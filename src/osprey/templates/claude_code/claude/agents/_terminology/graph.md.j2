@@ -4,8 +4,9 @@
 
 The facility is held as a knowledge graph and you answer by writing read-only
 Cypher. There is no level-by-level navigation and no fixed lookup call: devices,
-the classes they belong to, the sections they sit in and the PVs bound to each
-of them are nodes and relationships, and a query walks between them.
+the classes they belong to, the sections they sit in and the channel addresses
+bound to each of them are nodes and relationships, and a query walks between
+them.
 {%- else %}
 ## Channel Database Terminology
 
@@ -14,8 +15,8 @@ of them are nodes and relationships, and a query walks between them.
 This is a **graph** channel database — the facility is held as a knowledge graph
 and you reach addresses by writing read-only Cypher. There is no level-by-level
 navigation and no fixed lookup call: devices, the classes they belong to, the
-sections they sit in and the PVs bound to each of them are nodes and
-relationships, and a query walks between them.
+sections they sit in and the channel addresses bound to each of them are nodes
+and relationships, and a query walks between them.
 {%- endif %}
 
 ### Node Types and Predicates
@@ -27,7 +28,7 @@ authoritative; this table is the orientation.
 | Shape | What it is |
 |---|---|
 | `(d:Resource)` | Every node carries `Resource`. A device carries it plus one concrete class label from the facility ontology — the **Vocabulary** section of *The Graph at Hand* lists them, and if that section is still the placeholder, read them with the query it names — there is **no** `Device` label, so match devices as `:Resource` plus properties |
-| `(b:ChannelBinding)` | One PV bound to one device. `b.fullPv` is the address you return |
+| `(b:ChannelBinding)` | One channel address bound to one device. `b.fullPv` is the address you return |
 | `(c:Class)` | An ontology class. `c.uri` identifies it, `c.altLabel` holds its synonyms |
 | `(d)-[:HASBINDING]->(b)` | Device to binding — the hop from a device to its addresses |
 | `(b)-[:READSSIGNAL]->()` / `(b)-[:WRITESSIGNAL]->()` | Binding to semantic signal. Which one the binding has is the read/write direction |
@@ -38,11 +39,13 @@ nothing and returns zero rows rather than an error.
 
 Properties worth knowing:
 
-- **On a device:** `sourceName`, `sectionCode`, `system`, `sPositionM`,
-  `ordinalInSection`, plus the free text `familyDescription`,
-  `systemDescription`, `ringDescription`
-- **On a binding:** `fullPv`, `confidence`, plus the free text `description`,
-  `fieldDescription`, `subfieldDescription`
+- **On a device:** `deviceId` (the device's id), `placePath`, `sectionCode`,
+  `system`, `rawType`, `sPositionM`, `ordinalInPlace`, `sourceName`, plus the
+  free text `systemDescription`
+- **On a place:** `placePath`, `sectionCode`, and a `HASBINDING` edge to each
+  channel that sits on the place itself. A query that means devices keeps
+  `d.rawType IS NOT NULL`
+- **On a binding:** `fullPv`, plus the free text `description`
 - **On a class:** `uri`, `altLabel`
 
 A facility corpus may also carry scalar properties of its own on devices and
@@ -57,8 +60,7 @@ with `ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)`, never with `=`.
 `ChannelBinding.fullPv` is the address, whole and already formatted for the
 control system. Return it verbatim: never assemble an address out of
 `sectionCode`, `sourceName` and a signal name, and never adjust one you were
-given. Two devices can share a `sourceName` in different sections, so a device
-is identified by `sourceName` **and** `sectionCode` together.
+given. A device is identified by `deviceId`.
 
 ### Terminology Mapping
 
@@ -71,8 +73,8 @@ Operators use domain language. Map their terms to a graph query:
 | "readback" / "monitor" | Bindings with a `READSSIGNAL` edge and no `WRITESSIGNAL` |
 | "setpoint" / "control" | Bindings with a `WRITESSIGNAL` edge |
 | "in sector 3" / "in the storage ring" | `d.sectionCode` for the location, `d.system` for the accelerator system |
-| "in beamline order" | Order by `d.sPositionM`, falling back to `d.ordinalInSection` |
-| "what is this PV" | Reverse lookup: `MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding {fullPv: $pv})` |
+| "in beamline order" | Order by `d.sPositionM`, then `d.ordinalInPlace` |
+| "what is this channel" | Reverse lookup: `MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding {fullPv: $pv})` |
 
 ### Graph Conventions
 

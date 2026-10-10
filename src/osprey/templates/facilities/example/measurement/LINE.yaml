@@ -1,0 +1,6 @@
+kinds:
+- orm
+groups:
+  bpm: LINE/BPM
+  hcor: LINE/HCM
+  vcor: LINE/VCM

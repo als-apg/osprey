@@ -9,28 +9,34 @@ from ``--repo`` — so they work from any subdirectory of the repo rather than
 only from its root. Three directories come out of that one decision and they
 are genuinely different files:
 
-- the render (``build/``) holds ``config.yml`` and the build-owned
-  ``data/simulation/`` model the engine loads;
+- the render (``build/``) holds ``config.yml`` and the simulator view
+  ``data/simulator/`` that every command reads;
 - the repo root anchors ``var/agent_data/simulation/``, where the mutable
   active-scenario state lives, because a scenario switch has to survive
   ``osprey build`` wiping the render;
-- the repo root also holds the single ``.env`` a scenario's ``physics`` block
-  is rendered into, for the virtual accelerator to read at its next boot.
+- the repo root also holds the ``.env`` the stored archive's password is read
+  from.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import click
 
 from osprey.cli import output
 from osprey.utils.config import load_config
 from osprey.utils.logger import get_logger
+from osprey_connectors.types import CONTROL_TARGETS
 
 from .repo_resolver import find_repo_root, repo_option
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.view import SimulatorView
 
 logger = get_logger("sim")
 
@@ -67,7 +73,7 @@ def _resolve_deployment(repo: Path | None) -> tuple[Path, dict]:
     """Return ``(repo_root, config)`` for the deployment being acted on.
 
     The repo root is what every path here anchors on, because it is what
-    ``project_root`` means in the rendered config — the value the mock
+    ``project_root`` means in the rendered config — the value the in-process
     connectors resolve their own model and state against at runtime. Anchoring
     the CLI anywhere else would let ``sim apply`` write an active-scenario file
     that the running connectors never read.
@@ -105,56 +111,73 @@ def _resolve_deployment(repo: Path | None) -> tuple[Path, dict]:
     return repo_root, load_config(str(config_path))
 
 
-def _load_project_engine(repo: Path | None):
-    """Return ``(repo_root, config, engine)`` for the resolved deployment.
+def _require_simulator_view(repo_root: Path) -> SimulatorView:
+    """The simulator view of the repo's render, ``<render>/data/simulator``.
 
-    Exits with a clear message if the deployment is not simulation-backed.
+    Exits with a clear message when the render carries none, or carries one
+    an older OSPREY wrote.
     """
-    from osprey.connectors.types import MOCK
-    from osprey.simulation.engine import SimulationEngine, resolve_state_dir
-    from osprey_connectors.simulation.engine import resolve_simulation_file
+    from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
 
-    repo_root, config = _resolve_deployment(repo)
-    machine_path, active_type, type_key, mock_key = resolve_simulation_file(config, repo_root)
-    if machine_path is None:
-        detail = "This project does not use the simulation engine."
-        if active_type == MOCK:
-            output.fail("No mock 'simulation_file' is configured in config.yml", detail)
-        else:
-            output.fail(
-                f"No simulation_file is configured for control_system.type '{active_type}'",
-                f"Tried {type_key} and {mock_key}.\n{detail}",
-            )
+    try:
+        view = SimulatorView.find(repo_root)
+        if view is not None:
+            for name in SCHEMAS:
+                view.document(name)
+            view.models()
+    except ViewSchemaError as exc:
+        output.fail("The simulator view is from another OSPREY", str(exc))
+        raise SystemExit(1) from None
+    if view is None:
+        output.fail(
+            f"No simulator view in {SimulatorView.path_for_project(repo_root)}",
+            "The simulator view is written by the build.",
+            "run 'osprey build' first",
+        )
         raise SystemExit(1)
-    engine = SimulationEngine.from_file(
-        machine_path, state_dir=resolve_state_dir(config, repo_root)
-    )
-    return repo_root, config, engine
+    return view
 
 
-def _echo_physics_notice(config: dict, rendered: dict[str, str]) -> None:
-    """Tell the user a changed physics fault needs a container recreate.
+async def _model_statuses(
+    section: dict, target: str | None, models: list[str], addresses: dict[str, str] | None
+) -> dict[str, str]:
+    """Each model's status, read through the connector built for ``target``.
 
-    Called only when the ``.env``'s physics block actually changed -- in either
-    direction, since a *cleared* fault is still live in the running container
-    until it is recreated.
-
-    Gated on the virtual accelerator being deployed rather than on
-    ``control_system.type``: the reference preset's default shape is mock-type
-    *with* the VA deployed and bridge-driven, and it is the container, not the
-    connector, that consumes these vars at boot. A project that deploys no VA
-    has nothing reading them, so the notice stays silent there.
+    The simulator served in process answers from the composite it holds; any
+    other connector reads each model's status channel, ``addresses[model]``.
     """
-    if "virtual_accelerator" not in (config.get("deployed_services") or []):
-        return
-    if rendered:
-        output.report("Physics fault written to .env: " + ", ".join(sorted(rendered)) + ".")
-    else:
-        output.report("Cleared the previous scenario's physics fault from .env.")
-    output.note("The virtual accelerator reads this only when its container is created.")
-    output.note(
-        "Run 'osprey up' to recreate it. Restarting the container reuses the old environment."
+    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.simulation import model_status, read_model_status
+
+    register_builtin_connectors()
+    connector = await ConnectorFactory.create_control_system_connector(
+        section, control_target=target
     )
+    try:
+        if addresses is None:
+            return {model: model_status(connector, model) for model in models}
+        return {model: await read_model_status(connector, addresses[model]) for model in models}
+    finally:
+        await connector.disconnect()
+
+
+def _overlap_records(log: Path) -> list[dict[str, Any]]:
+    """The overlap records a model log holds, in file order; none when it is absent."""
+    from osprey_connectors.simulation import OVERLAP_EVENT
+
+    try:
+        text = log.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    records: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict) and record.get("event") == OVERLAP_EVENT:
+            records.append(record)
+    return records
 
 
 def _confirm_archive_rewrite(store: dict) -> None:
@@ -189,9 +212,9 @@ def _confirm_archive_rewrite(store: dict) -> None:
 def sim_group() -> None:
     """Simulation scenario commands.
 
-    List, inspect, and apply the self-contained scenario bundles that drive the
-    mock control system and mock archiver. Applying a set composes their
-    telemetry overlays and seeds their logbook entries into ARIEL.
+    List, inspect, and apply the scenarios of the build's simulator view.
+    Applying a set composes their telemetry overlays and seeds their logbook
+    entries into ARIEL.
     """
 
 
@@ -204,13 +227,18 @@ def sim_group() -> None:
 @repo_option
 def list_command(repo: Path | None) -> None:
     """List available scenarios (the active set is marked with *)."""
-    *_, engine = _load_project_engine(repo)
-    active = set(engine.active_scenarios())
-    for name, description in engine.list_scenarios().items():
-        has_log = len(engine.scenario_logbook(name)) > 0
+    from osprey_connectors.simulation.state import read_active_state, resolve_active_scenarios
+    from osprey_connectors.workspace import resolve_simulation_state_dir
+
+    repo_root, config = _resolve_deployment(repo)
+    view = _require_simulator_view(repo_root)
+    names, _ = read_active_state(resolve_simulation_state_dir(config, repo_root))
+    active = set(resolve_active_scenarios(names))
+    for scenario in view.scenarios():
+        name = str(scenario["name"])
         marker = "*" if name in active else " "
-        output.report(f"{marker} {name}  (logbook: {'yes' if has_log else 'no'})")
-        if description:
+        output.report(f"{marker} {name}  (logbook: {'yes' if scenario.get('logbook') else 'no'})")
+        if description := scenario.get("description"):
             # A second step in, on top of the one `note` already applies: the
             # marker column means the name itself does not start at column 0,
             # so a description one step in would line up under the marker
@@ -220,18 +248,53 @@ def list_command(repo: Path | None) -> None:
 
 @sim_group.command("status")
 @repo_option
-def status_command(repo: Path | None) -> None:
-    """Show the currently active scenario set."""
-    *_, engine = _load_project_engine(repo)
-    active = engine.active_scenarios()
-    logbook = engine.active_logbook()
-    output.section(
-        "",
-        [
-            ("Active scenarios", ", ".join(active)),
-            ("Composed logbook entries", len(logbook)),
-        ],
+@click.option(
+    "--target",
+    type=click.Choice(CONTROL_TARGETS),
+    default=None,
+    help="The control target to report on. Defaults to the deployment's own.",
+)
+def status_command(repo: Path | None, target: str | None) -> None:
+    """Show each served physics model's status and the log it writes."""
+    from osprey_connectors.types import (
+        TRANSPORT_IN_PROCESS,
+        connector_transport,
+        resolve_control_system_type,
+        resolve_target,
     )
+
+    repo_root, config = _resolve_deployment(repo)
+    section = config.get("control_system") or {}
+    if target is None:
+        connector_type = resolve_control_system_type(section)
+    else:
+        try:
+            connector_type = resolve_target(section, target)
+        except ValueError as exc:
+            output.fail(f"The {target} target is not configured", str(exc))
+            raise SystemExit(1) from None
+    view = _require_simulator_view(repo_root)
+    models = [model.name for model in view.physics_models()]
+    addresses = (
+        None
+        if connector_transport(section, connector_type) == TRANSPORT_IN_PROCESS
+        else dict(view.status_addresses())
+    )
+    statuses = asyncio.run(_model_statuses(section, target, models, addresses))
+    for model in models:
+        output.report(f"{model}: {statuses[model]}")
+
+    from osprey_connectors.simulation import format_overlap_record
+    from osprey_connectors.simulation.composite import log_dir
+
+    logs = log_dir()
+    if logs is None:
+        return
+    for model in models:
+        log = logs / f"{model}.log"
+        output.report(f"log: {log}")
+        for record in _overlap_records(log):
+            output.report(format_overlap_record(model, record))
 
 
 @sim_group.command("apply")
@@ -270,22 +333,22 @@ def apply_command(
     archive, so the narrative and the history both match the active telemetry.
     Use --no-seed-logbook or --no-seed-archiver to leave one of them alone, or
     --no-seed for both.
-
-    A scenario's physics block is rendered into the deployment's .env for the
-    virtual accelerator to pick up at its next container boot.
     """
     from osprey.simulation.apply import (
         apply_scenarios,
-        compute_scenario_physics_env,
         preflight_archive_rewrite,
-        write_scenario_physics_env,
+        require_view_scenarios,
     )
-    from osprey.simulation.engine import resolve_active_scenarios
-    from osprey_connectors.simulation.engine import resolve_simulation_file
+    from osprey_connectors.simulation.state import (
+        resolve_active_scenarios,
+        scenario_targets,
+        validate_composition,
+    )
 
     seed_logbook = not (no_seed or no_seed_logbook)
     seed_archive = not (no_seed or no_seed_archiver)
     repo_root, config = _resolve_deployment(repo)
+    _require_simulator_view(repo_root)
     # After the deployment resolves, never before: a naive --now is stamped with
     # the facility timezone, and that zone is only knowable once this repo's
     # render is the config being read.
@@ -295,41 +358,34 @@ def apply_command(
     # Validate pure, write last: every check that can reject the requested set
     # runs here, ahead of the purge prompt and of the first write, so a
     # collision or an aborted prompt leaves the project completely untouched.
-    # A project with no simulation file has neither an engine to validate nor
-    # physics to render -- apply_scenarios below raises the canonical
-    # "not simulation-backed" error for it, which the handler turns into exit 1.
-    machine_path, *_ = resolve_simulation_file(config, repo_root)
-    physics: dict[str, str] | None = None
-    store: dict | None = None
-    if machine_path is not None:
-        from osprey.simulation.engine import SimulationEngine, resolve_state_dir
-
-        engine = SimulationEngine.from_file(
-            machine_path, state_dir=resolve_state_dir(config, repo_root)
+    # The set is judged on the build's simulator view, by the rule the serving
+    # composite applies, so the command refuses exactly the sets the simulator
+    # would refuse to serve.
+    try:
+        scenarios = require_view_scenarios(repo_root)
+        overlaps = validate_composition(
+            {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
+            resolve_active_scenarios(names),
         )
-        # validate_composition RETURNS its problems (unknown names, channel
-        # collisions) rather than raising; an empty list is the only "OK".
-        problems = engine.validate_composition(resolve_active_scenarios(names))
-        if problems:
-            output.fail("Cannot activate these scenarios", "; ".join(problems))
-            raise SystemExit(1)
-        try:
-            physics = compute_scenario_physics_env(repo_root, list(names))
-        except ValueError as exc:
-            output.fail("Cannot activate these scenarios", str(exc))
-            raise SystemExit(1) from None
+    except ValueError as exc:
+        output.fail("Cannot activate these scenarios", str(exc))
+        raise SystemExit(1) from None
+    if overlaps:
+        output.fail("Cannot activate these scenarios", "; ".join(map(str, overlaps)))
+        raise SystemExit(1)
 
-        # The archive rewrite's own refusals belong here too, not inside it: a
-        # store whose password the project's .env does not carry, or an event
-        # positioned by window fraction, would otherwise be discovered after
-        # the scenario is live and the logbook reseeded -- leaving telemetry
-        # and narrative saying one thing and the untouched history another.
-        if seed_archive:
-            try:
-                store = preflight_archive_rewrite(repo_root, config, machine_path, list(names))
-            except (ValueError, RuntimeError) as exc:
-                output.fail("The stored archive cannot be rewritten", str(exc))
-                raise SystemExit(1) from None
+    # The archive rewrite's own refusals belong here too, not inside it: a
+    # store whose password the project's .env does not carry, or an event
+    # positioned by window fraction, would otherwise be discovered after
+    # the scenario is live and the logbook reseeded -- leaving telemetry
+    # and narrative saying one thing and the untouched history another.
+    store: dict | None = None
+    if seed_archive:
+        try:
+            store = preflight_archive_rewrite(repo_root, config, list(names))
+        except (ValueError, RuntimeError) as exc:
+            output.fail("The stored archive cannot be rewritten", str(exc))
+            raise SystemExit(1) from None
 
     if seed_logbook and not yes and ariel_config:
         from osprey.services.ariel_search.cli_operations import get_purge_info
@@ -348,12 +404,6 @@ def apply_command(
 
     if seed_archive and not yes and store is not None:
         _confirm_archive_rewrite(store)
-
-    # Past the last abort point: write the physics vars, then say so immediately.
-    # Emitting the notice here rather than after apply_scenarios means a failed
-    # logbook seed can never swallow it.
-    if physics is not None and write_scenario_physics_env(repo_root, physics):
-        _echo_physics_notice(config, physics)
 
     try:
         result = apply_scenarios(

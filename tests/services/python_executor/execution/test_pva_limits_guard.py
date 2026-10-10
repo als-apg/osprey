@@ -328,7 +328,7 @@ def _make_validator():
         ),
         "TEST:RO": ChannelLimitsConfig(channel_address="TEST:RO", writable=False),
     }
-    return LimitsValidator(limits, {"allow_unlisted_channels": False})
+    return LimitsValidator(limits, {"mode": "exclusive"})
 
 
 def _make_permissive_validator():
@@ -340,7 +340,7 @@ def _make_permissive_validator():
     to write every channel in the batch.
     """
     strict = _make_validator()
-    return LimitsValidator(strict.limits, {"allow_unlisted_channels": True})
+    return LimitsValidator(strict.limits, {"mode": "optional"})
 
 
 def _count_validations(namespace):
@@ -1169,16 +1169,17 @@ def _make_pva_validator():
     """The pvaPy tests' channels: one plain, one with ``max_step``."""
     limits = {
         "TEST:MAG:SP": ChannelLimitsConfig(
-            channel_address="TEST:MAG:SP", min_value=0.0, max_value=10.0
+            channel_address="TEST:MAG:SP", min_value=0.0, max_value=10.0, writable=True
         ),
         "TEST:MAG:STEP": ChannelLimitsConfig(
             channel_address="TEST:MAG:STEP",
             min_value=0.0,
             max_value=100.0,
             max_step=2.0,
+            writable=True,
         ),
     }
-    return LimitsValidator(limits, {"allow_unlisted_channels": False})
+    return LimitsValidator(limits, {"mode": "exclusive"})
 
 
 # ---------------------------------------------------------------------------

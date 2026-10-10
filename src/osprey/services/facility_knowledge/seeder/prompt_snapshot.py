@@ -10,9 +10,8 @@ agent file is baked with the example catalogue its own server serves.
 
 **The seeder owns the baked block, not the build.** ``osprey build`` renders
 the agent prompt before any store exists, so it ships a placeholder that tells
-the agent to call the tools. Whichever verb then touches the store — the
-deploy-time staging step on every ``osprey up``, or ``osprey knowledge
-seed-graph`` — captures the schema *from the live store it just verified* and
+the agent to call the tools. The deploy-time staging step on every ``osprey
+up`` then captures the schema *from the live store it just verified* and
 rewrites the placeholder in every rendered agent file. Sync between prompt and
 store is therefore by construction: the writer of one is the writer of the
 other, stamped with the same seed-marker checksum, and a rebuild that resets
@@ -50,7 +49,6 @@ from typing import Any
 
 from osprey.services.facility_knowledge.seeder.graph_seeder import NARAD_PREFIXES
 from osprey.services.facility_knowledge.seeder.ttl_seeder import local_name
-from osprey.services.facility_knowledge.ttl_generator.direction import WRITE_SUBFIELD
 from osprey.utils.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
 
 logger = logging.getLogger(__name__)
@@ -73,7 +71,7 @@ BOOKKEEPING_LABELS = frozenset({"_GraphConfig", "_NsPrefDef", "_OspreySeed"})
 #: Property names that belong to the bookkeeping nodes above. Filtered on top
 #: of the label exclusion as belt-and-braces: were one of these ever to land on
 #: a knowledge node, listing it would invite the agent to query the seed marker.
-BOOKKEEPING_PROPERTIES = frozenset({"sha256", "seededAt", "kind", "directionSource"})
+BOOKKEEPING_PROPERTIES = frozenset({"sha256", "seededAt", "kind"})
 
 LABELS_CYPHER = "CALL db.labels() YIELD label RETURN label ORDER BY label"
 
@@ -177,12 +175,12 @@ def collect_schema(run: RunCypher, *, sample_size: int | None = None) -> dict[st
 # Vocabulary collection — the facility's own class synonyms
 # ---------------------------------------------------------------------------
 
-#: Every ontology class that declares synonyms, with them. The facility authors
-#: these as ``aliases`` in its LinkML ontology; ``compile-ontology`` emits them
-#: as ``skos:altLabel`` and n10s lands them on ``(c:Class).altLabel``. Capturing
-#: them here is what keeps the prompt's vocabulary *this* facility's rather than
-#: a table of names hard-coded in the framework, which a corpus spelling its
-#: classes differently would silently fail to match.
+#: Every ontology class that declares synonyms, with them. Class synonyms reach
+#: the store as ``skos:altLabel``, and n10s lands them on
+#: ``(c:Class).altLabel``. Capturing them here is what keeps the prompt's
+#: vocabulary *this* facility's rather than a table of names hard-coded in the
+#: framework, which a corpus spelling its classes differently would silently
+#: fail to match.
 VOCABULARY_CYPHER = (
     "MATCH (c:Class) WHERE c.altLabel IS NOT NULL "
     "RETURN c.uri AS uri, c.altLabel AS synonyms ORDER BY c.uri"
@@ -263,27 +261,27 @@ def collect_vocabulary(run: RunCypher) -> list[dict[str, Any]]:
 #: One real device that actually has a binding, picked deterministically. A
 #: single specimen rather than a query per parameter, because it buys internal
 #: consistency the per-parameter shape could not: the ``pv`` example's address
-#: belongs to the same device the ``name``/``section`` examples name.
+#: belongs to the same device the ``device``/``section`` examples name.
 SPECIMEN_VALUES_CYPHER = (
     "MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding) "
-    "WHERE d.sourceName IS NOT NULL AND d.sectionCode IS NOT NULL AND b.fullPv IS NOT NULL "
-    "RETURN d.sourceName AS name, d.sectionCode AS section, d.system AS system, "
+    "WHERE d.deviceId IS NOT NULL AND d.sectionCode IS NOT NULL AND b.fullPv IS NOT NULL "
+    "RETURN d.deviceId AS device, d.sectionCode AS section, d.system AS system, "
     "b.fullPv AS pv "
-    "ORDER BY d.sectionCode, d.sourceName, b.fullPv LIMIT 1"
+    "ORDER BY d.sectionCode, d.deviceId, b.fullPv LIMIT 1"
 )
 
 #: The parameter names the specimen answers. Substitution is keyed on the
 #: parameter *name*, which already means the same thing in both catalogues, so
 #: the frozen ``ExampleQuery`` never has to change.
-SPECIMEN_PARAMETERS = ("name", "section", "system", "pv")
+SPECIMEN_PARAMETERS = ("device", "section", "system", "pv")
 
 
 def resolve_example_values(run: RunCypher) -> dict[str, Any]:
     """Resolve the curated examples' corpus-valued parameters through *run*.
 
-    Only parameters that are *facts about the store* are resolved: ``name``,
+    Only parameters that are *facts about the store* are resolved: ``device``,
     ``section``, ``system`` and ``pv``. Search terms (``phrase``,
-    ``field_meaning``, ``role``, ``synonym``, …) are deliberately English and
+    ``quantity``, ``purpose``, ``synonym``, …) are deliberately English and
     exist to demonstrate a prose search — "resolving" them would be meaningless.
     Absence from this result is therefore the declaration that a parameter is
     not resolvable; a future example taking a new search term is left alone.
@@ -379,43 +377,6 @@ VOCABULARY_MATCH_RULE = (
 CAPTURED_PARAMETERS_NOTE = "values captured from this corpus"
 DEFAULT_PARAMETERS_NOTE = "framework defaults; substitute values from this corpus"
 
-#: How each ``READSSIGNAL``/``WRITESSIGNAL`` edge in *this* corpus came to point
-#: the way it does. ``build-ttl`` knows; the seeder carries it in the marker;
-#: the agent needs it because the derivations differ in what they can get
-#: wrong — a grammar-derived corpus mislabels any writable channel whose address
-#: does not end in the setpoint subfield. The token is quoted from the generator
-#: that applies it rather than spelled here, so the note cannot describe a rule
-#: the corpus was not built with. Deliberately worded without the build host's
-#: path: the whole rendered prompt is guarded against leaking one.
-DIRECTION_PROVENANCE_LINES = {
-    "limits": (
-        "Direction provenance: read/write edges derived from this facility's channel limits."
-    ),
-    "grammar": (
-        "Direction provenance: read/write edges derived from the address grammar "
-        f"(`:{WRITE_SUBFIELD}` writes), because no channel limits were available."
-    ),
-    "mapping": (
-        "Direction provenance: read/write edges derived from the MML export's "
-        "MemberOf tags and the facility's mapping file."
-    ),
-}
-
-
-def _render_direction(direction_source: str | None) -> list[str]:
-    """The provenance line's lines, or none at all.
-
-    A corpus built by an older ``osprey`` recorded no source, and there is no
-    honest default to fall back on — the derivations are not
-    interchangeable — so an absent source renders nothing rather than a guess.
-    An unrecognised value is printed verbatim: a newer builder's spelling is
-    still more informative than silence.
-    """
-    if not direction_source:
-        return []
-    known = DIRECTION_PROVENANCE_LINES.get(direction_source)
-    return ["", known or f"Direction provenance: `{direction_source}`."]
-
 
 def _render_vocabulary(vocabulary: Sequence[Mapping[str, Any]]) -> list[str]:
     """The Vocabulary section's lines, table or note."""
@@ -455,7 +416,6 @@ def render_block(
     resource_count: int,
     vocabulary: Sequence[Mapping[str, Any]] = (),
     values: Mapping[str, Any] | None = None,
-    direction_source: str | None = None,
 ) -> str:
     """Render the snapshot block, markers included.
 
@@ -470,8 +430,6 @@ def render_block(
         values: A :func:`resolve_example_values` result. Each example's
             parameters are substituted by name from it; whatever it does not
             carry stays the shipped literal and the line says so.
-        direction_source: How the corpus's read/write edges were derived, as the
-            seed marker recorded it. ``None`` renders no provenance line.
     """
     values = values or {}
     lines: list[str] = [SNAPSHOT_BEGIN, ""]
@@ -483,11 +441,10 @@ def render_block(
         "*captured* are this corpus's own; parameters marked *framework "
         "defaults* are the shipped catalogue's and must be swapped for values "
         "from this corpus. It is rewritten whenever the store is seeded or "
-        "re-verified (`osprey up`, `osprey knowledge seed-graph`). If a name "
+        "re-verified (`osprey build && osprey up`). If a name "
         "listed here returns zero rows, or you need vocabulary beyond it, call "
         "`get_schema()` / `example_queries()` — the live store always wins over "
         "this text.",
-        *_render_direction(direction_source),
         "",
         "### Schema",
         "",
@@ -606,9 +563,8 @@ def describe_patched(patched: Sequence[Path]) -> str:
 def bake_snapshot(session: Any, render_dir: Path) -> list[Path]:
     """Capture the live store's schema and bake it into *render_dir*'s prompts.
 
-    The one entry point both writers share — the deploy-time staging step and
-    the ``seed-graph`` verb — so anything that seeds or re-verifies the store
-    refreshes the prompt with it.
+    The one entry point the deploy-time staging step calls, so anything that
+    seeds or re-verifies the store refreshes the prompt with it.
 
     Args:
         session: An open driver session on the store just seeded or verified.
@@ -633,7 +589,6 @@ def bake_snapshot(session: Any, render_dir: Path) -> list[Path]:
     values = resolve_example_values(run)
     digest = graph_seeder.read_marker(session)
     resource_count = graph_seeder.resource_count(session)
-    direction_source = graph_seeder.read_direction_source(session)
     blocks = {
         filename: render_block(
             schema,
@@ -642,7 +597,6 @@ def bake_snapshot(session: Any, render_dir: Path) -> list[Path]:
             resource_count=resource_count,
             vocabulary=vocabulary,
             values=values,
-            direction_source=direction_source,
         )
         for filename, examples in catalogues.items()
     }

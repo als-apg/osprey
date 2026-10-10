@@ -1,0 +1,249 @@
+description: 'Recurring cavity-1 thermal excursions from a partly blocked cooling manifold: three in the
+  week before the investigation, each a body-temperature rise, a reflected-power spike and a forward-power
+  trip from thermal detuning; the last is the beam dump four days ago. Nothing after the manifold repair
+  two days ago, when cavity 1 settles at 26.5 degC. Cavity 2 shows one minor excursion for contrast.'
+overrides:
+  SR:RF:CAVITY:01:TEMPERATURE:RB: 26.5
+archiver:
+- channel: SR:RF:CAVITY:01:TEMPERATURE:RB
+  events:
+  - shape: spike
+    at_when:
+      days_ago: 9
+      time: '22:10:00'
+    amplitude: 5.6
+    width: 2500
+  - shape: spike
+    at_when:
+      days_ago: 7
+      time: '15:40:00'
+    amplitude: 7.0
+    width: 2500
+  - shape: spike
+    at_when:
+      days_ago: 4
+      time: 03:05:00
+    amplitude: 7.2
+    width: 2500
+  - shape: step
+    at_when:
+      days_ago: 2
+      time: '14:45:00'
+    to: 26.5
+- channel: SR:RF:CAVITY:01:POWER:REV
+  events:
+  - shape: spike
+    at_when:
+      days_ago: 9
+      time: '22:10:00'
+    amplitude: 62.222222
+    width: 1800
+  - shape: spike
+    at_when:
+      days_ago: 7
+      time: '15:40:00'
+    amplitude: 77.777778
+    width: 1800
+  - shape: spike
+    at_when:
+      days_ago: 4
+      time: 03:05:00
+    amplitude: 80.0
+    width: 1800
+- channel: SR:RF:CAVITY:01:POWER:FWD
+  events:
+  - shape: spike
+    at_when:
+      days_ago: 9
+      time: '22:57:30'
+    amplitude: -900.0
+    width: 1900
+  - shape: spike
+    at_when:
+      days_ago: 7
+      time: '16:27:30'
+    amplitude: -900.0
+    width: 1900
+  - shape: spike
+    at_when:
+      days_ago: 4
+      time: 03:52:30
+    amplitude: -900.0
+    width: 1900
+- channel: SR:RF:CAVITY:01:VOLTAGE:RB
+  events:
+  - shape: spike
+    at_when:
+      days_ago: 9
+      time: '22:57:30'
+    amplitude: -2.4
+    width: 1900
+  - shape: spike
+    at_when:
+      days_ago: 7
+      time: '16:27:30'
+    amplitude: -2.4
+    width: 1900
+  - shape: spike
+    at_when:
+      days_ago: 4
+      time: 03:52:30
+    amplitude: -2.4
+    width: 1900
+- channel: SR:RF:KLYSTRON:01:POWER:RB
+  events:
+  - shape: spike
+    at_when:
+      days_ago: 9
+      time: '22:57:30'
+    amplitude: -800.0
+    width: 1900
+  - shape: spike
+    at_when:
+      days_ago: 7
+      time: '16:27:30'
+    amplitude: -800.0
+    width: 1900
+  - shape: spike
+    at_when:
+      days_ago: 4
+      time: 03:52:30
+    amplitude: -800.0
+    width: 1900
+- channel: SR:RF:CAVITY:01:FREQUENCY:RB
+  events:
+  - shape: spike
+    at_when:
+      days_ago: 9
+      time: '22:10:00'
+    amplitude: -0.00084
+    width: 2500
+  - shape: spike
+    at_when:
+      days_ago: 7
+      time: '15:40:00'
+    amplitude: -0.00105
+    width: 2500
+  - shape: spike
+    at_when:
+      days_ago: 4
+      time: 03:05:00
+    amplitude: -0.00108
+    width: 2500
+- channel: SR:RF:CAVITY:01:TUNER:RB
+  events:
+  - shape: spike
+    at_when:
+      days_ago: 9
+      time: '22:10:00'
+    amplitude: 0.042
+    width: 2500
+  - shape: spike
+    at_when:
+      days_ago: 7
+      time: '15:40:00'
+    amplitude: 0.0525
+    width: 2500
+  - shape: spike
+    at_when:
+      days_ago: 4
+      time: 03:05:00
+    amplitude: 0.054
+    width: 2500
+- channel: SR:RF:CAVITY:02:TEMPERATURE:RB
+  events:
+  - shape: spike
+    at_when:
+      days_ago: 7
+      time: '15:40:00'
+    amplitude: 1.0
+    width: 2500
+- channel: SR:RF:CAVITY:02:POWER:REV
+  events:
+  - shape: spike
+    at_when:
+      days_ago: 7
+      time: '15:40:00'
+    amplitude: 15.0
+    width: 1800
+- channel: SR:RF:CAVITY:02:POWER:FWD
+  events:
+  - shape: spike
+    at_when:
+      days_ago: 7
+      time: '16:27:30'
+    amplitude: -80.0
+    width: 1900
+logbook:
+- entry_id: DEMO-026
+  when:
+    days_ago: 4
+    time: 03:20:00
+  author: M. Chen
+  title: Beam dump — RF CAVITY01 reflected power trip (thermal excursion)
+  text: RF CAVITY01 body temperature climbed to 34.2 deg C over approximately 2 hours starting around
+    01:00. Normal operating temperature for the cavities is 25-28 deg C. As the cavity detuned due to
+    thermal expansion, reflected power from CAVITY01 increased from the normal 5 kW to over 80 kW before
+    the reflected power interlock tripped at 03:15. Forward power dropped to zero. CAVITY02 was unaffected
+    and continued operating normally at 26.5 deg C. Beam was lost and restored at 04:30 after CAVITY01
+    temperature returned below 30 deg C. This is the third thermal excursion on CAVITY01 this week — the
+    previous one, a few days ago, reached 34 deg C.
+  tags:
+  - beam-dump
+  - rf
+  - temperature
+  - interlock
+  - cavity
+  - beam-loss
+  categories:
+  - Operations
+- entry_id: DEMO-027
+  when:
+    days_ago: 3
+    time: '10:00:00'
+  author: T. Nakamura
+  title: 'Investigation: Recurring CAVITY01 thermal excursions'
+  text: 'Completed investigation into recurring thermal excursions on RF CAVITY01. Analysis of archiver
+    data over the past 7 days shows three distinct temperature excursion events where CAVITY01 body temperature
+    exceeded 32 deg C. The thermal interlock threshold is set at 35 deg C, and the most recent event reached
+    34.2 deg C — dangerously close to the trip point. Each temperature excursion was accompanied by a
+    reflected power spike (cavity detuning) and subsequent forward power trip. CAVITY02 has remained stable
+    at 25-28 deg C throughout the same period with no excursions. Root cause identified: partial blockage
+    in the CAVITY01 cooling water inlet manifold reducing flow by approximately 30%. The reduced cooling
+    capacity cannot dissipate heat during sustained high-power operation. Recommended action: flush and
+    inspect CAVITY01 cooling water manifold during next maintenance window. Until repair, operators should
+    monitor CAVITY01 temperature closely and consider reducing forward power if temperature exceeds 32
+    deg C.'
+  tags:
+  - beam-dump
+  - rf
+  - temperature
+  - investigation
+  - cooling
+  - cavity
+  categories:
+  - Operations
+  attachments:
+  - plot: plots/cavity_temperatures.json
+- entry_id: DEMO-028
+  when:
+    days_ago: 2
+    time: '14:00:00'
+  author: L. Johnson
+  title: RF CAVITY01 cooling manifold repair
+  text: Performed flush and inspection of RF CAVITY01 cooling water inlet manifold per recommendation
+    from T. Nakamura's investigation (see previous entry). Found calcium carbonate deposits reducing the
+    effective pipe diameter by approximately 40% at the manifold junction. Deposits removed by chemical
+    flush with citric acid solution over 45 minutes. Flow rate through CAVITY01 cooling loop restored
+    from 8 L/min to nominal 12 L/min. Post-repair, CAVITY01 body temperature has stabilized at 26.5 deg
+    C under full forward power (450 kW). Will continue monitoring for 48 hours to confirm. CAVITY02 inspected
+    as precaution — no deposits found, flow rate nominal at 12.5 L/min.
+  tags:
+  - beam-dump
+  - rf
+  - cooling
+  - maintenance
+  - cavity
+  - repair
+  categories:
+  - Maintenance

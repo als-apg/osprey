@@ -53,25 +53,24 @@ Confirmed, it is written to INTERVIEW.md under `## Porting map (locked)` and is 
 reopened for the rest of the run. `modify` edits rows and re-renders the card.
 
 A status quo with no elements (`generation: none`) has nothing to map: render no
-porting-map card, and lock `## Porting map (locked)` as `none`. The four facts at the end
+porting-map card, and lock `## Porting map (locked)` as `none`. The three facts at the end
 of MAP are then this phase's card, MAP FACTS in `references/cards.md`, confirmed the same
 way, so every phase still ends in one card and one AskUserQuestion. Confirmed, it goes
 under `## Porting map (locked)`, below the word `none`.
 
 ## Questions at the end of MAP
 
-MAP ends with four facts. Ask only for the ones the inventory did not yield, and say
+MAP ends with three facts. Ask only for the ones the inventory did not yield, and say
 where each one came from when it did:
 
-- **Facility name**, for `facility.name`.
-- **`facility.prefix`**, the short name the web container names are built from.
+- **Facility name**, written as `name:` in `data/facility/identity.yaml`.
 - **Timezone**, as an IANA name for `system.timezone`.
-- **Project name**, which becomes the repo directory.
+- **Project name**, which becomes the repo directory, and which the web container
+  names are built from.
 
 Only the last is an `osprey init` argument. `osprey init <project name>` takes no other
-fact; the other three are `osprey set` keys applied to the emitted profile afterwards.
-They are asked here because BUILD needs them from its first steps: `facility.prefix` at
-step 3 of the web-terminal recipe below, and validate refuses the profile without it.
+fact; only the timezone is an `osprey set` key, applied to the emitted profile
+afterwards.
 
 ## The feature checklist
 
@@ -91,10 +90,10 @@ The areas, and where each one's components are read from at run time:
 | Area | Source it consumes | Components, read from `control-assistant.yml` |
 | --- | --- | --- |
 | LOGBOOK | a facility logbook | `# ── ARIEL logbook search` and `# ── Logbook composition` key groups; `services.postgresql.*`; `ariel` in `web_panels`; agent `logbook-deep-research`; persona `logbook`; `data/ariel/vocabulary.yml` |
-| KNOWLEDGE | documentation, an IOC database, a device list | `# ── Facility knowledge` group; `services.qmd.*` and `services.graphdb.*`; `okf` in `web_panels`; agents `facility-knowledge`, `facility-knowledge-graph`; persona `knowledge`; `data/facility_knowledge/`; a TTL corpus |
-| CHANNEL FINDER | a channel list, CSV, IOC database, or an MML export | `channel_finder_mode` (`in_context`, `hierarchical` and `middle_layer` read a channel database under `data/channel_databases/`, `graph` reads the graph store; an MML export emits for `middle_layer` and `graph` both), `tier`, `# ── Channel finder` group; agent `channel-finder` |
-| WEB TERMINALS | named operator roles | `# ── Web terminal` and `# ── Multi-user web terminals` groups (`modules.web_terminals`, `facility.prefix`, `deploy.fqdn`, the floor keys); personas; the login wall |
-| SIMULATION | a simulator or lattice the facility runs | `virtual_accelerator:`, `bluesky:`, `bluesky_web:`, `va_archiver:` blocks; agent `pyat-specialist`; skills `bluesky-*`; `osprey sim apply` for scenarios; `lattice` panel; `data/simulation/lattice.json` and `data/simulation/va_bindings.json` (both emitted from an MML 2.0 export), `data/lattice/` |
+| KNOWLEDGE | documentation, an IOC database, a device list | `# ── Facility knowledge` group; `services.qmd.*` and `services.graphdb.*`; `okf` in `web_panels`; agents `facility-knowledge`, `facility-knowledge-graph`; persona `knowledge`; `data/facility/knowledge/`; the build's graph view |
+| CHANNEL FINDER | a channel list, CSV, IOC database, or an MML export | `channel_finder_mode` (`in_context`, `hierarchical` and `middle_layer` read the view the build writes under `data/channel_finder/`, `graph` reads the graph store; the build writes each from the facility file), `# ── Channel finder` group; agent `channel-finder` |
+| WEB TERMINALS | named operator roles | `# ── Web terminal` and `# ── Multi-user web terminals` groups (`modules.web_terminals`, `deploy.fqdn`, the floor keys); personas; the login wall |
+| SIMULATION | a simulator or lattice the facility runs | `virtual_accelerator:`, `bluesky:`, `bluesky_web:`, `va_archiver:` blocks; agent `pyat-specialist`; skills `bluesky-*`; `osprey sim apply` for scenarios; `lattice` panel; `data/facility/models.yaml`, `data/facility/decks/`, `data/facility/measurement/` and `data/facility/scenarios/` (written by `osprey facility import mml`, or authored) |
 | EVENT DISPATCH | a trigger source (facility events) | `dispatch:` block; `events` panel; `dispatch.triggers` |
 | TELEMETRY | nothing external | `services.openobserve.*`; `claude_code.telemetry.*` |
 | DEPLOYMENT | a CI platform and a deploy host | `deploy:` block; `osprey scaffold ci` |
@@ -145,8 +144,8 @@ no other. It is what keeps the profile complete and the data facility-owned.
 Worked example, the facility knowledge bundle:
 
 ```
-osprey scaffold pull control-assistant:data/facility_knowledge
-osprey set config.facility_knowledge.bundle_path=data/facility_knowledge
+osprey scaffold pull control-assistant:data/facility/knowledge
+osprey set config.facility_knowledge.bundle_path=data/facility/knowledge
 ```
 
 plus `okf` in the profile's top-level `web_panels` list, which is what renders the
@@ -173,7 +172,7 @@ Multi-user web terminals are absent from hello-world's emission, so they are one
 port with extra steps: the persona deltas in the reference example are deltas against
 the control-assistant base, and several of that base's facts leak out of the block.
 Copying only the `modules.web_terminals` block does not validate and does not build on
-a hello-world base. Run all eight steps, in order.
+a hello-world base. Run all seven steps, in order.
 
 1. `osprey init <name> --preset hello-world`.
 2. From `src/osprey/profiles/presets/control-assistant.yml`, copy the
@@ -201,29 +200,24 @@ a hello-world base. Run all eight steps, in order.
      one as a `stated` file and points the key at it.
    - **The demo logins `alice`, `bob` and `carol`** under `users:`. This is the step where
      they leave; the rule is `references/knowledge-starter.md` §6.
-3. `osprey set config.facility.prefix=<prefix>`, with the prefix from the MAP-end
-   questions. Why: hello-world carries none, and the web container names are built from
-   it (`<prefix>-nginx`), so validate refuses the profile without it. Setting it here
-   rather than at the end is what makes `osprey validate --drift=warn` exit 0 from this
-   step on, so "validate after every change" holds for the whole recipe.
-4. `osprey scaffold personas --from control-assistant`. It writes one
+3. `osprey scaffold personas --from control-assistant`. It writes one
    `personas/<name>.yml` per catalogued persona and repoints the catalog by appending
    dotted `modules.web_terminals.personas.<name>.<key>` keys under `config:`. The dotted
    keys win, so the nested `personas:` mapping still sitting inside the pasted block is
    now dead text stating every catalog fact a second time with the preset's values.
    **Delete that nested mapping**, so each fact is stated once. Validate and build both
    stay at 0 without it.
-5. Prune the persona set to the roles the user named. That ordering is one rule and it
+4. Prune the persona set to the roles the user named. That ordering is one rule and it
    lives in `references/knowledge-starter.md` §6. Dropping a persona is four deletions
    that go together: `personas/<name>.yml`, its dotted catalog keys, its roster entry
    under `users:`, and, once a build has seeded it, `web-terminal-context/<name>/`
-   (step 8).
+   (step 7).
 
    **The `logbook` persona is dropped on any base with no ARIEL service.** A hello-world
    base declares `services: {}`, so its landing card and the `ariel` panel it opens on
    would have nothing behind them. It comes back with the LOGBOOK area's feature port,
    which adds the service block, the roster entry and the `ariel` panel together.
-6. Open every surviving `personas/<name>.yml` and delete the whole `web_panels:` key
+5. Open every surviving `personas/<name>.yml` and delete the whole `web_panels:` key
    wherever it names only panels this deployment does not have. Delete the key rather
    than emptying it, so the delta carries no panel selection at all and the host's list
    stands.
@@ -231,16 +225,16 @@ a hello-world base. Run all eight steps, in order.
    `dispatch:` and `bluesky:` service blocks a hello-world base does not deploy.
    The general rule is to remove from each delta every panel this deployment lacks.
    The same pruning applies to the `exclude.web_panels` list in the knowledge delta, and
-   in the logbook delta where that one survives step 5.
-7. Check `default_panel` in each surviving delta. It must name a panel that is in the
+   in the logbook delta where that one survives step 4.
+6. Check `default_panel` in each surviving delta. It must name a panel that is in the
    profile's top-level `web_panels`. A persona whose `default_panel` names a panel the
    host does not select fails `osprey build`. Validate does not catch it; build does.
    So the host's minimum list is exactly the `default_panel` values the surviving deltas
-   name: `okf` for knowledge, `ariel` for logbook. With logbook dropped at step 5,
+   name: `okf` for knowledge, `ariel` for logbook. With logbook dropped at step 4,
    `web_panels: [okf]` validates and builds. Extra panels are legal — `[okf,
    system-health]` builds too — but each one is a tab this deployment has to serve, so
    add them through the feature port above, not by habit.
-8. `osprey validate --drift=warn`, then `osprey build`. Drift warnings are expected here
+7. `osprey validate --drift=warn`, then `osprey build`. Drift warnings are expected here
    and are not marked.
 
    The build writes into the SOURCE zone as well as `build/`: it seeds
@@ -264,11 +258,15 @@ reference example's own copy — never pull it.
   `example_server` entry under `mcp_servers:` in `profile.yml` and the
   `mcp_servers/example_server/` directory together. One without the other costs every
   session a 20 second wait for a server that cannot start.
-- **`data/channel_limits.json`**, written already populated with demo storage-ring
-  channels and hand-written `min_value` / `max_value` bounds. The limits hook checks
-  every write against them. `keep` is honest only once the facility's own channels are
-  the ones in the file, which they never are on a fresh build; otherwise empty it to
-  `_version` plus `defaults`, or replace it with the facility's own file. The states are
+- **`data/facility/limits.yaml`**, written already populated with three records for
+  the demo facility's channels: two setpoints with `min_value` / `max_value` bounds and
+  one channel marked `writable: false`. The build renders the records into the limits
+  database, `build/data/channel_limits.json`, and every write is checked against
+  that; a channel with no record follows `control_system.limits_checking.mode`
+  (`optional` on this base). `keep` is honest only once the facility's own channels
+  are the ones in the file, which they never are on a fresh build; otherwise empty it
+  to `records: []`, or replace its records with the facility's own. A profile's own
+  `channel_limits.json` stops the build. The states are
   `references/knowledge-starter.md` §5.
 
 ## Hand-off to the devil's advocate

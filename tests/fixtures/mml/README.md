@@ -1,8 +1,9 @@
 # MML fixtures
 
-Middle Layer (MML) exports for the `osprey mml` tests, one directory per fixture with
-a reviewed `mapping.yaml` beside the export. Seven are invented (below); two are real
-facility exports made with the shipped exporter (last section).
+Middle Layer (MML) exports for the mml layer's tests, one directory per fixture. Seven
+are invented (below); two are real facility exports made with the shipped exporter
+(last section). A tree that carries a whole export keeps its reviewed mapping at
+`imported/mml/mapping.yaml`, and `_trees.py` states what each such tree is held to.
 
 ## Synthetic fixtures
 
@@ -18,24 +19,16 @@ on every input form:
 - a **shared PV** bound by two different devices (not counting broadcast rows);
 - `HWUnits` in all three shapes: `[]`, a plain string such as `"Amps"`, and a per-device list.
 
-The seven mappings together answer every judgment a reviewer can be asked, so each
-answer word is used somewhere: `drop` and the `{field: <name>}` answer in `casedup/`,
-`device` in `paired/`, `keep` in `dialect/`, `keep_all` in `dialect/`, `mat/`, `paired/`
-and `wrapped/`, and an owner map naming one device of a supply group in `wrapped/`. A
-mapping whose export raises no judgment carries no `judgments:` block at all (`tango/`
-and `dualkey/`); where the block is present it is the mapping's last top-level key,
-after `directions:`.
-
-`tests/services/mml/test_fixtures_wellformed.py` checks all of the above.
+`tests/facility/test_mml_fixtures_wellformed.py` checks all of the above.
 
 | Directory | Form | System token | What it is for |
 |-----------|------|--------------|----------------|
-| `tango/` | flat `export.json` | `--system RING` | A Tango facility: every field carries `TangoNames` only, never `ChannelNames`. Also has a one-device family whose `DeviceList` is a flat pair and whose channel list is a bare string. |
-| `dualkey/` | flat `export.json` | `--system STOR` | `ChannelNames` and `TangoNames` staged on the same field (`SF.Monitor`, and a broadcast pair on `SF.Setpoint`), the way Elettra's `elettrainit.m` stages both on one field. |
-| `casedup/` | flat `export.json` | `--system MAIN` | Two families in one system whose names differ only by case, `BPMx` and `bpmx`, the shape SIRIUS uses. The mapping resolves them with `rename`. `CH.Monitor` also lists four channels for two devices, so its last two rows are judgments: `MN-CH:Sum-Mon` becomes the field `SumCurrent` and `MN-CH:Spare-Mon` is dropped. A minted field inherits the row's own `MemberOf` and `HWUnits`, so `SumCurrent` reads `HCM`, `Monitor` and `Amps` from `CH.Monitor`. |
-| `wrapped/` | `{"ao": {...}}` | `--system INJ` | A flat AO wrapped under a single `ao` key. Also has the MML `On` / `OnControl` field pair with no `MemberOf` tags, so the direction vote has an undecided field. `QM.Monitor` reads `IJ:QM2:RB` on devices 2 and 3, a supply group whose `shared_pvs` answer is the owner map `{2: 2}`: device 2 owns the readback, device 3's slot goes blank, and device 3 keeps its own `On` and `OnControl` plus the broadcast `Setpoint`. |
-| `dialect/` | system-keyed `export.json` (at most 30 lines) | its own keys `RING`, `BOOST`; refuses `--system` | The system-keyed JSON dialect: quoted `"inf"` / `"-inf"` / `"NaN"` strings (bare `inf` is not JSON), bare `NaN` and `Infinity` tokens, `HW2PhysicsFcn: 1`, bare-string function handles, a `function_handle` record under the typo key `HW2PhysicSDcn`, a `Handles` key, whitespace blanks, JSON booleans in `Status`, family arrays under `setup` with one family keeping them at family level, and a system `_description`. `TUNE` in `BOOST` lists two channels for three devices, so its third device is a judgment: ordinal 3 answers `keep`, which mints a device bound to nothing and pads the emitted channel list with a blank slot. |
-| `paired/` | `quokka.ring.ao.json` + `quokka.ring.ad.json` | none needed: `AD.SubMachine` = `RING` | The exporter's paired output. The `_export` block names no sub-machine, so the system token must come from the sibling `.ad.json`. The AD file carries the machine scalars (`Machine`, energy, circumference, harmonic number, MCF, lattice). `SQ.Monitor` lists four channels for three devices, so its last row is a judgment: `QK:SQ4:RB` answers `device` and becomes a fourth device, which the broadcast `SQ.Setpoint` then reaches too. |
+| `tango/` | flat `export.json` | given by the caller: `RING` | A Tango facility: every field carries `TangoNames` only, never `ChannelNames`. Also has a one-device family whose `DeviceList` is a flat pair and whose channel list is a bare string. |
+| `dualkey/` | flat `export.json` | given by the caller: `STOR` | `ChannelNames` and `TangoNames` staged on the same field (`SF.Monitor`, and a broadcast pair on `SF.Setpoint`), the way Elettra's `elettrainit.m` stages both on one field. |
+| `casedup/` | flat `export.json` | given by the caller: `MAIN` | Two families in one system whose names differ only by case, `BPMx` and `bpmx`, the shape SIRIUS uses. `CH.Monitor` also lists four channels for two devices, so its last two rows, `MN-CH:Sum-Mon` and `MN-CH:Spare-Mon`, are judgments. |
+| `wrapped/` | `{"ao": {...}}` | given by the caller: `INJ` | A flat AO wrapped under a single `ao` key. Also has the MML `On` / `OnControl` field pair with no `MemberOf` tags, so the direction vote has an undecided field. `QM.Monitor` reads `IJ:QM2:RB` on devices 2 and 3, a supply group a reviewer answers with `keep_all` or an owner map. |
+| `dialect/` | system-keyed `export.json` (at most 30 lines) | its own keys `RING`, `BOOST`; refuses a caller's token | The system-keyed JSON dialect: quoted `"inf"` / `"-inf"` / `"NaN"` strings (bare `inf` is not JSON), bare `NaN` and `Infinity` tokens, `HW2PhysicsFcn: 1`, bare-string function handles, a `function_handle` record under the typo key `HW2PhysicSDcn`, a `Handles` key, whitespace blanks, JSON booleans in `Status`, family arrays under `setup` with one family keeping them at family level, and a system `_description`. `TUNE` in `BOOST` lists two channels for three devices, so its third device is a judgment. |
+| `paired/` | `quokka.ring.ao.json` + `quokka.ring.ad.json` | none needed: `AD.SubMachine` = `RING` | The exporter's paired output. The `_export` block names no sub-machine, so the system token must come from the sibling `.ad.json`. The AD file carries the machine scalars (`Machine`, energy, circumference, harmonic number, MCF, lattice). `SQ.Monitor` lists four channels for three devices, so its last row, `QK:SQ4:RB`, is a judgment. |
 | `mat/` | `quokka_booster.mat` (MATLAB v7) | none needed: `AD.SubMachine` = `BOOSTER` | A `saveao`-style `.mat` with `AO` and `AD` variables: padded char matrices with an all-blank row, cell arrays, a single-row char matrix as a broadcast list, an empty double `[]`, logical `Status` and a non-finite `Range`. `build_mat.py` wrote it with `scipy.io.savemat`; rerun it to regenerate, so no test needs MATLAB. |
 
 ## Real facility exports
@@ -49,3 +42,51 @@ PATH and compares it with the committed files.
 |-----------|------|--------------|----------------|
 | `nsls2/` | `nsls2.storagering.ao.json` + `.ad.json`, `nsls2.ltb.ao.json` + `.ad.json` | none needed: each `.ad.json` names its sub-machine | NSLS-II storage ring and LTB transfer line: two systems in one import, a zero-channel `Screen` family, `RBKL`/`SPKL` strength fields beside the current fields, turn-by-turn BPM fields. |
 | `spear3/` | `spear3.storagering.ao.json` + `.ad.json` | none needed: `AD.SubMachine` = `StorageRing` | SPEAR3 storage ring: 43 families including beamline, vacuum and injection signals; a broadcast `TUNE` channel; monitor and setpoint on one record (`RF`, `ShuntCurrent`); nine new classes declared under packaged parents. |
+
+## Re-running the export on a MATLAB host
+
+The same steps produce a fresh export on any Linux host with MATLAB and an
+MML-prod checkout; `tests/templates/test_mml_export_parity.py` runs exactly this
+program when a MATLAB is on PATH.
+
+1. **Compile the bundled AT once.** The Accelerator Toolbox that MML-prod ships
+   under `simulators/at2.0` needs integrators built for the MATLAB that runs it:
+   run `atmexall` in its `atmat/` folder.
+2. **Make the two case symlinks SPEAR3 needs.** Linux is case-sensitive, and the
+   Middle Layer asks for `machine/SPEAR3/...` and `SPEAR3physdata.mat` where the
+   checkout spells both `Spear3`. Without `machine/SPEAR3 -> Spear3` and
+   `Spear3/StorageRingOpsData/SPEAR3physdata.mat -> Spear3physdata.mat` the golden
+   response file and the physics data are skipped silently and the export measures
+   the model instead. A fresh checkout needs them again.
+3. **Start one MATLAB per sub-machine.** Nothing carries over between
+   sub-machines, so each gets its own session. The machine's setpath
+   (`setpathspear3`, `setpathnsls2('StorageRing')`, `setpathnsls2('LTB')`) calls
+   `setpathmml`, and that has to run before anything else is put on the path: it
+   puts the bundled AT on the path and initialises the Accelerator Objects through
+   it. One line for `matlab -batch`, which runs only the first line of a
+   multi-line statement:
+
+   ```matlab
+   addpath('<MML-prod>/mml'); setpathspear3; setpathat('<AT>'); switch2sim; addpath('<folder of mml_export.m>'); mml_export('<outdir>')
+   ```
+
+4. **Expect the LabCA warning.** The link method defaults to LabCA; on a host
+   without it the Middle Layer warns once. `switch2sim` then puts every family in
+   simulator mode, which is what the export samples.
+
+A 2.1.0 run writes six files per sub-machine: `.ao.json`, `.ad.json`, `.va.json`,
+`.response.json`, `.lattice.mat` and `.model.json`.
+
+### Refreshing the committed SPEAR3 and NSLS-II exports
+
+This step is the owner's; no automated change touches those files.
+
+- Commit all six files of one run per sub-machine, never a mix of runs.
+- Compare the five older files with the committed ones first. If any differs
+  beyond `_export.exporter`, `timestamp` or `matlab`, stop: that is a change in
+  the facility or the exporter, not a refresh. Two differences are expected
+  and are not a stop: floating-point values that move in the last digits
+  (about 1e-15 relative) when the run is on a different host, and the `DCCT`
+  nominal, which the Middle Layer's simulator derives from the time of day.
+- Update the file counts in `tests/fixtures/mml/spear3/README.md` and
+  `tests/fixtures/mml/nsls2/README.md`.

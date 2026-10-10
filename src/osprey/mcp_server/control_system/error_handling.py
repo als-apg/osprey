@@ -15,6 +15,8 @@ from fastmcp.exceptions import ToolError
 
 from osprey.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from osprey.mcp_server.errors import make_error
+from osprey_connectors.ipc.pool import DEFAULT_PING_TIMEOUT_S
+from osprey_connectors.ipc.proxy import ChildUnresponsiveError
 
 logger = logging.getLogger("osprey.mcp_server.control_system.error_handling")
 
@@ -90,6 +92,48 @@ async def invalidate_active_connector(connector_name: str) -> None:
     await get_server_context().invalidate_connector(connector_name)
 
 
+async def _answer_unresponsive_child(connector_name: str) -> str:
+    """Ping the active child after a call missed its deadline; replace it if silent.
+
+    A child that answers the ping is alive and merely slow, so it is kept: the
+    call may yet complete in it. A child that answers nothing is wedged, and it
+    is invalidated, which respawns the connector host on the same target with
+    the generation unchanged. The ping goes to the child active now, which may
+    not be the one that missed the deadline if a switch ran in between; a
+    child that answers is never replaced, so that ping harms nothing. Nothing
+    is retried.
+
+    Returns:
+        The sentence the timeout envelope appends to say which happened, or
+        ``""`` when the control system is not served from a child.
+    """
+    if connector_name != "control_system":
+        return ""
+    try:
+        from osprey.mcp_server.control_system.server_context import get_server_context
+
+        context = get_server_context()
+        if not context.switch_capable:
+            return ""
+        proxy = context.connector_hosts.active_proxy()
+    except Exception:  # no server context: there is no child to answer for
+        return ""
+    if proxy is None:
+        return ""
+    try:
+        await proxy.supervisor_request("ping", {}, DEFAULT_PING_TIMEOUT_S)
+    except Exception:
+        await invalidate_active_connector(connector_name)
+        return (
+            " The connector-host child did not answer a ping and was replaced on the same "
+            "target; the call was not retried."
+        )
+    return (
+        " The connector-host child still answers a ping, so it was kept; the call may yet "
+        "complete in it and was not retried."
+    )
+
+
 @asynccontextmanager
 async def connector_error_handler(
     tool_name: str,
@@ -138,6 +182,16 @@ async def connector_error_handler(
                 f"If the {connector_name} settings are wrong, fix them in the build profile "
                 "(profile.yml on the host), then rebuild and redeploy.",
             ],
+            details={"active_target": identity} if identity else None,
+        )
+    except ChildUnresponsiveError as exc:
+        outcome = await _answer_unresponsive_child(connector_name)
+        identity = describe_active_target() if connector_name == "control_system" else None
+        make_error(
+            "timeout_error",
+            f"{tool_name} timed out{_target_clause(identity)}: {exc}"
+            + (f".{outcome}" if outcome else ""),
+            ["Check network connectivity.", "Try a smaller request."],
             details={"active_target": identity} if identity else None,
         )
     except TimeoutError as exc:

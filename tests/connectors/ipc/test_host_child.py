@@ -40,15 +40,15 @@ import pytest
 import yaml
 
 from osprey_connectors import posture_store
-from osprey_connectors.channel_taxonomy import classify_channel
 from osprey_connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
     WriteOutcome,
 )
-from osprey_connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 from osprey_connectors.ipc import frames, host
 from tests._control_context_fixtures import write_control_context
+from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTHONPATH = os.pathsep.join(
@@ -56,13 +56,26 @@ PYTHONPATH = os.pathsep.join(
 )
 
 #: The mock connector by dotted path, so ``live`` resolves to it.
-MOCK_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
+IN_PROCESS_TYPE = "osprey_connectors.control_system.va_in_process_connector.VAInProcessConnector"
 
-CONTROL_SYSTEM = {
-    "type": MOCK_TYPE,
-    "writes_enabled": False,
-    "connector": {MOCK_TYPE: {"response_delay_ms": 10, "noise_level": 0.0}},
-}
+#: The addresses a spawned child writes, and the ones it only reads.
+SETPOINTS = ("SR:CORR:1:SP", "SR:CORR:2:SP")
+READINGS = ("SR:BEAM:CURRENT", "VAC:PRESSURE", *(f"SR:BPM:{index}:X" for index in range(6)))
+
+#: The unit each probed channel's record states; a probe's reply carries it.
+PROBED_UNITS = {"SR:BEAM:CURRENT": "mA", "VAC:PRESSURE": "Torr"}
+
+
+def _control_system(root: Path) -> dict:
+    """The in-process deployment a child serves, from a tree built under ``root``."""
+    channels = {address: {"unit": unit} for address, unit in PROBED_UNITS.items()}
+    view = served_tree(root, SETPOINTS, READINGS, channels=channels)
+    return {
+        "type": IN_PROCESS_TYPE,
+        "writes_enabled": False,
+        "connector": {IN_PROCESS_TYPE: in_process_config(view, response_delay_ms=10)},
+    }
+
 
 #: A deployment whose real machine is EPICS and whose simulator is armed: the
 #: deployment-wide posture is off, the virtual accelerator's own block turns
@@ -102,6 +115,7 @@ class Child:
     """A spawned connector host, with its frame channel pumped by a thread."""
 
     def __init__(self, cwd, env_extra=None):
+        self.cwd = Path(cwd)
         env = {k: v for k, v in os.environ.items() if k != "CONFIG_FILE"}
         env["PYTHONPATH"] = PYTHONPATH
         env.update(env_extra or {})
@@ -175,7 +189,7 @@ class Child:
         """Send the init frame and return the post-connect report frame."""
         return self.call(
             "init",
-            control_system=control_system or CONTROL_SYSTEM,
+            control_system=control_system or _control_system(self.cwd / "served"),
             target=target,
             **payload,
         )
@@ -230,7 +244,7 @@ def test_first_frame_out_is_the_post_connect_report(child):
     report = frame.value
     # The five verification fields the parent asserts its derivation against.
     assert set(report) >= {"selected_role", "mode", "host", "port", "_epics_configured"}
-    # Mock semantics: no gateway is configured, so there is no endpoint to
+    # In-process semantics: no gateway is configured, so there is no endpoint to
     # verify — the report is well-formed and empty rather than absent.
     assert report["selected_role"] is None
     assert report["mode"] is None
@@ -239,11 +253,56 @@ def test_first_frame_out_is_the_post_connect_report(child):
     assert report["_epics_configured"] is False
     # Diagnostics that let the parent tell this child apart from the one it
     # meant to spawn.
-    assert report["connector_type"] == MOCK_TYPE
+    assert report["connector_type"] == IN_PROCESS_TYPE
     assert report["target"] == "live"
     assert report["writes_enabled"] is False
     assert report["readonly_run"] is False
     assert report["pid"] == child.proc.pid
+
+
+def test_report_carries_transport(child):
+    """The child echoes the wire its connector was built with, for the parent to verify."""
+    dotted = child.init().value
+    # A dotted class names no transport row.
+    assert dotted["transport"] is None
+
+
+def test_report_carries_the_in_process_transport(tmp_path):
+    """``va`` on the simulator in process reports the in-process wire."""
+    spawned = Child(cwd=tmp_path)
+    try:
+        section = _control_system(tmp_path / "served")
+        block = section["connector"].pop(IN_PROCESS_TYPE)
+        section["type"] = "virtual_accelerator"
+        section["connector"]["virtual_accelerator"] = block
+        report = spawned.init(target="va", control_system=section).value
+    finally:
+        spawned.close()
+
+    assert report["connector_type"] == "virtual_accelerator"
+    assert report["transport"] == "in_process"
+
+
+def test_an_untyped_section_serves_va_in_process(tmp_path):
+    """A deployment that states no control-system type serves its ``va`` child in process.
+
+    Such a deployment is the simulator in process, and switch-capable when it
+    also authors a real machine; the child keeps the section's own venue.
+    """
+    spawned = Child(cwd=tmp_path)
+    try:
+        section = _control_system(tmp_path / "served")
+        block = section["connector"].pop(IN_PROCESS_TYPE)
+        # No serving leaf either: the venue is the section's own, never restated.
+        del block["serving"]
+        section["connector"]["virtual_accelerator"] = block
+        del section["type"]
+        report = spawned.init(target="va", control_system=section).value
+    finally:
+        spawned.close()
+
+    assert report["connector_type"] == "virtual_accelerator"
+    assert report["transport"] == "in_process"
 
 
 def test_a_first_frame_that_is_not_init_fails_the_launch(child):
@@ -267,7 +326,7 @@ def test_an_unresolvable_target_fails_the_launch_with_a_typed_error(child):
 
 
 def test_an_init_whose_control_system_is_not_a_mapping_fails_the_launch(child):
-    frame = child.init(control_system=["type", MOCK_TYPE])
+    frame = child.init(control_system=["type", IN_PROCESS_TYPE])
 
     assert isinstance(frame, frames.ErrorFrame)
     assert isinstance(frame.exception, ConnectionError)
@@ -371,10 +430,13 @@ def test_the_child_reports_the_posture_of_the_block_for_its_own_type(tmp_path):
     """
     project = tmp_path / "project"
     project.mkdir()
+    view = served_tree(tmp_path / "served")
     control_system = {
-        "type": MOCK_TYPE,
+        "type": IN_PROCESS_TYPE,
         "writes_enabled": False,
-        "connector": {MOCK_TYPE: {"response_delay_ms": 10, "writes_enabled": True}},
+        "connector": {
+            IN_PROCESS_TYPE: in_process_config(view, response_delay_ms=10, writes_enabled=True)
+        },
     }
     config_file = project / "config.yml"
     config_file.write_text(yaml.safe_dump({"control_system": control_system}))
@@ -383,7 +445,7 @@ def test_the_child_reports_the_posture_of_the_block_for_its_own_type(tmp_path):
     try:
         report = spawned.init(control_system=control_system, config_file=str(config_file)).value
 
-        assert report["connector_type"] == MOCK_TYPE
+        assert report["connector_type"] == IN_PROCESS_TYPE
         assert report["writes_enabled"] is True
     finally:
         spawned.close()
@@ -392,16 +454,16 @@ def test_the_child_reports_the_posture_of_the_block_for_its_own_type(tmp_path):
 # ------------------------------------------------------------- spawn_probe
 
 
-@pytest.mark.parametrize("channel", ["SR:BEAM:CURRENT", "VAC:PRESSURE"])
+@pytest.mark.parametrize("channel", list(PROBED_UNITS))
 def test_spawn_probe_reads_the_named_channel(ready_child, channel):
     frame = ready_child.call("spawn_probe", channel=channel, timeout=5.0)
 
     assert isinstance(frame, frames.ResultFrame)
     assert isinstance(frame.value, ChannelValue)
     assert isinstance(frame.value.value, float)
-    # The mock's units come from the channel name, so they show which channel
+    # The mock's units come from the channel record, so they show which channel
     # was read: mA for the beam current, Torr for the vacuum gauge.
-    assert frame.value.metadata.units == classify_channel(channel).units
+    assert frame.value.metadata.units == PROBED_UNITS[channel]
 
 
 def test_a_probe_that_exceeds_its_bound_fails_typed_and_the_child_keeps_serving(ready_child):
@@ -478,7 +540,12 @@ def test_closing_stdin_before_the_init_frame_exits_the_child_cleanly(child):
 
 
 def test_closing_stdin_lets_a_call_in_flight_reply_before_the_child_exits(child):
-    slow = {**CONTROL_SYSTEM, "connector": {MOCK_TYPE: {"response_delay_ms": 500}}}
+    view = served_tree(child.cwd / "served", readings=["SR:BEAM:CURRENT"])
+    slow = {
+        "type": IN_PROCESS_TYPE,
+        "writes_enabled": False,
+        "connector": {IN_PROCESS_TYPE: in_process_config(view, response_delay_ms=500)},
+    }
     child.init(control_system=slow)
 
     request_id = child.send("read_channel", channel_address="SR:BEAM:CURRENT")
@@ -549,6 +616,93 @@ def test_the_watchdog_exits_a_child_whose_parent_died(tmp_path):
     finally:
         os.close(read_fd)
         os.close(write_fd)
+
+
+def test_a_connector_host_exits_when_its_parent_changes(monkeypatch):
+    """The watchdog's test is "not the parent recorded at start", not "init"."""
+    monkeypatch.setattr(host.os, "getppid", lambda: 4242)
+
+    assert host._parent_changed(4242) is False
+    assert host._parent_changed(1) is True
+    assert host._parent_changed(5151) is True
+
+    # A supervisor that died before the record was taken left init recorded.
+    monkeypatch.setattr(host.os, "getppid", lambda: 1)
+    assert host._parent_changed(1) is True
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="PR_SET_CHILD_SUBREAPER is Linux-only")
+def test_a_connector_host_handed_to_a_subreaper_exits(tmp_path):
+    """A child reparented to a subreaper, not to init, still goes away.
+
+    The launcher marks itself a child subreaper, then runs an intermediate
+    process that spawns the host and exits. The host is reparented to the
+    launcher, so ``getppid()`` never reads 1; only a watchdog that compares
+    against the parent recorded at start notices. The pipe's write end stays
+    open in this process, so EOF cannot end the child either.
+    """
+    read_fd, write_fd = os.pipe()
+    bound = CHILD_STARTUP_TIMEOUT_S + REPLY_TIMEOUT_S
+    started = tmp_path / "host.stderr"
+    # The intermediate leaves only once the host has recorded it as its parent:
+    # the host scrubs the planted EPICS variable after taking that record, and
+    # the scrub's log line is the sign.
+    intermediate = (
+        "import os, subprocess, sys, time\n"
+        "env = dict(os.environ, EPICS_CA_ADDR_LIST='127.0.0.1')\n"
+        f"err = open({str(started)!r}, 'w')\n"
+        "proc = subprocess.Popen(\n"
+        "    [sys.executable, '-m', 'osprey_connectors.ipc.host'],\n"
+        f"    stdin={read_fd}, stdout=subprocess.DEVNULL, stderr=err, env=env,\n"
+        ")\n"
+        f"deadline = time.monotonic() + {CHILD_STARTUP_TIMEOUT_S}\n"
+        f"while not open({str(started)!r}).read() and time.monotonic() < deadline:\n"
+        "    time.sleep(0.05)\n"
+        "print(proc.pid, flush=True)\n"
+        "os._exit(0)\n"
+    )
+    launcher = (
+        "import ctypes, os, signal, subprocess, sys, time\n"
+        "libc = ctypes.CDLL(None, use_errno=True)\n"
+        "if libc.prctl(36, 1, 0, 0, 0) != 0:\n"
+        "    sys.exit('prctl(PR_SET_CHILD_SUBREAPER) failed')\n"
+        "out = subprocess.run(\n"
+        f"    [sys.executable, '-c', {intermediate!r}],\n"
+        f"    pass_fds=({read_fd},), capture_output=True, text=True, check=True,\n"
+        ").stdout\n"
+        "pid = int(out.split()[0])\n"
+        f"deadline = time.monotonic() + {bound}\n"
+        "while time.monotonic() < deadline:\n"
+        "    reaped, status = os.waitpid(pid, os.WNOHANG)\n"
+        "    if reaped:\n"
+        "        print(os.waitstatus_to_exitcode(status))\n"
+        "        sys.exit(0)\n"
+        "    time.sleep(0.1)\n"
+        "os.kill(pid, signal.SIGKILL)\n"
+        "os.waitpid(pid, 0)\n"
+        "print('alive')\n"
+    )
+    env = {k: v for k, v in os.environ.items() if k != "CONFIG_FILE"}
+    env["PYTHONPATH"] = PYTHONPATH
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", launcher],
+            cwd=str(tmp_path),
+            env=env,
+            pass_fds=(read_fd,),
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=CHILD_STARTUP_TIMEOUT_S + bound,
+        )
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
+
+    assert result.stdout.strip() == str(host.EXIT_ORPHANED), (
+        f"a child reparented to a subreaper was still alive after {bound}s: {result.stdout!r}"
+    )
 
 
 def test_only_the_first_frame_gets_the_startup_budget(monkeypatch):
@@ -756,7 +910,7 @@ def _posture_carrier(connector_type, control_target, *, epics_configured=False):
     connector shares — nothing about the mock's own behaviour is exercised, only
     the type and target the factory stamps on whatever it builds.
     """
-    connector = MockConnector()
+    connector = VAInProcessConnector()
     connector._connector_type = connector_type
     connector._control_target = control_target
     connector._epics_configured = epics_configured
@@ -877,13 +1031,11 @@ def _va_config(gateways):
 # config the child is pointed at, ``resolve_target``, the factory, ``connect()``.
 
 
-DEPLOYMENT_WIDE_ALLOW_KEY = "control_system.limits_checking.allow_unlisted_channels"
-VA_ALLOW_KEY = (
-    "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels"
-)
+DEPLOYMENT_WIDE_MODE_KEY = "control_system.limits_checking.mode"
+VA_MODE_KEY = "control_system.connector.virtual_accelerator.limits_checking.mode"
 
 
-def _limits_control_system(database_path: Path) -> dict:
+def _limits_control_system(database_path: Path, view: Path) -> dict:
     """A deployment that refuses unlisted channels everywhere but its simulator.
 
     The deployment-wide block is strict and the virtual accelerator's own block
@@ -893,17 +1045,15 @@ def _limits_control_system(database_path: Path) -> dict:
     resolves to ``virtual_accelerator`` whatever the deployment was built for.
     """
     return {
-        "type": MOCK_TYPE,
+        "type": IN_PROCESS_TYPE,
         "limits_checking": {
             "enabled": True,
-            "allow_unlisted_channels": False,
+            "mode": "exclusive",
             "database_path": str(database_path),
         },
         "connector": {
-            MOCK_TYPE: {"response_delay_ms": 10, "noise_level": 0.0},
-            "virtual_accelerator": {
-                "limits_checking": {"enabled": True, "allow_unlisted_channels": True}
-            },
+            IN_PROCESS_TYPE: in_process_config(view, response_delay_ms=10),
+            "virtual_accelerator": {"limits_checking": {"enabled": True, "mode": "optional"}},
         },
     }
 
@@ -1064,8 +1214,10 @@ def limits_deployment(tmp_path):
     fail-safe validator and the test would pass without reading a block.
     """
     database = tmp_path / "limits.json"
-    database.write_text(json.dumps({"SR:CORR:1:SP": {"min_value": -1.0, "max_value": 1.0}}))
-    section = _limits_control_system(database)
+    database.write_text(
+        json.dumps({"SR:CORR:1:SP": {"writable": True, "min_value": -1.0, "max_value": 1.0}})
+    )
+    section = _limits_control_system(database, served_tree(tmp_path / "served", SETPOINTS))
     config_file = tmp_path / "config.yml"
     config_file.write_text(yaml.safe_dump({"control_system": section}))
     return section, str(config_file)
@@ -1094,8 +1246,8 @@ def test_child_limits_posture_comes_from_the_block_for_the_target_it_serves(limi
     # The simulator's own block answered, and the refusal an operator would
     # eventually read names that line rather than the deployment-wide one it
     # overrides.
-    assert policy["allow_unlisted_channels"] is True
-    assert policy["allow_unlisted_key"] == VA_ALLOW_KEY
+    assert policy["mode"] == "optional"
+    assert policy["mode_key"] == VA_MODE_KEY
 
 
 def test_child_limits_posture_falls_back_to_the_deployment_wide_block(limits_deployment):
@@ -1106,5 +1258,5 @@ def test_child_limits_posture_falls_back_to_the_deployment_wide_block(limits_dep
     # This deployment wrote no block for the type ``live`` resolves to, so the
     # deployment-wide refusal is the whole posture — and the simulator's
     # relaxation, two keys away in the same file, does not reach it.
-    assert policy["allow_unlisted_channels"] is False
-    assert policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_ALLOW_KEY
+    assert policy["mode"] == "exclusive"
+    assert policy["mode_key"] == DEPLOYMENT_WIDE_MODE_KEY

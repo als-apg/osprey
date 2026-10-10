@@ -4,8 +4,9 @@ Hello World Tutorial
 
 Build and run your first OSPREY agent in about five minutes, with no containers
 and no hardware. The ``hello-world`` preset is the smallest deployment that
-still shows the whole write-safety chain: a mock control system that invents
-channel values, fourteen safety and bookkeeping hooks, and a browser interface.
+still shows the whole write-safety chain: the simulator, served in this
+process, that answers for the channels of your facility file, fourteen safety
+and bookkeeping hooks, and a browser interface.
 
 Three ``osprey`` commands take you from nothing to a running agent:
 
@@ -90,7 +91,7 @@ write-safety chain), three rules, and one output style:
      # whose write tools it guarded. Only a read-only deployment may drop them.
      - writes-check   # Kill switch: refuse every write while writes_enabled is false
      - approval       # Gate hardware-write tool calls on human approval prompt
-     - limits         # Enforce per-channel min/max limits, from data/channel_limits.json
+     - limits         # Enforce per-channel min/max limits, from data/facility/limits.yaml
 
 And all remaining configuration lives in the ``config:`` block, one dotted key
 per line:
@@ -98,15 +99,32 @@ per line:
 .. code-block:: yaml
 
    config:
-     # Which control system to talk to. "mock" invents channels in-process, so
-     # reads work with no hardware and no containers behind them.
-     control_system.type: mock
-     # Writes are refused until this is on. Uncomment it, rebuild, and the limits
-     # and approval hooks above take over from there.
-     # control_system.writes_enabled: true
+     # Which control system to talk to. `virtual_accelerator` is the simulator of
+     # the built facility; `serving: in_process` runs it inside this process — the
+     # facility's channels, its seeds and scenarios, no hardware and no containers
+     # — and refuses any address outside the facility. `served` reaches the same
+     # simulator in its container over Channel Access. The control-assistant
+     # preset shows the EPICS connector configuration,
+     # and `osprey config --defaults` lists every shipped connector type.
+     control_system.type: virtual_accelerator
+     control_system.connector.virtual_accelerator.serving: in_process
+     # The FIRST guard in the write-safety chain: while false, every hardware
+     # write is refused before the limits check or the approval prompt is even
+     # consulted. Set it true, rebuild, and the two hooks below take over.
+     control_system.writes_enabled: false
+     # ...
+     # The SECOND guard: every write is checked against the records in
+     # data/facility/limits.yaml (per-channel min/max and writable flags).
+     control_system.limits_checking.enabled: true
+     # ...
+     # The THIRD guard: a write that passed the master switch and the limits check
+     # still pauses for a yes/no prompt. Applied by the approval hook, so it
+     # reaches only hook-wired tools; everything else is gated by the rendered
+     # settings.json permissions.
+     approval.enabled: true
      # ...
 
-That commented ``control_system.writes_enabled`` line is the one this tutorial
+That ``control_system.writes_enabled: false`` line is the one this tutorial
 comes back to in Step 7. For everything the profile can hold, see
 :doc:`../how-to/build-profiles`.
 
@@ -168,8 +186,12 @@ Useful variations: ``osprey web --port 9000`` picks another port,
 Step 5: Read Some Channels
 ---------------------------
 
-The mock connector accepts **any** channel name and invents a plausible value
-for it — that is the whole trick behind a five-minute first session. Try:
+The simulator serves the channels of ``build/facility.json``, which
+``osprey build`` writes from ``data/facility/``, inside this process — that is
+the whole trick behind a five-minute first session. The session is on the
+``va`` target, and the web terminal's header chip reads "Simulator". Any other
+address is refused with ``<address> is not in build/facility.json``, for example
+``ANY:RANDOM:NAME is not in build/facility.json``. Try:
 
 .. code-block:: text
 
@@ -216,7 +238,7 @@ This is the first of **three guards** that every write must pass:
    and the ``writes-check`` hook enforces the same switch again as defense in
    depth.
 2. **Limits** (``limits`` hook) — the value is checked against per-channel
-   bounds and writable flags in ``data/channel_limits.json``.
+   bounds and writable flags in ``data/facility/limits.yaml``.
 3. **Approval** (``approval`` hook) — a write that passes both still pauses
    for your explicit yes/no before anything is executed.
 
@@ -228,14 +250,15 @@ guarded. Only a read-only deployment may drop them.
 Step 7: Enable Writes — in profile.yml
 ---------------------------------------
 
-Open ``profile.yml``, find the ``config:`` block from Step 2, and uncomment
-one line:
+Open ``profile.yml``, find the ``config:`` block from Step 2, and set one
+key to ``true``:
 
 .. code-block:: yaml
 
    config:
-     control_system.type: mock
-     control_system.writes_enabled: true   # ← was commented out
+     control_system.type: virtual_accelerator
+     control_system.connector.virtual_accelerator.serving: in_process
+     control_system.writes_enabled: true   # ← was false
 
 Then re-render and relaunch:
 
@@ -251,10 +274,11 @@ where the change belongs, and the rebuild carries it into the render.
 Step 8: Write with the Guards Watching
 ---------------------------------------
 
-The limits database that ships with this preset, ``data/channel_limits.json``,
-declares three channels: two writable quadrupole setpoints with bounds, and one
-read-only measurement. With writes enabled, all three remaining behaviors are
-now observable.
+The limits file that ships with this preset, ``data/facility/limits.yaml``,
+holds three records: two writable quadrupole setpoints with bounds, and one
+read-only measurement. ``osprey build`` writes them into the render's limits
+database, ``build/data/channel_limits.json``, which is what the guards read.
+With writes enabled, all three remaining behaviors are now observable.
 
 **A write inside its limits** — pauses for your approval:
 
@@ -264,7 +288,7 @@ now observable.
 
 150 sits inside the 0--300 range declared for this channel, so the limits
 check passes and the approval prompt appears in the terminal, naming the
-channel and value. Approve it, and the mock connector accepts the write.
+channel and value. Approve it, and the simulator accepts the write.
 Nothing is ever written without this step.
 
 **A write outside its limits** — blocked:
@@ -276,7 +300,7 @@ Nothing is ever written without this step.
 500 is above the channel's maximum of 300, so the write is refused: the
 ``limits`` hook denies it, and the connector checks the same limits database
 once more at execution time — so even an approved write cannot carry an
-out-of-range value to the (mock) hardware. Approval is a gate on writes the
+out-of-range value to the (simulated) hardware. Approval is a gate on writes the
 limits allow; it is not a way around them.
 
 **A write to a read-only channel** — blocked regardless of value:
@@ -285,39 +309,60 @@ limits allow; it is not a way around them.
 
    You: Set SR:BEAM:CURRENT to 1.0
 
-``SR:BEAM:CURRENT`` is a measurement, marked ``"writable": false`` in the
-limits database, so the write is refused whatever the value.
+``SR:BEAM:CURRENT`` is a measurement, marked ``writable: false`` in the
+limits file, so the write is refused whatever the value.
 
-Step 9: Edit the Limits Database
----------------------------------
+Step 9: Edit the Limits File
+-----------------------------
 
-``data/channel_limits.json`` is your first editable safety artifact. The
+``data/facility/limits.yaml`` is your first editable safety artifact. The
 shipped file looks like this (comments abridged):
+
+.. code-block:: yaml
+
+   records:
+   - address: SR:MAG:QF:01:CURRENT:SP
+     min_value: 0.0
+     max_value: 300.0
+     writable: true
+   - address: SR:MAG:QD:01:CURRENT:SP
+     min_value: 0.0
+     max_value: 250.0
+     writable: true
+   - address: SR:BEAM:CURRENT
+     writable: false
+
+``osprey build`` writes one entry per record into
+``build/data/channel_limits.json``, each stating ``writable`` and ``confirm``:
 
 .. code-block:: json
 
    {
-     "defaults": {
-       "writable": true,
-       "confirm": true
-     },
-     "SR:MAG:QF:01:CURRENT:SP": {"min_value": 0.0, "max_value": 300.0},
-     "SR:MAG:QD:01:CURRENT:SP": {"min_value": 0.0, "max_value": 250.0},
-     "SR:BEAM:CURRENT": {"writable": false}
+     "_version": "4.0",
+     "SR:BEAM:CURRENT": {"writable": false, "confirm": true},
+     "SR:MAG:QD:01:CURRENT:SP": {"min_value": 0.0, "max_value": 250.0, "writable": true, "confirm": true},
+     "SR:MAG:QF:01:CURRENT:SP": {"min_value": 0.0, "max_value": 300.0, "writable": true, "confirm": true}
    }
 
-``confirm: true`` means every write is checked: the connector reads the
-channel back once and compares what it finds with the value that was sent, so a
-write that did not land is reported rather than assumed.
+That file is generated output: edit ``limits.yaml`` and rebuild. A profile
+that ships its own ``channel_limits.json`` stops the build. ``writable: true`` may be
+left out, and it cannot stand in for the bounds: a setpoint record without both
+``min_value`` and ``max_value`` is written ``writable: false``, so a record is
+either bounded or a block. ``confirm: true``, the value a record gets when it does not state
+one, means every write is checked: the connector reads the channel back once
+and compares what it finds with the value that was sent, so a write that did
+not land is reported rather than assumed.
 
-Channels not listed here are still writable — the preset sets
-``allow_unlisted_channels: true`` so the mock's invented channels stay usable;
-a production deployment sets it ``false`` so an unknown channel fails closed.
-Listing a channel is how you put bounds on it. Add one:
+Channels not listed here are written with no limits — the preset sets
+``control_system.limits_checking.mode: optional``. Under ``mode: exclusive``
+only channels in the limits file can be written. Listing a channel is how you
+put bounds on it. Add one record:
 
-.. code-block:: json
+.. code-block:: yaml
 
-   "SR:MAG:CORR:01:CURRENT:SP": {"min_value": -5.0, "max_value": 5.0}
+   - address: SR:MAG:CORR:01:CURRENT:SP
+     min_value: -5.0
+     max_value: 5.0
 
 Then ``osprey build`` to carry the change into the render, and try writes on
 either side of the new bounds. This edit-rebuild-observe loop — in ``data/``

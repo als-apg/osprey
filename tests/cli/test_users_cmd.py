@@ -39,7 +39,6 @@ RENDERED_CONFIG = textwrap.dedent(
     """
     project_name: demo-project
     facility:
-      name: Demo Light Source
       prefix: dls
     system:
       timezone: UTC
@@ -82,7 +81,6 @@ PROFILE_WITH_ROSTER = textwrap.dedent(
     """
     preset: control-assistant
     config:
-      facility.prefix: dls
       modules.web_terminals:
         enabled: true
         users:

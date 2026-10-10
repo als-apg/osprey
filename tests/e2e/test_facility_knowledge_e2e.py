@@ -1,7 +1,7 @@
 """Agent e2e: facility knowledge MCP server in the control-assistant preset.
 
 The test builds a control-assistant deployment (whose example OKF bundle is
-rendered to ``build/data/facility_knowledge/``), runs an operator-style query that requires the
+rendered to ``build/data/facility/knowledge/``), runs an operator-style query that requires the
 agent to consult the facility_knowledge MCP server, and asserts:
 
 - At least one ``mcp__osprey_facility_knowledge__*`` tool was called.

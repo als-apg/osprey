@@ -1,52 +1,37 @@
-"""Which of a model's variables the control system serves, and which it does not.
+"""The model RPC's verbs over a composite and its simulator view.
 
-A facility's :class:`~lume.model.LUMEModel` declares its variables; the
-facility's channel manifest declares the addresses the control system serves.
-The two overlap but are not the same set, and this module draws the line
-between them once, at boot:
+A composite's served side is the address set its simulator view's
+``addresses.json`` lists: its ``channels`` and its ``status`` addresses.
+Clients reach those through the control-system surface -- Channel Access,
+and PVA for the same address -- exactly as they reach any other channel.
+Every other name the surface answers for is a variable of one of the
+composite's physics models, ``<model>/<name>``, reached through the
+composite alone: the model RPC is its only surface.
 
-* a variable is **served** iff its name is an address the serving database
-  holds (a key of :attr:`ServingRecords.all
-  <osprey.services.virtual_accelerator.serving.pvdb.ServingRecords.all>`).
-  Clients reach it through the control-system surface -- Channel Access, and
-  PVA for the same address -- exactly as they reach any other channel;
-* every other variable is **model-only**. The model RPC is its only surface:
-  no channel is served for it on either transport, so a client that does not
-  speak the RPC cannot see it at all.
-
-The rule is by name alone. A variable's ``read_only`` flag decides what a
-client may do with it on its side of the line, never which side it is on: a
-read-only BPM reading the manifest serves is served, and a writable
-calibration factor the manifest does not list is model-only.
-
-:class:`ModelSurface` answers the model RPC's verbs on that partition. The
-read verbs describe the model (``info``), read what it holds (``get``),
+:class:`ModelSurface` answers the model RPC's verbs on that split, and
+:meth:`ModelSurface.for_view` builds it. The read verbs describe what the
+surface answers for (``info``), read what the composite holds (``get``),
 compare it with what the control system serves (``diff``) and report on the
 server around it (``status``). Every verb runs on the run loop's thread --
-the only thread that touches the model -- and answers a plain JSON-able
+the only thread that touches the composite -- and answers a plain JSON-able
 dict. A refusal is a :class:`ModelRpcError` whose message a client shows
-unchanged.
+unchanged, and the composite's own refusal of a name -- a failed model's
+included -- is the verb's refusal.
 
-The write verbs change model-only variables, and only those. ``set`` writes
-the values it is given; ``reset`` writes each model-only writable that has
-drifted back to the seed it declared at boot. Both require the write token
-the server was configured with, compared in constant time; a server
-configured without one refuses every write. A refused write reaches no
-model: every check runs before the one ``model.set`` that applies it, and
-its reason is kept for ``status``. A write that lands ends with ``refresh``,
-which tells whatever the server derives from the model -- the served BPM
-readings -- which names changed. ``reset`` writes the seeds back through
-``model.set`` and never calls the model's own ``reset``: that would also
-return every served setpoint to its default, and a reset of the faults must
-leave the machine where the control system put it.
+The write verbs change model variables, and only those. ``set`` writes the
+values it is given; ``reset`` writes each drifted writable model variable
+back to the value its model held when it was built, and touches no served
+address. Both require the write token the server was configured with,
+compared in constant time; a server configured without one refuses every
+write. A refused write reaches no model: every check runs before the one
+write that applies it, and its reason is kept for ``status``.
 
 Nothing here imports the serving runtime -- the runner, the Channel Access
-server or lume-pva -- so the partition and the verbs are decided and tested
-in process, the same way the write path is. The verbs see the Channel Access
-side only through the one reader the runner injects into ``diff``. The one
-server library reached at all is p4p, and only indirectly: refusals are the
-RPC wire contract's :class:`ModelRpcError`, and that module imports p4p for
-its wire types.
+server or lume-pva -- so the verbs are decided and tested in process. The
+verbs see the Channel Access side only through the one reader the runner
+injects into ``diff``. The one server library reached at all is p4p, and
+only indirectly: refusals are the RPC wire contract's
+:class:`ModelRpcError`, and that module imports p4p for its wire types.
 """
 
 from __future__ import annotations
@@ -55,221 +40,139 @@ import hmac
 import math
 import numbers
 import time
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from osprey.services.virtual_accelerator.serving.health import ServingHealth
 from osprey.services.virtual_accelerator.serving.model_rpc import ModelRpcError
-from osprey.services.virtual_accelerator.serving.write_path import (
-    RUNNER_CONFIG_POLICY,
-    STUCK_SETPOINTS_VARIABLE,
-)
+from osprey_connectors.simulation.view import ADDRESSES_FILE
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from lume.model import LUMEModel
     from lume.variables import Variable
 
-    from osprey.services.virtual_accelerator.serving.pvdb import ServingRecords
+    from osprey_connectors.simulation.composite import Composite
+    from osprey_connectors.simulation.view import SimulatorView
 
-#: The side of the partition a variable is on, as the model RPC's ``info``
-#: verb reports it in each variable's ``surface`` field.
+#: The side a name is on, as the model RPC's ``info`` verb reports it in
+#: each entry's ``surface`` field.
 SURFACE_SERVED = "served"
-SURFACE_MODEL_ONLY = "model-only"
+SURFACE_MODEL_ONLY = "model"
 
 #: The refusal every write meets on a server configured without a token.
 WRITES_DISABLED = "model writes are disabled"
 
 
-def _refresh_nothing(changed: Iterable[str]) -> None:
-    """Refresh nothing: the server derives nothing from the model's variables."""
+class ModelSurface(ABC):
+    """The model RPC's verbs.
 
-
-@dataclass(frozen=True)
-class VariablePartition:
-    """A model's declared variables, split by whether the manifest serves them.
-
-    Every declared variable is on exactly one side, and each side keeps the
-    model's declaration order and the model's own variable objects -- so a
-    roster listed from either side is stable across boots and reports the
-    model's units and ranges, not copies of them.
-
-    Attributes:
-        served: variables whose name is a served address, by name.
-        model_only: every other declared variable, by name.
+    The runner builds one per server through :meth:`for_view` and calls each
+    verb on the run loop's thread. It also feeds ``status`` what only it can
+    see, through :meth:`record_cycle`, :meth:`record_queue_depth`,
+    :meth:`record_refusal` and :meth:`record_pass`.
     """
 
-    served: dict[str, Variable]
-    model_only: dict[str, Variable]
-
-
-def partition_variables(model: LUMEModel, records: ServingRecords) -> VariablePartition:
-    """Split ``model``'s declared variables into served and model-only.
-
-    Args:
-        model: the model whose :attr:`~lume.model.LUMEModel.supported_variables`
-            are partitioned. Read once; no value is read or written.
-        records: the built serving database; a variable is served iff its
-            name is a key of ``records.all``.
-
-    Returns:
-        The partition. Its dicts are new, so editing either never edits the
-        model's declared namespace.
-    """
-    served_addresses = records.all
-    served: dict[str, Variable] = {}
-    model_only: dict[str, Variable] = {}
-    for name, variable in model.supported_variables.items():
-        side = served if name in served_addresses else model_only
-        side[name] = variable
-    return VariablePartition(served=served, model_only=model_only)
-
-
-class ModelSurface:
-    """The model RPC's verbs, answered from the model and its partition.
-
-    The runner builds one per server, over the same model it serves -- the
-    wrapped one, so the stuck set the wrapper owns is a variable here like
-    any other -- and calls each verb on the run loop's thread. It also feeds
-    ``status`` what only it can see, through :meth:`record_cycle`,
-    :meth:`record_queue_depth` and :meth:`record_refusal`.
-    """
-
-    def __init__(
+    def _start(
         self,
-        model: LUMEModel,
-        partition: VariablePartition,
-        records: ServingRecords,
         *,
-        backend_name: str,
-        lattice_source: str,
         instance: str,
         endpoint: str,
-        clock: Callable[[], float] = time.monotonic,
-        update_rate: float = RUNNER_CONFIG_POLICY["update_rate"],
-        model_write_token: str | None = None,
-        refresh: Callable[[list[str]], None] = _refresh_nothing,
+        clock: Callable[[], float],
+        model_write_token: str | None,
+        failed_pass_tolerance: int,
     ) -> None:
-        """Answer for ``model``, as ``partition`` splits it.
-
-        Args:
-            model: the model the runner serves. Read on the calling thread,
-                which must be the run loop's.
-            partition: ``model``'s variables split into served and model-only,
-                as :func:`partition_variables` decided them at boot.
-            records: the built serving database the partition was drawn
-                against.
-            backend_name: the physics backend's name, as ``info`` and
-                ``status`` report it.
-            lattice_source: where the backend's lattice came from.
-            instance: this server's instance name.
-            endpoint: where this server is reached.
-            clock: seconds on a monotonic scale; ``uptime_s`` counts from
-                the reading taken here.
-            update_rate: the run loop's batching rate in Hz, as the runner
-                configured it; ``0.0`` runs every write as its own cycle.
-            model_write_token: the token ``set`` and ``reset`` require.
-                ``None`` or empty disables model writes: an unset token must
-                never be matched by an empty one.
-            refresh: called once after each write that lands, with the names
-                it wrote, on the run loop's thread; the physics bridge's
-                ``refresh``. The default does nothing.
-
-        Each model-only writable's boot seed is read here, from its declared
-        ``default_value``; one declaring none has no seed and ``reset``
-        leaves it alone.
-        """
-        self._model = model
-        self._partition = partition
-        self._records = records
+        """Take the write token and start the state ``status`` reports."""
         self._write_token = model_write_token.encode() if model_write_token else None
-        self._refresh = refresh
-        self._seeds: dict[str, Any] = {
-            name: seed
-            for name, variable in partition.model_only.items()
-            if not variable.read_only
-            and (seed := getattr(variable, "default_value", None)) is not None
-        }
-        self._backend_name = backend_name
-        self._lattice_source = lattice_source
         self._instance = instance
         self._endpoint = endpoint
         self._clock = clock
         self._started = clock()
-        self._update_rate = float(update_rate)
         self._last_cycle_ms: float | None = None
         self._queue_depth = 0
         self._last_refused_write: str | None = None
+        self._health = ServingHealth(failed_pass_tolerance, clock, self._started)
 
-    def info(self) -> dict[str, Any]:
-        """Describe every model variable; no value is read.
+    @classmethod
+    def for_view(
+        cls,
+        composite: Composite,
+        view: SimulatorView,
+        *,
+        instance: str,
+        endpoint: str,
+        model_write_token: str | None,
+        failed_pass_tolerance: int,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> ModelSurface:
+        """Answer for a composite, keyed on its simulator view's address set.
 
-        Returns:
-            ``backend`` and ``lattice_source``, and ``variables``: one entry
-            per model variable -- the served side first, then the
-            model-only side, each in declaration order -- carrying its
-            ``name``, ``unit`` and ``value_range`` (``None`` for a kind that
-            has neither), ``read_only`` and ``surface``
-            (:data:`SURFACE_SERVED` or :data:`SURFACE_MODEL_ONLY`).
-        """
-        sides = (
-            (SURFACE_SERVED, self._partition.served),
-            (SURFACE_MODEL_ONLY, self._partition.model_only),
-        )
-        variables = [
-            _describe(variable, surface) for surface, side in sides for variable in side.values()
-        ]
-        return {
-            "backend": self._backend_name,
-            "lattice_source": self._lattice_source,
-            "variables": variables,
-        }
-
-    def get(self, names: Iterable[str]) -> dict[str, Any]:
-        """What the model holds for ``names``, on either side of the partition.
-
-        For a served address that is the model's un-faulted truth, which a
-        fault on the control-system side may keep from what clients read.
-
-        Raises:
-            ModelRpcError: a name is not a model variable. The whole call is
-                refused, naming every such name, before the model is read.
-        """
-        requested = list(names)
-        declared = self._model.supported_variables
-        unknown = sorted({name for name in requested if name not in declared})
-        if unknown:
-            raise ModelRpcError(f"not a model variable: {', '.join(unknown)}")
-        return dict(self._model.get(requested))
-
-    def diff(self, get_param: Callable[[str], Any]) -> dict[str, dict[str, Any]]:
-        """Each served variable's served value beside the model's truth.
+        The served side is the view's ``addresses.json`` ``channels`` and
+        ``status``;
+        a physics model's own variables are reached as ``<model>/<name>``
+        through ``composite.model_get`` and ``composite.model_set`` alone.
 
         Args:
-            get_param: reads the value the control system serves for an
-                address -- the Channel Access driver's ``getParam``.
+            composite: the composite the runner serves. Read and written on
+                the calling thread, which must be the run loop's.
+            view: the simulator view the composite was built over.
+            instance: this server's instance name.
+            endpoint: where this server is reached.
+            model_write_token: the token ``set`` and ``reset`` require.
+                ``None`` or empty disables model writes.
+            failed_pass_tolerance: the runner configuration's
+                ``failed_pass_tolerance``: how many consecutive failed
+                publishing passes the health record still counts as
+                ``degraded``.
+            clock: seconds on a monotonic scale; ``uptime_s`` counts from
+                the reading taken here.
 
         Returns:
-            ``{name: {"served": ..., "truth": ...}}`` for every served model
-            variable, the truth read from the model in one batch.
+            The surface. ``status`` reports ``instance``, ``endpoint``,
+            ``last_cycle_ms``, ``queue_depth``, ``uptime_s``,
+            ``last_refused_write``, ``last_failed_pass`` and ``health``.
         """
-        served = list(self._partition.served)
-        if not served:
-            return {}
-        truth = self._model.get(served)
-        return {name: {"served": get_param(name), "truth": truth[name]} for name in served}
+        return _ViewSurface(
+            composite,
+            view,
+            instance=instance,
+            endpoint=endpoint,
+            model_write_token=model_write_token,
+            failed_pass_tolerance=failed_pass_tolerance,
+            clock=clock,
+        )
+
+    @abstractmethod
+    def info(self) -> dict[str, Any]:
+        """Describe every name the surface answers for; no value is read."""
+
+    @abstractmethod
+    def get(self, names: Iterable[str]) -> dict[str, Any]:
+        """What the composite holds for ``names``."""
+
+    @abstractmethod
+    def diff(self, get_param: Callable[[str], Any]) -> dict[str, dict[str, Any]]:
+        """Each served address's served value beside the value the composite holds."""
 
     def status(self) -> dict[str, Any]:
-        """The server around the model, as the runner last recorded it; no value is read."""
+        """The server around the composite, as the runner last recorded it; no value is read.
+
+        Returns:
+            ``instance``, ``endpoint``, ``last_cycle_ms``, ``queue_depth``,
+            ``uptime_s``, ``last_refused_write``, ``last_failed_pass`` --
+            ``None``, or the ``error`` the latest failed publishing pass
+            raised and the ``uptime_s`` it failed at; a later pass that
+            succeeds leaves it in place -- and ``health``, the health
+            record's document, which ``last_failed_pass`` is read from.
+        """
         return {
-            "backend": self._backend_name,
-            "lattice_source": self._lattice_source,
             "instance": self._instance,
             "endpoint": self._endpoint,
-            "update_rate": self._update_rate,
             "last_cycle_ms": self._last_cycle_ms,
             "queue_depth": self._queue_depth,
             "uptime_s": self._clock() - self._started,
             "last_refused_write": self._last_refused_write,
+            "last_failed_pass": self._health.last_failed_pass,
+            "health": self._health.document(),
         }
 
     def record_cycle(self, ms: float) -> None:
@@ -284,81 +187,27 @@ class ModelSurface:
         """Record why the latest refused write was refused, as a client was told."""
         self._last_refused_write = str(text)
 
+    def record_pass(self, error: str | None) -> dict[str, Any]:
+        """Record a publishing pass's outcome: ``None``, or the error it raised.
+
+        Returns:
+            The health record's document, as it stands after this pass.
+        """
+        self._health.record_pass(error)
+        return self._health.document()
+
+    @property
+    def health(self) -> ServingHealth:
+        """The health record every publishing pass's outcome is recorded in."""
+        return self._health
+
+    @abstractmethod
     def set(self, values: Mapping[str, Any], token: str | None) -> list[str]:
-        """Write model-only ``values`` in one ``model.set``, then refresh.
+        """Write model variables; the names written, in the order given."""
 
-        Checked in this order, each check refusing the whole call and naming
-        every name it fails, sorted: the token; then any served address
-        (served addresses are written through the control system); then any
-        read-only variable; then any name the model does not declare; then
-        any number that is not finite. The model's own validation --
-        ranges, allowed values, the text a variable takes -- runs last, in
-        ``model.set``, and its message is the refusal. An empty ``values``
-        writes nothing and refreshes nothing.
-
-        Returns:
-            The names written, in the order given.
-
-        Raises:
-            ModelRpcError: the write is refused. Nothing was written, and
-                the reason is what ``status`` reports as the last refusal.
-        """
-        self._authorize(token)
-        batch = dict(values)
-        declared = self._model.supported_variables
-        served = self._records.all
-        checks: tuple[tuple[str, Callable[[str], bool]], ...] = (
-            ("a served address, written through the control system", served.__contains__),
-            ("read-only", lambda name: name in declared and bool(declared[name].read_only)),
-            ("not a model variable", lambda name: name not in declared),
-            ("not a finite value", lambda name: not _finite_or_not_a_number(batch[name])),
-        )
-        for reason, fails in checks:
-            offenders = sorted(name for name in batch if fails(name))
-            if offenders:
-                raise self._refusal(f"{reason}: {', '.join(offenders)}")
-        if not batch:
-            return []
-        self._apply(batch)
-        written = list(batch)
-        self._refresh(written)
-        return written
-
+    @abstractmethod
     def reset(self, token: str | None) -> list[str]:
-        """Write every drifted model-only writable back to its boot seed.
-
-        The current values are read once. The drifted ones are written in
-        one ``model.set``, then the stuck set -- if it drifted -- in its own,
-        so the faults are restored before the serving side's stuck set moves.
-        Served setpoints and read-only variables are never written, and the
-        model's own ``reset`` is never called.
-
-        Returns:
-            The names reset, in declaration order. An empty list -- nothing
-            had drifted -- is not an error, and writes and refreshes nothing.
-
-        Raises:
-            ModelRpcError: the token is refused, or the model refuses a seed.
-                A refused token writes nothing; a refused stuck set leaves
-                the faults already restored, and refreshed.
-        """
-        self._authorize(token)
-        if not self._seeds:
-            return []
-        current = self._model.get(list(self._seeds))
-        drifted = {name: seed for name, seed in self._seeds.items() if current[name] != seed}
-        faults = {name: seed for name, seed in drifted.items() if name != STUCK_SETPOINTS_VARIABLE}
-        stuck = {name: seed for name, seed in drifted.items() if name == STUCK_SETPOINTS_VARIABLE}
-        restored: list[str] = []
-        try:
-            for batch in (faults, stuck):
-                if batch:
-                    self._apply(batch)
-                    restored.extend(batch)
-        finally:
-            if restored:
-                self._refresh(restored)
-        return restored
+        """Write every drifted writable model variable back; the names reset."""
 
     def _authorize(self, token: str | None) -> None:
         """Refuse a write unless ``token`` is the configured one.
@@ -375,10 +224,19 @@ class ModelSurface:
         if not hmac.compare_digest(self._write_token, token.encode()):
             raise self._refusal("model write refused: the write token does not match")
 
-    def _apply(self, batch: dict[str, Any]) -> None:
-        """One ``model.set``, its validation failure turned into a refusal."""
+    def _check(
+        self, batch: Mapping[str, Any], checks: Iterable[tuple[str, Callable[[str], bool]]]
+    ) -> None:
+        """Refuse ``batch`` at the first check any name fails, naming every such name, sorted."""
+        for reason, fails in checks:
+            offenders = sorted(name for name in batch if fails(name))
+            if offenders:
+                raise self._refusal(f"{reason}: {', '.join(offenders)}")
+
+    def _apply(self, write: Callable[[dict[str, Any]], Any], batch: dict[str, Any]) -> None:
+        """One ``write`` of ``batch``, its validation failure turned into a refusal."""
         try:
-            self._model.set(batch)
+            write(batch)
         except (ValueError, TypeError) as exc:
             raise self._refusal(str(exc) or type(exc).__name__) from exc
 
@@ -388,11 +246,164 @@ class ModelSurface:
         return ModelRpcError(text)
 
 
+class _ViewSurface(ModelSurface):
+    """The model RPC's verbs over a composite, keyed on its view's address set.
+
+    Built by :meth:`ModelSurface.for_view`. A served name is an address of
+    ``addresses.json``; any other name is a model variable, ``<model>/<name>``,
+    and the composite's refusal of one -- an unknown name, or a model that
+    has failed -- is the verb's refusal, its text unchanged.
+    """
+
+    def __init__(
+        self,
+        composite: Composite,
+        view: SimulatorView,
+        *,
+        instance: str,
+        endpoint: str,
+        model_write_token: str | None,
+        failed_pass_tolerance: int,
+        clock: Callable[[], float],
+    ) -> None:
+        self._composite = composite
+        self._channels = list(view.channels())
+        status = view.document(ADDRESSES_FILE)["status"]
+        self._served = [*self._channels, *(str(address) for address in status)]
+        self._served_set = frozenset(self._served)
+        self._start(
+            instance=instance,
+            endpoint=endpoint,
+            clock=clock,
+            model_write_token=model_write_token,
+            failed_pass_tolerance=failed_pass_tolerance,
+        )
+
+    def info(self) -> dict[str, Any]:
+        """Describe every served address and every model variable; no value is read.
+
+        Returns:
+            ``variables``: one entry per served address -- the view's
+            channels, then its status addresses -- with ``surface``
+            :data:`SURFACE_SERVED`, then one per variable of each built
+            model, named ``<model>/<name>``, with ``surface``
+            :data:`SURFACE_MODEL_ONLY`. Each carries ``name``, ``unit``,
+            ``value_range``, ``read_only`` and ``surface``.
+        """
+        declared = self._composite.supported_variables
+        served = [_describe(declared[name], SURFACE_SERVED) for name in self._served]
+        model = [
+            _describe(variable, SURFACE_MODEL_ONLY, name=name)
+            for name, (variable, _) in self._composite.model_variables().items()
+        ]
+        return {"variables": [*served, *model]}
+
+    def get(self, names: Iterable[str]) -> dict[str, Any]:
+        """Read served addresses from the composite and model variables from their model.
+
+        Raises:
+            ModelRpcError: the composite refuses a name; its text is the
+                refusal, and nothing is returned.
+        """
+        requested = list(names)
+        served = [name for name in requested if name in self._served_set]
+        model = [name for name in requested if name not in self._served_set]
+        try:
+            values = dict(self._composite.get(served)) if served else {}
+            if model:
+                values.update(self._composite.model_get(model))
+        except ValueError as exc:
+            raise ModelRpcError(str(exc)) from exc
+        return {name: values[name] for name in requested}
+
+    def diff(self, get_param: Callable[[str], Any]) -> dict[str, dict[str, Any]]:
+        """Each view channel's served value beside the value the composite holds.
+
+        Args:
+            get_param: reads the value the control system serves for an
+                address -- the Channel Access driver's ``getParam``.
+
+        Returns:
+            ``{address: {"served": ..., "truth": ...}}`` for every channel of
+            ``addresses.json``, the truth read without motion or readout in
+            one batch.
+        """
+        if not self._channels:
+            return {}
+        truth = self._composite.held(self._channels)
+        return {
+            address: {"served": get_param(address), "truth": truth[address]}
+            for address in self._channels
+        }
+
+    def set(self, values: Mapping[str, Any], token: str | None) -> list[str]:
+        """Write model variables in one ``composite.model_set``.
+
+        Checked in this order, each check refusing the whole call and naming
+        every name it fails, sorted: the token; then any served address;
+        then any number that is not finite. The composite's own refusal --
+        a name it does not know, a model that has failed, a value the model
+        refuses -- comes last, its text unchanged. An empty ``values``
+        writes nothing.
+
+        Returns:
+            The names written, in the order given.
+
+        Raises:
+            ModelRpcError: the write is refused; the reason is what
+                ``status`` reports as the last refusal.
+        """
+        self._authorize(token)
+        batch = dict(values)
+        checks: tuple[tuple[str, Callable[[str], bool]], ...] = (
+            ("a served address, written through the control system", self._served_set.__contains__),
+            ("not a finite value", lambda name: not _finite_or_not_a_number(batch[name])),
+        )
+        self._check(batch, checks)
+        if not batch:
+            return []
+        self._apply(self._composite.model_set, batch)
+        return list(batch)
+
+    def reset(self, token: str | None) -> list[str]:
+        """Write every drifted writable model variable back to its start value.
+
+        A start value is what the model held when it was built at the active
+        scenarios. The current values are read once and the drifted ones are
+        written in one ``composite.model_set``. No served address -- a
+        setpoint, a held value, a session write -- is written.
+
+        Returns:
+            The names reset, ``<model>/<name>``. An empty list -- nothing had
+            drifted -- is not an error, and writes nothing.
+
+        Raises:
+            ModelRpcError: the token is refused, or the composite refuses the
+                read or the write; its text is the refusal.
+        """
+        self._authorize(token)
+        starts = {
+            name: start
+            for name, (variable, start) in self._composite.model_variables().items()
+            if not variable.read_only and start is not None
+        }
+        if not starts:
+            return []
+        try:
+            current = self._composite.model_get(list(starts))
+        except ValueError as exc:
+            raise self._refusal(str(exc)) from exc
+        drifted = {name: start for name, start in starts.items() if current[name] != start}
+        if drifted:
+            self._apply(self._composite.model_set, drifted)
+        return list(drifted)
+
+
 def _finite_or_not_a_number(value: Any) -> bool:
     """False only for a real number that is not finite.
 
-    A value that is not a number -- the stuck set's text -- is left to the
-    variable's own validation, which knows what it takes.
+    A value that is not a number is left to the variable's own validation,
+    which knows what it takes.
     """
     if isinstance(value, bool) or not isinstance(value, numbers.Real):
         return True
@@ -402,11 +413,15 @@ def _finite_or_not_a_number(value: Any) -> bool:
         return False
 
 
-def _describe(variable: Variable, surface: str) -> dict[str, Any]:
-    """One ``info`` entry: the fields a client needs to address ``variable``."""
+def _describe(variable: Variable, surface: str, *, name: str | None = None) -> dict[str, Any]:
+    """One ``info`` entry: the fields a client needs to address ``variable``.
+
+    ``name`` is the name a client addresses it by, when that is not the
+    variable's own.
+    """
     value_range = getattr(variable, "value_range", None)
     return {
-        "name": variable.name,
+        "name": variable.name if name is None else name,
         "unit": getattr(variable, "unit", None),
         "value_range": None if value_range is None else [float(v) for v in value_range],
         "read_only": bool(variable.read_only),
@@ -419,6 +434,4 @@ __all__ = [
     "SURFACE_SERVED",
     "WRITES_DISABLED",
     "ModelSurface",
-    "VariablePartition",
-    "partition_variables",
 ]

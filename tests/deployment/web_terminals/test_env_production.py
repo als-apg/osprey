@@ -294,9 +294,8 @@ def test_env_production_local_mode_defaults_when_image_source_absent_is_registry
 # ---------------------------------------------------------------------------
 # ensure_env_production -- claude_code provider auth-secret coverage. The
 # generator must ship the auth secret of every claude_code.provider a web
-# container will actually authenticate with (deploy config's own on the
-# zero-migration path, each referenced persona project's under a catalog),
-# and must fail loudly -- not generate a dead file -- when one is missing.
+# container will actually authenticate with (each referenced persona
+# project's), and must fail loudly -- not generate a dead file -- when one is missing.
 # ---------------------------------------------------------------------------
 
 
@@ -337,23 +336,6 @@ def _persona_config(tmp_path, personas: dict[str, str]) -> dict:
     }
 
 
-def test_env_production_zero_migration_copies_own_claude_code_secret(tmp_path):
-    """No persona catalog: the deploy config's own claude_code.provider is what
-    the web container runs, so its auth secret is copied -- and required."""
-    _write_dotenv(tmp_path / ".env", {"CBORG_API_KEY": "cc-secret"})
-    config = {
-        "facility": {},
-        "claude_code": {"provider": "cborg"},
-        "modules": {"web_terminals": {"image_source": "local"}},
-    }
-
-    generated = env_production.parse_dotenv_file(
-        env_production.ensure_env_production(config, tmp_path)
-    )
-
-    assert generated["CBORG_API_KEY"] == "cc-secret"
-
-
 def test_env_production_copies_each_persona_projects_claude_code_secret(tmp_path):
     """Persona catalog: every referenced persona project's own provider secret
     ships, even when the deploy config's provider differs."""
@@ -392,10 +374,10 @@ def test_env_production_missing_persona_claude_code_secret_raises_actionably(tmp
     assert not (tmp_path / ".env.users").exists()
 
 
-def test_env_production_deploy_configs_own_secret_not_required_under_catalog(tmp_path):
-    """With a persona catalog in play the per-user containers run persona
-    projects, so the deploy config's own provider secret is copy-if-present
-    but its absence must NOT fail the deploy."""
+def test_env_production_deploy_configs_own_secret_is_not_required(tmp_path):
+    """The per-user containers run persona projects, so the deploy config's
+    own provider secret is copy-if-present but its absence must NOT fail the
+    deploy."""
     _write_dotenv(
         tmp_path / ".env",
         {"ALS_APG_API_KEY": "persona-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
@@ -669,11 +651,12 @@ def test_env_production_a_defaulted_endpoint_reference_is_not_required(tmp_path)
     assert "ALS_APG_BASE_URL" not in generated
 
 
-def test_env_production_endpoint_of_the_deploys_own_provider_is_required(
+def test_env_production_endpoint_of_the_deploys_own_provider_is_copied_not_required(
     tmp_path, a_gateway_that_ships_no_endpoint
 ):
-    """The zero-migration path: no persona catalog, so the web image runs the
-    deploy config itself and its provider's endpoint is the container's."""
+    """The per-user containers run persona projects, so the deploy config's own
+    provider endpoint answers for no container: copied when set, never
+    required."""
     gateway = a_gateway_that_ships_no_endpoint
     _write_dotenv(tmp_path / ".env", {_GATEWAY_WITHOUT_ENDPOINT_KEY: "cc-secret"})
     config = {
@@ -683,8 +666,20 @@ def test_env_production_endpoint_of_the_deploys_own_provider_is_required(
         "modules": {"web_terminals": {"image_source": "local"}},
     }
 
-    with pytest.raises(RuntimeError, match=_GATEWAY_WITHOUT_ENDPOINT_VAR):
+    generated = env_production.parse_dotenv_file(
         env_production.ensure_env_production(config, tmp_path)
+    )
+    assert _GATEWAY_WITHOUT_ENDPOINT_VAR not in generated
+
+    _write_dotenv(
+        tmp_path / ".env",
+        {_GATEWAY_WITHOUT_ENDPOINT_KEY: "cc-secret", _GATEWAY_WITHOUT_ENDPOINT_VAR: "https://g/v1"},
+    )
+    (tmp_path / ".env.users").unlink()
+    generated = env_production.parse_dotenv_file(
+        env_production.ensure_env_production(config, tmp_path)
+    )
+    assert generated[_GATEWAY_WITHOUT_ENDPOINT_VAR] == "https://g/v1"
 
 
 def test_env_production_copies_the_llm_providers_endpoint_without_requiring_it(tmp_path):
@@ -1545,8 +1540,7 @@ def test_env_production_bare_telemetry_password_absent_from_the_chain_refuses(tm
 
 
 def test_env_production_bare_telemetry_password_in_the_deploy_config_refuses_too(tmp_path):
-    """The deploy config is read the same way a persona project is: on the
-    zero-migration path it IS the project the web image runs.
+    """The deploy config is walked the same way a persona project is.
 
     Spelled with its master switch on, like every rendered block ships -- the
     switch is what decides the credential is presented at all, and leaving it

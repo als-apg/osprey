@@ -64,7 +64,7 @@ from osprey.utils.workspace import AUDIT_DIR_RELPATH
 from .web_terminals.test_golden_render import EXAMPLE_CONFIG
 
 #: The bundle the reference config mounts when a test needs the bundle half.
-BUNDLE_PATH = "data/facility_knowledge"
+BUNDLE_PATH = "data/facility/knowledge"
 
 #: The ARIEL qmd mirror the reference config mounts when a test needs that half.
 MIRROR_PATH = "var/ariel_mirror"
@@ -95,6 +95,7 @@ def _web_config(
             }
         }
     if personas:
+        web_terminals["default_persona"] = "operator"
         web_terminals["personas"] = {
             "operator": {"project": "dls-operator", "project_path": "../dls-operator"},
             "physicist": {"project": "dls-physicist", "project_path": "../dls-physicist"},
@@ -107,8 +108,17 @@ def _web_config(
 
 
 def _web_services(**kwargs) -> dict:
-    """The parsed ``services:`` mapping of a rendered web overlay."""
-    rendered = render_web_terminals(_web_config(**kwargs))["docker-compose.web.yml"]
+    """The parsed ``services:`` mapping of a rendered web overlay.
+
+    The reference roster's default persona is entitled to the bundle and the
+    mirror whenever the config carries them.
+    """
+    entitled = {"assistant"}
+    rendered = render_web_terminals(
+        _web_config(**kwargs),
+        facility_bundle_personas=entitled if kwargs.get("bundle") else None,
+        ariel_mirror_personas=entitled if kwargs.get("mirror") else None,
+    )["docker-compose.web.yml"]
     return yaml.safe_load(rendered)["services"]
 
 
@@ -231,7 +241,7 @@ def test_the_audit_path_is_routed_through_the_shared_constant():
 
     source, target = _audit_mounts(services["web-alice"])[0].split(":")
     assert source == f"./{AUDIT_DIR_RELPATH}/alice"
-    assert target == f"/app/dls-assistant/{AUDIT_DIR_RELPATH}/alice"
+    assert target == f"/app/dls_controls-assistant/{AUDIT_DIR_RELPATH}/alice"
 
 
 def test_the_target_is_computed_per_persona_from_its_own_project_dir():

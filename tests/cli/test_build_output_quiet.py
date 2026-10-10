@@ -30,18 +30,7 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build as build_command
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.templates.manager import TemplateManager
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+from tests._preset_data import bundle_data_root
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -62,7 +51,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
@@ -340,6 +329,16 @@ class _StubCollection:
         return None
 
 
+class _EmptyArchive:
+    """An archive composite with no channels: every document carries only its date."""
+
+    addresses: list[str] = []
+
+    def samples(self, addresses: list[str], t_s: Any) -> dict[str, list[Any]]:
+        del t_s
+        return {address: [] for address in addresses}
+
+
 class TestLoggerArchiverSeedQuiet:
     """The seeder's own report line, off the deploy's INFO stream."""
 
@@ -350,7 +349,7 @@ class TestLoggerArchiverSeedQuiet:
         write — the arithmetic is covered by the archiver seed suite, and what
         is under test here is only the level the summary goes out at.
         """
-        from osprey.simulation.archiver_seed import SeedKnobs, seed_base
+        from osprey_connectors.simulation.archive import SeedKnobs, seed_base
 
         knobs = SeedKnobs(
             retention_days=1, hot_span_hours=1, hot_cadence_sec=600, tail_cadence_sec=3600
@@ -358,7 +357,7 @@ class TestLoggerArchiverSeedQuiet:
         with caplog.at_level(logging.DEBUG):
             report = seed_base(
                 _StubCollection(),  # type: ignore[arg-type]
-                [],
+                _EmptyArchive(),  # type: ignore[arg-type]
                 knobs,
                 t0=datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC),
             )
@@ -399,7 +398,7 @@ def plain(text: str) -> str:
 STDOUT_NEEDLES = {
     "Created": "Claude Code integration file(s)",
     "data files": "Copied profile data files from",
-    "tier artifacts": "Materialized tier",
+    "benchmark queries": "Copied benchmark queries",
     "web-terminal context": "Installed web-terminal context to",
 }
 
@@ -501,18 +500,18 @@ class TestStdoutDataCopyQuiet:
         assert "Copied profile data files" in caplog.text
         assert "Copied profile data" not in plain(capsys.readouterr().out)
 
-    def test_stdout_csv_prune_is_quiet(
+    def test_stdout_staging_prune_is_quiet(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
     ) -> None:
         """Pruning ``data/raw/`` reports the removal at DEBUG, not on stdout."""
-        from osprey.cli.templates.scaffolding import prune_csv_build_artifacts
+        from osprey.cli.templates.scaffolding import materialize_benchmark_queries
 
         raw = self._tree(tmp_path / "project" / "data" / "raw")
 
         capsys.readouterr()
         with caplog.at_level(logging.DEBUG, logger="osprey.cli.templates"):
-            prune_csv_build_artifacts(tmp_path / "project", "hierarchical")
+            materialize_benchmark_queries(tmp_path / "project", "hierarchical")
 
         assert not raw.exists()
-        assert "no CSV build path" in caplog.text
-        assert "no CSV build path" not in plain(capsys.readouterr().out)
+        assert "from the render" in caplog.text
+        assert "from the render" not in plain(capsys.readouterr().out)

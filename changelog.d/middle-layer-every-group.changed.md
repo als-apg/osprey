@@ -1,0 +1,1 @@
+The middle-layer index and the agent facts name every facility group as a family; a channel belongs to every family it is in, so the channel finder's `channels` table holds one row per channel and family; a middle-layer render of a facility with no group stops the build.

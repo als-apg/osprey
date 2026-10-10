@@ -1,0 +1,2812 @@
+- id: BR/BPM01
+  class: BeamPositionMonitor
+  names:
+  - BPM01
+  label: BPM 01
+  place: BR
+- id: BR/BPM02
+  class: BeamPositionMonitor
+  names:
+  - BPM02
+  label: BPM 02
+  place: BR
+- id: BR/BPM03
+  class: BeamPositionMonitor
+  names:
+  - BPM03
+  label: BPM 03
+  place: BR
+- id: BR/BPM04
+  class: BeamPositionMonitor
+  names:
+  - BPM04
+  label: BPM 04
+  place: BR
+- id: BR/BPM05
+  class: BeamPositionMonitor
+  names:
+  - BPM05
+  label: BPM 05
+  place: BR
+- id: BR/BPM06
+  class: BeamPositionMonitor
+  names:
+  - BPM06
+  label: BPM 06
+  place: BR
+- id: BR/BPM07
+  class: BeamPositionMonitor
+  names:
+  - BPM07
+  label: BPM 07
+  place: BR
+- id: BR/BPM08
+  class: BeamPositionMonitor
+  names:
+  - BPM08
+  label: BPM 08
+  place: BR
+- id: BR/DCCT01
+  class: BeamCurrentMonitor
+  description: 'Booster Beam Current Monitor: Tracks current during acceleration cycle.'
+  names:
+  - DCCT01
+  - DC current transformer
+  label: DCCT 01
+  place: BR
+- id: BR/DIPOLE01
+  class: Dipole
+  names:
+  - DIPOLE01
+  label: DIPOLE 01
+  place: BR
+- id: BR/DIPOLE02
+  class: Dipole
+  names:
+  - DIPOLE02
+  label: DIPOLE 02
+  place: BR
+- id: BR/DIPOLE03
+  class: Dipole
+  names:
+  - DIPOLE03
+  label: DIPOLE 03
+  place: BR
+- id: BR/DIPOLE04
+  class: Dipole
+  names:
+  - DIPOLE04
+  label: DIPOLE 04
+  place: BR
+- id: BR/DIPOLE05
+  class: Dipole
+  names:
+  - DIPOLE05
+  label: DIPOLE 05
+  place: BR
+- id: BR/DIPOLE06
+  class: Dipole
+  names:
+  - DIPOLE06
+  label: DIPOLE 06
+  place: BR
+- id: BR/DIPOLE07
+  class: Dipole
+  names:
+  - DIPOLE07
+  label: DIPOLE 07
+  place: BR
+- id: BR/DIPOLE08
+  class: Dipole
+  names:
+  - DIPOLE08
+  label: DIPOLE 08
+  place: BR
+- id: BR/QD01
+  class: Quadrupole
+  names:
+  - QD01
+  label: QD 01
+  place: BR
+- id: BR/QD02
+  class: Quadrupole
+  names:
+  - QD02
+  label: QD 02
+  place: BR
+- id: BR/QD03
+  class: Quadrupole
+  names:
+  - QD03
+  label: QD 03
+  place: BR
+- id: BR/QD04
+  class: Quadrupole
+  names:
+  - QD04
+  label: QD 04
+  place: BR
+- id: BR/QF01
+  class: Quadrupole
+  names:
+  - QF01
+  label: QF 01
+  place: BR
+- id: BR/QF02
+  class: Quadrupole
+  names:
+  - QF02
+  label: QF 02
+  place: BR
+- id: BR/QF03
+  class: Quadrupole
+  names:
+  - QF03
+  label: QF 03
+  place: BR
+- id: BR/QF04
+  class: Quadrupole
+  names:
+  - QF04
+  label: QF 04
+  place: BR
+- id: BTS/BPM01
+  class: BeamPositionMonitor
+  names:
+  - BPM01
+  label: BPM 01
+  place: BTS
+- id: BTS/BPM02
+  class: BeamPositionMonitor
+  names:
+  - BPM02
+  label: BPM 02
+  place: BTS
+- id: BTS/BPM03
+  class: BeamPositionMonitor
+  names:
+  - BPM03
+  label: BPM 03
+  place: BTS
+- id: BTS/BPM04
+  class: BeamPositionMonitor
+  names:
+  - BPM04
+  label: BPM 04
+  place: BTS
+- id: BTS/BPM05
+  class: BeamPositionMonitor
+  names:
+  - BPM05
+  label: BPM 05
+  place: BTS
+- id: BTS/BPM06
+  class: BeamPositionMonitor
+  names:
+  - BPM06
+  label: BPM 06
+  place: BTS
+- id: BTS/HCM01
+  class: HCorrector
+  names:
+  - HCM01
+  label: HCM 01
+  place: BTS
+- id: BTS/HCM02
+  class: HCorrector
+  names:
+  - HCM02
+  label: HCM 02
+  place: BTS
+- id: BTS/HCM03
+  class: HCorrector
+  names:
+  - HCM03
+  label: HCM 03
+  place: BTS
+- id: BTS/HCM04
+  class: HCorrector
+  names:
+  - HCM04
+  label: HCM 04
+  place: BTS
+- id: BTS/HCM05
+  class: HCorrector
+  names:
+  - HCM05
+  label: HCM 05
+  place: BTS
+- id: BTS/HCM06
+  class: HCorrector
+  names:
+  - HCM06
+  label: HCM 06
+  place: BTS
+- id: BTS/QF01
+  class: Quadrupole
+  description: 'Transfer Line Quadrupoles: Focusing magnets for beam matching at injection.'
+  names:
+  - QF01
+  - focusing quadrupole
+  label: QF 01
+  place: BTS
+- id: BTS/QF02
+  class: Quadrupole
+  description: 'Transfer Line Quadrupoles: Focusing magnets for beam matching at injection.'
+  names:
+  - QF02
+  - focusing quadrupole
+  label: QF 02
+  place: BTS
+- id: BTS/QF03
+  class: Quadrupole
+  description: 'Transfer Line Quadrupoles: Focusing magnets for beam matching at injection.'
+  names:
+  - QF03
+  - focusing quadrupole
+  label: QF 03
+  place: BTS
+- id: BTS/QF04
+  class: Quadrupole
+  description: 'Transfer Line Quadrupoles: Focusing magnets for beam matching at injection.'
+  names:
+  - QF04
+  - focusing quadrupole
+  label: QF 04
+  place: BTS
+- id: BTS/QF05
+  class: Quadrupole
+  description: 'Transfer Line Quadrupoles: Focusing magnets for beam matching at injection.'
+  names:
+  - QF05
+  - focusing quadrupole
+  label: QF 05
+  place: BTS
+- id: BTS/QF06
+  class: Quadrupole
+  description: 'Transfer Line Quadrupoles: Focusing magnets for beam matching at injection.'
+  names:
+  - QF06
+  - focusing quadrupole
+  label: QF 06
+  place: BTS
+- id: BTS/VCM01
+  class: VCorrector
+  names:
+  - VCM01
+  label: VCM 01
+  place: BTS
+- id: BTS/VCM02
+  class: VCorrector
+  names:
+  - VCM02
+  label: VCM 02
+  place: BTS
+- id: BTS/VCM03
+  class: VCorrector
+  names:
+  - VCM03
+  label: VCM 03
+  place: BTS
+- id: BTS/VCM04
+  class: VCorrector
+  names:
+  - VCM04
+  label: VCM 04
+  place: BTS
+- id: BTS/VCM05
+  class: VCorrector
+  names:
+  - VCM05
+  label: VCM 05
+  place: BTS
+- id: BTS/VCM06
+  class: VCorrector
+  names:
+  - VCM06
+  label: VCM 06
+  place: BTS
+- id: LINE/BPM01
+  class: BeamPositionMonitor
+  label: LINE BPM 01
+- id: LINE/BPM02
+  class: BeamPositionMonitor
+  label: LINE BPM 02
+- id: LINE/BPM03
+  class: BeamPositionMonitor
+  label: LINE BPM 03
+- id: LINE/BPM04
+  class: BeamPositionMonitor
+  label: LINE BPM 04
+- id: LINE/HCM01
+  class: HCorrector
+  label: LINE HCM 01
+- id: LINE/HCM02
+  class: HCorrector
+  label: LINE HCM 02
+- id: LINE/HCM03
+  class: HCorrector
+  label: LINE HCM 03
+- id: LINE/HCM04
+  class: HCorrector
+  label: LINE HCM 04
+- id: LINE/QD01
+  class: Quadrupole
+  label: LINE QD 01
+- id: LINE/QD02
+  class: Quadrupole
+  label: LINE QD 02
+- id: LINE/QD03
+  class: Quadrupole
+  label: LINE QD 03
+- id: LINE/QD04
+  class: Quadrupole
+  label: LINE QD 04
+- id: LINE/QF01
+  class: Quadrupole
+  label: LINE QF 01
+- id: LINE/QF02
+  class: Quadrupole
+  label: LINE QF 02
+- id: LINE/QF03
+  class: Quadrupole
+  label: LINE QF 03
+- id: LINE/QF04
+  class: Quadrupole
+  label: LINE QF 04
+- id: LINE/VCM01
+  class: VCorrector
+  label: LINE VCM 01
+- id: LINE/VCM02
+  class: VCorrector
+  label: LINE VCM 02
+- id: LINE/VCM03
+  class: VCorrector
+  label: LINE VCM 03
+- id: LINE/VCM04
+  class: VCorrector
+  label: LINE VCM 04
+- id: SR/BPM01
+  class: BeamPositionMonitor
+  names:
+  - BPM01
+  label: BPM 01
+- id: SR/BPM02
+  class: BeamPositionMonitor
+  names:
+  - BPM02
+  label: BPM 02
+- id: SR/BPM03
+  class: BeamPositionMonitor
+  names:
+  - BPM03
+  label: BPM 03
+- id: SR/BPM04
+  class: BeamPositionMonitor
+  names:
+  - BPM04
+  label: BPM 04
+- id: SR/BPM05
+  class: BeamPositionMonitor
+  names:
+  - BPM05
+  label: BPM 05
+- id: SR/BPM06
+  class: BeamPositionMonitor
+  names:
+  - BPM06
+  label: BPM 06
+- id: SR/BPM07
+  class: BeamPositionMonitor
+  names:
+  - BPM07
+  label: BPM 07
+- id: SR/BPM08
+  class: BeamPositionMonitor
+  names:
+  - BPM08
+  label: BPM 08
+- id: SR/BPM09
+  class: BeamPositionMonitor
+  names:
+  - BPM09
+  label: BPM 09
+- id: SR/BPM10
+  class: BeamPositionMonitor
+  names:
+  - BPM10
+  label: BPM 10
+- id: SR/BPM11
+  class: BeamPositionMonitor
+  names:
+  - BPM11
+  label: BPM 11
+- id: SR/BPM12
+  class: BeamPositionMonitor
+  names:
+  - BPM12
+  label: BPM 12
+- id: SR/BPM13
+  class: BeamPositionMonitor
+  names:
+  - BPM13
+  label: BPM 13
+- id: SR/BPM14
+  class: BeamPositionMonitor
+  names:
+  - BPM14
+  label: BPM 14
+- id: SR/BPM15
+  class: BeamPositionMonitor
+  names:
+  - BPM15
+  label: BPM 15
+- id: SR/BPM16
+  class: BeamPositionMonitor
+  names:
+  - BPM16
+  label: BPM 16
+- id: SR/BPM17
+  class: BeamPositionMonitor
+  names:
+  - BPM17
+  label: BPM 17
+- id: SR/BPM18
+  class: BeamPositionMonitor
+  names:
+  - BPM18
+  label: BPM 18
+- id: SR/BPM19
+  class: BeamPositionMonitor
+  names:
+  - BPM19
+  label: BPM 19
+- id: SR/BPM20
+  class: BeamPositionMonitor
+  names:
+  - BPM20
+  label: BPM 20
+- id: SR/BPM21
+  class: BeamPositionMonitor
+  names:
+  - BPM21
+  label: BPM 21
+- id: SR/BPM22
+  class: BeamPositionMonitor
+  names:
+  - BPM22
+  label: BPM 22
+- id: SR/BPM23
+  class: BeamPositionMonitor
+  names:
+  - BPM23
+  label: BPM 23
+- id: SR/BPM24
+  class: BeamPositionMonitor
+  names:
+  - BPM24
+  label: BPM 24
+- id: SR/BPM25
+  class: BeamPositionMonitor
+  names:
+  - BPM25
+  label: BPM 25
+- id: SR/BPM26
+  class: BeamPositionMonitor
+  names:
+  - BPM26
+  label: BPM 26
+- id: SR/BPM27
+  class: BeamPositionMonitor
+  names:
+  - BPM27
+  label: BPM 27
+- id: SR/BPM28
+  class: BeamPositionMonitor
+  names:
+  - BPM28
+  label: BPM 28
+- id: SR/BPM29
+  class: BeamPositionMonitor
+  names:
+  - BPM29
+  label: BPM 29
+- id: SR/BPM30
+  class: BeamPositionMonitor
+  names:
+  - BPM30
+  label: BPM 30
+- id: SR/BPM31
+  class: BeamPositionMonitor
+  names:
+  - BPM31
+  label: BPM 31
+- id: SR/BPM32
+  class: BeamPositionMonitor
+  names:
+  - BPM32
+  label: BPM 32
+- id: SR/BPM33
+  class: BeamPositionMonitor
+  names:
+  - BPM33
+  label: BPM 33
+- id: SR/BPM34
+  class: BeamPositionMonitor
+  names:
+  - BPM34
+  label: BPM 34
+- id: SR/BPM35
+  class: BeamPositionMonitor
+  names:
+  - BPM35
+  label: BPM 35
+- id: SR/BPM36
+  class: BeamPositionMonitor
+  names:
+  - BPM36
+  label: BPM 36
+- id: SR/BPM37
+  class: BeamPositionMonitor
+  names:
+  - BPM37
+  label: BPM 37
+- id: SR/BPM38
+  class: BeamPositionMonitor
+  names:
+  - BPM38
+  label: BPM 38
+- id: SR/BPM39
+  class: BeamPositionMonitor
+  names:
+  - BPM39
+  label: BPM 39
+- id: SR/BPM40
+  class: BeamPositionMonitor
+  names:
+  - BPM40
+  label: BPM 40
+- id: SR/BPM41
+  class: BeamPositionMonitor
+  names:
+  - BPM41
+  label: BPM 41
+- id: SR/BPM42
+  class: BeamPositionMonitor
+  names:
+  - BPM42
+  label: BPM 42
+- id: SR/BPM43
+  class: BeamPositionMonitor
+  names:
+  - BPM43
+  label: BPM 43
+- id: SR/BPM44
+  class: BeamPositionMonitor
+  names:
+  - BPM44
+  label: BPM 44
+- id: SR/BPM45
+  class: BeamPositionMonitor
+  names:
+  - BPM45
+  label: BPM 45
+- id: SR/BPM46
+  class: BeamPositionMonitor
+  names:
+  - BPM46
+  label: BPM 46
+- id: SR/BPM47
+  class: BeamPositionMonitor
+  names:
+  - BPM47
+  label: BPM 47
+- id: SR/BPM48
+  class: BeamPositionMonitor
+  names:
+  - BPM48
+  label: BPM 48
+- id: SR/BPM49
+  class: BeamPositionMonitor
+  names:
+  - BPM49
+  label: BPM 49
+- id: SR/BPM50
+  class: BeamPositionMonitor
+  names:
+  - BPM50
+  label: BPM 50
+- id: SR/BPM51
+  class: BeamPositionMonitor
+  names:
+  - BPM51
+  label: BPM 51
+- id: SR/BPM52
+  class: BeamPositionMonitor
+  names:
+  - BPM52
+  label: BPM 52
+- id: SR/BPM53
+  class: BeamPositionMonitor
+  names:
+  - BPM53
+  label: BPM 53
+- id: SR/BPM54
+  class: BeamPositionMonitor
+  names:
+  - BPM54
+  label: BPM 54
+- id: SR/BPM55
+  class: BeamPositionMonitor
+  names:
+  - BPM55
+  label: BPM 55
+- id: SR/BPM56
+  class: BeamPositionMonitor
+  names:
+  - BPM56
+  label: BPM 56
+- id: SR/BPM57
+  class: BeamPositionMonitor
+  names:
+  - BPM57
+  label: BPM 57
+- id: SR/BPM58
+  class: BeamPositionMonitor
+  names:
+  - BPM58
+  label: BPM 58
+- id: SR/BPM59
+  class: BeamPositionMonitor
+  names:
+  - BPM59
+  label: BPM 59
+- id: SR/BPM60
+  class: BeamPositionMonitor
+  names:
+  - BPM60
+  label: BPM 60
+- id: SR/BPM61
+  class: BeamPositionMonitor
+  names:
+  - BPM61
+  label: BPM 61
+- id: SR/BPM62
+  class: BeamPositionMonitor
+  names:
+  - BPM62
+  label: BPM 62
+- id: SR/BPM63
+  class: BeamPositionMonitor
+  names:
+  - BPM63
+  label: BPM 63
+- id: SR/BPM64
+  class: BeamPositionMonitor
+  names:
+  - BPM64
+  label: BPM 64
+- id: SR/BPM65
+  class: BeamPositionMonitor
+  names:
+  - BPM65
+  label: BPM 65
+- id: SR/BPM66
+  class: BeamPositionMonitor
+  names:
+  - BPM66
+  label: BPM 66
+- id: SR/BPM67
+  class: BeamPositionMonitor
+  names:
+  - BPM67
+  label: BPM 67
+- id: SR/BPM68
+  class: BeamPositionMonitor
+  names:
+  - BPM68
+  label: BPM 68
+- id: SR/BPM69
+  class: BeamPositionMonitor
+  names:
+  - BPM69
+  label: BPM 69
+- id: SR/BPM70
+  class: BeamPositionMonitor
+  names:
+  - BPM70
+  label: BPM 70
+- id: SR/BPM71
+  class: BeamPositionMonitor
+  names:
+  - BPM71
+  label: BPM 71
+- id: SR/BPM72
+  class: BeamPositionMonitor
+  names:
+  - BPM72
+  label: BPM 72
+- id: SR/CAVITY01
+  class: AcceleratingCavity
+  description: 'RF Accelerating Cavities: Resonant structures that provide longitudinal electric field to accelerate the beam. Gap voltage (MV range) determines energy gain per turn.'
+  names:
+  - CAVITY01
+  - RF cavity
+  label: CAVITY 01
+  place: SR/SECT11
+- id: SR/CAVITY02
+  class: AcceleratingCavity
+  description: 'RF Accelerating Cavities: Resonant structures that provide longitudinal electric field to accelerate the beam. Gap voltage (MV range) determines energy gain per turn.'
+  names:
+  - CAVITY02
+  - RF cavity
+  label: CAVITY 02
+  place: SR/SECT11
+- id: SR/DCCT01
+  class: BeamCurrentMonitor
+  description: 'DC Current Transformer: Non-intercepting beam current monitor. Measures total circulating beam current with high accuracy.'
+  names:
+  - DCCT01
+  - DC current transformer
+  label: DCCT 01
+  place: SR
+- id: SR/DIPOLE01
+  class: Dipole
+  names:
+  - DIPOLE01
+  label: DIPOLE 01
+- id: SR/DIPOLE02
+  class: Dipole
+  names:
+  - DIPOLE02
+  label: DIPOLE 02
+- id: SR/DIPOLE03
+  class: Dipole
+  names:
+  - DIPOLE03
+  label: DIPOLE 03
+- id: SR/DIPOLE04
+  class: Dipole
+  names:
+  - DIPOLE04
+  label: DIPOLE 04
+- id: SR/DIPOLE05
+  class: Dipole
+  names:
+  - DIPOLE05
+  label: DIPOLE 05
+- id: SR/DIPOLE06
+  class: Dipole
+  names:
+  - DIPOLE06
+  label: DIPOLE 06
+- id: SR/DIPOLE07
+  class: Dipole
+  names:
+  - DIPOLE07
+  label: DIPOLE 07
+- id: SR/DIPOLE08
+  class: Dipole
+  names:
+  - DIPOLE08
+  label: DIPOLE 08
+- id: SR/DIPOLE09
+  class: Dipole
+  names:
+  - DIPOLE09
+  label: DIPOLE 09
+- id: SR/DIPOLE10
+  class: Dipole
+  names:
+  - DIPOLE10
+  label: DIPOLE 10
+- id: SR/DIPOLE11
+  class: Dipole
+  names:
+  - DIPOLE11
+  label: DIPOLE 11
+- id: SR/DIPOLE12
+  class: Dipole
+  names:
+  - DIPOLE12
+  label: DIPOLE 12
+- id: SR/DIPOLE13
+  class: Dipole
+  names:
+  - DIPOLE13
+  label: DIPOLE 13
+- id: SR/DIPOLE14
+  class: Dipole
+  names:
+  - DIPOLE14
+  label: DIPOLE 14
+- id: SR/DIPOLE15
+  class: Dipole
+  names:
+  - DIPOLE15
+  label: DIPOLE 15
+- id: SR/DIPOLE16
+  class: Dipole
+  names:
+  - DIPOLE16
+  label: DIPOLE 16
+- id: SR/DIPOLE17
+  class: Dipole
+  names:
+  - DIPOLE17
+  label: DIPOLE 17
+- id: SR/DIPOLE18
+  class: Dipole
+  names:
+  - DIPOLE18
+  label: DIPOLE 18
+- id: SR/DIPOLE19
+  class: Dipole
+  names:
+  - DIPOLE19
+  label: DIPOLE 19
+- id: SR/DIPOLE20
+  class: Dipole
+  names:
+  - DIPOLE20
+  label: DIPOLE 20
+- id: SR/DIPOLE21
+  class: Dipole
+  names:
+  - DIPOLE21
+  label: DIPOLE 21
+- id: SR/DIPOLE22
+  class: Dipole
+  names:
+  - DIPOLE22
+  label: DIPOLE 22
+- id: SR/DIPOLE23
+  class: Dipole
+  names:
+  - DIPOLE23
+  label: DIPOLE 23
+- id: SR/DIPOLE24
+  class: Dipole
+  names:
+  - DIPOLE24
+  label: DIPOLE 24
+- id: SR/DIPOLE25
+  class: Dipole
+  names:
+  - DIPOLE25
+  label: DIPOLE 25
+- id: SR/DIPOLE26
+  class: Dipole
+  names:
+  - DIPOLE26
+  label: DIPOLE 26
+- id: SR/DIPOLE27
+  class: Dipole
+  names:
+  - DIPOLE27
+  label: DIPOLE 27
+- id: SR/DIPOLE28
+  class: Dipole
+  names:
+  - DIPOLE28
+  label: DIPOLE 28
+- id: SR/DIPOLE29
+  class: Dipole
+  names:
+  - DIPOLE29
+  label: DIPOLE 29
+- id: SR/DIPOLE30
+  class: Dipole
+  names:
+  - DIPOLE30
+  label: DIPOLE 30
+- id: SR/DIPOLE31
+  class: Dipole
+  names:
+  - DIPOLE31
+  label: DIPOLE 31
+- id: SR/DIPOLE32
+  class: Dipole
+  names:
+  - DIPOLE32
+  label: DIPOLE 32
+- id: SR/DIPOLE33
+  class: Dipole
+  names:
+  - DIPOLE33
+  label: DIPOLE 33
+- id: SR/DIPOLE34
+  class: Dipole
+  names:
+  - DIPOLE34
+  label: DIPOLE 34
+- id: SR/DIPOLE35
+  class: Dipole
+  names:
+  - DIPOLE35
+  label: DIPOLE 35
+- id: SR/DIPOLE36
+  class: Dipole
+  names:
+  - DIPOLE36
+  label: DIPOLE 36
+- id: SR/GAMMA01
+  class: BeamLossMonitor
+  description: 'Gamma Radiation Monitors: Detect gamma ray radiation levels around accelerator. Essential for personnel safety.'
+  names:
+  - GAMMA01
+  - gamma detector
+  label: GAMMA 01
+  place: SR
+- id: SR/GAMMA02
+  class: BeamLossMonitor
+  description: 'Gamma Radiation Monitors: Detect gamma ray radiation levels around accelerator. Essential for personnel safety.'
+  names:
+  - GAMMA02
+  - gamma detector
+  label: GAMMA 02
+  place: SR
+- id: SR/GAMMA03
+  class: BeamLossMonitor
+  description: 'Gamma Radiation Monitors: Detect gamma ray radiation levels around accelerator. Essential for personnel safety.'
+  names:
+  - GAMMA03
+  - gamma detector
+  label: GAMMA 03
+  place: SR
+- id: SR/GAMMA04
+  class: BeamLossMonitor
+  description: 'Gamma Radiation Monitors: Detect gamma ray radiation levels around accelerator. Essential for personnel safety.'
+  names:
+  - GAMMA04
+  - gamma detector
+  label: GAMMA 04
+  place: SR
+- id: SR/GAUGESR01
+  class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
+  names:
+  - GAUGESR01
+  - vacuum gauge
+  label: GAUGE SR01
+  place: SR/SECT1
+- id: SR/GAUGESR02
+  class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
+  names:
+  - GAUGESR02
+  - vacuum gauge
+  label: GAUGE SR02
+  place: SR/SECT2
+- id: SR/GAUGESR03
+  class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
+  names:
+  - GAUGESR03
+  - vacuum gauge
+  label: GAUGE SR03
+  place: SR/SECT3
+- id: SR/GAUGESR04
+  class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
+  names:
+  - GAUGESR04
+  - vacuum gauge
+  label: GAUGE SR04
+  place: SR/SECT4
+- id: SR/GAUGESR05
+  class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
+  names:
+  - GAUGESR05
+  - vacuum gauge
+  label: GAUGE SR05
+  place: SR/SECT5
+- id: SR/GAUGESR06
+  class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
+  names:
+  - GAUGESR06
+  - vacuum gauge
+  label: GAUGE SR06
+  place: SR/SECT6
+- id: SR/GAUGESR07
+  class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
+  names:
+  - GAUGESR07
+  - vacuum gauge
+  label: GAUGE SR07
+  place: SR/SECT7
+- id: SR/GAUGESR08
+  class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
+  names:
+  - GAUGESR08
+  - vacuum gauge
+  label: GAUGE SR08
+  place: SR/SECT8
+- id: SR/GAUGESR09
+  class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
+  names:
+  - GAUGESR09
+  - vacuum gauge
+  label: GAUGE SR09
+  place: SR/SECT9
+- id: SR/GAUGESR10
+  class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
+  names:
+  - GAUGESR10
+  - vacuum gauge
+  label: GAUGE SR10
+  place: SR/SECT10
+- id: SR/GAUGESR11
+  class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
+  names:
+  - GAUGESR11
+  - vacuum gauge
+  label: GAUGE SR11
+  place: SR/SECT11
+- id: SR/GAUGESR12
+  class: Gauge
+  description: Cold cathode ionization gauges, one per storage-ring sector.
+  names:
+  - GAUGESR12
+  - vacuum gauge
+  label: GAUGE SR12
+  place: SR/SECT12
+- id: SR/HCM01
+  class: HCorrector
+  names:
+  - HCM01
+  label: HCM 01
+- id: SR/HCM02
+  class: HCorrector
+  names:
+  - HCM02
+  label: HCM 02
+- id: SR/HCM03
+  class: HCorrector
+  names:
+  - HCM03
+  label: HCM 03
+- id: SR/HCM04
+  class: HCorrector
+  names:
+  - HCM04
+  label: HCM 04
+- id: SR/HCM05
+  class: HCorrector
+  names:
+  - HCM05
+  label: HCM 05
+- id: SR/HCM06
+  class: HCorrector
+  names:
+  - HCM06
+  label: HCM 06
+- id: SR/HCM07
+  class: HCorrector
+  names:
+  - HCM07
+  label: HCM 07
+- id: SR/HCM08
+  class: HCorrector
+  names:
+  - HCM08
+  label: HCM 08
+- id: SR/HCM09
+  class: HCorrector
+  names:
+  - HCM09
+  label: HCM 09
+- id: SR/HCM10
+  class: HCorrector
+  names:
+  - HCM10
+  label: HCM 10
+- id: SR/HCM11
+  class: HCorrector
+  names:
+  - HCM11
+  label: HCM 11
+- id: SR/HCM12
+  class: HCorrector
+  names:
+  - HCM12
+  label: HCM 12
+- id: SR/HCM13
+  class: HCorrector
+  names:
+  - HCM13
+  label: HCM 13
+- id: SR/HCM14
+  class: HCorrector
+  names:
+  - HCM14
+  label: HCM 14
+- id: SR/HCM15
+  class: HCorrector
+  names:
+  - HCM15
+  label: HCM 15
+- id: SR/HCM16
+  class: HCorrector
+  names:
+  - HCM16
+  label: HCM 16
+- id: SR/HCM17
+  class: HCorrector
+  names:
+  - HCM17
+  label: HCM 17
+- id: SR/HCM18
+  class: HCorrector
+  names:
+  - HCM18
+  label: HCM 18
+- id: SR/HCM19
+  class: HCorrector
+  names:
+  - HCM19
+  label: HCM 19
+- id: SR/HCM20
+  class: HCorrector
+  names:
+  - HCM20
+  label: HCM 20
+- id: SR/HCM21
+  class: HCorrector
+  names:
+  - HCM21
+  label: HCM 21
+- id: SR/HCM22
+  class: HCorrector
+  names:
+  - HCM22
+  label: HCM 22
+- id: SR/HCM23
+  class: HCorrector
+  names:
+  - HCM23
+  label: HCM 23
+- id: SR/HCM24
+  class: HCorrector
+  names:
+  - HCM24
+  label: HCM 24
+- id: SR/HCM25
+  class: HCorrector
+  names:
+  - HCM25
+  label: HCM 25
+- id: SR/HCM26
+  class: HCorrector
+  names:
+  - HCM26
+  label: HCM 26
+- id: SR/HCM27
+  class: HCorrector
+  names:
+  - HCM27
+  label: HCM 27
+- id: SR/HCM28
+  class: HCorrector
+  names:
+  - HCM28
+  label: HCM 28
+- id: SR/HCM29
+  class: HCorrector
+  names:
+  - HCM29
+  label: HCM 29
+- id: SR/HCM30
+  class: HCorrector
+  names:
+  - HCM30
+  label: HCM 30
+- id: SR/HCM31
+  class: HCorrector
+  names:
+  - HCM31
+  label: HCM 31
+- id: SR/HCM32
+  class: HCorrector
+  names:
+  - HCM32
+  label: HCM 32
+- id: SR/HCM33
+  class: HCorrector
+  names:
+  - HCM33
+  label: HCM 33
+- id: SR/HCM34
+  class: HCorrector
+  names:
+  - HCM34
+  label: HCM 34
+- id: SR/HCM35
+  class: HCorrector
+  names:
+  - HCM35
+  label: HCM 35
+- id: SR/HCM36
+  class: HCorrector
+  names:
+  - HCM36
+  label: HCM 36
+- id: SR/HCM37
+  class: HCorrector
+  names:
+  - HCM37
+  label: HCM 37
+- id: SR/HCM38
+  class: HCorrector
+  names:
+  - HCM38
+  label: HCM 38
+- id: SR/HCM39
+  class: HCorrector
+  names:
+  - HCM39
+  label: HCM 39
+- id: SR/HCM40
+  class: HCorrector
+  names:
+  - HCM40
+  label: HCM 40
+- id: SR/HCM41
+  class: HCorrector
+  names:
+  - HCM41
+  label: HCM 41
+- id: SR/HCM42
+  class: HCorrector
+  names:
+  - HCM42
+  label: HCM 42
+- id: SR/HCM43
+  class: HCorrector
+  names:
+  - HCM43
+  label: HCM 43
+- id: SR/HCM44
+  class: HCorrector
+  names:
+  - HCM44
+  label: HCM 44
+- id: SR/HCM45
+  class: HCorrector
+  names:
+  - HCM45
+  label: HCM 45
+- id: SR/HCM46
+  class: HCorrector
+  names:
+  - HCM46
+  label: HCM 46
+- id: SR/HCM47
+  class: HCorrector
+  names:
+  - HCM47
+  label: HCM 47
+- id: SR/HCM48
+  class: HCorrector
+  names:
+  - HCM48
+  label: HCM 48
+- id: SR/HCM49
+  class: HCorrector
+  names:
+  - HCM49
+  label: HCM 49
+- id: SR/HCM50
+  class: HCorrector
+  names:
+  - HCM50
+  label: HCM 50
+- id: SR/HCM51
+  class: HCorrector
+  names:
+  - HCM51
+  label: HCM 51
+- id: SR/HCM52
+  class: HCorrector
+  names:
+  - HCM52
+  label: HCM 52
+- id: SR/HCM53
+  class: HCorrector
+  names:
+  - HCM53
+  label: HCM 53
+- id: SR/HCM54
+  class: HCorrector
+  names:
+  - HCM54
+  label: HCM 54
+- id: SR/HCM55
+  class: HCorrector
+  names:
+  - HCM55
+  label: HCM 55
+- id: SR/HCM56
+  class: HCorrector
+  names:
+  - HCM56
+  label: HCM 56
+- id: SR/HCM57
+  class: HCorrector
+  names:
+  - HCM57
+  label: HCM 57
+- id: SR/HCM58
+  class: HCorrector
+  names:
+  - HCM58
+  label: HCM 58
+- id: SR/HCM59
+  class: HCorrector
+  names:
+  - HCM59
+  label: HCM 59
+- id: SR/HCM60
+  class: HCorrector
+  names:
+  - HCM60
+  label: HCM 60
+- id: SR/HCM61
+  class: HCorrector
+  names:
+  - HCM61
+  label: HCM 61
+- id: SR/HCM62
+  class: HCorrector
+  names:
+  - HCM62
+  label: HCM 62
+- id: SR/HCM63
+  class: HCorrector
+  names:
+  - HCM63
+  label: HCM 63
+- id: SR/HCM64
+  class: HCorrector
+  names:
+  - HCM64
+  label: HCM 64
+- id: SR/HCM65
+  class: HCorrector
+  names:
+  - HCM65
+  label: HCM 65
+- id: SR/HCM66
+  class: HCorrector
+  names:
+  - HCM66
+  label: HCM 66
+- id: SR/HCM67
+  class: HCorrector
+  names:
+  - HCM67
+  label: HCM 67
+- id: SR/HCM68
+  class: HCorrector
+  names:
+  - HCM68
+  label: HCM 68
+- id: SR/HCM69
+  class: HCorrector
+  names:
+  - HCM69
+  label: HCM 69
+- id: SR/HCM70
+  class: HCorrector
+  names:
+  - HCM70
+  label: HCM 70
+- id: SR/HCM71
+  class: HCorrector
+  names:
+  - HCM71
+  label: HCM 71
+- id: SR/HCM72
+  class: HCorrector
+  names:
+  - HCM72
+  label: HCM 72
+- id: SR/ION-PUMP01
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP01
+  - ion pump
+  label: ION-PUMP 01
+  place: SR
+- id: SR/ION-PUMP02
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP02
+  - ion pump
+  label: ION-PUMP 02
+  place: SR
+- id: SR/ION-PUMP03
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP03
+  - ion pump
+  label: ION-PUMP 03
+  place: SR
+- id: SR/ION-PUMP04
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP04
+  - ion pump
+  label: ION-PUMP 04
+  place: SR
+- id: SR/ION-PUMP05
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP05
+  - ion pump
+  label: ION-PUMP 05
+  place: SR
+- id: SR/ION-PUMP06
+  class: Pump
+  description: 'Ion Pumps: Sputter-ion pumps that provide UHV pumping in the storage ring. No moving parts, clean operation, excellent for UHV. Use high voltage (kV range) to ionize and trap gas molecules.'
+  names:
+  - ION-PUMP06
+  - ion pump
+  label: ION-PUMP 06
+  place: SR
+- id: SR/KLYSTRON01
+  class: Modulator
+  description: 'Klystron RF Amplifiers: High-power vacuum tube amplifiers that provide RF power to accelerating cavities. Typically 100-500 kW output power.'
+  names:
+  - KLYSTRON01
+  - klystron
+  label: KLYSTRON 01
+  place: SR
+- id: SR/KLYSTRON02
+  class: Modulator
+  description: 'Klystron RF Amplifiers: High-power vacuum tube amplifiers that provide RF power to accelerating cavities. Typically 100-500 kW output power.'
+  names:
+  - KLYSTRON02
+  - klystron
+  label: KLYSTRON 02
+  place: SR
+- id: SR/NEUTRON01
+  class: BeamLossMonitor
+  description: 'Neutron Radiation Monitors: Detect neutron radiation levels around accelerator. Real-time monitoring for personnel safety.'
+  names:
+  - NEUTRON01
+  - neutron detector
+  label: NEUTRON 01
+  place: SR
+- id: SR/NEUTRON02
+  class: BeamLossMonitor
+  description: 'Neutron Radiation Monitors: Detect neutron radiation levels around accelerator. Real-time monitoring for personnel safety.'
+  names:
+  - NEUTRON02
+  - neutron detector
+  label: NEUTRON 02
+  place: SR
+- id: SR/NEUTRON03
+  class: BeamLossMonitor
+  description: 'Neutron Radiation Monitors: Detect neutron radiation levels around accelerator. Real-time monitoring for personnel safety.'
+  names:
+  - NEUTRON03
+  - neutron detector
+  label: NEUTRON 03
+  place: SR
+- id: SR/NEUTRON04
+  class: BeamLossMonitor
+  description: 'Neutron Radiation Monitors: Detect neutron radiation levels around accelerator. Real-time monitoring for personnel safety.'
+  names:
+  - NEUTRON04
+  - neutron detector
+  label: NEUTRON 04
+  place: SR
+- id: SR/QD01
+  class: Quadrupole
+  names:
+  - QD01
+  label: QD 01
+- id: SR/QD02
+  class: Quadrupole
+  names:
+  - QD02
+  label: QD 02
+- id: SR/QD03
+  class: Quadrupole
+  names:
+  - QD03
+  label: QD 03
+- id: SR/QD04
+  class: Quadrupole
+  names:
+  - QD04
+  label: QD 04
+- id: SR/QD05
+  class: Quadrupole
+  names:
+  - QD05
+  label: QD 05
+- id: SR/QD06
+  class: Quadrupole
+  names:
+  - QD06
+  label: QD 06
+- id: SR/QD07
+  class: Quadrupole
+  names:
+  - QD07
+  label: QD 07
+- id: SR/QD08
+  class: Quadrupole
+  names:
+  - QD08
+  label: QD 08
+- id: SR/QD09
+  class: Quadrupole
+  names:
+  - QD09
+  label: QD 09
+- id: SR/QD10
+  class: Quadrupole
+  names:
+  - QD10
+  label: QD 10
+- id: SR/QD11
+  class: Quadrupole
+  names:
+  - QD11
+  label: QD 11
+- id: SR/QD12
+  class: Quadrupole
+  names:
+  - QD12
+  label: QD 12
+- id: SR/QD13
+  class: Quadrupole
+  names:
+  - QD13
+  label: QD 13
+- id: SR/QD14
+  class: Quadrupole
+  names:
+  - QD14
+  label: QD 14
+- id: SR/QD15
+  class: Quadrupole
+  names:
+  - QD15
+  label: QD 15
+- id: SR/QD16
+  class: Quadrupole
+  names:
+  - QD16
+  label: QD 16
+- id: SR/QD17
+  class: Quadrupole
+  names:
+  - QD17
+  label: QD 17
+- id: SR/QD18
+  class: Quadrupole
+  names:
+  - QD18
+  label: QD 18
+- id: SR/QD19
+  class: Quadrupole
+  names:
+  - QD19
+  label: QD 19
+- id: SR/QD20
+  class: Quadrupole
+  names:
+  - QD20
+  label: QD 20
+- id: SR/QD21
+  class: Quadrupole
+  names:
+  - QD21
+  label: QD 21
+- id: SR/QD22
+  class: Quadrupole
+  names:
+  - QD22
+  label: QD 22
+- id: SR/QD23
+  class: Quadrupole
+  names:
+  - QD23
+  label: QD 23
+- id: SR/QD24
+  class: Quadrupole
+  names:
+  - QD24
+  label: QD 24
+- id: SR/QF01
+  class: Quadrupole
+  names:
+  - QF01
+  label: QF 01
+- id: SR/QF02
+  class: Quadrupole
+  names:
+  - QF02
+  label: QF 02
+- id: SR/QF03
+  class: Quadrupole
+  names:
+  - QF03
+  label: QF 03
+- id: SR/QF04
+  class: Quadrupole
+  names:
+  - QF04
+  label: QF 04
+- id: SR/QF05
+  class: Quadrupole
+  names:
+  - QF05
+  label: QF 05
+- id: SR/QF06
+  class: Quadrupole
+  names:
+  - QF06
+  label: QF 06
+- id: SR/QF07
+  class: Quadrupole
+  names:
+  - QF07
+  label: QF 07
+- id: SR/QF08
+  class: Quadrupole
+  names:
+  - QF08
+  label: QF 08
+- id: SR/QF09
+  class: Quadrupole
+  names:
+  - QF09
+  label: QF 09
+- id: SR/QF10
+  class: Quadrupole
+  names:
+  - QF10
+  label: QF 10
+- id: SR/QF11
+  class: Quadrupole
+  names:
+  - QF11
+  label: QF 11
+- id: SR/QF12
+  class: Quadrupole
+  names:
+  - QF12
+  label: QF 12
+- id: SR/QF13
+  class: Quadrupole
+  names:
+  - QF13
+  label: QF 13
+- id: SR/QF14
+  class: Quadrupole
+  names:
+  - QF14
+  label: QF 14
+- id: SR/QF15
+  class: Quadrupole
+  names:
+  - QF15
+  label: QF 15
+- id: SR/QF16
+  class: Quadrupole
+  names:
+  - QF16
+  label: QF 16
+- id: SR/QF17
+  class: Quadrupole
+  names:
+  - QF17
+  label: QF 17
+- id: SR/QF18
+  class: Quadrupole
+  names:
+  - QF18
+  label: QF 18
+- id: SR/QF19
+  class: Quadrupole
+  names:
+  - QF19
+  label: QF 19
+- id: SR/QF20
+  class: Quadrupole
+  names:
+  - QF20
+  label: QF 20
+- id: SR/QF21
+  class: Quadrupole
+  names:
+  - QF21
+  label: QF 21
+- id: SR/QF22
+  class: Quadrupole
+  names:
+  - QF22
+  label: QF 22
+- id: SR/QF23
+  class: Quadrupole
+  names:
+  - QF23
+  label: QF 23
+- id: SR/QF24
+  class: Quadrupole
+  names:
+  - QF24
+  label: QF 24
+- id: SR/QFA01
+  class: Quadrupole
+  names:
+  - QFA01
+  label: QFA 01
+- id: SR/QFA02
+  class: Quadrupole
+  names:
+  - QFA02
+  label: QFA 02
+- id: SR/QFA03
+  class: Quadrupole
+  names:
+  - QFA03
+  label: QFA 03
+- id: SR/QFA04
+  class: Quadrupole
+  names:
+  - QFA04
+  label: QFA 04
+- id: SR/QFA05
+  class: Quadrupole
+  names:
+  - QFA05
+  label: QFA 05
+- id: SR/QFA06
+  class: Quadrupole
+  names:
+  - QFA06
+  label: QFA 06
+- id: SR/QFA07
+  class: Quadrupole
+  names:
+  - QFA07
+  label: QFA 07
+- id: SR/QFA08
+  class: Quadrupole
+  names:
+  - QFA08
+  label: QFA 08
+- id: SR/QFA09
+  class: Quadrupole
+  names:
+  - QFA09
+  label: QFA 09
+- id: SR/QFA10
+  class: Quadrupole
+  names:
+  - QFA10
+  label: QFA 10
+- id: SR/QFA11
+  class: Quadrupole
+  names:
+  - QFA11
+  label: QFA 11
+- id: SR/QFA12
+  class: Quadrupole
+  names:
+  - QFA12
+  label: QFA 12
+- id: SR/QFA13
+  class: Quadrupole
+  names:
+  - QFA13
+  label: QFA 13
+- id: SR/QFA14
+  class: Quadrupole
+  names:
+  - QFA14
+  label: QFA 14
+- id: SR/QFA15
+  class: Quadrupole
+  names:
+  - QFA15
+  label: QFA 15
+- id: SR/QFA16
+  class: Quadrupole
+  names:
+  - QFA16
+  label: QFA 16
+- id: SR/QFA17
+  class: Quadrupole
+  names:
+  - QFA17
+  label: QFA 17
+- id: SR/QFA18
+  class: Quadrupole
+  names:
+  - QFA18
+  label: QFA 18
+- id: SR/QFA19
+  class: Quadrupole
+  names:
+  - QFA19
+  label: QFA 19
+- id: SR/QFA20
+  class: Quadrupole
+  names:
+  - QFA20
+  label: QFA 20
+- id: SR/QFA21
+  class: Quadrupole
+  names:
+  - QFA21
+  label: QFA 21
+- id: SR/QFA22
+  class: Quadrupole
+  names:
+  - QFA22
+  label: QFA 22
+- id: SR/QFA23
+  class: Quadrupole
+  names:
+  - QFA23
+  label: QFA 23
+- id: SR/QFA24
+  class: Quadrupole
+  names:
+  - QFA24
+  label: QFA 24
+- id: SR/SD01
+  class: Sextupole
+  names:
+  - SD01
+  label: SD 01
+- id: SR/SD02
+  class: Sextupole
+  names:
+  - SD02
+  label: SD 02
+- id: SR/SD03
+  class: Sextupole
+  names:
+  - SD03
+  label: SD 03
+- id: SR/SD04
+  class: Sextupole
+  names:
+  - SD04
+  label: SD 04
+- id: SR/SD05
+  class: Sextupole
+  names:
+  - SD05
+  label: SD 05
+- id: SR/SD06
+  class: Sextupole
+  names:
+  - SD06
+  label: SD 06
+- id: SR/SD07
+  class: Sextupole
+  names:
+  - SD07
+  label: SD 07
+- id: SR/SD08
+  class: Sextupole
+  names:
+  - SD08
+  label: SD 08
+- id: SR/SD09
+  class: Sextupole
+  names:
+  - SD09
+  label: SD 09
+- id: SR/SD10
+  class: Sextupole
+  names:
+  - SD10
+  label: SD 10
+- id: SR/SD11
+  class: Sextupole
+  names:
+  - SD11
+  label: SD 11
+- id: SR/SD12
+  class: Sextupole
+  names:
+  - SD12
+  label: SD 12
+- id: SR/SD13
+  class: Sextupole
+  names:
+  - SD13
+  label: SD 13
+- id: SR/SD14
+  class: Sextupole
+  names:
+  - SD14
+  label: SD 14
+- id: SR/SD15
+  class: Sextupole
+  names:
+  - SD15
+  label: SD 15
+- id: SR/SD16
+  class: Sextupole
+  names:
+  - SD16
+  label: SD 16
+- id: SR/SD17
+  class: Sextupole
+  names:
+  - SD17
+  label: SD 17
+- id: SR/SD18
+  class: Sextupole
+  names:
+  - SD18
+  label: SD 18
+- id: SR/SD19
+  class: Sextupole
+  names:
+  - SD19
+  label: SD 19
+- id: SR/SD20
+  class: Sextupole
+  names:
+  - SD20
+  label: SD 20
+- id: SR/SD21
+  class: Sextupole
+  names:
+  - SD21
+  label: SD 21
+- id: SR/SD22
+  class: Sextupole
+  names:
+  - SD22
+  label: SD 22
+- id: SR/SD23
+  class: Sextupole
+  names:
+  - SD23
+  label: SD 23
+- id: SR/SD24
+  class: Sextupole
+  names:
+  - SD24
+  label: SD 24
+- id: SR/SF01
+  class: Sextupole
+  names:
+  - SF01
+  label: SF 01
+- id: SR/SF02
+  class: Sextupole
+  names:
+  - SF02
+  label: SF 02
+- id: SR/SF03
+  class: Sextupole
+  names:
+  - SF03
+  label: SF 03
+- id: SR/SF04
+  class: Sextupole
+  names:
+  - SF04
+  label: SF 04
+- id: SR/SF05
+  class: Sextupole
+  names:
+  - SF05
+  label: SF 05
+- id: SR/SF06
+  class: Sextupole
+  names:
+  - SF06
+  label: SF 06
+- id: SR/SF07
+  class: Sextupole
+  names:
+  - SF07
+  label: SF 07
+- id: SR/SF08
+  class: Sextupole
+  names:
+  - SF08
+  label: SF 08
+- id: SR/SF09
+  class: Sextupole
+  names:
+  - SF09
+  label: SF 09
+- id: SR/SF10
+  class: Sextupole
+  names:
+  - SF10
+  label: SF 10
+- id: SR/SF11
+  class: Sextupole
+  names:
+  - SF11
+  label: SF 11
+- id: SR/SF12
+  class: Sextupole
+  names:
+  - SF12
+  label: SF 12
+- id: SR/SF13
+  class: Sextupole
+  names:
+  - SF13
+  label: SF 13
+- id: SR/SF14
+  class: Sextupole
+  names:
+  - SF14
+  label: SF 14
+- id: SR/SF15
+  class: Sextupole
+  names:
+  - SF15
+  label: SF 15
+- id: SR/SF16
+  class: Sextupole
+  names:
+  - SF16
+  label: SF 16
+- id: SR/SF17
+  class: Sextupole
+  names:
+  - SF17
+  label: SF 17
+- id: SR/SF18
+  class: Sextupole
+  names:
+  - SF18
+  label: SF 18
+- id: SR/SF19
+  class: Sextupole
+  names:
+  - SF19
+  label: SF 19
+- id: SR/SF20
+  class: Sextupole
+  names:
+  - SF20
+  label: SF 20
+- id: SR/SF21
+  class: Sextupole
+  names:
+  - SF21
+  label: SF 21
+- id: SR/SF22
+  class: Sextupole
+  names:
+  - SF22
+  label: SF 22
+- id: SR/SF23
+  class: Sextupole
+  names:
+  - SF23
+  label: SF 23
+- id: SR/SF24
+  class: Sextupole
+  names:
+  - SF24
+  label: SF 24
+- id: SR/SHD01
+  class: Sextupole
+  names:
+  - SHD01
+  label: SHD 01
+- id: SR/SHD02
+  class: Sextupole
+  names:
+  - SHD02
+  label: SHD 02
+- id: SR/SHD03
+  class: Sextupole
+  names:
+  - SHD03
+  label: SHD 03
+- id: SR/SHD04
+  class: Sextupole
+  names:
+  - SHD04
+  label: SHD 04
+- id: SR/SHD05
+  class: Sextupole
+  names:
+  - SHD05
+  label: SHD 05
+- id: SR/SHD06
+  class: Sextupole
+  names:
+  - SHD06
+  label: SHD 06
+- id: SR/SHD07
+  class: Sextupole
+  names:
+  - SHD07
+  label: SHD 07
+- id: SR/SHD08
+  class: Sextupole
+  names:
+  - SHD08
+  label: SHD 08
+- id: SR/SHD09
+  class: Sextupole
+  names:
+  - SHD09
+  label: SHD 09
+- id: SR/SHD10
+  class: Sextupole
+  names:
+  - SHD10
+  label: SHD 10
+- id: SR/SHD11
+  class: Sextupole
+  names:
+  - SHD11
+  label: SHD 11
+- id: SR/SHD12
+  class: Sextupole
+  names:
+  - SHD12
+  label: SHD 12
+- id: SR/SHD13
+  class: Sextupole
+  names:
+  - SHD13
+  label: SHD 13
+- id: SR/SHD14
+  class: Sextupole
+  names:
+  - SHD14
+  label: SHD 14
+- id: SR/SHD15
+  class: Sextupole
+  names:
+  - SHD15
+  label: SHD 15
+- id: SR/SHD16
+  class: Sextupole
+  names:
+  - SHD16
+  label: SHD 16
+- id: SR/SHD17
+  class: Sextupole
+  names:
+  - SHD17
+  label: SHD 17
+- id: SR/SHD18
+  class: Sextupole
+  names:
+  - SHD18
+  label: SHD 18
+- id: SR/SHD19
+  class: Sextupole
+  names:
+  - SHD19
+  label: SHD 19
+- id: SR/SHD20
+  class: Sextupole
+  names:
+  - SHD20
+  label: SHD 20
+- id: SR/SHD21
+  class: Sextupole
+  names:
+  - SHD21
+  label: SHD 21
+- id: SR/SHD22
+  class: Sextupole
+  names:
+  - SHD22
+  label: SHD 22
+- id: SR/SHD23
+  class: Sextupole
+  names:
+  - SHD23
+  label: SHD 23
+- id: SR/SHD24
+  class: Sextupole
+  names:
+  - SHD24
+  label: SHD 24
+- id: SR/SHF01
+  class: Sextupole
+  names:
+  - SHF01
+  label: SHF 01
+- id: SR/SHF02
+  class: Sextupole
+  names:
+  - SHF02
+  label: SHF 02
+- id: SR/SHF03
+  class: Sextupole
+  names:
+  - SHF03
+  label: SHF 03
+- id: SR/SHF04
+  class: Sextupole
+  names:
+  - SHF04
+  label: SHF 04
+- id: SR/SHF05
+  class: Sextupole
+  names:
+  - SHF05
+  label: SHF 05
+- id: SR/SHF06
+  class: Sextupole
+  names:
+  - SHF06
+  label: SHF 06
+- id: SR/SHF07
+  class: Sextupole
+  names:
+  - SHF07
+  label: SHF 07
+- id: SR/SHF08
+  class: Sextupole
+  names:
+  - SHF08
+  label: SHF 08
+- id: SR/SHF09
+  class: Sextupole
+  names:
+  - SHF09
+  label: SHF 09
+- id: SR/SHF10
+  class: Sextupole
+  names:
+  - SHF10
+  label: SHF 10
+- id: SR/SHF11
+  class: Sextupole
+  names:
+  - SHF11
+  label: SHF 11
+- id: SR/SHF12
+  class: Sextupole
+  names:
+  - SHF12
+  label: SHF 12
+- id: SR/SHF13
+  class: Sextupole
+  names:
+  - SHF13
+  label: SHF 13
+- id: SR/SHF14
+  class: Sextupole
+  names:
+  - SHF14
+  label: SHF 14
+- id: SR/SHF15
+  class: Sextupole
+  names:
+  - SHF15
+  label: SHF 15
+- id: SR/SHF16
+  class: Sextupole
+  names:
+  - SHF16
+  label: SHF 16
+- id: SR/SHF17
+  class: Sextupole
+  names:
+  - SHF17
+  label: SHF 17
+- id: SR/SHF18
+  class: Sextupole
+  names:
+  - SHF18
+  label: SHF 18
+- id: SR/SHF19
+  class: Sextupole
+  names:
+  - SHF19
+  label: SHF 19
+- id: SR/SHF20
+  class: Sextupole
+  names:
+  - SHF20
+  label: SHF 20
+- id: SR/SHF21
+  class: Sextupole
+  names:
+  - SHF21
+  label: SHF 21
+- id: SR/SHF22
+  class: Sextupole
+  names:
+  - SHF22
+  label: SHF 22
+- id: SR/SHF23
+  class: Sextupole
+  names:
+  - SHF23
+  label: SHF 23
+- id: SR/SHF24
+  class: Sextupole
+  names:
+  - SHF24
+  label: SHF 24
+- id: SR/VALVE01
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
+  names:
+  - VALVE01
+  - gate valve
+  label: VALVE 01
+  place: SR/SECT1
+- id: SR/VALVE02
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
+  names:
+  - VALVE02
+  - gate valve
+  label: VALVE 02
+  place: SR/SECT2
+- id: SR/VALVE03
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
+  names:
+  - VALVE03
+  - gate valve
+  label: VALVE 03
+  place: SR/SECT3
+- id: SR/VALVE04
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
+  names:
+  - VALVE04
+  - gate valve
+  label: VALVE 04
+  place: SR/SECT4
+- id: SR/VALVE05
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
+  names:
+  - VALVE05
+  - gate valve
+  label: VALVE 05
+  place: SR/SECT5
+- id: SR/VALVE06
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
+  names:
+  - VALVE06
+  - gate valve
+  label: VALVE 06
+  place: SR/SECT6
+- id: SR/VALVE07
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
+  names:
+  - VALVE07
+  - gate valve
+  label: VALVE 07
+  place: SR/SECT7
+- id: SR/VALVE08
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
+  names:
+  - VALVE08
+  - gate valve
+  label: VALVE 08
+  place: SR/SECT8
+- id: SR/VALVE09
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
+  names:
+  - VALVE09
+  - gate valve
+  label: VALVE 09
+  place: SR/SECT9
+- id: SR/VALVE10
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
+  names:
+  - VALVE10
+  - gate valve
+  label: VALVE 10
+  place: SR/SECT10
+- id: SR/VALVE11
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
+  names:
+  - VALVE11
+  - gate valve
+  label: VALVE 11
+  place: SR/SECT11
+- id: SR/VALVE12
+  class: Valve
+  description: 'Vacuum Valves: Isolation and control valves for vacuum system. Gate valves or all-metal valves for UHV compatibility. Used to isolate sectors during maintenance.'
+  names:
+  - VALVE12
+  - gate valve
+  label: VALVE 12
+  place: SR/SECT12
+- id: SR/VCM01
+  class: VCorrector
+  names:
+  - VCM01
+  label: VCM 01
+- id: SR/VCM02
+  class: VCorrector
+  names:
+  - VCM02
+  label: VCM 02
+- id: SR/VCM03
+  class: VCorrector
+  names:
+  - VCM03
+  label: VCM 03
+- id: SR/VCM04
+  class: VCorrector
+  names:
+  - VCM04
+  label: VCM 04
+- id: SR/VCM05
+  class: VCorrector
+  names:
+  - VCM05
+  label: VCM 05
+- id: SR/VCM06
+  class: VCorrector
+  names:
+  - VCM06
+  label: VCM 06
+- id: SR/VCM07
+  class: VCorrector
+  names:
+  - VCM07
+  label: VCM 07
+- id: SR/VCM08
+  class: VCorrector
+  names:
+  - VCM08
+  label: VCM 08
+- id: SR/VCM09
+  class: VCorrector
+  names:
+  - VCM09
+  label: VCM 09
+- id: SR/VCM10
+  class: VCorrector
+  names:
+  - VCM10
+  label: VCM 10
+- id: SR/VCM11
+  class: VCorrector
+  names:
+  - VCM11
+  label: VCM 11
+- id: SR/VCM12
+  class: VCorrector
+  names:
+  - VCM12
+  label: VCM 12
+- id: SR/VCM13
+  class: VCorrector
+  names:
+  - VCM13
+  label: VCM 13
+- id: SR/VCM14
+  class: VCorrector
+  names:
+  - VCM14
+  label: VCM 14
+- id: SR/VCM15
+  class: VCorrector
+  names:
+  - VCM15
+  label: VCM 15
+- id: SR/VCM16
+  class: VCorrector
+  names:
+  - VCM16
+  label: VCM 16
+- id: SR/VCM17
+  class: VCorrector
+  names:
+  - VCM17
+  label: VCM 17
+- id: SR/VCM18
+  class: VCorrector
+  names:
+  - VCM18
+  label: VCM 18
+- id: SR/VCM19
+  class: VCorrector
+  names:
+  - VCM19
+  label: VCM 19
+- id: SR/VCM20
+  class: VCorrector
+  names:
+  - VCM20
+  label: VCM 20
+- id: SR/VCM21
+  class: VCorrector
+  names:
+  - VCM21
+  label: VCM 21
+- id: SR/VCM22
+  class: VCorrector
+  names:
+  - VCM22
+  label: VCM 22
+- id: SR/VCM23
+  class: VCorrector
+  names:
+  - VCM23
+  label: VCM 23
+- id: SR/VCM24
+  class: VCorrector
+  names:
+  - VCM24
+  label: VCM 24
+- id: SR/VCM25
+  class: VCorrector
+  names:
+  - VCM25
+  label: VCM 25
+- id: SR/VCM26
+  class: VCorrector
+  names:
+  - VCM26
+  label: VCM 26
+- id: SR/VCM27
+  class: VCorrector
+  names:
+  - VCM27
+  label: VCM 27
+- id: SR/VCM28
+  class: VCorrector
+  names:
+  - VCM28
+  label: VCM 28
+- id: SR/VCM29
+  class: VCorrector
+  names:
+  - VCM29
+  label: VCM 29
+- id: SR/VCM30
+  class: VCorrector
+  names:
+  - VCM30
+  label: VCM 30
+- id: SR/VCM31
+  class: VCorrector
+  names:
+  - VCM31
+  label: VCM 31
+- id: SR/VCM32
+  class: VCorrector
+  names:
+  - VCM32
+  label: VCM 32
+- id: SR/VCM33
+  class: VCorrector
+  names:
+  - VCM33
+  label: VCM 33
+- id: SR/VCM34
+  class: VCorrector
+  names:
+  - VCM34
+  label: VCM 34
+- id: SR/VCM35
+  class: VCorrector
+  names:
+  - VCM35
+  label: VCM 35
+- id: SR/VCM36
+  class: VCorrector
+  names:
+  - VCM36
+  label: VCM 36
+- id: SR/VCM37
+  class: VCorrector
+  names:
+  - VCM37
+  label: VCM 37
+- id: SR/VCM38
+  class: VCorrector
+  names:
+  - VCM38
+  label: VCM 38
+- id: SR/VCM39
+  class: VCorrector
+  names:
+  - VCM39
+  label: VCM 39
+- id: SR/VCM40
+  class: VCorrector
+  names:
+  - VCM40
+  label: VCM 40
+- id: SR/VCM41
+  class: VCorrector
+  names:
+  - VCM41
+  label: VCM 41
+- id: SR/VCM42
+  class: VCorrector
+  names:
+  - VCM42
+  label: VCM 42
+- id: SR/VCM43
+  class: VCorrector
+  names:
+  - VCM43
+  label: VCM 43
+- id: SR/VCM44
+  class: VCorrector
+  names:
+  - VCM44
+  label: VCM 44
+- id: SR/VCM45
+  class: VCorrector
+  names:
+  - VCM45
+  label: VCM 45
+- id: SR/VCM46
+  class: VCorrector
+  names:
+  - VCM46
+  label: VCM 46
+- id: SR/VCM47
+  class: VCorrector
+  names:
+  - VCM47
+  label: VCM 47
+- id: SR/VCM48
+  class: VCorrector
+  names:
+  - VCM48
+  label: VCM 48
+- id: SR/VCM49
+  class: VCorrector
+  names:
+  - VCM49
+  label: VCM 49
+- id: SR/VCM50
+  class: VCorrector
+  names:
+  - VCM50
+  label: VCM 50
+- id: SR/VCM51
+  class: VCorrector
+  names:
+  - VCM51
+  label: VCM 51
+- id: SR/VCM52
+  class: VCorrector
+  names:
+  - VCM52
+  label: VCM 52
+- id: SR/VCM53
+  class: VCorrector
+  names:
+  - VCM53
+  label: VCM 53
+- id: SR/VCM54
+  class: VCorrector
+  names:
+  - VCM54
+  label: VCM 54
+- id: SR/VCM55
+  class: VCorrector
+  names:
+  - VCM55
+  label: VCM 55
+- id: SR/VCM56
+  class: VCorrector
+  names:
+  - VCM56
+  label: VCM 56
+- id: SR/VCM57
+  class: VCorrector
+  names:
+  - VCM57
+  label: VCM 57
+- id: SR/VCM58
+  class: VCorrector
+  names:
+  - VCM58
+  label: VCM 58
+- id: SR/VCM59
+  class: VCorrector
+  names:
+  - VCM59
+  label: VCM 59
+- id: SR/VCM60
+  class: VCorrector
+  names:
+  - VCM60
+  label: VCM 60
+- id: SR/VCM61
+  class: VCorrector
+  names:
+  - VCM61
+  label: VCM 61
+- id: SR/VCM62
+  class: VCorrector
+  names:
+  - VCM62
+  label: VCM 62
+- id: SR/VCM63
+  class: VCorrector
+  names:
+  - VCM63
+  label: VCM 63
+- id: SR/VCM64
+  class: VCorrector
+  names:
+  - VCM64
+  label: VCM 64
+- id: SR/VCM65
+  class: VCorrector
+  names:
+  - VCM65
+  label: VCM 65
+- id: SR/VCM66
+  class: VCorrector
+  names:
+  - VCM66
+  label: VCM 66
+- id: SR/VCM67
+  class: VCorrector
+  names:
+  - VCM67
+  label: VCM 67
+- id: SR/VCM68
+  class: VCorrector
+  names:
+  - VCM68
+  label: VCM 68
+- id: SR/VCM69
+  class: VCorrector
+  names:
+  - VCM69
+  label: VCM 69
+- id: SR/VCM70
+  class: VCorrector
+  names:
+  - VCM70
+  label: VCM 70
+- id: SR/VCM71
+  class: VCorrector
+  names:
+  - VCM71
+  label: VCM 71
+- id: SR/VCM72
+  class: VCorrector
+  names:
+  - VCM72
+  label: VCM 72

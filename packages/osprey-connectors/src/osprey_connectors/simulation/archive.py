@@ -1,0 +1,963 @@
+"""Materializing a deployment's archive: the base seed and its fingerprint.
+
+A deployment that serves simulated channels needs history for them, and the
+honest way to have history is to *store* it. This module computes that stored
+history and writes it: one document per timestamp carrying every channel, over
+a two-tier grid reaching back the configured retention, in the schema
+``MongoDBArchiverConnector`` already reads.
+
+The values are not this module's invention. Every channel is read from the
+archive composite (:func:`build`), the simulator view's composite at the start
+state of the active scenario set, evaluated at each document's own absolute
+timestamp. Every sample is a pure function of ``(channel, epoch seconds)``
+under that set, so a document written here at time T holds exactly what the
+composite serves at T: seeded history and the served machine are one world
+rather than two plausible ones.
+
+Three pieces of the design are worth stating outright:
+
+* **Two tiers, one grid.** The coarse tier spans the full retention window; the
+  dense tier adds samples *between* its points over the recent span. They are
+  built from one epoch-aligned grid and the dense tier skips timestamps the
+  coarse tier already owns, so no timestamp is written twice — the schema is one
+  document per timestamp and a duplicate would be a second, competing sample.
+
+* **Retention is per document, not per collection.** Each document carries an
+  ``expireAt`` that a TTL index acts on, stamped by the tier that produced it.
+  A coarse sample lives for the retention span, a dense one until it ages out
+  of the dense span, and a document with no stamp at all never expires — which
+  is what lets a later scenario rewrite protect the windows it touches by
+  simply removing the field.
+
+* **Reseeding is a decision, not a default.** A seed manifest records the knobs
+  the store was built with, and :func:`compare_fingerprint` reports match,
+  mismatch or absence. The seed instant is stored but deliberately excluded from
+  the comparison — it differs on every deploy, and including it would make every
+  deploy a reseed.
+
+This module never imports ``pymongo``: the functions that talk to a store take
+a collection handle their caller opened. That keeps an optional dependency
+optional, and leaves the grid, the fingerprint and the synthesis — the parts
+worth reasoning about — pure and testable with no store at all.
+
+**The archive composite.** :func:`build` reads a simulator view's history
+through a composite of its own, built at the start state of one active
+scenario set: the set's active writes, never a session write. The composite is
+read once, one solve per physics model, and :class:`ArchiveComposite` then
+computes every timestamp from those held values: the active scenarios'
+archiver events, then the texture's drift, couplings and keyed noise, the
+physics engine's readout and the clamp, as the composite serves them. Samples
+are in the wire representation, so a ``bool`` or ``enum`` channel archives its
+option index. ``lume`` is imported inside :func:`build` only.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import tempfile
+import time
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from enum import Enum
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
+
+from osprey_connectors.archiver.field_names import field_name
+from osprey_connectors.logger import get_logger
+from osprey_connectors.simulation import values as channel_values
+from osprey_connectors.simulation.series import (
+    apply_events,
+    epoch_seconds_array,
+    event_positions,
+)
+from osprey_connectors.simulation.state import (
+    ACTIVE_SCENARIOS_FILENAME,
+    resolve_active_scenarios,
+)
+from osprey_connectors.simulation.view import VARIABLES_FILE, SimulatorView
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from zoneinfo import ZoneInfo
+
+    from pymongo.collection import Collection
+
+    from osprey_connectors.simulation.composite import Composite
+
+logger = get_logger("archive")
+
+__all__ = [
+    "MANIFEST_ID",
+    "SEED_SCHEMA_VERSION",
+    "ArchiveComposite",
+    "FingerprintComparison",
+    "SeedKnobs",
+    "SeedReport",
+    "SeedState",
+    "build",
+    "compare_fingerprint",
+    "oldest_sample",
+    "prepare_collection",
+    "scenario_events",
+    "seed_base",
+    "seed_fingerprint",
+    "seed_grid",
+    "synthesize_documents",
+    "tier_expiry",
+    "write_manifest",
+]
+
+#: ``_id`` of the seed-manifest document. A fixed id makes writing it an upsert
+#: and reading it a primary-key lookup, and makes a second manifest impossible.
+MANIFEST_ID = "osprey:seed_manifest"
+
+#: Bumped when the meaning of a stored document changes in a way that makes an
+#: existing store wrong rather than merely differently configured. It is part of
+#: the fingerprint, so a bump reseeds every deployment on upgrade.
+SEED_SCHEMA_VERSION = 2
+
+#: Field naming the instant a document's sample was taken. The connector queries
+#: and sorts on it; the manifest document deliberately has none, which is what
+#: keeps it out of every archiver read without needing a filter.
+DATE_FIELD = "date"
+
+#: Field the TTL index acts on. A document without it never expires.
+EXPIRE_FIELD = "expireAt"
+
+#: Timestamps synthesized in one pass. Sized so the value matrix of a full
+#: channel set stays in the tens of megabytes: the whole point of chunking is
+#: that a month of history for three thousand channels does not fit in memory
+#: at once.
+DEFAULT_CHUNK_SIZE = 2000
+
+#: Concurrent insert workers. The synthesis runs on the calling thread and the
+#: inserts overlap it, which is the parallelism that matters here — the round
+#: trip to the store, not the arithmetic.
+DEFAULT_WORKERS = 4
+
+
+class SeedState(Enum):
+    """What a store's manifest says about the seed it holds."""
+
+    ABSENT = "absent"
+    """No manifest document: the store has never been seeded (or was wiped)."""
+
+    MATCH = "match"
+    """The store was built with the knobs now in force. Nothing to do."""
+
+    MISMATCH = "mismatch"
+    """The store was built with different knobs, so its coverage no longer
+    describes what the profile asks for. The store has to be rebuilt."""
+
+
+@dataclass(frozen=True)
+class FingerprintComparison:
+    """The outcome of comparing a store's manifest against current knobs."""
+
+    state: SeedState
+    differences: tuple[tuple[str, Any, Any], ...] = ()
+    """``(key, stored, expected)`` for each field that moved. Empty unless the
+    state is :attr:`SeedState.MISMATCH`. Carried so the deploy step can *report*
+    what changed rather than announcing an unexplained reseed."""
+
+    seeded_at: datetime | None = None
+    """The instant the stored seed was anchored at, when there is one. Metadata:
+    it is never compared (see the module docstring)."""
+
+    def describe(self) -> str:
+        """One line per changed knob, for a deploy-time report."""
+        return "\n".join(
+            f"  {key}: {stored!r} -> {expected!r}" for key, stored, expected in self.differences
+        )
+
+
+@dataclass(frozen=True)
+class SeedKnobs:
+    """The shape of the archive, as the profile's ``va_archiver:`` block sets it.
+
+    Defaults mirror :class:`~osprey.cli.build_profile_archiver.VAArchiverConfig`
+    so a caller holding no config still gets the shipped archive rather than an
+    arbitrary one. The block validates ranges and the cadence-divisibility rule
+    at build time; :meth:`validate` repeats the ones this module's arithmetic
+    depends on, because a store can also be seeded from a hand-written config
+    that never went through a profile.
+    """
+
+    retention_days: int = 30
+    hot_span_hours: int = 48
+    hot_cadence_sec: int = 10
+    tail_cadence_sec: int = 60
+
+    @classmethod
+    def from_config(cls, config: Mapping[str, Any]) -> SeedKnobs:
+        """Read the knobs out of a rendered project config.
+
+        Args:
+            config: The loaded ``config.yml`` as a mapping. Its ``va_archiver``
+                subtree supplies the knobs; any absent one keeps its default,
+                so a config predating a knob still seeds.
+
+        Returns:
+            The parsed knobs.
+
+        Raises:
+            ValueError: If a knob is present but not a positive integer, or the
+                set is internally inconsistent (see :meth:`validate`).
+        """
+        block = config.get("va_archiver") or {}
+        if not isinstance(block, Mapping):
+            raise ValueError(f"config 'va_archiver' must be a mapping (got {type(block).__name__})")
+
+        values: dict[str, int] = {}
+        for name in ("retention_days", "hot_span_hours", "hot_cadence_sec", "tail_cadence_sec"):
+            if name in block:
+                raw = block[name]
+                if isinstance(raw, bool) or not isinstance(raw, int):
+                    raise ValueError(f"va_archiver.{name} must be an integer (got {raw!r})")
+                values[name] = raw
+
+        knobs = cls(**values)
+        knobs.validate()
+        return knobs
+
+    def validate(self) -> None:
+        """Refuse knobs this module's grid arithmetic cannot honor.
+
+        Raises:
+            ValueError: If any knob is below one, the dense span reaches past
+                retention, or the coarse cadence is not a whole multiple of the
+                dense one — that last is what makes the coarse grid a subset of
+                the dense one rather than a second grid interleaved with it.
+        """
+        for name in ("retention_days", "hot_span_hours", "hot_cadence_sec", "tail_cadence_sec"):
+            value = getattr(self, name)
+            if value < 1:
+                raise ValueError(f"va_archiver.{name} must be >= 1 (got {value})")
+        if self.hot_span_hours > self.retention_days * 24:
+            raise ValueError(
+                f"va_archiver.hot_span_hours ({self.hot_span_hours}) exceeds "
+                f"retention_days ({self.retention_days} days)"
+            )
+        if self.tail_cadence_sec % self.hot_cadence_sec:
+            raise ValueError(
+                f"va_archiver.tail_cadence_sec ({self.tail_cadence_sec}) must be a whole "
+                f"multiple of hot_cadence_sec ({self.hot_cadence_sec})"
+            )
+
+    @property
+    def retention_s(self) -> int:
+        """Retention span in seconds."""
+        return self.retention_days * 86400
+
+    @property
+    def hot_span_s(self) -> int:
+        """Dense-tier span in seconds."""
+        return self.hot_span_hours * 3600
+
+
+@dataclass
+class SeedReport:
+    """What one seeding run wrote."""
+
+    documents: int = 0
+    channels: int = 0
+    start: datetime | None = None
+    end: datetime | None = None
+    elapsed_s: float = 0.0
+    chunks: int = 0
+
+    def describe(self) -> str:
+        """A one-line summary for a deploy-time progress report."""
+        span = (
+            f"{self.start:%Y-%m-%d %H:%M} to {self.end:%Y-%m-%d %H:%M} UTC"
+            if self.start and self.end
+            else "empty window"
+        )
+        return (
+            f"seeded {self.documents:,} documents x {self.channels:,} channels "
+            f"({span}) in {self.elapsed_s:.1f}s"
+        )
+
+
+# ---------------------------------------------------------------------------
+# The archive composite
+# ---------------------------------------------------------------------------
+
+#: The serving instance the archive composite's log lines name.
+_ARCHIVE_INSTANCE = "virtual_accelerator"
+
+_STEP = "step"
+
+
+class ArchiveComposite:
+    """A simulator view's history for one active scenario set.
+
+    Every sample is a pure function of the channel, its held value at the
+    start state, the active scenarios and the epoch time, so two windows that
+    share a timestamp agree on it.
+
+    Args:
+        channels: Each channel's record in ``variables.json``, by address.
+        held: Each channel's held value at the start state, in its stored
+            representation.
+        events: The active scenarios' archiver events, by address.
+        composite: The composite at the start state, whose readings every
+            float channel carries.
+        anchor_s: The epoch seconds an ``at_offset`` event is placed from.
+        tz: The zone a daily ``at_time`` event is placed in.
+        state: The directory holding ``composite``'s active set, kept as long
+            as the archive is.
+    """
+
+    def __init__(
+        self,
+        channels: Mapping[str, Mapping[str, Any]],
+        held: Mapping[str, Any],
+        events: Mapping[str, list[dict[str, Any]]],
+        composite: Composite,
+        *,
+        anchor_s: float,
+        tz: ZoneInfo | None,
+        state: tempfile.TemporaryDirectory[str] | None = None,
+    ) -> None:
+        self._channels = dict(channels)
+        self._held = dict(held)
+        self._events = {address: list(scripts) for address, scripts in events.items()}
+        self._composite = composite
+        self._state = state
+        self._anchor_s = anchor_s
+        self._tz = tz
+
+    @property
+    def addresses(self) -> list[str]:
+        """The archived channel addresses, sorted."""
+        return sorted(self._channels)
+
+    def held(self, address: str) -> Any:
+        """A channel's held value at the start state, in its stored representation.
+
+        Raises:
+            KeyError: ``address`` is not a channel of the view.
+        """
+        self._require(address)
+        return self._held[address]
+
+    def series(self, address: str, t_s: Sequence[float] | np.ndarray) -> list[Any]:
+        """One channel's samples at absolute epoch seconds, in the wire representation.
+
+        A ``float`` channel holds its start-state value, moved by the active
+        scenarios' archiver events, and reads that level as the composite
+        serves it: a moving channel with its motion, its engine's readout and
+        its clamp, a physics setpoint as it is. Any other channel holds its
+        start-state value, moved only by ``step`` events; a ``bool`` or
+        ``enum`` sample is its option index.
+
+        Args:
+            address: A channel address of the view.
+            t_s: Epoch seconds, ascending.
+
+        Returns:
+            One sample per timestamp.
+
+        Raises:
+            KeyError: ``address`` is not a channel of the view.
+        """
+        return self.samples([address], t_s)[address]
+
+    def samples(
+        self, addresses: Sequence[str], t_s: Sequence[float] | np.ndarray
+    ) -> dict[str, list[Any]]:
+        """Several channels' samples at absolute epoch seconds, as :meth:`series` gives each.
+
+        The float channels are read together, so a physics model's readout
+        runs once per timestamp for all of them rather than once per channel.
+
+        Args:
+            addresses: Channel addresses of the view.
+            t_s: Epoch seconds, ascending.
+
+        Returns:
+            One sample per timestamp, by address.
+
+        Raises:
+            KeyError: An address is not a channel of the view.
+        """
+        for address in addresses:
+            self._require(address)
+        times = np.asarray(t_s, dtype=np.float64).reshape(-1)
+        if len(times) == 0:
+            return {address: [] for address in addresses}
+        floats = [address for address in addresses if self._is_float(address)]
+        levels = {
+            name: self._level(name, times)
+            for address in floats
+            for name in self._composite.readout_group(address)
+        }
+        read = self._composite.readings(levels, times) if levels else {}
+        out: dict[str, list[Any]] = {}
+        for address in addresses:
+            if address in read:
+                out[address] = [float(value) for value in read[address]]
+                continue
+            channel = self._channels[address]
+            stored = self._stepped(
+                channel, self._held[address], self._events.get(address, []), times
+            )
+            out[address] = [self._wire(channel, value) for value in stored]
+        return out
+
+    def _is_float(self, address: str) -> bool:
+        channel = self._channels[address]
+        return (channel.get("value_type") or channel_values.DEFAULT_VALUE_TYPE) == "float"
+
+    def _require(self, address: str) -> None:
+        if address not in self._channels:
+            raise KeyError(f"{address} is not a channel of the simulator view")
+
+    def _level(self, address: str, times: np.ndarray) -> np.ndarray:
+        """A float channel's start-state value moved by its archiver events."""
+        count = len(times)
+        start = np.full(count, float(self._held[address]), dtype=np.float64)
+        events = self._events.get(address, [])
+        return apply_events(start, events, count, times, self._anchor_s, self._tz)
+
+    def _stepped(
+        self,
+        channel: Mapping[str, Any],
+        held: Any,
+        events: Sequence[Mapping[str, Any]],
+        times: np.ndarray,
+    ) -> list[Any]:
+        """A non-float channel's stored values: its held value, then each ``step`` event's ``to``."""
+        stored = [held] * len(times)
+        fractions = np.linspace(0.0, 1.0, len(times))
+        for event in events:
+            if event.get("shape") != _STEP:
+                continue
+            target = channel_values.coerce(
+                event["to"], channel.get("value_type"), channel.get("options"), channel.get("shape")
+            )
+            for axis, at in event_positions(
+                dict(event), fractions, times, self._anchor_s, self._tz
+            ):
+                for index in np.flatnonzero(axis >= at):
+                    stored[int(index)] = target
+        return stored
+
+    @staticmethod
+    def _wire(channel: Mapping[str, Any], value: Any) -> Any:
+        """A stored value as the wire carries it: a label as its option index."""
+        value_type = channel.get("value_type")
+        if value_type in ("bool", "enum"):
+            return channel_values.channel_labels(channel).index(value)
+        return value
+
+
+def scenario_events(
+    scenarios: Mapping[str, Mapping[str, Any]], names: Sequence[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """The archiver events a scenario set writes, by channel.
+
+    Args:
+        scenarios: The simulator view's scenarios, by name.
+        names: The scenario names of the set, in set order; a name
+            ``scenarios`` does not list contributes nothing.
+
+    Returns:
+        Each channel's events in set order; a channel an ``archiver`` entry
+        names with no events maps to an empty list.
+    """
+    events: dict[str, list[dict[str, Any]]] = {}
+    for name in names:
+        for entry in scenarios.get(name, {}).get("archiver") or []:
+            events.setdefault(str(entry["channel"]), []).extend(entry.get("events") or [])
+    return events
+
+
+def build(
+    view: SimulatorView | Path | str,
+    active_set: Sequence[str],
+    *,
+    anchor_s: float | None = None,
+) -> ArchiveComposite:
+    """Build the archive composite of a simulator view at one active set's start state.
+
+    The view's composite is built once at the set's start state and read once,
+    one solve per physics model; no session write and no writes journal is
+    read. A set whose scenarios write one target twice is archived without its
+    scenarios, as the composite serves it.
+
+    Args:
+        view: The simulator view, ``<render>/data/simulator``, opened or as
+            its directory, which is opened with :meth:`SimulatorView.open`.
+        active_set: The active scenario names; ``nominal`` is always active.
+        anchor_s: The epoch seconds the set was applied at, from which an
+            ``at_offset`` event is placed; ``None`` is the time of the build.
+
+    Returns:
+        The archive composite.
+
+    Raises:
+        RuntimeError: A physics model fails to build or read at the start
+            state; the message names it and its engine's error.
+        NoSimulatorView: The directory holds no simulator view.
+        ViewSchemaError: A view file is not the schema this OSPREY reads.
+    """
+    from osprey_connectors.config import get_facility_timezone
+    from osprey_connectors.simulation.composite import STATUS_OK, Composite
+
+    if not isinstance(view, SimulatorView):
+        view = SimulatorView.open(view)
+    scenarios = {str(scenario["name"]): scenario for scenario in view.scenarios()}
+    records = {
+        str(channel["address"]): channel for channel in view.document(VARIABLES_FILE)["channels"]
+    }
+    archived = sorted(view.channels())
+    names = resolve_active_scenarios([name for name in active_set if name in scenarios])
+
+    state = tempfile.TemporaryDirectory(prefix="osprey-archive-")
+    (Path(state.name) / ACTIVE_SCENARIOS_FILENAME).write_text(
+        "".join(f"{name}\n" for name in names), encoding="utf-8"
+    )
+    composite = Composite(view, state_dir=state.name, instance=_ARCHIVE_INSTANCE, model_log=False)
+    held = composite.held(archived)
+    failed = {
+        model: status
+        for model in composite.models
+        if (status := composite.status(model)) != STATUS_OK
+    }
+    if failed:
+        state.cleanup()
+        raise RuntimeError(
+            "; ".join(f"{model}: {status}" for model, status in sorted(failed.items()))
+        )
+
+    events = scenario_events(scenarios, composite.active)
+
+    return ArchiveComposite(
+        {address: records[address] for address in archived},
+        held,
+        {address: scripts for address, scripts in events.items() if address in records},
+        composite,
+        anchor_s=time.time() if anchor_s is None else float(anchor_s),
+        tz=get_facility_timezone(),
+        state=state,
+    )
+
+
+# ---------------------------------------------------------------------------
+# The grid
+# ---------------------------------------------------------------------------
+
+
+def seed_grid(knobs: SeedKnobs, t0: datetime) -> tuple[np.ndarray, np.ndarray]:
+    """The timestamps to seed and the instant each one expires.
+
+    The grid is epoch-aligned rather than anchored on ``t0``: both tiers land on
+    whole multiples of their cadence since the epoch, which is the only way the
+    coarse tier can be a subset of the dense one no matter what second ``t0``
+    happens to fall on. The dense tier contributes only the timestamps the
+    coarse tier does not already cover, so every timestamp appears exactly once.
+
+    Expiry is stamped by the tier that produced a timestamp: a coarse sample
+    lives out the retention span, a dense one lives until it ages out of the
+    dense span. Both are measured from the sample's own time, so the oldest
+    seeded documents are already at the end of their life when they are written
+    — which is what makes a seeded archive age like a recorded one instead of
+    surviving intact and then vanishing all at once.
+
+    Args:
+        knobs: The archive's shape.
+        t0: The instant the window ends — the seed anchor. Naive values are read
+            as UTC, matching the store's own convention.
+
+    Returns:
+        ``(epoch_seconds, expire_epoch_seconds)``, both float64, ascending by
+        time. Empty only if the window is degenerate.
+    """
+    knobs.validate()
+    end = _epoch_seconds(t0)
+
+    tail_start = end - knobs.retention_s
+    hot_start = end - knobs.hot_span_s
+
+    tail = _aligned_range(tail_start, end, knobs.tail_cadence_sec)
+    hot = _aligned_range(hot_start, end, knobs.hot_cadence_sec)
+    # The coarse cadence is a whole multiple of the dense one, so a dense point
+    # belongs to the coarse tier exactly when it is a multiple of the coarse
+    # cadence. Testing that is cheaper and exact, where a set difference over
+    # floats would be a float-equality comparison.
+    hot_only = hot[np.mod(hot, knobs.tail_cadence_sec) != 0]
+
+    times = np.concatenate([tail, hot_only])
+    order = np.argsort(times, kind="stable")
+    times = times[order]
+    return times, tier_expiry(knobs, times)
+
+
+def tier_expiry(knobs: SeedKnobs, epoch_s: np.ndarray) -> np.ndarray:
+    """When each of these samples expires, by the tier its timestamp belongs to.
+
+    A timestamp on the coarse cadence belongs to the coarse tier and lives out
+    the retention span; anything else is a dense-tier sample and lives until it
+    ages out of the dense span. Membership is read off the timestamp rather than
+    tracked alongside it, which is what lets a *later* writer — a scenario
+    rewrite restoring a window it once protected — re-stamp a document correctly
+    without knowing how it was originally produced.
+    """
+    dense = np.mod(epoch_s, knobs.tail_cadence_sec) != 0
+    lifetime = np.where(dense, float(knobs.hot_span_s), float(knobs.retention_s))
+    return np.asarray(epoch_s + lifetime)
+
+
+def _aligned_range(start_s: float, end_s: float, cadence_s: int) -> np.ndarray:
+    """Epoch-aligned timestamps in ``[start_s, end_s]`` at ``cadence_s``."""
+    first = np.ceil(start_s / cadence_s) * cadence_s
+    last = np.floor(end_s / cadence_s) * cadence_s
+    if last < first:
+        return np.empty(0, dtype=np.float64)
+    count = int(round((last - first) / cadence_s)) + 1
+    return np.asarray(first + np.arange(count, dtype=np.float64) * cadence_s)
+
+
+def _epoch_seconds(moment: datetime) -> float:
+    """Epoch seconds for one datetime, reading a naive value as UTC."""
+    aware = moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+    return aware.timestamp()
+
+
+def _as_utc_datetimes(epoch_s: np.ndarray) -> list[datetime]:
+    """Epoch seconds back to the timezone-aware datetimes the store stores.
+
+    pymongo reads a naive datetime as UTC, so writing aware ones costs nothing
+    and removes the question entirely.
+    """
+    return [datetime.fromtimestamp(float(value), UTC) for value in epoch_s]
+
+
+# ---------------------------------------------------------------------------
+# Synthesis
+# ---------------------------------------------------------------------------
+
+
+def synthesize_documents(archive: ArchiveComposite, epoch_s: np.ndarray) -> list[dict[str, Any]]:
+    """One document per timestamp, carrying every archived channel's value at it.
+
+    This is the single definition of "what the archive holds at time T", and it
+    is deliberately exported: the base seed writes it and an equivalence test
+    compares a served read against it. Every value is the archive composite's
+    sample (:meth:`ArchiveComposite.samples`), in the wire representation.
+
+    Args:
+        archive: The archive composite of the active set.
+        epoch_s: Absolute epoch seconds, one per document.
+
+    Returns:
+        A list of ``{date: datetime, <field_name(address)>: value}`` documents, ascending in
+        time. No ``expireAt`` — stamping is the caller's, because the tier a
+        timestamp belongs to is a property of the grid, not of the values.
+    """
+    stamps = _as_utc_datetimes(epoch_s)
+    documents: list[dict[str, Any]] = [{DATE_FIELD: stamp} for stamp in stamps]
+    if not documents:
+        return documents
+
+    # Sampled at the epoch seconds a *reader* of these documents derives from
+    # their stored dates, not at the ones the grid was built from. Datetimes
+    # carry microseconds, so a grid time with finer resolution than that would
+    # otherwise be stored as one instant and valued as another.
+    reader_epoch_s = epoch_seconds_array(stamps)
+    assert reader_epoch_s is not None  # datetimes always convert
+
+    addresses = archive.addresses
+    for address, values in archive.samples(addresses, reader_epoch_s).items():
+        field = field_name(address)
+        for document, value in zip(documents, values, strict=True):
+            document[field] = value
+
+    return documents
+
+
+# ---------------------------------------------------------------------------
+# The manifest
+# ---------------------------------------------------------------------------
+
+
+def seed_fingerprint(
+    knobs: SeedKnobs,
+    channel_addresses: Iterable[str],
+    *,
+    compression: str,
+) -> dict[str, Any]:
+    """The knobs a store's coverage depends on, as a comparable dict.
+
+    Everything here changes what the store *contains*: the window's depth and
+    density, which channels are in it, how it is compressed on disk, and the
+    document schema itself. Nothing here is an instant or a count — those move
+    on every deploy and would make the comparison a coin flip.
+
+    Args:
+        knobs: The archive's shape.
+        channel_addresses: The seeded channel set. Order does not matter; the
+            hash is taken over the sorted, deduplicated names.
+        compression: The collection's block compressor.
+
+    Returns:
+        The fingerprint, JSON-serializable and safe to store verbatim.
+    """
+    names = sorted(set(channel_addresses))
+    digest = hashlib.sha256("\n".join(names).encode("utf-8")).hexdigest()
+    return {
+        "schema_version": SEED_SCHEMA_VERSION,
+        "retention_days": knobs.retention_days,
+        "hot_span_hours": knobs.hot_span_hours,
+        "hot_cadence_sec": knobs.hot_cadence_sec,
+        "tail_cadence_sec": knobs.tail_cadence_sec,
+        "compression": compression,
+        "channel_count": len(names),
+        "channel_set_sha256": digest,
+    }
+
+
+def write_manifest(
+    collection: Collection,
+    fingerprint: Mapping[str, Any],
+    *,
+    seeded_at: datetime,
+    report: SeedReport | None = None,
+) -> None:
+    """Record what this store was built with, replacing any previous manifest.
+
+    The manifest lives in the sample collection under a fixed ``_id`` and
+    carries no ``date`` field, so no archiver query can ever match it — the
+    connector's window filter requires one. Keeping it here rather than in a
+    sidecar collection is what makes "the store" one thing to create, wipe and
+    reason about.
+
+    The touched-window ledger starts empty. It belongs to the scenario rewrite,
+    which needs to know which windows it has to restore before applying a new
+    set; a fresh base has none, and a reseed clears it precisely because the
+    windows it named no longer exist.
+    """
+    document = {
+        "_id": MANIFEST_ID,
+        "fingerprint": dict(fingerprint),
+        "seeded_at": seeded_at,
+        "touched_windows": [],
+    }
+    if report is not None:
+        document["coverage"] = {
+            "documents": report.documents,
+            "channels": report.channels,
+            "start": report.start,
+            "end": report.end,
+        }
+    collection.replace_one({"_id": MANIFEST_ID}, document, upsert=True)
+
+
+def compare_fingerprint(
+    collection: Collection, fingerprint: Mapping[str, Any]
+) -> FingerprintComparison:
+    """Whether the store in front of us was built with the knobs now in force.
+
+    Args:
+        collection: The sample collection.
+        fingerprint: What :func:`seed_fingerprint` says the knobs are now.
+
+    Returns:
+        The comparison. ``MISMATCH`` carries every field that moved, including
+        ones the stored manifest lacks entirely (reported as ``None``), so a
+        store seeded by an older version reseeds with a readable reason rather
+        than silently.
+    """
+    stored = collection.find_one({"_id": MANIFEST_ID})
+    if stored is None:
+        return FingerprintComparison(SeedState.ABSENT)
+
+    seeded_at = stored.get("seeded_at")
+    held = stored.get("fingerprint") or {}
+    differences = tuple(
+        (key, held.get(key), expected)
+        for key, expected in sorted(fingerprint.items())
+        if held.get(key) != expected
+    )
+    if differences:
+        return FingerprintComparison(SeedState.MISMATCH, differences, seeded_at)
+    return FingerprintComparison(SeedState.MATCH, (), seeded_at)
+
+
+# ---------------------------------------------------------------------------
+# Writing
+# ---------------------------------------------------------------------------
+
+
+def prepare_collection(collection: Collection) -> None:
+    """Create the two indexes the store cannot work without.
+
+    ``{date: 1}`` is not an optimization: every archiver read sorts on ``date``,
+    and an unindexed sort is capped at 32 MB of documents in memory — a limit a
+    real window crosses long before a real deployment notices it in testing.
+
+    The TTL index is declared with ``expireAfterSeconds=0`` so each document's
+    own ``expireAt`` *is* its deadline, which is what gives the two tiers
+    different lifetimes from one index. Documents without the field — the
+    manifest, and any window a scenario rewrite has protected — are ignored by
+    it entirely.
+
+    Both are idempotent: re-creating an identical index is a no-op, so this is
+    safe on every deploy rather than only on the first.
+    """
+    collection.create_index(DATE_FIELD)
+    collection.create_index(EXPIRE_FIELD, expireAfterSeconds=0)
+
+
+def seed_base(
+    collection: Collection,
+    archive: ArchiveComposite,
+    knobs: SeedKnobs,
+    *,
+    t0: datetime,
+    compression: str = "zstd",
+    workers: int = DEFAULT_WORKERS,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    progress: Callable[[SeedReport], None] | None = None,
+) -> SeedReport:
+    """Build the store: indexes, the whole base series, then the manifest.
+
+    The order is the contract. Indexes come first so the documents land into an
+    indexed collection instead of being indexed afterwards; the manifest comes
+    *last*, so a run that dies halfway leaves a store with no manifest — which
+    the next deploy reads as ``ABSENT`` and rebuilds. A manifest written first
+    would make a half-seeded store indistinguishable from a complete one.
+
+    Synthesis runs on the calling thread and inserts overlap it on a small pool.
+    That split is deliberate: the composite is not contractually thread-safe,
+    while the round trip to the store is the part worth overlapping. Submission blocks once the pool is saturated, so memory
+    stays bounded at a few chunks rather than the whole window.
+
+    Args:
+        collection: The sample collection. Existing samples are not removed —
+            a caller reseeding is expected to drop first, and one that is
+            extending a store deliberately is not second-guessed here.
+        archive: The archive composite of the active set; every one of its
+            channels is seeded.
+        knobs: The archive's shape.
+        t0: The seed anchor; the window ends here.
+        compression: The collection's block compressor, recorded in the
+            manifest because changing it changes the store's size on disk.
+        workers: Concurrent insert workers.
+        chunk_size: Timestamps synthesized and inserted per batch.
+        progress: Called after each chunk with the running report, for a
+            deploy-time progress line.
+
+    Returns:
+        The completed report.
+
+    Raises:
+        ValueError: If ``chunk_size`` or ``workers`` is below one, or the knobs
+            are inconsistent.
+    """
+    if chunk_size < 1:
+        raise ValueError(f"chunk_size must be >= 1 (got {chunk_size})")
+    if workers < 1:
+        raise ValueError(f"workers must be >= 1 (got {workers})")
+
+    times, expiry = seed_grid(knobs, t0)
+    addresses = archive.addresses
+    started = time.monotonic()
+
+    report = SeedReport(channels=len(addresses))
+    if len(times):
+        report.start = datetime.fromtimestamp(float(times[0]), UTC)
+        report.end = datetime.fromtimestamp(float(times[-1]), UTC)
+
+    prepare_collection(collection)
+
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="archiver-seed") as pool:
+        pending: set[Future[None]] = set()
+        for chunk_times, chunk_expiry in _chunks(times, expiry, chunk_size):
+            documents = synthesize_documents(archive, chunk_times)
+            for document, expire_at in zip(documents, _as_utc_datetimes(chunk_expiry), strict=True):
+                document[EXPIRE_FIELD] = expire_at
+
+            pending = _submit_bounded(pool, pending, collection, documents, workers)
+
+            report.documents += len(documents)
+            report.chunks += 1
+            report.elapsed_s = time.monotonic() - started
+            if progress is not None:
+                progress(report)
+
+        for future in pending:
+            future.result()
+
+    report.elapsed_s = time.monotonic() - started
+    write_manifest(
+        collection,
+        seed_fingerprint(knobs, addresses, compression=compression),
+        seeded_at=t0,
+        report=report,
+    )
+    logger.debug(report.describe())
+    return report
+
+
+def _submit_bounded(
+    pool: ThreadPoolExecutor,
+    pending: set[Future[None]],
+    collection: Collection,
+    documents: list[dict[str, Any]],
+    limit: int,
+) -> set[Future[None]]:
+    """Queue one insert, first draining until fewer than ``limit`` are in flight.
+
+    Draining is what bounds memory: an unbounded submit would let synthesis run
+    ahead of the store and hold the entire window's documents at once. Results
+    are collected as part of draining so an insert failure surfaces here rather
+    than being swallowed by a future nobody reads.
+    """
+    while len(pending) >= limit:
+        done = {future for future in pending if future.done()}
+        if not done:
+            next(iter(pending)).result()
+            continue
+        for future in done:
+            future.result()
+        pending -= done
+
+    pending.add(pool.submit(_insert_chunk, collection, documents))
+    return pending
+
+
+def _insert_chunk(collection: Collection, documents: list[dict[str, Any]]) -> None:
+    """Insert one batch, unordered so the server may parallelize it internally."""
+    if documents:
+        collection.insert_many(documents, ordered=False)
+
+
+def _chunks(
+    times: np.ndarray, expiry: np.ndarray, size: int
+) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    """Split the grid into contiguous batches of at most ``size`` timestamps."""
+    for start in range(0, len(times), size):
+        stop = start + size
+        yield times[start:stop], expiry[start:stop]
+
+
+def oldest_sample(collection: Collection) -> datetime | None:
+    """The instant of the oldest stored sample, or ``None`` for an empty store.
+
+    This is what honest archiver metadata reports as the start of coverage. The
+    filter on ``date`` skips the manifest, which has none — and skipping it is
+    the reason the manifest was given no ``date`` in the first place.
+    """
+    document = collection.find_one({DATE_FIELD: {"$exists": True}}, sort=[(DATE_FIELD, 1)])
+    if document is None:
+        return None
+    stamp = document.get(DATE_FIELD)
+    if not isinstance(stamp, datetime):
+        return None
+    return stamp if stamp.tzinfo is not None else stamp.replace(tzinfo=UTC)

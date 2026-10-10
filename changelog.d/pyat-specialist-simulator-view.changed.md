@@ -1,0 +1,1 @@
+The pyat-specialist agent loads each served model's deck from `data/simulator/decks/` and reads channel wiring from `data/simulator/variables.json`. A render that serves no model with a deck has no pyat-specialist agent.

@@ -8,7 +8,7 @@
 # to operate on.
 #
 # Every resource this config produces is exact-named and obviously throwaway
-# (project_name/facility.prefix below), per the container-ops safety
+# (project_name below), per the container-ops safety
 # guardrail in tests/e2e/test_deploy_lifecycle.py's module docstring:
 #   - containers: osprey-e2e-mus-p3-web-<user>, osprey-e2e-mus-p3-nginx
 #   - volumes:    osprey-e2e-mus-p3_<user>-claude-config / -agent-data
@@ -29,7 +29,6 @@ container_runtime: docker
 
 facility:
   name: E2E Deploy Lifecycle Fixture
-  prefix: e2e
 
 system:
   timezone: UTC
@@ -69,3 +68,10 @@ modules:
     users:
       - alice
       - bob
+    # Every terminal runs a persona's project at /app/<project>. The stub image
+    # is built elsewhere (Dockerfile.web_terminal_stub), so the default persona
+    # states the project that image bakes in.
+    default_persona: assistant
+    personas:
+      assistant:
+        project: osprey-e2e-mus-p3-assistant

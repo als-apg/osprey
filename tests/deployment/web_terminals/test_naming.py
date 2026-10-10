@@ -1,10 +1,12 @@
 """Unit tests for the web-terminal container-name convention.
 
-``naming.py`` is the single Python edit point for the container names the
-compose template (``docker-compose.web.yml.j2``) declares. These tests lock in
-the exact string each helper emits, that the user is recovered from a compose
-service key and never from a container name, and that the module stays in sync
-with the template lines it mirrors.
+``naming.py`` names every web-terminal container from the project name
+``resolve_project_name()`` returns, and is the single Python edit point for the
+container names the compose template (``docker-compose.web.yml.j2``) declares.
+These tests lock in the exact string each helper emits for a resolved project
+name, that the user is recovered from a compose service key and never from a
+container name, and that the module stays in sync with the template lines it
+mirrors.
 """
 
 from __future__ import annotations
@@ -12,12 +14,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
+from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.web_terminals.naming import (
     WEB_SERVICE_PREFIX,
     web_container_name,
     web_service_user,
 )
+from osprey.deployment.web_terminals.render import render_web_terminals
 
 WEB_TEMPLATE = (
     Path(__file__).parents[3]
@@ -36,6 +41,28 @@ TEMPLATE_SERVICE_KEY = "  web-{{ svc.user }}:"
 
 
 def test_name_format():
+    assert web_container_name("control-assistant", "alice") == "control-assistant-web-alice"
+
+
+def test_helper_takes_the_project_name():
+    """The one input is the project name, addressable as ``project``."""
+    assert web_container_name(project="demo", user="alice") == "demo-web-alice"
+
+
+def test_name_follows_the_resolved_project_name():
+    """A config's containers carry the name ``resolve_project_name`` gives it."""
+    cfg = {"project_name": "control-assistant"}
+    project = resolve_project_name(cfg)
+    assert web_container_name(resolve_project_name(cfg), "alice") == f"{project}-web-alice"
+
+
+def test_name_follows_the_project_root_fallback():
+    """With no ``project_name``, the name comes from the project directory."""
+    cfg = {"project_root": "/srv/deployments/beamline-assistant"}
+    assert web_container_name(resolve_project_name(cfg), "alice") == "beamline-assistant-web-alice"
+
+
+def test_name_format_keeps_the_project_name_verbatim():
     assert web_container_name("uitf_assistant", "alice") == "uitf_assistant-web-alice"
 
 
@@ -101,3 +128,42 @@ def test_module_output_matches_rendered_template_pattern():
         "{{ svc.user }}", "alice"
     )
     assert rendered == web_container_name("site", "alice")
+
+
+def _rendered_config(project_name: str, facility_token: str) -> dict:
+    """A password-auth config, so the render emits the proxy, the sidecar and the terminals."""
+    return {
+        "project_name": project_name,
+        "facility": {"prefix": facility_token},
+        "system": {"timezone": "UTC"},
+        "registry": {"url": "registry.example.org/profiles"},
+        "deploy": {"host": "deploy", "fqdn": "deploy.example.org"},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "users": ["alice", "bob"],
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": "demo-assistant"}},
+                "auth": {"method": "password", "allow_insecure_http": True},
+            }
+        },
+    }
+
+
+def test_every_rendered_container_is_named_by_the_project_name():
+    """Each container the compose overlay names starts with ``resolve_project_name()``
+    and carries nothing from the facility token."""
+    config = _rendered_config("beamline-ops", "zq")
+    project = resolve_project_name(config)
+
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+    names = {key: svc["container_name"] for key, svc in compose["services"].items()}
+
+    assert names == {
+        "nginx": f"{project}-nginx",
+        "auth": f"{project}-auth",
+        "web-alice": web_container_name(project, "alice"),
+        "web-bob": web_container_name(project, "bob"),
+    }
+    assert all(name.startswith(f"{project}-") for name in names.values())
+    assert not any("zq" in name for name in names.values())

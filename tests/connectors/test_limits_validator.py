@@ -2,9 +2,10 @@
 
 Covers two contracts:
 
-1. `defaults` block inheritance - a channel inherits values from the top-level
-   `defaults` block unless it overrides them, including the safety-critical
-   `writable` lockdown and the per-channel `confirm` write policy.
+1. Per-entry write policy - every entry states its own ``writable``, and a
+   ``confirm`` it states is its own; there is no shared block an entry
+   inherits from, so a top-level ``defaults`` key and an entry without
+   ``writable`` both fail the load.
 2. Fail-closed invariant - a limits violation always raises; there is no policy
    value that turns enforcement off. (`on_violation` was removed as a knob; this
    guards against re-introducing a fail-open path.)
@@ -16,7 +17,6 @@ from pathlib import Path
 import pytest
 
 from osprey.connectors.control_system.limits_validator import (
-    DEFAULTS_FIELD,
     LIMITS_DATABASE_CONFIG_KEY,
     ChannelLimitsConfig,
     LimitsValidator,
@@ -31,26 +31,49 @@ def _make_validator(tmp_path, db: dict, policy: dict | None = None) -> LimitsVal
     limits_file = tmp_path / "limits.json"
     limits_file.write_text(json.dumps(db))
     limits_db, raw_db = LimitsValidator._load_limits_database(str(limits_file))
-    return LimitsValidator(limits_db, policy or {"allow_unlisted_channels": False}, raw_db)
+    return LimitsValidator(limits_db, policy or {"mode": "exclusive"}, raw_db)
 
 
 # ---------------------------------------------------------------------------
-# `defaults` block inheritance
+# Per-entry write policy
 # ---------------------------------------------------------------------------
 
 
-def test_defaults_writable_lockdown_is_inherited(tmp_path):
-    """A channel that omits `writable` inherits `defaults.writable = false`.
+@pytest.mark.parametrize(
+    "defaults", [{"writable": True}, {"writable": False}, {"confirm": False}, {}, 5]
+)
+def test_a_top_level_defaults_key_fails_the_load_naming_it(tmp_path, defaults):
+    """A shared block is never applied: whatever it holds, the load fails on its name."""
+    limits_file = tmp_path / "limits.json"
+    limits_file.write_text(
+        json.dumps({"defaults": defaults, "FOO": {"writable": True, "max_value": 10.0}})
+    )
 
-    Safety: a defaults-level read-only lockdown must block writes to channels
-    that do not re-declare `writable`, instead of silently defaulting to True.
-    """
+    with pytest.raises(ValueError, match="'defaults'"):
+        LimitsValidator._load_limits_database(str(limits_file))
+
+
+def test_an_entry_without_writable_fails_the_load(tmp_path):
+    """Silence about writability is never read as permission to write."""
+    limits_file = tmp_path / "limits.json"
+    limits_file.write_text(json.dumps({"FOO": {"min_value": 0.0, "max_value": 10.0}}))
+
+    with pytest.raises(ValueError, match="Channel 'FOO'.*'writable'"):
+        LimitsValidator._load_limits_database(str(limits_file))
+
+
+def test_an_entry_without_writable_fails_writable_addresses(tmp_path):
+    """The direction reader refuses the same file the write path refuses."""
+    limits_file = tmp_path / "limits.json"
+    limits_file.write_text(json.dumps({"FOO": {"min_value": 0.0, "max_value": 10.0}}))
+
+    with pytest.raises(ValueError, match="'writable'"):
+        LimitsValidator.writable_addresses(limits_file)
+
+
+def test_an_entry_that_states_writable_false_is_read_only(tmp_path):
     validator = _make_validator(
-        tmp_path,
-        {
-            "defaults": {"writable": False},
-            "FOO": {"min_value": 0.0, "max_value": 10.0},  # omits `writable`
-        },
+        tmp_path, {"FOO": {"writable": False, "min_value": 0.0, "max_value": 10.0}}
     )
 
     with pytest.raises(ChannelLimitsViolationError) as exc:
@@ -59,52 +82,25 @@ def test_defaults_writable_lockdown_is_inherited(tmp_path):
     assert exc.value.violation_type == "READ_ONLY_CHANNEL"
 
 
-def test_channel_writable_overrides_defaults(tmp_path):
-    """A channel may override `defaults.writable = false` with its own `true`."""
+def test_an_entry_that_states_writable_true_is_writable(tmp_path):
     validator = _make_validator(
-        tmp_path,
-        {
-            "defaults": {"writable": False},
-            "FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0},
-        },
+        tmp_path, {"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}}
     )
 
-    # Should not raise: channel's explicit writable=True wins over defaults.
     validator.validate("FOO", 5.0)
 
 
-def test_defaults_min_max_are_inherited(tmp_path):
-    """A channel omitting `max_value` inherits the `defaults` bound."""
+def test_resolve_confirm_reads_the_entrys_own_confirm(tmp_path):
     validator = _make_validator(
         tmp_path,
         {
-            "defaults": {"min_value": 0.0, "max_value": 10.0},
-            "FOO": {},  # inherits both bounds
-        },
-    )
-
-    with pytest.raises(ChannelLimitsViolationError) as exc:
-        validator.validate("FOO", 999.0)
-
-    assert exc.value.violation_type == "MAX_EXCEEDED"
-
-
-def test_defaults_confirm_is_inherited(tmp_path):
-    """A channel omitting `confirm` inherits the `defaults` block's `confirm`.
-
-    The defaults value is deliberately `false`, the opposite of the fleet
-    default, so the test proves true inheritance rather than a coincidental
-    fallback.
-    """
-    validator = _make_validator(
-        tmp_path,
-        {
-            "defaults": {"confirm": False},
-            "FOO": {"min_value": 0.0, "max_value": 100.0},  # omits `confirm`
+            "FOO": {"writable": True, "max_value": 100.0, "confirm": False},
+            "BAR": {"writable": True, "max_value": 100.0, "confirm": True},
         },
     )
 
     assert validator.resolve_confirm("FOO") is False
+    assert validator.resolve_confirm("BAR") is True
 
 
 # ---------------------------------------------------------------------------
@@ -122,8 +118,8 @@ def test_violation_always_raises_regardless_of_policy(tmp_path, on_violation_val
     """
     validator = _make_validator(
         tmp_path,
-        {"FOO": {"min_value": 0.0, "max_value": 10.0}},
-        policy={"allow_unlisted_channels": False, "on_violation": on_violation_value},
+        {"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}},
+        policy={"mode": "exclusive", "on_violation": on_violation_value},
     )
 
     with pytest.raises(ChannelLimitsViolationError) as exc:
@@ -282,7 +278,9 @@ class TestFromConfig:
         says, in the only spelling its author knew, that checking is on.
         """
         db_file = tmp_path / "limits.json"
-        db_file.write_text(json.dumps({"FOO": {"min_value": 0.0, "max_value": 10.0}}))
+        db_file.write_text(
+            json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
+        )
         _patch_config(
             monkeypatch,
             {
@@ -296,7 +294,7 @@ class TestFromConfig:
         assert isinstance(validator, LimitsValidator)
         assert validator.limits == {}
         assert validator.failsafe_reason == (
-            "control_system.limits_checking does not state enabled as true/false"
+            "control_system.limits_checking does not state enabled as a readable value"
         )
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("FOO", 1.0)
@@ -361,7 +359,9 @@ class TestFromConfig:
     def test_genuinely_unlisted_channel_keeps_the_unlisted_refusal(self, monkeypatch, tmp_path):
         """A loaded database still refuses unlisted channels with the unlisted message."""
         db_file = tmp_path / "limits.json"
-        db_file.write_text(json.dumps({"FOO": {"min_value": 0.0, "max_value": 10.0}}))
+        db_file.write_text(
+            json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
+        )
         _patch_config(
             monkeypatch,
             {
@@ -378,14 +378,16 @@ class TestFromConfig:
 
     def test_loads_absolute_database(self, monkeypatch, tmp_path):
         db_file = tmp_path / "limits.json"
-        db_file.write_text(json.dumps({"FOO": {"min_value": 0.0, "max_value": 10.0}}))
+        db_file.write_text(
+            json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
+        )
         _patch_config(
             monkeypatch,
             {
                 "control_system.limits_checking.enabled": True,
                 "control_system.limits_checking.database_path": str(db_file),
                 "project_root": None,
-                "control_system.limits_checking.allow_unlisted_channels": False,
+                "control_system.limits_checking.mode": "exclusive",
             },
         )
 
@@ -397,14 +399,16 @@ class TestFromConfig:
     def test_resolves_relative_path_against_project_root(self, monkeypatch, tmp_path):
         """A relative database_path is resolved via project_root (debug branch)."""
         monkeypatch.delenv("CONFIG_FILE", raising=False)
-        (tmp_path / "limits.json").write_text(json.dumps({"BAR": {"max_value": 5.0}}))
+        (tmp_path / "limits.json").write_text(
+            json.dumps({"BAR": {"writable": True, "max_value": 5.0}})
+        )
         _patch_config(
             monkeypatch,
             {
                 "control_system.limits_checking.enabled": True,
                 "control_system.limits_checking.database_path": "limits.json",
                 "project_root": str(tmp_path),
-                "control_system.limits_checking.allow_unlisted_channels": False,
+                "control_system.limits_checking.mode": "exclusive",
             },
         )
 
@@ -414,7 +418,9 @@ class TestFromConfig:
 
     def test_resolves_relative_path_against_config_file(self, monkeypatch, tmp_path):
         """CONFIG_FILE's directory takes priority for relative paths (debug branch)."""
-        (tmp_path / "limits.json").write_text(json.dumps({"BAZ": {"max_value": 5.0}}))
+        (tmp_path / "limits.json").write_text(
+            json.dumps({"BAZ": {"writable": True, "max_value": 5.0}})
+        )
         monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "config.yml"))
         _patch_config(
             monkeypatch,
@@ -422,7 +428,7 @@ class TestFromConfig:
                 "control_system.limits_checking.enabled": True,
                 "control_system.limits_checking.database_path": "limits.json",
                 "project_root": "/nonexistent/host/path",
-                "control_system.limits_checking.allow_unlisted_channels": False,
+                "control_system.limits_checking.mode": "exclusive",
             },
         )
 
@@ -448,7 +454,7 @@ class TestFromConfig:
         build = tmp_path / "build"
         (build / "data").mkdir(parents=True)
         (build / "data" / "channel_limits.json").write_text(
-            json.dumps({"SR:C1:HCM:SP": {"min_value": -1.0, "max_value": 1.0}})
+            json.dumps({"SR:C1:HCM:SP": {"writable": True, "min_value": -1.0, "max_value": 1.0}})
         )
         _patch_config(
             monkeypatch,
@@ -456,7 +462,7 @@ class TestFromConfig:
                 "control_system.limits_checking.enabled": True,
                 "control_system.limits_checking.database_path": "data/channel_limits.json",
                 "project_root": str(tmp_path),
-                "control_system.limits_checking.allow_unlisted_channels": False,
+                "control_system.limits_checking.mode": "exclusive",
             },
             config_path=str(build / "config.yml"),
         )
@@ -467,16 +473,14 @@ class TestFromConfig:
         validator.validate("SR:C1:HCM:SP", 0.5)  # listed and in range: allowed
 
 
-DEPLOYMENT_WIDE_ALLOW_KEY = "control_system.limits_checking.allow_unlisted_channels"
-VA_ALLOW_KEY = (
-    "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels"
-)
+DEPLOYMENT_WIDE_MODE_KEY = "control_system.limits_checking.mode"
+VA_MODE_KEY = "control_system.connector.virtual_accelerator.limits_checking.mode"
 
 
 def _limits_db(tmp_path) -> Path:
     """A one-channel limits database, so a validator loads rather than failsafes."""
     db_file = tmp_path / "limits.json"
-    db_file.write_text(json.dumps({"FOO": {"min_value": 0.0, "max_value": 10.0}}))
+    db_file.write_text(json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}}))
     return db_file
 
 
@@ -489,12 +493,12 @@ def _va_permissive_section() -> dict:
     """
     return {
         "type": VIRTUAL_ACCELERATOR,
-        "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+        "limits_checking": {"enabled": True, "mode": "exclusive"},
         "connector": {
             EPICS: {"gateway_address": "live.example"},
             VIRTUAL_ACCELERATOR: {
                 "gateway_address": "va.example",
-                "limits_checking": {"enabled": True, "allow_unlisted_channels": True},
+                "limits_checking": {"enabled": True, "mode": "optional"},
             },
         },
     }
@@ -527,31 +531,29 @@ class TestFromConfigCallShapes:
         _patch_config(
             monkeypatch,
             {
-                "control_system": {
-                    "limits_checking": {"enabled": True, "allow_unlisted_channels": True}
-                },
+                "control_system": {"limits_checking": {"enabled": True, "mode": "optional"}},
                 "control_system.limits_checking.database_path": str(_limits_db(tmp_path)),
             },
         )
 
         validator = LimitsValidator.from_config()
 
-        assert validator.policy["allow_unlisted_channels"] is True
-        assert validator.policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_ALLOW_KEY
+        assert validator.policy["mode"] == "optional"
+        assert validator.policy["mode_key"] == DEPLOYMENT_WIDE_MODE_KEY
 
     @pytest.mark.parametrize(
-        ("kwargs", "allow", "key"),
+        ("kwargs", "mode", "key"),
         [
-            ({}, False, DEPLOYMENT_WIDE_ALLOW_KEY),
-            ({"connector_type": VIRTUAL_ACCELERATOR}, True, VA_ALLOW_KEY),
-            ({"connector_type": EPICS}, False, DEPLOYMENT_WIDE_ALLOW_KEY),
-            ({"target": "va"}, True, VA_ALLOW_KEY),
-            ({"target": "live"}, False, DEPLOYMENT_WIDE_ALLOW_KEY),
+            ({}, "exclusive", DEPLOYMENT_WIDE_MODE_KEY),
+            ({"connector_type": VIRTUAL_ACCELERATOR}, "optional", VA_MODE_KEY),
+            ({"connector_type": EPICS}, "exclusive", DEPLOYMENT_WIDE_MODE_KEY),
+            ({"target": "va"}, "optional", VA_MODE_KEY),
+            ({"target": "live"}, "exclusive", DEPLOYMENT_WIDE_MODE_KEY),
         ],
         ids=["no-arg", "type-va", "type-epics", "target-va", "target-live"],
     )
     def test_call_shape_resolves_the_answering_block(
-        self, monkeypatch, tmp_path, kwargs, allow, key
+        self, monkeypatch, tmp_path, kwargs, mode, key
     ):
         """Each call shape reads the block that answers for it, and names that key.
 
@@ -579,9 +581,9 @@ class TestFromConfigCallShapes:
 
         validator = LimitsValidator.from_config(**kwargs)
 
-        assert validator.policy["allow_unlisted_channels"] is allow
-        assert validator.policy["allow_unlisted_key"] == key
-        if allow is False:
+        assert validator.policy["mode"] == mode
+        assert validator.policy["mode_key"] == key
+        if mode == "exclusive":
             with pytest.raises(ChannelLimitsViolationError) as exc:
                 validator.validate("NOT:LISTED", 1.0)
             assert exc.value.violation_type == "UNLISTED_CHANNEL"
@@ -623,7 +625,7 @@ class TestFromConfigCallShapes:
 
         validator = LimitsValidator.from_config(target="va")
 
-        assert "allow_unlisted_channels" in validator.failsafe_reason
+        assert "mode" in validator.failsafe_reason
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("FOO", 1.0)
         assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
@@ -651,14 +653,14 @@ class TestFromConfigMostRestrictive:
         validator = LimitsValidator.from_config_most_restrictive()
 
         assert validator.policy == {
-            "allow_unlisted_channels": False,
-            "allow_unlisted_key": DEPLOYMENT_WIDE_ALLOW_KEY,
+            "mode": "exclusive",
+            "mode_key": DEPLOYMENT_WIDE_MODE_KEY,
         }
 
     def test_all_permissive_targets_answer_permissive(self, monkeypatch, tmp_path):
         """Not a fail-closed constant: it reports what every reachable target wrote."""
         section = _va_permissive_section()
-        section["limits_checking"] = {"enabled": True, "allow_unlisted_channels": True}
+        section["limits_checking"] = {"enabled": True, "mode": "optional"}
         _patch_config(
             monkeypatch,
             {
@@ -669,8 +671,8 @@ class TestFromConfigMostRestrictive:
 
         validator = LimitsValidator.from_config_most_restrictive()
 
-        assert validator.policy["allow_unlisted_channels"] is True
-        assert validator.policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_ALLOW_KEY
+        assert validator.policy["mode"] == "optional"
+        assert validator.policy["mode_key"] == DEPLOYMENT_WIDE_MODE_KEY
 
     @pytest.mark.parametrize("value", ["true", 1, "${OSPREY_LIMITS_ENABLED}"])
     def test_an_unreadable_reachable_leaf_yields_the_failsafe_and_not_none(
@@ -685,7 +687,7 @@ class TestFromConfigMostRestrictive:
         which machine it is touching the one waved through.
         """
         section = _va_permissive_section()
-        section["limits_checking"] = {"enabled": value, "allow_unlisted_channels": False}
+        section["limits_checking"] = {"enabled": value, "mode": "exclusive"}
         _patch_config(
             monkeypatch,
             {
@@ -699,7 +701,7 @@ class TestFromConfigMostRestrictive:
         assert isinstance(validator, LimitsValidator)
         assert validator.limits == {}
         assert validator.failsafe_reason == (
-            "control_system.limits_checking does not state enabled as true/false"
+            "control_system.limits_checking does not state enabled as a readable value"
         )
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("ANY:CHANNEL", 1.0)
@@ -708,10 +710,10 @@ class TestFromConfigMostRestrictive:
     def test_limits_disabled_everywhere_is_no_validator(self, monkeypatch, tmp_path):
         """No reachable target checks limits, so there is nothing to enforce."""
         section = _va_permissive_section()
-        section["limits_checking"] = {"enabled": False, "allow_unlisted_channels": False}
+        section["limits_checking"] = {"enabled": False, "mode": "exclusive"}
         section["connector"][VIRTUAL_ACCELERATOR]["limits_checking"] = {
             "enabled": False,
-            "allow_unlisted_channels": True,
+            "mode": "optional",
         }
         _patch_config(
             monkeypatch,
@@ -753,32 +755,34 @@ class TestFromPosture:
     def test_returns_none_when_posture_says_disabled(self, monkeypatch):
         """``enabled: false`` is limits checking off — no validator at all."""
         _patch_config(monkeypatch, {})
-        posture = LimitsPosture(enabled=False, allow_unlisted=True, connector_type=EPICS)
+        posture = LimitsPosture(enabled=False, mode="optional", connector_type=EPICS)
 
         assert LimitsValidator._from_posture(posture) is None
 
     def test_returns_none_when_posture_is_unstated(self, monkeypatch):
         """An unstated ``enabled`` is not a ``true`` — same answer as ``false``."""
         _patch_config(monkeypatch, {})
-        posture = LimitsPosture(enabled=None, allow_unlisted=None, connector_type=None)
+        posture = LimitsPosture(enabled=None, mode=None, connector_type=None)
 
         assert LimitsValidator._from_posture(posture) is None
 
     def test_deployment_wide_posture_names_the_deployment_wide_key(self, monkeypatch, tmp_path):
         """No connector type in the posture -> the deployment-wide key answers."""
         db_file = tmp_path / "limits.json"
-        db_file.write_text(json.dumps({"FOO": {"min_value": 0.0, "max_value": 10.0}}))
+        db_file.write_text(
+            json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
+        )
         _patch_config(
             monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
-        posture = LimitsPosture(enabled=True, allow_unlisted=False, connector_type=None)
+        posture = LimitsPosture(enabled=True, mode="exclusive", connector_type=None)
 
         validator = LimitsValidator._from_posture(posture)
 
         assert validator.policy == {
-            "allow_unlisted_channels": False,
-            "allow_unlisted_key": "control_system.limits_checking.allow_unlisted_channels",
+            "mode": "exclusive",
+            "mode_key": "control_system.limits_checking.mode",
         }
         assert "FOO" in validator.limits
 
@@ -789,32 +793,34 @@ class TestFromPosture:
         line this block overrides — a change that does nothing.
         """
         db_file = tmp_path / "limits.json"
-        db_file.write_text(json.dumps({"FOO": {"min_value": 0.0, "max_value": 10.0}}))
+        db_file.write_text(
+            json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
+        )
         _patch_config(
             monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
-        posture = LimitsPosture(
-            enabled=True, allow_unlisted=True, connector_type=VIRTUAL_ACCELERATOR
-        )
+        posture = LimitsPosture(enabled=True, mode="optional", connector_type=VIRTUAL_ACCELERATOR)
 
         validator = LimitsValidator._from_posture(posture)
 
-        assert validator.policy["allow_unlisted_channels"] is True
-        assert validator.policy["allow_unlisted_key"] == (
-            "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels"
+        assert validator.policy["mode"] == "optional"
+        assert validator.policy["mode_key"] == (
+            "control_system.connector.virtual_accelerator.limits_checking.mode"
         )
         validator.validate("NOT:LISTED", 1.0)  # permissive posture allows unlisted
 
     def test_strict_posture_still_refuses_unlisted_channels(self, monkeypatch, tmp_path):
         """The permissive answer belongs to one type; another type stays strict."""
         db_file = tmp_path / "limits.json"
-        db_file.write_text(json.dumps({"FOO": {"min_value": 0.0, "max_value": 10.0}}))
+        db_file.write_text(
+            json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
+        )
         _patch_config(
             monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
-        posture = LimitsPosture(enabled=True, allow_unlisted=False, connector_type=EPICS)
+        posture = LimitsPosture(enabled=True, mode="exclusive", connector_type=EPICS)
 
         validator = LimitsValidator._from_posture(posture)
 
@@ -822,24 +828,26 @@ class TestFromPosture:
             validator.validate("NOT:LISTED", 1.0)
         assert exc.value.violation_type == "UNLISTED_CHANNEL"
 
-    def test_unstated_allow_unlisted_refuses_unlisted_channels(self, monkeypatch, tmp_path):
-        """Tri-state: ``None`` is nobody's permission, so unlisted stays refused.
+    def test_unstated_mode_refuses_unlisted_channels(self, monkeypatch, tmp_path):
+        """``None`` is nobody's permission, so unlisted stays refused.
 
         The value is carried into the policy verbatim (``channel_limits``
-        reports it as ``null``) rather than collapsed to ``False``, but the
-        write path allows only on an explicit ``True``.
+        reports it as ``null``) rather than collapsed to ``exclusive``, but the
+        write path allows only on an explicit ``optional``.
         """
         db_file = tmp_path / "limits.json"
-        db_file.write_text(json.dumps({"FOO": {"min_value": 0.0, "max_value": 10.0}}))
+        db_file.write_text(
+            json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
+        )
         _patch_config(
             monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
-        posture = LimitsPosture(enabled=True, allow_unlisted=None, connector_type=None)
+        posture = LimitsPosture(enabled=True, mode=None, connector_type=None)
 
         validator = LimitsValidator._from_posture(posture)
 
-        assert validator.policy["allow_unlisted_channels"] is None
+        assert validator.policy["mode"] is None
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("NOT:LISTED", 1.0)
         assert exc.value.violation_type == "UNLISTED_CHANNEL"
@@ -853,16 +861,18 @@ class TestFromPosture:
         everything and name the block plus the missing leaf.
         """
         db_file = tmp_path / "limits.json"
-        db_file.write_text(json.dumps({"FOO": {"min_value": 0.0, "max_value": 10.0}}))
+        db_file.write_text(
+            json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
+        )
         _patch_config(
             monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
         posture = LimitsPosture(
             enabled=None,
-            allow_unlisted=None,
+            mode=None,
             connector_type=VIRTUAL_ACCELERATOR,
-            incomplete=("allow_unlisted_channels",),
+            incomplete=("mode",),
         )
 
         validator = LimitsValidator._from_posture(posture)
@@ -871,7 +881,7 @@ class TestFromPosture:
         assert validator.limits == {}
         assert validator.failsafe_reason == (
             "control_system.connector.virtual_accelerator.limits_checking "
-            "does not state allow_unlisted_channels as true/false"
+            "does not state mode as a readable value"
         )
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("FOO", 1.0)
@@ -882,16 +892,16 @@ class TestFromPosture:
         _patch_config(monkeypatch, {})
         posture = LimitsPosture(
             enabled=None,
-            allow_unlisted=None,
+            mode=None,
             connector_type="mypackage.MoatConnector",
-            incomplete=("enabled", "allow_unlisted_channels"),
+            incomplete=("enabled", "mode"),
         )
 
         validator = LimitsValidator._from_posture(posture)
 
         assert validator.failsafe_reason == (
             "control_system.connector.mypackage.MoatConnector.limits_checking "
-            "does not state enabled, allow_unlisted_channels as true/false"
+            "does not state enabled, mode as a readable value"
         )
 
     def test_missing_database_path_yields_blocking_failsafe(self, monkeypatch):
@@ -900,7 +910,7 @@ class TestFromPosture:
             monkeypatch,
             {"control_system.limits_checking.database_path": None},
         )
-        posture = LimitsPosture(enabled=True, allow_unlisted=True, connector_type=EPICS)
+        posture = LimitsPosture(enabled=True, mode="optional", connector_type=EPICS)
 
         validator = LimitsValidator._from_posture(posture)
 
@@ -918,9 +928,7 @@ class TestFromPosture:
             monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
-        posture = LimitsPosture(
-            enabled=True, allow_unlisted=True, connector_type=VIRTUAL_ACCELERATOR
-        )
+        posture = LimitsPosture(enabled=True, mode="optional", connector_type=VIRTUAL_ACCELERATOR)
 
         validator = LimitsValidator._from_posture(posture)
 
@@ -934,7 +942,9 @@ class TestFromPosture:
         There is no per-type ``database_path``: the deployment mounts a single
         limits file, so the per-type block changes policy only.
         """
-        (tmp_path / "limits.json").write_text(json.dumps({"BAR": {"max_value": 5.0}}))
+        (tmp_path / "limits.json").write_text(
+            json.dumps({"BAR": {"writable": True, "max_value": 5.0}})
+        )
         monkeypatch.delenv("CONFIG_FILE", raising=False)
         _patch_config(
             monkeypatch,
@@ -943,9 +953,7 @@ class TestFromPosture:
                 "project_root": str(tmp_path),
             },
         )
-        posture = LimitsPosture(
-            enabled=True, allow_unlisted=False, connector_type=VIRTUAL_ACCELERATOR
-        )
+        posture = LimitsPosture(enabled=True, mode="exclusive", connector_type=VIRTUAL_ACCELERATOR)
 
         validator = LimitsValidator._from_posture(posture)
 
@@ -959,30 +967,28 @@ class TestFromPosture:
         rather than as anything richer.
         """
         db_file = tmp_path / "limits.json"
-        db_file.write_text(json.dumps({"FOO": {"max_value": 10.0}}))
+        db_file.write_text(json.dumps({"FOO": {"writable": True, "max_value": 10.0}}))
         _patch_config(
             monkeypatch,
             {"control_system.limits_checking.database_path": str(db_file)},
         )
-        posture = LimitsPosture(
-            enabled=True, allow_unlisted=None, connector_type=VIRTUAL_ACCELERATOR
-        )
+        posture = LimitsPosture(enabled=True, mode=None, connector_type=VIRTUAL_ACCELERATOR)
 
         validator = LimitsValidator._from_posture(posture)
 
         assert json.loads(json.dumps(validator.policy)) == validator.policy
-        assert json.loads(json.dumps(validator.policy))["allow_unlisted_channels"] is None
+        assert json.loads(json.dumps(validator.policy))["mode"] is None
 
     def test_returns_none_when_config_unavailable(self, monkeypatch):
         """The config-unavailable envelope is unchanged: no config, no checking."""
         _patch_config(monkeypatch, {}, raise_exc=RuntimeError("no config"))
-        posture = LimitsPosture(enabled=True, allow_unlisted=False, connector_type=EPICS)
+        posture = LimitsPosture(enabled=True, mode="exclusive", connector_type=EPICS)
 
         assert LimitsValidator._from_posture(posture) is None
 
 
 # ---------------------------------------------------------------------------
-# resolve_confirm (channel entry -> defaults -> True)
+# resolve_confirm (channel entry -> True)
 # ---------------------------------------------------------------------------
 
 
@@ -993,57 +999,37 @@ class TestResolveConfirm:
 
         assert validator.resolve_confirm("FOO") is True
 
-    def test_channel_entry_wins_over_defaults(self, tmp_path):
+    def test_an_entry_can_switch_confirmation_off(self, tmp_path):
         validator = _make_validator(
-            tmp_path,
-            {
-                "defaults": {"confirm": True},
-                "FOO": {"max_value": 100.0, "confirm": False},
-            },
+            tmp_path, {"FOO": {"writable": True, "max_value": 100.0, "confirm": False}}
         )
 
         assert validator.resolve_confirm("FOO") is False
 
-    def test_channel_entry_can_re_enable_what_defaults_switched_off(self, tmp_path):
+    def test_an_entry_can_state_confirmation_on(self, tmp_path):
         validator = _make_validator(
-            tmp_path,
-            {
-                "defaults": {"confirm": False},
-                "FOO": {"max_value": 100.0, "confirm": True},
-            },
+            tmp_path, {"FOO": {"writable": True, "max_value": 100.0, "confirm": True}}
         )
 
         assert validator.resolve_confirm("FOO") is True
 
     def test_silence_everywhere_confirms(self, tmp_path):
-        validator = _make_validator(tmp_path, {"FOO": {"max_value": 100.0}})
+        validator = _make_validator(tmp_path, {"FOO": {"writable": True, "max_value": 100.0}})
 
         assert validator.resolve_confirm("FOO") is True
 
     def test_unlisted_channel_confirms(self, tmp_path):
+        """Another entry's ``confirm: false`` never reaches a channel with no entry."""
         validator = _make_validator(
-            tmp_path, {"defaults": {"confirm": True}, "FOO": {"max_value": 100.0}}
+            tmp_path, {"FOO": {"writable": True, "max_value": 100.0, "confirm": False}}
         )
 
         assert validator.resolve_confirm("MISSING") is True
 
-    def test_unlisted_channel_still_inherits_defaults(self, tmp_path):
-        validator = _make_validator(
-            tmp_path, {"defaults": {"confirm": False}, "FOO": {"max_value": 100.0}}
-        )
-
-        assert validator.resolve_confirm("MISSING") is False
-
-    def test_non_dict_defaults_block_is_ignored(self):
-        """A malformed (non-dict) defaults block does not crash the lookup."""
-        validator = LimitsValidator({}, {}, raw_db={"defaults": "oops", "FOO": {}})
+    def test_non_dict_channel_entry_is_ignored(self):
+        validator = LimitsValidator({}, {}, raw_db={"FOO": "oops"})
 
         assert validator.resolve_confirm("FOO") is True
-
-    def test_non_dict_channel_entry_is_ignored(self):
-        validator = LimitsValidator({}, {}, raw_db={"defaults": {"confirm": False}, "FOO": "oops"})
-
-        assert validator.resolve_confirm("FOO") is False
 
 
 # ---------------------------------------------------------------------------
@@ -1070,7 +1056,7 @@ class TestValidateChannelConfig:
 
     def test_non_numeric_bound_raises(self):
         with pytest.raises(ValueError, match="must be numeric"):
-            LimitsValidator._validate_channel_config("FOO", {"min_value": "low"})
+            LimitsValidator._validate_channel_config("FOO", {"writable": True, "min_value": "low"})
 
     def test_non_bool_writable_raises(self):
         with pytest.raises(ValueError, match="must be boolean"):
@@ -1078,10 +1064,10 @@ class TestValidateChannelConfig:
 
     def test_non_bool_confirm_raises(self):
         with pytest.raises(ValueError, match="'confirm' must be boolean"):
-            LimitsValidator._validate_channel_config("FOO", {"confirm": "yes"})
+            LimitsValidator._validate_channel_config("FOO", {"writable": True, "confirm": "yes"})
 
     def test_bool_confirm_is_accepted(self):
-        LimitsValidator._validate_channel_config("FOO", {"confirm": False})
+        LimitsValidator._validate_channel_config("FOO", {"writable": True, "confirm": False})
 
 
 # ---------------------------------------------------------------------------
@@ -1101,23 +1087,20 @@ class TestLoadDatabase:
         with pytest.raises(ValueError, match="must be a JSON object"):
             LimitsValidator._load_limits_database(str(f))
 
-    def test_non_dict_defaults_raises(self, tmp_path):
+    def test_non_dict_entry_raises(self, tmp_path):
         f = tmp_path / "limits.json"
-        f.write_text(json.dumps({DEFAULTS_FIELD: 5}))
+        f.write_text(json.dumps({"FOO": 5}))
 
         with pytest.raises(ValueError, match="must be a dictionary"):
             LimitsValidator._load_limits_database(str(f))
 
-    def test_invalid_defaults_config_raises(self, tmp_path):
-        f = tmp_path / "limits.json"
-        f.write_text(json.dumps({DEFAULTS_FIELD: {"min_value": "not-numeric"}}))
-
-        with pytest.raises(ValueError, match="Invalid 'defaults' configuration"):
-            LimitsValidator._load_limits_database(str(f))
-
     def test_metadata_fields_are_skipped(self, tmp_path):
         f = tmp_path / "limits.json"
-        f.write_text(json.dumps({"_comment": "ignored metadata", "GOOD": {"max_value": 10.0}}))
+        f.write_text(
+            json.dumps(
+                {"_comment": "ignored metadata", "GOOD": {"writable": True, "max_value": 10.0}}
+            )
+        )
 
         limits_db, _ = LimitsValidator._load_limits_database(str(f))
 
@@ -1125,7 +1108,7 @@ class TestLoadDatabase:
 
     def test_max_step_channel_loads(self, tmp_path):
         f = tmp_path / "limits.json"
-        f.write_text(json.dumps({"STEP": {"max_value": 100.0, "max_step": 5.0}}))
+        f.write_text(json.dumps({"STEP": {"writable": True, "max_value": 100.0, "max_step": 5.0}}))
 
         limits_db, _ = LimitsValidator._load_limits_database(str(f))
 
@@ -1153,10 +1136,14 @@ def _step_validator(max_step: float = 5.0) -> LimitsValidator:
     """A validator with one channel that has max_step configured (triggers caget)."""
     limits = {
         "FOO": ChannelLimitsConfig(
-            channel_address="FOO", min_value=0.0, max_value=100.0, max_step=max_step
+            channel_address="FOO",
+            min_value=0.0,
+            max_value=100.0,
+            max_step=max_step,
+            writable=True,
         )
     }
-    return LimitsValidator(limits, {"allow_unlisted_channels": False}, {})
+    return LimitsValidator(limits, {"mode": "exclusive"}, {})
 
 
 def _reader(current):
@@ -1253,8 +1240,12 @@ class TestMaxStepCheck:
 
     def test_a_channel_without_max_step_needs_no_reader(self):
         """Only max_step costs a read, so every other channel validates with none."""
-        limits = {"FOO": ChannelLimitsConfig(channel_address="FOO", min_value=0.0, max_value=100.0)}
-        validator = LimitsValidator(limits, {"allow_unlisted_channels": False}, {})
+        limits = {
+            "FOO": ChannelLimitsConfig(
+                channel_address="FOO", min_value=0.0, max_value=100.0, writable=True
+            )
+        }
+        validator = LimitsValidator(limits, {"mode": "exclusive"}, {})
 
         validator.validate("FOO", 99.0)
 
@@ -1299,7 +1290,7 @@ class TestValidateWithoutStepCheck:
         limits = {
             "FOO": ChannelLimitsConfig(channel_address="FOO", writable=False, max_step=1.0),
         }
-        validator = LimitsValidator(limits, {"allow_unlisted_channels": False}, {})
+        validator = LimitsValidator(limits, {"mode": "exclusive"}, {})
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate_without_step_check("FOO", 1.0)
@@ -1322,11 +1313,11 @@ class TestValidateWithoutStepCheck:
 
 class TestValidate:
     def test_unlisted_allowed_when_policy_permits(self, tmp_path):
-        """allow_unlisted_channels=True lets an unknown channel through."""
+        """The optional mode lets an unknown channel through."""
         validator = _make_validator(
             tmp_path,
-            {"FOO": {"max_value": 10.0}},
-            policy={"allow_unlisted_channels": True},
+            {"FOO": {"writable": True, "max_value": 10.0}},
+            policy={"mode": "optional"},
         )
 
         # No raise: the channel is unlisted but policy allows it.
@@ -1337,7 +1328,9 @@ class TestValidate:
 
         This used to skip the numeric checks. See `TestNonNumericValues`.
         """
-        validator = _make_validator(tmp_path, {"FOO": {"min_value": 0.0, "max_value": 10.0}})
+        validator = _make_validator(
+            tmp_path, {"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}}
+        )
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("FOO", "on")
@@ -1345,7 +1338,9 @@ class TestValidate:
         assert exc.value.violation_type == "INVALID_NUMERIC_VALUE"
 
     def test_below_minimum_raises(self, tmp_path):
-        validator = _make_validator(tmp_path, {"FOO": {"min_value": 0.0, "max_value": 10.0}})
+        validator = _make_validator(
+            tmp_path, {"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}}
+        )
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("FOO", -5.0)
@@ -1373,7 +1368,7 @@ class TestNonNumericValues:
     is untouched.
     """
 
-    LIMITED = {"FOO": {"min_value": 0.0, "max_value": 10.0}}
+    LIMITED = {"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}}
 
     @pytest.mark.parametrize(
         ("value", "number"),
@@ -1393,7 +1388,9 @@ class TestNonNumericValues:
         ],
     )
     def test_a_numeral_is_checked_as_the_number_written(self, tmp_path, value, number):
-        validator = _make_validator(tmp_path, {"FOO": {"min_value": number, "max_value": number}})
+        validator = _make_validator(
+            tmp_path, {"FOO": {"writable": True, "min_value": number, "max_value": number}}
+        )
 
         validator.validate("FOO", value)
 
@@ -1478,22 +1475,12 @@ class TestNonNumericValues:
 
     @pytest.mark.parametrize("field", ["min_value", "max_value", "max_step"])
     def test_any_one_numeric_limit_is_enough(self, tmp_path, field):
-        validator = _make_validator(tmp_path, {"FOO": {field: 100.0}})
+        validator = _make_validator(tmp_path, {"FOO": {"writable": True, field: 100.0}})
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate_without_step_check("FOO", "010")
 
         assert exc.value.violation_type == "INVALID_NUMERIC_VALUE"
-
-    def test_a_numeric_limit_inherited_from_defaults_counts(self, tmp_path):
-        validator = _make_validator(
-            tmp_path, {"defaults": {"max_value": 10.0}, "FOO": {"writable": True}}
-        )
-
-        with pytest.raises(ChannelLimitsViolationError) as exc:
-            validator.validate("FOO", "0x10")
-
-        assert exc.value.violation_type == "MAX_EXCEEDED"
 
     def test_max_step_refuses_an_ambiguous_string_before_reading_the_channel(self):
         """The value is refused on its own; no read is spent measuring a step."""
@@ -1553,16 +1540,14 @@ class TestNonNumericValues:
         validator.validate_without_step_check("BO:CMD", label)
 
     def test_a_string_channel_without_numeric_limits_passes(self, tmp_path):
-        validator = _make_validator(tmp_path, {"STR:MSG": {"confirm": False}})
+        validator = _make_validator(tmp_path, {"STR:MSG": {"writable": True, "confirm": False}})
 
         validator.validate("STR:MSG", "beam dump in 5 min")
         validator.validate("STR:MSG", "nan")
 
-    def test_an_allowed_unlisted_channel_is_unchanged(self, tmp_path):
-        """No database entry, no limits: the unlisted policy alone answers."""
-        validator = _make_validator(
-            tmp_path, self.LIMITED, policy={"allow_unlisted_channels": True}
-        )
+    def test_a_channel_with_no_record_under_the_optional_mode_is_unchanged(self, tmp_path):
+        """No database entry, no limits: the optional mode alone answers."""
+        validator = _make_validator(tmp_path, self.LIMITED, policy={"mode": "optional"})
 
         validator.validate("NOT:IN:DB", "0x10")
 
@@ -1586,26 +1571,24 @@ class TestNonNumericValues:
 class TestUnlistedRefusalNamesKey:
     """An unlisted-channel refusal quotes the config line an operator can edit.
 
-    A deployment may answer `allow_unlisted_channels` per connector type, so
+    A deployment may state `mode` per connector type, so
     the deployment-wide key is not always the one in force: quoting it on a
     deployment whose per-type block overrides it would send an operator to
     flip a line that changes nothing. The validator carries the answering key
     in its policy (`_from_posture`) and the refusal repeats it.
     """
 
-    DEPLOYMENT_WIDE_KEY = "control_system.limits_checking.allow_unlisted_channels"
-    PER_TYPE_KEY = (
-        "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels"
-    )
+    DEPLOYMENT_WIDE_KEY = "control_system.limits_checking.mode"
+    PER_TYPE_KEY = "control_system.connector.virtual_accelerator.limits_checking.mode"
 
     def test_refusal_names_the_per_type_key_the_policy_carries(self, tmp_path):
         """A per-type block answered, so its key is the one worth quoting."""
         validator = _make_validator(
             tmp_path,
-            {"FOO": {"max_value": 10.0}},
+            {"FOO": {"writable": True, "max_value": 10.0}},
             policy={
-                "allow_unlisted_channels": False,
-                "allow_unlisted_key": self.PER_TYPE_KEY,
+                "mode": "exclusive",
+                "mode_key": self.PER_TYPE_KEY,
             },
         )
 
@@ -1624,8 +1607,8 @@ class TestUnlistedRefusalNamesKey:
         """
         validator = _make_validator(
             tmp_path,
-            {"FOO": {"max_value": 10.0}},
-            policy={"allow_unlisted_channels": False},
+            {"FOO": {"writable": True, "max_value": 10.0}},
+            policy={"mode": "exclusive"},
         )
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
@@ -1636,7 +1619,9 @@ class TestUnlistedRefusalNamesKey:
 
     def test_empty_policy_still_refuses_and_names_the_deployment_wide_key(self, tmp_path):
         """No policy at all is nobody's permission, not a permissive default."""
-        validator = _make_validator(tmp_path, {"FOO": {"max_value": 10.0}}, policy={})
+        validator = _make_validator(
+            tmp_path, {"FOO": {"writable": True, "max_value": 10.0}}, policy={}
+        )
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("NOT:IN:DB", 5.0)
@@ -1648,14 +1633,14 @@ class TestUnlistedRefusalNamesKey:
         """Tri-state: a stored `None` is unset, and unset refuses.
 
         The posture carries the unstated answer verbatim so `channel_limits`
-        can report it as `null`; the write path allows only an explicit `True`.
+        can report it as `null`; the write path allows only an explicit `optional`.
         """
         validator = _make_validator(
             tmp_path,
-            {"FOO": {"max_value": 10.0}},
+            {"FOO": {"writable": True, "max_value": 10.0}},
             policy={
-                "allow_unlisted_channels": None,
-                "allow_unlisted_key": self.PER_TYPE_KEY,
+                "mode": None,
+                "mode_key": self.PER_TYPE_KEY,
             },
         )
 
@@ -1665,13 +1650,13 @@ class TestUnlistedRefusalNamesKey:
         assert exc.value.violation_type == "UNLISTED_CHANNEL"
         assert self.PER_TYPE_KEY in exc.value.violation_reason
 
-    @pytest.mark.parametrize("truthy", ["true", 1, "yes"])
-    def test_only_a_real_true_allows_unlisted_channels(self, tmp_path, truthy):
-        """A truthy non-bool is a config mistake, not permission to write."""
+    @pytest.mark.parametrize("truthy", ["true", 1, "yes", True, "Optional"])
+    def test_only_the_optional_mode_allows_unlisted_channels(self, tmp_path, truthy):
+        """Anything but ``optional`` is a config mistake, not permission to write."""
         validator = _make_validator(
             tmp_path,
-            {"FOO": {"max_value": 10.0}},
-            policy={"allow_unlisted_channels": truthy},
+            {"FOO": {"writable": True, "max_value": 10.0}},
+            policy={"mode": truthy},
         )
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
@@ -1685,13 +1670,9 @@ class TestUnlistedRefusalNamesKey:
 # ---------------------------------------------------------------------------
 
 
-def _write_limits(path: Path, entries: dict[str, dict], defaults: dict | None = None) -> Path:
+def _write_limits(path: Path, entries: dict[str, dict]) -> Path:
     """Write a synthetic channel_limits.json-shaped file."""
-    payload: dict[str, object] = {
-        "_comment": "synthetic fixture",
-        "_version": "4.0",
-        "defaults": {"writable": True} if defaults is None else defaults,
-    }
+    payload: dict[str, object] = {"_comment": "synthetic fixture", "_version": "4.0"}
     payload.update(entries)
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
@@ -1808,7 +1789,9 @@ class TestLoadConfiguredDatabase:
         assert "JSON" in reason
 
     def test_a_readable_file_loads_with_no_reason(self, tmp_path):
-        limits = _write_limits(tmp_path / "limits.json", {"FOO": {"max_value": 1.0}})
+        limits = _write_limits(
+            tmp_path / "limits.json", {"FOO": {"writable": True, "max_value": 1.0}}
+        )
 
         loaded, reason = LimitsValidator.load_configured_database(
             config_lookup=mapping_config_lookup(self._config(limits))
@@ -1818,7 +1801,7 @@ class TestLoadConfiguredDatabase:
         assert loaded is not None
         limits_db, raw_db = loaded
         assert set(limits_db) == {"FOO"}
-        assert raw_db["FOO"] == {"max_value": 1.0}
+        assert raw_db["FOO"] == {"writable": True, "max_value": 1.0}
 
     def test_from_config_blocks_every_write_on_the_loaders_reason(self, monkeypatch, tmp_path):
         """The connector's failsafe quotes the same sentence every other caller gets."""
@@ -1826,7 +1809,7 @@ class TestLoadConfiguredDatabase:
             monkeypatch,
             {
                 "control_system.limits_checking.enabled": True,
-                "control_system.limits_checking.allow_unlisted_channels": False,
+                "control_system.limits_checking.mode": "exclusive",
                 "control_system.limits_checking.database_path": str(tmp_path / "gone.json"),
             },
         )
@@ -1844,58 +1827,34 @@ class TestLoadConfiguredDatabase:
 
 
 class TestWritableAddresses:
-    """Defaults-aware writability, the rule the runtime write path uses."""
+    """Per-entry writability, the rule the runtime write path uses."""
 
-    def test_entry_without_writable_inherits_the_default(self, tmp_path):
-        """The demo file grants writability by omission — that must be honored."""
-        limits = _write_limits(
-            tmp_path / "limits.json",
-            {"SR:MAG:DIPOLE:01:CURRENT:SP": {"min_value": 0.0, "max_value": 1.0}},
-            defaults={"writable": True},
-        )
-
-        assert LimitsValidator.writable_addresses(limits) == frozenset(
-            {"SR:MAG:DIPOLE:01:CURRENT:SP"}
-        )
-
-    def test_explicit_false_overrides_a_true_default(self, tmp_path):
-        """An explicit writable:false wins over defaults.writable:true."""
+    def test_each_entry_answers_for_itself(self, tmp_path):
         limits = _write_limits(
             tmp_path / "limits.json",
             {
-                "SR:MAG:DIPOLE:01:CURRENT:SP": {},
+                "SR:MAG:DIPOLE:01:CURRENT:SP": {
+                    "writable": True,
+                    "min_value": 0.0,
+                    "max_value": 1.0,
+                },
                 "SR:VAC:VALVE:01:CONTROL:OPEN": {"writable": False},
             },
-            defaults={"writable": True},
         )
 
         assert LimitsValidator.writable_addresses(limits) == frozenset(
             {"SR:MAG:DIPOLE:01:CURRENT:SP"}
         )
 
-    def test_explicit_true_overrides_a_false_default(self, tmp_path):
-        """The merge runs both ways: an entry can opt in under a false default."""
-        limits = _write_limits(
-            tmp_path / "limits.json",
-            {
-                "SR:MAG:DIPOLE:01:CURRENT:SP": {"writable": True},
-                "SR:MAG:DIPOLE:01:CURRENT:RB": {},
-            },
-            defaults={"writable": False},
-        )
-
-        assert LimitsValidator.writable_addresses(limits) == frozenset(
-            {"SR:MAG:DIPOLE:01:CURRENT:SP"}
-        )
-
-    def test_missing_defaults_block_falls_back_to_writable_true(self, tmp_path):
-        """No defaults block at all still matches the validator's ``get(..., True)``."""
+    def test_a_top_level_defaults_key_is_refused(self, tmp_path):
         path = tmp_path / "limits.json"
-        path.write_text(json.dumps({"SR:MAG:DIPOLE:01:CURRENT:SP": {}}), encoding="utf-8")
-
-        assert LimitsValidator.writable_addresses(path) == frozenset(
-            {"SR:MAG:DIPOLE:01:CURRENT:SP"}
+        path.write_text(
+            json.dumps({"defaults": {"writable": True}, "SR:MAG:DIPOLE:01:CURRENT:SP": {}}),
+            encoding="utf-8",
         )
+
+        with pytest.raises(ValueError, match="'defaults'"):
+            LimitsValidator.writable_addresses(path)
 
     def test_non_object_payload_is_a_legible_error(self, tmp_path):
         """A JSON list is refused by name rather than raising AttributeError later."""

@@ -40,7 +40,7 @@ resolves the posture and builds the wrapper), the generated script, the
 subprocess that runs it, and every ``from_config`` call either half makes.
 
 Substituted: the connector CLASS behind the two types, registered inside the
-sandbox script as :class:`MockConnector` so the run needs no soft IOC and no
+sandbox script as :class:`VAInProcessConnector` so the run needs no soft IOC and no
 facility. The substitution is downstream of everything under test — the factory
 still stamps ``_connector_type`` from the type the target resolved to, and
 ``connect()`` still reads its posture from that stamp — so it changes which wire
@@ -58,6 +58,7 @@ import yaml
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.python_executor import executor as host_executor
 from tests._control_context_fixtures import write_control_context
+from tests.facility.served_tree import in_process_config, served_tree
 
 #: Absent from the limits database on purpose: the posture is the only thing
 #: that can decide this write. Free of ``:SP``/``:SET``, which the mock mirrors
@@ -65,10 +66,10 @@ from tests._control_context_fixtures import write_control_context
 UNLISTED_CHANNEL = "SANDBOX:POSTURE:PROBE"
 
 #: The deployment-wide key, which is what a strict refusal must name.
-DEPLOYMENT_WIDE_KEY = "control_system.limits_checking.allow_unlisted_channels"
+DEPLOYMENT_WIDE_KEY = "control_system.limits_checking.mode"
 
 #: The per-type key, which is what the relaxed VA posture answers with.
-VA_KEY = "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels"
+VA_KEY = "control_system.connector.virtual_accelerator.limits_checking.mode"
 
 #: Marks the one line of sandbox stdout the assertions read.
 VERDICT_PREFIX = "SINGLE_POSTURE_VERDICT "
@@ -80,12 +81,12 @@ PROBE_SCRIPT = textwrap.dedent(
     f"""
     import json
 
-    from osprey_connectors.control_system.mock_connector import MockConnector
+    from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
     from osprey_connectors.factory import ConnectorFactory
 
     # See the module docstring: the class is substituted, the type keys are not.
-    ConnectorFactory.register_control_system("epics", MockConnector)
-    ConnectorFactory.register_control_system("virtual_accelerator", MockConnector)
+    ConnectorFactory.register_control_system("epics", VAInProcessConnector)
+    ConnectorFactory.register_control_system("virtual_accelerator", VAInProcessConnector)
 
     import osprey.runtime as _rt
 
@@ -126,6 +127,10 @@ PROBE_SCRIPT = textwrap.dedent(
 def _write_deployment(root: Path) -> Path:
     """Write a VA-permissive / live-strict deployment under *root*.
 
+    Both connector blocks serve one built tree holding the probed channel, a
+    writable setpoint, so the substituted mock answers the write either posture
+    lets through.
+
     ``control_system.type`` is ``epics``, so ``resolve_target`` answers ``live``
     with the baseline type — a type with no ``limits_checking`` block of its own,
     which is what makes it inherit the strict deployment-wide pair. ``va`` always
@@ -136,10 +141,13 @@ def _write_deployment(root: Path) -> Path:
     """
     limits_path = root / "limits.json"
     limits_path.write_text(
-        json.dumps({"SANDBOX:LISTED:CHANNEL": {"min_value": 0.0, "max_value": 10.0}}),
+        json.dumps(
+            {"SANDBOX:LISTED:CHANNEL": {"writable": True, "min_value": 0.0, "max_value": 10.0}}
+        ),
         encoding="utf-8",
     )
 
+    view = served_tree(root / "served", [UNLISTED_CHANNEL])
     config = {
         "project_root": str(root),
         "agent_data": {"base_dir": "var/agent_data"},
@@ -150,16 +158,18 @@ def _write_deployment(root: Path) -> Path:
             "writes_enabled": True,
             "limits_checking": {
                 "enabled": True,
-                "allow_unlisted_channels": False,
+                "mode": "exclusive",
                 "database_path": "limits.json",
             },
             "connector": {
-                "virtual_accelerator": {
-                    "limits_checking": {
+                "epics": in_process_config(view),
+                "virtual_accelerator": in_process_config(
+                    view,
+                    limits_checking={
                         "enabled": True,
-                        "allow_unlisted_channels": True,
-                    }
-                }
+                        "mode": "optional",
+                    },
+                ),
             },
         },
     }
@@ -244,8 +254,8 @@ def test_permissive_target_allows_both_write_paths(deployment):
     # connector resolved its own posture from this type, independently.
     assert verdict["connector_type"] == "virtual_accelerator"
     assert verdict["injected_policy"] == {
-        "allow_unlisted_channels": True,
-        "allow_unlisted_key": VA_KEY,
+        "mode": "optional",
+        "mode_key": VA_KEY,
     }
 
 
@@ -264,6 +274,6 @@ def test_strict_target_refuses_both_write_paths(deployment):
 
     assert verdict["connector_type"] == "epics"
     assert verdict["injected_policy"] == {
-        "allow_unlisted_channels": False,
-        "allow_unlisted_key": DEPLOYMENT_WIDE_KEY,
+        "mode": "exclusive",
+        "mode_key": DEPLOYMENT_WIDE_KEY,
     }

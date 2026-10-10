@@ -2,20 +2,23 @@
 
 import asyncio
 import json
+import math
 import os
 import subprocess
 import sys
 import textwrap
-from contextlib import contextmanager
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
-import numpy as np
 import pytest
 
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
 from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey.connectors.control_system.va_in_process_connector import (
+    NO_VIEW_MESSAGE,
+    VAInProcessConnector,
+)
+from tests.facility.served_tree import in_process_config, served_tree
 
 
 def _config_with_writes_enabled(key, default=None):
@@ -25,14 +28,14 @@ def _config_with_writes_enabled(key, default=None):
     return default
 
 
-class TestMockConnector:
-    """Test MockConnector functionality."""
+class TestVAInProcessConnector:
+    """Test VAInProcessConnector functionality."""
 
     @pytest.mark.asyncio
-    async def test_connect_disconnect(self):
+    async def test_connect_disconnect(self, tmp_path):
         """Test connector connection and disconnection."""
-        connector = MockConnector()
-        config = {"response_delay_ms": 0, "noise_level": 0.01}
+        connector = VAInProcessConnector()
+        config = in_process_config(served_tree(tmp_path), response_delay_ms=0)
 
         await connector.connect(config)
         assert connector._connected is True
@@ -41,30 +44,78 @@ class TestMockConnector:
         assert connector._connected is False
 
     @pytest.mark.asyncio
-    async def test_read_pv_accepts_any_name(self):
-        """Test that mock connector accepts any PV name."""
-        with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
+    async def test_a_disconnected_in_process_simulator_serves_no_address(
+        self, tmp_path, monkeypatch
+    ):
+        """After disconnect no address validates and a write says it is not connected."""
+        monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
+        connector = VAInProcessConnector()
+        await connector.connect(
+            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+        )
+        assert await connector.validate_channel("A:SP") is True
+
+        await connector.disconnect()
+
+        assert await connector.validate_channel("A:SP") is False
+        with pytest.raises(RuntimeError) as refusal:
+            await connector.write_channel("A:SP", 1.0)
+        assert str(refusal.value) == "the in-process simulator is not connected"
+
+    @pytest.mark.asyncio
+    async def test_connect_without_a_built_view_is_refused(self, tmp_path, monkeypatch):
+        """No view named and none beside a loaded config: connect says to build."""
+        monkeypatch.chdir(tmp_path)
+        connector = VAInProcessConnector()
+
+        with pytest.raises(RuntimeError) as refusal:
             await connector.connect({"response_delay_ms": 0})
 
-            # Test with arbitrary PV names
-            result1 = await connector.read_channel("MADE:UP:CHANNEL")
-            assert result1.value is not None
-            assert isinstance(result1.value, float)
+        assert str(refusal.value) == NO_VIEW_MESSAGE
+        assert connector._connected is False
 
-            result2 = await connector.read_channel("ANY:RANDOM:NAME")
-            assert result2.value is not None
+    @pytest.mark.asyncio
+    async def test_connect_reads_the_view_beside_the_loaded_config(self, tmp_path, monkeypatch):
+        """With no view named, the view beside the loaded config is served."""
+        view = served_tree(tmp_path, readings=["BEAM:CURRENT"])
+        render = view.parent.parent
+        (render / "config.yml").write_text(
+            "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+        )
+        monkeypatch.chdir(render)
+        connector = VAInProcessConnector()
+        await connector.connect({"response_delay_ms": 0})
+
+        assert await connector.validate_channel("BEAM:CURRENT") is True
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_read_refuses_an_address_outside_the_facility_file(self, tmp_path):
+        """An address the built facility file does not hold is refused, by name."""
+        view = served_tree(tmp_path, readings=["MADE:UP:CHANNEL"])
+        with patch("osprey.utils.config.get_config_value", return_value=True):
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
+
+            result = await connector.read_channel("MADE:UP:CHANNEL")
+            assert isinstance(result.value, float)
+
+            with pytest.raises(ValueError) as refusal:
+                await connector.read_channel("ANY:RANDOM:NAME")
+            assert str(refusal.value) == "ANY:RANDOM:NAME is not in build/facility.json"
 
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_read_returns_tz_aware_timestamps(self):
+    async def test_read_returns_tz_aware_timestamps(self, tmp_path):
         """Live-read timestamps carry an explicit offset (facility zone), not a
         naive datetime — guards the connector render sites against silent
         reversion to ``datetime.now()``."""
+        view = served_tree(tmp_path, readings=["ANY:CHANNEL"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             result = await connector.read_channel("ANY:CHANNEL")
             assert result.timestamp.tzinfo is not None
@@ -82,11 +133,12 @@ class TestMockConnector:
             pytest.param("VACUUM:PRESSURE", "Torr", id="vacuum-pressure"),
         ],
     )
-    async def test_read_pv_infers_units(self, channel, units):
-        """The connector infers each channel's exact unit from its name."""
+    async def test_read_carries_the_unit_of_the_channel_record(self, tmp_path, channel, units):
+        """A read's unit is exactly the one the channel record states."""
+        view = served_tree(tmp_path, readings=[channel], channels={channel: {"unit": units}})
         with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             result = await connector.read_channel(channel)
             assert result.metadata.units == units
@@ -94,19 +146,15 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_write_and_read_maintains_state(self):
+    async def test_write_and_read_maintains_state(self, tmp_path):
         """Test that mock connector maintains state between writes and reads."""
-        connector = MockConnector()
+        view = served_tree(tmp_path, ["TEST:SETPOINT:SP"])
+        connector = VAInProcessConnector()
         with patch(
             "osprey.utils.config.get_config_value",
             side_effect=_config_with_writes_enabled,
         ):
-            await connector.connect(
-                {
-                    "response_delay_ms": 0,
-                    "noise_level": 0.0,  # No noise for exact comparison
-                }
-            )
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             # Write a value
             channel = "TEST:SETPOINT:SP"
@@ -121,11 +169,69 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_write_disabled(self):
+    async def test_write_to_a_readback_is_refused_before_any_put(self, tmp_path, monkeypatch):
+        """A channel that is not a writable setpoint is refused, and nothing is put."""
+        monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
+        view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(view, response_delay_ms=0))
+        puts = []
+        monkeypatch.setattr(connector, "_put", lambda *args: puts.append(args))
+
+        result = await connector.write_channel("MAGNET:CURRENT:RB", 5.0)
+
+        assert result.outcome is WriteOutcome.REFUSED
+        assert "not a writable setpoint" in result.error_message
+        assert puts == []
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_write_outside_the_facility_file_is_refused(self, tmp_path, monkeypatch):
+        """A write to an address the facility file does not hold is refused by name."""
+        monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
+        connector = VAInProcessConnector()
+        await connector.connect(
+            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+        )
+
+        result = await connector.write_channel("B:SP", 1.0)
+
+        assert result.outcome is WriteOutcome.REFUSED
+        assert result.error_message == "B:SP is not in build/facility.json"
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_a_write_the_composite_rejects_is_refused_with_its_text(
+        self, tmp_path, monkeypatch
+    ):
+        """The composite's refusal text is the refusal's message, verbatim."""
+        monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
+        connector = VAInProcessConnector()
+        await connector.connect(
+            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+        )
+
+        def rejecting_set(_values):
+            raise ValueError("orbit does not close")
+
+        monkeypatch.setattr(connector._composite, "set", rejecting_set)
+
+        result = await connector.write_channel("A:SP", 1.0)
+
+        assert result.outcome is WriteOutcome.REFUSED
+        assert result.error_message == "orbit does not close"
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_write_disabled(self, tmp_path):
         """Test that writes are blocked via base class when config says false."""
-        connector = MockConnector()
+        view = served_tree(tmp_path, ["TEST:PV"])
+        connector = VAInProcessConnector()
         with patch("osprey.utils.config.get_config_value", return_value=False):
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             result = await connector.write_channel("TEST:PV", 100.0)
             assert result.outcome is WriteOutcome.REFUSED
@@ -133,11 +239,256 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_read_multiple_channels(self):
+    async def test_an_enum_channel_reads_its_option_index(self, tmp_path, monkeypatch):
+        """A bool or enum channel reads back as its option index, its label beside it."""
+        monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
+        view = served_tree(
+            tmp_path,
+            ["MODE:SP"],
+            channels={"MODE:SP": {"value_type": "enum", "options": ["OFF", "CW", "PULSED"]}},
+        )
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(view, response_delay_ms=0))
+
+        result = await connector.write_channel("MODE:SP", 2)
+        reading = await connector.read_channel("MODE:SP")
+
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert reading.value == 2
+        assert reading.metadata.enum_label == "PULSED"
+        assert reading.metadata.enum_labels == ["OFF", "CW", "PULSED"]
+
+        await connector.disconnect()
+
+    @staticmethod
+    def _fault(view, channel_faults):
+        """Activate one scenario holding ``channel_faults`` on the rendered ``view``."""
+        from osprey.connectors.control_system.va_in_process_connector import (
+            simulation_state_dir,
+        )
+
+        scenarios = json.loads((view / "scenarios.json").read_text(encoding="utf-8"))
+        scenarios["scenarios"] = [{"name": "cut", "channel_faults": channel_faults}]
+        (view / "scenarios.json").write_text(json.dumps(scenarios), encoding="utf-8")
+        state = simulation_state_dir(view)
+        state.mkdir(parents=True, exist_ok=True)
+        (state / "active_scenarios").write_text("cut\n", encoding="utf-8")
+
+    @pytest.mark.asyncio
+    async def test_a_write_to_a_stuck_texture_setpoint_confirms(self, tmp_path, monkeypatch):
+        """A held write confirms on the setpoint, and its readback does not follow."""
+        monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
+        view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
+        self._fault(view, {"MAGNET:CURRENT:SP": "stuck"})
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(view, response_delay_ms=0))
+
+        result = await connector.write_channel("MAGNET:CURRENT:SP", 7.0)
+
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert (await connector.read_channel("MAGNET:CURRENT:SP")).value == pytest.approx(7.0)
+        assert (await connector.read_channel("MAGNET:CURRENT:RB")).value == pytest.approx(0.0)
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_a_disconnected_reading_carries_the_udf_alarm(self, tmp_path):
+        """A disconnected float reading reads not-a-number with the UDF alarm."""
+        view = served_tree(
+            tmp_path,
+            readings=["BEAM:CUT", "BEAM:LIVE"],
+            channels={
+                "BEAM:CUT": {"simulation": {"nominal": 1.0}},
+                "BEAM:LIVE": {"simulation": {"nominal": 2.0}},
+            },
+        )
+        self._fault(view, {"BEAM:CUT": "disconnected"})
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(view, response_delay_ms=0))
+
+        cut = await connector.read_channel("BEAM:CUT")
+        live = await connector.read_channel("BEAM:LIVE")
+
+        assert math.isnan(cut.value)
+        assert (cut.metadata.alarm_severity, cut.metadata.alarm_status) == (3, "UDF")
+        assert live.value == pytest.approx(2.0)
+        assert live.metadata.alarm_severity is None
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_a_subscription_fires_after_a_write(self, tmp_path, monkeypatch):
+        """A write that changes a subscribed channel's held value fires its callback."""
+        monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
+        view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(view, response_delay_ms=0))
+        seen = []
+        await connector.subscribe("MAGNET:CURRENT:RB", seen.append)
+
+        await connector.write_channel("MAGNET:CURRENT:SP", 7.0)
+
+        assert [reading.value for reading in seen] == [pytest.approx(7.0)]
+
+        await connector.disconnect()
+
+    @staticmethod
+    def _ticking_tree(tmp_path, tick_s=None):
+        """A tree with one noisy and one quiet reading, rendered with ``tick_s``."""
+        view = served_tree(
+            tmp_path,
+            readings=["BEAM:NOISY", "BEAM:QUIET"],
+            channels={
+                "BEAM:NOISY": {"simulation": {"nominal": 1.0, "noise": {"absolute": 0.1}}},
+                "BEAM:QUIET": {"simulation": {"nominal": 2.0}},
+            },
+        )
+        if tick_s is not None:
+            (view.parent.parent / "config.yml").write_text(f"simulation:\n  tick_s: {tick_s}\n")
+        return view
+
+    @staticmethod
+    async def _wait_for(predicate, timeout_s):
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_s
+        while not predicate() and loop.time() < deadline:
+            await asyncio.sleep(0.01)
+        return predicate()
+
+    @pytest.mark.asyncio
+    async def test_a_tick_fires_a_moving_channel_with_no_write(self, tmp_path):
+        """After a tick of ``simulation.tick_s`` a channel declaring motion fires."""
+        connector = VAInProcessConnector()
+        await connector.connect(
+            in_process_config(self._ticking_tree(tmp_path, 0.05), response_delay_ms=0)
+        )
+        seen = []
+        await connector.subscribe("BEAM:NOISY", seen.append)
+
+        # At a 0.05 s tick two firings arrive long before the bound.
+        assert await self._wait_for(lambda: len(seen) >= 2, timeout_s=5.0)
+        assert all(reading.value is not None for reading in seen)
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_a_tick_leaves_a_quiet_channel_silent(self, tmp_path):
+        """A channel with no motion and an unchanged held value never fires on a tick."""
+        connector = VAInProcessConnector()
+        await connector.connect(
+            in_process_config(self._ticking_tree(tmp_path, 0.05), response_delay_ms=0)
+        )
+        noisy, quiet = [], []
+        await connector.subscribe("BEAM:NOISY", noisy.append)
+        await connector.subscribe("BEAM:QUIET", quiet.append)
+
+        assert await self._wait_for(lambda: len(noisy) >= 3, timeout_s=5.0)
+        # The first tick records the quiet channel's held value; it fires only
+        # when that value has no predecessor, never again after.
+        fired_once = len(quiet)
+        assert await self._wait_for(lambda: len(noisy) >= 6, timeout_s=5.0)
+        assert len(quiet) == fired_once <= 1
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_subscription_fires_for_coupled_channel_without_seed_noise(self, tmp_path):
+        """A channel an active scenario couples fires on every tick, with no seed motion."""
+        from osprey.connectors.control_system.va_in_process_connector import (
+            simulation_state_dir,
+        )
+
+        view = self._ticking_tree(tmp_path, 0.05)
+        scenarios = json.loads((view / "scenarios.json").read_text(encoding="utf-8"))
+        scenarios["scenarios"] = [
+            {
+                "name": "thermal",
+                "drivers": {"d": {"kind": "wander", "amplitude": 1.0, "period_s": 300}},
+                "couple": {"BEAM:QUIET": [{"driver": "d", "gain": 0.5}]},
+            }
+        ]
+        (view / "scenarios.json").write_text(json.dumps(scenarios), encoding="utf-8")
+        state = simulation_state_dir(view)
+        state.mkdir(parents=True, exist_ok=True)
+        (state / "active_scenarios").write_text("thermal\n", encoding="utf-8")
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(view, response_delay_ms=0))
+        quiet = []
+        await connector.subscribe("BEAM:QUIET", quiet.append)
+
+        assert await self._wait_for(lambda: len(quiet) >= 3, timeout_s=5.0)
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_a_stilled_reading_fires_no_subscription(self, tmp_path):
+        """A reading the active scenarios still fires no tick, though its seed declares noise."""
+        from osprey.connectors.control_system.va_in_process_connector import (
+            simulation_state_dir,
+        )
+
+        view = self._ticking_tree(tmp_path, 0.05)
+        scenarios = json.loads((view / "scenarios.json").read_text(encoding="utf-8"))
+        scenarios["scenarios"] = [{"name": "quiet", "still": ["BEAM:NOISY"]}]
+        (view / "scenarios.json").write_text(json.dumps(scenarios), encoding="utf-8")
+        state = simulation_state_dir(view)
+        state.mkdir(parents=True, exist_ok=True)
+        (state / "active_scenarios").write_text("quiet\n", encoding="utf-8")
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(view, response_delay_ms=0))
+        noisy = []
+        await connector.subscribe("BEAM:NOISY", noisy.append)
+
+        await asyncio.sleep(0.4)
+
+        assert len(noisy) <= 1
+        assert all(reading.value == pytest.approx(1.0) for reading in noisy)
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_the_tick_period_comes_from_the_rendered_config(self, tmp_path):
+        """With no ``simulation.tick_s`` the default period applies: no tick in 0.3 s."""
+        from osprey_connectors.simulation import DEFAULT_TICK_S
+
+        assert DEFAULT_TICK_S >= 0.6
+        connector = VAInProcessConnector()
+        await connector.connect(
+            in_process_config(self._ticking_tree(tmp_path), response_delay_ms=0)
+        )
+        seen = []
+        await connector.subscribe("BEAM:NOISY", seen.append)
+
+        await asyncio.sleep(0.3)
+
+        assert seen == []
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_disconnect_stops_the_tick(self, tmp_path):
+        """No callback fires after disconnect."""
+        connector = VAInProcessConnector()
+        await connector.connect(
+            in_process_config(self._ticking_tree(tmp_path, 0.05), response_delay_ms=0)
+        )
+        seen = []
+        await connector.subscribe("BEAM:NOISY", seen.append)
+        assert await self._wait_for(lambda: len(seen) >= 1, timeout_s=5.0)
+
+        await connector.disconnect()
+        fired = len(seen)
+        await asyncio.sleep(0.3)
+
+        assert len(seen) == fired
+
+    @pytest.mark.asyncio
+    async def test_read_multiple_channels(self, tmp_path):
         """Test reading multiple PVs concurrently."""
+        view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3", "PV:4"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             channels = ["PV:1", "PV:2", "PV:3", "PV:4"]
             results = await connector.read_multiple_channels(channels)
@@ -161,11 +512,12 @@ class TestMockConnector:
         connector.read_channel = read_channel
 
     @pytest.mark.asyncio
-    async def test_read_multiple_channels_omits_a_failed_read(self):
+    async def test_read_multiple_channels_omits_a_failed_read(self, tmp_path):
         """A read that fails with an ordinary error is left out of the result."""
+        view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
             self._fail_read_of(connector, "PV:2", RuntimeError("read failed"))
 
             results = await connector.read_multiple_channels(["PV:1", "PV:2", "PV:3"])
@@ -174,11 +526,12 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_read_multiple_channels_propagates_a_cancelled_read(self):
+    async def test_read_multiple_channels_propagates_a_cancelled_read(self, tmp_path):
         """A cancelled read raises the cancellation instead of returning it as a value."""
+        view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
             self._fail_read_of(connector, "PV:2", asyncio.CancelledError())
 
             with pytest.raises(asyncio.CancelledError):
@@ -186,46 +539,71 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_validate_pv_always_true(self):
-        """Test that all PV names are valid in mock mode."""
+    async def test_validate_channel_is_membership(self, tmp_path):
+        """A channel is valid exactly when the built facility file holds it."""
+        view = served_tree(tmp_path, readings=["ANY:PV:NAME"])
         with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             assert await connector.validate_channel("ANY:PV:NAME") is True
-            assert await connector.validate_channel("RANDOM:CHANNEL") is True
+            assert await connector.validate_channel("RANDOM:CHANNEL") is False
 
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_metadata(self):
-        """Test getting PV metadata."""
+    async def test_metadata(self, tmp_path):
+        """Metadata carries the channel record's unit and description."""
+        view = served_tree(
+            tmp_path,
+            readings=["BEAM:CURRENT"],
+            channels={"BEAM:CURRENT": {"unit": "mA", "description": "Stored beam current"}},
+        )
         with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             metadata = await connector.get_metadata("BEAM:CURRENT")
-            assert metadata.units is not None
-            assert metadata.description is not None
-            assert "Mock" in metadata.description
+            assert metadata.units == "mA"
+            assert metadata.description == "Stored beam current"
 
             await connector.disconnect()
+
+
+#: Readbacks whose seeds move, so a window of their history varies.
+_MOVING = {"simulation": {"nominal": 500.0, "noise": {"absolute": 1.0}}}
+
+
+def _archived_tree(tmp_path, *readings):
+    """A served tree whose readings each carry a noisy seed."""
+    return served_tree(tmp_path, readings=readings, channels=dict.fromkeys(readings, _MOVING))
 
 
 class TestMockArchiverConnector:
     """Test MockArchiverConnector functionality."""
 
     @pytest.mark.asyncio
-    async def test_connect_disconnect(self):
+    async def test_connect_disconnect(self, tmp_path):
         """Test archiver connection and disconnection."""
         connector = MockArchiverConnector()
-        config = {"sample_rate_hz": 1.0, "noise_level": 0.01}
+        config = in_process_config(served_tree(tmp_path), sample_rate_hz=1.0)
 
         await connector.connect(config)
         assert connector._connected is True
 
         await connector.disconnect()
         assert connector._connected is False
+
+    @pytest.mark.asyncio
+    async def test_connect_without_a_built_view_is_refused(self, tmp_path, monkeypatch):
+        """No view named and none beside a loaded config: connect says to build."""
+        monkeypatch.chdir(tmp_path)
+        connector = MockArchiverConnector()
+
+        with pytest.raises(RuntimeError) as refusal:
+            await connector.connect({})
+
+        assert str(refusal.value) == NO_VIEW_MESSAGE
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("sample_rate_hz", [0, -1.0])
@@ -237,10 +615,34 @@ class TestMockArchiverConnector:
             await connector.connect({"sample_rate_hz": sample_rate_hz})
 
     @pytest.mark.asyncio
-    async def test_get_data_returns_dataframe(self):
+    async def test_get_data_serves_the_view_and_refuses_any_other_name(self, tmp_path):
+        """The view's channels are served; a name outside it is refused, by name."""
+        channels = ["FAKE:PV:1", "RANDOM:PV:2", "ANY:NAME:3"]
+        connector = MockArchiverConnector()
+        await connector.connect(in_process_config(_archived_tree(tmp_path, *channels)))
+
+        start_date = datetime(2024, 1, 1, 0, 0, 0)
+        end_date = datetime(2024, 1, 1, 1, 0, 0)
+
+        df = await connector.get_data(channels=channels, start_date=start_date, end_date=end_date)
+
+        assert df is not None
+        assert len(df) > 0
+        assert set(df["channel"]) == set(channels)
+
+        with pytest.raises(ValueError) as refusal:
+            await connector.get_data(
+                channels=["NOT:SERVED"], start_date=start_date, end_date=end_date
+            )
+        assert str(refusal.value) == "NOT:SERVED is not in build/facility.json"
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_get_data_returns_dataframe(self, tmp_path):
         """Test that get_data returns the canonical long-format DataFrame."""
         connector = MockArchiverConnector()
-        await connector.connect({"noise_level": 0.01})
+        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
         start_date = datetime(2024, 1, 1, 0, 0, 0)
         end_date = datetime(2024, 1, 1, 0, 10, 0)
@@ -260,10 +662,10 @@ class TestMockArchiverConnector:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_get_metadata(self):
+    async def test_get_metadata(self, tmp_path):
         """Test getting archiver metadata."""
         connector = MockArchiverConnector()
-        await connector.connect({})
+        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
         metadata = await connector.get_metadata("BEAM:CURRENT")
         assert metadata.channel == "BEAM:CURRENT"
@@ -273,32 +675,52 @@ class TestMockArchiverConnector:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_check_availability_all_true(self):
-        """Test that all PVs are available in mock archiver."""
-        connector = MockArchiverConnector()
-        await connector.connect({})
-
+    async def test_check_availability_is_membership(self, tmp_path):
+        """A channel is available exactly when the simulator view holds it."""
         channels = ["PV:1", "PV:2", "PV:3"]
-        availability = await connector.check_availability(channels)
+        connector = MockArchiverConnector()
+        await connector.connect(in_process_config(_archived_tree(tmp_path, *channels)))
 
-        assert len(availability) == len(channels)
+        availability = await connector.check_availability([*channels, "PV:4"])
+
+        assert len(availability) == len(channels) + 1
         for pv in channels:
             assert availability[pv] is True
+        assert availability["PV:4"] is False
 
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_multi_pv_returns_independent_rows_per_channel(self):
-        """Each requested channel, whatever its name, contributes its own rows.
-
-        Made-up names sit beside known ones: the mock archives any PV.
-        """
+    async def test_generated_time_series_has_variation(self, tmp_path):
+        """Test that generated time series have realistic variation."""
         connector = MockArchiverConnector()
-        await connector.connect({"noise_level": 0.01})
+        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
+
+        start_date = datetime(2024, 1, 1, 0, 0, 0)
+        end_date = datetime(2024, 1, 1, 1, 0, 0)
+
+        df = await connector.get_data(
+            channels=["BEAM:CURRENT"], start_date=start_date, end_date=end_date
+        )
+
+        # Check that values vary (not all the same)
+        values = df.loc[df["channel"] == "BEAM:CURRENT", "value"].to_numpy()
+        assert len(set(values)) > 1
+        assert values.std() > 0
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_multi_pv_returns_independent_rows_per_channel(self, tmp_path):
+        """Each channel contributes its own rows to the long frame."""
+        connector = MockArchiverConnector()
+        await connector.connect(
+            in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT", "MAGNET:VOLTAGE"))
+        )
 
         start_date = datetime(2024, 1, 1, 0, 0, 0)
         end_date = datetime(2024, 1, 1, 0, 1, 0)
-        channels = ["BEAM:CURRENT", "MAGNET:VOLTAGE", "FAKE:PV:1", "ANY:NAME:3"]
+        channels = ["BEAM:CURRENT", "MAGNET:VOLTAGE"]
 
         df = await connector.get_data(
             channels=channels,
@@ -323,11 +745,12 @@ class TestMockArchiverProcessing:
     """
 
     @pytest.mark.asyncio
-    async def test_processing_mean_aggregates_multiple_raw_samples(self):
+    async def test_processing_mean_aggregates_multiple_raw_samples(self, tmp_path):
         """A bin much wider than the data's spacing must average, not pass through."""
         connector = MockArchiverConnector()
-        # noise_level=0 makes the two independent get_data() calls comparable.
-        await connector.connect({"noise_level": 0.0})
+        # Samples are a pure function of channel and timestamp, so the two
+        # independent get_data() calls are comparable.
+        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
         # Both calls generate the same 10 points (the generator's forced
         # minimum) over this 10s window; the 60s mean bin forces every sample
@@ -358,10 +781,10 @@ class TestMockArchiverProcessing:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_processing_mean_bounded_when_point_cap_binds(self):
+    async def test_processing_mean_bounded_when_point_cap_binds(self, tmp_path):
         """A window wide enough to hit the 10,000-point cap must not blow up on resample."""
         connector = MockArchiverConnector()
-        await connector.connect({"noise_level": 0.01})
+        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
         start_date = datetime(2024, 1, 1)
         end_date = start_date + timedelta(days=7)
@@ -382,61 +805,23 @@ class TestMockArchiverProcessing:
         await connector.disconnect()
 
 
-class TestMockArchiverProceduralKinds:
-    """Every PV-kind branch of the procedural generator reaches the frame.
-
-    The generator's own contract (absolute-time determinism, VA-anchored
-    baselines, per-kind shapes) is covered in
-    ``tests/simulation/test_procedural_generator.py``; what this pins is the
-    connector's half — that a channel the simulation engine does not serve is
-    routed through it and lands in the long frame as a plausible series.
-    """
-
-    @pytest.mark.parametrize(
-        ("channel", "base_value"),
-        [
-            ("BEAM:CURRENT", 500.0),
-            ("PS:CURRENT", 150.0),
-            ("RF:POWER", 50.0),
-            ("CRYO:TEMP", 25.0),
-            ("SR:LIFETIME", 10.0),
-            ("SOME:RANDOM:PV", 100.0),
-        ],
-    )
-    @pytest.mark.asyncio
-    async def test_each_kind_generates_a_plausible_series(self, channel, base_value):
-        connector = MockArchiverConnector()
-        await connector.connect({"noise_level": 0.01})
-
-        df = await connector.get_data(
-            channels=[channel],
-            start_date=datetime(2024, 1, 1, 0, 0, 0),
-            end_date=datetime(2024, 1, 1, 3, 20, 0),
-            precision_ms=60_000,
-        )
-        values = df.loc[df["channel"] == channel, "value"].to_numpy()
-
-        assert len(values) == 200
-        assert np.all(np.isfinite(values))
-        assert values.std() > 0, "the series must vary, not sit at the base value"
-        assert values.mean() == pytest.approx(base_value, rel=0.5)
-
-        await connector.disconnect()
-
-
 class TestMockArchiverReproducibility:
-    """The mock's synthetic data must be reproducible, which it advertises but did not do.
+    """The mock's synthetic data must be reproducible within and across processes.
 
-    Regression: non-BPM noise came from the global ``np.random``, and the
-    per-PV seed came from salted ``hash(channel)``, so results differed both
-    within and across processes.
+    Every sample is keyed by the channel's address and the epoch time, never by
+    a global random state or a salted ``hash()``.
     """
 
     _WINDOW = (datetime(2024, 1, 15, 10, 0, 0), datetime(2024, 1, 15, 10, 5, 0))
+    _CHANNELS = ("SR:UNKNOWN:PRESSURE", "SR:OTHER:PRESSURE", "SR:BPM01:POSITION")
 
-    async def _values(self, pv: str) -> list[float]:
+    @pytest.fixture
+    def view(self, tmp_path):
+        return _archived_tree(tmp_path, *self._CHANNELS)
+
+    async def _values(self, view, pv: str) -> list[float]:
         connector = MockArchiverConnector()
-        await connector.connect({})
+        await connector.connect(in_process_config(view))
         start, end = self._WINDOW
         df = await connector.get_data(channels=[pv], start_date=start, end_date=end)
         await connector.disconnect()
@@ -444,22 +829,24 @@ class TestMockArchiverReproducibility:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("pv", ["SR:UNKNOWN:PRESSURE", "SR:BPM01:POSITION"])
-    async def test_same_pv_and_window_repeats_within_a_process(self, pv):
-        assert await self._values(pv) == await self._values(pv)
+    async def test_same_pv_and_window_repeats_within_a_process(self, view, pv):
+        assert await self._values(view, pv) == await self._values(view, pv)
 
     @pytest.mark.asyncio
-    async def test_distinct_pvs_do_not_collide(self):
+    async def test_distinct_pvs_do_not_collide(self, view):
         """Reproducible must not mean identical across channels."""
-        assert await self._values("SR:UNKNOWN:PRESSURE") != await self._values("SR:OTHER:PRESSURE")
+        assert await self._values(view, "SR:UNKNOWN:PRESSURE") != await self._values(
+            view, "SR:OTHER:PRESSURE"
+        )
 
-    def test_same_pv_and_window_repeats_across_processes(self):
-        """The point of the fix — run it in fresh interpreters with different hash seeds.
+    def test_same_pv_and_window_repeats_across_processes(self, view):
+        """Run it in fresh interpreters with different hash seeds.
 
         ``hash()`` is salted per process, so only fresh interpreters can catch
         a seed derived from it.
         """
         script = textwrap.dedent("""
-            import asyncio, json
+            import asyncio, json, sys
             from datetime import datetime
             from osprey.connectors.archiver.mock_archiver_connector import (
                 MockArchiverConnector,
@@ -467,7 +854,7 @@ class TestMockArchiverReproducibility:
 
             async def main():
                 c = MockArchiverConnector()
-                await c.connect({})
+                await c.connect({"simulator_view": sys.argv[1]})
                 df = await c.get_data(
                     channels=["SR:UNKNOWN:PRESSURE"],
                     start_date=datetime(2024, 1, 15, 10, 0, 0),
@@ -483,7 +870,7 @@ class TestMockArchiverReproducibility:
         for seed in ("0", "1", "12345"):
             env = {**os.environ, "PYTHONHASHSEED": seed}
             proc = subprocess.run(
-                [sys.executable, "-c", script],
+                [sys.executable, "-c", script, str(view)],
                 capture_output=True,
                 text=True,
                 env=env,
@@ -495,131 +882,7 @@ class TestMockArchiverReproducibility:
         assert len(runs[0]) > 0
 
 
-@contextmanager
-def _captured_sigmas():
-    """Record the sigma of every Gaussian draw the mock connector makes.
-
-    Yields:
-        The list the recorder appends each draw's ``scale`` argument to, so a
-        test can assert on the exact sigma rather than on a sampled value.
-    """
-    sigmas: list[float] = []
-    real_normal = np.random.normal
-
-    def recorder(loc, scale, *args, **kwargs):
-        sigmas.append(scale)
-        return real_normal(loc, scale, *args, **kwargs)
-
-    with patch("osprey.connectors.control_system.mock_connector.np.random.normal", recorder):
-        yield sigmas
-
-
-class TestKindAwareNoiseFloor:
-    """The procedural fallback applies noise multiplicatively, so a channel
-    whose baseline is exactly ``0.0`` is immune to its own noise declaration.
-    Kinds whose base can legitimately be zero therefore carry an absolute sigma
-    floor (``ChannelKind.noise_scale``); every other kind's sigma is untouched.
-    """
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("channel", "base_value"),
-        [
-            ("SR:BEAM:CURRENT", 500.0),
-            ("PS:CURRENT", 150.0),
-            ("RF:VOLTAGE", 5000.0),
-            ("RF:POWER", 50.0),
-            ("VAC:PRESSURE", 1e-9),
-            ("CRYO:TEMP", 25.0),
-            ("SR:LIFETIME", 10.0),
-            ("SR:ENERGY", 1900.0),
-            ("SOME:RANDOM:PV", 100.0),
-        ],
-    )
-    async def test_non_position_kind_sigma_is_exactly_unchanged(self, channel, base_value):
-        """Regression guard: the floor must not perturb any kind with a non-zero base."""
-        with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0, "noise_level": 0.01})
-            with _captured_sigmas() as sigmas:
-                await connector.read_channel(channel)
-            await connector.disconnect()
-
-        assert sigmas == [abs(base_value) * 0.01]
-
-    @pytest.mark.asyncio
-    async def test_position_channel_sigma_at_zero_baseline_is_the_kind_floor(self):
-        with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0, "noise_level": 0.01})
-            with _captured_sigmas() as sigmas:
-                await connector.read_channel("BPM:POSITION:X")
-            await connector.disconnect()
-
-        assert sigmas == [0.005]
-
-    @pytest.mark.asyncio
-    async def test_position_channel_at_zero_baseline_varies_across_reads(self):
-        with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0, "noise_level": 0.01})
-
-            values = {(await connector.read_channel("BPM:POSITION:X")).value for _ in range(20)}
-
-            await connector.disconnect()
-
-        assert len(values) > 1, "a 0.0-baseline position channel must still carry noise"
-
-    @pytest.mark.asyncio
-    async def test_floor_stops_binding_once_the_channel_moves_off_zero(self):
-        """Above the floor the sigma is purely relative again -- the floor is a
-        minimum, not an added noise source."""
-        with patch(
-            "osprey.utils.config.get_config_value",
-            side_effect=_config_with_writes_enabled,
-        ):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0, "noise_level": 0.01})
-            await connector.write_channel("BPM:POSITION:X", 5.0)
-
-            with _captured_sigmas() as sigmas:
-                await connector.read_channel("BPM:POSITION:X")
-
-            await connector.disconnect()
-
-        assert sigmas == [5.0 * 0.01]
-
-    @pytest.mark.asyncio
-    async def test_zero_noise_level_disables_the_floor(self):
-        """``noise_level: 0`` is an explicit request for determinism; the kind
-        floor exists to fix the zero-base degeneracy, not to override that
-        request, so it does not apply when the relative level is zero."""
-        with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
-            with _captured_sigmas() as sigmas:
-                await connector.read_channel("BPM:POSITION:X")
-                await connector.read_channel("SR:BEAM:CURRENT")
-            await connector.disconnect()
-
-        assert sigmas == [0.0, 0.0]
-
-    @pytest.mark.asyncio
-    async def test_position_channel_at_zero_noise_level_is_deterministic(self):
-        """True determinism, not merely small variance: repeated reads of a
-        0.0-baseline position channel must return the exact same value."""
-        with patch("osprey.utils.config.get_config_value", return_value=True):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
-
-            values = {(await connector.read_channel("BPM:POSITION:X")).value for _ in range(20)}
-
-            await connector.disconnect()
-
-        assert len(values) == 1, "noise_level 0.0 must produce identical reads, not just tight ones"
-
-
-class TestMockWriteConfirmationContract:
+class TestInProcessWriteConfirmationContract:
     """Mock write results carry one outcome word and the value observed.
 
     Consumers decide what happened from ``outcome`` and ``observed_value``,
@@ -630,15 +893,21 @@ class TestMockWriteConfirmationContract:
     """
 
     @staticmethod
-    async def _connected_mock(monkeypatch, noise_level=0.0):
+    async def _connected_in_process(monkeypatch, tmp_path, channels=None, **settings):
         """A connected mock with writes enabled for the whole test.
 
         The writes_enabled gate is re-read on every write, so the config patch
-        has to outlive connect().
+        has to outlive connect(). The tree serves the setpoints these tests
+        write, and the readback one of them is paired with.
         """
         monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
-        connector = MockConnector()
-        await connector.connect({"response_delay_ms": 0, "noise_level": noise_level})
+        view = served_tree(
+            tmp_path,
+            {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB", "TEST:CHANNEL:SP": None},
+            channels=channels,
+        )
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(view, response_delay_ms=0, **settings))
         return connector
 
     @staticmethod
@@ -648,9 +917,9 @@ class TestMockWriteConfirmationContract:
 
         return _read
 
-    async def test_a_write_confirms_against_what_the_store_holds(self, monkeypatch):
+    async def test_a_write_confirms_against_what_the_store_holds(self, monkeypatch, tmp_path):
         """A re-read holding the value sent is ``confirmed``, with no message."""
-        connector = await self._connected_mock(monkeypatch)
+        connector = await self._connected_in_process(monkeypatch, tmp_path)
 
         result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
 
@@ -664,28 +933,32 @@ class TestMockWriteConfirmationContract:
 
         await connector.disconnect()
 
-    async def test_read_noise_does_not_manufacture_a_mismatch(self, monkeypatch):
-        """A noisy channel still confirms: noise is measurement, not storage.
+    async def test_read_noise_does_not_manufacture_a_mismatch(self, monkeypatch, tmp_path):
+        """A write confirms against what is held while the readback it echoes into moves.
 
-        There is no tolerance to absorb a noise draw, so a confirming read that
-        went through ``read_channel`` would report a mismatch on essentially
-        every write at the shipped default noise level.
+        Noise is measurement, not storage: the readback's seed declares noise,
+        so its ordinary read moves, and a write to its setpoint still confirms
+        on every attempt.
         """
-        connector = await self._connected_mock(monkeypatch, noise_level=0.5)
+        connector = await self._connected_in_process(
+            monkeypatch,
+            tmp_path,
+            channels={"MAGNET:CURRENT:RB": {"simulation": {"noise": {"absolute": 0.5}}}},
+        )
 
         for _ in range(5):
-            result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
+            result = await connector.write_channel("MAGNET:CURRENT:SP", 42.0)
             assert result.outcome is WriteOutcome.CONFIRMED
             assert result.observed_value == pytest.approx(42.0)
 
         # The ordinary read path is untouched and still noisy.
-        noisy = await connector.read_channel("TEST:CHANNEL:SP")
+        noisy = await connector.read_channel("MAGNET:CURRENT:RB")
         assert noisy.value != pytest.approx(42.0, abs=1e-9)
 
         await connector.disconnect()
 
     async def test_a_perturbed_store_value_is_a_mismatch_without_an_error_message(
-        self, monkeypatch
+        self, monkeypatch, tmp_path
     ):
         """A setpoint the machine did not keep is reported, not tolerated.
 
@@ -693,10 +966,10 @@ class TestMockWriteConfirmationContract:
         — it is reserved for the outcomes that carry something the numbers
         cannot say.
         """
-        connector = await self._connected_mock(monkeypatch)
+        connector = await self._connected_in_process(monkeypatch, tmp_path)
 
         def _clamping_put(channel_address, _value):
-            connector._state[channel_address] = 10.0
+            connector._composite.set({channel_address: 10.0})
 
         monkeypatch.setattr(connector, "_put", _clamping_put)
 
@@ -709,9 +982,9 @@ class TestMockWriteConfirmationContract:
 
         await connector.disconnect()
 
-    async def test_confirming_read_that_raises_is_unconfirmed(self, monkeypatch):
+    async def test_confirming_read_that_raises_is_unconfirmed(self, monkeypatch, tmp_path):
         """The value went out but what the channel holds is unknown."""
-        connector = await self._connected_mock(monkeypatch)
+        connector = await self._connected_in_process(monkeypatch, tmp_path)
         monkeypatch.setattr(connector, "_confirming_read", self._raising_read("CA disconnected"))
 
         result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
@@ -724,13 +997,39 @@ class TestMockWriteConfirmationContract:
 
         await connector.disconnect()
 
-    async def test_notes_text_does_not_change_the_outcome(self, monkeypatch):
+    async def test_confirm_false_does_not_read(self, monkeypatch, tmp_path):
+        """``unrequested`` is the fast path: a read that would raise is never issued."""
+        connector = await self._connected_in_process(monkeypatch, tmp_path)
+        monkeypatch.setattr(connector, "_confirming_read", self._raising_read("must not be called"))
+
+        result = await connector.write_channel("TEST:CHANNEL:SP", 42.0, confirm=False)
+
+        assert result.outcome is WriteOutcome.UNREQUESTED
+        assert result.observed_value is None
+        assert result.error_message is None
+
+        await connector.disconnect()
+
+    async def test_a_value_the_store_cannot_hold_is_a_failed_write(self, monkeypatch, tmp_path):
+        """The put itself failing is ``failed``: the control system did not take it."""
+        connector = await self._connected_in_process(monkeypatch, tmp_path)
+        monkeypatch.setattr(connector, "_confirming_read", self._raising_read("must not be called"))
+
+        result = await connector.write_channel("TEST:CHANNEL:SP", "not-a-number")
+
+        assert result.outcome is WriteOutcome.FAILED
+        assert result.observed_value is None
+        assert result.error_message is not None
+
+        await connector.disconnect()
+
+    async def test_notes_text_does_not_change_the_outcome(self, monkeypatch, tmp_path):
         """Two confirming reads failing differently classify identically.
 
         The exception text flows into ``notes`` and ``error_message`` and
         nowhere else — the machine-readable verdict must be identical.
         """
-        connector = await self._connected_mock(monkeypatch)
+        connector = await self._connected_in_process(monkeypatch, tmp_path)
 
         monkeypatch.setattr(connector, "_confirming_read", self._raising_read("timeout after 3s"))
         first = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
@@ -752,9 +1051,9 @@ class TestMockWriteConfirmationContract:
 
         await connector.disconnect()
 
-    async def test_write_still_mirrors_the_setpoint_onto_its_readback(self, monkeypatch):
-        """The :SP -> :RB mirror is state-store cosmetics and survives untouched."""
-        connector = await self._connected_mock(monkeypatch)
+    async def test_write_is_echoed_into_the_readback_its_pair_names(self, monkeypatch, tmp_path):
+        """A setpoint's write is echoed into the readback its pair names."""
+        connector = await self._connected_in_process(monkeypatch, tmp_path)
 
         await connector.write_channel("MAGNET:CURRENT:SP", 100.0)
 

@@ -17,9 +17,9 @@ rests on:
 * that the row cap and the query timeout are enforced by the *store* rather
   than by a client-side slice.
 
-One store, seeded once per module with ``demo_machine.ttl`` (generated from
-the control_assistant channel database) through the same primitives
-``osprey knowledge seed-graph`` uses.
+One store, seeded once per module with the graph view the control-assistant
+build writes (``data/graph/facility.ttl``) through the same primitives
+``osprey up`` uses.
 
 Skips are loud and only ever about the host.  If Docker is not reachable the
 whole module skips with that reason; if Docker *is* reachable every test here
@@ -43,9 +43,8 @@ import logging
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from importlib.resources import files
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from fastmcp.exceptions import ToolError
@@ -76,6 +75,9 @@ from tests.services.channel_finder.graph_index.test_scale import (
     PARITY_MATRIX,
 )
 
+if TYPE_CHECKING:
+    from tests._builds import BuiltProject
+
 logger = logging.getLogger(__name__)
 
 # xdist_group("docker"): this module starts real containers, and the docker
@@ -83,16 +85,21 @@ logger = logging.getLogger(__name__)
 pytestmark = [pytest.mark.xdist_group("docker")]
 
 
-# --- Verified counts for the shipped demo_machine.ttl -----------------------
-# Identical to tests/integration/test_graphdb_store.py; re-stated rather than
-# imported so this module says what it is asserting, and so a change to the
-# corpus has to be acknowledged in both places.
+# --- Verified counts for the control-assistant build's graph view ----------
+# Stated here rather than derived, so a change to the demo facility has to be
+# acknowledged in this module.
 
-EXPECTED_DEVICES = 512
-EXPECTED_BINDINGS = 2908
-EXPECTED_WRITE_ONLY = 396
-EXPECTED_READ_ONLY = 2512
-EXPECTED_MAGNETS = 382
+EXPECTED_DEVICES = 532
+#: Places carrying channels of their own: the top place ``SR``, whose tune and
+#: chromaticity channels sit on the place rather than on a device. The store
+#: matches a place on ``(:Resource)-[:HASBINDING]->`` as it matches a device.
+EXPECTED_BOUND_PLACES = 1
+EXPECTED_BINDINGS = 2952
+EXPECTED_WRITE_ONLY = 412
+EXPECTED_READ_ONLY = 2536
+#: The place's tune and chromaticity channels name no signal.
+EXPECTED_UNSIGNALLED = 4
+EXPECTED_MAGNETS = 398
 
 _SEM = "https://narad.example.org/schema/shared_semantics/"
 MAGNET_CLASS_URI = _SEM + "Magnet"
@@ -138,8 +145,8 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[Watch
     """Start a store, seed it through the real seeder, and yield it watched.
 
     Seeding goes through :mod:`~osprey.services.facility_knowledge.seeder.graph_seeder`
-    rather than raw Cypher because that is the path ``osprey knowledge
-    seed-graph`` takes — including ``write_marker``, which is what puts the
+    rather than raw Cypher because that is the path ``osprey up`` takes —
+    including ``write_marker``, which is what puts the
     ``_OspreySeed`` bookkeeping node in the store that ``get_schema`` then has
     to hide. The seeder takes a raw driver session, so its calls run inside
     the store's watch: a seeding step that gets no answer fails naming this
@@ -165,7 +172,6 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[Watch
             graph_seeder.write_marker(
                 session,
                 graph_seeder.ttl_sha256(ttl_text),
-                graph_seeder.parse_direction_source(ttl_text),
             )
             logger.info(
                 f"{label}: seeded {imported.triples_loaded} triples, "
@@ -174,27 +180,23 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[Watch
         yield store
 
 
-def _demo_ttl_text() -> str:
-    """The shipped demo-machine corpus, as text.
+@pytest.fixture(scope="module")
+def demo_corpus(built_control_assistant: BuiltProject) -> Path:
+    """The graph view the control-assistant build writes.
 
-    One reader for both backends: the store is seeded from this string and the
-    search index is built from a file holding the same bytes, so a parity
-    failure can never be two corpora wearing one name.
+    One file for both backends: the store is seeded from its text and the
+    search index is built from it, so a parity failure can never be two
+    corpora wearing one name.
     """
-    resource = (
-        files("osprey.templates")
-        .joinpath("apps")
-        .joinpath("control_assistant")
-        .joinpath("data")
-        .joinpath("demo_machine.ttl")
-    )
-    return resource.read_text(encoding="utf-8")
+    from osprey.facility.views.graph import GRAPH_FILE
+
+    return built_control_assistant.build_dir / "data" / "graph" / GRAPH_FILE
 
 
 @pytest.fixture(scope="module")
-def demo_store(graph_mcp_plugin_dir: Path) -> Iterator[WatchedStore]:
-    """A store seeded with the generated demo-machine corpus."""
-    yield from _seeded_store(graph_mcp_plugin_dir, _demo_ttl_text(), "demo")
+def demo_store(graph_mcp_plugin_dir: Path, demo_corpus: Path) -> Iterator[WatchedStore]:
+    """A store seeded with the generated demo corpus."""
+    yield from _seeded_store(graph_mcp_plugin_dir, demo_corpus.read_text(encoding="utf-8"), "demo")
 
 
 # ---------------------------------------------------------------------------
@@ -599,7 +601,7 @@ def test_get_schema_reports_the_corpus_and_hides_the_bookkeeping() -> None:
 
 @pytest.mark.usefixtures("demo_ctx")
 def test_example_q1a_counts_the_verified_devices() -> None:
-    """The device census sums to the 512 verified devices."""
+    """The device census sums to the 532 verified devices, and no place."""
     payload = _run_example("q1a")
     assert payload["truncated"] is False, payload
     assert sum(row["device_count"] for row in payload["rows"]) == EXPECTED_DEVICES
@@ -607,7 +609,7 @@ def test_example_q1a_counts_the_verified_devices() -> None:
 
 @pytest.mark.usefixtures("demo_ctx")
 def test_example_q5_reproduces_the_verified_direction_split() -> None:
-    """The binding rollup reproduces 396 write-only / 2512 read-only / 2908 total."""
+    """The binding rollup reproduces 412 write-only / 2536 read-only / 2952 total."""
     payload = _run_example("q5")
     row = payload["rows"][0]
     assert row["write_only"] == EXPECTED_WRITE_ONLY, row
@@ -617,11 +619,11 @@ def test_example_q5_reproduces_the_verified_direction_split() -> None:
 
 
 def test_example_q1c_rolls_up_the_verified_magnets(demo_ctx: Any) -> None:
-    """Rolling ``Magnet`` up its subclasses lists exactly the 382 verified devices.
+    """Rolling ``Magnet`` up its subclasses lists exactly the 398 verified devices.
 
     The rollup is larger than the shipped row cap, so the cap is lifted to the
     example's own ``LIMIT`` for this test: the claim here is the count, and a
-    capped answer would compare 200 against 382 and say nothing about the
+    capped answer would compare 200 against 398 and say nothing about the
     hierarchy.
     """
     assert _example("q1c").parameters["class_uri"] == MAGNET_CLASS_URI, (
@@ -638,7 +640,7 @@ def test_example_q1c_rolls_up_the_verified_magnets(demo_ctx: Any) -> None:
 
 @pytest.mark.usefixtures("demo_ctx")
 def test_example_q1b_puts_the_magnets_under_one_branch() -> None:
-    """The branch rollup reaches the same 382 without naming a magnet subclass."""
+    """The branch rollup reaches the same 398 without naming a magnet subclass."""
     payload = _run_example("q1b")
     by_branch = {row["branch"]: row["device_count"] for row in payload["rows"]}
     assert by_branch.get("Magnet") == EXPECTED_MAGNETS, by_branch
@@ -671,22 +673,30 @@ def test_every_example_runs_on_the_demo_corpus(key: str) -> None:
     _assert_usable(key, payload)
 
 
+#: Columns an example may leave empty: the facility file gives a position and an
+#: ordinal only to the devices its lattice model places, so a gauge or a valve
+#: in a walked section comes back without them.
+_NULLABLE_COLUMNS: dict[str, frozenset[str]] = {"q2": frozenset({"s_m", "ordinal"})}
+
+
 def _assert_usable(key: str, payload: dict[str, Any]) -> None:
     """Assert an example returned rows whose columns carry values.
 
-    No null is tolerated: every device in the generated corpus carries a
-    position and an ordinal, so a null column here is a projection or query
-    fault rather than a corpus fact.
+    No other null is tolerated: a null outside :data:`_NULLABLE_COLUMNS` is a
+    projection or query fault rather than a corpus fact.
 
     Truncation is deliberately not asserted here: whether an example's own
     ``LIMIT`` lands above or below the row cap is a property of the corpus (the
-    demo machine has 382 magnets to a 200-row cap), and the tests that need a
+    demo machine has 398 magnets to a 200-row cap), and the tests that need a
     *complete* answer to compare against a verified count say so themselves.
     """
     assert payload["row_count"] >= 1, f"{key} returned no rows: {payload}"
 
+    nullable = _NULLABLE_COLUMNS.get(key, frozenset())
     for row in payload["rows"]:
         for column, value in row.items():
+            if column in nullable:
+                continue
             assert value is not None, f"{key} returned a null {column}: {row}"
 
 
@@ -900,7 +910,12 @@ def test_search_by_device_name_returns_only_that_device(demo_read: Any) -> None:
 
     assert row["total"] > 0, row
     assert row["rows"], row
-    assert {hit["device"] for hit in row["rows"]} == {"BPM01"}, row["rows"]
+    assert {hit["device"] for hit in row["rows"]} == {
+        "BR/BPM01",
+        "BTS/BPM01",
+        "LINE/BPM01",
+        "SR/BPM01",
+    }, row["rows"]
 
 
 def test_search_by_class_rolls_a_parent_up_to_its_subclasses(demo_read: Any) -> None:
@@ -930,19 +945,19 @@ def test_search_by_class_rolls_a_parent_up_to_its_subclasses(demo_read: Any) -> 
 
 
 def test_search_counts_each_facet_with_its_own_filter_lifted(demo_read: Any) -> None:
-    """Selecting ``SR`` still lists ``BR`` and ``BTS`` in the section facet.
+    """Selecting ``SECT1`` still lists ``BR`` and ``BTS`` in the section facet.
 
     That is what lets an operator see what a second selection would add.  The
     other facets must narrow at the same time — the system facet is read here as
     the control, so a query that simply ignored ``sections`` would fail too.
     """
     unfiltered = _search(demo_read)
-    row = _search(demo_read, sections=["SR"])
+    row = _search(demo_read, sections=["SECT1"])
 
     sections = _facet(row, "section")
     assert set(sections) == set(_facet(unfiltered, "section")), sections
-    assert {"SR", "BR", "BTS"} <= set(sections), sections
-    assert sections["SR"] == row["total"], (sections["SR"], row["total"])
+    assert {"SECT1", "BR", "BTS"} <= set(sections), sections
+    assert sections["SECT1"] == row["total"], (sections["SECT1"], row["total"])
     assert row["total"] < unfiltered["total"], (row["total"], unfiltered["total"])
 
     systems = _facet(row, "system")
@@ -957,7 +972,7 @@ def test_search_unfiltered_reports_the_whole_corpus(demo_read: Any) -> None:
     row = _search(demo_read)
 
     assert row["total"] == census, (row["total"], census)
-    assert row["devices"] == EXPECTED_DEVICES, row["devices"]
+    assert row["devices"] == EXPECTED_DEVICES + EXPECTED_BOUND_PLACES, row["devices"]
     assert len(row["rows"]) == 50, len(row["rows"])
 
     classes = _facet(row, "class")
@@ -967,15 +982,16 @@ def test_search_unfiltered_reports_the_whole_corpus(demo_read: Any) -> None:
     assert {"R", "W"} <= set(directions), directions
     assert directions["R"] == EXPECTED_READ_ONLY + directions.get("RW", 0), directions
     assert directions["W"] == EXPECTED_WRITE_ONLY + directions.get("RW", 0), directions
+    assert directions.get("none", 0) == EXPECTED_UNSIGNALLED, directions
 
 
 @pytest.mark.parametrize("direction", ["R", "W", "RW", "none"])
 def test_search_by_direction_answers_and_the_rows_agree(demo_read: Any, direction: str) -> None:
     """Each direction value answers, and every row it returns really is that.
 
-    ``RW`` and ``none`` are empty on this corpus, which is a fact about the
-    corpus and not a reason to leave them untested: an unanswerable direction
-    value would raise rather than return zero, and that is what is pinned here.
+    ``RW`` is empty on this corpus, which is a fact about the corpus and not a
+    reason to leave it untested: an unanswerable direction value would raise
+    rather than return zero, and that is what is pinned here.
     """
     row = _search(demo_read, dirs=[direction])
 
@@ -1071,17 +1087,19 @@ def test_search_unfiltered_answers_inside_the_interaction_budget(demo_read: Any)
 
 
 @pytest.fixture(scope="module")
-def demo_index(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Any]:
+def demo_index(tmp_path_factory: pytest.TempPathFactory, demo_corpus: Path) -> Iterator[Any]:
     """The search index of the corpus :func:`demo_store` was seeded with.
 
-    Built once for the module, from the same bytes: both backends are handed
-    ``demo_machine.ttl``, so a disagreement between them is a disagreement
+    Built once for the module, from the same file: both backends are handed
+    the build's graph view, so a disagreement between them is a disagreement
     about the corpus rather than about which corpus.
     """
     from osprey.services.channel_finder.graph_index import GraphIndexAbsence, open_graph_index
-    from tests._graph_index import build_demo_index
+    from tests._graph_index import build_index_from_ttl
 
-    path = build_demo_index(tmp_path_factory.mktemp("graph-index-parity") / "graph.duckdb")
+    path = build_index_from_ttl(
+        demo_corpus, index_path=tmp_path_factory.mktemp("graph-index-parity") / "graph.duckdb"
+    )
     index = open_graph_index(path)
     if isinstance(index, GraphIndexAbsence):
         pytest.fail(f"the demo index could not be opened: {index.detail}")
@@ -1187,9 +1205,9 @@ def test_the_index_answers_what_the_store_answered(
     assert actual["pages"] == (expected["total"] + page_size - 1) // page_size, shape
     assert len(actual["rows"]) <= page_size, shape
 
-    # The matrix says which shapes the demo corpus answers with nothing. The
-    # store has to agree, or a shape is sitting in the matrix looking like
-    # coverage while matching nothing on either side.
+    # The matrix says which shapes the view answers with nothing. The store has
+    # to agree, or a shape is sitting in the matrix looking like coverage while
+    # matching nothing on either side.
     assert (expected["total"] == 0) is (shape in DEMO_EMPTY_SHAPES), shape
 
 

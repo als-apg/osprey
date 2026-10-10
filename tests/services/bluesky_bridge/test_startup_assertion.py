@@ -160,7 +160,9 @@ def _patch_config(
 
 def _valid_limits_db(tmp_path: Path) -> Path:
     db = tmp_path / "channel_limits.json"
-    db.write_text(json.dumps({"TEST:COR:01:SP": {"min_value": 0.0, "max_value": 10.0}}))
+    db.write_text(
+        json.dumps({"TEST:COR:01:SP": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
+    )
     return db
 
 
@@ -274,7 +276,7 @@ def test_writable_with_relative_db_path_resolves_via_config_file_dir(
     data_dir = container_dir / "data"
     data_dir.mkdir()
     (data_dir / "channel_limits.json").write_text(
-        json.dumps({"TEST:COR:01:SP": {"min_value": 0.0, "max_value": 10.0}})
+        json.dumps({"TEST:COR:01:SP": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
     )
     monkeypatch.setenv("CONFIG_FILE", str(container_dir / "config.yml"))
 
@@ -318,7 +320,7 @@ def test_writable_with_an_unreadable_limits_leaf_refuses_startup(
     message = str(excinfo.value)
     assert "control_system.limits_checking.enabled" in message
     # An ABSENT deployment-wide leaf is unset, not unreadable, so it is not named.
-    assert "control_system.limits_checking.allow_unlisted_channels" not in message
+    assert "control_system.limits_checking.mode" not in message
     assert "literal true or false" in message
     assert probe_calls == []
 

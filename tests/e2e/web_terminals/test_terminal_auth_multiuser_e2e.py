@@ -102,7 +102,7 @@ open-mode deploy gate reads.
 ONE PERSONA, TWO DEPLOYMENTS. The two lanes share a single persona project and
 therefore a single image tag, so the expensive build happens once and the second
 ``osprey up`` re-runs it against a byte-identical context (a runtime cache hit).
-They differ only in facility prefix, compose project and port band, so both
+They differ only in facility token, compose project and port band, so both
 stacks can be up at once without colliding.
 
 ``--dev`` is REQUIRED for the same reason it is in the perimeter lane: the
@@ -138,6 +138,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 from osprey.mcp_server.sandbox_env import PERIMETER_DENY_PORTS_ENV, PERIMETER_MARKER_ENV
 from osprey.services.python_executor.execution.net_guard import NET_GUARD_REFUSAL_PREFIX
@@ -162,7 +163,7 @@ if RUNTIME not in _SUPPORTED_RUNTIMES:
     )
 
 #: The persona both lanes run, and the render its image is tagged for. Named
-#: independently of either lane's facility prefix precisely because it is
+#: independently of either lane's project name precisely because it is
 #: SHARED: one render, one ``<project>:local`` image, built once and reused by
 #: the second deployment. It must also differ from either deployment's own name
 #: — lint refuses a persona project that shadows the deployment's worker tag.
@@ -180,21 +181,17 @@ class Lane:
 
     Everything that must differ between two stacks standing up at the same time
     is here rather than in module constants, so a helper cannot silently act on
-    the wrong deployment: the project name decides the compose project, every
-    container name and its volumes, the facility prefix the in-container
-    directory, and the port band
+    the wrong deployment: the project name decides every container name, the
+    compose project and its volumes, and the port band
     decides what nginx and each terminal bind.
 
-    ``users`` holds roster entries as they are authored in the profile. The
-    ``open`` lane must use OBJECT entries: a bare-string entry runs no persona,
-    so the open-mode deploy gate reads the DEPLOY project's settings.json for it
-    (the zero-migration sentinel) instead of the persona's, and refuses a
-    deployment whose persona is in fact clean.
+    ``users`` holds roster entries as they are authored in the profile. Every
+    entry runs a catalog persona, its own or the default, so the open-mode
+    deploy gate reads that persona's settings.json.
     """
 
     posture: str
     project_name: str
-    prefix: str
     nginx_port: int
     base_ports: dict[str, int]
     users: tuple[dict[str, Any] | str, ...]
@@ -227,12 +224,17 @@ class Lane:
             for position, user in enumerate(self.users)
         )
 
+    @property
+    def project(self) -> str:
+        """The compose project name every container of this lane is named by."""
+        return resolve_project_name({"project_name": self.project_name})
+
     def container(self, user: str) -> str:
-        return f"{self.project_name}-web-{user}"
+        return f"{self.project}-web-{user}"
 
     @property
     def nginx_container(self) -> str:
-        return f"{self.project_name}-nginx"
+        return f"{self.project}-nginx"
 
 
 # Ports well clear of every other stack a developer may have up (the tutorial
@@ -244,7 +246,6 @@ class Lane:
 TOKEN_LANE = Lane(
     posture="token",
     project_name="osprey-e2e-token-multiuser",
-    prefix="authtok",
     nginx_port=19680,
     base_ports={
         "web": 19671,
@@ -262,7 +263,6 @@ TOKEN_LANE = Lane(
 OPEN_LANE = Lane(
     posture="none",
     project_name="osprey-e2e-open-multiuser",
-    prefix="authopen",
     nginx_port=19690,
     base_ports={
         "web": 19691,
@@ -579,8 +579,6 @@ def _profile_edits(lane: Lane) -> dict[str, Any]:
     return {
         "config": {
             "container_runtime": RUNTIME,
-            "facility.name": f"E2E Multiuser Fixture ({lane.posture})",
-            "facility.prefix": lane.prefix,
             "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",
             "deployed_services": [],

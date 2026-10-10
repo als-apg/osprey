@@ -185,7 +185,6 @@ def render(
     gateway = {"address": "gw", "port": 5064, "use_name_server": True}
     standin_gateway = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
     va: dict = {
-        "simulation_file": "data/sim.json",
         "probe_channel": "SIM:PROBE",
         "gateways": {"read_only": dict(gateway)},
     }
@@ -196,11 +195,11 @@ def render(
             "type": "live_standin",
             "writes_enabled": global_writes,
             # The keys a switch is judged on besides the gateways: a channel to
-            # probe, strict limits (required toward the live family) and the
+            # probe and the
             # operator's acknowledgement of the live gateway. Without them every
             # row would answer with an eligibility refusal and the roster could
             # not be exercised.
-            "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+            "limits_checking": {"enabled": True, "mode": "exclusive"},
             "target_switch": {"live_gateway_acknowledged": "operator@example"},
             "connector": {
                 "epics": {
@@ -1015,6 +1014,18 @@ class TestTargetIdentity:
         assert row_for(payload, "live")["short_label"] == "LIVE"
         assert row_for(payload, "standin")["short_label"] == "STAND-IN"
         assert row_for(payload, "va")["short_label"] == "VIRTUAL"
+
+    def test_a_row_that_is_not_a_real_machine_is_the_simulator(self, client, agent_data_root):
+        """Whatever its label says: the only machine that is not real is the simulator."""
+        write_server_report(
+            agent_data_root,
+            SERVER_A,
+            targets={"va": {"label": "some label nobody minted", "real_machine": False}},
+        )
+        with only_alive(SERVER_A):
+            payload = get_posture(client)
+        assert row_for(payload, "va")["short_label"] == "VIRTUAL"
+        assert row_for(payload, "va")["kind"] == "virtual accelerator"
 
     def test_a_deployment_may_rename_the_rows(self, make_client, tmp_path):
         config = render(tmp_path=tmp_path, display_names={"va": "Digital Twin"})

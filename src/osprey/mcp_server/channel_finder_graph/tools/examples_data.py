@@ -19,8 +19,7 @@ The queries fall into two halves, and the split is the point:
 
 * *Search by meaning* — the operator says "vacuum gauge" or "bending magnet"
   and the graph matches that against the prose the corpus carries: a per-address
-  description, the meaning of the address' field and subfield, what the device
-  family does, which system it belongs to.
+  description, what a device's group is for, which top place it sits in.
 * *Search by structure* — the operator already knows a word, a place, a device
   or an address, and the graph walks the machine: a class and everything under
   it, a whole section, one device's addresses split into reads and writes, one
@@ -30,7 +29,7 @@ Query shape
 -----------
 Every query is written against the shape neosemantics produces from a
 NARAD-convention Turtle corpus with ``applyNeo4jNaming`` on, which is what
-``osprey knowledge seed-graph`` loads:
+``osprey up`` loads from the build's graph view:
 
 * node labels are the RDF class local names — ``:Resource`` on every node, plus
   ``:ChannelBinding``, ``:Class``, and one device-class label per device. There
@@ -39,7 +38,11 @@ NARAD-convention Turtle corpus with ``applyNeo4jNaming`` on, which is what
 * relationship types are UPPERCASED — ``:HASBINDING``, ``:READSSIGNAL``,
   ``:WRITESSIGNAL``, ``:SUBCLASSOF``, ``:TYPE``;
 * property names keep their ``narad_p:`` local spelling — ``.fullPv``,
-  ``.sourceName``, ``.sectionCode``, ``.description``, ``.system``;
+  ``.deviceId``, ``.sectionCode``, ``.description``, ``.system``,
+  ``.rawType``;
+* a place that channels sit on is a ``:Resource`` with ``HASBINDING`` edges
+  too, so a query that means devices keeps the rows whose ``.rawType`` is set,
+  which only a device carries;
 * ``skos:altLabel`` arrives as a **list**, because the store is configured with
   ``handleMultival: ARRAY`` for that predicate. Synonym matching therefore uses
   list semantics (``ANY(l IN cls.altLabel WHERE ...)``); a scalar ``CONTAINS``
@@ -53,9 +56,8 @@ parameter set whose values exist in the shipped demo machine. No parameter set
 is ever empty — every example takes at least one parameter, and the set
 supplies exactly the parameters its query references.
 
-The first four examples search prose the generator writes onto the corpus —
-the description predicates and the ``system`` token — which the demo corpus
-carries because its source channel database does. A corpus imported straight
+The first four examples search prose the corpus carries — the description
+predicates — which the demo corpus carries because its facility file does. A corpus imported straight
 from a facility export may carry none of it; on such a corpus those examples
 return no rows while the structural ones still answer.
 
@@ -78,8 +80,8 @@ __all__ = ["EXAMPLE_QUERIES"]
 
 # ---------------------------------------------------------------------------
 # Search by meaning — the operator's words against the corpus' prose.
-# These read the description predicates and the SYSTEM token, which the
-# generator writes; a corpus with no source channel database has neither.
+# These read the description predicates, which a corpus carries only when its
+# facility file describes its channels, groups and places.
 # ---------------------------------------------------------------------------
 
 _BY_DESCRIPTION = ExampleQuery(
@@ -108,36 +110,34 @@ LIMIT 200
     parameters={"phrase": "vacuum gauge"},
 )
 
-_BY_FIELD_MEANING = ExampleQuery(
-    key="by_field_meaning",
-    title="Addresses whose field and subfield mean what was asked for",
+_BY_QUANTITY = ExampleQuery(
+    key="by_quantity",
+    title="Addresses whose description names a quantity and how it is obtained",
     description=(
         "Narrower than a plain description search, and better when the operator "
-        "named a quantity and a way of getting it rather than a device. The "
-        "last two tokens of an address — its field and its subfield — each "
-        "carry their own explanation, and this matches a phrase against both, "
-        "so the two conditions have to hold on the same address.\n"
+        "named a quantity and a way of getting it rather than a device. Both "
+        "phrases are matched against the address' description, so the two "
+        "conditions have to hold on the same address.\n"
         "\n"
-        "That is what separates readings that look alike. Asking for a field "
-        "about pressure and a subfield about a gauge returns the directly "
-        "measured pressures and leaves out the ones a pump infers from its own "
-        "current, even though both are pressure readbacks.\n"
+        "That is what separates readings that look alike. Asking for pressure "
+        "from a gauge returns the directly measured pressures and leaves out the "
+        "ones a pump infers from its own current, even though both are pressure "
+        "readbacks.\n"
         "\n"
-        "$field_meaning — a phrase from the quantity the field names.\n"
-        "$subfield_meaning — a phrase from how that quantity is obtained "
-        "(measured, commanded, calculated, archived as a reference)."
+        "$quantity — a phrase naming the quantity.\n"
+        "$qualifier — a phrase naming how that quantity is obtained or what "
+        "reads it (a gauge, a setpoint, a readback, a reference)."
     ),
     cypher="""
 MATCH (b:ChannelBinding)
-WHERE toLower(b.fieldDescription) CONTAINS toLower($field_meaning)
-  AND toLower(b.subfieldDescription) CONTAINS toLower($subfield_meaning)
+WHERE toLower(b.description) CONTAINS toLower($quantity)
+  AND toLower(b.description) CONTAINS toLower($qualifier)
 RETURN b.fullPv AS pv,
-       b.fieldDescription AS field_meaning,
-       b.subfieldDescription AS subfield_meaning
+       b.description AS description
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"field_meaning": "pressure", "subfield_meaning": "gauge"},
+    parameters={"quantity": "pressure", "qualifier": "gauge"},
 )
 
 _BY_CLASS_AND_SIGNAL = ExampleQuery(
@@ -147,19 +147,20 @@ _BY_CLASS_AND_SIGNAL = ExampleQuery(
         "The shape for questions that name hardware AND a kind of signal — "
         "'the golden orbit reference on every BPM', 'the readback of each "
         "corrector'. One filter picks the hardware, through the ontology word; "
-        "a second picks the addresses on it, through what the field and "
-        "subfield mean. Both hold at once, so nothing else on those devices "
-        "comes back.\n"
+        "a second picks the addresses on it, through two phrases that must both "
+        "occur in the address' description. Both filters hold at once, so "
+        "nothing else on those devices comes back.\n"
         "\n"
-        "This is what a plain description search cannot do: sibling signals on "
-        "one device share their prose words — a golden-orbit reference, its "
-        "offset and the live position all say 'horizontal' — so matching the "
-        "description returns the whole family. The field and subfield meanings "
-        "separate them.\n"
+        "This is what a one-phrase description search cannot do: sibling signals "
+        "on one device share their prose words — a golden-orbit reference, its "
+        "offset and the live position all say 'horizontal' — so matching one "
+        "word returns every sibling. A second phrase naming the signal "
+        "separates them.\n"
         "\n"
         "$synonym — the class word, as in by_synonym.\n"
-        "$field_meaning — a phrase from the quantity the field names.\n"
-        "$subfield_meaning — a phrase from the specific signal wanted."
+        "$quantity — a phrase naming the signal wanted.\n"
+        "$qualifier — a second phrase that signal's description carries, such "
+        "as its plane."
     ),
     cypher="""
 MATCH (cls:Class)
@@ -167,80 +168,80 @@ WHERE ANY(l IN cls.altLabel WHERE toLower(l) = toLower($synonym))
 MATCH (sub:Class)-[:SUBCLASSOF*0..]->(cls)
 MATCH (d:Resource)-[:TYPE]->(sub)
 MATCH (d)-[:HASBINDING]->(b:ChannelBinding)
-WHERE toLower(b.fieldDescription) CONTAINS toLower($field_meaning)
-  AND toLower(b.subfieldDescription) CONTAINS toLower($subfield_meaning)
+WHERE toLower(b.description) CONTAINS toLower($quantity)
+  AND toLower(b.description) CONTAINS toLower($qualifier)
 RETURN b.fullPv AS pv,
-       d.sourceName AS device,
+       d.deviceId AS device,
        d.sectionCode AS section,
-       b.subfieldDescription AS subfield_meaning
+       b.description AS description
 ORDER BY pv
 LIMIT 200
 """.strip(),
     parameters={
-        "synonym": "bpm",
-        "field_meaning": "Golden Orbit Reference",
-        "subfield_meaning": "horizontal",
+        "synonym": "BPM",
+        "quantity": "golden orbit",
+        "qualifier": "horizontal",
     },
 )
 
-_BY_FAMILY_ROLE = ExampleQuery(
-    key="by_family_role",
-    title="Addresses of every device whose family does a described job",
+_BY_GROUP_PURPOSE = ExampleQuery(
+    key="by_group_purpose",
+    title="Addresses of every device whose group does a described job",
     description=(
-        "Goes through the *device* rather than the address. Each device carries "
-        "an explanation of what its family is for, and this matches a phrase "
+        "Goes through the *device* rather than the address. A device carries "
+        "the description of a group it belongs to, and this matches a phrase "
         "against that and then returns every address of every device that "
         "matched. Use it when the operator described a job — bending the beam, "
         "correcting the orbit, holding vacuum — instead of naming a device or a "
         "quantity.\n"
         "\n"
-        "The result is wider than a description search: one matching family is "
+        "The result is wider than a description search: one matching group is "
         "tens of devices and hundreds of addresses, so read the device column "
         "before acting on a row.\n"
         "\n"
-        "$role — a phrase from what the family does."
+        "$purpose — a phrase from what the group is for."
     ),
     cypher="""
 MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding)
-WHERE toLower(d.familyDescription) CONTAINS toLower($role)
+WHERE toLower(d.familyDescription) CONTAINS toLower($purpose)
 RETURN b.fullPv AS pv,
-       d.sourceName AS device,
+       d.deviceId AS device,
        d.sectionCode AS section,
-       d.familyDescription AS family_role
+       d.familyDescription AS group_purpose
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"role": "bending magnet"},
+    parameters={"purpose": "bending magnet"},
 )
 
 _BY_SYSTEM = ExampleQuery(
     key="by_system",
     title="Every address in one system of the machine",
     description=(
-        "Scopes a search to a whole engineering system — magnets, vacuum, "
-        "diagnostics, RF — by the system token the device carries, matched "
-        "exactly rather than as a substring. This is the query to run before a "
-        "phrase search when the operator has already said which system they "
-        "mean: it turns 'the vacuum ones' into a bounded set instead of leaving "
-        "the phrase to do that work.\n"
+        "Scopes a search to one top-level place of the machine by the "
+        "``system`` the device carries, which is the first segment of its "
+        "place path, matched exactly rather than as a substring. This is the "
+        "query to run before a phrase search when the operator has already "
+        "said which part of the machine they mean: it turns 'the ones in that "
+        "part' into a bounded set instead of leaving the phrase to do that "
+        "work.\n"
         "\n"
         "The system's own description comes back on every row, which is how a "
         "caller confirms it scoped to the system it meant.\n"
         "\n"
-        "$system — the system token, exactly as the corpus spells it (upper "
-        "case, no punctuation). Distinct values are the second token of any "
-        "address the other examples return."
+        "$system — the system, exactly as the corpus spells it. Distinct values "
+        "are the ``system`` property of any device the other examples return."
     ),
     cypher="""
 MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding)
 WHERE d.system = $system
 RETURN b.fullPv AS pv,
-       d.sourceName AS device,
+       d.deviceId AS device,
        d.systemDescription AS system_meaning
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"system": "VAC"},
+    parameters={"system": "BTS"},
 )
 
 
@@ -274,7 +275,7 @@ MATCH (sub:Class)-[:SUBCLASSOF*0..]->(cls)
 MATCH (d:Resource)-[:TYPE]->(sub)
 MATCH (d)-[:HASBINDING]->(b:ChannelBinding)
 RETURN DISTINCT b.fullPv AS pv,
-       d.sourceName AS device,
+       d.deviceId AS device,
        d.sectionCode AS section
 ORDER BY pv
 LIMIT 200
@@ -323,15 +324,16 @@ _IN_SECTION = ExampleQuery(
         "come from the ``section`` column of the other examples."
     ),
     cypher="""
+// A place carries the channels on it too; only a device carries rawType.
 MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding)
-WHERE d.sectionCode = $section
+WHERE d.sectionCode = $section AND d.rawType IS NOT NULL
 RETURN b.fullPv AS pv,
-       d.sourceName AS device,
+       d.deviceId AS device,
        [l IN labels(d) WHERE l <> "Resource"][0] AS device_class
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"section": "SR"},
+    parameters={"section": "SECT1"},
 )
 
 _DEVICE_ADDRESSES = ExampleQuery(
@@ -341,8 +343,7 @@ _DEVICE_ADDRESSES = ExampleQuery(
         "The last step of most channel-finding: the operator named a device and "
         "the caller needs its addresses, with the ones that can be written "
         "marked as such. Each row is an address, the semantic signal it "
-        "carries, whether it reads or writes, and how confident the corpus is "
-        "in the binding.\n"
+        "carries, and whether it reads or writes.\n"
         "\n"
         "Direction here is what the corpus records — one READSSIGNAL / "
         "WRITESSIGNAL edge decided once per signal group — rather than guessed "
@@ -351,22 +352,19 @@ _DEVICE_ADDRESSES = ExampleQuery(
         "is permitted right now is the control-system connector's decision, not "
         "the graph's.\n"
         "\n"
-        "$name — the device's source name as the corpus records it.\n"
-        "$section — the section it sits in. Both are needed because a source "
-        "name can repeat across sections."
+        "$device — the device's id as the corpus records it in ``deviceId``."
     ),
     cypher="""
-MATCH (d:Resource {sourceName: $name, sectionCode: $section})-[:HASBINDING]->(b:ChannelBinding)
+MATCH (d:Resource {deviceId: $device})-[:HASBINDING]->(b:ChannelBinding)
 OPTIONAL MATCH (b)-[:READSSIGNAL]->(rs)
 OPTIONAL MATCH (b)-[:WRITESSIGNAL]->(ws)
 RETURN b.fullPv AS pv,
        last(split(coalesce(rs.uri, ws.uri), "/")) AS signal,
-       CASE WHEN ws IS NULL THEN "read" ELSE "write" END AS direction,
-       b.confidence AS confidence
+       CASE WHEN ws IS NULL THEN "read" ELSE "write" END AS direction
 ORDER BY pv
 LIMIT 200
 """.strip(),
-    parameters={"name": "DIPOLE01", "section": "SR"},
+    parameters={"device": "SR/DIPOLE01"},
 )
 
 _BY_ADDRESS = ExampleQuery(
@@ -387,9 +385,11 @@ _BY_ADDRESS = ExampleQuery(
         "``fullPv``."
     ),
     cypher="""
+// A place carries the channels on it too; only a device carries rawType.
 MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding {fullPv: $pv})
+WHERE d.rawType IS NOT NULL
 RETURN b.fullPv AS pv,
-       collect(DISTINCT d.sourceName) AS devices,
+       collect(DISTINCT d.deviceId) AS devices,
        collect(DISTINCT d.sectionCode) AS sections,
        count(DISTINCT d) AS device_count
 LIMIT 5
@@ -400,9 +400,9 @@ LIMIT 5
 
 EXAMPLE_QUERIES: tuple[ExampleQuery, ...] = (
     _BY_DESCRIPTION,
-    _BY_FIELD_MEANING,
+    _BY_QUANTITY,
     _BY_CLASS_AND_SIGNAL,
-    _BY_FAMILY_ROLE,
+    _BY_GROUP_PURPOSE,
     _BY_SYSTEM,
     _BY_SYNONYM,
     _CENSUS,

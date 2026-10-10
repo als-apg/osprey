@@ -8,7 +8,7 @@ from osprey.connectors import types
 from osprey.connectors.archiver.base import ArchiverConnector
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
 from osprey.connectors.control_system.base import ControlSystemConnector
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
 from osprey.connectors.factory import (
     _BUILTIN_ARCHIVERS,
     _BUILTIN_CONTROL_SYSTEMS,
@@ -16,18 +16,19 @@ from osprey.connectors.factory import (
     isolated_connector_registries,
     register_builtin_connectors,
 )
+from tests.facility.served_tree import in_process_config, served_tree
 
 
 @pytest.fixture(autouse=True)
 def setup_test_connectors():
-    """Register mock connectors as the only registrations each test sees.
+    """Register the simulator and the mock archiver as the only registrations each test sees.
 
     Snapshot/restore brackets the clear so registrations made elsewhere in the
     process survive this module's teardown.
     """
     with isolated_connector_registries(clear=True):
-        # Register mock connectors (simulates what registry does)
-        ConnectorFactory.register_control_system("mock", MockConnector)
+        # Register the connectors (simulates what registry does)
+        ConnectorFactory.register_control_system("virtual_accelerator", VAInProcessConnector)
         ConnectorFactory.register_archiver("mock_archiver", MockArchiverConnector)
 
         yield
@@ -37,27 +38,29 @@ class TestConnectorFactory:
     """Test ConnectorFactory functionality."""
 
     @pytest.mark.asyncio
-    async def test_create_mock_control_system_connector(self):
-        """Test creating a mock control system connector."""
+    async def test_create_in_process_control_system_connector(self, tmp_path):
+        """Test creating the in-process simulator connector."""
         config = {
-            "type": "mock",
-            "connector": {"mock": {"response_delay_ms": 0, "noise_level": 0.01}},
+            "type": "virtual_accelerator",
+            "connector": {
+                "virtual_accelerator": in_process_config(served_tree(tmp_path), response_delay_ms=0)
+            },
         }
 
         connector = await ConnectorFactory.create_control_system_connector(config)
 
         assert isinstance(connector, ControlSystemConnector)
-        assert isinstance(connector, MockConnector)
+        assert isinstance(connector, VAInProcessConnector)
         assert connector._connected is True
 
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_create_mock_archiver_connector(self):
+    async def test_create_mock_archiver_connector(self, tmp_path):
         """Test creating a mock archiver connector."""
         config = {
             "type": "mock_archiver",
-            "mock_archiver": {"sample_rate_hz": 1.0, "noise_level": 0.01},
+            "mock_archiver": in_process_config(served_tree(tmp_path), sample_rate_hz=1.0),
         }
 
         connector = await ConnectorFactory.create_archiver_connector(config)
@@ -69,9 +72,14 @@ class TestConnectorFactory:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_factory_creates_independent_instances(self):
+    async def test_factory_creates_independent_instances(self, tmp_path):
         """Test that factory creates independent connector instances."""
-        config = {"type": "mock", "connector": {"mock": {"response_delay_ms": 0}}}
+        config = {
+            "type": "virtual_accelerator",
+            "connector": {
+                "virtual_accelerator": in_process_config(served_tree(tmp_path), response_delay_ms=0)
+            },
+        }
 
         connector1 = await ConnectorFactory.create_control_system_connector(config)
         connector2 = await ConnectorFactory.create_control_system_connector(config)
@@ -134,7 +142,6 @@ class TestConnectorFactory:
 # Written out here rather than read from ``_BUILTIN_CONTROL_SYSTEMS`` /
 # ``_BUILTIN_ARCHIVERS``: a name dropped from a tuple must still produce a case.
 _EVERY_BUILTIN_CONTROL_SYSTEM = (
-    types.MOCK,
     types.EPICS,
     types.VIRTUAL_ACCELERATOR,
     types.DOOCS,
@@ -344,10 +351,12 @@ class TestArchiverTypeResolution:
         assert message in str(caught.value)
 
     @pytest.mark.asyncio
-    async def test_a_dotted_archiver_path_is_imported_and_remembered(self):
+    async def test_a_dotted_archiver_path_is_imported_and_remembered(self, tmp_path):
         dotted = "osprey.connectors.archiver.mock_archiver_connector.MockArchiverConnector"
 
-        connector = await ConnectorFactory.create_archiver_connector({"type": dotted})
+        connector = await ConnectorFactory.create_archiver_connector(
+            {"type": dotted, "settings": in_process_config(served_tree(tmp_path))}
+        )
 
         assert isinstance(connector, MockArchiverConnector)
         assert ConnectorFactory._archiver_connectors[dotted] is MockArchiverConnector
@@ -355,10 +364,18 @@ class TestArchiverTypeResolution:
 
     @pytest.mark.asyncio
     async def test_an_unloadable_config_falls_back_to_the_mock_archiver_with_a_warning(
-        self, caplog
+        self, caplog, tmp_path, monkeypatch
     ):
         def unreadable(*args, **kwargs):
             raise RuntimeError("config.yml is unreadable")
+
+        # The fallback settings name no view, so the mock serves the one beside
+        # the config this process loaded.
+        view = served_tree(tmp_path)
+        monkeypatch.setattr(
+            "osprey_connectors.config.default_config_path",
+            lambda: str(view.parent.parent / "config.yml"),
+        )
 
         with patch("osprey_connectors.config.get_config_value", unreadable):
             connector = await ConnectorFactory.create_archiver_connector(None)

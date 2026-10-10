@@ -72,6 +72,7 @@ exclude:
     - logbook-deep-research
   web_panels:
     - channel-finder
+    - lattice         # Simulator optics belong to the control room
     - okf
     - system-health
     - jupyter         # Notebook kernels read and write through the control target

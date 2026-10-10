@@ -151,16 +151,13 @@ control_system:
         write_access:
           address: localhost
           use_name_server: true
-      limits_checking:
-        allow_unlisted_channels: true
-        enabled: true
       probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
       simulation_file: data/simulation/machine.json
       timeout_s: 5.0
   limits_checking:
-    allow_unlisted_channels: false
     database_path: data/channel_limits.json
     enabled: true
+    mode: optional
   read_inline_max_elements: 2000
   target_switch:
     drain_timeout_s: 5
@@ -185,7 +182,6 @@ deployed_services:
 execution:
   execution_method: subprocess
 facility:
-  ontology: data/facility_ontology.json
   prefix: ca
 facility_knowledge:
   bundle_path: data/facility_knowledge
@@ -311,7 +307,7 @@ services:
     port_host: 10802
     query_max_rows: 200
     query_timeout_s: 15
-    ttl_path: ./data/demo_machine.ttl
+    ttl_path: ./data/graph/facility.ttl
   live_standin:
     path: ./services/virtual_accelerator
     port: 10090

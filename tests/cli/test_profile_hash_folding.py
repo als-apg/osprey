@@ -52,7 +52,7 @@ def profile(tmp_path):
 @pytest.fixture
 def persona(profile):
     """A persona delta under the profile root."""
-    return _write(profile / "personas" / "reader.yml", "name: Reader\ntier: 1\n")
+    return _write(profile / "personas" / "reader.yml", "name: Reader\nmodel: claude-haiku-4-5\n")
 
 
 # ── Convention material ──────────────────────────────────────────────────────
@@ -248,7 +248,7 @@ def test_editing_a_delta_marks_the_ROOT_profile_stale(profile, persona):
     """
     before = compute_profile_hash(profile / "profile.yml")
 
-    persona.write_text("name: Reader\ntier: 3\n", encoding="utf-8")
+    persona.write_text("name: Reader\nmodel: claude-opus-5-5\n", encoding="utf-8")
 
     assert compute_profile_hash(profile / "profile.yml") != before
 
@@ -301,10 +301,10 @@ def test_a_sibling_delta_moves_a_personas_own_hash(profile, persona):
     idempotent rebuild, deliberately preferred over subtracting siblings and
     risking a persona that no longer matches its source.
     """
-    sibling = _write(profile / "personas" / "writer.yml", "name: Writer\ntier: 1\n")
+    sibling = _write(profile / "personas" / "writer.yml", "name: Writer\nmodel: claude-haiku-4-5\n")
     before = compute_profile_hash(persona)
 
-    sibling.write_text("name: Writer\ntier: 3\n", encoding="utf-8")
+    sibling.write_text("name: Writer\nmodel: claude-opus-5-5\n", encoding="utf-8")
 
     assert compute_profile_hash(persona) != before
 
@@ -319,7 +319,7 @@ def test_editing_the_delta_changes_the_persona_hash(persona):
     """The persona's own layer is part of what it resolves to."""
     before = compute_profile_hash(persona)
 
-    persona.write_text("name: Reader\ntier: 3\n", encoding="utf-8")
+    persona.write_text("name: Reader\nmodel: claude-opus-5-5\n", encoding="utf-8")
 
     assert compute_profile_hash(persona) != before
 
@@ -366,7 +366,7 @@ def test_persona_material_anchors_at_the_root_not_at_personas(profile, persona):
 
 def test_two_personas_under_one_root_hash_differently(profile, persona):
     """The delta is part of the digest, so siblings do not collide."""
-    other = _write(profile / "personas" / "writer.yml", "name: Writer\ntier: 3\n")
+    other = _write(profile / "personas" / "writer.yml", "name: Writer\nmodel: claude-opus-5-5\n")
 
     assert compute_profile_hash(other) != compute_profile_hash(persona)
 
@@ -380,10 +380,12 @@ def test_persona_inherits_the_roots_declarations(profile):
     """
     _write(
         profile / "profile.yml",
-        "name: Facility\napp_template: hello_world\ndata: data\ntier: 3\n",
+        "name: Facility\napp_template: hello_world\ndata: data\nmodel: claude-opus-5-5\n",
     )
     inheriting = _write(profile / "personas" / "inherits.yml", "name: Reader\n")
-    overriding = _write(profile / "personas" / "overrides.yml", "name: Reader\ntier: 1\n")
+    overriding = _write(
+        profile / "personas" / "overrides.yml", "name: Reader\nmodel: claude-haiku-4-5\n"
+    )
 
     assert compute_profile_hash(inheriting) != compute_profile_hash(overriding)
 

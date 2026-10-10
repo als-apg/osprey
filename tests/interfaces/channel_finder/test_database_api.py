@@ -122,75 +122,6 @@ class TestPipelineGating:
         resp = client.get("/api/explore/systems")
         assert resp.status_code == 404
 
-    def test_tree_crud_returns_404_on_in_context(self, client):
-        resp = client.post(
-            "/api/tree/node",
-            json={"level": "system", "name": "TEST"},
-        )
-        assert resp.status_code == 404
-
-    def test_structure_crud_returns_404_on_in_context(self, client):
-        resp = client.post(
-            "/api/structure/family",
-            json={"system": "SR", "family": "TEST"},
-        )
-        assert resp.status_code == 404
-
-
-class TestCrudEndpoints:
-    """Tests for CRUD endpoints with mocked database instances."""
-
-    def test_ic_create_channel(self, client):
-        mock_db = MagicMock(spec=FlatChannelDatabase)
-        mock_db.add_channel.return_value = {"success": True, "channel": "TEST:CH"}
-        with patch(_DB_PATCH, return_value=mock_db):
-            resp = client.post(
-                "/api/channels",
-                json={"channel_name": "TEST:CH", "address": "TEST:CH"},
-            )
-        assert resp.status_code == 200
-        assert resp.json()["success"] is True
-
-    def test_ic_delete_channel(self, client):
-        mock_db = MagicMock(spec=FlatChannelDatabase)
-        mock_db.delete_channel.return_value = {"success": True, "channel": "TEST:CH"}
-        with patch(_DB_PATCH, return_value=mock_db):
-            resp = client.delete("/api/channels/TEST:CH")
-        assert resp.status_code == 200
-        assert resp.json()["success"] is True
-
-    def test_ic_update_channel(self, client):
-        mock_db = MagicMock(spec=FlatChannelDatabase)
-        mock_db.update_channel.return_value = {"success": True, "channel": "TEST:CH"}
-        with patch(_DB_PATCH, return_value=mock_db):
-            resp = client.put(
-                "/api/channels/TEST:CH",
-                json={"description": "Updated"},
-            )
-        assert resp.status_code == 200
-
-    def test_ic_create_crud_error_returns_400(self, client):
-        from osprey.services.channel_finder.core.base_database import DatabaseWriteError
-
-        mock_db = MagicMock(spec=FlatChannelDatabase)
-        mock_db.add_channel.side_effect = DatabaseWriteError("Channel already exists", "duplicate")
-        with patch(_DB_PATCH, return_value=mock_db):
-            resp = client.post(
-                "/api/channels",
-                json={"channel_name": "TEST:CH"},
-            )
-        assert resp.status_code == 400
-
-    def test_ic_create_unexpected_error_returns_500(self, client):
-        mock_db = MagicMock(spec=FlatChannelDatabase)
-        mock_db.add_channel.side_effect = RuntimeError("Unexpected")
-        with patch(_DB_PATCH, return_value=mock_db):
-            resp = client.post(
-                "/api/channels",
-                json={"channel_name": "TEST:CH"},
-            )
-        assert resp.status_code == 500
-
 
 class TestUnknownPipelineType:
     """The API refuses to serve a pipeline type it does not recognise."""
@@ -222,9 +153,9 @@ class TestExploreChannelsProtocol:
             "KICK": {
                 "Voltage": {
                     "ChannelNames": ["K1:V", "K2:V"],
-                    "TangoNames": ["ring/kick/1/v", "ring/kick/2/v"],
+                    "TangoNames": ["dom/kick/1/v", "dom/kick/2/v"],
                 },
-                "Current": {"TangoNames": ["ring/kick/1/i", "ring/kick/2/i"]},
+                "Current": {"TangoNames": ["dom/kick/1/i", "dom/kick/2/i"]},
                 "setup": {"DeviceList": [[1, 1], [1, 2]]},
             }
         }
@@ -258,7 +189,7 @@ class TestExploreChannelsProtocol:
                 "/api/explore/channels?system=RING&family=KICK&field=Voltage&protocol=tango"
             )
         assert resp.status_code == 200
-        assert resp.json() == {"channels": ["ring/kick/1/v", "ring/kick/2/v"], "total": 2}
+        assert resp.json() == {"channels": ["dom/kick/1/v", "dom/kick/2/v"], "total": 2}
 
     def test_absent_protocol_key_names_the_keys_present(self, client, tmp_path):
         client.app.state.pipeline_type = "middle_layer"

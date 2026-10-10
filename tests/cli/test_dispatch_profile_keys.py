@@ -61,7 +61,6 @@ def test_every_valid_key_is_accepted_and_read() -> None:
         timeout_sec=600,
         inactivity_sec=240,
         max_turns=40,
-        facility_name="ERF",
         channel_strip_prefix="SR:",
         network="host",
     )
@@ -186,7 +185,7 @@ def test_the_bundled_dispatch_preset_still_resolves() -> None:
 
 
 def test_the_block_names_the_trimmed_prefix_without_a_protocol_noun() -> None:
-    """The knob sits beside ``facility_name`` on a protocol-neutral block.
+    """The knob sits on a protocol-neutral block.
 
     It trims a leading prefix off a channel name before the dashboard renders
     it, which is a fact about channel addresses rather than about any one
@@ -233,7 +232,8 @@ def test_the_emitted_example_names_the_conventional_trigger_file() -> None:
 
 
 def test_the_emitted_example_calls_facility_name_an_override() -> None:
-    """The example points the dashboard name at facility.name."""
+    """The example names no config or profile key for the dashboard's name."""
     from osprey.cli.build_profile_emit import _COMMENTED_TEMPLATES
 
-    assert "facility.name" in _COMMENTED_TEMPLATES["dispatch"]
+    assert "facility.name" not in _COMMENTED_TEMPLATES["dispatch"]
+    assert "facility_name" not in _COMMENTED_TEMPLATES["dispatch"]

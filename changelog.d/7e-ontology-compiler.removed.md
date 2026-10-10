@@ -1,0 +1,1 @@
+`osprey knowledge compile-ontology`, the ontology compiler (`osprey.services.facility_knowledge.ontology_compiler`) and the `knowledge` install extra are removed. The graph view types devices from the facility file's classes, so no authored ontology schema or compiled class table is needed.

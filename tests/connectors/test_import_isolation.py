@@ -13,7 +13,6 @@ The mock archiver is the one connector that reads project config beyond its
 own block, so it is proven here by an actual ``connect``, not by an import.
 """
 
-import json
 import os
 import subprocess
 import sys
@@ -21,7 +20,8 @@ import textwrap
 from pathlib import Path
 
 import pytest
-import yaml
+
+from tests.facility.served_tree import served_tree
 
 SRC = str(Path(__file__).resolve().parents[2] / "src")
 
@@ -71,8 +71,8 @@ def test_limits_validator_reaches_for_no_control_system_client():
         "from osprey_connectors.control_system.limits_validator import ("
         "    ChannelLimitsConfig, LimitsValidator);"
         "v = LimitsValidator("
-        "    {'FOO': ChannelLimitsConfig(channel_address='FOO', max_step=5.0)},"
-        "    {'allow_unlisted_channels': False}, {});"
+        "    {'FOO': ChannelLimitsConfig(channel_address='FOO', max_step=5.0, writable=True)},"
+        "    {'mode': 'exclusive'}, {});"
         "v.validate('FOO', 1.0, read_current=lambda _a: 0.0);"
         "bad = sorted({'epics', 'p4p', 'tango', 'caproto', 'doocs4py'} & set(sys.modules));"
         "assert not bad, f'the limits validator imported a control-system client: {bad}';"
@@ -156,51 +156,20 @@ def test_builtin_registration_needs_no_driver(driver, type_name, registry, conne
     _run_clean(code)
 
 
-def test_mock_archiver_derives_its_simulation_file_without_osprey(tmp_path):
-    """The mock archiver serves the control-system machine file with ``osprey`` unimportable.
+def test_mock_archiver_serves_a_built_view_without_osprey(tmp_path):
+    """The mock archiver serves a built simulator view with ``osprey`` unimportable.
 
     A finder at the front of ``sys.meta_path`` refuses ``osprey`` and its
     submodules, because the dev environment has the framework installed and
     no path setting can hide it. The child first proves the finder is live,
-    then connects the archiver against a project config whose control-system
-    block names a relative machine file, and reads the file's constant back.
+    then connects the archiver over the view and reads a channel's history
+    back.
     """
-    root = tmp_path / "project"
-    (root / "data" / "simulation").mkdir(parents=True)
-    (root / "data" / "simulation" / "machine.json").write_text(
-        json.dumps(
-            {
-                "name": "Rig",
-                "description": "Single-channel machine",
-                "channels": {
-                    "T:Q1:CUR:SP": {
-                        "value": 42.0,
-                        "units": "A",
-                        "noise": 0.0,
-                        "description": "Test quad current setpoint",
-                    }
-                },
-                "scenarios": {"nominal": {"description": "All systems nominal."}},
-            }
-        )
-    )
-    config_path = root / "config.yml"
-    config_path.write_text(
-        yaml.safe_dump(
-            {
-                "project_name": "project",
-                "project_root": str(root),
-                "control_system": {
-                    "type": "mock",
-                    "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}},
-                },
-                "archiver": {"type": "mock_archiver"},
-            }
-        )
-    )
+    view = served_tree(tmp_path / "served", ["T:Q1:CUR:SP"])
     code = textwrap.dedent(
         """
         import asyncio
+        import math
         import sys
         from datetime import datetime
 
@@ -225,15 +194,14 @@ def test_mock_archiver_derives_its_simulation_file_without_osprey(tmp_path):
 
         async def main():
             connector = MockArchiverConnector()
-            await connector.connect({})
-            assert connector._sim_engine is not None, "no engine derived"
+            await connector.connect({"simulator_view": sys.argv[1]})
             df = await connector.get_data(
                 channels=["T:Q1:CUR:SP"],
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 1, 1),
             )
             values = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"].tolist()
-            assert values and all(v == 42.0 for v in values), values
+            assert values and all(math.isfinite(v) for v in values), values
             await connector.disconnect()
 
 
@@ -244,10 +212,10 @@ def test_mock_archiver_derives_its_simulation_file_without_osprey(tmp_path):
         """
     )
     result = subprocess.run(
-        [sys.executable, "-c", code],
+        [sys.executable, "-c", code, str(view)],
         capture_output=True,
         text=True,
-        env=dict(os.environ, CONFIG_FILE=str(config_path)),
+        cwd=tmp_path,
     )
     assert result.returncode == 0, result.stderr
     assert "CLEAN" in result.stdout

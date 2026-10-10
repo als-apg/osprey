@@ -63,7 +63,7 @@ from osprey.services.bluesky_bridge.plan_fields import MovableChannel
 from osprey.services.bluesky_bridge.queue_backend import RUN_ID_META_KEY
 from osprey.services.bluesky_bridge.session_upload import install_session_plan
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import (
     ConnectorFactory,
     isolated_connector_registries,
@@ -73,6 +73,7 @@ from osprey_connectors.posture_store import (
     RESERVED_OWNER_KWARG,
     StoreVerdict,
 )
+from tests.facility.served_tree import in_process_config, served_tree
 
 #: The person whose chip narrows the target in every row that has a narrowing.
 NARROWING_OWNER = "alice"
@@ -88,10 +89,10 @@ _PLAN_NAME = "two_step_write_plan"
 _FIRST_SETPOINT = 1.5
 _SECOND_SETPOINT = 3.5
 
-#: The connector type the deployment's write posture is keyed on. ``mock`` is a
-#: real deployment's spelling for the simulated control system, so the posture
-#: these rows arm is one a deployment can actually set.
-_CONNECTOR_TYPE = "mock"
+#: The connector type the deployment's write posture is keyed on. The simulator
+#: is a real deployment's spelling for the simulated control system, so the
+#: posture these rows arm is one a deployment can actually set.
+_CONNECTOR_TYPE = "virtual_accelerator"
 #: The config key a deployment sets to arm writes for that connector type, and
 #: the one a refusal by the ceiling names — the type-keyed spelling, because the
 #: connector below carries a type stamp.
@@ -106,11 +107,11 @@ _RUN_ID = "run-0001"
 _ITEM_UID = "item-0001"
 
 
-class _RecordingMockConnector(MockConnector):
+class _RecordingInProcessConnector(VAInProcessConnector):
     """The simulated control system, with what reached it recorded.
 
     Subclassed rather than doubled: every gate these rows are about lives on
-    ``ControlSystemConnector`` and runs before ``MockConnector.write_channel``
+    ``ControlSystemConnector`` and runs before ``VAInProcessConnector.write_channel``
     is entered at all, so a hand-written double would be asserting against a
     refusal the test wrote rather than the one the monitor decides.
 
@@ -235,7 +236,7 @@ def armed_deployment(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def connector(armed_deployment: None) -> Iterator[_RecordingMockConnector]:  # noqa: ARG001 - the deployment's write ceiling is open before the connector is built
+def connector(armed_deployment: None, tmp_path: Path) -> Iterator[_RecordingInProcessConnector]:  # noqa: ARG001 - the deployment's write ceiling is open before the connector is built
     """The connector a lane builds, through the factory that builds a lane's.
 
     Built rather than constructed, because the monitor reads two stamps that
@@ -244,25 +245,39 @@ def connector(armed_deployment: None) -> Iterator[_RecordingMockConnector]:  # n
     which indexes the per-user store. A connector stamped by hand here would be
     this file agreeing with itself about the shape a lane's connector has.
 
-    The recording subclass is registered under the deployment's own ``mock``
-    spelling inside :func:`~osprey_connectors.factory.isolated_connector_registries`,
-    the sanctioned bracket for mutating the factory registries, so the
-    registration is restored on the way out and no later test builds this
-    class.
+    The recording subclass is registered under the deployment's own
+    ``virtual_accelerator`` spelling inside
+    :func:`~osprey_connectors.factory.isolated_connector_registries`, the
+    sanctioned bracket for mutating the factory registries, so the registration
+    is restored on the way out and no later test builds this class. Its block
+    names no ``serving`` venue, so the factory takes the registered class
+    rather than choosing the in-process one itself.
     """
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(_CONNECTOR_TYPE, _RecordingMockConnector)
+        ConnectorFactory.register_control_system(_CONNECTOR_TYPE, _RecordingInProcessConnector)
         instance = asyncio.run(
             ConnectorFactory.create_control_system_connector(
                 {
                     "type": _CONNECTOR_TYPE,
-                    "connector": {_CONNECTOR_TYPE: {"response_delay_ms": 0, "noise_level": 0.0}},
+                    "connector": {
+                        _CONNECTOR_TYPE: _without_venue(
+                            in_process_config(
+                                served_tree(tmp_path / "served", [_CHANNEL]),
+                                response_delay_ms=0,
+                            )
+                        )
+                    },
                 },
                 control_target=_TARGET,
             )
         )
-        assert isinstance(instance, _RecordingMockConnector)
+        assert isinstance(instance, _RecordingInProcessConnector)
         yield instance
+
+
+def _without_venue(block: dict) -> dict:
+    """*block* with no ``serving`` leaf, so the registry answers for the type."""
+    return {key: value for key, value in block.items() if key != "serving"}
 
 
 def narrow_for(tree: Path, owner: str, target: str = _TARGET) -> Path:
@@ -306,7 +321,7 @@ def _session_wrapper(device: ConnectorSettable) -> Callable[..., Iterator[Any]]:
 
 @pytest.fixture(params=["catalog", "session"])
 def wrapped_plan(
-    request: pytest.FixtureRequest, connector: _RecordingMockConnector
+    request: pytest.FixtureRequest, connector: _RecordingInProcessConnector
 ) -> tuple[Callable[..., Iterator[Any]], str]:
     """Both wrappers around the plan, with the logger each one warns on.
 
@@ -438,7 +453,7 @@ def run_record(owner: str | None, failure: BaseException | None = None) -> dict[
 
 def test_a_narrowing_recorded_while_the_plan_runs_refuses_its_next_write(
     wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
-    connector: _RecordingMockConnector,
+    connector: _RecordingInProcessConnector,
     control_context_tree: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -483,7 +498,7 @@ def test_a_narrowing_recorded_while_the_plan_runs_refuses_its_next_write(
 
 def test_two_users_one_deployment_the_unnarrowed_owners_plan_completes(
     wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
-    connector: _RecordingMockConnector,
+    connector: _RecordingInProcessConnector,
     control_context_tree: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -517,7 +532,7 @@ def test_two_users_one_deployment_the_unnarrowed_owners_plan_completes(
 def test_an_unmounted_tree_refuses_every_owners_write_as_control_context_unavailable(
     owner: str,
     wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
-    connector: _RecordingMockConnector,
+    connector: _RecordingInProcessConnector,
     control_context_tree: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -563,7 +578,7 @@ def test_an_unmounted_tree_refuses_every_owners_write_as_control_context_unavail
 def test_a_tree_without_its_marker_refuses_every_owners_write_as_control_context_unavailable(
     owner: str,
     wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
-    connector: _RecordingMockConnector,
+    connector: _RecordingInProcessConnector,
     control_context_tree: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -615,7 +630,7 @@ def plant_unreadable_record(tree: Path, owner: str) -> Path:
 
 def test_an_unreadable_record_is_not_reported_as_that_owners_narrowing(
     wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
-    connector: _RecordingMockConnector,
+    connector: _RecordingInProcessConnector,
     control_context_tree: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -659,7 +674,7 @@ def test_an_unreadable_record_is_not_reported_as_that_owners_narrowing(
 
 def test_an_owner_less_item_writes_under_the_deployment_ceiling_alone(
     wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
-    connector: _RecordingMockConnector,
+    connector: _RecordingInProcessConnector,
     control_context_tree: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -691,7 +706,7 @@ def test_an_owner_less_item_writes_under_the_deployment_ceiling_alone(
 @pytest.mark.usefixtures("control_context_tree")
 def test_an_owner_less_item_is_refused_when_the_deployment_arms_no_writes(
     wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
-    connector: _RecordingMockConnector,
+    connector: _RecordingInProcessConnector,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:

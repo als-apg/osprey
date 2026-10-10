@@ -43,18 +43,7 @@ from osprey.registry.mcp import (
     FRAMEWORK_SERVERS,
     MIXED_READ_WRITE_TEMPLATES,
 )
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+from tests._preset_data import bundle_data_root
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -75,7 +64,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
@@ -114,6 +103,7 @@ def _build_project(
     writes_enabled: bool,
     connector_writes: dict | None = None,
     control_system_type: str | None = None,
+    drop_connectors: tuple[str, ...] = (),
 ):
     """Create a real project on disk with every write-gated server enabled.
 
@@ -136,6 +126,7 @@ def _build_project(
         writes_enabled,
         connector_writes,
         control_system_type=control_system_type,
+        drop_connectors=drop_connectors,
     )
     return project_dir
 
@@ -147,6 +138,7 @@ def _rerender(
     connector_writes: dict | None = None,
     *,
     control_system_type: str | None = None,
+    drop_connectors: tuple[str, ...] = (),
 ):
     """Apply the write posture to config.yml and re-render the Claude Code artifacts.
 
@@ -163,6 +155,8 @@ def _rerender(
     config["control_system"]["writes_enabled"] = writes_enabled
     if control_system_type is not None:
         config["control_system"]["type"] = control_system_type
+    for connector_type in drop_connectors:
+        del config["control_system"]["connector"][connector_type]
     for connector_type, armed in (connector_writes or {}).items():
         config["control_system"]["connector"][connector_type]["writes_enabled"] = armed
     # Force-enable every write-gated template (some, like bluesky, are opt-in) so
@@ -401,16 +395,17 @@ def test_agreeing_per_connector_keys_render_byte_identically_with_writes_on(tmp_
 def test_an_armed_block_for_an_unreachable_machine_still_renders_the_deny(tmp_path):
     """The rendered-settings pin for a one-target deployment.
 
-    This project builds the ``mock`` connector and does not render the switch,
-    so the armed ``epics`` block below describes a machine no session here
-    reaches. Counting it as a second target would call the render mixed and
-    drop the hard deny — writes off, and yet ``channel_write`` in neither deny
-    nor ask.
+    This project builds the ``doocs`` connector and, with no simulator block,
+    does not render the switch, so the armed ``epics`` block below describes a
+    second real machine no session here reaches. Counting it as a second
+    target would call the render mixed and drop the hard deny — writes off, and
+    yet ``channel_write`` in neither deny nor ask.
     """
     project_dir = _build_project(
         tmp_path,
         writes_enabled=False,
-        control_system_type="mock",
+        control_system_type="doocs",
+        drop_connectors=(_VA_CONNECTOR,),
         connector_writes={_LIVE_CONNECTOR: True},
     )
     deny = _rendered_permissions(project_dir)["deny"]

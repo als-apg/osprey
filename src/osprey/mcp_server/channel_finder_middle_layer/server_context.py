@@ -1,7 +1,10 @@
 """Middle Layer Channel Finder MCP Registry — singleton config and database management.
 
 Provides centralized configuration access and MiddleLayerDatabase lifecycle
-management for all Middle Layer channel finder MCP tools.
+management for all Middle Layer channel finder MCP tools. The database is the
+middle-layer index the build writes from the facility file, at
+``channel_finder.pipelines.middle_layer.database.path``; ``run_sql`` queries the
+DuckDB copy the build writes beside it, at ``…database.duckdb_path``.
 
 Usage in tools:
     from osprey.mcp_server.channel_finder_middle_layer.server_context import get_cf_ml_context
@@ -15,9 +18,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from osprey.mcp_server.channel_finder_common import load_cf_config, resolve_cf_path
+from osprey.mcp_server.channel_finder_common import (
+    config_path,
+    load_cf_config,
+    resolve_cf_path,
+)
 from osprey.mcp_server.config_values import positive_int
-from osprey.utils.facility import resolve_facility_name
+from osprey.utils.facility import facility_identity
 
 if TYPE_CHECKING:
     from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
@@ -96,7 +103,9 @@ class ChannelFinderMLContext:
             logger=logger,
         )
 
-        self._facility_name = resolve_facility_name(self._raw_config, "control system")
+        identity = facility_identity(config_path().parent, self._raw_config.get("project_name"))
+        if identity is not None:
+            self._facility_name = identity["name"]
 
         self._initialized = True
         logger.info("ChannelFinderMLContext: initialized")
@@ -118,7 +127,7 @@ class ChannelFinderMLContext:
 
     @property
     def facility_name(self) -> str:
-        """Facility name from config (e.g. 'Example Research Facility')."""
+        """The facility's display name: the facility file's, else the project name."""
         return self._facility_name
 
     @property

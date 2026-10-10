@@ -57,7 +57,7 @@ _PATCHABLE_FILES = {"config.yml", ".mcp.json"}
 _HOT_CHANGE_PATHS = {
     "config.yml": {
         "control_system.limits_checking.enabled",
-        "control_system.limits_checking.allow_unlisted_channels",
+        "control_system.limits_checking.mode",
     },
 }
 

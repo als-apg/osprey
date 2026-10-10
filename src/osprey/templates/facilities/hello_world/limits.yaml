@@ -1,0 +1,22 @@
+# The limits hook checks every write against these records. A channel not
+# listed here follows control_system.limits_checking.mode; hello-world runs
+# optional, so a channel with no record is written with no limits and listing
+# a channel is how you put bounds on it or block it.
+#
+# A setpoint record with min_value and max_value is writable within them.
+# writable: false blocks every write to the channel. confirm: false turns off
+# the re-read after a write.
+records:
+# Focusing quadrupole current: writable, but only within these bounds.
+- address: SR:MAG:QF:01:CURRENT:SP
+  min_value: 0.0
+  max_value: 300.0
+  writable: true
+# Defocusing quadrupole current: writable, with a tighter ceiling.
+- address: SR:MAG:QD:01:CURRENT:SP
+  min_value: 0.0
+  max_value: 250.0
+  writable: true
+# Beam current: a measurement, so writes are refused outright.
+- address: SR:BEAM:CURRENT
+  writable: false

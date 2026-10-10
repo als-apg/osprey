@@ -252,13 +252,13 @@ BUILD_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 #: apart from the other by reading `build/config.yml` alone.
 TESTSTAND_OVERLAY = """\
 config:
-  facility.name: Test Stand
+  system.timezone: America/Los_Angeles
   web.theme: dark
 """
 
 CONTROL_ROOM_OVERLAY = """\
 config:
-  facility.name: Control Room
+  system.timezone: Etc/UTC
   web.theme: light
 """
 
@@ -312,9 +312,9 @@ class TestBuildIntegration:
         assert second.exit_code == 0, second.output
         control_room = _rendered_config(variant_repo)
 
-        assert teststand["facility"]["name"] == "Test Stand"
+        assert teststand["system"]["timezone"] == "America/Los_Angeles"
         assert teststand["web"]["theme"] == "dark"
-        assert control_room["facility"]["name"] == "Control Room"
+        assert control_room["system"]["timezone"] == "Etc/UTC"
         assert control_room["web"]["theme"] == "light"
 
     def test_no_setting_builds_the_tracked_profile(
@@ -326,7 +326,7 @@ class TestBuildIntegration:
         assert result.exit_code == 0, result.output
         config = _rendered_config(variant_repo)
         assert config["web"]["theme"] == "light"
-        assert config.get("facility", {}).get("name") != "Test Stand"
+        assert config["system"]["timezone"] != "America/Los_Angeles"
 
     def test_the_overlay_only_overrides_what_it_names(
         self, runner: CliRunner, variant_repo: Path
@@ -388,7 +388,9 @@ class TestBuildIntegration:
         assert check_drift(variant_repo).state is DriftState.CLEAN
 
         _write_variant(
-            variant_repo, "teststand", TESTSTAND_OVERLAY.replace("Test Stand", "Test Stand 2")
+            variant_repo,
+            "teststand",
+            TESTSTAND_OVERLAY.replace("America/Los_Angeles", "America/New_York"),
         )
 
         assert check_drift(variant_repo).state is DriftState.DRIFT
@@ -421,7 +423,7 @@ class TestBuildIntegration:
 
         rendered = variant_repo / "build" / f"{variant_repo.name}-{personas[0].stem}"
         config = yaml.safe_load((rendered / "config.yml").read_text(encoding="utf-8"))
-        assert config["facility"]["name"] == "Test Stand"
+        assert config["system"]["timezone"] == "America/Los_Angeles"
 
 
 def _overlay(repo: Path, name: str) -> Path:

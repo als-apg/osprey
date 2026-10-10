@@ -384,8 +384,8 @@ def calculate_file_checksums(project_dir: Path) -> dict[str, str]:
 
         # Skip binary and large files
         # .duckdb: a derived binary artifact that carries its own content digest in
-        # its meta table, so checksumming it would turn every `osprey knowledge
-        # build-index` into apparent render drift.
+        # its meta table, so checksumming it would turn every rebuilt index into
+        # apparent render drift.
         if file_path.suffix in [".pyc", ".pyo", ".so", ".dll", ".dylib", ".duckdb"]:
             continue
 

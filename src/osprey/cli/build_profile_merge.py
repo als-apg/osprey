@@ -19,7 +19,7 @@ from osprey.errors import BuildProfileError
 
 from .build_profile_document import _read_profile_document
 from .build_profile_presets import (
-    PRESET_DATA_BUNDLE_KEY,
+    PRESET_ONLY_KEYS,
     _load_preset_raw,
     _preset_exists,
     list_presets,
@@ -439,12 +439,14 @@ def _resolve_extends(
     if preset_path is not None:
         # A bundled preset reached as a base is consumed exactly as one reached
         # by name is (:func:`~.build_profile_presets._load_preset_raw`), so an
-        # inherited ``app_template:`` never becomes part of what the child
-        # resolves to. Confined to the preset branch: the same key in a
-        # hand-written parent profile is a profile key, and is refused as one.
-        base_raw.pop(PRESET_DATA_BUNDLE_KEY, None)
-        # Consuming the key would otherwise lose the one fact it carried: which
-        # packaged data bundle this profile's tree came from. Record the preset
+        # inherited ``app_template:`` or ``facility:`` never becomes part of
+        # what the child resolves to. Confined to the preset branch: the same
+        # key in a hand-written parent profile is a profile key, and is refused
+        # as one.
+        for key in PRESET_ONLY_KEYS:
+            base_raw.pop(key, None)
+        # Consuming the keys would otherwise lose the one fact they carried:
+        # which packaged data this profile's tree came from. Record the preset
         # instead, so a reader can ask
         # :func:`~.build_profile_presets.preset_data_bundle` the same question
         # the deep merge used to answer. Recorded before the recursion, so the
@@ -729,6 +731,9 @@ def resolve_profile_document(
         BuildProfileError: If a persona delta declares ``extends``, if the root
             of a persona delta is missing or is not a YAML mapping, or if
             ``extends`` resolution fails.
+        FacilityBuildError: ``profile-invalid`` when a persona delta names
+            ``data:`` (every persona shares the root profile's facility tree)
+            or sets ``simulation.models`` on a VA-baselined persona.
     """
     root_dir, is_persona_delta = resolve_profile_root(profile_path)
     normalized = dict(raw)
@@ -777,6 +782,22 @@ def resolve_profile_document(
             f"{root_dir / ROOT_PROFILE_FILENAME} instead."
         )
 
+    if "data" in normalized:
+        from osprey.facility.errors import FacilityBuildError
+
+        delta_rel = f"{PERSONA_DIRNAME}/{profile_path.name}"
+        raise FacilityBuildError(
+            "profile-invalid",
+            delta_rel,
+            [delta_rel],
+            f"remove `data:` from {delta_rel}",
+            record_kind="path",
+            detail=(
+                f"a persona delta names `data:`, and every persona shares the facility tree "
+                f"the root {ROOT_PROFILE_FILENAME}'s `data:` names"
+            ),
+        )
+
     root_path = root_dir / ROOT_PROFILE_FILENAME
     root_raw = _read_profile_document(root_path)
     if not isinstance(root_raw, dict):
@@ -792,12 +813,17 @@ def resolve_profile_document(
     # ``extends:`` of its own (rejected above), and _resolve_extends would
     # consume its ``exclude:`` against its own layer instead of against the
     # root, silently dropping the exclusion.
-    return finish(
-        merge_persona_delta(
-            root_resolved, normalized, artifacts=artifacts, shadow_candidates=shadowed
-        ),
-        True,
+    merged = merge_persona_delta(
+        root_resolved, normalized, artifacts=artifacts, shadow_candidates=shadowed
     )
+    from .build_profile_load import persona_served_models_error
+
+    served_error = persona_served_models_error(
+        normalized, merged, f"{PERSONA_DIRNAME}/{profile_path.name}"
+    )
+    if served_error is not None:
+        raise served_error
+    return finish(merged, True)
 
 
 # ---------------------------------------------------------------------------

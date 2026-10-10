@@ -55,18 +55,17 @@ readily as for a virtual one. That is a considered position rather than an
 oversight: a device in the worker's namespace is a name a plan MAY reference,
 never a write that has happened. The gates that decide whether a write lands
 sit on the write path -- the connector's per-put reference monitor and the
-bridge's arming + limits facade -- and the build refuses to stage a derived set
-at all for a lane whose target has writes enabled without an enabled limits
-posture. Withholding the machine's own channels from the namespace would add no
-gate; it would only make the channels an agent is allowed to read invisible to
-it, and push operators back to hand-authored device files that nothing keeps in
-step with the facility.
+bridge's arming + limits facade. Withholding the machine's own channels from
+the namespace would add no gate; it would only make the channels an agent is
+allowed to read invisible to it, and push operators back to hand-authored
+device files that nothing keeps in step with the facility.
 
 Two consumers share this module (DRY, one derivation):
 
-- ``osprey.deployment.compose_generator`` (``_stage_bluesky_devices``), which
-  derives and stages the device file on every render, so the worker starts with
-  real channel names, turn-key.
+- ``osprey.facility.views.bluesky``, which ``osprey build`` runs to write
+  ``data/bluesky_devices.yml`` from the facility file in every render that runs
+  a Bluesky lane; the compose generator stages that file unchanged, so the
+  worker starts with real channel names, turn-key.
 - ``tests/e2e/_orm_stack.py``, which selects the subset of records its plans
   need and hands them here for the document and its atomic write, rather than
   assembling a device file of its own.
@@ -89,8 +88,9 @@ from __future__ import annotations
 
 import os
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -100,12 +100,20 @@ from osprey.channel_roster import ChannelRecord, RosterSource
 # than restated so the host-side producer and the container-side consumer can
 # never drift on the schema.
 from osprey.services.bluesky_bridge.devices._specs_from_file import (
+    MOTION_BAND_KEY,
     READABLES_KEY,
+    RELATIVE_KEY,
+    SCHEMA_KEY,
     SETTABLES_KEY,
+    SETTLE_TOLERANCE_KEY,
 )
 
 
-def devices_document(records: Sequence[ChannelRecord]) -> dict[str, list[dict[str, str]]]:
+def devices_document(
+    records: Sequence[ChannelRecord],
+    tolerances: Mapping[str, Mapping[str, float]] | None = None,
+    motion_bands: Mapping[str, float] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
     """Build the worker's device document from the roster's ``records``.
 
     Returns the two-list mapping ``_specs_from_file`` parses: one ``settables``
@@ -122,6 +130,15 @@ def devices_document(records: Sequence[ChannelRecord]) -> dict[str, list[dict[st
     restating the setpoint as its own readback would claim a pairing the roster
     did not make.
 
+    ``tolerances`` maps a setpoint address to its declared tolerance record,
+    ``{absolute: <x>}`` or ``{relative: <f>}``: the settable carries it as
+    ``settle_tolerance``, a number for an absolute record and ``{relative:
+    <f>}`` for a relative one. ``motion_bands`` maps a readback address to the
+    band its simulated motion keeps it within: a settable without a declared
+    tolerance whose readback (its pair, or its own setpoint when unpaired)
+    has a band above zero carries it as ``motion_band``. Either key follows
+    ``readback``; with no mappings no settable carries one.
+
     A record whose direction the source could not say (``direction is None``)
     becomes no device. It is not silently demoted to a readable: the honest
     handling of an unknown direction is the build's, which refuses to stage a
@@ -130,19 +147,32 @@ def devices_document(records: Sequence[ChannelRecord]) -> dict[str, list[dict[st
     Args:
         records: The roster's channel records, e.g.
             ``registered_channels(config).records``.
+        tolerances: Each setpoint address's tolerance record, or None.
+        motion_bands: Each readback address's motion band, or None.
 
     Returns:
         The device document, ready for :func:`write_devices_file` or the
         build's ``validate_device_document``.
     """
-    settables: list[dict[str, str]] = []
-    readables: list[dict[str, str]] = []
+    settables: list[dict[str, Any]] = []
+    readables: list[dict[str, Any]] = []
+    declared = tolerances or {}
+    bands = motion_bands or {}
 
     for record in records:
         if record.direction == "write":
-            entry = {"name": record.address, "setpoint": record.address}
+            entry: dict[str, Any] = {"name": record.address, "setpoint": record.address}
+            readback = record.address
             if record.readback is not None and record.readback != record.address:
-                entry["readback"] = record.readback
+                entry["readback"] = readback = record.readback
+            tolerance = declared.get(record.address)
+            band = bands.get(readback, 0.0)
+            if tolerance is not None and RELATIVE_KEY in tolerance:
+                entry[SETTLE_TOLERANCE_KEY] = {RELATIVE_KEY: float(tolerance[RELATIVE_KEY])}
+            elif tolerance is not None:
+                entry[SETTLE_TOLERANCE_KEY] = float(tolerance["absolute"])
+            elif band > 0:
+                entry[MOTION_BAND_KEY] = float(band)
             settables.append(entry)
         elif record.direction == "read":
             readables.append({"name": record.address, "pv": record.address})
@@ -155,30 +185,37 @@ _FILE_MODE = 0o644
 
 _GENERATED_HEADER = """\
 # Generated by OSPREY from {provenance}
-# (osprey.services.bluesky_bridge.substrate_devices). Every render rewrites this
-# file, so edits here are lost -- author your own device file and point
-# `bluesky.devices_file` at it instead.
+# (osprey.services.bluesky_bridge.substrate_devices). `osprey build` rewrites
+# this file, so edits here are lost -- change the channels under data/facility/
+# and run `osprey build` instead.
 #
-# The channel roster is this facility's one enumeration of which channels exist
-# and which way they point. Every write-direction channel is a settable device,
-# every read-direction channel a readable one, and a settable names a readback
-# only where the roster paired one.
+# Every setpoint channel is a settable device, every readback channel a readable
+# one, and a settable names a readback only where the facility pairs one.
 """
-"""Header the staged file carries, filled with the roster source's
+"""Header the written file carries, filled with the roster source's
 ``describe()`` so the file names the artifact it was derived from."""
 
 
 def write_devices_file(
-    path: Path, records: Sequence[ChannelRecord], *, source: RosterSource
-) -> dict[str, list[dict[str, str]]]:
-    """Write the document ``devices_document(records)`` builds to ``path`` as
-    YAML, and return it.
+    path: Path,
+    records: Sequence[ChannelRecord],
+    *,
+    source: RosterSource,
+    schema: str,
+    tolerances: Mapping[str, Mapping[str, float]] | None = None,
+    motion_bands: Mapping[str, float] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Write the document ``devices_document(records, tolerances, motion_bands)`` builds to
+    ``path`` as YAML, and return it.
 
     ``source`` is the roster source the records came from; it is named in the
     file's header via :meth:`~osprey.channel_roster.records.RosterSource.describe`,
     so a reader of a staged file can see which corpus or database the device
     set is a projection of. It is passed rather than read off the records
     because an empty roster has to name its provenance too.
+
+    ``schema`` is the file's first line (``schema: <value>``), ahead of the
+    header; the returned document does not carry it.
 
     The write is atomic (same-directory temp file + ``os.replace``): the file is
     staged into a build tree that a running deploy may mount, so a reader must
@@ -189,12 +226,13 @@ def write_devices_file(
     validate what it just wrote does not have to re-derive or re-read it.
     """
     path = Path(path)
-    document = devices_document(records)
+    document = devices_document(records, tolerances, motion_bands)
     body = yaml.safe_dump(document, sort_keys=False, default_flow_style=False, allow_unicode=True)
 
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(f"{SCHEMA_KEY}: {schema}\n")
             handle.write(_GENERATED_HEADER.format(provenance=source.describe()))
             handle.write(body)
         # ``mkstemp`` creates the temp file 0600 and ``os.replace`` carries that

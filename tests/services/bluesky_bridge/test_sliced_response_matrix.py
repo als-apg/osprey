@@ -46,6 +46,7 @@ def _emit_rows(
     *,
     offsets: np.ndarray | None = None,
     stop_after: int | None = None,
+    readback_error: tuple[float, float] | None = None,
 ) -> list[dict[str, float]]:
     """Rows an `orm` run emits for a machine whose response is *truth*.
 
@@ -54,6 +55,11 @@ def _emit_rows(
     corrector's current (idle ones read back 0.0) alongside every readback.
     *offsets* gives each readback a nonzero intercept so a fit that ignored
     the intercept would visibly fail.
+
+    *readback_error* ``(gain, offset)`` models a corrector whose readback
+    tracks its demand imperfectly: each corrector then reports its commanded
+    current under ``<name>_setpoint`` and ``gain * commanded + offset`` under
+    ``<name>``, while the BPMs respond to the commanded current.
     """
     if offsets is None:
         offsets = np.zeros(len(readbacks))
@@ -62,6 +68,11 @@ def _emit_rows(
         for current in currents:
             row = dict.fromkeys(correctors, 0.0)
             row[corrector] = current
+            if readback_error is not None:
+                gain, offset = readback_error
+                for name in correctors:
+                    row[f"{name}_setpoint"] = row[name]
+                    row[name] = gain * row[name] + offset
             orbit = offsets + truth[:, j] * current
             for i, readback in enumerate(readbacks):
                 row[readback] = float(orbit[i])
@@ -104,6 +115,36 @@ def test_matches_polyfit_within_1e_12_on_a_bidirectional_sweep():
 
     # ...and that reference is itself the machine we simulated.
     np.testing.assert_allclose(fit.matrix, truth, rtol=1e-9)
+
+
+def test_setpoint_and_readback_regressors_differ_by_the_tracking_error():
+    """The setpoint fit recovers the commanded slope; the readback fit is off by the gain."""
+    correctors = ["CH1", "CH2"]
+    readbacks = ["BPM1", "BPM2", "BPM3"]
+    truth = _truth_matrix(len(readbacks), len(correctors))
+    currents = _sweep_currents(2.0, 5)
+    rows = _emit_rows(correctors, readbacks, truth, currents, readback_error=(0.98, 0.3))
+
+    by_setpoint = sliced_response_matrix(rows, correctors, readbacks, num=5)
+    by_readback = sliced_response_matrix(rows, correctors, readbacks, num=5, regressor="readback")
+
+    np.testing.assert_allclose(by_setpoint.matrix, truth, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(by_readback.matrix, truth / 0.98, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(by_setpoint.currents[0], currents, rtol=1e-12)
+
+
+def test_the_fit_records_the_regressor_it_used():
+    """What was fitted travels with the fit, on a full run and on an empty one."""
+    correctors = ["CH1"]
+    readbacks = ["BPM1"]
+    rows = _emit_rows(correctors, readbacks, np.ones((1, 1)), _sweep_currents(1.0, 3))
+
+    assert sliced_response_matrix(rows, correctors, readbacks, num=3).regressor == "setpoint"
+    assert (
+        sliced_response_matrix(rows, correctors, readbacks, num=3, regressor="readback").regressor
+        == "readback"
+    )
+    assert sliced_response_matrix([], correctors, readbacks, num=3).regressor == "setpoint"
 
 
 def test_fits_a_monodirectional_sweep_that_the_legacy_path_rejects():

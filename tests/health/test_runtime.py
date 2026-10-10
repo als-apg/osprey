@@ -80,7 +80,10 @@ async def test_get_connector_constructs_once_and_disconnects_once(
     spy = _SpyConnector()
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
-    config = {"type": "mock", "connector": {"mock": {}}}
+    config = {
+        "type": "virtual_accelerator",
+        "connector": {"virtual_accelerator": {"serving": "in_process"}},
+    }
 
     async with HealthRuntime(config) as runtime:
         first = await runtime.get_connector()
@@ -107,7 +110,12 @@ async def test_never_constructs_connector_when_get_connector_unused(
     spy = _SpyConnector()
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
-    async with HealthRuntime({"type": "mock"}):
+    async with HealthRuntime(
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    ):
         pass  # no channel_read-style probe ever asks for a connector
 
     # Nothing registered, nothing constructed, nothing to disconnect.
@@ -125,7 +133,12 @@ async def test_disconnect_exception_is_swallowed(
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
     # Context exit must not propagate the disconnect failure.
-    async with HealthRuntime({"type": "mock"}) as runtime:
+    async with HealthRuntime(
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    ) as runtime:
         await runtime.get_connector()
 
     assert spy.disconnect_calls == 1
@@ -139,7 +152,12 @@ async def test_explicit_shutdown_disconnects_once_and_is_idempotent(
     spy = _SpyConnector()
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
-    runtime = HealthRuntime({"type": "mock"})
+    runtime = HealthRuntime(
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    )
     await runtime.get_connector()
     await runtime.shutdown()
     await runtime.shutdown()  # second call disconnects nothing
@@ -155,7 +173,12 @@ async def test_get_connector_refuses_after_shutdown(
     spy = _SpyConnector()
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
-    runtime = HealthRuntime({"type": "mock"})
+    runtime = HealthRuntime(
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    )
     await runtime.get_connector()
     await runtime.shutdown()
 
@@ -164,7 +187,12 @@ async def test_get_connector_refuses_after_shutdown(
         await runtime.get_connector()
 
     # The refusal built nothing new: still a single construction, no re-register.
-    assert construct_calls == [{"type": "mock"}]
+    assert construct_calls == [
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    ]
     assert register_calls == [True]
 
 
@@ -177,7 +205,12 @@ async def test_get_connector_refuses_after_shutdown_without_construction(
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
     # shutdown() closes the runtime even when a connector was never built.
-    runtime = HealthRuntime({"type": "mock"})
+    runtime = HealthRuntime(
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    )
     await runtime.shutdown()
 
     with pytest.raises(RuntimeError):
@@ -195,7 +228,12 @@ async def test_flag_transitions_across_lifecycle(
     spy = _SpyConnector()
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
-    runtime = HealthRuntime({"type": "mock"})
+    runtime = HealthRuntime(
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    )
     # Freshly built: nothing constructed, not closed.
     assert runtime.ever_constructed is False
     assert runtime.closed is False
@@ -219,7 +257,12 @@ async def test_ever_constructed_stays_false_when_get_connector_unused(
     spy = _SpyConnector()
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
-    async with HealthRuntime({"type": "mock"}) as runtime:
+    async with HealthRuntime(
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    ) as runtime:
         assert runtime.ever_constructed is False
         assert runtime.closed is False
 
@@ -236,7 +279,12 @@ async def test_double_shutdown_is_safe_after_construction(
     spy = _SpyConnector()
     _patch_factory(monkeypatch, spy, construct_calls, register_calls)
 
-    runtime = HealthRuntime({"type": "mock"})
+    runtime = HealthRuntime(
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    )
     await runtime.get_connector()
     await runtime.shutdown()
     await runtime.shutdown()  # idempotent: still closed, disconnected once
@@ -309,7 +357,12 @@ async def test_concurrent_get_connector_constructs_exactly_one(
     spy = _SpyConnector()
     _patch_slow_factory(monkeypatch, spy, construct_calls)
 
-    async with HealthRuntime({"type": "mock"}) as runtime:
+    async with HealthRuntime(
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    ) as runtime:
         first, second = await asyncio.gather(
             runtime.get_connector(),
             runtime.get_connector(),
@@ -317,7 +370,12 @@ async def test_concurrent_get_connector_constructs_exactly_one(
 
         # One construction between them, and the waiter got the winner's
         # instance rather than an orphan of its own.
-        assert construct_calls == [{"type": "mock"}]
+        assert construct_calls == [
+            {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        ]
         assert first is spy
         assert second is spy
 
@@ -333,7 +391,12 @@ async def test_many_concurrent_get_connector_calls_construct_exactly_one(
     _patch_slow_factory(monkeypatch, spy, construct_calls)
 
     # A realistic category fan-out: several channel_read-style probes at once.
-    async with HealthRuntime({"type": "mock"}) as runtime:
+    async with HealthRuntime(
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    ) as runtime:
         results = await asyncio.gather(*(runtime.get_connector() for _ in range(8)))
 
     assert len(construct_calls) == 1
@@ -352,11 +415,21 @@ async def test_shutdown_during_construction_does_not_orphan_the_connector(
     construct_calls: list[Any] = []
     spy = _SpyConnector()
     _patch_slow_factory(monkeypatch, spy, construct_calls)
-    runtime = HealthRuntime({"type": "mock"})
+    runtime = HealthRuntime(
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    )
 
     getter = asyncio.create_task(runtime.get_connector())
     await asyncio.sleep(0)  # getter passes the closed check and enters construction
-    assert construct_calls == [{"type": "mock"}]
+    assert construct_calls == [
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    ]
     await runtime.shutdown()
 
     with pytest.raises(RuntimeError, match="closed while its connector was being constructed"):
@@ -375,7 +448,12 @@ async def test_concurrent_get_archiver_constructs_exactly_one(
 
     archiver_config = {"type": "epics_archiver", "epics_archiver": {}}
 
-    async with HealthRuntime({"type": "mock"}) as runtime:
+    async with HealthRuntime(
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    ) as runtime:
         first, second = await asyncio.gather(
             runtime.get_archiver(archiver_config),
             runtime.get_archiver(archiver_config),
@@ -396,7 +474,12 @@ async def test_closed_runtime_refuses_without_waiting_on_the_lock(
     spy = _SpyConnector()
     _patch_slow_factory(monkeypatch, spy, construct_calls)
 
-    runtime = HealthRuntime({"type": "mock"})
+    runtime = HealthRuntime(
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    )
     await runtime.shutdown()
 
     # The closed guard sits outside the lock, so the refusal does not depend on

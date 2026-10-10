@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
 from osprey.interfaces._app_setup import configure_interface_app
-from osprey.utils.facility import resolve_facility_name
+from osprey.utils.facility import facility_identity
 from osprey.utils.workspace import agent_data_base_dir
 
 if TYPE_CHECKING:
@@ -173,10 +173,9 @@ def _open_graph_index(config) -> GraphIndex | GraphIndexAbsence:
         The open index, or the absence saying why there is none.
     """
     from osprey.deployment.graphdb_service import (
-        GRAPHDB_BUILD_INDEX_COMMAND,
+        GRAPHDB_REBUILD_HINT,
         resolve_graph_index_path,
     )
-    from osprey.interfaces.channel_finder.database_api import unresolved_index_path
     from osprey.services.channel_finder.graph_index.reader import (
         GraphIndexAbsence,
         open_graph_index,
@@ -184,14 +183,7 @@ def _open_graph_index(config) -> GraphIndex | GraphIndexAbsence:
 
     # No ``config_dir``: the render is found through ``OSPREY_CONFIG``, which is
     # what a deployed process gets and how the corpus beside it is resolved too.
-    try:
-        path = resolve_graph_index_path(config)
-    except ValueError as exc:
-        # The 503 the routes build from it recognises this absence by its type
-        # and adds no build step, since a build would read the same bad key.
-        absent = unresolved_index_path(exc)
-        logger.warning("%s", absent.detail)
-        return absent
+    path = resolve_graph_index_path(config)
 
     opened = open_graph_index(path)
     if isinstance(opened, GraphIndexAbsence):
@@ -203,10 +195,9 @@ def _open_graph_index(config) -> GraphIndex | GraphIndexAbsence:
         # find it.
         log = logger.info if opened.reason == "missing" else logger.warning
         log(
-            "%s Build it with `%s`, or re-run `osprey build`. Search, the ontology and "
-            "the statistics report this.",
+            "%s Build it with `%s`. Search, the ontology and the statistics report this.",
             opened.detail,
-            GRAPHDB_BUILD_INDEX_COMMAND,
+            GRAPHDB_REBUILD_HINT,
         )
     else:
         logger.info(
@@ -221,14 +212,13 @@ def _open_graph_index(config) -> GraphIndex | GraphIndexAbsence:
 def _read_channel_roster(config) -> RosterResult | None:
     """Enumerate the facility's channels once, for the routes that answer them.
 
-    The graph paradigm's roster is the Turtle corpus the build stages for the
-    store, not the store itself, and reading it costs a multi-megabyte parse —
-    so it happens here, at startup, rather than once per request. The store is
-    never dialed for it: a corpus that is staged answers even while the store is
+    The roster is the facility file the build writes at the root of the render,
+    read once here at startup rather than once per request. The store is never
+    dialed for it: a render that holds the file answers even while the store is
     down, and a store that is up answers nothing this app can enumerate.
 
-    Fail-soft. A deployment pointed at a graph store somebody else runs stages
-    no corpus at all, and that is a serving app whose two enumeration routes say
+    Fail-soft. A deployment pointed at a graph store somebody else runs may hold
+    no facility file, and that is a serving app whose two enumeration routes say
     why they cannot answer — not a reason to refuse to start.
 
     Args:
@@ -311,7 +301,8 @@ def _create_lifespan(project_cwd: str | None = None):
         import httpx
 
         from osprey.services.channel_finder.utils.detection import detect_pipeline_config
-        from osprey.utils.workspace import load_osprey_config
+        from osprey.utils.config import default_config_path
+        from osprey.utils.workspace import load_osprey_config, resolve_config_path
 
         config = load_osprey_config()
         cf_config = config.get("channel_finder", {})
@@ -328,7 +319,16 @@ def _create_lifespan(project_cwd: str | None = None):
         pipeline_type, _db_config = detect_pipeline_config(config)
         app.state.pipeline_type = pipeline_type
         app.state.project_cwd = project_cwd or str(Path.cwd())
-        app.state.facility_name = resolve_facility_name(config, "")
+        # The render is where the loaded config sits; a process that loaded
+        # none still names the file it would have read.
+        loaded_config = default_config_path()
+        render_root = (
+            Path(loaded_config).parent
+            if loaded_config is not None
+            else resolve_config_path().parent
+        )
+        identity = facility_identity(render_root, config.get("project_name"))
+        app.state.facility_name = identity["name"] if identity is not None else ""
 
         # Initialize all available pipeline registries so the UI can switch
         available: list[str] = []

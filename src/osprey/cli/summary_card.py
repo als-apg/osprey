@@ -45,30 +45,44 @@ _NEXT_STEPS = {
     "stopped": "osprey up -d · osprey status",
 }
 
-#: Where a rendered project keeps the demo scenarios ``osprey sim apply`` reads.
-#: Relative to the build directory, which is the tree the build wrote, not the
-#: repo the operator is standing in.
-_SCENARIOS_DIR = Path("data") / "simulation" / "scenarios"
-
-#: The command that seeds the demo logbook from those scenarios. Appended to the
-#: ``built`` card's next step, so the one next-step surface carries it instead of
-#: a line of its own.
+#: The command that seeds the demo logbook from the scenarios' logbook
+#: narratives. Appended to the ``built`` card's next step, so the one next-step
+#: surface carries it instead of a line of its own.
 _SEED_DEMO_LOGBOOK = "osprey sim apply nominal"
+
+
+def _scenarios_carry_a_logbook(build: Path) -> bool:
+    """True when the build's simulator view lists a scenario with a logbook.
+
+    A missing or unreadable view answers False: the hint is advice, and a build
+    without a view has nothing for it to seed.
+
+    :param build: The build directory.
+    """
+    from osprey_connectors.simulation.view import SimulatorView
+
+    try:
+        view = SimulatorView.find(build)
+        if view is None:
+            return False
+        return any(scenario.get("logbook") for scenario in view.scenarios())
+    except (OSError, ValueError):
+        return False
 
 
 def _next_step(root: Path, state: str) -> str:
     """What to run next for a deployment in ``state``, rooted at ``root``.
 
-    Fixed per state, with one exception the map cannot hold: a build that
-    rendered demo scenarios can seed its logbook from them, and one that did not
-    must not be told to run a command with nothing to apply. So the answer is
-    read off the rendered tree rather than declared.
+    Fixed per state, with one exception the map cannot hold: a build whose
+    scenarios carry a logbook narrative can seed its logbook from them, and one
+    whose scenarios carry none must not be told to run a command with nothing to
+    seed. So the answer is read off the rendered tree rather than declared.
 
     :param root: The deployment repo. The build it rendered is one directory in.
     :param state: One of ``created``, ``built``, ``running``, ``stopped``
     """
     step = _NEXT_STEPS.get(state, "osprey status")
-    if state == "built" and (root / BUILD_DIR_NAME / _SCENARIOS_DIR).is_dir():
+    if state == "built" and _scenarios_carry_a_logbook(root / BUILD_DIR_NAME):
         return f"{step} · {_SEED_DEMO_LOGBOOK}"
     return step
 

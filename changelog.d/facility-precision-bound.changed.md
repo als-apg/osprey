@@ -1,0 +1,1 @@
+`osprey build` stops on a float channel whose `precision` is above 17 (`value-invalid`, "`precision` is not an int from 0 to 17", naming the channel and the file that states it); a double carries no more than 17 significant digits.

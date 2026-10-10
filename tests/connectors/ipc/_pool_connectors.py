@@ -9,7 +9,7 @@ import asyncio
 import os
 import time
 
-from osprey_connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 
 #: Channels whose reads and writes take far longer than any test waits.
 SLOW_PREFIX = "SLOW:"
@@ -26,7 +26,7 @@ WEDGE_PREFIX = "WEDGE:"
 WRITE_LOG_ENV = "OSPREY_POOL_TEST_WRITE_LOG"
 
 
-class SlowMockConnector(MockConnector):
+class SlowInProcessConnector(VAInProcessConnector):
     """The mock, except ``SLOW:`` channels hang, ``GONE:`` channels are
     unreachable, ``WEDGE:`` channels wedge the child, and every write is logged."""
 
@@ -49,21 +49,21 @@ class SlowMockConnector(MockConnector):
         return await super().write_channel(channel_address, value, timeout, confirm)
 
 
-class FailingConnector(MockConnector):
+class FailingConnector(VAInProcessConnector):
     """A connector whose ``connect()`` cannot reach its control system."""
 
     async def connect(self, config):  # noqa: ARG002 - the base signature
         raise ConnectionError("pool test: the gateway refused the connection")
 
 
-class HangingConnector(MockConnector):
+class HangingConnector(VAInProcessConnector):
     """A connector whose ``connect()`` never returns."""
 
     async def connect(self, config):  # noqa: ARG002 - the base signature
         await asyncio.sleep(3600)
 
 
-class SlowStartConnector(MockConnector):
+class SlowStartConnector(VAInProcessConnector):
     """A connector whose ``connect()`` takes a second, then succeeds."""
 
     async def connect(self, config):
@@ -71,15 +71,22 @@ class SlowStartConnector(MockConnector):
         await super().connect(config)
 
 
-class TimingOutConnector(MockConnector):
+class TimingOutConnector(VAInProcessConnector):
     """A connector whose ``connect()`` times out reaching its control system."""
 
     async def connect(self, config):  # noqa: ARG002 - the base signature
         raise TimeoutError("pool test: the gateway did not answer in time")
 
 
-class ExitingConnector(MockConnector):
+class ExitingConnector(VAInProcessConnector):
     """A connector whose ``connect()`` ends the child process outright."""
 
     async def connect(self, config):  # noqa: ARG002 - the base signature
         os._exit(3)
+
+
+class ExitingOnReadConnector(VAInProcessConnector):
+    """A connector that starts normally and ends the child process on its first read."""
+
+    async def read_channel(self, channel_address, timeout=None):  # noqa: ARG002 - the base signature
+        os._exit(4)

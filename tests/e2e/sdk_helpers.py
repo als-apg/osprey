@@ -25,7 +25,6 @@ import inspect
 import json
 import math
 import os
-import shutil
 import subprocess
 import sys
 from collections.abc import Callable
@@ -319,8 +318,7 @@ def init_project(
     provider: str,
     model: str | None = None,
     channel_finder_mode: str | None = None,
-    tier: int | None = None,
-    connector: str = "mock",
+    connector: str = "virtual_accelerator",
     archiver: str = "mock_archiver",
 ) -> Path:
     """Create a deployment repo at ``tmp_path/name`` and build it; return the repo root.
@@ -339,22 +337,24 @@ def init_project(
     ``--no-git`` is always passed: no test reads the repo's history and
     ``git init`` is pure latency here.
 
-    ``connector`` is pinned to ``mock`` rather than inherited from the preset:
-    the control-assistant preset baselines on its live stand-in, a deployed
-    soft IOC that has to answer Channel Access — this harness runs projects
-    without their containers, so the preset's production default would turn
-    every channel read/write into a connection timeout. Tests that deploy a
-    real stack build through their own fixtures, not this helper.
+    ``connector`` is pinned to the simulator served in process rather than
+    inherited from the preset: the control-assistant preset baselines on its
+    live stand-in, a deployed soft IOC that has to answer Channel Access — this
+    harness runs projects without their containers, so the preset's production
+    default would turn every channel read/write into a connection timeout.
+    Tests that deploy a real stack build through their own fixtures, not this
+    helper.
 
     ``archiver`` is pinned for the same reason and is the archive half of that
     same fact: the preset selects ``mongodb_archiver`` and declares the
     ``va_archiver:`` block that deploys the store it reads, so a containerless
     build would leave every ``archiver_read`` failing at connect for want of a
     store — and, before that, for want of the password ``osprey up``
-    mints. Pinning both halves to the mock is not a way around the pairing rule
-    in :mod:`osprey.connectors.honesty` but the case it explicitly allows: a
-    mock control system with the mock archiver claims nothing is real, so
-    nothing lies. Tests that want recorded history deploy a store of their own.
+    mints. Pinning the mock archiver beside the simulator in process is not a
+    way around the pairing rule in :mod:`osprey.connectors.honesty` but the
+    case it explicitly allows: the simulator in process has no recorder, so a
+    synthesized archive is the only one it can have, and nothing lies. Tests
+    that want recorded history deploy a store of their own.
 
     ``virtual_accelerator.live_standin`` is nulled as the third of those pins,
     for presets that declare a virtual accelerator at all. The control-assistant
@@ -385,21 +385,6 @@ def init_project(
     answers from a file. A test whose subject IS the graph paradigm names
     ``graph`` explicitly and stands the store up itself.
 
-    Tier selection follows a per-mode default: tier 1 is in_context-only, while
-    every other paradigm requires tier 3. When ``tier`` is left ``None`` and a
-    ``channel_finder_mode`` is given, the tier is derived from it (in_context
-    → 1, else → 3); when neither is given, ``tier`` is left out of the profile
-    and the build derives it from the preset's own paradigm. An explicit
-    ``tier`` kwarg is always honored. Consequence: hierarchical/middle_layer
-    callers score the full tier-3 (2908-channel) surface, not a tier-1 subset.
-    The tier is a profile field, so it is set the same way as every other one:
-    ``--set tier=N`` on ``init``.
-
-    A paradigm whose store is a service rather than tiered database files
-    (``graph``) has no tier to select, so the derived tier is dropped for it
-    and the profile is written without a ``tier`` field. The rule is read from
-    ``tier_mode_conflict`` rather than restated here.
-
     ``provider`` is required (keyword-only) — every test callsite must name
     it explicitly. Each provider gates on different credentials (CBORG needs
     LBLnet/VPN; als-apg needs ``ALS_APG_API_KEY``; anthropic-direct needs
@@ -425,21 +410,16 @@ def init_project(
     :func:`tests.e2e.provider.build_model`), because the suite's budgets are
     sized for that model and the provider's catalog default is not.
     """
-    from osprey.build.build_tiers import default_tier_for_mode, tier_mode_conflict
+    from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 
     provider = build_provider(provider)
     if channel_finder_mode is None and _preset_channel_finder_mode(template) == "graph":
         channel_finder_mode = "hierarchical"
-    effective_tier = tier
-    if effective_tier is None and channel_finder_mode is not None:
-        derived = default_tier_for_mode(channel_finder_mode)
-        # Pin the derived tier only where the paradigm accepts one. A paradigm
-        # backed by a service rather than tiered database files has no tier to
-        # select, and ``tier_mode_conflict`` is the registry's own statement of
-        # which pairings hold — asking it keeps the rule in one place instead of
-        # re-listing paradigms here.
-        if tier_mode_conflict(derived, channel_finder_mode) is None:
-            effective_tier = derived
+    if channel_finder_mode is not None and channel_finder_mode not in VALID_CHANNEL_FINDER_MODES:
+        raise ValueError(
+            f"channel_finder_mode {channel_finder_mode!r} is not one of "
+            f"{list(VALID_CHANNEL_FINDER_MODES)}"
+        )
     repo = tmp_path / name
     init_args = [
         str(repo),
@@ -457,12 +437,12 @@ def init_project(
     # it. The stand-in pin rides along where the preset declares a VA, and the
     # ARIEL database pin where the preset configures ARIEL.
     pins: dict[str, Any] = {"config": {"archiver.type": archiver, **_ariel_db_pins(template)}}
+    if connector == "virtual_accelerator":
+        pins["config"]["control_system.connector.virtual_accelerator.serving"] = "in_process"
     if _preset_declares_virtual_accelerator(template):
         pins["virtual_accelerator"] = {"live_standin": None}
     init_args.extend(set_pairs(pins))
     init_args.extend(["--set", f"port_base={e2e_port_base()}"])
-    if effective_tier is not None:
-        init_args.extend(["--set", f"tier={effective_tier}"])
     if channel_finder_mode is not None:
         init_args.extend(["--set", f"channel_finder_mode={channel_finder_mode}"])
     _run_osprey("init", init_args, timeout=180)
@@ -625,8 +605,8 @@ def activate_scenarios(repo: Path, *names: str, now=None):
 
     Takes the REPO ROOT — that is what
     :func:`osprey.simulation.apply.apply_scenarios` anchors on: the
-    ``data/simulation/`` model and the ``var/agent_data/simulation/`` state both
-    hang off it, and it reads the render's ``config.yml`` itself.
+    ``var/agent_data/simulation/`` state hangs off it, and it reads the render's
+    ``config.yml`` and simulator view itself.
 
     Calls :func:`osprey.simulation.apply.apply_scenarios` with
     ``seed_logbook=True``: it writes the active-scenario state (with a shared
@@ -647,13 +627,14 @@ def activate_scenarios(repo: Path, *names: str, now=None):
 # Agentic-scenario benchmark integrity
 #
 # A scenario benchmark asks the agent to *derive* a fault from instrument data.
-# Its ground truth ships inside the deployment repo as
-# ``data/simulation/scenarios/<name>/scenario.json``, whose ``description``
-# names the seeded fault outright — and the agent's cwd IS the render, which
-# carries its own copy of that tree. Left alone, the cheapest route to a correct
+# Its ground truth ships inside the deployment repo as the facility's
+# ``data/facility/scenarios/<name>.yaml``, whose ``description`` names the
+# seeded fault outright — and the agent's cwd IS the render, whose simulator
+# view lists every scenario with its blocks in ``data/simulator/scenarios.json``
+# and copies its attached files under ``data/simulator/scenarios/<name>/``. Left alone, the cheapest route to a correct
 # answer is to search the tree and read the answer key, which produces a right
-# answer by a route that proves nothing about the capability under test. The two
-# helpers below close that route from both ends.
+# answer by a route that proves nothing about the capability under test. The
+# disallowed-tools list below closes the search route.
 # ---------------------------------------------------------------------------
 
 # Generic filesystem-search tools, forbidden at the SDK level for the duration
@@ -668,87 +649,9 @@ def activate_scenarios(repo: Path, *names: str, now=None):
 #
 # ``Read`` is deliberately NOT in this list: ``data-visualizer`` and
 # ``pyat-specialist`` declare it for agent-data artifacts, and disallowing
-# a tool strips it from subagents too. Concealing the answer key (below) is what
-# makes a bare ``Read`` harmless; this list is what stops the agent from finding
-# anything worth reading in the first place.
+# a tool strips it from subagents too. This list is what stops the agent from
+# finding anything worth reading in the first place.
 SCENARIO_INTEGRITY_DISALLOWED_TOOLS = ["Bash", "Glob", "Grep"]
-
-
-def conceal_scenario_ground_truth(repo: Path, *scenarios: str) -> None:
-    """Delete the named scenarios' definition bundles from the deployment repo.
-
-    Takes the REPO ROOT and scrubs BOTH simulation trees: the operator-owned
-    source at ``<repo>/data/simulation`` (what the host-side engine resolves via
-    ``project_root``) and the render's copy at ``<repo>/build/data/simulation``
-    (which sits inside the agent's own working directory). Leaving either would
-    leave the answer key one ``Read`` away.
-
-    Call AFTER every setup step that consumes the bundle (``activate_scenarios``
-    for logbook seeding, ``render_scenario_physics_env`` + ``osprey up`` for a
-    VA stack's boot-time physics) and BEFORE the agent session starts. Also drops
-    the names from the live ``var/agent_data/simulation/active_scenarios`` state
-    file (the location :func:`activate_scenario` writes), since the name itself
-    ("orm-dual-fault") is a hint, and leaving an active name whose bundle is gone
-    would only earn an "Unknown scenario ... ignoring" warning from the engine.
-
-    ONLY valid for a scenario whose runtime effect is already materialized
-    somewhere the host-side :class:`~osprey.simulation.engine.SimulationEngine`
-    is not: a VA-backed physics fault lives in the container's ``VA_BPM_ERRORS``/
-    ``VA_CORR_GAIN`` environment from boot, so the bundle is inert once the stack
-    is up. A mock-connector telemetry/archiver scenario (``rf-thermal``,
-    ``vacuum-burst``) is the opposite — its bundle IS the live overlay, so
-    deleting it would delete the symptom. Those suites rely on
-    :data:`SCENARIO_INTEGRITY_DISALLOWED_TOOLS` alone.
-
-    Raises:
-        AssertionError: if a named bundle is not present in either tree
-            (template drift — the caller believes it concealed something it did
-            not).
-    """
-    source_sim = Path(repo) / "data" / "simulation"
-    render_sim = render_dir(repo) / "data" / "simulation"
-    sim_dirs = (source_sim, render_sim)
-    for name in scenarios:
-        for sim_dir in sim_dirs:
-            bundle = sim_dir / "scenarios" / name
-            assert bundle.is_dir(), (
-                f"no scenario bundle at {bundle} to conceal — template layout may have "
-                "changed; the benchmark's answer key would stay readable by the agent"
-            )
-            shutil.rmtree(bundle)
-
-    # The live state file activate_scenario writes; a stray copy beside either
-    # machine model is scrubbed too if present. The live file must EXIST —
-    # a silent skip here is how a state-file relocation once left the answer
-    # key agent-readable while this helper reported success.
-    state_dir = agent_data_dir(repo) / "simulation"
-    live_state = state_dir / "active_scenarios"
-    assert live_state.is_file(), (
-        f"no active-scenarios state file at {live_state} — the state-file "
-        "location moved again; update this helper or the answer key stays "
-        "readable by the agent"
-    )
-    for state_file in (live_state, *(d / "active_scenarios" for d in sim_dirs)):
-        if not state_file.is_file():
-            continue
-        kept = [
-            line
-            for line in state_file.read_text(encoding="utf-8").splitlines()
-            if line.strip() not in scenarios
-        ]
-        state_file.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8")
-
-    # Self-check: prove the concealment rather than assume it. Cheap — all three
-    # trees are a handful of small JSON/text files. The state dir is included
-    # because Read is deliberately allowed for agent-data artifacts.
-    for name in scenarios:
-        leaked = [
-            p
-            for tree in (*sim_dirs, state_dir)
-            for p in tree.rglob("*")
-            if p.is_file() and name in p.read_text(encoding="utf-8", errors="ignore")
-        ]
-        assert not leaked, f"scenario {name!r} still readable from the agent's tree: {leaked}"
 
 
 def promote_ask_to_allow(repo: Path, *tools: str) -> None:

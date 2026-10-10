@@ -1,83 +1,49 @@
 """Record and result types for the authoritative channel roster.
 
 The roster answers one question -- *which channels does this facility have,
-and which way do they point* -- from one source per build: the facility
-knowledge graph or a channel-finder paradigm database, per
-``detect_pipeline_config``. Never the write-limits projection
-(``channel_limits.json``), which gates a subset and was never a roster.
+and which way do they point* -- from one source per build: the facility file
+the build writes at the root of every render. Never the write-limits
+projection (``channel_limits.json``), which gates a subset and was never a
+roster.
 
-This module is purely declarative data, in the style of
-:mod:`osprey.simulation.channel_schema`: stdlib-only, no I/O, no source
-selection, no parsing. The readers (:mod:`osprey.channel_roster.graph`,
-:mod:`osprey.channel_roster.database`) build these types; the consumers --
+This module is purely declarative data: stdlib-only, no I/O, no source
+selection, no parsing. The reader (:mod:`osprey.channel_roster.sources`)
+builds these types; the consumers --
 plan-device derivation, the channel snapshot, the build's fact lines, the
 channel-finder web routes -- read them.
 
-The package's reserved address tokens are declared here for the same reason:
-the database reader derives direction from one of them and the pairing
-heuristic builds a sibling address from both, and neither may import the other
--- pairing is applied identically to whichever reader ran.
-
 **Absence is data, not a missing return.** A roster that cannot be built is
 reported as a :class:`RosterAbsence` carrying its reason and the subjects it
-has to name (a path, the config keys that would have declared one), and every
+has to name (a path, the failure underneath), and every
 consumer renders it through :meth:`RosterAbsence.message`. The phrasing of each
 reason therefore lives once, in :data:`ABSENCE_TEMPLATES`, rather than in a
 per-consumer ``if`` chain -- build facts and HTTP 503 bodies say the same true
 thing because they read the same sentence. Adding a reason without phrasing it
 raises there instead of rendering a blank.
-
-An absence and records coexist in exactly one case, by design: a database
-source whose membership is known but whose directions are not
-(:attr:`RosterAbsenceReason.DIRECTION_UNDERIVABLE`). The records are real; what
-is absent is the knowledge of which of them are settable.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, replace
+from collections.abc import Mapping
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from string import Formatter
 from typing import Literal
 
 #: Which way a channel points. ``None`` means the source could not say -- an
-#: honest unknown, never a stand-in for "read" (see
-#: :attr:`RosterAbsenceReason.DIRECTION_UNDERIVABLE`).
+#: honest unknown, never a stand-in for "read".
 ChannelDirection = Literal["read", "write"]
 
 _DIRECTIONS: frozenset[str] = frozenset({"read", "write"})
-
-# The roster's setpoint/readback vocabulary, and the one place it is spelled.
-# A channel's ADDRESS text is free -- any facility's namespace enumerates
-# through the same readers -- but these two tokens are reserved: ``SP`` marks
-# the settable channel and ``RB`` marks its readback, and an address whose
-# final token is neither is read as neither. Deliberately not
-# facility-configurable: a typo in a per-facility spelling would silently
-# unsettle every channel on the machine rather than fail loudly.
-#: Final address token that marks a setpoint.
-WRITE_SUBFIELD = "SP"
-
-#: Final address token that marks the readback of a setpoint.
-READBACK_SUBFIELD = "RB"
-
-#: What separates an address into its tokens.
-ADDRESS_SEPARATOR = ":"
 
 
 class RosterSourceKind(Enum):
     """Which kind of source a roster was enumerated from."""
 
-    #: The search index a build derives from the facility knowledge graph's
-    #: Turtle corpus, where direction is carried explicitly -- the corpus
-    #: states it with ``writesSignal`` / ``readsSignal`` and the index keeps
-    #: it in a column.
-    GRAPH = "graph"
-
-    #: A channel-finder paradigm database, where membership is the record set
-    #: and direction is derived (write-limits flag first, ``:SP`` grammar next).
-    DATABASE = "database"
+    #: The facility file a build writes at the root of every render, where each
+    #: channel record states its role and a setpoint states its readback.
+    FACILITY = "facility"
 
 
 #: How each source kind is named to a human. A table rather than a branch in
@@ -85,8 +51,7 @@ class RosterSourceKind(Enum):
 #: the same thing, and a kind nobody has phrased raises here instead of being
 #: described as the wrong one.
 SOURCE_LABELS: Mapping[RosterSourceKind, str] = {
-    RosterSourceKind.GRAPH: "the channel index built from the facility knowledge graph",
-    RosterSourceKind.DATABASE: "the channel finder database",
+    RosterSourceKind.FACILITY: "this project's facility file",
 }
 
 
@@ -95,53 +60,25 @@ class RosterAbsenceReason(Enum):
 
     Named rather than left to each caller's prose because these are different
     situations with different remedies, and every surface that reports one has
-    to tell them apart: nothing was configured, graph mode was configured but
-    points at no readable corpus, graph mode was configured but its block
-    cannot be read, a source was read but cannot say which channels are
-    settable, or a configured source is there and unreadable.
+    to tell them apart: the facility file is not built, it is built and
+    declares no channels, or it is there and unreadable.
     """
 
-    #: No roster source is configured at all -- ``detect_pipeline_config``
-    #: named no pipeline. Fail-soft: the build stays browse-only.
-    NO_SOURCE = "no-source"
+    #: No build has written the facility file into this render. Fail-soft,
+    #: and its own reason because its remedy is one command rather than a
+    #: config edit: the file is an output of ``osprey build``, declared by no
+    #: key.
+    FACILITY_NOT_BUILT = "facility-not-built"
 
-    #: Graph mode is configured but no corpus resolves. The store is never
-    #: dialed to find out; the config keys are named instead.
-    GRAPH_NO_TTL = "graph-no-ttl"
-
-    #: Graph mode is configured but the ``services.graphdb`` block itself
-    #: cannot be read -- a blank ``ttl_path``, a value of the wrong shape. Kept
-    #: apart from :attr:`GRAPH_NO_TTL` because the remedy is different: not
-    #: "declare a corpus" but "fix the line you declared it with", so the
-    #: message carries the parser's own complaint. Fail-soft like its sibling,
-    #: and deliberately NOT :attr:`CORRUPT_SOURCE`: no source was named, so
-    #: none is there to be broken.
-    GRAPH_MALFORMED = "graph-malformed"
-
-    #: A database source enumerated its channels, but carries neither a
-    #: write-limits database nor ``:SP`` addresses, so no direction can be
-    #: derived. Membership is still real -- see the module docstring.
-    DIRECTION_UNDERIVABLE = "direction-underivable"
-
-    #: A configured source names a path that does not exist. Fail-soft, and
-    #: deliberately NOT :attr:`CORRUPT_SOURCE`: a source that is not there is a
-    #: facility this project has not staged yet -- during a build, often not
-    #: staged *yet* -- while one that is there and unreadable is a facility it
-    #: meant to describe and got wrong. Consumers apply opposite rules to the
-    #: two, so telling them apart is this vocabulary's job rather than every
-    #: consumer's second ``stat``.
-    MISSING_SOURCE = "missing-source"
+    #: The facility file is built and holds no channel record. Fail-soft, and
+    #: its own reason because its remedy is in the project rather than in the
+    #: build: the file says what the project's ``data/facility`` tree declares,
+    #: so building again writes the same file.
+    FACILITY_EMPTY = "facility-empty"
 
     #: A configured source is present and could not be read or parsed.
     #: Fail-closed: this is a broken deployment, not an absent one.
     CORRUPT_SOURCE = "corrupt-source"
-
-    #: A configured source was read cleanly and enumerates nothing. Reported
-    #: rather than returned as an empty roster: a source that declares no
-    #: channels is a staging or seeding gap, and serving its emptiness as a
-    #: fact would tell an operator the facility has no channels -- and would
-    #: mark every real channel invalid on the way.
-    EMPTY_SOURCE = "empty-source"
 
 
 #: The one place each absence reason is phrased for a human. Fields in braces
@@ -149,35 +86,16 @@ class RosterAbsenceReason(Enum):
 #: whose template names a subject the absence did not supply is rejected at
 #: construction -- an absence can never render "at None".
 ABSENCE_TEMPLATES: Mapping[RosterAbsenceReason, str] = {
-    RosterAbsenceReason.NO_SOURCE: (
-        "No channel roster source is configured, so the set of channels this "
-        "facility has is unknown."
+    RosterAbsenceReason.FACILITY_NOT_BUILT: (
+        "The facility file {path} is not built, so the set of channels this "
+        "facility has is unknown. Run `osprey build`."
     ),
-    RosterAbsenceReason.GRAPH_NO_TTL: (
-        "Graph mode is configured but names no readable knowledge-graph corpus, "
-        "so the set of channels this facility has is unknown; the corpus is "
-        "declared by {config_keys}."
-    ),
-    RosterAbsenceReason.GRAPH_MALFORMED: (
-        "Graph mode is configured but its services.graphdb block cannot be read "
-        "({detail}), so the set of channels this facility has is unknown; the "
-        "corpus is declared by {config_keys}."
-    ),
-    RosterAbsenceReason.DIRECTION_UNDERIVABLE: (
-        "The channels in {path} are known, but which of them are settable is "
-        "not: that source carries no write-limits database and no ':SP' "
-        "addresses to derive a direction from."
-    ),
-    RosterAbsenceReason.MISSING_SOURCE: (
-        "The channel roster source at {path} is not there, so the set of channels "
-        "this facility has is unknown; it is declared by {config_keys}."
+    RosterAbsenceReason.FACILITY_EMPTY: (
+        "The facility file {path} declares no channels: the project's "
+        "data/facility tree holds no channel records."
     ),
     RosterAbsenceReason.CORRUPT_SOURCE: (
         "The channel roster source at {path} could not be read: {detail}."
-    ),
-    RosterAbsenceReason.EMPTY_SOURCE: (
-        "The channel roster source at {path} was read and declares no channels, "
-        "which is a staging or seeding gap rather than a facility with none."
     ),
 }
 
@@ -185,14 +103,6 @@ ABSENCE_TEMPLATES: Mapping[RosterAbsenceReason, str] = {
 def _template_fields(template: str) -> tuple[str, ...]:
     """Return the brace-named fields ``template`` interpolates, in order."""
     return tuple(name for _, name, _, _ in Formatter().parse(template) if name)
-
-
-def _join_keys(keys: Iterable[str]) -> str:
-    """Join config keys into an English list (``"a"``, ``"a and b"``, ...)."""
-    items = list(keys)
-    if len(items) <= 1:
-        return "".join(items)
-    return f"{', '.join(items[:-1])} and {items[-1]}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,16 +113,14 @@ class RosterSource:
         kind: Which kind of source this is.
         path: The resolved on-disk path that was read -- what every reader
             opens and what the memo key fingerprints. Resolution (the
-            render-relative rule for a corpus, the cwd-anchored rule for a
-            database) happens in :mod:`osprey.channel_roster.sources`; by the
-            time it is here it is settled.
-        spelled: The configured value the path was resolved FROM, as an
-            operator wrote it, or None when there is nothing but the resolved
-            path. Carried because the two are different sentences to a reader:
-            a build resolves a relative corpus into its own staging tree, so
-            the resolved path names a ``build/.tmp/...`` file nobody can retype
-            or edit, while the configured spelling is the line in ``config.yml``
-            the operator would change. Display uses this; I/O never does.
+            render-relative rule for the facility file) happens in
+            :mod:`osprey.channel_roster.sources`; by the time it is here it is
+            settled.
+        spelled: The name the file is shown under, or None when the resolved
+            path is the one to show. The facility file is resolved into the
+            render root the build wrote it to, a path nobody retypes or edits,
+            while its name, ``facility.json``, is what the build fact and the
+            web body call it. Display uses this; I/O never does.
     """
 
     kind: RosterSourceKind
@@ -223,11 +131,10 @@ class RosterSource:
         """Render this source the way a build fact names it.
 
         Names :attr:`spelled` when there is one, so an operator is handed the
-        path they configured rather than the one the build resolved it to.
+        file's name rather than the render path it was resolved to.
 
         Returns:
-            e.g. ``"the channel index built from the facility knowledge graph
-            (./data/channel_databases/graph.duckdb)"``.
+            e.g. ``"this project's facility file (facility.json)"``.
         """
         return f"{SOURCE_LABELS[self.kind]} ({self.spelled or self.path})"
 
@@ -248,16 +155,8 @@ class RosterAbsence:
             spelling differs from the resolved one (see
             :attr:`RosterSource.spelled`). The message renders this; ``path``
             stays the resolved file either way.
-        config_keys: The configuration keys that would have declared a source,
-            when naming them is the remedy.
         detail: The underlying failure, for
-            :attr:`RosterAbsenceReason.CORRUPT_SOURCE` and
-            :attr:`RosterAbsenceReason.GRAPH_MALFORMED`; or, on a
-            :attr:`RosterAbsenceReason.MISSING_SOURCE`, the remedy that would
-            put the source there -- a source a build writes has one, a source
-            an operator hands the deployment does not, so the reader that
-            knows which supplies it and the message appends it as its own
-            sentence.
+            :attr:`RosterAbsenceReason.CORRUPT_SOURCE`.
 
     Raises:
         ValueError: If the reason's phrasing names a subject this absence did
@@ -267,12 +166,10 @@ class RosterAbsence:
 
     reason: RosterAbsenceReason
     path: Path | None = None
-    config_keys: tuple[str, ...] = ()
     detail: str | None = None
     spelled: str | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "config_keys", tuple(self.config_keys))
         template = ABSENCE_TEMPLATES[self.reason]
         values = self._values()
         missing = [name for name in _template_fields(template) if not values[name]]
@@ -286,25 +183,12 @@ class RosterAbsence:
         """Return the fill values for this absence's :data:`ABSENCE_TEMPLATES` entry."""
         return {
             "path": self.spelled or (str(self.path) if self.path is not None else ""),
-            "config_keys": _join_keys(self.config_keys),
             "detail": self.detail or "",
         }
 
     def message(self) -> str:
-        """Render this absence as one honest sentence, for any consumer.
-
-        A :attr:`RosterAbsenceReason.MISSING_SOURCE` carrying a
-        :attr:`detail` says its remedy after that sentence rather than inside
-        it: the template names the path and the keys that declare it, which is
-        the whole answer for a source nothing here writes, and a second
-        sentence is what a reader adds when there IS a command to run. The
-        database readers state no remedy and render exactly as they always
-        have.
-        """
-        rendered = ABSENCE_TEMPLATES[self.reason].format(**self._values())
-        if self.reason is RosterAbsenceReason.MISSING_SOURCE and self.detail:
-            return f"{rendered} {self.detail}"
-        return rendered
+        """Render this absence as one honest sentence, for any consumer."""
+        return ABSENCE_TEMPLATES[self.reason].format(**self._values())
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,9 +202,19 @@ class ChannelRecord:
             holding a bare record can still say what it derives from.
         direction: ``"write"`` for a settable channel, ``"read"`` for a
             readable one, ``None`` when the source could not say.
-        readback: The paired readback address of a settable channel, assigned
-            by :mod:`osprey.channel_roster.pairing`. ``None`` when no sibling
-            was found -- the worker then reads the setpoint back.
+        readback: The paired readback address of a settable channel: the
+            facility file's ``pair`` when it names another channel. ``None``
+            when the setpoint is its own pair -- the worker then reads the
+            setpoint back.
+        role: The facility file's ``role`` for the channel (``"setpoint"``,
+            ``"readback"`` or ``"none"``), or ``None`` from a source that
+            states only a direction.
+        value_type: The facility file's ``value_type``, or ``None`` when the
+            source states none.
+        description: The channel's description, or ``None`` when it has none.
+        on: The device or place the channel belongs to, as the facility file's
+            ``on`` states it (``("device", <id>)`` or ``("place", <id>)``), or
+            ``None`` when the channel belongs to nothing.
 
     Raises:
         ValueError: On an empty address, a direction outside ``"read"``/
@@ -332,6 +226,10 @@ class ChannelRecord:
     source: RosterSource
     direction: ChannelDirection | None = None
     readback: str | None = None
+    role: str | None = None
+    value_type: str | None = None
+    description: str | None = None
+    on: tuple[str, str] | None = None
 
     def __post_init__(self) -> None:
         if not self.address:
@@ -346,10 +244,6 @@ class ChannelRecord:
                 f"{self.address} carries a readback but is not a write channel; a "
                 "readback pairs a setpoint."
             )
-
-    def with_readback(self, readback: str) -> ChannelRecord:
-        """Return a copy of this record carrying ``readback``."""
-        return replace(self, readback=readback)
 
 
 @dataclass(frozen=True, slots=True)

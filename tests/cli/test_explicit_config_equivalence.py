@@ -547,6 +547,26 @@ def _picture_module_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _lattice_panel_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The LATTICE tab the control-assistant preset ships.
+
+    The host profile lists ``lattice`` in ``web_panels:``, so the build writes
+    ``web.panels.lattice.enabled: true`` into the root document and every
+    persona that inherits the list without excluding it. The fixtures were
+    frozen before the preset carried the panel.
+
+    Args:
+        documents: The rendered documents that carry the tab.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(document=document, path="web.panels.lattice.enabled", fixture=ABSENT, live=True)
+        for document in documents
+    )
+
+
 def _mcp_health_address_deltas(*documents: str) -> tuple[Delta, ...]:
     """The MCP probe address a render that serves web terminals carries.
 
@@ -787,8 +807,8 @@ def _persona_corpus_deltas() -> tuple[Delta, ...]:
     attached strip keeps it — the Reach Contract declares it render-local
     (:attr:`osprey.deployment.reach.ReachContract.render_local`). The fixtures
     were frozen while the strip took every ``services.graphdb.*`` key of a
-    claimed store, so each persona reads as gaining the leaf. The preset
-    spells the key in every channel-finder mode, so every control-assistant
+    claimed store, so each persona reads as gaining the leaf. The build fills
+    the key into every ``services.graphdb`` block, so every control-assistant
     cell carries the delta.
 
     Returns:
@@ -799,7 +819,7 @@ def _persona_corpus_deltas() -> tuple[Delta, ...]:
             document=persona,
             path="services.graphdb.ttl_path",
             fixture=ABSENT,
-            live="./data/demo_machine.ttl",
+            live="./data/graph/facility.ttl",
         )
         for persona in _CONTROL_ASSISTANT_PERSONAS
     )
@@ -924,6 +944,27 @@ def _tool_content_deltas() -> tuple[Delta, ...]:
     )
 
 
+def _knowledge_bundle_deltas() -> tuple[Delta, ...]:
+    """The knowledge bundle path every control-assistant document moved.
+
+    The control-assistant preset authors its knowledge pages inside the
+    facility tree, so every document it renders names that directory where the
+    frozen one names the bundle's own top-level directory.
+
+    Returns:
+        One delta per control-assistant document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path="facility_knowledge.bundle_path",
+            fixture="data/facility_knowledge",
+            live="data/facility/knowledge",
+        )
+        for document in _CONTROL_ASSISTANT_DOCUMENTS
+    )
+
+
 def _probe_timeout_deltas() -> tuple[Delta, ...]:
     """The readiness-probe bound every control-assistant document gains.
 
@@ -942,6 +983,131 @@ def _probe_timeout_deltas() -> tuple[Delta, ...]:
             live=5,
         )
         for document in _CONTROL_ASSISTANT_DOCUMENTS
+    )
+
+
+def _simulation_models_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The served-model list every preset states.
+
+    Each preset states ``simulation.models: null``, which serves every model
+    the facility file holds, so every document a cell renders carries the
+    leaf. The fixtures were frozen before the key existed.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(document=document, path="simulation.models", fixture=ABSENT, live=None)
+        for document in documents
+    )
+
+
+def _simulation_file_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The model-file leaves the control-assistant preset no longer states.
+
+    Every connector serves the simulator view the build writes, so neither the
+    mock nor the Virtual Accelerator block names a model file. The fixtures were
+    frozen while the preset still named one under both.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        Two deltas per document, one per connector block.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path=f"control_system.connector.{connector}.simulation_file",
+            fixture="data/simulation/machine.json",
+            live=ABSENT,
+        )
+        for document in documents
+        for connector in ("mock", "virtual_accelerator")
+    )
+
+
+def _simulation_tick_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The simulator tick period every preset states.
+
+    Each preset states ``simulation.tick_s: 1.0``, so every document a cell
+    renders carries the leaf. The fixtures were frozen before the key existed.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(document=document, path="simulation.tick_s", fixture=ABSENT, live=1.0)
+        for document in documents
+    )
+
+
+def _default_scenarios_deltas() -> tuple[Delta, ...]:
+    """The start set every control-assistant document gains.
+
+    The root preset states ``simulation.default_scenarios: [rf-thermal]`` and
+    every persona inherits it; the fixtures were frozen before the key existed.
+
+    Returns:
+        One delta per control-assistant document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path="simulation.default_scenarios",
+            fixture=ABSENT,
+            live=["rf-thermal"],
+        )
+        for document in _CONTROL_ASSISTANT_DOCUMENTS
+    )
+
+
+def _dispatcher_name_deltas() -> tuple[Delta, ...]:
+    """The facility name the dispatcher dashboard shows.
+
+    The dispatcher shows the facility identity's name, which the example
+    facility states. The fixtures were frozen while the dashboard name was a
+    profile key every preset left empty.
+
+    Returns:
+        One delta, on the root document.
+    """
+    return (
+        Delta(
+            document="root",
+            path="services.event_dispatcher.facility_name",
+            fixture="",
+            live="Example Research Facility",
+        ),
+    )
+
+
+def _devices_file_deltas() -> tuple[Delta, ...]:
+    """The Bluesky lane's device-file path.
+
+    The worker's device file is the build's Bluesky view of the facility file,
+    staged unchanged, so no lane block names a path for it. The fixtures were
+    frozen while every lane carried the profile's device-file path.
+
+    Returns:
+        One delta, on the root document.
+    """
+    return (
+        Delta(
+            document="root",
+            path="services.bluesky.devices_file",
+            fixture="data/bluesky_devices.yml",
+            live=ABSENT,
+        ),
     )
 
 
@@ -989,6 +1155,146 @@ def _standalone_persona_reach_deltas() -> tuple[Delta, ...]:
             fixture=ABSENT,
             live=False,
         ),
+    )
+
+
+def _facility_name_deltas() -> tuple[Delta, ...]:
+    """The display name the two standalone presets no longer state.
+
+    The facility's display name is the build's facility identity, so no preset
+    states ``facility.name`` and the root document stops carrying it. The
+    fixtures were frozen while the standalones still stated one.
+
+    Returns:
+        One delta, on the root document.
+    """
+    return (
+        Delta(
+            document="root",
+            path="facility.name",
+            fixture="Example Research Facility",
+            live=ABSENT,
+        ),
+    )
+
+
+def _facility_prefix_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The container-name prefix the control-assistant preset no longer states.
+
+    Container names and persona projects come from the project name, so no
+    preset states ``facility.prefix`` and no document carries the key. The
+    fixtures were frozen while the preset still stated one.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(document=document, path="facility.prefix", fixture="ca", live=ABSENT)
+        for document in documents
+    )
+
+
+def _in_context_index_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The in_context database the build writes from the tagged channels.
+
+    The pipeline loads the build's flat index, so the block names its path
+    and neither a loader type nor a preview mode. The fixtures were frozen
+    while the block named the hand-kept template database.
+
+    Args:
+        documents: The rendered documents that carry the in_context block.
+
+    Returns:
+        Three deltas per document.
+    """
+    prefix = "channel_finder.pipelines.in_context.database"
+    return tuple(
+        delta
+        for document in documents
+        for delta in (
+            Delta(document=document, path=f"{prefix}.type", fixture="template", live=ABSENT),
+            Delta(
+                document=document,
+                path=f"{prefix}.path",
+                fixture="data/channel_databases/in_context.json",
+                live="data/channel_finder/in_context.json",
+            ),
+            Delta(
+                document=document,
+                path=f"{prefix}.presentation_mode",
+                fixture="template",
+                live=ABSENT,
+            ),
+        )
+    )
+
+
+def _hierarchical_index_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The hierarchical database the build writes from the facility file.
+
+    The pipeline loads the build's index, so the block names its path and no
+    loader type. The fixtures were frozen while the block named the hand-kept
+    hierarchical database.
+
+    Args:
+        documents: The rendered documents that carry the hierarchical block.
+
+    Returns:
+        Two deltas per document.
+    """
+    prefix = "channel_finder.pipelines.hierarchical.database"
+    return tuple(
+        delta
+        for document in documents
+        for delta in (
+            Delta(document=document, path=f"{prefix}.type", fixture="hierarchical", live=ABSENT),
+            Delta(
+                document=document,
+                path=f"{prefix}.path",
+                fixture="data/channel_databases/hierarchical.json",
+                live="data/channel_finder/hierarchical.json",
+            ),
+        )
+    )
+
+
+def _middle_layer_index_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The middle-layer database and its DuckDB copy, both written by the build.
+
+    The pipeline loads the build's index, so the block names its path, the
+    DuckDB copy ``run_sql`` queries, and no loader type. The fixtures were
+    frozen while the block named the hand-kept middle-layer database and bound
+    no DuckDB copy.
+
+    Args:
+        documents: The rendered documents that carry the middle-layer block.
+
+    Returns:
+        Three deltas per document.
+    """
+    prefix = "channel_finder.pipelines.middle_layer.database"
+    return tuple(
+        delta
+        for document in documents
+        for delta in (
+            Delta(document=document, path=f"{prefix}.type", fixture="middle_layer", live=ABSENT),
+            Delta(
+                document=document,
+                path=f"{prefix}.path",
+                fixture="data/channel_databases/middle_layer.json",
+                live="data/channel_finder/middle_layer.json",
+            ),
+            Delta(
+                document=document,
+                path=f"{prefix}.duckdb_path",
+                fixture=ABSENT,
+                live="data/channel_finder/middle_layer.duckdb",
+            ),
+        )
     )
 
 
@@ -1047,28 +1353,45 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
         # all, so no delta declares it here.
         Delta(document="root", path="approval.tools.entry_create", fixture="always", live=ABSENT),
         *_rail_tool_deltas("root"),
+        *_simulation_models_deltas("root"),
+        *_simulation_tick_deltas("root"),
         *_llama_cpp_catalog_deltas("root"),
     ),
     "ariel-standalone/unset": _standalone_catalog_delta()
+    + _facility_name_deltas()
     + _entry_publish_deltas("root")
     + _rail_tool_deltas("root")
     + _retired_upstream_link_deltas("root")
     + _fuzzy_threshold_deltas("root")
     + _embedding_input_limit_deltas("root")
+    + _simulation_models_deltas("root")
+    + _simulation_tick_deltas("root")
     + _picture_module_deltas("root")
     + _standalone_picker_deltas(),
     "channel-finder-standalone/in_context": _standalone_catalog_delta()
+    + _facility_name_deltas()
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
-    + _standalone_picker_deltas(),
+    + _simulation_models_deltas("root")
+    + _simulation_tick_deltas("root")
+    + _standalone_picker_deltas()
+    + _in_context_index_deltas("root"),
     "channel-finder-standalone/hierarchical": _standalone_catalog_delta()
+    + _facility_name_deltas()
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
-    + _standalone_picker_deltas(),
+    + _simulation_models_deltas("root")
+    + _simulation_tick_deltas("root")
+    + _standalone_picker_deltas()
+    + _hierarchical_index_deltas("root"),
     "channel-finder-standalone/middle_layer": _standalone_catalog_delta()
+    + _facility_name_deltas()
     + _retired_upstream_link_deltas("root")
     + _query_max_rows_deltas("root")
-    + _standalone_picker_deltas(),
+    + _simulation_models_deltas("root")
+    + _simulation_tick_deltas("root")
+    + _standalone_picker_deltas()
+    + _middle_layer_index_deltas("root"),
     "control-assistant/in_context": _control_assistant_persona_deltas()
     + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1086,11 +1409,22 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _probe_timeout_deltas()
+    + _knowledge_bundle_deltas()
+    + _dispatcher_name_deltas()
+    + _devices_file_deltas()
+    + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_file_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _default_scenarios_deltas()
     + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _lattice_panel_deltas("root", "admin", "readonly", "readwrite")
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas()
-    + _persona_catalog_project_deltas(),
+    + _persona_catalog_project_deltas()
+    + _in_context_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1108,11 +1442,22 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _probe_timeout_deltas()
+    + _knowledge_bundle_deltas()
+    + _dispatcher_name_deltas()
+    + _devices_file_deltas()
+    + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_file_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _default_scenarios_deltas()
     + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _lattice_panel_deltas("root", "admin", "readonly", "readwrite")
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas()
-    + _persona_catalog_project_deltas(),
+    + _persona_catalog_project_deltas()
+    + _hierarchical_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1130,11 +1475,22 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _probe_timeout_deltas()
+    + _knowledge_bundle_deltas()
+    + _dispatcher_name_deltas()
+    + _devices_file_deltas()
+    + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_file_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _default_scenarios_deltas()
     + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _lattice_panel_deltas("root", "admin", "readonly", "readwrite")
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas()
-    + _persona_catalog_project_deltas(),
+    + _persona_catalog_project_deltas()
+    + _middle_layer_index_deltas("admin", "knowledge", "readonly", "readwrite", "root"),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _llama_cpp_catalog_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1152,8 +1508,18 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _embedding_input_limit_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _probe_timeout_deltas()
+    + _knowledge_bundle_deltas()
+    + _dispatcher_name_deltas()
+    + _devices_file_deltas()
+    + _facility_prefix_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_models_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_tick_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _simulation_file_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _default_scenarios_deltas()
     + _picture_module_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _mcp_health_address_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _lattice_panel_deltas("root", "admin", "readonly", "readwrite")
     + _standalone_persona_reach_deltas()
     + _probe_timeout_deltas()
     + _persona_catalog_project_deltas(),

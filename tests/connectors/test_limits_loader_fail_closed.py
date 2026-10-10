@@ -3,7 +3,7 @@
 A limits file is a safety artifact: a key the loader does not recognise is a
 key whose intent was not applied. Before, an unknown field only warned and a
 broken channel entry was skipped, so a typo silently downgraded a channel to
-"unlisted" — and with ``allow_unlisted_channels: true`` that means unlimited.
+"unlisted" — and with ``mode: optional`` that means unlimited.
 Now one bad entry refuses the whole load, and the operator-facing refusal names
 the offending key.
 """
@@ -16,7 +16,7 @@ from osprey.connectors.control_system.limits_validator import LimitsValidator
 from osprey.errors import ChannelLimitsViolationError
 
 
-def _patch_config(monkeypatch, db_file, allow_unlisted: bool = False):
+def _patch_config(monkeypatch, db_file, mode: str = "exclusive"):
     """Point from_config at a limits file on disk.
 
     ``from_config`` reads the nested ``control_system`` section to resolve the
@@ -27,12 +27,12 @@ def _patch_config(monkeypatch, db_file, allow_unlisted: bool = False):
         "control_system": {
             "limits_checking": {
                 "enabled": True,
-                "allow_unlisted_channels": allow_unlisted,
+                "mode": mode,
             },
         },
         "control_system.limits_checking.enabled": True,
         "control_system.limits_checking.database_path": str(db_file),
-        "control_system.limits_checking.allow_unlisted_channels": allow_unlisted,
+        "control_system.limits_checking.mode": mode,
         "project_root": None,
     }
     monkeypatch.setattr(
@@ -47,9 +47,9 @@ def _write_db(tmp_path, db: dict):
     return limits_file
 
 
-def _refusal(monkeypatch, tmp_path, db: dict, allow_unlisted: bool = False) -> str:
+def _refusal(monkeypatch, tmp_path, db: dict, mode: str = "exclusive") -> str:
     """Load through from_config and return the refusal an operator would see."""
-    _patch_config(monkeypatch, _write_db(tmp_path, db), allow_unlisted=allow_unlisted)
+    _patch_config(monkeypatch, _write_db(tmp_path, db), mode=mode)
 
     validator = LimitsValidator.from_config()
 
@@ -80,12 +80,6 @@ class TestRetiredVerificationBlock:
         assert "confirm" in reason
         assert "verification" in reason
 
-    def test_verification_in_defaults_fails_the_load(self, tmp_path):
-        db_file = _write_db(tmp_path, {"defaults": {"verification": {"level": "callback"}}})
-
-        with pytest.raises(ValueError, match="confirm"):
-            LimitsValidator._load_limits_database(str(db_file))
-
 
 class TestUnknownFields:
     def test_typo_fails_the_load_and_is_named(self, tmp_path):
@@ -97,14 +91,14 @@ class TestUnknownFields:
     def test_typo_refusal_names_the_key_even_when_unlisted_channels_are_allowed(
         self, monkeypatch, tmp_path
     ):
-        # allow_unlisted_channels used to be the dangerous half of this bug: the
+        # ``mode: optional`` is the dangerous half of this bug: the
         # typo'd channel was dropped from the database, and an unlisted channel
         # was then waved through with no limits at all.
         reason = _refusal(
             monkeypatch,
             tmp_path,
             {"FOO": {"max_value": 10.0, "confrim": True}},
-            allow_unlisted=True,
+            mode="optional",
         )
 
         assert "confrim" in reason
@@ -114,7 +108,7 @@ class TestUnknownFields:
             tmp_path,
             {
                 "_comment": "top-level metadata",
-                "FOO": {"max_value": 10.0, "_units": "mA", "_owner": "APG"},
+                "FOO": {"writable": True, "max_value": 10.0, "_units": "mA", "_owner": "APG"},
             },
         )
 
@@ -131,13 +125,13 @@ class TestUnknownFields:
 
 class TestMalformedEntries:
     def test_non_bool_confirm_fails_the_load(self, tmp_path):
-        db_file = _write_db(tmp_path, {"FOO": {"confirm": "yes"}})
+        db_file = _write_db(tmp_path, {"FOO": {"writable": True, "confirm": "yes"}})
 
         with pytest.raises(ValueError, match="must be boolean"):
             LimitsValidator._load_limits_database(str(db_file))
 
     def test_non_dict_channel_entry_fails_the_load(self, tmp_path):
-        db_file = _write_db(tmp_path, {"BADCHAN": 42, "FOO": {"max_value": 10.0}})
+        db_file = _write_db(tmp_path, {"BADCHAN": 42, "FOO": {"writable": True, "max_value": 10.0}})
 
         with pytest.raises(ValueError, match="BADCHAN"):
             LimitsValidator._load_limits_database(str(db_file))
@@ -145,13 +139,21 @@ class TestMalformedEntries:
     def test_one_bad_entry_takes_down_the_whole_load(self, tmp_path):
         # The neighbouring good channel must not load either — a partially
         # loaded database is exactly the fail-open state being removed.
-        db_file = _write_db(tmp_path, {"GOOD": {"max_value": 10.0}, "BAD": {"min_value": "x"}})
+        db_file = _write_db(
+            tmp_path,
+            {
+                "GOOD": {"writable": True, "max_value": 10.0},
+                "BAD": {"writable": True, "min_value": "x"},
+            },
+        )
 
         with pytest.raises(ValueError, match="BAD"):
             LimitsValidator._load_limits_database(str(db_file))
 
     def test_bool_confirm_loads(self, tmp_path):
-        db_file = _write_db(tmp_path, {"FOO": {"max_value": 10.0, "confirm": False}})
+        db_file = _write_db(
+            tmp_path, {"FOO": {"writable": True, "max_value": 10.0, "confirm": False}}
+        )
 
         limits_db, raw_db = LimitsValidator._load_limits_database(str(db_file))
 

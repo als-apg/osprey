@@ -1,7 +1,7 @@
 """DB-backed contract for ``apply_scenarios`` logbook seeding (Postgres-gated).
 
 Exercises the full apply path end to end against a real database: compose the
-active scenarios, purge the logbook, reseed from the bundles' relative-timestamp
+active scenarios, purge the logbook, reseed from the scenarios' relative-timestamp
 entries against a fixed anchor, and assert the DB holds exactly the expected
 entries with timestamps pinned to the documented time-of-day. Uses the shared
 ``database_url`` fixture (skips when no Postgres is available).
@@ -10,7 +10,6 @@ entries with timestamps pinned to the documented time-of-day. Uses the shared
 from __future__ import annotations
 
 import asyncio
-import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -18,6 +17,7 @@ import pytest
 import yaml
 
 from osprey.simulation.apply import apply_scenarios
+from tests._simulator_view import facility_scenarios, write_scenarios_view
 
 # xdist_group("docker"): pins every container-starting test file onto one worker, so
 # a run has a single testcontainers session and a single ryuk reaper -- concurrent
@@ -27,10 +27,7 @@ from osprey.simulation.apply import apply_scenarios
 # would otherwise collide on migrations/seed/truncate.
 pytestmark = [pytest.mark.xdist_group("docker")]
 
-TEMPLATE_SIM = (
-    Path(__file__).resolve().parents[3]
-    / "src/osprey/templates/apps/control_assistant/data/simulation"
-)
+TEMPLATE_FACILITY = Path(__file__).resolve().parents[3] / "src/osprey/templates/facilities/example"
 # Fixed apply-time anchor T0 so resolved timestamps are deterministic.
 T0 = datetime(2026, 6, 13, 12, 0, 0, tzinfo=UTC)
 
@@ -64,16 +61,10 @@ def _restore_schema_after(integration_ariel_config, database_url):
 
 
 def _make_project(tmp_path: Path, database_url: str) -> Path:
-    """Stage a minimal sim-backed project pointing ARIEL at the test DB."""
-    sim_dst = tmp_path / "data" / "simulation"
-    sim_dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(TEMPLATE_SIM, sim_dst)
-    config = {
-        "control_system": {
-            "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}}
-        },
-        "ariel": {"database": {"uri": database_url}},
-    }
+    """Stage a sim-backed project's simulator view, pointing ARIEL at the test DB."""
+    scenarios = TEMPLATE_FACILITY / "scenarios"
+    write_scenarios_view(tmp_path, facility_scenarios(scenarios), scenarios)
+    config = {"ariel": {"database": {"uri": database_url}}}
     (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
     return tmp_path
 
@@ -237,16 +228,18 @@ async def _original(database_url: str, attachment_id: str) -> bytes:
 
 def _drawn(entry_id: str) -> bytes:
     """The PNG seeding draws for ``entry_id``'s plot spec when applied at :data:`T0`."""
-    from osprey.simulation.machine import PlotSpec, load_narratives
+    from osprey.facility.scenarios import scenario_logbook
     from osprey.simulation.plots import render_plot_spec
     from osprey.utils.relative_time import resolve_relative_timestamp
+    from osprey_connectors.simulation.logbook import PlotSpec
 
-    for entries in load_narratives(TEMPLATE_SIM / "scenarios").values():
-        for entry in entries:
+    scenarios = TEMPLATE_FACILITY / "scenarios"
+    for name, scenario in facility_scenarios(scenarios).items():
+        for entry in scenario_logbook({"name": name, **scenario}, scenarios / name):
             if entry.entry_id == entry_id:
                 (spec,) = [item for item in entry.attachments if isinstance(item, PlotSpec)]
                 return render_plot_spec(spec, resolve_relative_timestamp(entry.when, T0))
-    raise AssertionError(f"no bundle entry {entry_id}")
+    raise AssertionError(f"no scenario entry {entry_id}")
 
 
 def test_seeded_pictures_are_copied_with_a_viewable_rendition(tmp_path, database_url):
@@ -280,12 +273,13 @@ def test_reapply_replaces_pictures_rather_than_piling_them_up(tmp_path, database
 
 
 def test_a_demo_narrative_seeds_every_scenario_with_its_pictures(tmp_path, database_url):
-    """The standalone path: no simulation, every bundle's narrative, viewable pictures."""
+    """The standalone path: no simulation, every scenario's story, viewable pictures."""
     from osprey.services.ariel_search.cli_operations import run_migrate
     from osprey.simulation.apply import seed_active_logbook
 
-    shutil.copytree(TEMPLATE_SIM / "scenarios", tmp_path / "data" / "logbook_seed")
-    ariel = {"database": {"uri": database_url}, "demo_narrative": "data/logbook_seed"}
+    scenarios = TEMPLATE_FACILITY / "scenarios"
+    write_scenarios_view(tmp_path, facility_scenarios(scenarios), files=scenarios)
+    ariel = {"database": {"uri": database_url}, "demo_narrative": "all"}
     config = {"ariel": ariel}
     (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
     asyncio.run(run_migrate(ariel))

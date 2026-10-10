@@ -8,10 +8,12 @@ from typing import Any
 
 import pytest
 
+from osprey.agent_runner.tool_names import BASH_DENY_ENTRY
 from osprey.deployment.web_terminals import personas as personas_module
 from osprey.deployment.web_terminals.personas import (
     CONTROL_IDENTITY_COLLISION_CODE,
     EVENTS_PANEL_ID,
+    PERSONA_CATALOG_REQUIRED,
     UnresolvedRoleError,
     _is_shared_entry,
     access_wire_value,
@@ -46,7 +48,7 @@ from osprey.deployment.web_terminals.personas import (
     resolve_access_principals,
     resolve_authorization_roles,
     resolve_personas,
-    settings_json_denies_bash,
+    settings_json_denies,
     shared_card_privileged_problems,
 )
 from osprey.registry.mcp import FRAMEWORK_SERVERS
@@ -448,39 +450,124 @@ def test_freeze_user_indices_does_not_mutate_input_entries() -> None:
 _REGISTRY = {"url": "registry.example.org/osprey"}
 
 
-def test_resolve_personas_no_catalog_resolves_to_todays_values() -> None:
-    """Zero migration: no `personas` catalog at all resolves every entry to the
-    exact pre-persona image/project-dir this module rendered before personas
-    existed."""
-    # Arrange
-    web_terminals = {"users": ["alice", "bob"]}
+#: The minimal catalog every roster needs: one default persona naming the
+#: project its image was built from.
+_CATALOG: dict[str, Any] = {
+    "default_persona": "assistant",
+    "personas": {"assistant": {"project": "demo-project-assistant"}},
+}
 
-    # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
 
-    # Assert
-    assert result == [
-        {
-            "name": "alice",
-            "index": 0,
-            "persona": None,
-            "image": "registry.example.org/osprey/web-terminal:latest",
-            "project": "als-assistant",
-            "container_project_dir": "/app/als-assistant",
-            "extra_mounts": [],
-            "seed_base": True,
-        },
-        {
-            "name": "bob",
-            "index": 1,
-            "persona": None,
-            "image": "registry.example.org/osprey/web-terminal:latest",
-            "project": "als-assistant",
-            "container_project_dir": "/app/als-assistant",
-            "extra_mounts": [],
-            "seed_base": True,
-        },
+def _unresolved(name: str, index: int, persona: str | None) -> dict[str, Any]:
+    """The lenient answer for an entry that does not resolve."""
+    return {
+        "name": name,
+        "index": index,
+        "persona": persona,
+        "image": None,
+        "project": None,
+        "container_project_dir": None,
+        "extra_mounts": [],
+        "seed_base": True,
+    }
+
+
+@pytest.mark.parametrize("image_source", ["registry", "local"])
+@pytest.mark.parametrize(
+    "catalog",
+    [
+        {},
+        {"personas": {"assistant": {"project": "demo-project-assistant"}}},
+        {"default_persona": "assistant"},
+    ],
+    ids=["no-catalog", "no-default-persona", "no-personas"],
+)
+def test_resolve_personas_without_catalog_and_default_persona_strict_raises(
+    image_source: str, catalog: dict[str, Any]
+) -> None:
+    """Every image source refuses a roster with no catalog or no default_persona:
+    nothing else names the project a terminal runs."""
+    web_terminals = {"users": ["alice"], "image_source": image_source, **catalog}
+
+    with pytest.raises(ValueError, match=re.escape(PERSONA_CATALOG_REQUIRED)):
+        resolve_personas(web_terminals, _REGISTRY, strict=True)
+
+
+def test_resolve_personas_empty_roster_without_catalog_strict_raises() -> None:
+    """The refusal does not look at the roster: an empty one is refused too."""
+    with pytest.raises(ValueError, match=re.escape(PERSONA_CATALOG_REQUIRED)):
+        resolve_personas({"users": []}, _REGISTRY, strict=True)
+
+
+def test_resolve_personas_without_catalog_lenient_returns_one_unresolved_entry_per_user() -> None:
+    """A lenient caller gets every roster name back, naming no image and no
+    directory."""
+    result = resolve_personas({"users": ["alice", "bob"]}, _REGISTRY, strict=False)
+
+    assert result == [_unresolved("alice", 0, None), _unresolved("bob", 1, None)]
+
+
+@pytest.mark.parametrize("image_source", ["registry", "local"])
+def test_resolve_personas_entry_without_project_is_refused(image_source: str) -> None:
+    """A persona in effect with no `project` names no directory, so the strict
+    path refuses it in either image source."""
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "persona": "bare"}],
+        "default_persona": "bare",
+        "image_source": image_source,
+        "personas": {"bare": {"project_path": "profiles/bare"}},
+    }
+
+    with pytest.raises(ValueError, match=r"personas\['bare'\] has no project"):
+        resolve_personas(web_terminals, _REGISTRY, strict=True)
+
+
+def test_resolve_personas_entry_without_project_lenient_is_unresolved() -> None:
+    """The lenient path keeps the user and the persona, and names no image."""
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "persona": "bare"}],
+        "default_persona": "bare",
+        "image_source": "local",
+        "personas": {"bare": {"project_path": "profiles/bare"}},
+    }
+
+    assert resolve_personas(web_terminals, _REGISTRY, strict=False) == [
+        _unresolved("alice", 0, "bare")
     ]
+
+
+def test_resolve_personas_ready_made_entry_with_project_resolves_its_directory() -> None:
+    """A ready-made entry (no build_profile) that states its project runs in
+    `/app/<project>` and builds as `<project>:local`."""
+    web_terminals = {
+        "users": ["alice"],
+        "default_persona": "main",
+        "image_source": "local",
+        "personas": {"main": {"project": "site-terminal", "project_path": "elsewhere/site"}},
+    }
+
+    (entry,) = resolve_personas(web_terminals, _REGISTRY)
+
+    assert entry["image"] == "site-terminal:local"
+    assert entry["project"] == "site-terminal"
+    assert entry["container_project_dir"] == "/app/site-terminal"
+
+
+def test_resolve_personas_registry_default_persona_names_its_directory_by_its_project() -> None:
+    """A registry deployment's default persona pulls the unsuffixed image and
+    runs in the directory of the project that image was built from."""
+    (entry,) = resolve_personas({"users": ["alice"], **_CATALOG}, _REGISTRY)
+
+    assert entry == {
+        "name": "alice",
+        "index": 0,
+        "persona": "assistant",
+        "image": "registry.example.org/osprey/web-terminal:latest",
+        "project": "demo-project-assistant",
+        "container_project_dir": "/app/demo-project-assistant",
+        "extra_mounts": [],
+        "seed_base": True,
+    }
 
 
 @pytest.mark.parametrize(
@@ -502,33 +589,19 @@ def test_configured_registry_url_reads_only_a_string_url(registry_cfg: Any, expe
     assert result == expected
 
 
-def test_resolve_personas_no_catalog_empty_registry_url_matches_template_concat() -> None:
-    """An unset registry.url still resolves: the resolver stays total and yields
-    the leading-slash name, and the render is where this shape is refused."""
-    # Arrange
-    web_terminals = {"users": ["alice"]}
-
-    # Act
-    result = resolve_personas(web_terminals, {}, "als", project_name="als")
-
-    # Assert
-    assert result[0]["image"] == "/web-terminal:latest"
-
-
 def test_resolve_personas_default_persona_keeps_unsuffixed_registry_image() -> None:
-    """The default persona's registry-mode image stays un-suffixed even once a
-    catalog is introduced; its container dir follows its own catalog project
-    uniformly, like every other persona (here coinciding with the facility
-    prefix path because the fixture's project is `als-assistant`)."""
+    """The default persona's registry-mode image stays un-suffixed; its
+    container dir follows its own catalog project uniformly, like every other
+    persona."""
     # Arrange
     web_terminals = {
         "users": ["alice"],
         "default_persona": "cli",
-        "personas": {"cli": {"project": "als-assistant", "project_path": "profiles/cli"}},
+        "personas": {"cli": {"project": "demo-project-assistant", "project_path": "profiles/cli"}},
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result == [
@@ -537,8 +610,8 @@ def test_resolve_personas_default_persona_keeps_unsuffixed_registry_image() -> N
             "index": 0,
             "persona": "cli",
             "image": "registry.example.org/osprey/web-terminal:latest",
-            "project": "als-assistant",
-            "container_project_dir": "/app/als-assistant",
+            "project": "demo-project-assistant",
+            "container_project_dir": "/app/demo-project-assistant",
             "extra_mounts": [],
             "seed_base": True,
         }
@@ -547,9 +620,8 @@ def test_resolve_personas_default_persona_keeps_unsuffixed_registry_image() -> N
 
 def test_resolve_personas_default_persona_container_dir_follows_its_project() -> None:
     """The default persona's container dir is derived from its own catalog
-    project, not the facility prefix — proven with a project name that does not
-    coincide with the pre-persona `/app/<prefix>-assistant` path. The image stays
-    un-suffixed, which is the only remaining default-persona special case."""
+    project. The image stays un-suffixed, which is the only default-persona
+    special case."""
     # Arrange
     web_terminals = {
         "users": ["alice"],
@@ -558,7 +630,7 @@ def test_resolve_personas_default_persona_container_dir_follows_its_project() ->
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["project"] == "control-room"
@@ -568,19 +640,19 @@ def test_resolve_personas_default_persona_container_dir_follows_its_project() ->
 
 def test_resolve_personas_non_default_persona_registry_mode_suffixes_image() -> None:
     """A non-default persona gets a `web-terminal-<persona>` registry tag and a
-    container dir derived from its own catalog project, not the facility prefix."""
+    container dir derived from its own catalog project."""
     # Arrange
     web_terminals = {
         "users": [{"name": "gmartino", "index": 0, "persona": "gui"}],
         "default_persona": "cli",
         "personas": {
-            "cli": {"project": "als-assistant", "project_path": "profiles/cli"},
-            "gui": {"project": "als-gui-assistant", "project_path": "profiles/gui"},
+            "cli": {"project": "demo-project-assistant", "project_path": "profiles/cli"},
+            "gui": {"project": "demo-project-gui-assistant", "project_path": "profiles/gui"},
         },
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result == [
@@ -589,8 +661,8 @@ def test_resolve_personas_non_default_persona_registry_mode_suffixes_image() -> 
             "index": 0,
             "persona": "gui",
             "image": "registry.example.org/osprey/web-terminal-gui:latest",
-            "project": "als-gui-assistant",
-            "container_project_dir": "/app/als-gui-assistant",
+            "project": "demo-project-gui-assistant",
+            "container_project_dir": "/app/demo-project-gui-assistant",
             "extra_mounts": [],
             "seed_base": True,
         }
@@ -607,75 +679,27 @@ def test_resolve_personas_local_mode_tags_every_persona_by_render_including_defa
         "default_persona": "cli",
         "image_source": "local",
         "personas": {
-            "cli": {"project": "als-assistant", "project_path": "profiles/cli"},
-            "gui": {"project": "als-gui-assistant", "project_path": "profiles/gui"},
+            "cli": {"project": "demo-project-assistant", "project_path": "profiles/cli"},
+            "gui": {"project": "demo-project-gui-assistant", "project_path": "profiles/gui"},
         },
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     images = {entry["name"]: entry["image"] for entry in result}
     assert images == {
-        "alice": "als-assistant:local",
-        "gmartino": "als-gui-assistant:local",
+        "alice": "demo-project-assistant:local",
+        "gmartino": "demo-project-gui-assistant:local",
     }
     # Default persona's container dir follows its own catalog project, like every
-    # other persona — no facility-prefix special case (here `als-assistant`).
+    # other persona — no default-path special case (here `demo-project-assistant`).
     default_entry = next(entry for entry in result if entry["name"] == "alice")
-    assert default_entry["container_project_dir"] == "/app/als-assistant"
+    assert default_entry["container_project_dir"] == "/app/demo-project-assistant"
 
 
-def test_resolve_personas_local_mode_entry_without_project_keeps_suffixed_tag() -> None:
-    """A catalog entry with no `project` of its own resolves onto the facility
-    default project, whose `<default>-<persona>:local` suffix is what keeps the
-    tag disjoint from the dispatch worker's `<project>:local` image — a render
-    of its own is what earns a persona the unsuffixed tag."""
-    # Arrange
-    web_terminals = {
-        "users": [{"name": "alice", "index": 0, "persona": "bare"}],
-        "default_persona": "bare",
-        "image_source": "local",
-        "personas": {"bare": {"project_path": "profiles/bare"}},
-    }
-
-    # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
-
-    # Assert
-    assert result[0]["image"] == "als-assistant-bare:local"
-    assert result[0]["project"] == "als-assistant"
-
-
-def test_resolve_personas_legacy_image_follows_the_project_dir_follows_the_prefix() -> None:
-    """With no render of its own, the image is named on the deployment's compose
-    project while the in-container directory stays on ``facility.prefix``: Claude
-    Code state in the persisted config volume is keyed by that directory."""
-    web_terminals = {
-        "users": [{"name": "alice", "index": 0, "persona": "bare"}],
-        "default_persona": "bare",
-        "image_source": "local",
-        "personas": {"bare": {"project_path": "profiles/bare"}},
-    }
-
-    (entry,) = resolve_personas(web_terminals, _REGISTRY, "als", project_name="site")
-
-    assert entry["image"] == "site-assistant-bare:local"
-    assert entry["project"] == "site-assistant"
-    assert entry["container_project_dir"] == "/app/als-assistant"
-
-
-def test_resolve_personas_zero_migration_project_follows_the_project_name() -> None:
-    """A roster with no persona system names its project on the compose project
-    and keeps the facility-prefix directory."""
-    (entry,) = resolve_personas({"users": ["alice"]}, _REGISTRY, "als", project_name="site")
-
-    assert entry["project"] == "site-assistant"
-    assert entry["container_project_dir"] == "/app/als-assistant"
-
-
-def test_resolve_personas_own_project_ignores_both_names() -> None:
+def test_resolve_personas_own_project_ignores_the_project_name() -> None:
     """A persona with its own render is named and placed by that render alone."""
     web_terminals = {
         "users": [{"name": "alice", "index": 0, "persona": "cli"}],
@@ -684,7 +708,7 @@ def test_resolve_personas_own_project_ignores_both_names() -> None:
         "personas": {"cli": {"project": "site-cli", "project_path": "build/site-cli"}},
     }
 
-    (entry,) = resolve_personas(web_terminals, _REGISTRY, "als", project_name="site")
+    (entry,) = resolve_personas(web_terminals, _REGISTRY)
 
     assert entry["image"] == "site-cli:local"
     assert entry["container_project_dir"] == "/app/site-cli"
@@ -692,55 +716,19 @@ def test_resolve_personas_own_project_ignores_both_names() -> None:
 
 def test_resolve_personas_entry_without_persona_key_inherits_default_persona() -> None:
     """A roster entry with no `persona:` key inherits `default_persona`, resolving
-    through the catalog rather than falling onto the no-persona legacy path."""
+    through the catalog."""
     # Arrange
     web_terminals = {
         "users": ["alice"],
         "default_persona": "cli",
-        "personas": {"cli": {"project": "als-assistant", "project_path": "profiles/cli"}},
+        "personas": {"cli": {"project": "demo-project-assistant", "project_path": "profiles/cli"}},
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["persona"] == "cli"
-
-
-def test_resolve_personas_local_mode_without_catalog_strict_raises() -> None:
-    """`image_source: local` with no catalog/default_persona configured at all
-    must fail closed in strict mode (deploy/build/render/seed callers)."""
-    # Arrange
-    web_terminals = {"users": ["alice"], "image_source": "local"}
-
-    # Act / Assert
-    with pytest.raises(ValueError, match="local"):
-        resolve_personas(web_terminals, _REGISTRY, "als", project_name="als", strict=True)
-
-
-def test_resolve_personas_local_mode_without_catalog_lenient_degrades() -> None:
-    """The lenient variant (lifecycle verbs) must never raise on the same
-    misconfiguration — a bad/missing persona setup can't block decommission,
-    prune, or nuke — and instead falls back to the zero-migration values."""
-    # Arrange
-    web_terminals = {"users": ["alice"], "image_source": "local"}
-
-    # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als", strict=False)
-
-    # Assert
-    assert result == [
-        {
-            "name": "alice",
-            "index": 0,
-            "persona": None,
-            "image": "registry.example.org/osprey/web-terminal:latest",
-            "project": "als-assistant",
-            "container_project_dir": "/app/als-assistant",
-            "extra_mounts": [],
-            "seed_base": True,
-        }
-    ]
 
 
 def test_resolve_personas_unknown_persona_ref_strict_raises() -> None:
@@ -749,39 +737,29 @@ def test_resolve_personas_unknown_persona_ref_strict_raises() -> None:
     # Arrange
     web_terminals = {
         "users": [{"name": "alice", "index": 0, "persona": "ghost"}],
-        "personas": {"cli": {"project": "als-assistant", "project_path": "profiles/cli"}},
+        "default_persona": "cli",
+        "personas": {"cli": {"project": "demo-project-assistant", "project_path": "profiles/cli"}},
     }
 
     # Act / Assert
     with pytest.raises(ValueError, match="ghost"):
-        resolve_personas(web_terminals, _REGISTRY, "als", project_name="als", strict=True)
+        resolve_personas(web_terminals, _REGISTRY, strict=True)
 
 
 def test_resolve_personas_unknown_persona_ref_lenient_degrades() -> None:
-    """The lenient variant degrades an unknown persona ref to the zero-migration
-    values instead of raising, but keeps the requested (bad) name visible."""
+    """The lenient variant returns an unknown persona ref as an unresolved
+    entry instead of raising, keeping the requested (bad) name visible."""
     # Arrange
     web_terminals = {
         "users": [{"name": "alice", "index": 0, "persona": "ghost"}],
-        "personas": {"cli": {"project": "als-assistant", "project_path": "profiles/cli"}},
+        **_CATALOG,
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als", strict=False)
+    result = resolve_personas(web_terminals, _REGISTRY, strict=False)
 
     # Assert
-    assert result == [
-        {
-            "name": "alice",
-            "index": 0,
-            "persona": "ghost",
-            "image": "registry.example.org/osprey/web-terminal:latest",
-            "project": "als-assistant",
-            "container_project_dir": "/app/als-assistant",
-            "extra_mounts": [],
-            "seed_base": True,
-        }
-    ]
+    assert result == [_unresolved("alice", 0, "ghost")]
 
 
 def test_resolve_personas_preserves_normalize_users_index_freezing() -> None:
@@ -790,11 +768,12 @@ def test_resolve_personas_preserves_normalize_users_index_freezing() -> None:
     # Arrange
     web_terminals = {
         "users": [{"name": "alice", "index": 5, "persona": "cli"}],
-        "personas": {"cli": {"project": "als-assistant", "project_path": "profiles/cli"}},
+        "default_persona": "cli",
+        "personas": {"cli": {"project": "demo-project-assistant", "project_path": "profiles/cli"}},
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["index"] == 5
@@ -802,22 +781,25 @@ def test_resolve_personas_preserves_normalize_users_index_freezing() -> None:
 
 def test_resolve_personas_exposes_display_name_when_set() -> None:
     """A roster entry's `display_name` is threaded onto the resolved svc dict as a
-    `display_name` key (here on the no-persona zero-migration path)."""
+    `display_name` key (here on the default persona)."""
     # Arrange
-    web_terminals = {"users": [{"name": "alice", "index": 0, "display_name": "Operations"}]}
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "display_name": "Operations"}],
+        **_CATALOG,
+    }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result == [
         {
             "name": "alice",
             "index": 0,
-            "persona": None,
+            "persona": "assistant",
             "image": "registry.example.org/osprey/web-terminal:latest",
-            "project": "als-assistant",
-            "container_project_dir": "/app/als-assistant",
+            "project": "demo-project-assistant",
+            "container_project_dir": "/app/demo-project-assistant",
             "extra_mounts": [],
             "seed_base": True,
             "display_name": "Operations",
@@ -827,7 +809,7 @@ def test_resolve_personas_exposes_display_name_when_set() -> None:
 
 def test_resolve_personas_display_name_threads_through_persona_branch() -> None:
     """`display_name` is orthogonal to persona resolution — it rides through a
-    fully-resolved non-default persona entry too, not only the zero-migration path."""
+    fully-resolved non-default persona entry too, not only the default persona."""
     # Arrange
     web_terminals = {
         "users": [
@@ -835,13 +817,13 @@ def test_resolve_personas_display_name_threads_through_persona_branch() -> None:
         ],
         "default_persona": "cli",
         "personas": {
-            "cli": {"project": "als-assistant", "project_path": "profiles/cli"},
-            "gui": {"project": "als-gui-assistant", "project_path": "profiles/gui"},
+            "cli": {"project": "demo-project-assistant", "project_path": "profiles/cli"},
+            "gui": {"project": "demo-project-gui-assistant", "project_path": "profiles/gui"},
         },
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["persona"] == "gui"
@@ -858,11 +840,12 @@ def test_resolve_personas_omits_display_name_key_when_unset_or_empty() -> None:
             "alice",  # bare string — never carries one
             {"name": "bob", "index": 1},  # object form, no display_name
             {"name": "carol", "index": 2, "display_name": ""},  # empty is inert
-        ]
+        ],
+        **_CATALOG,
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert — no entry carries a display_name key
     assert all("display_name" not in entry for entry in result)
@@ -870,22 +853,22 @@ def test_resolve_personas_omits_display_name_key_when_unset_or_empty() -> None:
 
 def test_resolve_personas_exposes_theme_when_set() -> None:
     """A roster entry's `theme` is threaded onto the resolved svc dict as a
-    `theme` key (here on the no-persona zero-migration path)."""
+    `theme` key (here on the default persona)."""
     # Arrange
-    web_terminals = {"users": [{"name": "alice", "index": 0, "theme": "desy-light"}]}
+    web_terminals = {"users": [{"name": "alice", "index": 0, "theme": "desy-light"}], **_CATALOG}
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result == [
         {
             "name": "alice",
             "index": 0,
-            "persona": None,
+            "persona": "assistant",
             "image": "registry.example.org/osprey/web-terminal:latest",
-            "project": "als-assistant",
-            "container_project_dir": "/app/als-assistant",
+            "project": "demo-project-assistant",
+            "container_project_dir": "/app/demo-project-assistant",
             "extra_mounts": [],
             "seed_base": True,
             "theme": "desy-light",
@@ -901,11 +884,12 @@ def test_resolve_personas_exposes_tour_when_set() -> None:
         "users": [
             {"name": "alice", "index": 0, "tour": "always"},
             {"name": "bob", "index": 1},
-        ]
+        ],
+        **_CATALOG,
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["tour"] == "always"
@@ -914,19 +898,19 @@ def test_resolve_personas_exposes_tour_when_set() -> None:
 
 def test_resolve_personas_theme_threads_through_persona_branch() -> None:
     """`theme` is orthogonal to persona resolution — it rides through a
-    fully-resolved non-default persona entry too, not only the zero-migration path."""
+    fully-resolved non-default persona entry too, not only the default persona."""
     # Arrange
     web_terminals = {
         "users": [{"name": "gmartino", "index": 0, "persona": "gui", "theme": "desy"}],
         "default_persona": "cli",
         "personas": {
-            "cli": {"project": "als-assistant", "project_path": "profiles/cli"},
-            "gui": {"project": "als-gui-assistant", "project_path": "profiles/gui"},
+            "cli": {"project": "demo-project-assistant", "project_path": "profiles/cli"},
+            "gui": {"project": "demo-project-gui-assistant", "project_path": "profiles/gui"},
         },
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["persona"] == "gui"
@@ -942,28 +926,30 @@ def test_resolve_personas_omits_theme_key_when_unset_or_empty() -> None:
             "alice",  # bare string — never carries one
             {"name": "bob", "index": 1},  # object form, no theme
             {"name": "carol", "index": 2, "theme": ""},  # empty is inert
-        ]
+        ],
+        **_CATALOG,
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert — no entry carries a theme key
     assert all("theme" not in entry for entry in result)
 
 
 def test_resolve_personas_empty_users_returns_empty_list() -> None:
-    """An empty/missing roster resolves to an empty list regardless of catalog."""
+    """An empty/missing roster resolves to an empty list."""
     # Act / Assert
-    assert resolve_personas({}, _REGISTRY, "als", project_name="als") == []
-    assert resolve_personas({"users": []}, _REGISTRY, "als", project_name="als") == []
+    assert resolve_personas({**_CATALOG}, _REGISTRY) == []
+    assert resolve_personas({"users": [], **_CATALOG}, _REGISTRY) == []
 
 
 def test_resolve_personas_registry_cfg_missing_url_defaults_to_empty_string() -> None:
-    """A registry section with no `url` key must not raise — it degrades to the
-    same empty-prefix behavior as an entirely absent registry section."""
+    """A registry section with no `url` key must not raise: the resolver stays
+    total and yields the leading-slash name, and the render is where this shape
+    is refused."""
     # Act
-    result = resolve_personas({"users": ["alice"]}, {}, "als", project_name="als")
+    result = resolve_personas({"users": ["alice"], **_CATALOG}, {})
 
     # Assert
     assert result[0]["image"] == "/web-terminal:latest"
@@ -979,16 +965,17 @@ def test_resolve_personas_reads_extra_mounts_from_catalog_entry() -> None:
     # Arrange
     web_terminals = {
         "users": [{"name": "gmartino", "index": 0, "persona": "gui"}],
+        "default_persona": "gui",
         "personas": {
             "gui": {
-                "project": "als-gui",
+                "project": "demo-project-gui",
                 "extra_mounts": ["/opt/site-data:/app/site-data:ro", "cache-vol:/app/cache"],
             }
         },
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["extra_mounts"] == [
@@ -1004,27 +991,16 @@ def test_resolve_personas_default_persona_also_carries_extra_mounts() -> None:
     web_terminals = {
         "users": ["alice"],
         "default_persona": "cli",
-        "personas": {"cli": {"project": "als-assistant", "extra_mounts": ["/data:/app/data:ro"]}},
+        "personas": {
+            "cli": {"project": "demo-project-assistant", "extra_mounts": ["/data:/app/data:ro"]}
+        },
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["extra_mounts"] == ["/data:/app/data:ro"]
-
-
-def test_resolve_personas_no_persona_defaults_extra_mounts_to_empty_list() -> None:
-    """The zero-migration path (no persona in effect) resolves `extra_mounts` to
-    an empty list — there is no catalog entry to read host mounts from."""
-    # Arrange
-    web_terminals = {"users": ["alice"]}
-
-    # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
-
-    # Assert
-    assert result[0]["extra_mounts"] == []
 
 
 def test_resolve_personas_catalog_entry_without_extra_mounts_defaults_to_empty_list() -> None:
@@ -1033,11 +1009,12 @@ def test_resolve_personas_catalog_entry_without_extra_mounts_defaults_to_empty_l
     # Arrange
     web_terminals = {
         "users": [{"name": "gmartino", "index": 0, "persona": "gui"}],
-        "personas": {"gui": {"project": "als-gui"}},
+        "default_persona": "gui",
+        "personas": {"gui": {"project": "demo-project-gui"}},
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["extra_mounts"] == []
@@ -1052,17 +1029,18 @@ def test_resolve_personas_extra_mounts_defensive_reads() -> None:
             {"name": "a", "index": 0, "persona": "bad"},
             {"name": "b", "index": 1, "persona": "mixed"},
         ],
+        "default_persona": "bad",
         "personas": {
-            "bad": {"project": "als-bad", "extra_mounts": "not-a-list"},
+            "bad": {"project": "demo-project-bad", "extra_mounts": "not-a-list"},
             "mixed": {
-                "project": "als-mixed",
+                "project": "demo-project-mixed",
                 "extra_mounts": ["/ok:/app/ok:ro", 42, "", None, "/two:/app/two"],
             },
         },
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     by_name = {entry["name"]: entry["extra_mounts"] for entry in result}
@@ -1071,19 +1049,21 @@ def test_resolve_personas_extra_mounts_defensive_reads() -> None:
 
 
 def test_resolve_personas_lenient_degrade_extra_mounts_empty() -> None:
-    """An unresolvable persona ref degrading to the zero-migration values carries
-    an empty `extra_mounts` (no catalog entry to read from)."""
+    """An unresolvable persona ref resolves to the unresolved entry, which
+    carries an empty `extra_mounts` (no catalog entry to read from)."""
     # Arrange
     web_terminals = {
         "users": [{"name": "alice", "index": 0, "persona": "ghost"}],
-        "personas": {"cli": {"project": "als-assistant"}},
+        "default_persona": "cli",
+        "personas": {"cli": {"project": "demo-project-assistant"}},
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als", strict=False)
+    result = resolve_personas(web_terminals, _REGISTRY, strict=False)
 
     # Assert
     assert result[0]["extra_mounts"] == []
+    assert result[0]["image"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -1094,10 +1074,10 @@ def test_resolve_personas_lenient_degrade_extra_mounts_empty() -> None:
 def test_resolve_personas_image_tag_defaults_to_latest() -> None:
     """No `image_tag` key resolves to the pre-seam `:latest` registry tag."""
     # Arrange
-    web_terminals = {"users": ["alice"]}
+    web_terminals = {"users": ["alice"], **_CATALOG}
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["image"] == "registry.example.org/osprey/web-terminal:latest"
@@ -1112,13 +1092,13 @@ def test_resolve_personas_image_tag_explicit_literal_is_emitted_verbatim() -> No
         "default_persona": "cli",
         "image_tag": "v2026.7.8",
         "personas": {
-            "cli": {"project": "als-assistant", "project_path": "profiles/cli"},
-            "gui": {"project": "als-gui-assistant", "project_path": "profiles/gui"},
+            "cli": {"project": "demo-project-assistant", "project_path": "profiles/cli"},
+            "gui": {"project": "demo-project-gui-assistant", "project_path": "profiles/gui"},
         },
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     images = {entry["name"]: entry["image"] for entry in result}
@@ -1133,10 +1113,10 @@ def test_resolve_personas_image_tag_expands_env_var_at_render_time(monkeypatch) 
     environment to a literal tag — no `${...}` survives into the image ref."""
     # Arrange
     monkeypatch.setenv("IMAGE_TAG", "v9.9.9")
-    web_terminals = {"users": ["alice"], "image_tag": "${IMAGE_TAG}"}
+    web_terminals = {"users": ["alice"], "image_tag": "${IMAGE_TAG}", **_CATALOG}
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["image"] == "registry.example.org/osprey/web-terminal:v9.9.9"
@@ -1147,10 +1127,10 @@ def test_resolve_personas_image_tag_unset_env_var_expands_to_empty(monkeypatch) 
     (not a surviving `${...}`), yielding a tagless ref that lint warns on."""
     # Arrange
     monkeypatch.delenv("IMAGE_TAG", raising=False)
-    web_terminals = {"users": ["alice"], "image_tag": "${IMAGE_TAG}"}
+    web_terminals = {"users": ["alice"], "image_tag": "${IMAGE_TAG}", **_CATALOG}
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["image"] == "registry.example.org/osprey/web-terminal:"
@@ -1166,11 +1146,12 @@ def test_resolve_personas_seed_base_defaults_true_for_catalog_entry() -> None:
     # Arrange
     web_terminals = {
         "users": [{"name": "alice", "index": 0, "persona": "gui"}],
-        "personas": {"gui": {"project": "als-gui"}},
+        "default_persona": "gui",
+        "personas": {"gui": {"project": "demo-project-gui"}},
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["seed_base"] is True
@@ -1181,11 +1162,12 @@ def test_resolve_personas_seed_base_false_is_carried_through() -> None:
     # Arrange
     web_terminals = {
         "users": [{"name": "alice", "index": 0, "persona": "gui"}],
-        "personas": {"gui": {"project": "als-gui", "seed_base": False}},
+        "default_persona": "gui",
+        "personas": {"gui": {"project": "demo-project-gui", "seed_base": False}},
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["seed_base"] is False
@@ -1197,21 +1179,12 @@ def test_resolve_personas_seed_base_non_bool_coerces_to_true() -> None:
     # Arrange
     web_terminals = {
         "users": [{"name": "alice", "index": 0, "persona": "gui"}],
-        "personas": {"gui": {"project": "als-gui", "seed_base": "false"}},
+        "default_persona": "gui",
+        "personas": {"gui": {"project": "demo-project-gui", "seed_base": "false"}},
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
-
-    # Assert
-    assert result[0]["seed_base"] is True
-
-
-def test_resolve_personas_no_persona_entry_is_seed_base_true() -> None:
-    """The zero-migration path (no persona in effect) always keeps the base
-    prepend — seed_base is only opt-out-able through a catalog entry."""
-    # Act
-    result = resolve_personas({"users": ["alice"]}, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["seed_base"] is True
@@ -1320,27 +1293,23 @@ def test_no_reader_of_the_retired_login_key_survives() -> None:
 
 
 def test_resolve_personas_carries_no_login_marker() -> None:
-    """Neither resolution path — zero-migration or persona catalog — lets the
-    retired key ride through onto a resolved entry."""
+    """Neither the default persona nor a pinned one lets the retired key ride
+    through onto a resolved entry."""
     # Act
-    zero_migration = resolve_personas(
-        {"users": [{"name": "ariel", "index": 0, "login": False}]},
-        _REGISTRY,
-        "als",
-        project_name="als",
+    default_persona = resolve_personas(
+        {"users": [{"name": "ariel", "index": 0, "login": False}], **_CATALOG}, _REGISTRY
     )
     persona_branch = resolve_personas(
         {
             "users": [{"name": "ariel", "index": 0, "persona": "gui", "login": False}],
-            "personas": {"gui": {"project": "als-gui"}},
+            "default_persona": "gui",
+            "personas": {"gui": {"project": "demo-project-gui"}},
         },
         _REGISTRY,
-        "als",
-        project_name="als",
     )
 
     # Assert
-    assert "login" not in zero_migration[0]
+    assert "login" not in default_persona[0]
     assert "login" not in persona_branch[0]
 
 
@@ -1774,35 +1743,27 @@ def test_entry_is_shared_refuses_an_unreadable_access(authored: Any) -> None:
         entry_is_shared({"name": "control", "index": 3, "access": authored})
 
 
-def test_resolve_personas_threads_access_any_through_both_branches() -> None:
-    """The sharing marker survives resolution on the zero-migration path and
-    the persona-catalog path alike, and stays absent when never declared."""
+def test_resolve_personas_threads_access_any_through() -> None:
+    """The sharing marker survives resolution, and stays absent when never
+    declared."""
     # Act
-    zero_migration = resolve_personas(
-        {"users": [{"name": "control", "index": 0, "access": "any"}]},
-        _REGISTRY,
-        "als",
-        project_name="als",
-    )
     persona_branch = resolve_personas(
         {
             "users": [{"name": "control", "index": 0, "persona": "gui", "access": "any"}],
-            "personas": {"gui": {"project": "als-gui"}},
+            "default_persona": "gui",
+            "personas": {"gui": {"project": "demo-project-gui"}},
         },
         _REGISTRY,
-        "als",
-        project_name="als",
     )
-    undeclared = resolve_personas({"users": ["alice"]}, _REGISTRY, "als", project_name="als")
+    undeclared = resolve_personas({"users": ["alice"], **_CATALOG}, _REGISTRY)
 
     # Assert
-    assert zero_migration[0]["access"] == "any"
     assert persona_branch[0]["access"] == "any"
     assert "access" not in undeclared[0]
 
 
 def test_resolve_personas_preserves_the_resolved_principal_set() -> None:
-    """A list-valued card survives resolution whole, on both branches. The
+    """A list-valued card survives resolution whole. The
     resolved entry is what the render and the deployment guards read, so the
     reduction that kept only `any` here is what disarmed the shared-card rule
     for every other form."""
@@ -1810,29 +1771,21 @@ def test_resolve_personas_preserves_the_resolved_principal_set() -> None:
     authored = ["domain:Example.com", "user:alice@example.com"]
 
     # Act
-    zero_migration = resolve_personas(
-        {"users": [{"name": "control", "index": 0, "access": authored}]},
-        _REGISTRY,
-        "als",
-        project_name="als",
-    )
     persona_branch = resolve_personas(
         {
             "users": [{"name": "control", "index": 0, "persona": "gui", "access": authored}],
-            "personas": {"gui": {"project": "als-gui"}},
+            "default_persona": "gui",
+            "personas": {"gui": {"project": "demo-project-gui"}},
         },
         _REGISTRY,
-        "als",
-        project_name="als",
     )
 
     # Assert — carried verbatim, and still resolving to the same principals
-    for resolved in (zero_migration, persona_branch):
-        assert resolved[0]["access"] == authored
-        assert resolve_access_principals(resolved[0]) == frozenset(
-            {"domain:example.com", "user:alice@example.com"}
-        )
-        assert entry_is_shared(resolved[0]) is True
+    assert persona_branch[0]["access"] == authored
+    assert resolve_access_principals(persona_branch[0]) == frozenset(
+        {"domain:example.com", "user:alice@example.com"}
+    )
+    assert entry_is_shared(persona_branch[0]) is True
 
 
 def test_resolve_personas_shows_a_domain_card_to_the_shared_card_guard() -> None:
@@ -1850,11 +1803,10 @@ def test_resolve_personas_shows_a_domain_card_to_the_shared_card_guard() -> None
                     "access": ["domain:example.com"],
                 }
             ],
-            "personas": {"admin": {"project": "als-admin"}},
+            "default_persona": "admin",
+            "personas": {"admin": {"project": "demo-project-admin"}},
         },
         _REGISTRY,
-        "als",
-        project_name="als",
     )
 
     # Assert
@@ -1873,12 +1825,12 @@ def test_resolve_personas_lenient_drops_an_entry_with_an_unreadable_access() -> 
     }
 
     # Act
-    lenient = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als", strict=False)
+    lenient = resolve_personas(web_terminals, _REGISTRY, strict=False)
 
     # Assert
     assert [entry["name"] for entry in lenient] == ["bob"]
     with pytest.raises(ValueError, match="'control'"):
-        resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+        resolve_personas(web_terminals, _REGISTRY)
 
 
 def test_freeze_user_indices_refuses_an_unreadable_access_rather_than_shortening() -> None:
@@ -1918,28 +1870,35 @@ def test_resolve_personas_exposes_oidc_subject_when_set() -> None:
     """The mapping rides through to the resolved entry, so the sidecar's roster
     context reads it off the same object as every other per-user field."""
     # Arrange
-    web_terminals = {"users": [{"name": "alice", "index": 0, "oidc_subject": "alice@example.org"}]}
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "oidc_subject": "alice@example.org"}],
+        **_CATALOG,
+    }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["oidc_subject"] == "alice@example.org"
 
 
 def test_resolve_personas_oidc_subject_threads_through_persona_branch() -> None:
-    """The passthrough is not confined to the zero-migration path — a user
-    resolved through a catalog persona keeps its mapping too."""
+    """The passthrough is not confined to the default persona — a user
+    resolved through a pinned persona keeps its mapping too."""
     # Arrange
     web_terminals = {
         "users": [
             {"name": "alice", "index": 0, "persona": "gui", "oidc_subject": "alice@example.org"}
         ],
-        "personas": {"gui": {"project": "als-gui"}},
+        **_CATALOG,
+        "personas": {
+            "assistant": {"project": "demo-project-assistant"},
+            "gui": {"project": "demo-project-gui"},
+        },
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["persona"] == "gui"
@@ -1950,7 +1909,7 @@ def test_resolve_personas_omits_oidc_subject_key_when_unset() -> None:
     """A roster with no OIDC mapping resolves byte-identically to before the
     field existed — no `oidc_subject: None` key appears."""
     # Act
-    result = resolve_personas({"users": ["alice"]}, _REGISTRY, "als", project_name="als")
+    result = resolve_personas({"users": ["alice"], **_CATALOG}, _REGISTRY)
 
     # Assert
     assert "oidc_subject" not in result[0]
@@ -2753,7 +2712,7 @@ def _write_settings_json(tmp_path, name: str, body: Any) -> str:
     return name
 
 
-def test_settings_json_denies_bash_reads_the_shipped_deny_list(tmp_path) -> None:
+def test_settings_json_denies_for_bash_reads_the_shipped_deny_list(tmp_path) -> None:
     """The happy path: `Bash` listed in permissions.deny is a deny."""
     # Arrange
     _write_settings_json(
@@ -2761,10 +2720,10 @@ def test_settings_json_denies_bash_reads_the_shipped_deny_list(tmp_path) -> None
     )
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "locked") is True
+    assert settings_json_denies(tmp_path / "locked", (BASH_DENY_ENTRY,)) is True
 
 
-def test_settings_json_denies_bash_false_when_bash_absent_from_a_well_formed_deny(
+def test_settings_json_denies_for_bash_false_when_bash_absent_from_a_well_formed_deny(
     tmp_path,
 ) -> None:
     """A readable artifact that simply doesn't deny the shell -- the `remove_deny`
@@ -2775,62 +2734,62 @@ def test_settings_json_denies_bash_false_when_bash_absent_from_a_well_formed_den
     )
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "open") is False
+    assert settings_json_denies(tmp_path / "open", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_bash_ignores_a_scoped_bash_deny(tmp_path) -> None:
+def test_settings_json_denies_for_bash_ignores_a_scoped_bash_deny(tmp_path) -> None:
     """`Bash(rm:*)` constrains one command family and leaves the shell usable, so it
     is not a wholesale deny -- only the exact literal counts."""
     # Arrange
     _write_settings_json(tmp_path, "scoped", {"permissions": {"deny": ["Bash(rm:*)"]}})
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "scoped") is False
+    assert settings_json_denies(tmp_path / "scoped", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_bash_fails_closed_on_a_missing_file(tmp_path) -> None:
+def test_settings_json_denies_for_bash_fails_closed_on_a_missing_file(tmp_path) -> None:
     """An unrendered project proves nothing about its permissions."""
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "never-rendered") is False
+    assert settings_json_denies(tmp_path / "never-rendered", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_bash_fails_closed_on_invalid_json(tmp_path) -> None:
+def test_settings_json_denies_for_bash_fails_closed_on_invalid_json(tmp_path) -> None:
     """A truncated or hand-mangled artifact is unreadable, not safe."""
     # Arrange
     _write_settings_json(tmp_path, "broken", '{"permissions": {"deny": ["Bash"')
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "broken") is False
+    assert settings_json_denies(tmp_path / "broken", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_bash_fails_closed_on_a_non_object_document(tmp_path) -> None:
+def test_settings_json_denies_for_bash_fails_closed_on_a_non_object_document(tmp_path) -> None:
     """Valid JSON that isn't an object carries no permissions at all."""
     # Arrange
     _write_settings_json(tmp_path, "listy", ["Bash"])
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "listy") is False
+    assert settings_json_denies(tmp_path / "listy", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_bash_fails_closed_when_permissions_is_missing(tmp_path) -> None:
+def test_settings_json_denies_for_bash_fails_closed_when_permissions_is_missing(tmp_path) -> None:
     """No permissions block means nothing has been denied."""
     # Arrange
     _write_settings_json(tmp_path, "bare", {"hooks": {}})
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "bare") is False
+    assert settings_json_denies(tmp_path / "bare", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_bash_fails_closed_when_deny_is_missing(tmp_path) -> None:
+def test_settings_json_denies_for_bash_fails_closed_when_deny_is_missing(tmp_path) -> None:
     """A permissions block with an allow list but no deny list denies nothing."""
     # Arrange
     _write_settings_json(tmp_path, "allow-only", {"permissions": {"allow": ["Read(/x/**)"]}})
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "allow-only") is False
+    assert settings_json_denies(tmp_path / "allow-only", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_bash_fails_closed_when_deny_is_not_a_list(tmp_path) -> None:
+def test_settings_json_denies_for_bash_fails_closed_when_deny_is_not_a_list(tmp_path) -> None:
     """A malformed deny value is unreadable, so it proves no deny -- including the
     string "Bash", which must not be read as a one-element list."""
     # Arrange
@@ -2838,17 +2797,17 @@ def test_settings_json_denies_bash_fails_closed_when_deny_is_not_a_list(tmp_path
     _write_settings_json(tmp_path, "nully", {"permissions": {"deny": None}})
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "stringly") is False
-    assert settings_json_denies_bash(tmp_path / "nully") is False
+    assert settings_json_denies(tmp_path / "stringly", (BASH_DENY_ENTRY,)) is False
+    assert settings_json_denies(tmp_path / "nully", (BASH_DENY_ENTRY,)) is False
 
 
-def test_settings_json_denies_bash_ignores_non_string_deny_entries(tmp_path) -> None:
+def test_settings_json_denies_for_bash_ignores_non_string_deny_entries(tmp_path) -> None:
     """Junk entries alongside a real deny neither raise nor suppress the deny."""
     # Arrange
     _write_settings_json(tmp_path, "mixed", {"permissions": {"deny": [None, 7, {}, "Bash"]}})
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "mixed") is True
+    assert settings_json_denies(tmp_path / "mixed", (BASH_DENY_ENTRY,)) is True
 
 
 def test_personas_not_denying_bash_reports_only_the_permissive_persona(tmp_path) -> None:
@@ -2989,7 +2948,7 @@ def test_personas_not_denying_bash_reads_the_artifact_not_the_config(tmp_path) -
     assert result == {"intent-safe"}
 
 
-def test_settings_json_denies_bash_reads_an_artifact_written_with_a_bom(tmp_path) -> None:
+def test_settings_json_denies_for_bash_reads_an_artifact_written_with_a_bom(tmp_path) -> None:
     """`json.load` does not strip a UTF-8 BOM, so a hand-edited artifact saved with one
     would fail to parse and a genuinely Bash-denying persona would read as permissive --
     an opaque deploy refusal. The file is opened as utf-8-sig so the deny is seen."""
@@ -2997,7 +2956,7 @@ def test_settings_json_denies_bash_reads_an_artifact_written_with_a_bom(tmp_path
     _write_settings_json(tmp_path, "bommed", '﻿{"permissions": {"deny": ["Bash", "Edit"]}}')
 
     # Act / Assert
-    assert settings_json_denies_bash(tmp_path / "bommed") is True
+    assert settings_json_denies(tmp_path / "bommed", (BASH_DENY_ENTRY,)) is True
 
 
 # ---------------------------------------------------------------------------
@@ -3366,7 +3325,7 @@ def test_effective_persona_without_a_role_or_pin_falls_back_to_the_default() -> 
 
 
 def test_effective_persona_with_no_persona_system_in_effect_is_none() -> None:
-    """No pin, no role, no default: every config predating persona catalogs."""
+    """No pin, no role, no default: no persona, a roster strict resolution refuses."""
     # Assert
     assert effective_persona({"name": "alice"}, {}, None) is None
 
@@ -3486,8 +3445,8 @@ def test_resolve_personas_role_only_entry_resolves_like_the_equivalent_pin() -> 
     (compose service, volume, image tag) inherits."""
     # Arrange
     catalog = {
-        "cli": {"project": "als-assistant", "project_path": "profiles/cli"},
-        "gui": {"project": "als-gui-assistant", "project_path": "profiles/gui"},
+        "cli": {"project": "demo-project-assistant", "project_path": "profiles/cli"},
+        "gui": {"project": "demo-project-gui-assistant", "project_path": "profiles/gui"},
     }
     by_role = {
         "users": [{"name": "gmartino", "index": 0, "role": "operator"}],
@@ -3502,10 +3461,8 @@ def test_resolve_personas_role_only_entry_resolves_like_the_equivalent_pin() -> 
     }
 
     # Act / Assert
-    assert resolve_personas(by_role, _REGISTRY, "als", project_name="als") == resolve_personas(
-        by_pin, _REGISTRY, "als", project_name="als"
-    )
-    assert resolve_personas(by_role, _REGISTRY, "als", project_name="als")[0]["persona"] == "gui"
+    assert resolve_personas(by_role, _REGISTRY) == resolve_personas(by_pin, _REGISTRY)
+    assert resolve_personas(by_role, _REGISTRY)[0]["persona"] == "gui"
 
 
 def test_resolve_personas_strict_refuses_an_undeclared_role() -> None:
@@ -3514,13 +3471,13 @@ def test_resolve_personas_strict_refuses_an_undeclared_role() -> None:
     web_terminals = {
         "users": [{"name": "alice", "index": 0, "role": "admin"}],
         "default_persona": "cli",
-        "personas": {"cli": {"project": "als-assistant", "project_path": "profiles/cli"}},
+        "personas": {"cli": {"project": "demo-project-assistant", "project_path": "profiles/cli"}},
         "authorization": {"roles": {"operator": {"persona": "cli"}}},
     }
 
     # Act / Assert
     with pytest.raises(UnresolvedRoleError):
-        resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+        resolve_personas(web_terminals, _REGISTRY)
 
 
 def test_resolve_personas_lenient_degrades_an_undeclared_role() -> None:
@@ -3530,12 +3487,12 @@ def test_resolve_personas_lenient_degrades_an_undeclared_role() -> None:
     web_terminals = {
         "users": [{"name": "alice", "index": 0, "role": "admin"}],
         "default_persona": "cli",
-        "personas": {"cli": {"project": "als-assistant", "project_path": "profiles/cli"}},
+        "personas": {"cli": {"project": "demo-project-assistant", "project_path": "profiles/cli"}},
         "authorization": {"roles": {"operator": {"persona": "cli"}}},
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als", strict=False)
+    result = resolve_personas(web_terminals, _REGISTRY, strict=False)
 
     # Assert
     assert result[0]["persona"] == "cli"
@@ -3547,13 +3504,13 @@ def test_resolve_personas_strict_refuses_an_incoherent_authorization_stanza() ->
     web_terminals = {
         "users": [{"name": "alice", "index": 0}],
         "default_persona": "cli",
-        "personas": {"cli": {"project": "als-assistant", "project_path": "profiles/cli"}},
+        "personas": {"cli": {"project": "demo-project-assistant", "project_path": "profiles/cli"}},
         "authorization": {"roles": {"operator": {}}},
     }
 
     # Act / Assert
     with pytest.raises(ValueError):
-        resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+        resolve_personas(web_terminals, _REGISTRY)
 
 
 # ---------------------------------------------------------------------------
@@ -3667,10 +3624,13 @@ def test_freeze_user_indices_preserves_control_identity() -> None:
 def test_resolve_personas_exposes_control_identity_when_set() -> None:
     """The identity rides through to the resolved entry the render reads."""
     # Arrange
-    web_terminals = {"users": [{"name": "alice", "index": 0, "control_identity": "alice"}]}
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "control_identity": "alice"}],
+        **_CATALOG,
+    }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["control_identity"] == "alice"
@@ -3681,11 +3641,12 @@ def test_resolve_personas_control_identity_threads_through_persona_branch() -> N
     # Arrange
     web_terminals = {
         "users": [{"name": "alice", "index": 0, "persona": "gui", "control_identity": "alice"}],
-        "personas": {"gui": {"project": "als-gui"}},
+        "default_persona": "gui",
+        "personas": {"gui": {"project": "demo-project-gui"}},
     }
 
     # Act
-    result = resolve_personas(web_terminals, _REGISTRY, "als", project_name="als")
+    result = resolve_personas(web_terminals, _REGISTRY)
 
     # Assert
     assert result[0]["persona"] == "gui"
@@ -3699,7 +3660,7 @@ def test_resolve_personas_omits_control_identity_key_when_unset(users: list) -> 
     """No identity (or an empty one) resolves byte-identically to before the
     field existed — no `control_identity: None` key appears."""
     # Act
-    result = resolve_personas({"users": users}, _REGISTRY, "als", project_name="als")
+    result = resolve_personas({"users": users, **_CATALOG}, _REGISTRY)
 
     # Assert
     assert "control_identity" not in result[0]

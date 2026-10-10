@@ -142,7 +142,7 @@ from osprey.deployment.web_terminals.env_production import (
     USERS_ENV_FILENAME,
 )
 from osprey.deployment.web_terminals.lifecycle import confirm_destroy
-from osprey.utils.dotenv import BUILD_DERIVED_BANNER, parse_dotenv_text
+from osprey.utils.dotenv import parse_dotenv_text
 from osprey.utils.logger import get_logger
 from osprey.utils.workspace import STATE_DIR_NAME
 
@@ -239,23 +239,10 @@ MINTED_ENV_BANNERS: tuple[str, ...] = (
     "Auto-generated bluesky RE manager control-socket keypair (osprey up)",
 )
 
-#: Header comment of the ``.env`` block ``osprey build`` writes, in the same
-#: banner-without-its-``# `` spelling :data:`MINTED_ENV_BANNERS` uses. Derived
-#: from the writer's own constant rather than copied, because the build owns
-#: that text and a copy here could drift out from under the files on disk.
-#:
-#: The section holds pointers at artifacts in ``build/``, which reset deletes,
-#: and every build regenerates them from the project's own content — so a
-#: discarded deployment keeps none of them. Leaving one behind is worse than
-#: cosmetic: the ``.env`` is append-only, so the survivor WINS over the value
-#: the next build derives, and the stack comes back up aimed at a tree that is
-#: not there.
-DERIVED_ENV_BANNER = BUILD_DERIVED_BANNER.removeprefix("# ")
-
-#: Every banner whose block reset strips — what OSPREY itself wrote into the
-#: operator's ``.env``, minted secrets and derived pointers alike. Anything
-#: under no banner at all is the operator's and is never touched.
-STRIPPED_ENV_BANNERS: tuple[str, ...] = (*MINTED_ENV_BANNERS, DERIVED_ENV_BANNER)
+#: Every banner whose block reset strips — the minted secrets OSPREY itself
+#: wrote into the operator's ``.env``. Anything under no banner at all is the
+#: operator's and is never touched.
+STRIPPED_ENV_BANNERS: tuple[str, ...] = MINTED_ENV_BANNERS
 
 
 def confirmation_token(repo_root: Path) -> str:
@@ -545,17 +532,6 @@ class EnvBlock:
     banner: str
     keys: tuple[str, ...]
 
-    @property
-    def is_build_derived(self) -> bool:
-        """Whether the BUILD wrote this block, rather than a deploy.
-
-        The two are counted and named apart everywhere an operator reads them:
-        a minted value is a secret nothing can reproduce, a derived pointer is
-        an address the next build writes again. Reporting a pointer as a lost
-        secret would make the plan sound more expensive than it is.
-        """
-        return self.banner == DERIVED_ENV_BANNER
-
 
 @dataclass
 class ResetPlan:
@@ -621,19 +597,13 @@ class ResetPlan:
         return ", ".join(parts) if parts else "nothing"
 
     def _env_counts(self) -> list[tuple[int, str]]:
-        """How many entries leave ``.env``, per section, with the noun for each.
+        """How many minted values leave ``.env``, with the noun for them.
 
-        Empty sections are skipped rather than reported as zero, the way every
+        An empty count is skipped rather than reported as zero, the way every
         other count in the plan behaves.
         """
-        counts = []
-        for derived, noun in ((False, "minted value"), (True, "build-derived pointer")):
-            entries = sum(
-                len(block.keys) for block in self.env_blocks if block.is_build_derived is derived
-            )
-            if entries:
-                counts.append((entries, noun))
-        return counts
+        entries = sum(len(block.keys) for block in self.env_blocks)
+        return [(entries, "minted value")] if entries else []
 
     def render(self) -> list[str]:
         """The plan an operator reads before typing the confirmation.
@@ -667,8 +637,7 @@ class ResetPlan:
             lines.append(f"    {_relative_to(path, self.repo_root)}{self._path_note(path)}")
         for block in self.env_blocks:
             keys = ", ".join(block.keys)
-            kind = "build-derived" if block.is_build_derived else "minted"
-            lines.append(f"    {COMPOSE_ENV_FILENAME}  {kind} block '{block.banner}' — {keys}")
+            lines.append(f"    {COMPOSE_ENV_FILENAME}  minted block '{block.banner}' — {keys}")
 
         lines.extend(
             [
@@ -1044,8 +1013,6 @@ def _candidate_image_tags(repo_root: Path, project: str) -> list[str]:
         personas = resolve_personas(
             web_terminals,
             as_dict(config.get("registry")),
-            as_dict(config.get("facility")).get("prefix") or "",
-            project_name=project,
             strict=False,
         )
         built_here = set(image_defaults.values())

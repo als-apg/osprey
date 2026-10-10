@@ -42,7 +42,6 @@ name: Facility
 data: data
 provider: anthropic
 model: claude-sonnet-5
-tier: 1
 channel_finder_mode: in_context
 skills: [diagnose, session-report]
 agents: [channel-finder, data-visualizer]
@@ -87,16 +86,15 @@ def test_delta_inherits_every_key_it_does_not_name(host: Path) -> None:
     assert profile.provider == "anthropic"
     assert profile.model == "claude-sonnet-5"
     assert profile.channel_finder_mode == "in_context"
-    assert profile.tier == 1
 
 
 def test_delta_wins_over_the_root_key_by_key(host: Path) -> None:
     """A key the delta names is the persona's; the rest still come from the root."""
-    persona = _persona(host, "writer", "name: Writer\ntier: 3\n")
+    persona = _persona(host, "writer", "name: Writer\nmodel: claude-opus-5-5\n")
 
     profile = load_profile(persona)
 
-    assert profile.tier == 3
+    assert profile.model == "claude-opus-5-5"
     assert profile.provider == "anthropic"
 
 
@@ -152,12 +150,12 @@ def test_dotted_config_keys_merge_per_key(host: Path) -> None:
 
 def test_two_personas_under_one_root_resolve_independently(host: Path) -> None:
     """Resolving one delta must not mutate the root the next one merges over."""
-    reader = _persona(host, "reader", "name: Reader\ntier: 1\n")
-    writer = _persona(host, "writer", "name: Writer\ntier: 3\n")
+    reader = _persona(host, "reader", "name: Reader\nmodel: claude-haiku-4-5\n")
+    writer = _persona(host, "writer", "name: Writer\nmodel: claude-opus-5-5\n")
 
-    assert load_profile(reader).tier == 1
-    assert load_profile(writer).tier == 3
-    assert load_profile(reader).tier == 1
+    assert load_profile(reader).model == "claude-haiku-4-5"
+    assert load_profile(writer).model == "claude-opus-5-5"
+    assert load_profile(reader).model == "claude-haiku-4-5"
 
 
 # ── Anchoring at the profile root ────────────────────────────────────────────

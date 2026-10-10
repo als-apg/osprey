@@ -143,7 +143,8 @@ still starting and for any teardown already under way. A child also never
 outlives this process: it exits when its stdin reaches end-of-file — which the
 kernel delivers when this process dies, however it dies, because the pipe
 descriptors are non-inheritable (PEP 446) and no sibling child holds another's
-pipe open — and its watchdog exits it if it is ever reparented to init.
+pipe open — and its watchdog exits it once its parent PID differs from the one
+recorded at start.
 
 Teardown is shielded from the caller's cancellation: a call cancelled while its
 child is being killed does not leave the kill half-done.
@@ -157,7 +158,6 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
-import re
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -166,18 +166,18 @@ from pathlib import Path
 from typing import Any
 
 from osprey_connectors import posture_store
-from osprey_connectors.config import resolve_env_vars
+from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
 from osprey_connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
     is_readonly_run,
 )
 from osprey_connectors.ipc.launch import (
-    DEFAULT_TERMINATE_GRACE_S,
     AttributedReader,
     host_env,
+    kill_host,
     spawn_host,
-    terminate_host,
+    stop_host,
 )
 from osprey_connectors.ipc.proxy import (
     ChildUnresponsiveError,
@@ -191,7 +191,8 @@ from osprey_connectors.ipc.verification import (
     live_collision,
     verify_host_report,
 )
-from osprey_connectors.types import CHANNEL_ACCESS_TYPES
+from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code, terminate
+from osprey_connectors.types import TRANSPORT_CA
 
 __all__ = [
     "READONLY",
@@ -219,14 +220,6 @@ DEFAULT_CALL_DEADLINE_S = 60.0
 #: How long a child that missed a call's deadline gets to answer a ping before
 #: it is judged wedged and killed.
 DEFAULT_PING_TIMEOUT_S = 2.0
-
-#: How long, after a child is killed, the proxy's reader gets to turn the dead
-#: pipe into failures on the calls that were in flight.
-_SETTLE_TIMEOUT_S = 2.0
-
-#: The placeholder shapes :func:`resolve_env_vars` substitutes; one still
-#: present after resolution named a variable the environment does not have.
-_PLACEHOLDER = re.compile(r"\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*")
 
 #: Stages of :class:`ConnectorHostStartError`.
 STAGE_CONFIG = "config"
@@ -378,17 +371,6 @@ def _label(key: _Key) -> str:
 def _landing(method: str) -> str:
     """What a lost call's message says about a write that may have been sent."""
     return " The write may or may not have landed." if method in _WRITE_METHODS else ""
-
-
-def _unresolved(block: Any) -> list[str]:
-    """Every placeholder left in *block*, depth-first."""
-    if isinstance(block, str):
-        return _PLACEHOLDER.findall(block)
-    if isinstance(block, Mapping):
-        return [found for value in block.values() for found in _unresolved(value)]
-    if isinstance(block, list | tuple):
-        return [found for value in block for found in _unresolved(value)]
-    return []
 
 
 # ---------------------------------------------------------------------------
@@ -675,7 +657,9 @@ class ConnectorHostPool:
         derivation, readonly_run, writes = self._derive(key, section)
         connector_type = derivation.connector_type
 
-        unresolved = _unresolved(connector_block({"control_system": section}, connector_type))
+        unresolved = unresolved_placeholders(
+            connector_block({"control_system": section}, connector_type)
+        )
         if unresolved:
             raise ConnectorHostStartError(
                 f"Refusing to start a connector-host child for {_label(key)}: "
@@ -741,7 +725,14 @@ class ConnectorHostPool:
                 ) from exc
             except Exception as exc:
                 if isinstance(exc, ConnectionError) and not raised_by_child(exc):
-                    await terminate_host(process, self._terminate_grace_s)
+                    # The pipe closed, so the child is exiting: its status is
+                    # reaped before anything signals it. A signal sent to an
+                    # exited, unreaped child reaps it out from under the event
+                    # loop's watcher, which then reports exit code 255. The
+                    # pipe is known closed here, so this wait runs the full
+                    # grace on purpose, longer than terminate's own window.
+                    await reap_exit_code(process, self._terminate_grace_s)
+                    await terminate(process, self._terminate_grace_s)
                     raise failure(
                         STAGE_INIT,
                         f"exited before answering its init frame (exit code "
@@ -803,7 +794,7 @@ class ConnectorHostPool:
         before it spawns, restated for what the pool can see — the
         ``control_system`` section, not the full project config:
 
-        * A Channel Access type must select a gateway. ``connect()`` configures
+        * A connector whose transport is Channel Access must select a gateway. ``connect()`` configures
           the process only ``if gateway_config:``, so a block with no gateway
           for the role this run selects sets no ``EPICS_CA_*`` variable at all
           — not even ``EPICS_CA_AUTO_ADDR_LIST=NO`` — and libca broadcasts its
@@ -820,16 +811,17 @@ class ConnectorHostPool:
           the refusal is the negative half — whatever the stand-in is, it is
           not the machine — with addresses compared as written, never resolved.
 
-        Types that talk to no gateway — the mock, and the test suite's mock
-        subclasses — derive no rows and are not Channel Access, so neither gate
-        applies to them.
+        A connector whose transport is in process — the simulator served inside
+        the child, and the test suite's dotted doubles, which have no transport
+        row — derives no rows and dials no gateway, so neither gate applies to
+        it.
         """
         target, _ = key
         connector_type = derivation.connector_type
         selected = derivation.selected_endpoint()
         block_key = f"control_system.connector.{connector_type}"
 
-        if connector_type in CHANNEL_ACCESS_TYPES and selected is None:
+        if derivation.transport == TRANSPORT_CA and selected is None:
             configured = sorted(derivation.endpoints) or "none"
             return (
                 f"it resolves to {connector_type!r}, which speaks Channel Access, and "
@@ -865,42 +857,42 @@ class ConnectorHostPool:
         failure: Any,
     ) -> None:
         """Refuse a child whose report is not what this process derives."""
-        # The child echoes the target it was sent, so only the type it resolved
-        # that target to can differ — a child from another build of the package.
-        if report.get("connector_type") != derivation.connector_type:
+        verification = verify_host_report(
+            derivation, report, readonly_run=readonly_run, writes_enabled=writes
+        )
+        if verification.ok:
+            return
+        if verification.field == "connector_type":
             raise failure(
                 STAGE_VERIFY,
-                f"reports connector_type {report.get('connector_type')!r} where "
-                f"{derivation.connector_type!r} was derived.",
+                f"reports connector_type {verification.got!r} where "
+                f"{verification.expected!r} was derived.",
             )
-
-        # Posture first, for every connector type: the endpoint check below
-        # only sees posture through the gateway role, which a connector with no
-        # gateways, or with a read_only row alone, never varies.
-        if readonly_run:
-            if report.get("readonly_run") is not True:
-                raise failure(
-                    STAGE_VERIFY,
-                    "was asked to run readonly but reports it is not in a readonly run.",
-                )
-        else:
-            child_writes = report.get("writes_enabled") is True
-            if child_writes != writes:
-                source = self._config_file or "none given, so CONFIG_FILE or ./config.yml"
-                raise failure(
-                    STAGE_VERIFY,
-                    f"reports writes {'armed' if child_writes else 'off'} where the section "
-                    f"given to the pool has them {'armed' if writes else 'off'}. The child "
-                    f"reads its write posture from config_file ({source}), not from the "
-                    "section; the two must agree.",
-                )
-
-        verification = verify_host_report(derivation, report)
-        if not verification.ok:
+        if verification.field == "transport":
             raise failure(
                 STAGE_VERIFY,
-                f"came up somewhere other than derived: {verification.detail}",
+                f"reports transport {verification.got!r} where "
+                f"{verification.expected!r} was derived.",
             )
+        if verification.field == "readonly_run":
+            raise failure(
+                STAGE_VERIFY,
+                "was asked to run readonly but reports it is not in a readonly run.",
+            )
+        if verification.field == "writes_enabled":
+            child_writes = verification.got is True
+            source = self._config_file or "none given, so CONFIG_FILE or ./config.yml"
+            raise failure(
+                STAGE_VERIFY,
+                f"reports writes {'armed' if child_writes else 'off'} where the section "
+                f"given to the pool has them {'armed' if writes else 'off'}. The child "
+                f"reads its write posture from config_file ({source}), not from the "
+                "section; the two must agree.",
+            )
+        raise failure(
+            STAGE_VERIFY,
+            f"came up somewhere other than derived: {verification.detail}",
+        )
 
     async def _discard(self, child: _PoolChild, reason: str, cause: str) -> None:
         """Drop a child that failed: attribute, kill, and let the proxy settle.
@@ -932,13 +924,16 @@ class ConnectorHostPool:
         return task
 
     async def _kill(self, child: _PoolChild) -> None:
-        await terminate_host(child.process, self._terminate_grace_s)
-        await child.proxy.drain(_SETTLE_TIMEOUT_S)
-        await child.proxy.disconnect(ack_timeout=0.0)
+        await kill_host(
+            child.process,
+            child.proxy,
+            child.reader,
+            reason=None,
+            grace_s=self._terminate_grace_s,
+        )
 
     async def _orderly_stop(self, child: _PoolChild) -> None:
-        await child.proxy.disconnect()
-        await terminate_host(child.process, self._terminate_grace_s)
+        await stop_host(child.process, child.proxy, grace_s=self._terminate_grace_s)
 
 
 # ---------------------------------------------------------------------------

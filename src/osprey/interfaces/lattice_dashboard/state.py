@@ -1,25 +1,76 @@
-"""Lattice state manager — JSON-backed state for the dashboard.
+"""Lattice state — the selection, the what-if inputs and the figure store.
 
-Manages ``var/agent_data/lattice/state.json`` with thread-safe
-load/save operations.  Workers and the dashboard server coordinate
-through this file.
+Everything lives under ``<agent_data>/lattice/``::
+
+    selection.json                       the model the operator picked (shared)
+    figures/shared/<figure>/<key>.json   figures of the unmodified deck (shared)
+    sessions/<session>/whatif.json       overrides, baseline and settings
+    sessions/<session>/jobs/<job>.json   one immutable input file per launch
+    sessions/<session>/figures/<figure>/<key>.json   what-if figures
+
+A figure is stored under the content key of its inputs (:func:`figure_key`):
+the deck, the engine's prepared settings, the figure's settings group, the
+overrides and the baseline overrides. A figure is shown only for the key of
+the inputs on screen, so a switch, an override or a settings change needs no
+file to be deleted: the new key simply has no file until its worker writes
+one. A figure with no override and no baseline override lands in the shared
+store, every other one in its session's.
 """
 
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import logging
-import threading
+import os
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
+
+if TYPE_CHECKING:
+    from osprey.simulation.engines.pyat import Prepared
 
 logger = logging.getLogger("osprey.lattice_dashboard.state")
 
 FAST_FIGURES = ("optics", "resonance", "chromaticity", "footprint")
 VERIFICATION_FIGURES = ("da", "lma")
 ALL_FIGURES = FAST_FIGURES + VERIFICATION_FIGURES
+
+#: The solve a model without ``settings.pyat.solve`` uses.
+PERIODIC = "periodic"
+
+#: The solve whose optics start from ``settings.pyat.twiss_in``.
+SINGLE_PASS = "single_pass"
+
+#: The only figure a ``single_pass`` model draws: it has no tune, so no figure
+#: built on tunes, chromaticity or turn-by-turn tracking applies to it.
+OPTICS_ONLY = ("optics",)
+
+#: The refusal a figure route gives a figure the selected model cannot draw.
+SINGLE_PASS_UNAVAILABLE = "not available for a single-pass model"
+
+#: The settings group each figure's worker reads; None for a figure with none.
+FIGURE_SETTINGS: dict[str, str | None] = {
+    "optics": None,
+    "resonance": None,
+    "chromaticity": "chromaticity",
+    "footprint": "footprint",
+    "da": "da",
+    "lma": "lma",
+}
+
+#: The session every request belongs to.
+DEFAULT_SESSION = "default"
+
+#: The scope of the figures every session shares.
+SHARED_SCOPE = "shared"
+
+#: How many keys of one figure a scope keeps; older ones are pruned on write.
+KEPT_KEYS = 8
+
+SelectionStatus = Literal["loading", "ready", "failed", "none"]
 
 DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
     "da": {
@@ -76,12 +127,174 @@ _VALIDATION_RANGES: dict[str, dict[str, tuple[float, float]]] = {
 }
 
 
+@dataclass(frozen=True)
+class Capabilities:
+    """The figures a selection draws.
+
+    Attributes:
+        figures: Every figure it draws.
+        fast_figures: The ones a refresh recomputes.
+        verify: Whether the verification figures apply.
+    """
+
+    figures: tuple[str, ...] = ()
+    fast_figures: tuple[str, ...] = ()
+    verify: bool = False
+
+
+def capabilities_for(solve: str) -> Capabilities:
+    """Return the capabilities of a model with *solve*."""
+    if solve == SINGLE_PASS:
+        return Capabilities(figures=OPTICS_ONLY, fast_figures=OPTICS_ONLY, verify=False)
+    return Capabilities(figures=ALL_FIGURES, fast_figures=FAST_FIGURES, verify=True)
+
+
+@dataclass(frozen=True, eq=False)
+class Selection:
+    """The model the dashboard draws, as one resolve found it.
+
+    Attributes:
+        model: The model's name, or None when nothing is selected.
+        status: ``loading`` while a resolve runs, ``ready`` once the deck is
+            loaded, ``failed`` when the engine or the deck stopped it,
+            ``none`` when the build offers no such model.
+        error: Why the selection failed, or None.
+        deck: The deck copy the figures are computed from.
+        deck_sha256: The deck's digest.
+        prepared: The model's settings as the pyAT engine prepared them.
+        capabilities: The figures the model draws.
+        families: The deck's magnet families, by name.
+        summary: The deck's own numbers: energy, circumference, periodicity
+            and element count.
+    """
+
+    model: str | None = None
+    status: SelectionStatus = "none"
+    error: str | None = None
+    deck: Path | None = None
+    deck_sha256: str | None = None
+    prepared: Prepared | None = None
+    capabilities: Capabilities = field(default_factory=Capabilities)
+    families: dict[str, Any] = field(default_factory=dict)
+    summary: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def ready(self) -> bool:
+        """Whether figures can be computed for this selection."""
+        return self.status == "ready" and self.prepared is not None and self.deck is not None
+
+
+def describe_deck(deck: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return a deck's magnet families and its own summary numbers.
+
+    Loads the deck through pyAT, so it is called off the event loop.
+
+    Returns:
+        ``(families, summary)``: each family's type, parameter, value, count
+        and slider range, and the deck's energy, circumference, periodicity
+        and element count.
+    """
+    import at
+
+    ring = at.load_lattice(str(deck))
+    sect_count = sum(
+        1
+        for elem in ring
+        if getattr(elem, "FamName", "").startswith("SECT")
+        and getattr(elem, "FamName", "")[4:].isdigit()
+    )
+    periodicity = sect_count if sect_count > 1 else int(getattr(ring, "periodicity", 1))
+
+    families: dict[str, dict[str, Any]] = {}
+    for elem in ring:
+        fam = getattr(elem, "FamName", None)
+        if fam is None:
+            continue
+        if fam in families:
+            families[fam]["count"] += 1
+            continue
+
+        # Check H (sextupole) BEFORE K (quadrupole), since sextupoles
+        # also have K attribute (returns their quadrupole component = 0)
+        h_val = getattr(elem, "H", None)
+        if h_val is None:
+            poly_b = getattr(elem, "PolynomB", None)
+            if poly_b is not None and len(poly_b) >= 3:
+                h_val = poly_b[2]
+        if h_val is not None and float(h_val) != 0.0:
+            families[fam] = {
+                "type": "sextupole",
+                "param": "H",
+                "value": float(h_val),
+                "count": 1,
+                "range": [-200.0, 200.0],
+            }
+            continue
+
+        k_val = getattr(elem, "K", None)
+        if k_val is not None:
+            families[fam] = {
+                "type": "quadrupole",
+                "param": "K",
+                "value": float(k_val),
+                "count": 1,
+                "range": [-5.0, 5.0],
+            }
+
+    summary: dict[str, Any] = {
+        "energy_gev": float(ring.energy) / 1e9,
+        "circumference_m": float(ring.get_s_pos(len(ring))[0]),
+        "periodicity": periodicity,
+        "num_elements": len(ring),
+    }
+    return families, summary
+
+
+def prepared_lists(prepared: Prepared) -> dict[str, Any]:
+    """Return *prepared* as plain JSON values, every array a list of floats."""
+    twiss_in = (
+        None
+        if prepared.twiss_in is None
+        else {key: [float(v) for v in values] for key, values in prepared.twiss_in.items()}
+    )
+    return {
+        "solve": prepared.solve,
+        "twiss_in": twiss_in,
+        "rest_mass_gev": float(prepared.rest_mass_gev),
+        "length_m": float(prepared.length_m),
+    }
+
+
+def figure_key(
+    figure: str,
+    *,
+    deck_sha256: str,
+    prepared: dict[str, Any],
+    settings: dict[str, Any] | None,
+    overrides: dict[str, float],
+    baseline_overrides: dict[str, float] | None,
+) -> str:
+    """Return the content key of one figure's inputs.
+
+    The key is the SHA-256 of the canonical JSON of the inputs; it names no
+    session, so a figure of the same inputs has the same key everywhere.
+    """
+    inputs = {
+        "figure": figure,
+        "deck_sha256": deck_sha256,
+        "prepared": prepared,
+        "settings": settings,
+        "overrides": dict(sorted(overrides.items())),
+        "baseline_overrides": (
+            None if baseline_overrides is None else dict(sorted(baseline_overrides.items()))
+        ),
+    }
+    canonical = json.dumps(inputs, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
-
-
-def _default_figure_status() -> dict[str, dict[str, Any]]:
-    return {name: {"status": "idle", "updated": None, "error": None} for name in ALL_FIGURES}
 
 
 def _validate_setting(group: str, key: str, value: Any) -> Any:
@@ -122,323 +335,287 @@ def _validate_setting(group: str, key: str, value: Any) -> Any:
     return value
 
 
+def _merged_settings(saved: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = copy.deepcopy(DEFAULT_SETTINGS)
+    for group, defaults in merged.items():
+        for key in defaults:
+            if key in saved.get(group, {}):
+                defaults[key] = saved[group][key]
+    return merged
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    """Write *payload* to *path* through a temporary file, so no reader sees half of it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(payload, indent=2, default=str))
+    tmp.replace(path)
+
+
+def _read_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+
+
 class LatticeState:
-    """Thread-safe JSON state manager for the lattice dashboard.
+    """The dashboard's selection, one session's what-if inputs, and the figure store.
+
+    Called on the event loop only. Constructing it writes no file.
 
     Args:
-        state_dir: Directory for state.json / baseline.json.
-            Typically ``var/agent_data/lattice/`` under the deployment repo.
+        root: The lattice directory, ``<agent_data>/lattice/``.
+        session: The session whose what-if inputs this state holds.
     """
 
-    def __init__(self, state_dir: Path) -> None:
-        self._dir = Path(state_dir)
-        self._dir.mkdir(parents=True, exist_ok=True)
-        self._state_path = self._dir / "state.json"
-        self._baseline_path = self._dir / "baseline.json"
-        self._lock = threading.Lock()
+    def __init__(self, root: Path, session: str = DEFAULT_SESSION) -> None:
+        self._root = Path(root)
+        self._session = session
+        #: The current selection; replaced by each resolve.
+        self.selection = Selection(status="loading")
+        self._decks: dict[Path, tuple[tuple[int, int], str | None]] = {}
+
+    # ── Paths ─────────────────────────────────────────────
 
     @property
-    def state_path(self) -> Path:
-        return self._state_path
+    def session_dir(self) -> Path:
+        return self._root / "sessions" / self._session
 
     @property
-    def figures_dir(self) -> Path:
-        d = self._dir / "figures"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+    def jobs_dir(self) -> Path:
+        return self.session_dir / "jobs"
 
-    # ── Load / Save ───────────────────────────────────────────
+    def _scope_dir(self, scope: str) -> Path:
+        if scope == SHARED_SCOPE:
+            return self._root / "figures" / SHARED_SCOPE
+        return self.session_dir / "figures"
 
-    def load(self) -> dict[str, Any]:
-        with self._lock:
-            return self._load_unlocked()
+    # ── Selection ─────────────────────────────────────────
 
-    def _load_unlocked(self) -> dict[str, Any]:
-        if self._state_path.exists():
-            return cast(dict[str, Any], json.loads(self._state_path.read_text()))
-        return self._empty_state()
+    def wanted(self) -> str | None:
+        """Return the model the operator picked, or None for the build's default."""
+        record = _read_json(self._root / "selection.json")
+        model = record.get("model") if isinstance(record, dict) else None
+        return str(model) if model else None
 
-    def save(self, state: dict[str, Any]) -> None:
-        with self._lock:
-            self._save_unlocked(state)
+    def last_model(self) -> str | None:
+        """Return the model the what-if inputs belong to, or None."""
+        model = self._whatif()["model"]
+        return str(model) if model else None
 
-    def _save_unlocked(self, state: dict[str, Any]) -> None:
-        self._state_path.write_text(json.dumps(state, indent=2, default=str))
+    def set_wanted(self, model: str) -> None:
+        """Record *model* as the operator's pick."""
+        _write_json(self._root / "selection.json", {"model": model})
 
-    @staticmethod
-    def _empty_state() -> dict[str, Any]:
-        return {
-            "base_lattice": None,
-            "overrides": {},
-            "summary": {},
-            "families": {},
-            "figures": _default_figure_status(),
-            "baseline": None,
-            "settings": copy.deepcopy(DEFAULT_SETTINGS),
-        }
+    def adopt(self, selection: Selection, *, reset: bool) -> bool:
+        """Make *selection* current.
 
-    # ── Initialize ────────────────────────────────────────────
+        The what-if inputs belong to one model and deck: when *selection* is
+        another, or *reset* is set, its overrides are dropped and the baseline
+        is set to the unmodified deck. Settings are kept.
 
-    def initialize(self, lattice_path: str) -> dict[str, Any]:
-        """Load a lattice file, discover magnet families, compute summary.
-
-        This performs the heavy pyAT import inside the call so the
-        import cost is only paid when actually initializing.
+        Returns:
+            True when the what-if inputs were reset for a ready selection.
         """
-        import at
-        import numpy as np
-
-        ring = at.load_lattice(lattice_path)
-        refpts = range(len(ring) + 1)
-        ld0, rd, ld = at.get_optics(ring, refpts=refpts, get_chrom=True)
-
-        tunes = [float(rd.tune[0]), float(rd.tune[1])]
-        chrom = [float(rd.chromaticity[0]), float(rd.chromaticity[1])]
-        energy_gev = float(ring.energy) / 1e9
-        circumference = float(ring.get_s_pos(len(ring))[0])
-        sect_count = sum(
-            1
-            for elem in ring
-            if getattr(elem, "FamName", "").startswith("SECT")
-            and getattr(elem, "FamName", "")[4:].isdigit()
+        self.selection = selection
+        if not selection.ready:
+            return False
+        whatif = self._whatif()
+        same = (
+            whatif.get("model") == selection.model
+            and whatif.get("deck_sha256") == selection.deck_sha256
         )
-        periodicity = sect_count if sect_count > 1 else int(getattr(ring, "periodicity", 1))
-
-        # Discover magnet families
-        families: dict[str, dict[str, Any]] = {}
-        for elem in ring:
-            fam = getattr(elem, "FamName", None)
-            if fam is None:
-                continue
-            if fam in families:
-                families[fam]["count"] += 1
-                continue
-
-            # Check H (sextupole) BEFORE K (quadrupole), since sextupoles
-            # also have K attribute (returns their quadrupole component = 0)
-            h_val = getattr(elem, "H", None)
-            if h_val is None:
-                poly_b = getattr(elem, "PolynomB", None)
-                if poly_b is not None and len(poly_b) >= 3:
-                    h_val = poly_b[2]
-            if h_val is not None and float(h_val) != 0.0:
-                families[fam] = {
-                    "type": "sextupole",
-                    "param": "H",
-                    "value": float(h_val),
-                    "count": 1,
-                    "range": [-200.0, 200.0],
-                }
-                continue
-
-            k_val = getattr(elem, "K", None)
-            if k_val is not None:
-                families[fam] = {
-                    "type": "quadrupole",
-                    "param": "K",
-                    "value": float(k_val),
-                    "count": 1,
-                    "range": [-5.0, 5.0],
-                }
-
-        summary = {
-            "energy_gev": energy_gev,
-            "circumference_m": circumference,
-            "periodicity": periodicity,
-            "tunes": tunes,
-            "chromaticity": chrom,
-            "num_elements": len(ring),
-            "beta_max": (
-                [float(np.max(ld.beta[:, 0])), float(np.max(ld.beta[:, 1]))]
-                if ld.beta.size > 0
-                else [0.0, 0.0]
-            ),
-        }
-
-        # Preserve existing settings across re-init
-        existing = self.load() if self._state_path.exists() else {}
-        preserved_settings = existing.get("settings", copy.deepcopy(DEFAULT_SETTINGS))
-
-        state = {
-            "base_lattice": str(lattice_path),
-            "overrides": {},
-            "summary": summary,
-            "families": families,
-            "figures": _default_figure_status(),
-            "baseline": None,
-            "settings": preserved_settings,
-        }
-
-        self.save(state)
-
-        # Auto-set baseline
+        if same and not reset:
+            return False
+        whatif.update(
+            model=selection.model, deck_sha256=selection.deck_sha256, overrides={}, baseline=None
+        )
+        self._save_whatif(whatif)
         self.set_baseline()
+        return True
 
-        return state
+    # ── What-if inputs ────────────────────────────────────
 
-    # ── Parameter overrides ───────────────────────────────────
+    def _whatif(self) -> dict[str, Any]:
+        record = _read_json(self.session_dir / "whatif.json")
+        whatif: dict[str, Any] = record if isinstance(record, dict) else {}
+        whatif.setdefault("model", None)
+        whatif.setdefault("deck_sha256", None)
+        whatif.setdefault("overrides", {})
+        whatif.setdefault("baseline", None)
+        whatif.setdefault("settings", {})
+        return whatif
 
-    def set_param(self, family: str, value: float) -> dict[str, Any]:
-        """Set a magnet family parameter override and mark fast figures stale."""
-        with self._lock:
-            state = self._load_unlocked()
-            state["overrides"][family] = value
-            # Mark fast figures as stale
-            for fig_name in FAST_FIGURES:
-                if state["figures"][fig_name]["status"] == "ready":
-                    state["figures"][fig_name]["status"] = "stale"
-            # Mark verification figures as stale too
-            for fig_name in VERIFICATION_FIGURES:
-                if state["figures"][fig_name]["status"] == "ready":
-                    state["figures"][fig_name]["status"] = "stale"
-            self._save_unlocked(state)
-            return state
+    def _save_whatif(self, whatif: dict[str, Any]) -> None:
+        _write_json(self.session_dir / "whatif.json", whatif)
 
-    # ── Ring loader (with overrides) ──────────────────────────
+    @property
+    def overrides(self) -> dict[str, float]:
+        return cast(dict[str, float], self._whatif()["overrides"])
 
-    def get_ring(self) -> Any:
-        """Load the pyAT ring with current overrides applied."""
-        import at
-
-        state = self.load()
-        lattice_path = state.get("base_lattice")
-        if not lattice_path:
-            raise ValueError("No lattice loaded — call initialize() first")
-
-        ring = at.load_lattice(lattice_path)
-        overrides = state.get("overrides", {})
-
-        for fam_name, value in overrides.items():
-            fam_info = state["families"].get(fam_name, {})
-            param = fam_info.get("param", "K")
-            for elem in ring:
-                if getattr(elem, "FamName", None) == fam_name:
-                    setattr(elem, param, value)
-
-        return ring
-
-    # ── Figure status ─────────────────────────────────────────
-
-    def mark_computing(self, figure: str) -> None:
-        with self._lock:
-            state = self._load_unlocked()
-            state["figures"][figure] = {
-                "status": "computing",
-                "updated": _now_iso(),
-                "error": None,
-            }
-            self._save_unlocked(state)
-
-    def mark_ready(self, figure: str, summary_updates: dict[str, Any] | None = None) -> None:
-        with self._lock:
-            state = self._load_unlocked()
-            state["figures"][figure] = {
-                "status": "ready",
-                "updated": _now_iso(),
-                "error": None,
-            }
-            if summary_updates:
-                state["summary"].update(summary_updates)
-            self._save_unlocked(state)
-
-    def mark_error(self, figure: str, error: str) -> None:
-        with self._lock:
-            state = self._load_unlocked()
-            state["figures"][figure] = {
-                "status": "error",
-                "updated": _now_iso(),
-                "error": error,
-            }
-            self._save_unlocked(state)
-
-    # ── Settings ──────────────────────────────────────────
+    def set_param(self, family: str, value: float) -> None:
+        """Set a magnet family parameter override."""
+        whatif = self._whatif()
+        whatif["overrides"][family] = value
+        self._save_whatif(whatif)
 
     def get_settings(self) -> dict[str, Any]:
         """Return current settings merged with defaults for missing keys."""
-        state = self.load()
-        saved = state.get("settings", {})
-        merged: dict[str, Any] = copy.deepcopy(DEFAULT_SETTINGS)
-        for group, defaults in merged.items():
-            if group in saved:
-                for key in defaults:
-                    if key in saved[group]:
-                        defaults[key] = saved[group][key]
-        return merged
+        return _merged_settings(self._whatif()["settings"])
 
     def update_settings(self, new_settings: dict[str, Any]) -> dict[str, Any]:
-        """Deep-merge setting updates, validate, and mark affected figures stale."""
-        with self._lock:
-            state = self._load_unlocked()
-            settings: dict[str, Any] = state.get("settings", copy.deepcopy(DEFAULT_SETTINGS))
-
-            affected_figures: set[str] = set()
-            for group, values in new_settings.items():
-                if group not in DEFAULT_SETTINGS or not isinstance(values, dict):
-                    continue
-                if group not in settings:
-                    settings[group] = {}
-                for key, value in values.items():
-                    if key not in DEFAULT_SETTINGS[group]:
-                        continue
+        """Deep-merge setting updates and validate them."""
+        whatif = self._whatif()
+        settings = _merged_settings(whatif["settings"])
+        for group, values in new_settings.items():
+            if group not in DEFAULT_SETTINGS or not isinstance(values, dict):
+                continue
+            for key, value in values.items():
+                if key in DEFAULT_SETTINGS[group]:
                     settings[group][key] = _validate_setting(group, key, value)
-                # Map group → affected figure(s)
-                if group == "chromaticity":
-                    affected_figures.add("chromaticity")
-                elif group == "footprint":
-                    affected_figures.add("footprint")
-                elif group == "da":
-                    affected_figures.add("da")
-                elif group == "lma":
-                    affected_figures.add("lma")
-
-            state["settings"] = settings
-
-            for fig_name in affected_figures:
-                if state["figures"].get(fig_name, {}).get("status") == "ready":
-                    state["figures"][fig_name]["status"] = "stale"
-
-            self._save_unlocked(state)
-            return settings
+        whatif["settings"] = settings
+        self._save_whatif(whatif)
+        return settings
 
     def reset_settings(self) -> dict[str, Any]:
         """Reset all settings to defaults."""
-        with self._lock:
-            state = self._load_unlocked()
-            settings: dict[str, Any] = copy.deepcopy(DEFAULT_SETTINGS)
-            state["settings"] = settings
-            # Mark all figures stale
-            for fig_name in ALL_FIGURES:
-                if state["figures"].get(fig_name, {}).get("status") == "ready":
-                    state["figures"][fig_name]["status"] = "stale"
-            self._save_unlocked(state)
-            return settings
-
-    # ── Baseline ──────────────────────────────────────────────
-
-    def set_baseline(self) -> dict[str, Any]:
-        """Snapshot current state as the comparison baseline."""
-        with self._lock:
-            state = self._load_unlocked()
-            baseline = {
-                "summary": dict(state.get("summary", {})),
-                "overrides": dict(state.get("overrides", {})),
-                "set_at": _now_iso(),
-            }
-            state["baseline"] = baseline
-            self._save_unlocked(state)
-            # Also write a separate baseline.json for workers
-            self._baseline_path.write_text(json.dumps(baseline, indent=2, default=str))
-            return baseline
+        whatif = self._whatif()
+        whatif["settings"] = copy.deepcopy(DEFAULT_SETTINGS)
+        self._save_whatif(whatif)
+        return cast(dict[str, Any], whatif["settings"])
 
     def get_baseline(self) -> dict[str, Any] | None:
-        if self._baseline_path.exists():
-            return cast(dict[str, Any], json.loads(self._baseline_path.read_text()))
-        return None
+        return cast(dict[str, Any] | None, self._whatif()["baseline"])
+
+    def set_baseline(self) -> dict[str, Any]:
+        """Snapshot the current overrides and summary as the comparison baseline."""
+        whatif = self._whatif()
+        baseline = {
+            "summary": self.summary(),
+            "overrides": dict(whatif["overrides"]),
+            "set_at": _now_iso(),
+        }
+        whatif["baseline"] = baseline
+        self._save_whatif(whatif)
+        return baseline
 
     def clear_baseline(self) -> None:
-        with self._lock:
-            state = self._load_unlocked()
-            state["baseline"] = None
-            self._save_unlocked(state)
-        if self._baseline_path.exists():
-            self._baseline_path.unlink()
+        whatif = self._whatif()
+        whatif["baseline"] = None
+        self._save_whatif(whatif)
+
+    # ── Figure keys and the store ─────────────────────────
+
+    def _inputs(self, name: str) -> dict[str, Any] | None:
+        """Return figure *name*'s key inputs, or None with no ready selection."""
+        selection = self.selection
+        if not selection.ready or selection.prepared is None or selection.deck_sha256 is None:
+            return None
+        whatif = self._whatif()
+        group = FIGURE_SETTINGS[name]
+        baseline = whatif["baseline"]
+        return {
+            "deck_sha256": selection.deck_sha256,
+            "prepared": prepared_lists(selection.prepared),
+            "settings": None if group is None else _merged_settings(whatif["settings"])[group],
+            "overrides": dict(whatif["overrides"]),
+            "baseline_overrides": None if baseline is None else dict(baseline["overrides"]),
+        }
+
+    def figure_key(self, name: str) -> str | None:
+        """Return the key of figure *name* for the inputs on screen, or None."""
+        inputs = self._inputs(name)
+        return None if inputs is None else figure_key(name, **inputs)
+
+    def _scope(self) -> str:
+        whatif = self._whatif()
+        baseline = whatif["baseline"]
+        if whatif["overrides"] or (baseline is not None and baseline["overrides"]):
+            return self._session
+        return SHARED_SCOPE
+
+    def figure_path(self, name: str, key: str) -> Path:
+        """Return where figure *name* of *key* is stored for the inputs on screen."""
+        return self._scope_dir(self._scope()) / name / f"{key}.json"
+
+    def read_figure(self, name: str) -> dict[str, Any] | None:
+        """Return figure *name*'s stored ``{key, job_id, data}`` for the inputs on screen."""
+        key = self.figure_key(name)
+        if key is None:
+            return None
+        payload = _read_json(self.figure_path(name, key))
+        return payload if isinstance(payload, dict) and payload.get("key") == key else None
+
+    def has_other_key(self, name: str, key: str) -> bool:
+        """Whether figure *name* of the selected deck is stored under a key other than *key*."""
+        for scope in (SHARED_SCOPE, self._session):
+            directory = self._scope_dir(scope) / name
+            for path in directory.glob("*.json") if directory.is_dir() else ():
+                if path.stem != key and self._deck_of(path) == self.selection.deck_sha256:
+                    return True
+        return False
+
+    def _deck_of(self, path: Path) -> str | None:
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+        signature = (stat.st_mtime_ns, stat.st_size)
+        cached = self._decks.get(path)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+        payload = _read_json(path)
+        deck = payload.get("deck_sha256") if isinstance(payload, dict) else None
+        self._decks[path] = (signature, deck)
+        return deck
+
+    def prune(self, name: str, kept: int = KEPT_KEYS) -> None:
+        """Keep only the *kept* newest keys of figure *name* in each scope."""
+        for scope in (SHARED_SCOPE, self._session):
+            directory = self._scope_dir(scope) / name
+            if not directory.is_dir():
+                continue
+            files = sorted(
+                directory.glob("*.json"), key=lambda p: p.stat().st_mtime_ns, reverse=True
+            )
+            for path in files[kept:]:
+                path.unlink(missing_ok=True)
+                self._decks.pop(path, None)
+
+    def job_spec(self, name: str) -> dict[str, Any] | None:
+        """Return the inputs a worker of figure *name* reads, or None with no ready selection."""
+        inputs = self._inputs(name)
+        selection = self.selection
+        if inputs is None or selection.deck is None:
+            return None
+        return {
+            "figure": name,
+            "key": figure_key(name, **inputs),
+            "deck": str(selection.deck),
+            "periodicity": selection.summary.get("periodicity", 1),
+            "families": {fam: info["param"] for fam, info in sorted(selection.families.items())},
+            **inputs,
+        }
+
+    def write_job(self, spec: dict[str, Any], job_id: int) -> Path:
+        """Write one launch's immutable job file and return its path."""
+        path = self.jobs_dir / f"{job_id}.json"
+        _write_json(path, {**spec, "job_id": job_id})
+        return path
+
+    # ── Summary ───────────────────────────────────────────
+
+    def summary(self) -> dict[str, Any]:
+        """Return the deck's summary with the current optics figure's numbers.
+
+        Tunes, chromaticity and beta maxima come from the optics figure of
+        the inputs on screen and are absent until it exists.
+        """
+        summary = dict(self.selection.summary)
+        optics = self.read_figure("optics")
+        data = optics.get("data") if optics else None
+        updates = data.get("summary_updates") if isinstance(data, dict) else None
+        if isinstance(updates, dict):
+            summary.update(updates)
+        return summary

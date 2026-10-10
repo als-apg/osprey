@@ -1,0 +1,1 @@
+`osprey build` stops on a scenario archiver event whose `at` or `until` lies outside 0 to 1, whose `width` is not greater than 0, whose `at_time` is not an `HH:MM[:SS]` time of day, whose `at_when` is not `{days_ago: <int>, time: HH:MM[:SS]}`, or whose `to` the channel's value type, options or shape refuses.

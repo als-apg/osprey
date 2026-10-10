@@ -27,18 +27,15 @@ from typing import Any
 
 import pytest
 
-from osprey.deployment.graphdb_service import GRAPHDB_BUILD_INDEX_COMMAND
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.interfaces.channel_finder import database_api
-from osprey.interfaces.channel_finder.app import _open_graph_index
-from osprey.interfaces.channel_finder.database_api import UNRESOLVED_INDEX_PATH_REMEDY
 from osprey.mcp_server.graph.server_context import GraphUnreachable
 from osprey.services.channel_finder.graph_index.builder import (
     build_from_rows,
-    channels_from_rows,
     parse_corpus,
 )
 from osprey.services.channel_finder.graph_index.reader import (
-    BUILD_TTL_COMMAND,
+    REBUILD_COMMAND,
     GraphIndex,
     GraphIndexAbsence,
     open_graph_index,
@@ -106,7 +103,6 @@ def _index_over(text: str, directory: Path) -> Iterator[GraphIndex]:
     build_from_rows(
         parsed.binding_rows,
         parsed.class_rows,
-        channels_from_rows(parsed.binding_rows),
         index_path,
         {
             "corpus_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
@@ -362,7 +358,7 @@ class TestEmptyIndex:
         assert data["classes"] == []
         assert data["relationship_types"] == []
         assert data["truncated"] is False
-        assert any(BUILD_TTL_COMMAND in hint for hint in data["suggestions"])
+        assert any(REBUILD_COMMAND in hint for hint in data["suggestions"])
         assert any("small.ttl" in hint for hint in data["suggestions"])
 
     def test_the_empty_answer_blanks_the_class_rows_the_index_still_holds(self, client, tmp_path):
@@ -392,7 +388,7 @@ class TestEmptyIndex:
         assert data["rows"] == []
         assert data["pages"] == 0
         assert data["empty"] is True
-        assert any(BUILD_TTL_COMMAND in hint for hint in data["suggestions"])
+        assert any(REBUILD_COMMAND in hint for hint in data["suggestions"])
         # Emptiness is a fact of the index; the store is never asked.
         assert ctx.empty_checks == 0
 
@@ -454,7 +450,7 @@ class TestIndexUnavailable:
         # three keys off the body it is handed.
         assert body["detail"] == "No search index at g."
         assert body["error_type"] == "service_unavailable"
-        assert any(GRAPHDB_BUILD_INDEX_COMMAND in line for line in body["suggestions"])
+        assert any(GRAPHDB_REBUILD_HINT in line for line in body["suggestions"])
 
     # ``client`` builds the app through the same config seam, so the pin has to be
     # installed after it to be the one the routes read.
@@ -473,17 +469,17 @@ class TestIndexUnavailable:
         body = resp.json()
         assert body["detail"] == "The search index is not open."
         assert body["error_type"] == "service_unavailable"
-        assert any(GRAPHDB_BUILD_INDEX_COMMAND in line for line in body["suggestions"])
+        assert any(GRAPHDB_REBUILD_HINT in line for line in body["suggestions"])
 
     @pytest.mark.parametrize("path", ROUTES)
-    def test_a_project_with_an_index_location_but_no_corpus_is_told_to_configure_one(
+    def test_a_project_with_a_store_but_no_corpus_is_told_to_configure_one(
         self, client, monkeypatch, tmp_path, path
     ):
-        # An index location is not a build source: the build refuses without a
-        # corpus, so the remedy is the corpus key, as the MCP tool says too.
+        # A store is not a build source: the build refuses without a corpus, so
+        # the remedy is the corpus key, as the MCP tool says too.
         monkeypatch.setattr(
             "osprey.utils.workspace.load_osprey_config",
-            lambda: {"services": {"graphdb": {"index_path": "./data/graph.duckdb"}}},
+            lambda: {"services": {"graphdb": {"uri": "bolt://graph.example.org:7687"}}},
         )
         absence = GraphIndexAbsence("missing", tmp_path / "graph.duckdb", "No search index at g.")
         install_graph_paradigm(client, demo_context(), index=absence)
@@ -493,31 +489,7 @@ class TestIndexUnavailable:
         assert len(body["suggestions"]) == 1
         assert "services.graphdb.ttl_path" in body["suggestions"][0]
         assert "Turtle file" in body["suggestions"][0]
-        assert GRAPHDB_BUILD_INDEX_COMMAND not in body["suggestions"][0]
-
-    # ``client`` builds the app through the same config seam, so the pin has to be
-    # installed after it to be the one the routes read.
-    @pytest.mark.parametrize("path", ROUTES)
-    def test_a_malformed_index_path_names_the_key_and_no_build_step(
-        self,
-        client,
-        graph_config,  # noqa: ARG002
-        path,
-    ):
-        # The absence the app builds for a config typo carries the fix in its
-        # own sentence; a build would read the same malformed key, so none is
-        # suggested on top.
-        absence = _open_graph_index({"services": {"graphdb": {"index_path": 42}}})
-        assert isinstance(absence, GraphIndexAbsence)
-        install_graph_paradigm(client, demo_context(), index=absence)
-
-        resp = client.get(path)
-
-        assert resp.status_code == 503
-        body = resp.json()
-        assert body["detail"].endswith(UNRESOLVED_INDEX_PATH_REMEDY)
-        assert "services.graphdb.index_path" in body["detail"]
-        assert body["suggestions"] == []
+        assert GRAPHDB_REBUILD_HINT not in body["suggestions"][0]
 
     # ``client`` builds the app through the same config seam, so the pin has to be
     # installed after it to be the one the routes read.
@@ -543,7 +515,7 @@ class TestIndexUnavailable:
         # untrue. Retry first, rebuild only if it keeps failing.
         assert len(body["suggestions"]) == 1
         assert body["suggestions"][0].startswith("Retry the request")
-        assert GRAPHDB_BUILD_INDEX_COMMAND in body["suggestions"][0]
+        assert GRAPHDB_REBUILD_HINT in body["suggestions"][0]
 
     @pytest.mark.parametrize("path", ROUTES)
     def test_a_read_that_fails_on_an_open_index_is_a_500_not_a_remedy(self, client, path):
@@ -872,10 +844,9 @@ class TestDevice:
         assert data["section"] == "SR01C"
         assert data["system"] == "MG"
         assert data["sPositionM"] == DEMO_DEVICE_ROW["sPositionM"]
-        assert data["ordinalInSection"] == 1
+        assert data["ordinalInPlace"] == 1
         assert data["systemDescription"] == DEMO_DEVICE_ROW["systemDescription"]
         assert data["familyDescription"] == DEMO_DEVICE_ROW["familyDescription"]
-        assert data["ringDescription"] == DEMO_DEVICE_ROW["ringDescription"]
 
     def test_bindings_stay_grouped_under_their_signal_and_carry_their_edges(self, client):
         install_graph_paradigm(client, demo_context())
@@ -892,15 +863,7 @@ class TestDevice:
             f"{DEMO_DEVICE_ROW['device']}SP00",
         ]
         assert bindings[0]["description"] == "current readback"
-        assert bindings[0]["fieldDescription"] == "Current"
-        assert bindings[0]["subfieldDescription"] == "Readback"
-        assert set(bindings[0]) == {
-            "fullPv",
-            "edges",
-            "description",
-            "subfieldDescription",
-            "fieldDescription",
-        }
+        assert set(bindings[0]) == {"fullPv", "edges", "description"}
 
     def test_a_binding_without_a_semantic_signal_reports_no_edges(self, client):
         device = DEMO_DEVICE_ROW["device"]
@@ -914,15 +877,11 @@ class TestDevice:
                         {
                             "fullPv": f"{device}AM00",
                             "description": "read and set on one address",
-                            "fieldDescription": "Voltage",
-                            "subfieldDescription": None,
                             "edges": ["READSSIGNAL", "WRITESSIGNAL"],
                         },
                         {
                             "fullPv": f"{device}ST00",
                             "description": "status word, no semantic signal",
-                            "fieldDescription": None,
-                            "subfieldDescription": None,
                             "edges": [],
                         },
                     ],

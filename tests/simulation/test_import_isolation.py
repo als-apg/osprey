@@ -1,8 +1,7 @@
-"""Guard that importing the lattice modules does not drag in EPICS IOC deps.
+"""Guard that importing the model modules does not drag in EPICS IOC deps.
 
 ``softioc``/``cothread`` must stay behind the virtual-accelerator entry point:
-importing :mod:`osprey.simulation.lattice` in a plain venv has to work without
-them. The check runs in a subprocess on purpose — once a module is imported into
+importing the model layer in a plain venv has to work without them. The check runs in a subprocess on purpose — once a module is imported into
 the pytest host process the observation is worthless, so the target modules are
 never imported here.
 """
@@ -29,44 +28,29 @@ def _assert_subprocess_clean(code: str) -> None:
     assert "CLEAN" in r.stdout
 
 
-def test_lattice_import_is_plain_venv_clean():
-    assert CHECKOUT_SRC.is_dir(), f"checkout src/ not found at {CHECKOUT_SRC}"
-    code = (
-        "import osprey.simulation.lattice, osprey.simulation.facility_spec, sys;"
-        f"src={str(CHECKOUT_SRC) + os.sep!r};"
-        "origin=osprey.simulation.lattice.__file__;"
-        "assert origin.startswith(src), (origin, src);"
-        "bad=sorted(m for m in sys.modules if m.split('.')[0] in ('softioc','cothread'));"
-        "assert not bad, bad;"
-        "print('CLEAN')"
-    )
-    _assert_subprocess_clean(code)
-
-
 def test_va_model_import_is_softioc_clean():
     """The VA's LUME model layer must not drag in the EPICS IOC deps either.
 
-    ``model/`` is the facility adapter over the ``lume-pyat`` package, and
-    "softioc-free" is a shipping property rather than a preference: the
-    package it binds to has no softioc to import, so a stray IOC import on
-    this side would make the adapter unloadable anywhere the serving layer
-    is not also installed. Both the lazily-re-exporting package ``__init__``
-    and the module that owns the ring are checked -- the first would pass
-    trivially if the second were never imported.
+    The pyat engine's model and its variable classes are the facility adapter
+    over the ``lume-pyat`` package, and "softioc-free" is a shipping property
+    rather than a preference: the package it binds to has no softioc to
+    import, so a stray IOC import on this side would make the adapter
+    unloadable anywhere the serving layer is not also installed. Both modules
+    are checked -- the model imports the variables, but a variable module
+    imported alone must be clean as well.
 
-    The ``__file__`` assertions still pin the checkout: the physics moved to
-    the installed package, but these two modules did not, so resolving them
-    to site-packages would mean the test is examining an installed OSPREY
-    instead of the tree under test.
+    The ``__file__`` assertions pin the checkout: resolving these modules to
+    site-packages would mean the test is examining an installed OSPREY instead
+    of the tree under test.
     """
     assert CHECKOUT_SRC.is_dir(), f"checkout src/ not found at {CHECKOUT_SRC}"
     code = (
-        "import osprey.services.virtual_accelerator.model as pkg;"
-        "import osprey.services.virtual_accelerator.model.pyat as pyat;"
+        "import osprey.simulation.engines.pyat_variables as variables;"
+        "import osprey.simulation.engines.pyat_model as model;"
         "import sys;"
         f"src={str(CHECKOUT_SRC) + os.sep!r};"
-        "assert pkg.__file__.startswith(src), (pkg.__file__, src);"
-        "assert pyat.__file__.startswith(src), (pyat.__file__, src);"
+        "assert variables.__file__.startswith(src), (variables.__file__, src);"
+        "assert model.__file__.startswith(src), (model.__file__, src);"
         "bad=sorted(m for m in sys.modules if m.split('.')[0] in ('softioc','cothread'));"
         "assert not bad, bad;"
         "print('CLEAN')"

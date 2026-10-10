@@ -1,7 +1,7 @@
 """Apply simulation scenarios: make telemetry and logbook live, deterministically.
 
-:func:`apply_scenarios` is the one entry point that composes a set of
-self-contained scenario bundles and makes everything live at once. It computes a
+:func:`apply_scenarios` is the one entry point that composes a set of the
+render's scenarios and makes everything live at once. It computes a
 single apply-time anchor T0 and uses it for both the simulator state (so
 ``at_offset`` telemetry anchors against it) and logbook timestamp resolution, so
 the narrative the agent searches always matches the telemetry it reads, against
@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import asyncio
 import math
-import os
 import tempfile
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -25,34 +25,41 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from osprey.connectors.types import MOCK, MONGODB_ARCHIVER, resolve_archiver_type
+from osprey.connectors.types import MONGODB_ARCHIVER, resolve_archiver_type
 from osprey.port_layout import default_port, resolve_port_base
-from osprey.simulation.engine import (
-    ACTIVE_SCENARIOS_FILENAME,
-    DEFAULT_SCENARIO,
-    SimulationEngine,
-    resolve_active_scenarios,
-    resolve_state_dir,
-)
-from osprey.simulation.machine import load_narratives, parse_machine, read_machine_json
 from osprey.utils.config import get_facility_timezone, load_config
 from osprey.utils.logger import get_logger
 from osprey.utils.relative_time import resolve_relative_timestamp
-from osprey_connectors.simulation.engine import resolve_simulation_file
+from osprey_connectors.archiver.field_names import field_name
+from osprey_connectors.simulation.state import (
+    ACTIVE_SCENARIOS_FILENAME,
+    DEFAULT_SCENARIO,
+    composed_set,
+    read_active_state,
+    resolve_active_scenarios,
+    scenario_targets,
+    write_active_state,
+)
+from osprey_connectors.workspace import resolve_simulation_state_dir
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine, Iterator, Mapping, Sequence
+    from collections.abc import Callable, Coroutine, Iterator, Sequence
     from zoneinfo import ZoneInfo
 
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
-    from osprey.simulation.archiver_seed import SeedKnobs
-    from osprey.simulation.machine import BpmErrorSpec, PlotSpec, Scenario, ScenarioLogEntry
+    from osprey_connectors.simulation.archive import ArchiveComposite, SeedKnobs
+    from osprey_connectors.simulation.logbook import PlotSpec, ScenarioLogEntry
+    from osprey_connectors.simulation.view import SimulatorView
 
 logger = get_logger("simulation_apply")
 
-#: The ``ariel:`` key naming a directory of scenario narratives a deployment
-#: with no simulation seeds into its empty logbook.
+#: The ``ariel:`` key naming the scenarios whose logbook stories a deploy seeds
+#: into an empty logbook in place of the active set's: ``all``, or a list of
+#: scenario names.
 DEMO_NARRATIVE_KEY = "demo_narrative"
+
+#: The :data:`DEMO_NARRATIVE_KEY` value naming every scenario the simulator view lists.
+DEMO_NARRATIVE_ALL = "all"
 
 _T = TypeVar("_T")
 
@@ -62,8 +69,7 @@ def _config_file(project_dir: Path) -> Path:
 
     A deployment repo keeps its render under ``build/``, so the config sits at
     ``<repo>/build/config.yml`` while everything else this module resolves — the
-    ``data/simulation/`` model, the mutable state under ``var/agent_data/`` —
-    anchors at the repo root. A container's project directory *is* the render
+    mutable state under ``var/agent_data/`` — anchors at the repo root. A container's project directory *is* the render
     and holds ``config.yml`` at its own root. One directory still identifies the
     deployment either way; only the config moved, so only the config lookup
     needs to know.
@@ -72,28 +78,6 @@ def _config_file(project_dir: Path) -> Path:
 
     rendered = rendered_config_path(project_dir)
     return rendered if rendered.is_file() else project_dir / "config.yml"
-
-
-def _require_simulation_file(config: dict, project_dir: Path, scope: str) -> Path:
-    """Resolve the simulation-model file, or raise the not-simulation-backed error.
-
-    Both entry points into a built project -- :func:`apply_scenarios` and
-    :func:`compute_scenario_physics_env` -- refuse the same way on the same two
-    branches (the mock type, whose one key is simply unset, versus a non-mock
-    type, whose own key and the mock fallback were both tried). ``scope`` is the
-    trailing clause naming what is refusing, so each caller keeps its own wording.
-    """
-    machine_path, active_type, type_key, mock_key = resolve_simulation_file(config, project_dir)
-    if machine_path is None:
-        if active_type == MOCK:
-            raise ValueError(
-                f"Project {project_dir} has no mock 'simulation_file' configured; {scope}"
-            )
-        raise ValueError(
-            f"Project {project_dir} has no simulation_file configured for "
-            f"control_system.type '{active_type}' (tried {type_key} and {mock_key}); {scope}"
-        )
-    return machine_path
 
 
 def _run_coro(make_coro: Callable[[], Coroutine[Any, Any, _T]]) -> _T:
@@ -192,14 +176,19 @@ def apply_scenarios(
 ) -> ApplyResult:
     """Compose and activate scenarios for a built project; optionally seed its logbook.
 
+    The set is judged against the scenarios of the render's simulator view and
+    written to the scenario state file (see
+    :func:`~osprey_connectors.simulation.state.write_active_state`).
+
     Args:
-        project_dir: The deployment repo root — it anchors the ``data/simulation/``
-            model and the scenario state under ``var/agent_data/simulation/``,
-            and its render supplies ``config.yml`` (see :func:`_config_file`).
+        project_dir: The deployment repo root — it anchors the scenario state
+            under ``var/agent_data/simulation/``, and its render supplies
+            ``config.yml`` (see :func:`_config_file`) and the simulator view.
         names: Scenario names to activate (``nominal`` is always implicit).
         seed_logbook: When True (and the project has an ``ariel`` config),
             purge and reseed the ARIEL logbook from the active scenarios'
-            entries so the narrative matches the telemetry.
+            ``logbook`` blocks in the simulator view, so the narrative matches
+            the telemetry.
         seed_archive: When True (and the project has a stored archive), rewrite
             the event windows of that archive so its history matches the
             telemetry too. A project whose history is synthesized at read time
@@ -212,52 +201,63 @@ def apply_scenarios(
         :class:`ApplyResult` with the resolved active set and seed/purge status.
 
     Raises:
-        ValueError: If the project is not simulation-backed, a scenario name is
+        ValueError: If the render carries no simulator view, a scenario name is
             unknown, or the requested set does not compose (channel collision).
     """
+    from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView
+
     project_dir = Path(project_dir)
     config = load_config(str(_config_file(project_dir)))
 
-    machine_path = _require_simulation_file(
-        config,
-        project_dir,
-        "`sim apply` only applies to simulation-backed projects (guards a real DB).",
-    )
-    engine = SimulationEngine.from_file(
-        machine_path, state_dir=resolve_state_dir(config, project_dir)
-    )
+    view = SimulatorView.find(project_dir)
+    if view is None:
+        raise ValueError(
+            f"Project {project_dir} has no simulator view in "
+            f"{SimulatorView.path_for_project(project_dir)}; "
+            "`sim apply` only applies to simulation-backed projects (guards a real DB). "
+            "Run 'osprey build'."
+        )
+    scenarios = _scenarios(view)
 
     # Default anchor in the FACILITY zone (not UTC): the anchor's tzinfo is the
     # zone each seeded logbook entry's relative time-of-day resolves into, and it
-    # must match where the simulation engine places the telemetry it narrates
-    # (daily ``at_time`` events are facility-local). A UTC default silently shifts
-    # the narrative hours away from its archiver evidence on a non-UTC facility.
+    # must match where the simulator places the telemetry it narrates (daily
+    # ``at_time`` events are facility-local). A UTC default silently shifts the
+    # narrative hours away from its archiver evidence on a non-UTC facility.
     t0 = now or datetime.now(get_facility_timezone())
-    # set_active_scenarios validates composition and raises on collisions/unknowns.
-    # Not announced here. Both callers already say it: `osprey sim apply` echoes
-    # `✓ Active scenarios: …`, and the deploy-time reseed closes with a step
-    # naming the same scenarios. The anchor is internal -- the reseed reuses the
-    # persisted one precisely so nothing slides.
-    active = engine.set_active_scenarios(names, anchor=t0)
+    # The writer validates composition and raises on collisions/unknowns before
+    # anything is written. Not announced here. Both callers already say it:
+    # `osprey sim apply` echoes `✓ Active scenarios: …`, and the deploy-time
+    # reseed closes with a step naming the same scenarios. The anchor is
+    # internal -- the reseed reuses the persisted one precisely so nothing slides.
+    active = write_active_state(
+        resolve_simulation_state_dir(config, project_dir) / ACTIVE_SCENARIOS_FILENAME,
+        {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
+        names,
+        anchor=t0,
+    )
 
     seeded = 0
     purged = False
     if seed_logbook:
         ariel_config = config.get("ariel")
         if ariel_config:
-            with seed_payload(engine.active_logbook(), t0) as (entries, pictures):
+            logbook = _view_logbook(scenarios, active, view.path / SCENARIOS_DIR)
+            with seed_payload(logbook, t0) as (entries, pictures):
                 seeded, purged = _run_coro(lambda: _seed_logbook(ariel_config, entries, pictures))
             logger.info(f"Seeded {seeded} logbook entries (logbook purged and reseeded)")
         else:
             logger.info("No 'ariel' config in project; skipped logbook seeding")
 
-    # After activation, never before: the rewrite synthesizes from the composed
-    # event scripts the engine now holds (see :func:`seed_archiver`).
+    # After activation, never before: the rewrite reads the set and the anchor
+    # the state file now records (see :func:`seed_archiver`).
     archiver = None
     if seed_archive:
-        archiver = seed_archiver(project_dir, config, engine, machine_path, list(names), t0)
+        archiver = seed_archiver(project_dir, config, list(names), t0)
 
-    return ApplyResult(active=active, logbook_seeded=seeded, purged=purged, archiver=archiver)
+    return ApplyResult(
+        active=tuple(active), logbook_seeded=seeded, purged=purged, archiver=archiver
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -291,16 +291,86 @@ _WRITE_CHUNK = 1000
 _SPIKE_WINDOW_SIGMAS = 4.0
 
 
+def view_scenarios(project_dir: Path) -> dict[str, dict[str, Any]] | None:
+    """The scenarios the simulator view lists, by name; ``None`` without a view.
+
+    Raises:
+        ValueError: The view is from another schema, or a file of it is not
+            JSON.
+    """
+    from osprey_connectors.simulation.view import SimulatorView
+
+    view = SimulatorView.find(project_dir)
+    return None if view is None else _scenarios(view)
+
+
+def _scenarios(view: SimulatorView) -> dict[str, dict[str, Any]]:
+    """The scenarios ``view`` lists, by name, as plain dicts."""
+    return {str(scenario["name"]): _plain(scenario) for scenario in view.scenarios()}
+
+
+def _plain(value: Any) -> Any:
+    """A JSON value the reader froze, as plain dicts and lists."""
+    if isinstance(value, Mapping):
+        return {key: _plain(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_plain(item) for item in value]
+    return value
+
+
+def require_view_scenarios(project_dir: Path) -> dict[str, dict[str, Any]]:
+    """The scenarios the simulator view lists, by name.
+
+    Raises:
+        ValueError: If the render carries no simulator view.
+    """
+    from osprey_connectors.simulation.view import SimulatorView
+
+    scenarios = view_scenarios(project_dir)
+    if scenarios is None:
+        raise ValueError(
+            f"No simulator view in {SimulatorView.path_for_project(project_dir)}. "
+            "Run 'osprey build'."
+        )
+    return scenarios
+
+
+def _active_state(config: dict, project_dir: Path) -> tuple[list[str], float | None]:
+    """The scenario names and anchor the project's state file records."""
+    return read_active_state(resolve_simulation_state_dir(config, project_dir))
+
+
+#: The config key naming the scenarios a deployment that never chose a set starts in.
+DEFAULT_SCENARIOS_KEY = "simulation.default_scenarios"
+
+
+def resolve_default_scenarios(config: Mapping[str, Any]) -> tuple[str, ...]:
+    """The scenario names ``simulation.default_scenarios`` states, in order, once each.
+
+    Absent, null or empty states none. The names are resolved when the set is
+    activated, exactly as ``osprey sim apply`` resolves its arguments, not here.
+
+    Raises:
+        ValueError: If the value is not a list of non-empty scenario names.
+    """
+    raw = (config.get("simulation") or {}).get("default_scenarios")
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not all(isinstance(name, str) and name for name in raw):
+        raise ValueError(f"{DEFAULT_SCENARIOS_KEY} must be a list of scenario names, got {raw!r}")
+    return tuple(dict.fromkeys(raw))
+
+
 def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[str, ...]:
-    """Activate the machine's ``default_scenarios`` on a deployment that never chose a set.
+    """Activate ``simulation.default_scenarios`` on a deployment that never chose a set.
 
     A deployment with no scenario state has never been told which world to run,
-    and the machine model it ships names the one it should start in. That set is
-    activated exactly as ``osprey sim apply`` would, physics block and anchor
-    included, but without seeding: the deploy seeds the archive and the logbook
-    in their own stages, each of which reads the set written here. Once any set
-    has been activated -- by this, or by ``osprey sim apply`` naming any set at
-    all -- the state file exists and this does nothing again.
+    and its profile names the one it should start in. That set is activated
+    exactly as ``osprey sim apply`` would, anchor included, but without
+    seeding: the deploy seeds the archive and the logbook in their
+    own stages, each of which reads the set written here. Once any set has been
+    activated -- by this, or by ``osprey sim apply`` naming any set at all --
+    the state file exists and this does nothing again.
 
     Args:
         config: The project's loaded ``config.yml``.
@@ -308,24 +378,22 @@ def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[s
 
     Returns:
         The activated set (``nominal`` first), or ``()`` when nothing was
-        activated: the project is not simulation-backed, a set is already
-        active, or the machine names no defaults.
+        activated: the render carries no simulator view, a set is already
+        active, or the config names no defaults.
 
     Raises:
-        ValueError: If a default names a scenario the bundle does not define, or
-            the defaults do not compose -- the refusals ``osprey sim apply``
-            gives the same set.
+        ValueError: If the key is malformed, a default names a scenario the
+            simulator view does not list, or the defaults do not compose -- the
+            refusals ``osprey sim apply`` gives the same set.
     """
     project_dir = Path(project_dir)
-    machine_path, _, _, _ = resolve_simulation_file(config, project_dir)
-    if machine_path is None or not machine_path.is_file():
+    if view_scenarios(project_dir) is None:
         return ()
-    if (resolve_state_dir(config, project_dir) / ACTIVE_SCENARIOS_FILENAME).is_file():
+    if (resolve_simulation_state_dir(config, project_dir) / ACTIVE_SCENARIOS_FILENAME).is_file():
         return ()
-    defaults = parse_machine(read_machine_json(machine_path), machine_path).default_scenarios
+    defaults = resolve_default_scenarios(config)
     if not defaults:
         return ()
-    render_scenario_physics_env(project_dir, defaults)
     result = apply_scenarios(project_dir, defaults, seed_logbook=False, seed_archive=False)
     return result.active
 
@@ -339,13 +407,17 @@ def active_logbook_entries(config: dict, project_dir: Path) -> list[EnhancedLogb
     the entries land where the telemetry that accompanies them already is — a
     fresh anchor would slide the narrative to a T0 nobody asked for.
 
+    The entries are the ``logbook`` blocks of the simulator view's scenarios, in
+    active-set order; a state-file name the view does not list is skipped. Their
+    pictures resolve against the view's copies under ``scenarios/<name>/``.
+
     Args:
         config: The project's loaded ``config.yml``.
         project_dir: Root of the built project.
 
     Returns:
-        The entries, or ``[]`` when the project is not simulation-backed — a
-        project with no machine model narrates nothing, which is a normal
+        The entries, or ``[]`` when the render carries no simulator view — a
+        project with no simulated scenarios narrates nothing, which is a normal
         configuration and not a fault.
     """
     logbook, anchor = _active_narrative(config, project_dir)
@@ -353,24 +425,57 @@ def active_logbook_entries(config: dict, project_dir: Path) -> list[EnhancedLogb
 
 
 def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLogEntry], datetime]:
-    """The ALREADY-active scenarios' bundle entries and the anchor they resolve against.
+    """The ALREADY-active scenarios' view entries and the anchor they resolve against.
 
-    See :func:`active_logbook_entries`; the entries are empty when the project
-    is not simulation-backed.
+    See :func:`active_logbook_entries`; the entries are empty when the render
+    carries no simulator view.
     """
-    machine_path, _, _, _ = resolve_simulation_file(config, project_dir)
-    if machine_path is None or not machine_path.is_file():
-        return [], datetime.now(get_facility_timezone())
+    from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView
 
-    engine = SimulationEngine.from_file(
-        machine_path, state_dir=resolve_state_dir(config, project_dir)
-    )
-    # Read in the facility zone, as the engine reads the same anchor: a logbook
+    # Read in the facility zone, as the simulator reads the same anchor: a logbook
     # entry's ``days_ago`` and an ``at_when`` event's count the same calendar days.
     zone = get_facility_timezone()
     persisted = persisted_scenario_anchor(config, project_dir)
     anchor = persisted.astimezone(zone) if persisted is not None else datetime.now(zone)
-    return engine.active_logbook(), anchor
+
+    scenarios = view_scenarios(project_dir)
+    if scenarios is None:
+        return [], anchor
+
+    names: list[str] = []
+    for name in _active_state(config, project_dir)[0]:
+        if name in scenarios:
+            names.append(name)
+        else:
+            logger.warning(f"Unknown scenario {name!r} in the active set; ignoring")
+    # A set that does not compose is served as nominal alone, so that is what it narrates.
+    served, _ = composed_set(
+        {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
+        resolve_active_scenarios(names),
+    )
+    files = SimulatorView.path_for_project(project_dir) / SCENARIOS_DIR
+    return _view_logbook(scenarios, served, files), anchor
+
+
+def _view_logbook(
+    scenarios: Mapping[str, Mapping[str, Any]], names: Sequence[str], files: Path
+) -> list[ScenarioLogEntry]:
+    """The ``logbook`` entries of a scenario set, in set order.
+
+    Args:
+        scenarios: The simulator view's scenarios, by name.
+        names: The set's scenario names; a name the view does not list narrates nothing.
+        files: The view's scenario files directory; an entry's pictures resolve
+            against ``files / <name>``.
+    """
+    from osprey.facility.scenarios import scenario_logbook
+
+    return [
+        entry
+        for name in names
+        if name in scenarios
+        for entry in scenario_logbook(scenarios[name], files / name)
+    ]
 
 
 async def _export_qmd_mirror(ariel_config: dict) -> None:
@@ -398,42 +503,88 @@ async def _export_qmd_mirror(ariel_config: dict) -> None:
     await run_qmd_resync(ariel_config, rebuild=True)
 
 
-def demo_narrative_logbook(
-    ariel_config: Mapping[str, Any], config_dir: Path | None = None
-) -> list[ScenarioLogEntry]:
-    """Every entry of the scenario narratives ``ariel.demo_narrative`` names.
+def demo_narrative_scenarios(
+    ariel_config: Mapping[str, Any], project_dir: Path | None
+) -> list[str]:
+    """The scenarios ``ariel.demo_narrative`` names, in the order they are seeded.
 
-    The key names a directory laid out like a simulation ``scenarios/`` tree:
-    one subdirectory per scenario, each with a ``logbook.json`` and the pictures
-    its entries attach. Only the narratives are read (see
-    :func:`~osprey.simulation.machine.load_narratives`), so a deployment with no
-    simulation can document the same incidents a simulated one does. ``nominal``
-    comes first and the rest follow by name, the order a composed active set
-    narrates in.
+    The key is ``all`` (every scenario the simulator view lists) or a list of
+    scenario names; ``nominal`` comes first and the rest follow by name.
 
     Args:
         ariel_config: The ``ariel:`` config section.
-        config_dir: Directory holding the ``config.yml`` the section came from;
-            the relative path resolves against its project root (see
-            :func:`~osprey.utils.config_paths.resolve_config_relative_path`).
+        project_dir: The built project whose simulator view is read: a
+            deployment repo root or the render itself.
+
+    Returns:
+        The names, or ``[]`` when the key is unset.
+
+    Raises:
+        ValueError: If the value is neither ``all`` nor a list of scenario
+            names, names a scenario the view does not list, no project
+            directory is given, or the project carries no simulator view.
+    """
+    return _demo_narrative(ariel_config, project_dir)[1]
+
+
+def demo_narrative_logbook(
+    ariel_config: Mapping[str, Any], project_dir: Path | None
+) -> list[ScenarioLogEntry]:
+    """The logbook entries of the scenarios ``ariel.demo_narrative`` names.
+
+    The entries are the ``logbook`` blocks of those scenarios in the built
+    simulator view, in :func:`demo_narrative_scenarios` order; their pictures
+    resolve against the view's copies under ``scenarios/<name>/``.
+
+    Args:
+        ariel_config: The ``ariel:`` config section.
+        project_dir: The built project whose simulator view is read: a
+            deployment repo root or the render itself.
 
     Returns:
         The entries, or ``[]`` when the key is unset.
 
     Raises:
-        ValueError: If the directory is missing or a narrative in it is malformed.
+        ValueError: As :func:`demo_narrative_scenarios` raises.
     """
-    from osprey.utils.config_paths import resolve_config_relative_path
+    return _view_logbook(*_demo_narrative(ariel_config, project_dir))
+
+
+def _demo_narrative(
+    ariel_config: Mapping[str, Any], project_dir: Path | None
+) -> tuple[dict[str, dict[str, Any]], list[str], Path]:
+    """The view's scenarios, the names ``ariel.demo_narrative`` selects, the view's files.
+
+    The arguments of :func:`_view_logbook`; see :func:`demo_narrative_scenarios`.
+    No scenarios and no names when the key is unset.
+    """
+    from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView
 
     raw = ariel_config.get(DEMO_NARRATIVE_KEY)
     if not raw:
-        return []
-    directory = resolve_config_relative_path(str(raw), config_dir)
-    if not directory.is_dir():
-        raise ValueError(f"ariel.{DEMO_NARRATIVE_KEY} names {directory}, which is not a directory")
-    narratives = load_narratives(directory)
-    order = sorted(narratives, key=lambda name: (name != DEFAULT_SCENARIO, name))
-    return [entry for name in order for entry in narratives[name]]
+        return {}, [], Path()
+    if raw != DEMO_NARRATIVE_ALL and not (
+        isinstance(raw, list) and all(isinstance(name, str) and name for name in raw)
+    ):
+        raise ValueError(
+            f"ariel.{DEMO_NARRATIVE_KEY} is {DEMO_NARRATIVE_ALL!r} or a list of scenario "
+            f"names, got {raw!r}"
+        )
+    if project_dir is None:
+        raise ValueError(
+            f"ariel.{DEMO_NARRATIVE_KEY} reads a built project's simulator view, "
+            "and no project directory was given"
+        )
+    scenarios = require_view_scenarios(project_dir)
+    names = list(scenarios) if raw == DEMO_NARRATIVE_ALL else list(dict.fromkeys(raw))
+    unknown = [name for name in names if name not in scenarios]
+    if unknown:
+        raise ValueError(
+            f"ariel.{DEMO_NARRATIVE_KEY} names {', '.join(map(repr, unknown))}, which the "
+            f"simulator view does not list; it lists {', '.join(sorted(scenarios))}"
+        )
+    order = sorted(names, key=lambda name: (name != DEFAULT_SCENARIO, name))
+    return scenarios, order, SimulatorView.path_for_project(project_dir) / SCENARIOS_DIR
 
 
 async def seed_narrative_if_empty(
@@ -469,9 +620,9 @@ def seed_active_logbook(config: dict, project_dir: Path, ariel_config: dict) -> 
 
     The counterpart of :func:`seed_archiver` for the other half of a simulated
     world: a deployment whose archive is full while its logbook is empty documents
-    a machine nobody can read about. A simulation-backed project narrates its
-    active scenarios; any other project narrates ``ariel.demo_narrative``
-    (:func:`demo_narrative_logbook`) when it names one. Called by the deploy,
+    a machine nobody can read about. A project whose ``ariel.demo_narrative``
+    names scenarios narrates those (:func:`demo_narrative_logbook`); any other
+    narrates its active scenarios. Called by the deploy,
     which is why it is strictly additive where :func:`apply_scenarios`' own
     seeding purges first — an operator asking for a scenario is asking for that
     narrative and no other, but a deploy is asking for the stack to come up and
@@ -491,8 +642,8 @@ def seed_active_logbook(config: dict, project_dir: Path, ariel_config: dict) -> 
         when the logbook already holds entries.
     """
     logbook, anchor = _active_narrative(config, project_dir)
-    if not logbook:
-        logbook = demo_narrative_logbook(ariel_config, _config_file(project_dir).parent)
+    if ariel_config.get(DEMO_NARRATIVE_KEY):
+        logbook = demo_narrative_logbook(ariel_config, project_dir)
     if not logbook:
         return 0
     return _run_coro(lambda: seed_narrative_if_empty(ariel_config, logbook, anchor))
@@ -604,15 +755,10 @@ def persisted_scenario_anchor(config: dict, project_dir: Path) -> datetime | Non
         which case there is no established timeline to preserve and a fresh
         anchor is the right answer.
     """
-    state_dir = resolve_state_dir(config, project_dir)
-    path = state_dir / ACTIVE_SCENARIOS_FILENAME
-    if not path.is_file():
-        return None
-    # The engine's own parser, not a second one: the anchor line's format
-    # (and its naive-value timezone rule) is the engine's to define, and a
-    # copy here would be free to drift from the file the engine actually
-    # reads. This is the one reader of it outside the engine.
-    _names, anchor_epoch = SimulationEngine._parse_state(path.read_text(encoding="utf-8"))
+    # The state file's one parser, shared with every reader of the active set,
+    # so the anchor line's format and its naive-value timezone rule cannot
+    # differ between the file the simulator reads and the anchor read here.
+    _names, anchor_epoch = _active_state(config, project_dir)
     if anchor_epoch is not None:
         return datetime.fromtimestamp(anchor_epoch, UTC)
     return None
@@ -656,27 +802,36 @@ def archiver_collection(store: dict):
         client.close()
 
 
-def active_archiver_events(machine_path: Path, names: Sequence[str]) -> dict[str, list[dict]]:
+def active_archiver_events(project_dir: Path, names: Sequence[str]) -> dict[str, list[dict]]:
     """The composed archiver event scripts of an active set, by channel.
 
-    Read straight from the machine model rather than from a live engine: this
-    is the same route :func:`compute_scenario_physics_env` takes, and it keeps
-    the rewrite decidable before anything is activated — so the CLI can tell a
-    user what is about to change while an abort still leaves the project
-    untouched.
+    Read from the ``archiver`` blocks of the simulator view's scenarios rather
+    than from a live simulator, so the rewrite is decidable before anything is
+    activated — the CLI can tell a user what is about to change while an abort
+    still leaves the project untouched.
+
+    Args:
+        project_dir: Root of the built project.
+        names: The requested scenario names.
+
+    Returns:
+        Each channel's events, in active-set order.
+
+    Raises:
+        ValueError: If the render carries no simulator view, or a requested
+            scenario is not in it.
     """
-    model = parse_machine(read_machine_json(machine_path), machine_path)
+    from osprey_connectors.simulation.archive import scenario_events
+
+    scenarios = require_view_scenarios(project_dir)
 
     resolved = resolve_active_scenarios(names)
-    unknown = [name for name in resolved if name not in model.scenarios]
+    # The first name is the always-active baseline, which a facility need not state.
+    unknown = [name for name in resolved[1:] if name not in scenarios]
     if unknown:
-        raise ValueError(f"Unknown scenario(s) {unknown!r}; available: {sorted(model.scenarios)}")
+        raise ValueError(f"Unknown scenario(s) {unknown!r}; available: {sorted(scenarios)}")
 
-    events: dict[str, list[dict]] = {}
-    for name in resolved:
-        for pv, script in model.scenarios[name].archiver.items():
-            events.setdefault(pv, []).extend(script)
-    return events
+    return scenario_events(scenarios, resolved)
 
 
 def _refuse_window_fraction(event: Mapping[str, Any]) -> None:
@@ -821,7 +976,7 @@ def _event_instants(
 ) -> list[float]:
     """Every instant one event fires at, inside ``[horizon_start, anchor]``."""
     if "at_time" in event:
-        from osprey.simulation.series import daily_occurrences
+        from osprey_connectors.simulation.series import daily_occurrences
 
         if tz is None:
             tz = get_facility_timezone()
@@ -831,7 +986,7 @@ def _event_instants(
 
 def _anchored_instant(event: Mapping[str, Any], anchor: float, tz: ZoneInfo | None) -> float:
     """An ``at_offset`` or ``at_when`` event's instant, in the facility zone by default."""
-    from osprey.simulation.series import anchored_instant
+    from osprey_connectors.simulation.series import anchored_instant
 
     return anchored_instant(dict(event), anchor, tz if tz is not None else get_facility_timezone())
 
@@ -855,16 +1010,15 @@ def _inside(windows: Sequence[tuple[float, float]] | None, moment: float) -> boo
 def seed_archiver(
     project_dir: Path,
     config: dict,
-    engine: SimulationEngine,
-    machine_path: Path,
     names: Sequence[str],
     anchor: datetime,
 ) -> ArchiverSeedResult:
     """Rewrite the stored archive so it tells the newly active set's story.
 
-    Call this *after* the set has been activated: the engine's composed event
-    scripts are what the rewrite synthesizes from, and one recompute under the
-    new set is both the restore and the apply.
+    Call this *after* the set has been activated: the archive composite of the
+    new set (:func:`~osprey_connectors.simulation.archive.build`), at the
+    anchor the state file records, is what the rewrite reads its values from,
+    and one recompute under the new set is both the restore and the apply.
 
     That collapse is the design, and it is worth being explicit about. A
     previous set's events left their marks on some windows, and the naive
@@ -895,17 +1049,16 @@ def seed_archiver(
     a window no ledger names is one no later apply ever comes back for.
 
     Args:
-        project_dir: Root of the built project; supplies ``.env`` and the store.
+        project_dir: Root of the built project; supplies ``.env``, the store
+            and the simulator view.
         config: The project's loaded ``config.yml``.
-        engine: The engine, already activated on the new set.
-        machine_path: The machine model, for reading the composed event scripts.
         names: The requested scenario names.
         anchor: The apply-time anchor T0 — the *same* instant that was written
-            into the scenario state file. It has to be: the engine resolves
-            ``at_offset`` against the state file, so a window computed against
-            any other clock would describe a stretch of history the engine is
-            not writing its events into. One clock for the telemetry, the
-            narrative and the archive is the whole invariant.
+            into the scenario state file. It has to be: the archive composite
+            places ``at_offset`` events from the state file's anchor, so a
+            window computed against any other clock would describe a stretch of
+            history the composite is not writing its events into. One clock for
+            the telemetry, the narrative and the archive is the whole invariant.
 
     Returns:
         What changed, or a result carrying ``skipped`` when the project has no
@@ -917,7 +1070,8 @@ def seed_archiver(
         ValueError: If an active scenario positions an archiver event by window
             fraction, which stored history cannot represent.
     """
-    from osprey.simulation.archiver_seed import MANIFEST_ID, SeedKnobs
+    from osprey_connectors.simulation.archive import MANIFEST_ID, SeedKnobs, build
+    from osprey_connectors.simulation.view import SimulatorView
 
     store = archiver_store_config(config, project_dir)
     if store is None:
@@ -930,7 +1084,7 @@ def seed_archiver(
     # An empty script is not a window: it names a channel the scenario mentions
     # and then leaves alone, and asking for its span would invert one.
     events = {
-        pv: script for pv, script in active_archiver_events(machine_path, names).items() if script
+        pv: script for pv, script in active_archiver_events(project_dir, names).items() if script
     }
     tz = get_facility_timezone()
 
@@ -940,6 +1094,16 @@ def seed_archiver(
             return ArchiverSeedResult(
                 skipped="the archive has not been seeded yet — run 'osprey up'"
             )
+
+        persisted = persisted_scenario_anchor(config, project_dir)
+        archive = build(
+            SimulatorView.of_project(project_dir),
+            names,
+            anchor_s=None if persisted is None else persisted.timestamp(),
+        )
+        # A channel the view does not archive has no stored history to rewrite.
+        archived = set(archive.addresses)
+        events = {pv: script for pv, script in events.items() if pv in archived}
 
         anchor_s = anchor.timestamp()
         horizon_start = _archive_start(collection, manifest, anchor_s, knobs)
@@ -984,8 +1148,10 @@ def seed_archiver(
         regions = _merge_intervals(list(spans.values()))
         result.removed = _drop_densified(collection, regions)
 
-        result.updated, result.restored = _rewrite_documents(collection, engine, knobs, spans, live)
-        result.inserted, result.uncovered = _densify(collection, engine, live, knobs)
+        result.updated, result.restored = _rewrite_documents(
+            collection, archive, knobs, spans, live
+        )
+        result.inserted, result.uncovered = _densify(collection, archive, live, knobs)
 
         _write_ledger(collection, current, anchor_s)
 
@@ -1011,12 +1177,11 @@ def _missing_password_message(project_dir: Path, store: dict) -> str:
 def preflight_archive_rewrite(
     project_dir: Path,
     config: dict,
-    machine_path: Path,
     names: Sequence[str],
 ) -> dict | None:
     """Decide the archive rewrite *before* anything has been activated.
 
-    :func:`active_archiver_events` is readable straight from the machine model,
+    :func:`active_archiver_events` is readable straight from the simulator view,
     with no engine and no store, precisely so this is possible — and this is the
     caller that uses it. Every refusal :func:`seed_archiver` can raise before it
     touches a document (an event positioned by window fraction, a store whose
@@ -1030,7 +1195,6 @@ def preflight_archive_rewrite(
     Args:
         project_dir: Root of the built project.
         config: The project's loaded ``config.yml``.
-        machine_path: The machine model.
         names: The requested scenario names.
 
     Returns:
@@ -1038,12 +1202,13 @@ def preflight_archive_rewrite(
         archive and there is nothing to rewrite.
 
     Raises:
-        ValueError: If a scenario name is unknown, or an active scenario
-            positions an archiver event by window fraction.
+        ValueError: If the render carries no simulator view, a scenario name
+            is unknown, or an active scenario positions an archiver event by
+            window fraction.
         RuntimeError: If the store is configured but its password is not in the
             project's ``.env``.
     """
-    for script in active_archiver_events(machine_path, names).values():
+    for script in active_archiver_events(project_dir, names).values():
         for event in script:
             _refuse_window_fraction(event)
 
@@ -1066,7 +1231,7 @@ def _archive_start(collection, manifest: dict, anchor_s: float, knobs: SeedKnobs
     archive reaches writes into the history that exists instead of describing
     history that does not.
     """
-    from osprey.simulation.archiver_seed import oldest_sample
+    from osprey_connectors.simulation.archive import oldest_sample
 
     oldest = oldest_sample(collection)
     if oldest is not None:
@@ -1104,7 +1269,7 @@ def _ledger_entries(windows: dict[str, tuple[float, float]]) -> list[dict]:
 
 def _write_ledger(collection, windows: dict[str, tuple[float, float]], anchor_s: float) -> None:
     """Record the windows a later apply has to recompute over."""
-    from osprey.simulation.archiver_seed import MANIFEST_ID
+    from osprey_connectors.simulation.archive import MANIFEST_ID
 
     collection.update_one(
         {"_id": MANIFEST_ID},
@@ -1134,7 +1299,11 @@ def _union_spans(
 
 def _region_documents(collection, channels: Sequence[str], start: float, end: float) -> list[dict]:
     """Existing documents in a span, projected to ``date`` and these channels."""
-    projection = {"date": 1, EXPIRE_FIELD_NAME: 1, **dict.fromkeys(channels, 1)}
+    projection = {
+        "date": 1,
+        EXPIRE_FIELD_NAME: 1,
+        **dict.fromkeys((field_name(pv) for pv in channels), 1),
+    }
     cursor = collection.find(
         {
             "date": {
@@ -1175,7 +1344,7 @@ def _match_stored_type(existing, value):
 
 def _rewrite_documents(
     collection,
-    engine: SimulationEngine,
+    archive: ArchiveComposite,
     knobs: SeedKnobs,
     spans: dict[str, tuple[float, float]],
     live: dict[str, list[tuple[float, float]]],
@@ -1183,9 +1352,10 @@ def _rewrite_documents(
     """Recompute every document the old and the new set between them reach.
 
     One pass over the union of the spans, and every document visited exactly
-    once. Values come from the engine at each document's *own* timestamp, so the
-    rewrite lands on exactly what a query for that instant would synthesize —
-    the same property the base seed relies on, applied to a narrower window.
+    once. Values come from the archive composite at each document's *own*
+    timestamp, so the rewrite lands on exactly what the simulator serves at that
+    instant — the same property the base seed relies on, applied to a narrower
+    window.
 
     Expiry is decided **per document**, from whether that document's own
     timestamp falls inside a live event window of a channel it actually carries.
@@ -1204,7 +1374,7 @@ def _rewrite_documents(
         retention. A document whose values and expiry are already correct is not
         rewritten and not counted, so re-applying the set in force reports zero.
     """
-    from osprey.simulation.archiver_seed import tier_expiry
+    from osprey_connectors.simulation.archive import tier_expiry
 
     if not spans:
         return 0, 0
@@ -1217,7 +1387,7 @@ def _rewrite_documents(
 
     stamps = _stamps(documents)
     epochs = [stamp.timestamp() for stamp in stamps]
-    values = _recomputed_values(engine, spans, channels, stamps, epochs)
+    values = _recomputed_values(archive, spans, channels, epochs)
     expiry = tier_expiry(knobs, _np_array(epochs))
 
     from pymongo import UpdateOne
@@ -1228,12 +1398,13 @@ def _rewrite_documents(
         protected = False
         changed: dict[str, Any] = {}
         for pv in channels:
+            field = field_name(pv)
             column = values.get(pv)
-            if column is None or index not in column or pv not in document:
+            if column is None or index not in column or field not in document:
                 continue
-            value = _match_stored_type(document[pv], column[index])
-            if document[pv] != value:
-                changed[pv] = value
+            value = _match_stored_type(document[field], column[index])
+            if document[field] != value:
+                changed[field] = value
             # Per channel *and* per timestamp — do not simplify to a test against
             # the merged live windows of every channel. The two are behaviourally
             # identical on this schema, because a base-seeded document carries
@@ -1260,27 +1431,27 @@ def _rewrite_documents(
 
 
 def _recomputed_values(
-    engine: SimulationEngine,
+    archive: ArchiveComposite,
     spans: dict[str, tuple[float, float]],
     channels: Sequence[str],
-    stamps: Sequence[datetime],
     epochs: Sequence[float],
-) -> dict[str, dict[int, float]]:
+) -> dict[str, dict[int, Any]]:
     """Each channel's recomputed values, by document index, over its own span.
 
-    Synthesized over the channel's own span rather than over the union of every
+    Read over the channel's own span rather than over the union of every
     channel's: a daily event's occurrences are placed inside the window it is
     asked for, so widening that window to accommodate an unrelated channel would
     make one channel's history depend on which other channels the active set
-    happens to touch.
+    happens to touch. A channel the archive does not carry is left as stored.
     """
-    values: dict[str, dict[int, float]] = {}
+    archived = set(archive.addresses)
+    values: dict[str, dict[int, Any]] = {}
     for pv in channels:
         low, high = spans[pv]
         indices = [index for index, epoch in enumerate(epochs) if low <= epoch <= high]
-        if not indices:
+        if not indices or pv not in archived:
             continue
-        series = engine.synthesize_series(pv, [stamps[index] for index in indices])
+        series = archive.series(pv, [epochs[index] for index in indices])
         values[pv] = dict(zip(indices, series, strict=True))
     return values
 
@@ -1302,7 +1473,7 @@ def _expiry_update(document: Mapping[str, Any], protected: bool, expiry_s: float
 
 def _densify(
     collection,
-    engine: SimulationEngine,
+    archive: ArchiveComposite,
     live: dict[str, list[tuple[float, float]]],
     knobs: SeedKnobs,
 ) -> tuple[int, int]:
@@ -1339,7 +1510,7 @@ def _densify(
     types = _stored_types(collection, sorted(live))
     inserted = uncovered = 0
     for start, end in intervals:
-        added, missed = _densify_interval(collection, engine, live, knobs, types, start, end)
+        added, missed = _densify_interval(collection, archive, live, knobs, types, start, end)
         inserted += added
         uncovered += missed
     return inserted, uncovered
@@ -1347,7 +1518,7 @@ def _densify(
 
 def _densify_interval(
     collection,
-    engine: SimulationEngine,
+    archive: ArchiveComposite,
     live: dict[str, list[tuple[float, float]]],
     knobs: SeedKnobs,
     types: Mapping[str, Any],
@@ -1398,7 +1569,7 @@ def _densify_interval(
     if not wanted:
         return 0, uncovered
 
-    documents = _dense_documents(engine, types, wanted)
+    documents = _dense_documents(archive, types, wanted)
     for batch in _chunked(documents, _WRITE_CHUNK):
         collection.insert_many(batch, ordered=False)
     return len(documents), uncovered
@@ -1415,17 +1586,17 @@ def _bracketed(neighbours: Sequence[float], moment: float, reach: float) -> bool
 
 
 def _dense_documents(
-    engine: SimulationEngine,
+    archive: ArchiveComposite,
     types: Mapping[str, Any],
     wanted: Mapping[float, tuple[str, ...]],
 ) -> list[dict]:
     """The documents to insert: one per instant, carrying the channels live at it."""
     moments = sorted(wanted)
     stamps = [datetime.fromtimestamp(moment, UTC) for moment in moments]
-    columns: dict[str, dict[int, float]] = {}
+    columns: dict[str, dict[int, Any]] = {}
     for pv in sorted({pv for channels in wanted.values() for pv in channels}):
         indices = [index for index, moment in enumerate(moments) if pv in wanted[moment]]
-        series = engine.synthesize_series(pv, [stamps[index] for index in indices])
+        series = archive.series(pv, [moments[index] for index in indices])
         columns[pv] = dict(zip(indices, series, strict=True))
 
     documents = []
@@ -1434,7 +1605,7 @@ def _dense_documents(
         for pv in wanted[moment]:
             # Same coercion the updates use: a flag channel seeded as a boolean
             # must not acquire a float beside it half way through its history.
-            document[pv] = _match_stored_type(types.get(pv), columns[pv][index])
+            document[field_name(pv)] = _match_stored_type(types.get(pv), columns[pv][index])
         documents.append(document)
     return documents
 
@@ -1448,9 +1619,10 @@ def _stored_types(collection, channels: Sequence[str]) -> dict[str, Any]:
     """
     samples: dict[str, Any] = {}
     for pv in channels:
-        document = collection.find_one({pv: {"$exists": True}}, {pv: 1})
+        field = field_name(pv)
+        document = collection.find_one({field: {"$exists": True}}, {field: 1})
         if document is not None:
-            samples[pv] = document.get(pv)
+            samples[pv] = document.get(field)
     return samples
 
 
@@ -1496,336 +1668,8 @@ def _drop_densified(collection, windows: Sequence[tuple[float, float]]) -> int:
     return removed
 
 
-# BpmErrorSpec field -> VA_BPM_ERRORS sub-field(s) it fans out to, at the
-# entrypoint's per-transverse-plane granularity (see
-# `virtual_accelerator/entrypoint.py::_BPM_ERROR_FIELDS`). A scenario
-# author states one isotropic value per BPM; the render step applies it to
-# both planes. `roll` has no axis split on either side, so it maps 1:1.
-_BPM_ERROR_AXIS_FIELDS: dict[str, tuple[str, ...]] = {
-    "offset": ("offset_x", "offset_y"),
-    "gain": ("gain_x", "gain_y"),
-    "polarity": ("polarity_x", "polarity_y"),
-    "roll": ("roll",),
-    "noise": ("noise_x", "noise_y"),
-}
-# Identity value per BpmErrorSpec field -- mirrors PhysicsBridge's own
-# `_IDENTITY_BPM_ERROR` defaults, so an unset field never renders.
-_BPM_ERROR_IDENTITY: dict[str, float] = {
-    "offset": 0.0,
-    "gain": 1.0,
-    "polarity": 1,
-    "roll": 0.0,
-    "noise": 0.0,
-}
-# Emission order within one device's field list, matching the entrypoint's own
-# `_BPM_ERROR_FIELDS` ordering -- deterministic, readable .env output.
-_BPM_ERROR_FIELD_ORDER = (
-    "offset_x",
-    "offset_y",
-    "gain_x",
-    "gain_y",
-    "polarity_x",
-    "polarity_y",
-    "roll",
-    "noise_x",
-    "noise_y",
-)
-
-
-def compute_scenario_physics_env(
-    project_dir: Path | str,
-    names: Sequence[str],
-) -> dict[str, str]:
-    """Resolve the active scenarios' ``physics`` faults into VA_* env vars -- pure.
-
-    The compute/validate half of :func:`render_scenario_physics_env`: it reads
-    the project's config and machine description, resolves the active set, and
-    renders the ``VA_*`` values, but has *no* filesystem effect. Every way this
-    step can fail -- non-simulation-backed project, unknown scenario name, two
-    active scenarios faulting the same device -- raises here, before anything
-    is written, so a caller that validates first (``osprey sim apply``) can
-    abort with zero writes anywhere (FR1).
-
-    Args:
-        project_dir: The deployment repo root — it anchors the
-            ``data/simulation/`` model, and its render supplies ``config.yml``
-            (see :func:`_config_file`).
-        names: Scenario names to activate (``nominal`` is always implicit),
-            resolved the same nominal-first, deduped way
-            :meth:`~osprey.simulation.engine.SimulationEngine.set_active_scenarios`
-            resolves them.
-
-    Returns:
-        The ``VA_*`` vars the active set calls for, empty if no active scenario
-        declares a ``physics`` block. Hand this to
-        :func:`write_scenario_physics_env` to make it live.
-
-    Raises:
-        ValueError: If the project is not simulation-backed (mirrors
-            :func:`apply_scenarios`), a requested scenario name is unknown, or
-            two active scenarios declare a physics fault on the same device.
-    """
-    project_dir = Path(project_dir)
-    config = load_config(str(_config_file(project_dir)))
-
-    machine_path = _require_simulation_file(
-        config,
-        project_dir,
-        "physics-fault rendering only applies to simulation-backed projects.",
-    )
-    model = parse_machine(read_machine_json(machine_path), machine_path)
-
-    resolved = resolve_active_scenarios(names)
-    unknown = [n for n in resolved if n not in model.scenarios]
-    if unknown:
-        raise ValueError(f"Unknown scenario(s) {unknown!r}; available: {sorted(model.scenarios)}")
-
-    return _render_physics_vars(model.scenarios, resolved)
-
-
-def write_scenario_physics_env(
-    project_dir: Path | str,
-    rendered: dict[str, str],
-    *,
-    env_path: Path | None = None,
-) -> bool:
-    """Write :func:`compute_scenario_physics_env`'s result into the repo's ``.env``.
-
-    The write half of :func:`render_scenario_physics_env`, callable on its own
-    so a caller can put every prompt and validation ahead of the first
-    filesystem effect.
-
-    Args:
-        project_dir: The deployment repo root — it supplies the default
-            ``.env``, which is the file ``osprey up``'s compose reads as
-            ``--env-file``. Pointing this at the render writes the faults into
-            a file nothing interpolates, and the VA boots fault-free.
-        rendered: The ``VA_*`` vars to reconcile the ``.env`` to, as returned
-            by :func:`compute_scenario_physics_env`.
-        env_path: ``.env`` path to write into (defaults to
-            ``project_dir/.env``, injectable for tests).
-
-    Returns:
-        Whether the ``.env``'s physics block actually *changed* -- rendering a
-        new fault, or clearing a prior render's stale one, both count; a
-        rewrite that reproduces the existing content byte for byte does not.
-        Callers use this to decide whether the running VA is now out of date
-        with the file and needs an ``osprey up`` (FR2).
-    """
-    if env_path is None:
-        env_path = Path(project_dir) / ".env"
-    return _write_physics_env(env_path, rendered)
-
-
-def render_scenario_physics_env(
-    project_dir: Path | str,
-    names: Sequence[str],
-    *,
-    env_path: Path | None = None,
-) -> dict[str, str]:
-    """Resolve the active scenario's ``physics`` fault into VA_* env vars in ``.env``.
-
-    The deploy-time counterpart to :func:`apply_scenarios`'s telemetry/logbook
-    half (FR5). A scenario's optional ``physics`` block (see
-    :class:`~osprey.simulation.machine.PhysicsFault`) is deploy-time-only -- a
-    physics fault applies once at VA container boot, and hot-swapping it needs
-    a restart, unlike ``overrides``/``archiver`` -- so it is rendered here into
-    the repo's ``.env`` as ``VA_BPM_ERRORS``/
-    ``VA_CORR_GAIN``, the exact env vars
-    ``virtual_accelerator/entrypoint.py`` parses, rather than applied live.
-    Call this before ``osprey up`` so the VA container picks up the rendered
-    values at boot.
-
-    Composes :func:`compute_scenario_physics_env` and
-    :func:`write_scenario_physics_env` back to back; call those two directly
-    instead when something has to happen between validating and writing.
-
-    Args:
-        project_dir: The deployment repo root — it anchors the build-owned
-            ``data/simulation/`` model, the scenario state under the agent-data
-            root (``agent_data.base_dir``), and the ``.env`` written here; its
-            render supplies ``config.yml``.
-        names: Scenario names to activate (``nominal`` is always implicit),
-            resolved the same nominal-first, deduped way
-            :meth:`~osprey.simulation.engine.SimulationEngine.set_active_scenarios`
-            resolves them.
-        env_path: ``.env`` path to write into (defaults to
-            ``project_dir/.env``, injectable for tests).
-
-    Returns:
-        The ``VA_*`` vars written. Empty if no active scenario declares a
-        ``physics`` block -- backward compatible: a project whose ``.env``
-        never had a rendered fault gets no ``.env`` write at all. Every call
-        reconciles the full ``VA_BPM_ERRORS``/
-        ``VA_CORR_GAIN`` block to exactly the active set, so switching to a
-        scenario with no (or a different) ``physics`` block clears a prior
-        render's stale values rather than leaving them to leak into the next
-        VA boot.
-
-    Raises:
-        ValueError: If the project is not simulation-backed (mirrors
-            :func:`apply_scenarios`), a requested scenario name is unknown, or
-            two active scenarios declare a physics fault on the same device.
-    """
-    rendered = compute_scenario_physics_env(project_dir, names)
-    write_scenario_physics_env(project_dir, rendered, env_path=env_path)
-    return rendered
-
-
-def _render_physics_vars(scenarios: dict[str, Scenario], active: list[str]) -> dict[str, str]:
-    """Merge the active scenarios' ``physics`` blocks and render them to VA_* strings.
-
-    Active scenarios must declare *disjoint* devices per physics field,
-    mirroring ``SimulationEngine.validate_composition``'s disjointness rule
-    for ``overrides``/``archiver`` -- a device faulted by two active scenarios
-    at once would compose order-dependently and silently wrong.
-    """
-    corrector_gain: dict[str, float] = {}
-    bpm_errors: dict[str, BpmErrorSpec] = {}
-    owner: dict[tuple[str, str], str] = {}  # (field, device) -> owning scenario name
-
-    def claim(field: str, device: str, name: str) -> None:
-        key = (field, device)
-        prior = owner.get(key)
-        if prior is not None and prior != name:
-            raise ValueError(
-                f"physics.{field}[{device!r}] is declared by both {prior!r} and {name!r}; "
-                f"active scenarios must declare disjoint physics-fault devices"
-            )
-        owner[key] = name
-
-    for name in active:
-        physics = scenarios[name].physics
-        if physics is None:
-            continue
-        for device, factor in physics.corrector_gain.items():
-            claim("corrector_gain", device, name)
-            corrector_gain[device] = factor
-        for device, spec in physics.bpm_errors.items():
-            claim("bpm_errors", device, name)
-            bpm_errors[device] = spec
-
-    # Guard on the rendered string being non-empty, not the source dict: an
-    # all-identity BpmErrorSpec (every field at its default) renders "" even
-    # though its device is present in `bpm_errors`, and that empty string must
-    # not become a `VA_BPM_ERRORS=` line -- "empty" must mean "nothing to
-    # render" all the way through, matching the docstring's "empty if no
-    # active scenario declares a physics block" contract.
-    rendered: dict[str, str] = {}
-    corrector_gain_str = _render_device_value_map(corrector_gain)
-    if corrector_gain_str:
-        rendered["VA_CORR_GAIN"] = corrector_gain_str
-    bpm_errors_str = _render_bpm_errors(bpm_errors)
-    if bpm_errors_str:
-        rendered["VA_BPM_ERRORS"] = bpm_errors_str
-    return rendered
-
-
-def _render_device_value_map(values: dict[str, float]) -> str:
-    """Render ``{device: value}`` as the `VA_STUCK_SETPOINTS`-shaped ``"DEVICE=value,..."``."""
-    return ",".join(f"{device}={value}" for device, value in sorted(values.items()))
-
-
-def _render_bpm_errors(specs: dict[str, BpmErrorSpec]) -> str:
-    """Render ``{device: BpmErrorSpec}`` as ``"DEVICE:field=value[,field=value...];..."``.
-
-    Only non-identity fields are emitted, mirroring ``PhysicsBridge``'s own
-    sparse-override idiom ("fault dicts... only need to name the fields they
-    perturb"). An isotropic scenario-authored value fans out to both
-    transverse-plane fields the entrypoint parses (``offset`` ->
-    ``offset_x``/``offset_y``, etc.); ``roll`` has no axis split on either side.
-    """
-    parts: list[str] = []
-    for device, spec in sorted(specs.items()):
-        fields = _bpm_error_env_fields(spec)
-        if not fields:
-            continue
-        field_str = ",".join(
-            f"{key}={fields[key]}" for key in _BPM_ERROR_FIELD_ORDER if key in fields
-        )
-        parts.append(f"{device}:{field_str}")
-    return ";".join(parts)
-
-
-def _bpm_error_env_fields(spec: BpmErrorSpec) -> dict[str, float]:
-    """Expand one BPM's isotropic error spec into its non-identity env fields."""
-    fields: dict[str, float] = {}
-    for attr, axis_fields in _BPM_ERROR_AXIS_FIELDS.items():
-        value = getattr(spec, attr)
-        if value == _BPM_ERROR_IDENTITY[attr]:
-            continue
-        for env_field in axis_fields:
-            fields[env_field] = float(value)
-    return fields
-
-
-# The full set of keys `_write_physics_env` owns -- reconciled on every call
-# (set if rendered, removed if not), never left stale from a prior scenario.
-_PHYSICS_ENV_VARS = ("VA_BPM_ERRORS", "VA_CORR_GAIN")
-# The block's header line, owned and reconciled exactly like the keys under it:
-# dropped on the way in and re-emitted only alongside a rendered value, so a
-# re-render reproduces the file byte for byte instead of stacking a fresh
-# header each time (which would make every rewrite look like a change).
-_PHYSICS_ENV_HEADER = "# Scenario physics fault (osprey sim apply / osprey up)"
-
-
-def _write_physics_env(env_path: Path, rendered: dict[str, str]) -> bool:
-    """Reconcile the physics-fault block in ``.env`` to exactly ``rendered``.
-
-    Unlike ``_ensure_service_tokens``'s append-only idiom (an existing token is
-    a deliberate value, never overwritten), a scenario's physics vars ARE the
-    single source of truth for "what physics fault is active": this function
-    owns all of ``_PHYSICS_ENV_VARS`` unconditionally, replacing an existing
-    line for a key ``rendered`` sets and removing one it doesn't, so switching
-    the active scenario never leaves a stale fault from a previous scenario
-    alongside (or instead of) the new one. Every other line (comments,
-    unrelated vars) is left untouched. A no-op (no write at all) when there is
-    nothing to render and no ``.env`` yet exists to clean up.
-
-    Returns whether the *physics block* changed -- the vars this function owns,
-    before versus after -- not whether bytes moved. The rewrite is
-    unconditional, so "a write happened" is not the signal a caller wants; nor
-    is a whole-file comparison, which would report a change for incidental
-    normalization (a hand-edited ``.env`` with no final newline, say) and make
-    ``osprey sim apply`` announce a physics change that never happened.
-    Re-applying the same scenario reports False; clearing a stale ``VA_*`` line
-    reports True even though ``rendered`` is empty.
-    """
-    if not rendered and not env_path.is_file():
-        return False
-
-    before = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
-    lines = before.splitlines()
-    kept: list[str] = []
-    before_block: dict[str, str] = {}
-    for line in lines:
-        stripped = line.strip()
-        if stripped == _PHYSICS_ENV_HEADER:
-            continue  # dropped here; re-added below if still active
-        if stripped and not stripped.startswith("#") and "=" in stripped:
-            key, value = stripped.split("=", 1)  # values contain '=' (DEVICE=factor)
-            key = key.strip()
-            if key in _PHYSICS_ENV_VARS:
-                before_block[key] = value.strip()
-                continue  # dropped here; re-added below if still active
-        kept.append(line)
-    while kept and kept[-1] == "":
-        kept.pop()
-
-    if rendered:
-        if kept:
-            kept.append("")
-        kept.append(_PHYSICS_ENV_HEADER)
-        kept.extend(f"{k}={rendered[k]}" for k in _PHYSICS_ENV_VARS if k in rendered)
-
-    text = "\n".join(kept) + ("\n" if kept else "")
-    env_path.write_text(text, encoding="utf-8")
-    os.chmod(env_path, 0o600)
-    return before_block != rendered
-
-
 def _to_enhanced_entry(entry: ScenarioLogEntry, now: datetime) -> EnhancedLogbookEntry:
-    """Convert a bundle :class:`ScenarioLogEntry` to an ``EnhancedLogbookEntry``.
+    """Convert a scenario's :class:`ScenarioLogEntry` to an ``EnhancedLogbookEntry``.
 
     Mirrors ``GenericJSONAdapter._convert_entry`` field mapping so seeded entries
     are indistinguishable from ingested ones: ``raw_text`` is title + body, and

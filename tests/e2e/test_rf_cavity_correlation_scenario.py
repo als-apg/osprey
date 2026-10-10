@@ -14,13 +14,13 @@ for each suspect, (c) commit to a single cavity (CAVITY01, device 01) as the
 fault source based on the telemetry signature, and (d) name the mechanism
 (thermal detuning → reflected-power spike → forward-power trip).
 
-A multi-day logbook arc rides in the ``rf-thermal`` scenario bundle for
+A multi-day logbook arc rides in the ``rf-thermal`` scenario for
 cross-source enrichment: DEMO-026 (trip) → DEMO-027 (investigation identifying
-cooling-manifold blockage) → DEMO-028 (manifold flush repair). The bundle
+cooling-manifold blockage) → DEMO-028 (manifold flush repair). The scenario
 carries these as *relative* timestamps (``when: {days_ago, time}``); applying
 the scenario resolves them against one apply-time anchor (newest entry lands
 two days before today) and seeds them into ARIEL. The telemetry ground truth
-lives in the same bundle (``data/simulation/scenarios/rf-thermal/``): the three
+lives in the same scenario (``data/facility/scenarios/rf-thermal.yaml``): the three
 CAVITY01 thermal excursions are placed with ``at_when``, the logbook's own
 ``{days_ago, time}``, so they resolve against the same apply-time T0 onto the
 days the entries narrate — nine and seven days back, and the trip four days back
@@ -133,17 +133,12 @@ async def test_rf_cavity01_correlation_flow(tmp_path: Path) -> None:
     # cause), which Haiku reliably bails on by dumping data and asking the
     # user to interpret it. The data-visualizer / channel-finder subagents
     # still use their per-agent tier defaults from the resolver.
-    #
-    # Tier 3 (full channel DB): match the sibling vacuum scenario so both run
-    # against the complete facility the simulation machine model defines, not a
-    # minimal tier-1 subset.
     repo = init_project(
         tmp_path,
         "rf_correlation_demo",
         template="control_assistant",
         provider="als-apg",
         model="claude-opus-5-5",
-        tier=3,
     )
     # Switch the mock connectors' data substrate to the ``rf-thermal`` scenario
     # bundle — the CAVITY01 thermal excursions placed on the logbook's own days,

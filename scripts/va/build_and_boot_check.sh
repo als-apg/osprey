@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 # Validation gate for the full Virtual Accelerator image.
 #
-# Stages a minimal build context (pyproject.toml, README.md, src/,
+# Stages a minimal build context (pyproject.toml, README.md, src/, packages/,
 # docker/virtual-accelerator/Containerfile -- never the repo root, which
 # also contains .venv/.git/worktrees), builds the image, boots a container
-# with the packaged control_assistant preset's data/simulation/ directory
-# bind-mounted (a real machine.json, so the engine source has something to
-# serve), waits for it to report ready, and then drives both served
-# transports against it.
+# serving a simulator view, waits for it to report ready, and then drives both
+# served transports against it.
 #
-# The channel namespace is named, never inferred: the IOC has no default one
-# and refuses to boot without VA_CHANNELS_FILE. So for the default run the gate
-# assembles the demo data root itself -- the preset's simulation tree plus the
-# packaged channel manifest and the preset's channel_limits.json, the layout
-# `osprey build` stages for a project -- and boots against that. Those three
-# are the machine every assertion below is written against.
+# The container serves the simulator view a build writes under
+# `<render>/data/simulator/`: `served_models.json`, `addresses.json`,
+# `variables.json`, `seeds.json`, `scenarios.json` and the decks of the
+# deck-backed models. Given no argument, the gate renders that view from the
+# packaged example facility under src/osprey/templates/facilities/example
+# (PRESET_FACILITY), the way `osprey build` does; given a render's data root
+# (a directory holding `simulator/`), it serves that view. The physics
+# assertions (steps 2, 3, 5, 6, 7) hold only for a view whose served models
+# include one wiring the channels named below.
 #
-# The lattice is derived from that tree rather than named: a tree staging the
-# bindings that tie its channels to a ring serves that ring by name, and a tree
-# staging none serves no lattice. The physics assertions (steps 2, 3, 5, 6, 7)
-# therefore hold only for a tree that carries a model; against a latticeless
-# one the gate certifies the serving chain and not the physics behind it.
+# Either way the gate serves a COPY of the view under the `still` scenario.
+# Steps 5 and 7 compare a served reading with the model's truth and with
+# itself, and a reading carrying motion moves between any two reads; under
+# `still` a served reading is the model's reading and nothing else.
 #
 # Before asserting anything, the gate proves it is measuring its OWN container:
 # every Channel Access step below runs from the host, and a host client is
@@ -40,16 +40,16 @@
 #   1. The readiness line matches its whole contract -- marker AND a
 #      positive channel count -- rather than just the marker, so a boot that
 #      served nothing could not satisfy it.
-#   2. A Channel Access read of a quiescent BPM returns zero. This is the
-#      BASELINE, deliberately not an assertion of correctness: the tutorial
-#      lattice's closed orbit with no corrector excited IS exactly zero, so
-#      a read here cannot distinguish a working physics chain from an
-#      unseeded PV. That is why (3) exists.
+#   2. A Channel Access read of a quiescent BPM. This is the BASELINE,
+#      deliberately not an assertion of correctness: the demo deck's closed
+#      orbit with no corrector excited is exactly zero, so a read here cannot
+#      distinguish a working physics chain from an unseeded PV. That is why
+#      (3) exists.
 #   3. Exciting a corrector moves the BPMs off zero. THIS is the assertion
-#      with teeth: only a live manifest -> records -> physics-bridge ->
-#      lattice chain can move a reading, and an unseeded PV stays at zero
-#      through the write. The setpoint is written with put-completion, so
-#      the read that follows cannot race the solve.
+#      with teeth: only a live view -> composite -> physics model chain can
+#      move a reading, and an unseeded PV stays at zero through the write.
+#      The setpoint is written with put-completion, so the read that follows
+#      cannot race the solve.
 #   4. The runner's own control PV is ABSENT. The name is read out of the
 #      serving stack's own constant in the container rather than hardcoded,
 #      because an absence check only means something when the name is one the
@@ -61,12 +61,13 @@
 #      guard: no such PV exists in this stack, so its absence is evidence of
 #      nothing by itself.
 #   5. The model RPC answers from the HOST over the published PVAccess
-#      port: `status` reports the backend, the lattice and the endpoint this
-#      gate actually booted; a token-less `set` is refused and writes
-#      nothing; and a `set` bearing this run's minted token is accepted,
-#      after which `diff` puts the served reading and the model's truth
-#      exactly the written offset apart. The refusal is required to be the
-#      one about the missing token and not the one about writes being
+#      port: `status` carries exactly its six keys and reports the instance
+#      and the endpoint this gate booted; `info` lists the view's served
+#      addresses and the served models' own variables; a token-less `set` is
+#      refused and writes nothing; and a `set` bearing this run's minted token
+#      is accepted, after which `diff` puts the served reading and the model's
+#      truth exactly the written offset apart. The refusal is required to be
+#      the one about the missing token and not the one about writes being
 #      disabled, so a container that never received a token cannot satisfy
 #      it, and served and truth are required to AGREE beforehand, so the
 #      disagreement after the write cannot be one that was already there.
@@ -75,7 +76,7 @@
 #      address -- the value is checked back over PVA and over CA.
 #   7. A refused PVA put moves nothing. Checked on the Channel Access view,
 #      because that is the view that carries a real reading; see the step
-#      itself for why the PVA view would make this check vacuous today.
+#      itself for why.
 #   8. BOTH served ports are in the container's own port table, and PVA is
 #      confirmed live inside the container -- so a published port is
 #      distinguished from a port published in front of nothing.
@@ -84,6 +85,12 @@
 # BOOT_TIMEOUT_SECS, and every assertion above holds.
 #
 # Idempotent: safe to re-run. Removes any prior gate container first.
+#
+# Usage:
+#   scripts/va/build_and_boot_check.sh [DATA_ROOT]
+#
+# DATA_ROOT is a render's data root, `<project>/build/data`, holding the
+# simulator view under `simulator/`.
 #
 # Environment:
 #   OSPREY_VA_CA_PORT   Channel Access port to bind and publish. Defaults to
@@ -129,6 +136,10 @@ if [[ ! "${BOOT_TIMEOUT_SECS}" =~ ^[1-9][0-9]*$ ]]; then
 fi
 READY_LOG_MARKER="virtual accelerator IOC serving PVs"
 
+# The instance the container serves as. The entrypoint refuses a boot without
+# one, and the model RPC's `status` reports it back, which step 5 checks.
+VA_INSTANCE_VALUE="virtual_accelerator"
+
 # The PVAccess server's port, bound and published on the same number for the
 # same reason the Channel Access port is: a PVA search reply carries the
 # server's own port, so a container bound to one and published on another
@@ -137,12 +148,11 @@ READY_LOG_MARKER="virtual accelerator IOC serving PVs"
 # stack; step 5 talks to it from the host and step 8 asserts it is published.
 PVA_PORT="${OSPREY_VA_PVA_PORT:-5175}"
 
-# A pyat-coupled BPM readback, and the corrector whose field moves it. Reading
-# the BPM alone proves nothing: the tutorial lattice's closed orbit with no
-# corrector excited is exactly zero, which is indistinguishable from a PV that
-# was never seeded. So the gate writes ${EXCITE_PV} and requires the readings
-# to move -- only a live manifest -> records -> physics-bridge -> lattice chain
-# can do that.
+# A deck-coupled BPM readback, and the corrector whose field moves it. Reading
+# the BPM alone proves nothing: the demo deck's closed orbit with no corrector
+# excited is exactly zero, which is indistinguishable from a PV that was never
+# seeded. So the gate writes ${EXCITE_PV} and requires the readings to move --
+# only a live view -> composite -> physics model chain can do that.
 GATE_PV="SR:DIAG:BPM:01:POSITION:X"
 GATE_PV_2="SR:DIAG:BPM:02:POSITION:X"
 EXCITE_PV="SR:MAG:HCM:01:CURRENT:SP"
@@ -151,7 +161,7 @@ EXCITE_VALUE="0.5"
 # at both BPMs, so this sits ~100x below the signal and far above float noise.
 MOVED_THRESHOLD_M="1e-8"
 
-# ${EXCITE_PV}'s drive band is [-12, 12] (channel_limits.json). A put past the
+# ${EXCITE_PV}'s drive band is [-12, 12] (the preset's limits.yaml). A put past the
 # top of it must land clamped at the limit rather than being refused or taken
 # literally.
 DRIVE_HIGH="12.0"
@@ -161,17 +171,18 @@ OVER_DRIVE="20.0"
 # reads it out of the serving stack's own constant, in the container, so the
 # check cannot drift into testing a name the stack no longer uses.
 
-DEFAULT_DATA_DIR="${WORKTREE_ROOT}/src/osprey/templates/apps/control_assistant/data/simulation"
-DATA_DIR="${1:-${DEFAULT_DATA_DIR}}"
-# Whether the caller pointed this somewhere; see run_va.sh for why this is a
-# flag rather than a later comparison against the default.
-DATA_DIR_GIVEN="no"
+PRESET_FACILITY="${WORKTREE_ROOT}/src/osprey/templates/facilities/example"
+DATA_ROOT=""
 if [[ $# -gt 0 ]]; then
-    DATA_DIR_GIVEN="yes"
-fi
-if [[ ! -f "${DATA_DIR}/machine.json" ]]; then
-    echo "FATAL: no machine.json under ${DATA_DIR}" >&2
-    exit 1
+    if [[ ! -d "${1}" ]]; then
+        echo "FATAL: ${1} is not a directory; name a render's data root (<project>/build/data)" >&2
+        exit 1
+    fi
+    DATA_ROOT="$(cd "${1}" && pwd)"
+    if [[ ! -f "${DATA_ROOT}/simulator/served_models.json" ]]; then
+        echo "FATAL: no simulator/served_models.json under ${DATA_ROOT}; run \`osprey build\` first" >&2
+        exit 1
+    fi
 fi
 
 # Container runtime: prefer podman, fall back to docker (same auto-detect as
@@ -197,11 +208,10 @@ echo "Using container runtime: ${RUNTIME}"
 VENV_PY="${WORKTREE_ROOT}/.venv/bin/python"
 
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-full-build.XXXXXX")"
-DEMO_DATA_ROOT=""
+SERVED_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-served-data.XXXXXX")"
 cleanup() {
     "${RUNTIME}" rm -f "${CONTAINER}" >/dev/null 2>&1 || true
-    rm -rf "${STAGING_DIR}"
-    [[ -n "${DEMO_DATA_ROOT}" ]] && rm -rf "${DEMO_DATA_ROOT}"
+    rm -rf "${STAGING_DIR}" "${SERVED_ROOT}"
     return 0
 }
 trap cleanup EXIT
@@ -221,8 +231,9 @@ find "${STAGING_DIR}" -name "__pycache__" -type d -prune -exec rm -rf {} +
 # pin in osprey's `virtual-accelerator` extra, which the Containerfile installs
 # by name from PyPI along with everything else the extra carries. So the five
 # things copied above (packages/ is the osprey-connectors workspace member the
-# Containerfile installs from source) are the whole build-context contract --
-# same as scripts/va/run_va.sh, which stages the same set.
+# Containerfile installs from source) are the whole build-context contract,
+# the one tests/va/test_va_image_build_context.py checks against the
+# Containerfile.
 
 # osprey's version comes from git (hatch-vcs) and the staged context has no
 # .git, so the host resolves it and passes it in; see the Containerfile.
@@ -233,115 +244,65 @@ echo "--- Building ${IMAGE} (linux/amd64) ---"
     --build-arg "OSPREY_VERSION=${OSPREY_VERSION}" \
     -t "${IMAGE}" -f "${STAGING_DIR}/docker/virtual-accelerator/Containerfile" "${STAGING_DIR}"
 
-# The channel namespace this gate certifies, named explicitly. The IOC has no
-# default one -- the only namespace it could pick unasked is the framework's
-# bundled demo namespace, and a container serving those addresses under a
-# facility's name is indistinguishable, on the wire, from one serving the
-# facility -- so it refuses instead, and this gate names what it wants.
-#
-# A DATA_DIR carrying its own channel_manifest.json is a built project, already
-# in the layout the IOC reads -- manifest and channel_limits.json beside
-# machine.json under the served directory, the tree's write bands at the data
-# root one level up, which is what `osprey build` stages. Mount that root as it
-# stands.
-#
-# Otherwise this is the default run, and the answer is the packaged demo
-# manifest and the preset's drive limits: the machine every assertion below is
-# written against. The packaged preset tree carries no manifest at all (the
-# framework's is package data), so the layout is assembled in a temp directory
-# and that root is what gets mounted. Assembled rather than overlaid with extra
-# bind mounts because a bind mount INTO a read-only mount cannot create its own
-# mountpoint (the runtime refuses with EROFS), and mounting the tree read-write
-# to make room would leave the container able to write into the checkout.
-VA_LATTICE_VALUE="${VA_LATTICE:-}"
-MOUNT_DIR="${DATA_DIR}"
-if [[ ! -f "${DATA_DIR}/channel_manifest.json" ]]; then
-    # Say what is about to happen, because this branch REINTERPRETS the argument:
-    # a DATA_DIR with no manifest beside machine.json is not a built project, so
-    # it is being certified as a demo data tree and the channels under test will
-    # be the framework's rather than this directory's.
-    if [[ "${DATA_DIR_GIVEN}" == "yes" ]]; then
-        echo "NOTE: ${DATA_DIR} has no channel_manifest.json, so it is not a built" >&2
-        echo "      project. Certifying it as a demo data tree: the channels under" >&2
-        echo "      test are the framework's packaged demo namespace, with only" >&2
-        echo "      machine.json and scenarios/ taken from this directory." >&2
-    fi
-
-    if [[ ! -x "${VENV_PY}" ]]; then
-        echo "FATAL: no worktree venv python at ${VENV_PY}." >&2
-        echo "       It is what locates the packaged demo manifest (the manifest is" >&2
-        echo "       package data, so its path comes from the installed osprey rather" >&2
-        echo "       than from a path spelled here). Create the venv with \`uv sync\`." >&2
-        exit 1
-    fi
-    # The manifest this checkout carries, located through the installed package
-    # rather than by a relative path, so it is the same file the image just
-    # built from.
-    PACKAGED_MANIFEST="$("${VENV_PY}" -c \
-        'from osprey.services.virtual_accelerator.manifest.paths import MANIFEST_OUTPUT
-print(MANIFEST_OUTPUT)')"
-    if [[ ! -f "${PACKAGED_MANIFEST}" ]]; then
-        echo "FATAL: the packaged demo manifest is missing at ${PACKAGED_MANIFEST}." >&2
-        echo "       Regenerate it with:" >&2
-        echo "         uv run python -m osprey.services.virtual_accelerator.manifest.build" >&2
-        exit 1
-    fi
-    # Drive limits for the demo come from the preset's data root, one level above
-    # a simulation tree. The drive-band step below asserts ${EXCITE_PV}'s
-    # [-12, 12] clamp, read from exactly this file, and would pass vacuously
-    # without it -- so its absence is a refusal, phrased as the reinterpretation
-    # it belongs to rather than as a missing framework asset.
-    PRESET_LIMITS="$(cd "${DATA_DIR}/.." && pwd)/channel_limits.json"
-    if [[ ! -f "${PRESET_LIMITS}" ]]; then
-        echo "FATAL: certifying ${DATA_DIR} as a demo data tree needs a" >&2
-        echo "       channel_limits.json at its data root (${PRESET_LIMITS})," >&2
-        echo "       the way the packaged preset lays one out. Without it the" >&2
-        echo "       drive-band step would pass vacuously." >&2
-        exit 1
-    fi
-
-    # A data ROOT, not a flat directory: the served files go under
-    # `simulation/` and the write bands sit beside it at the root, because that
-    # is the layout a model is resolved against and the whole root is what gets
-    # mounted. The bands are copied to both places -- the IOC clamps setpoints
-    # from the served directory, a model reads its variable bounds from the
-    # root -- so the demo tree answers the same two questions a built one does.
-    DEMO_DATA_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-demo-data.XXXXXX")"
-    echo "--- Assembling the demo data root at ${DEMO_DATA_ROOT} ---"
-    mkdir -p "${DEMO_DATA_ROOT}/simulation"
-    cp -R "${DATA_DIR}/." "${DEMO_DATA_ROOT}/simulation/"
-    cp "${PACKAGED_MANIFEST}" "${DEMO_DATA_ROOT}/simulation/channel_manifest.json"
-    cp "${PRESET_LIMITS}" "${DEMO_DATA_ROOT}/simulation/channel_limits.json"
-    cp "${PRESET_LIMITS}" "${DEMO_DATA_ROOT}/channel_limits.json"
-    MOUNT_DIR="${DEMO_DATA_ROOT}/simulation"
-fi
-CHANNELS_FILE_VALUE="channel_manifest.json"
-
-# The lattice to certify, read off the mounted tree the same way the build
-# derives it: the bindings file is what says a tree models the channels it
-# names, and the lattice beside it is what the model is built from. A tree
-# carrying neither serves `none` and the IOC boots without physics. An exported
-# VA_LATTICE wins over both, for a tree that keeps its lattice under another
-# name.
-BINDINGS_FILE_VALUE="va_bindings.json"
-LATTICE_FILE_VALUE="lattice.json"
-if [[ -z "${VA_LATTICE_VALUE}" ]]; then
-    if [[ -f "${MOUNT_DIR}/${BINDINGS_FILE_VALUE}" ]]; then
-        VA_LATTICE_VALUE="${LATTICE_FILE_VALUE}"
-    else
-        VA_LATTICE_VALUE="none"
-    fi
+if [[ ! -x "${VENV_PY}" ]]; then
+    echo "FATAL: no worktree venv python at ${VENV_PY}." >&2
+    echo "       It renders the demo view and runs every host-side assertion." >&2
+    echo "       Create the venv with \`uv sync\`." >&2
+    exit 1
 fi
 
-# The container is handed the data ROOT and finds the served directory inside
-# it. A model is resolved against the whole tree -- the lattice and the
-# bindings under the served directory, the write bands its variables are built
-# from at the root -- so mounting the served directory alone carries no bands
-# and refuses a lattice-backed boot. VA_DATA_DIR is named from the directory's
-# own basename rather than assumed to be `simulation`, so a tree that keeps its
-# served files under another name still resolves.
-MOUNT_ROOT="$(cd "${MOUNT_DIR}/.." && pwd)"
-CONTAINER_DATA_DIR="/data/$(basename "${MOUNT_DIR}")"
+# The data root the container mounts: a copy of the view, so the gate never
+# writes into the tree it was pointed at. Copied rather than layered on with
+# extra bind mounts because a bind mount INTO a read-only mount cannot create
+# its own mountpoint (the runtime refuses with EROFS). The demo view is
+# rendered the way `osprey build` renders it from the preset's facility file.
+echo "--- Staging the served view at ${SERVED_ROOT}/simulator ---"
+"${VENV_PY}" - "${DATA_ROOT}" "${PRESET_FACILITY}" "${SERVED_ROOT}/simulator" \
+    "${SERVED_ROOT}/state" <<'PY'
+import json
+import shutil
+import sys
+from pathlib import Path
+
+source, facility, view = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
+state = Path(sys.argv[4])
+
+if source:
+    shutil.copytree(Path(source) / "simulator", view)
+else:
+    from osprey.facility.build import build_facility
+    from osprey.facility.served import resolve_served
+    from osprey.facility.views import ViewInputs
+    from osprey.facility.views.simulator import write_simulator_view
+
+    # The preset's control-system type and limits posture, every model served.
+    config = {
+        "control_system": {
+            "type": "virtual_accelerator",
+            "limits_checking": {"enabled": True, "mode": "optional"},
+        }
+    }
+    doc = build_facility(facility, project_name="control_assistant")
+    write_simulator_view(
+        view,
+        ViewInputs(
+            doc=doc,
+            rendered_config=config,
+            facility_dir=facility,
+            served=resolve_served(config, doc),
+            reported=None,
+        ),
+    )
+
+scenarios = json.loads((view / "scenarios.json").read_text(encoding="utf-8"))["scenarios"]
+if "still" not in {scenario["name"] for scenario in scenarios}:
+    sys.exit("the view lists no `still` scenario: rebuild the render")
+state.mkdir(parents=True, exist_ok=True)
+(state / "active_scenarios").write_text("still\n", encoding="utf-8")
+served = json.loads((view / "served_models.json").read_text(encoding="utf-8"))["models"]
+print(f"  served models: {', '.join(served)}")
+print("  active scenarios: still")
+PY
 
 # The credential the model RPC checks before a write, minted per run. It is a
 # secret only in the sense that matters here: nothing but this container is
@@ -351,21 +312,22 @@ CONTAINER_DATA_DIR="/data/$(basename "${MOUNT_DIR}")"
 # over from an earlier run cannot take it either.
 MODEL_WRITE_TOKEN="$("${VENV_PY}" -c 'import secrets; print(secrets.token_hex(16))')"
 
-echo "--- Starting ${CONTAINER} (data dir: ${MOUNT_DIR}; manifest: ${CHANNELS_FILE_VALUE}; VA_LATTICE=${VA_LATTICE_VALUE}) ---"
+echo "--- Starting ${CONTAINER} (data root: ${SERVED_ROOT}; VA_INSTANCE=${VA_INSTANCE_VALUE}) ---"
 # The server port is passed explicitly, from the same CA_PORT the publish maps:
 # a CA search reply carries the server's own port, so a container bound to one
 # port and published on another hands clients an unreachable address with no
-# useful error. (The image derives EPICS_CAS_SERVER_PORT from this.)
+# useful error. (The image derives EPICS_CAS_SERVER_PORT from this.) The
+# entrypoint serves `/data/simulator/`, its default data root.
 "${RUNTIME}" run -d --name "${CONTAINER}" \
     -e "EPICS_CA_SERVER_PORT=${CA_PORT}" \
     -e "EPICS_PVAS_SERVER_PORT=${PVA_PORT}" \
-    -e "VA_CHANNELS_FILE=${CHANNELS_FILE_VALUE}" \
-    -e "VA_LATTICE=${VA_LATTICE_VALUE}" \
-    -e "VA_DATA_DIR=${CONTAINER_DATA_DIR}" \
+    -e "VA_INSTANCE=${VA_INSTANCE_VALUE}" \
     -e "VA_MODEL_WRITE_TOKEN=${MODEL_WRITE_TOKEN}" \
     -p "127.0.0.1:${CA_PORT}:${CA_PORT}/tcp" \
     -p "127.0.0.1:${PVA_PORT}:${PVA_PORT}/tcp" \
-    -v "${MOUNT_ROOT}:/data:ro" \
+    -v "${SERVED_ROOT}:/data:ro" \
+    -v "${SERVED_ROOT}/state:/state/simulation:ro" \
+    -e VA_STATE_DIR=/state/simulation \
     "${IMAGE}" >/dev/null
 
 # What the container calls itself, which is the host half of the endpoint
@@ -382,6 +344,13 @@ while [[ ${SECONDS} -lt ${deadline} ]]; do
     if "${RUNTIME}" logs "${CONTAINER}" 2>&1 | grep -q "${READY_LOG_MARKER}"; then
         booted=true
         break
+    fi
+    # A container that has exited never prints the line; a failed first
+    # publishing pass exits non-zero before it.
+    if [[ "$("${RUNTIME}" inspect -f '{{.State.Running}}' "${CONTAINER}" 2>/dev/null || true)" != true ]]; then
+        echo "FATAL: the container exited before it reported ready" >&2
+        "${RUNTIME}" logs "${CONTAINER}" >&2 || true
+        exit 1
     fi
     sleep 1
 done
@@ -576,9 +545,10 @@ PY
 
 echo "--- [1/8] Asserting the runner readiness line ---"
 # The whole line is the contract, not just the marker: entrypoint.py writes it
-# in one place as "<marker>: <N> channels", and N is len(records.all). Matching
-# the marker alone would accept a boot that announced itself while serving an
-# empty namespace, so the count is parsed out and required to be positive.
+# in one place as "<marker>: <N> channels", and N is the number of channels
+# addresses.json lists. Matching the marker alone would accept a boot that
+# announced itself while serving an empty namespace, so the count is parsed out
+# and required to be positive.
 READY_LINE="$("${RUNTIME}" logs "${CONTAINER}" 2>&1 | grep -m1 "${READY_LOG_MARKER}" || true)"
 SERVED_CHANNELS="$(printf '%s' "${READY_LINE}" |
     sed -n "s/.*${READY_LOG_MARKER}: \\([0-9][0-9]*\\) channels.*/\\1/p")"
@@ -663,7 +633,7 @@ PY
 
 echo "--- [4/8] Asserting the runner claims no control PVs ---"
 # The serving runner is configured with control_pvs off: nothing is served that
-# the facility's channel manifest does not describe.
+# the simulator view's addresses.json does not list.
 #
 # An absence check is worthless unless the name being looked for is one the
 # server WOULD serve under the opposite configuration. So the name is not
@@ -674,11 +644,11 @@ echo "--- [4/8] Asserting the runner claims no control PVs ---"
 # what configuration it is actually asserting about rather than assuming.
 CONTROL_FACTS="$("${RUNTIME}" exec -i "${CONTAINER}" python - <<'PY'
 from lume_pva_apg.runner import RESET_CONTROL_PV
-from osprey.services.virtual_accelerator.serving.write_path import RUNNER_CONFIG_POLICY
+from osprey.services.virtual_accelerator.serving.runner_config import SAFETY_KEYS
 
 # Printed for the shell to consume; the assertions on these are below.
 print(f"RESET_PV={RESET_CONTROL_PV}")
-print(f"CONTROL_PVS={RUNNER_CONFIG_POLICY.get('control_pvs')!r}")
+print(f"CONTROL_PVS={SAFETY_KEYS.get('control_pvs')!r}")
 PY
 )" || ca_fail "could not read the serving stack's control-PV configuration"
 
@@ -693,7 +663,7 @@ if [[ -z "${RESET_PV}" ]]; then
 fi
 if [[ "${CONTROL_PVS}" != "False" ]]; then
     echo "FATAL: control_pvs is ${CONTROL_PVS}, not False -- this deployment claims control" >&2
-    echo "       PVs the channel manifest does not describe" >&2
+    echo "       PVs the view's addresses.json does not list" >&2
     exit 1
 fi
 
@@ -731,7 +701,7 @@ def served(pv: str) -> bool:
 if served(reset_pv):
     raise SystemExit(
         f"FATAL: {reset_pv} is served. It is the serving stack's own control PV, so "
-        "this deployment is claiming a name the channel manifest does not describe."
+        "this deployment is claiming a name the view's addresses.json does not list."
     )
 print(f"  {reset_pv}: absent, as required (load-bearing)")
 
@@ -742,10 +712,10 @@ if served(regression_guard):
     )
 print(f"  {regression_guard}: absent (regression guard only -- proves nothing on its own)")
 
-print("OK: no control PV is served outside the channel manifest")
+print("OK: no control PV is served outside the view's addresses")
 PY
 
-echo "--- [5/8] The model RPC from the host: status, a refused write, an accepted write ---"
+echo "--- [5/8] The model RPC from the host: status, info, a refused write, an accepted write ---"
 # The first host-side PVAccess client in this repo -- every other thing here
 # that speaks PVA speaks it from inside the container -- so this is the path an
 # operator's client actually takes: through the published port, in name-server
@@ -758,34 +728,42 @@ echo "--- [5/8] The model RPC from the host: status, a refused write, an accepte
 # accepted write IS that proof: ${MODEL_WRITE_TOKEN} was minted this run and
 # given to this container alone, so nothing else on ${PVA_PORT} could take it.
 #
-# None of the three assertions can pass vacuously:
-#   - `status` is checked against what this gate actually booted (the lattice
-#     it passed in, and the port it published), not against a constant;
+# None of the assertions can pass vacuously:
+#   - `status` is checked against what this gate actually booted (the instance
+#     it named and the port it published), not against a constant, and must
+#     carry exactly its six keys;
+#   - `info` must list exactly the served view's addresses as served and each
+#     model variable under a model `served_models.json` names;
 #   - the token-less `set` must be refused with the "no token presented"
 #     sentence and NOT with the one about writes being disabled, so a
 #     container that never received a token cannot satisfy it; and the fault
 #     is read back to show the refusal wrote nothing;
 #   - served and truth must AGREE before the accepted write and disagree by
 #     exactly the offset after it, so neither half can be satisfied by a
-#     divergence that was already there.
+#     divergence that was already there. Both are exact because the gate
+#     serves the view under the `still` scenario, so ${GATE_PV} has no motion.
 #
-# The fault to write is not named here. The mounted tree's own bindings
-# document says which element ${GATE_PV} reads at, and the model declares that
-# element's readout faults under it -- so the gate measures the write on the
-# one reading it perturbs, on whatever tree it was pointed at. A tree with no
-# bindings carries no faults, and the write half says so and is skipped.
+# The fault to write is not named here. The view's own variables.json says
+# which model owns ${GATE_PV}, and that model declares the reading's offset as
+# `<model>/${GATE_PV}/offset` -- so the gate measures the write on the one
+# reading it perturbs. A view whose served models declare no such variable
+# carries no fault to write, and the write half says so and is skipped.
+#
+# The runner publishes a model write on its next periodic pass, so the served
+# side of `diff` is polled until it reflects the write, within a bound.
 #
 # The offset is written back to zero at the end, because steps 6 and 7 measure
 # the same reading and are entitled to an unfaulted one.
-host_py "${PVA_PORT}" "${MODEL_WRITE_TOKEN}" "${GATE_PV}" "${VA_LATTICE_VALUE}" \
-    "${CONTAINER_HOSTNAME}" "${MOUNT_DIR}/${BINDINGS_FILE_VALUE}" \
+host_py "${PVA_PORT}" "${MODEL_WRITE_TOKEN}" "${GATE_PV}" "${VA_INSTANCE_VALUE}" \
+    "${CONTAINER_HOSTNAME}" "${SERVED_ROOT}/simulator" \
     <<'PY' || ca_fail "the model RPC round from the host failed"
+import json
 import sys
+import time
 from pathlib import Path
 
 from p4p.client.thread import Context
 
-from osprey.services.virtual_accelerator.bindings import load_bindings
 from osprey.services.virtual_accelerator.serving.model_rpc import (
     RPC_PV,
     RPC_TIMEOUT_S,
@@ -793,22 +771,48 @@ from osprey.services.virtual_accelerator.serving.model_rpc import (
     build_request,
     parse_reply,
 )
-from osprey.services.virtual_accelerator.serving.model_surface import WRITES_DISABLED
+from osprey.services.virtual_accelerator.serving.model_surface import (
+    SURFACE_MODEL_ONLY,
+    SURFACE_SERVED,
+    WRITES_DISABLED,
+)
 
-port, token, gate_pv = sys.argv[1], sys.argv[2], sys.argv[3]
-lattice_source, hostname, bindings_path = sys.argv[4], sys.argv[5], Path(sys.argv[6])
+port, token, gate_pv, instance = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+hostname, view = sys.argv[5], Path(sys.argv[6])
 
 # The refusal a write with no token must meet. Spelled out rather than
 # imported because it is the wire text a client is shown, and this gate is one
 # of the clients: the point is that the sentence itself has not changed.
 NO_TOKEN = "model write refused: no write token was presented"
+STATUS_KEYS = {
+    "instance",
+    "endpoint",
+    "last_cycle_ms",
+    "queue_depth",
+    "uptime_s",
+    "last_refused_write",
+    "last_failed_pass",
+}
+ENTRY_KEYS = {"name", "unit", "value_range", "read_only", "surface"}
 # Well below the offset written and the orbit measured, and well above float
 # noise on either.
 TOL = 1e-9
-# The smallest displacement to write when the served readings sit too close to
+# The smallest displacement to write when the served reading sits too close to
 # the axis to scale one from. Six orders of magnitude above TOL, in whatever
-# unit this tree publishes its monitors in.
+# unit this view publishes its monitors in.
 OFFSET_FLOOR = 1e-3
+# How long the served side of `diff` may take to reflect a model write: a few
+# of the runner's periodic passes, emulation included.
+PUBLISH_WAIT_S = 30.0
+
+
+def read(name):
+    return json.loads((view / name).read_text(encoding="utf-8"))
+
+
+served_models = read("served_models.json")["models"]
+addresses = read("addresses.json")
+owners = {str(c["address"]): str(c.get("owner")) for c in read("variables.json")["channels"]}
 
 ctx = Context("pva")
 
@@ -819,24 +823,17 @@ def call(verb, **kwargs):
 
 
 status = call("status")
-print(f"  status      : backend={status['backend']} lattice_source={status['lattice_source']}")
-print(f"                endpoint={status['endpoint']} queue_depth={status['queue_depth']!r}")
-served_lattice = str(status["lattice_source"])
-if lattice_source == "none":
-    if served_lattice != "none":
-        raise SystemExit(
-            f"FATAL: status reports lattice_source={served_lattice!r} on a boot this gate "
-            "started with VA_LATTICE=none"
-        )
-elif not served_lattice.endswith(lattice_source):
+print(f"  status      : instance={status.get('instance')} endpoint={status.get('endpoint')}")
+print(f"                queue_depth={status.get('queue_depth')!r}")
+print(f"  served      : {', '.join(served_models)} (served_models.json)")
+if set(status) != STATUS_KEYS:
+    raise SystemExit(f"FATAL: status carries {sorted(status)}, not {sorted(STATUS_KEYS)}")
+if status["last_failed_pass"] is not None:
+    raise SystemExit(f"FATAL: a publishing pass failed: {status['last_failed_pass']}")
+if status["instance"] != instance:
     raise SystemExit(
-        f"FATAL: status reports lattice_source={served_lattice!r}, but this gate booted the "
-        f"container with VA_LATTICE={lattice_source!r}"
-    )
-elif status["backend"] != "PyATRingModel":
-    raise SystemExit(
-        f"FATAL: status reports backend={status['backend']!r} on a lattice-backed boot; the "
-        "ring model is what produces every reading the steps around this one assert on"
+        f"FATAL: status reports instance={status['instance']!r}, but this gate booted the "
+        f"container with VA_INSTANCE={instance!r}"
     )
 depth = status["queue_depth"]
 if isinstance(depth, bool) or not isinstance(depth, int) or depth < 0:
@@ -855,41 +852,63 @@ elif endpoint_host != hostname:
         "is the hostname of the container this gate started"
     )
 
-if not bindings_path.is_file():
-    print(f"  note        : {bindings_path} carries no bindings, so the tree declares no faults")
-    print("OK: the model RPC answered the host; the tree carries no model fault to write")
-    raise SystemExit(0)
-
-# Which element ${GATE_PV} reads at, from the same document the server read.
-document = load_bindings(bindings_path)
-element = next(
-    (
-        binding.element
-        for binding in document.bindings
-        if binding.kind == "monitor" and binding.setpoint_address == gate_pv
-    ),
-    None,
+info = call("info")
+if set(info) != {"variables"}:
+    raise SystemExit(f"FATAL: info carries {sorted(info)}, not ['variables']")
+for entry in info["variables"]:
+    if set(entry) != ENTRY_KEYS:
+        raise SystemExit(f"FATAL: info entry {entry!r} carries {sorted(entry)}")
+by_surface = {}
+for entry in info["variables"]:
+    by_surface.setdefault(entry["surface"], []).append(entry)
+if set(by_surface) - {SURFACE_SERVED, SURFACE_MODEL_ONLY}:
+    raise SystemExit(f"FATAL: info names surfaces {sorted(by_surface)}")
+served_names = [entry["name"] for entry in by_surface.get(SURFACE_SERVED, [])]
+expected = [*addresses["channels"], *addresses["status"]]
+if served_names != expected:
+    raise SystemExit(
+        f"FATAL: info lists {len(served_names)} served names; the view's addresses.json "
+        f"lists {len(expected)} channels and status addresses"
+    )
+model_variables = {entry["name"]: entry for entry in by_surface.get(SURFACE_MODEL_ONLY, [])}
+strays = sorted(
+    name for name in model_variables if name.partition("/")[0] not in served_models
 )
-if element is None:
-    raise SystemExit(
-        f"FATAL: {bindings_path} publishes no monitor reading on {gate_pv}, which is the "
-        "address every physics step of this gate measures"
-    )
-fault = f"{element}.offset_x"
-declared = {entry["name"] for entry in call("info")["variables"]}
-if fault not in declared:
-    raise SystemExit(
-        f"FATAL: the model declares no {fault!r}; the document reads {gate_pv} at element "
-        f"{element!r}, so that is the fault this step measures the write on"
-    )
+if strays:
+    raise SystemExit(f"FATAL: info lists model variables of no served model: {strays[:5]}")
+print(f"  info        : {len(served_names)} served, {len(model_variables)} model variables")
+
+owner = owners.get(gate_pv)
+fault = f"{owner}/{gate_pv}/offset"
+if fault not in model_variables:
+    print(f"  note        : the served models declare no {fault!r}, so there is no fault to write")
+    print("OK: the model RPC answered the host; the view carries no model fault to write")
+    raise SystemExit(0)
+if model_variables[fault]["read_only"]:
+    raise SystemExit(f"FATAL: info lists {fault} read-only; a model fault is writable")
+
+
+def gap(diff):
+    return float(diff[gate_pv]["served"]) - float(diff[gate_pv]["truth"])
+
+
+def wait_for_gap(target):
+    """The diff once the gap on ``gate_pv`` is ``target``, or the last one at PUBLISH_WAIT_S."""
+    deadline = time.monotonic() + PUBLISH_WAIT_S
+    while True:
+        diff = call("diff")
+        if abs(gap(diff) - target) <= TOL or time.monotonic() > deadline:
+            return diff
+        time.sleep(0.5)
+
 
 before = call("diff")
 if gate_pv not in before:
     raise SystemExit(
-        f"FATAL: diff reports nothing for {gate_pv}. It names every served model variable, so "
+        f"FATAL: diff reports nothing for {gate_pv}. It names every channel of the view, so "
         "the address this step measures the write on should be among them"
     )
-gap_before = float(before[gate_pv]["served"]) - float(before[gate_pv]["truth"])
+gap_before = gap(before)
 print(f"  diff before : {gate_pv} served - truth = {gap_before:.3g}")
 if abs(gap_before) > TOL:
     raise SystemExit(
@@ -899,10 +918,9 @@ if abs(gap_before) > TOL:
 
 # A seeded displacement carries no declared bound -- it is whatever magnitude
 # was asked for, in whatever unit this facility publishes its monitors in -- so
-# the size to write is derived from what the deployment actually serves: ten
-# times the largest reading on the machine, floored well above float noise.
-scale = max(abs(float(entry["truth"])) for entry in before.values())
-offset = max(10.0 * scale, OFFSET_FLOOR)
+# the size to write is derived from the reading it perturbs: ten times it,
+# floored well above float noise.
+offset = max(10.0 * abs(float(before[gate_pv]["truth"])), OFFSET_FLOOR)
 
 held_before = float(call("get", names=[fault])[fault])
 try:
@@ -931,7 +949,7 @@ print(f"  token-bearing: accepted, wrote {written}")
 if written != [fault]:
     raise SystemExit(f"FATAL: the accepted set reports writing {written!r}, not [{fault!r}]")
 
-after = call("diff")
+after = wait_for_gap(-offset)
 served, truth = float(after[gate_pv]["served"]), float(after[gate_pv]["truth"])
 gap_after = served - truth
 print(f"  diff after  : {gate_pv} served={served:.6g} truth={truth:.6g} (gap {gap_after:.6g})")
@@ -942,8 +960,7 @@ if abs(gap_after + offset) > TOL:
     )
 
 restored = call("set", values={fault: 0.0}, token=token)
-back = call("diff")
-gap_restored = float(back[gate_pv]["served"]) - float(back[gate_pv]["truth"])
+gap_restored = gap(wait_for_gap(0.0))
 if restored != [fault] or abs(gap_restored) > TOL:
     raise SystemExit(
         f"FATAL: {fault} did not go back to 0 ({restored!r}): {gate_pv} still reads "
@@ -979,10 +996,9 @@ if abs(after - high) > 1e-9:
 print(f"OK: the over-range put landed clamped at the drive limit ({high:g})")
 PY
 
-# The clamp must be visible on the OTHER view too. The address is served
-# twice -- co-hosted on Channel Access, natively on PVA because it is also a
-# model variable -- and a clamp that moved only the transport the client used
-# would leave the two views disagreeing about the machine.
+# The clamp must be visible on the OTHER view too. The address is served on
+# both Channel Access and PVAccess, and a clamp that moved only the transport
+# the client used would leave the two views disagreeing about the machine.
 "${VENV_PY}" - "${EXCITE_PV}" "${DRIVE_HIGH}" <<'PY' || ca_fail "the clamped value did not reach the CA view"
 import sys
 import epics
@@ -1001,11 +1017,11 @@ print("OK: both views of the address carry the clamped value")
 PY
 
 echo "--- [7/8] A refused PVA put moves nothing ---"
-# The refusal is checked on a read-only model variable, and the "did not move"
+# The refusal is checked on a read-only served reading, and the "did not move"
 # half is asserted on the CHANNEL ACCESS view rather than the PVA one. That is
 # deliberate: the value this step requires to hold still has to be one that
 # could visibly have moved, and on Channel Access a BPM carries a real,
-# non-zero reading pushed there by the physics bridge -- step 3 above is what
+# non-zero reading pushed there by the physics model -- step 3 above is what
 # put it there. The check is guarded accordingly below: it FAILS rather than
 # passes if that reading is 0, so it can never degenerate into comparing one
 # zero against another.

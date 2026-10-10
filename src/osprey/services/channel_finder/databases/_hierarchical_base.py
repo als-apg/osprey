@@ -36,7 +36,6 @@ class _HierarchicalBase(BaseDatabase):
 
     # Populated by load_database() (see _HierarchicalLoadingMixin).
     tree: dict[str, Any]
-    _raw_data: dict[str, Any]
     hierarchy_levels: list[str]
     naming_pattern: str
     hierarchy_config: dict[str, Any]

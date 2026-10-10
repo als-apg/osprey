@@ -36,8 +36,6 @@ disagreement is the bypass.
 
 from __future__ import annotations
 
-import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -55,18 +53,19 @@ from osprey.mcp_server.control_system.target_eligibility import endpoint_is_live
 # library and nothing else, no Channel Access stack, no PVA, no Mongo driver.
 from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.ipc.verification import derive_endpoints
+from osprey_connectors.simulation.view import ADDRESSES_FILE, NoSimulatorView, SimulatorView
 
 # Whose past the store holds, decided in one place for the recorder's compose
 # entry, this enablement gate and the deploy-time archive seed alike. A guard
 # that worked it out privately could disagree with the seed it shares a
 # collection with.
 from osprey_connectors.standin import archive_belongs_to_standin
-from osprey_connectors.types import TARGET_STANDIN
+from osprey_connectors.types import TARGET_STANDIN, connector_transport
 
-#: Where the compose template mounts the project's ``data/simulation`` tree,
-#: matching the virtual accelerator's own mount so a relative
-#: ``VA_CHANNELS_FILE`` resolves to the same file on both sides.
-DEFAULT_DATA_DIR = "/data/simulation"
+#: Where the compose template mounts the render's simulator view,
+#: ``build/data/simulator``: the same directory the virtual accelerator serves
+#: from, so the recorder and the IOC read one ``addresses.json``.
+DEFAULT_DATA_DIR = "/data/simulator"
 
 #: Rendered-config subtree holding the connection keys (mirrors
 #: ``build_profile_archiver.CONNECTION_CONFIG_PREFIX``).
@@ -177,7 +176,7 @@ def load_settings(config_path: Path) -> RecorderSettings:
 class RecordingFacts:
     """What the mounted config says about the machine on the other end.
 
-    Two facts rather than one, and only one of them moves when an operator runs
+    Two facts about the machine, and only one of them moves when an operator runs
     ``osprey set connector=epics``: the rendered ``control_system.type`` is
     rewritten, while a deployment that records its own stand-in goes on
     recording the same machine it always did. See
@@ -196,6 +195,11 @@ class RecordingFacts:
     #: target's gateways still select that stand-in. See
     #: :func:`_recorded_target_is_standin`.
     live_standin: bool
+    #: The wire the deployment's own connector speaks
+    #: (:func:`~osprey_connectors.types.connector_transport`): the simulator
+    #: served in process has none to sample, so it is never recorded. ``None``
+    #: for a type with no transport row.
+    transport: str | None
 
 
 def read_recording_facts(config_path: Path) -> RecordingFacts:
@@ -215,9 +219,15 @@ def read_recording_facts(config_path: Path) -> RecordingFacts:
             and restart recording on a file write that changed nothing.
     """
     config = _load_mapping(config_path)
+    control_system_type = _control_system_type(config, config_path)
+    try:
+        transport = connector_transport(config["control_system"])
+    except ValueError as exc:
+        raise RecorderConfigError(f"{config_path}: {exc}") from exc
     return RecordingFacts(
-        control_system_type=_control_system_type(config, config_path),
+        control_system_type=control_system_type,
         live_standin=_recorded_target_is_standin(config),
+        transport=transport,
     )
 
 
@@ -236,105 +246,42 @@ def read_control_system_type(config_path: Path) -> str:
 
 
 def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
-    """The addresses to record, in the order the channel source lists them.
+    """The addresses to record, in the order the simulator view lists them.
 
-    The source is the build-generated channel MANIFEST, named by
-    ``VA_CHANNELS_FILE`` exactly as the virtual accelerator reads it, so the
-    recorder covers precisely the channels the IOC serves. Required, again
-    matching the IOC: unset or empty is refused rather than defaulted, because
-    the only channel set this service could pick on its own is the framework's
-    bundled demo one, and an archive filled with those addresses under this
-    facility's name is indistinguishable, later, from a real record of the
-    facility. ``osprey build`` writes the variable into the deployment's
-    ``.env`` and the recorder's compose service passes it through, so a built
-    deployment always has it; a deployment whose data tree stages no channel
-    database has nothing to record and says so here rather than recording
-    somebody else's machine.
+    The source is the ``channels`` list of the build's simulator view,
+    ``addresses.json``, the file the virtual accelerator serves its namespace
+    from, so the recorder covers precisely the facility's channels. The view's
+    ``status`` list names the simulator's own model status channels and is not
+    recorded. There is no fallback: a view that is missing or unreadable is
+    refused, because the only channel set this service could pick on its own is
+    one that is not this facility's, and an archive filled with those addresses
+    under this facility's name is indistinguishable, later, from a real record
+    of the facility.
 
-    It must never be ``channel_limits.json``. That file is a *write-safety
-    projection* of the same manifest rather than a second copy of it: it holds
-    one entry per address, read-only ones included, alongside top-level metadata
-    keys (``_comment``, ``_version``, ``_description``, ``defaults``). Its key
-    set is therefore not a channel list, and recording from it would ask the
-    IOC for names that are not channels at all. The manifest is the one source
-    the IOC and this service share; reading anything else makes a second source
-    that is free to drift from what is actually being served.
-
-    An address the archive cannot hold as a field name is refused here on the
-    same terms (see :func:`_unstorable_field_name`), rather than started and
-    discovered a tick at a time.
+    Args:
+        data_dir: The simulator view's directory; :data:`DEFAULT_DATA_DIR`
+            when ``None``.
 
     Raises:
-        RecorderConfigError: if ``VA_CHANNELS_FILE`` names nothing, if the
-            manifest it names cannot be loaded, or if it lists an address the
-            archive cannot store as a field name. A recorder that fell back to
-            the built-in channel set on either of the first two paths would
-            record another facility's namespace into this facility's archive.
+        RecorderConfigError: if ``addresses.json`` cannot be read or holds no
+            ``channels`` list of strings.
     """
     root = Path(data_dir) if data_dir is not None else Path(DEFAULT_DATA_DIR)
-    raw = os.environ.get("VA_CHANNELS_FILE", "").strip()
-    if not raw:
-        raise RecorderConfigError(
-            "cannot record: VA_CHANNELS_FILE names no channel manifest, and there "
-            "is no built-in channel set to fall back on -- recording the "
-            "framework's bundled demo addresses would put another facility's "
-            "namespace in this facility's archive. `osprey build` writes the "
-            "variable into the deployment's .env when it generates a manifest; if "
-            "it did not, this project's data tree stages no channel database."
-        )
-
-    # Imported here rather than at module scope: the manifest package pulls in
-    # the channel-database parsers, which a config-only caller has no use for.
-    from osprey.services.virtual_accelerator.manifest.loaders import (
-        ManifestFileError,
-        load_manifest_file,
-    )
-
-    path = Path(raw)
-    if not path.is_absolute():
-        path = root / path
+    path = root / ADDRESSES_FILE
     try:
-        channels = load_manifest_file(path)
-    except (ManifestFileError, json.JSONDecodeError, OSError) as exc:
+        view = SimulatorView.open(root)
+    except (NoSimulatorView, OSError, ValueError) as exc:
         raise RecorderConfigError(
-            f"cannot record: the channel manifest named by VA_CHANNELS_FILE ({path}) "
-            f"could not be loaded: {exc}"
+            f"cannot record: the simulator view's {ADDRESSES_FILE} ({path}) could not be "
+            f"loaded: {exc}. `osprey build` writes it under build/data/simulator."
         ) from exc
-
-    addresses = [str(channel["address"]) for channel in channels]
-    for address in addresses:
-        refusal = _unstorable_field_name(address)
-        if refusal is not None:
-            raise RecorderConfigError(
-                f"cannot record: the channel manifest named by VA_CHANNELS_FILE ({path}) "
-                f"lists {address!r}, which cannot be stored: it {refusal}. Every tick is "
-                f"one document with a field per address, so this channel would be dropped "
-                f"from the archive -- or take the whole write with it -- rather than "
-                f"recorded. Rename the channel, or leave it out of the manifest the "
-                f"recorder is pointed at."
-            )
-    return addresses
-
-
-def _unstorable_field_name(address: str) -> str | None:
-    """Why ``address`` cannot be an archive field name, or ``None`` if it can.
-
-    A tick is stored as one flat document keyed by channel address, and the
-    archiver connector projects the same names back out. MongoDB reads ``.``
-    in a field name as a path separator and a leading ``$`` as an operator,
-    and holds no NUL byte at all, so an address carrying one of those is not a
-    field this store can round-trip. Refusing at startup is the same
-    fail-closed stance the rest of this module takes: the alternative is a
-    recorder that runs, warns once a tick, and leaves an archive that quietly
-    does not hold what its operators believe it holds.
-    """
-    if "." in address:
-        return "contains '.', which the archive reads as a document path separator"
-    if address.startswith("$"):
-        return "starts with '$', which the archive reads as an operator"
-    if "\x00" in address:
-        return "contains a NUL byte, which a field name cannot hold"
-    return None
+    channels = view.document(ADDRESSES_FILE).get("channels")
+    if not isinstance(channels, tuple) or not all(isinstance(c, str) for c in channels):
+        raise RecorderConfigError(
+            f"cannot record: the simulator view's {ADDRESSES_FILE} ({path}) holds no "
+            f"`channels` list of addresses. Rebuild the project with `osprey build`."
+        )
+    return list(view.channels())
 
 
 # ---------------------------------------------------------------------------

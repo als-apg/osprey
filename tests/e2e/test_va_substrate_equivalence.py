@@ -4,21 +4,23 @@ from) a real EPICS beamline (PROPOSAL.md's Risk-1/Station-2 gate).
 
 One module-scoped init + build + ``osprey up -d --dev`` co-deploys the
 Virtual Accelerator (task 4.1) and the Bluesky bridge (task 2.9) wired to the
-EPICS substrate scanner (task 2.3), with one sp-echo ``:SP`` pre-faulted
-(task 3.1's ``VA_STUCK_SETPOINTS``) via task 4.2's env passthrough. Six
-proofs then exercise the whole stack end to end:
+EPICS substrate scanner (task 2.3), with one corrector setpoint of a physics
+model given a ``stuck`` fault by a scenario the suite authors into its tree.
+Six proofs then exercise the whole stack end to end:
 
   P1 co-deploy:     containers up, healthy, loopback-only, depends_on ordering held.
   P2 liveness:      the full manifest namespace is reachable over CA.
   P3 read-equiv:    a pyepics (host) read and an ophyd-async (bridge) read of
-                     the same PV agree.
+                     the same PV agree, each within the readback's declared
+                     motion.
   P4 concurrent:    an EPICS-substrate ``grid_scan`` plan runs to completion
                      while a concurrent host read observes the same PV
                      consistently — the loop-affinity falsifier.
-  P5 honest divergence: a write to a pre-faulted ``:SP`` is confirmed (the SP
-                     always latches its own readback), but an independent read
-                     of the sibling ``:RB`` proves it never moved — and both
-                     CA clients (host + bridge) agree on that frozen value.
+  P5 honest divergence: with the stuck scenario applied, a write to the
+                     faulted setpoint is confirmed, but an independent read of
+                     its paired readback proves it never moved — and both CA
+                     clients (host + bridge) read it where it was held before
+                     the write, within its declared motion.
   P6 model RPC:     a host PVAccess client reaches the model surface over the
                      published port, is refused a write that carries no token
                      (and moves nothing), and is taken for one that carries the
@@ -33,13 +35,17 @@ spelled once in ``tests/e2e/_queue_drive.py``). That is transport only — what
 these proofs assert about the substrate is unchanged.
 
 No preset channel names are hardcoded: every address used below is derived
-from the deployment repo's own ``data/channel_limits.json`` — the same bytes
-the build copies into the build zone for the deployed containers (writable ⟺ a
-``:SP`` address) restricted to sp-echo pairs — the writable addresses the
-tree's own ``va_bindings.json`` does NOT claim. A write the lattice model is
-coupled to has ring-wide physics side effects, wrong for an isolated
-fault/equivalence probe; sp-echo is a pure software echo, exactly what P3-P5
-need.
+from the Bluesky view of the source zone's own facility tree (a setpoint with
+a paired readback). P3/P4 use sp-echo pairs — the writable addresses no
+physics model of the tree wires. The suite authors one limits
+record per chosen setpoint into its own throwaway tree before the build, so
+each scan has a band to sweep inside. A plan names each device by its
+address, the name the build's device file gives it. A write the lattice model is
+coupled to has machine-wide physics side effects, wrong for an isolated
+equivalence probe; sp-echo is a pure software echo, exactly what P3/P4 need.
+P5 uses a corrector pair a physics model wires, because ``stuck`` is a fault
+of a model's setpoint: a stuck corrector forwards nothing to the model, so its
+write has no physics side effect either.
 
 Container safety: every docker invocation below names an exact container/image
 — never a wildcard, never ``system prune``/``--volumes``. The one forced
@@ -102,6 +108,19 @@ HOST_CA_OP_SCRIPT = Path(__file__).resolve().parent / "_va_host_ca_op.py"
 # imported -- tests/e2e is a package, so the helper is not on sys.path).
 HOST_CA_RESULT_MARKER = "__HOST_CA_RESULT__"
 
+#: The scenario this suite authors that holds P5's corrector setpoint stuck.
+P5_STUCK_SCENARIO = "p5-stuck"
+#: The VA container's view of the deployment's active scenarios.
+VA_ACTIVE_SCENARIOS = "/state/simulation/active_scenarios"
+#: How long an applied scenario may take to show inside the container: a
+#: container runtime's file sharing, not a property of the virtual accelerator.
+SCENARIO_VISIBLE_SEC = 30.0
+
+#: The band of the limits record this suite authors for each sp-echo setpoint
+#: it drives. An sp-echo is a software copy with no physical range, so any band
+#: clear of 0.0 serves.
+SP_ECHO_BAND = (280.0, 360.0)
+
 
 # Channel Access port the Virtual Accelerator serves on. An ephemeral free
 # port, not 5064: this module already plumbs the one value everywhere it
@@ -139,16 +158,6 @@ BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
 BRIDGE_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-bluesky-bridge:local"
 
-# Device names this suite authors into the worker's device file — arbitrary,
-# resolved against explicit PV addresses (see _write_devices_file below), never
-# a preset naming convention. Synthetic on purpose: this is the one lane that
-# proves a device name need not BE its address, which is exactly what the
-# ``settables``/``readables`` entries' ``setpoint``/``pv`` fields are for.
-SCAN_MOTOR = "scan_motor"
-P3_DETECTOR = "p3_det"
-P4_DETECTOR = "p4_det"
-P5_DETECTOR = "p5_det"
-
 # The bridge's arming route (POST /queue/start) fails closed on an unset
 # BLUESKY_LAUNCH_TOKEN. `osprey up` mints one for the deployed bluesky
 # service, but this e2e supplies its own explicitly (the supported
@@ -185,11 +194,6 @@ MODEL_QUIET_TOL = 1e-7
 # close to the axis to scale one from. Four orders of magnitude above the
 # quiet floor above, so the shift it produces cannot be mistaken for one.
 MODEL_OFFSET_FLOOR = 1e-3
-# Gaussian headroom on a served reading's declared noise (see
-# `_monitor_motion_bands`). Each reading is compared across a handful of
-# snapshots, so a per-draw miss rate near 1e-9 keeps the whole machine's
-# comparisons far from a false alarm.
-MODEL_MOTION_SIGMAS = 6.0
 # How far the written displacement must clear the loosest "did not move"
 # threshold, so the one reading it moves cannot be confused with motion.
 MODEL_OFFSET_OVER_MOTION = 100.0
@@ -263,145 +267,158 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
     )
 
 
-def _channel_limits(repo: Path) -> dict[str, Any]:
-    """The deployment repo's own channel limits.
+def _numeric_gaps(diff: dict[str, dict[str, Any]]) -> dict[str, float]:
+    """Each numeric channel's served value minus the value the model holds.
 
-    ``osprey build`` copies ``<repo>/data`` into the build zone verbatim, so
-    this file and the ``build/data/`` copy the bridge and the VA both read are
-    the same bytes and name the same channels — but only this one exists before
-    the build, which is when the plan devices have to be chosen and authored.
+    The model RPC's ``diff`` reports every channel of the view; a channel whose
+    served value or truth is not a real number (an enum, a waveform, a text)
+    has no gap and is left out.
     """
-    return json.loads((repo / "data" / "channel_limits.json").read_text(encoding="utf-8"))
+
+    def real(value: Any) -> bool:
+        return isinstance(value, int | float) and not isinstance(value, bool)
+
+    return {
+        address: float(entry["served"]) - float(entry["truth"])
+        for address, entry in diff.items()
+        if real(entry["served"]) and real(entry["truth"])
+    }
 
 
-def _monitor_motion_bands(repo: Path, truths: dict[str, float]) -> dict[str, float]:
-    """How far each served reading's declared motion can carry it from the model's truth.
+def _seed_nominal(repo: Path, address: str) -> float:
+    """The value ``address`` starts at: its seed's ``nominal`` in the render's
+    simulator view, the bytes the container serves; 0.0 when the seed names
+    none, the zero of a float channel."""
+    from osprey_connectors.simulation.view import SimulatorView
 
-    The virtual accelerator serves a lattice-bound monitor as the solved orbit
-    plus the motion its ``machine.json`` entry declares -- the texture's
-    envelope, relative noise on the moving level, absolute noise -- re-drawn on
-    every telemetry tick, while the model's truth stays motion-free. So the
-    served/truth gap of such a reading is that motion, and this is its bound:
-    the texture amplitude, which is structural, plus ``MODEL_MOTION_SIGMAS`` of
-    each Gaussian term. Read from the served tree's own machine file, the same
-    bytes the container parses; a reading it declares no motion for gets 0.0,
-    so it is held to the exact tolerances.
-    """
-    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import served_data_root
-    from osprey.simulation.machine import parse_machine
-
-    data_root = served_data_root(repo, repo / "build")
-    assert data_root is not None, f"the deployment at {repo} serves no machine.json"
-    machine_json = ManifestPaths(data_root=data_root).machine_json
-    channels = parse_machine(
-        json.loads(machine_json.read_text(encoding="utf-8")), machine_json
-    ).channels
-    bands: dict[str, float] = {}
-    for address, truth in truths.items():
-        channel = channels.get(address)
-        if channel is None:
-            bands[address] = 0.0
-            continue
-        amplitude = channel.texture.amplitude if channel.texture is not None else 0.0
-        relative = channel.noise * (abs(truth) + amplitude)
-        bands[address] = amplitude + MODEL_MOTION_SIGMAS * (relative + channel.noise_abs)
-    return bands
+    seed = SimulatorView.of_project(repo).seed(address) or {}
+    return float(seed.get("nominal") or 0.0)
 
 
-def _select_sp_echo_pairs(
-    repo: Path, channel_limits: dict[str, Any], count: int
-) -> list[tuple[str, str]]:
-    """Derive ``count`` disjoint sp-echo (``:SP``, ``:RB``) pairs from the
-    deployed render's own channel_limits.json -- no hardcoded preset
+def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
+    """Derive ``count`` disjoint sp-echo (setpoint, readback) pairs from the
+    Bluesky view of the repo's own facility tree -- no hardcoded preset
     channels.
 
-    A channel is writable (candidate ``:SP``) iff its channel_limits.json
-    entry exists with that address ending ``:SP`` (the connector's own
-    writability contract). Restricted to the sp-echo partition rather than
-    every writable ``:SP``: a write the lattice model is coupled to has
-    ring-wide physics side effects (it moves other monitors through the
-    model), wrong for an isolated equivalence/fault probe -- sp-echo is a
-    pure, isolated software copy (write SP, RB follows immediately, nothing
-    else touched).
+    A candidate is a settable of that view that names a readback. Restricted
+    to the sp-echo partition rather than every settable: a write the lattice
+    model is coupled to has machine-wide physics side effects (it moves other
+    monitors through the model), wrong for an isolated equivalence/fault probe
+    -- sp-echo is a pure, isolated software copy (write SP, RB follows
+    immediately, nothing else touched).
 
-    Which of the two a channel is, is read off the deployment's own
-    ``simulation/va_bindings.json``, through the one helper that spells what a
-    binding claims (``_orm_stack.claimed_addresses``): a claimed address is
-    coupled to the model, and a writable address no binding claims is the
-    software echo this probe wants.
+    Which of the two a channel is, is read off the facility file's own
+    models: an address a physics model wires is coupled to the model, and a
+    writable address no physics model wires is the software echo this probe
+    wants. The facility file and its view are built in memory from the repo's
+    tree, because the pairs are chosen before the build.
     """
-    from osprey.services.virtual_accelerator.bindings import load_bindings
-    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+    from osprey.facility.build import build_facility
+    from osprey.facility.views.bluesky import bluesky_document
+    from osprey.facility.views.simulator import simulator_wiring
+    from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
+    from osprey_connectors.simulation.view import TEXTURE
 
-    document = load_bindings(ManifestPaths(repo / "data").va_bindings)
-    coupled = _orm_stack.claimed_addresses(document)
-
-    keys = {k for k in channel_limits if not k.startswith("_") and k != "defaults"}
-    sp_keys = sorted(k for k in keys if k.endswith(":SP"))
-
-    pairs: list[tuple[str, str]] = []
-    for sp in sp_keys:
-        rb = sp[:-3] + ":RB"
-        if sp in coupled or rb in coupled:
-            continue
-        if rb in keys:
-            pairs.append((sp, rb))
-
+    facility = build_facility(repo / "data" / "facility", project_name=repo.name)
+    coupled = {
+        str(entry["address"])
+        for model in facility.get("models") or []
+        if model.get("engine") != TEXTURE
+        for entry in simulator_wiring(facility, str(model["name"]))
+    }
+    document = bluesky_document(facility)
+    pairs = sorted(
+        (entry["setpoint"], entry["readback"])
+        for entry in document[SETTABLES_KEY]
+        if "readback" in entry
+        and entry["setpoint"] not in coupled
+        and entry["readback"] not in coupled
+    )
     if len(pairs) < count:
         raise AssertionError(
-            f"deployed project's channel_limits.json only yields {len(pairs)} sp-echo "
+            f"the deployed project's facility tree only yields {len(pairs)} sp-echo "
             f"pairs, need {count}"
         )
     return pairs[:count]
 
 
-def _write_devices_file(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
-    """Author this suite's plan devices at ``<repo>/data/bluesky_devices.yml``
-    -- BETWEEN ``osprey init`` and ``osprey build``.
+def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, str]:
+    """Derive the ``(setpoint, readback)`` P5 faults from the repo's own
+    facility tree -- no hardcoded preset channel.
 
-    The build copies ``<repo>/data`` into the build zone and stages the device
-    file it finds there into ``build/services/bluesky/bluesky_devices.yml``,
-    which the queueserver worker mounts. Written after the build, this file
-    would be picked up by nothing; written before ``init``, it would break
-    init's own copy of the preset's ``data/``.
-
-    Assembled here rather than through
-    ``osprey.services.bluesky_bridge.substrate_devices`` (which
-    ``_orm_stack.write_devices_file`` delegates to) because THIS suite's whole
-    point is synthetic device names: that producer names every device after its
-    own address, and P3/P4/P5 have to stay addressable under names the
-    equivalence assertions choose. The document SHAPE is still the product's --
-    its key names are imported, not restated -- so a schema change breaks this
-    lane rather than silently producing a file the worker skips.
+    A candidate is a corrector setpoint of a physics model whose paired readback
+    that same model wires, and which a limits record gives a range to write
+    inside. The first by setpoint address is taken.
     """
-    from osprey.services.bluesky_bridge.devices._specs_from_file import (
-        READABLES_KEY,
-        SETTABLES_KEY,
-    )
+    from osprey.facility.build import build_facility
+    from osprey.facility.views.bluesky import bluesky_document
+    from osprey.facility.views.simulator import simulator_wiring
+    from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
+    from osprey_connectors.simulation.view import TEXTURE, Binding
 
-    p3_sp, p3_rb = pairs["p3"]
-    p4_sp, p4_rb = pairs["p4"]
-    p5_sp, p5_rb = pairs["p5"]
-
-    document = {
-        SETTABLES_KEY: [{"name": SCAN_MOTOR, "setpoint": p4_sp, "readback": p4_rb}],
-        READABLES_KEY: [
-            {"name": P3_DETECTOR, "pv": p3_rb},
-            {"name": P4_DETECTOR, "pv": p4_rb},
-            {"name": P5_DETECTOR, "pv": p5_rb},
-        ],
+    facility = build_facility(repo / "data" / "facility", project_name=repo.name)
+    readback_of = {
+        entry["setpoint"]: entry["readback"]
+        for entry in bluesky_document(facility)[SETTABLES_KEY]
+        if "readback" in entry
     }
+    candidates = []
+    for model in facility.get("models") or []:
+        if model.get("engine") == TEXTURE:
+            continue
+        name = str(model["name"])
+        bindings = [Binding.from_record(name, entry) for entry in simulator_wiring(facility, name)]
+        wired = {binding.address for binding in bindings}
+        for binding in bindings:
+            setpoint = binding.address
+            entry = limits.get(setpoint) or {}
+            if (
+                binding.role == "setpoint"
+                and binding.plane is not None
+                and readback_of.get(setpoint) in wired
+                and "min_value" in entry
+                and "max_value" in entry
+            ):
+                candidates.append((setpoint, readback_of[setpoint]))
+    if not candidates:
+        raise AssertionError(
+            "the deployed project's facility tree has no limited corrector setpoint whose "
+            "paired readback its physics model wires"
+        )
+    return sorted(candidates)[0]
 
-    devices_path = repo / "data" / "bluesky_devices.yml"
-    devices_path.parent.mkdir(parents=True, exist_ok=True)
-    devices_path.write_text(
-        yaml.safe_dump(document, sort_keys=False, default_flow_style=False),
-        encoding="utf-8",
+
+def _author_stuck_scenario(repo: Path, setpoint: str) -> None:
+    """Write the scenario that holds ``setpoint`` stuck into the repo's tree.
+
+    The suite's own throwaway tree, written before the build so the render
+    carries the scenario P5 applies.
+    """
+    scenario = {
+        "description": "One corrector setpoint takes writes and forwards none to the model.",
+        "channel_faults": {setpoint: "stuck"},
+    }
+    path = repo / "data" / "facility" / "scenarios" / f"{P5_STUCK_SCENARIO}.yaml"
+    path.write_text(yaml.safe_dump(scenario, sort_keys=False), encoding="utf-8")
+
+
+def _author_sp_echo_records(repo: Path, setpoints: list[str]) -> None:
+    """Append one limits record per setpoint to the repo's ``limits.yaml``.
+
+    The suite's own throwaway tree, written before the build so the render
+    enforces the same records :func:`_orm_stack.channel_limits` reads back.
+    ``SP_ECHO_BAND`` is wide of 0.0, the readbacks' initial value.
+    """
+    limits_file = repo / "data" / "facility" / "limits.yaml"
+    limits = yaml.safe_load(limits_file.read_text(encoding="utf-8"))
+    low, high = SP_ECHO_BAND
+    limits["records"].extend(
+        {"address": setpoint, "min_value": low, "max_value": high} for setpoint in setpoints
     )
+    limits_file.write_text(yaml.safe_dump(limits, sort_keys=False), encoding="utf-8")
 
 
-def _write_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
+def _write_env(repo: Path) -> None:
     """Append this suite's contract env vars to the repo's ``.env`` -- BEFORE
     ``osprey up`` (the bridge/VA compose templates pass these through from the
     repo root's ``.env``).
@@ -410,13 +427,11 @@ def _write_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
     ``.env`` is the deployment's whole secret store, and ``up`` aborts when it
     is missing.
 
-    Only three values, and none of them is a device: the plan devices moved out
-    of the environment and into the mounted device file (``_write_devices_file``),
-    so what is left here is two credentials -- the bridge's launch token and the
-    VA's model-write token -- and the VA's stuck-channel fault.
+    Only two values, and neither is a device: the plan devices are the ones
+    the build writes from the facility's channels, each named by its address,
+    so what is left here is two credentials -- the bridge's launch token and
+    the VA's model-write token.
     """
-    _p5_sp, _p5_rb = pairs["p5"]
-
     values = {
         # Supply the launch token ourselves — the preset's local-exec+writes
         # config gates auto-minting off (see LAUNCH_TOKEN above).
@@ -426,7 +441,6 @@ def _write_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
         # virtual_accelerator instance, and the entrypoint reads an unset or
         # blank value as "this deployment takes no model writes at all".
         "VA_MODEL_WRITE_TOKEN": MODEL_WRITE_TOKEN,
-        "VA_STUCK_SETPOINTS": _p5_sp,
     }
 
     env_path = repo / ".env"
@@ -456,8 +470,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     base = tmp_path_factory.mktemp("va_substrate_build")
     repo = base / PROJECT_NAME
 
-    # Extends control-assistant (which already ships data/simulation/machine.json
-    # + channel_limits.json) with the one flag it doesn't default to: the
+    # Extends control-assistant (which already ships its facility tree) with
+    # the one flag it doesn't default to: the
     # control-system type. Written as a flat dotted-string key under `config:`,
     # the spelling the preset itself uses: everything after `config.` is one
     # key naming one leaf, so the rest of the `control_system` block
@@ -522,13 +536,15 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
         )
 
-    # STRICTLY between the two verbs -- see _write_devices_file. The pairs come
-    # from the repo's own channel limits, the same bytes the build is about to
-    # copy into the build zone.
-    limits = _channel_limits(repo)
-    sp3, sp4, sp5 = _select_sp_echo_pairs(repo, limits, count=3)
-    pairs = {"p3": sp3, "p4": sp4, "p5": sp5}
-    _write_devices_file(repo, pairs)
+    # The pairs come from the source zone's facility tree, which exists once
+    # `init` has written the repo, and their limits records and P5's scenario
+    # go into that tree before the build renders it.
+    sp3, sp4 = _select_sp_echo_pairs(repo, count=2)
+    _author_sp_echo_records(repo, [sp3[0], sp4[0]])
+    limits = _orm_stack.channel_limits(repo)
+    p5_sp, p5_rb = _select_stuck_corrector(repo, limits)
+    _author_stuck_scenario(repo, p5_sp)
+    pairs = {"p3": sp3, "p4": sp4, "p5": (p5_sp, p5_rb)}
 
     build = _run(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
@@ -541,7 +557,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
 
-    _write_env(repo, pairs)
+    _write_env(repo)
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise reuse a
@@ -754,23 +770,23 @@ def _host_ca_op_spec(
     read: str,
     write: dict[str, Any] | None = None,
     settle_read: bool = False,
+    settle_tolerance: float | None = None,
 ) -> dict[str, Any]:
     """Build the JSON spec for one out-of-process host CA op (``_va_host_ca_op.py``).
 
     Carries the SAME ``get_config_value`` overrides the in-process connector
     used -- ``project_root`` is the deployment repo and
-    ``limits_checking.database_path`` names the RENDER's channel_limits.json, so
-    ``LimitsValidator`` enforces the very file this test selected channels from
-    (these proofs write only LISTED sp-echo ``:SP`` channels, so limits are
-    actually applied to them). Spelled absolute rather than repo-relative: a
+    ``limits_checking.database_path`` names the RENDER's channel_limits.json,
+    the limits database the build writes from the facility's limits records.
+    The sp-echo setpoints these proofs write hold the records this suite
+    authored, and the per-type mode below is ``optional``: a channel with no
+    record is written with no limits applied. Spelled absolute rather than repo-relative: a
     relative ``database_path`` resolves against ``CONFIG_FILE``'s directory when
     that is set and against ``project_root`` otherwise, and this subprocess sets
     neither anchor to the render.
 
-    The permissive half of the posture is spelled PER CONNECTOR TYPE, on
-    ``virtual_accelerator`` -- the type this proof drives -- so the
-    deployment-wide block keeps the strict posture a live machine deserves and
-    this lane exercises the per-type override rather than relaxing everything.
+    The mode is spelled PER CONNECTOR TYPE, on ``virtual_accelerator`` -- the
+    type this proof drives -- so this lane exercises the per-type override.
 
     ``CONNECTOR_CONFIG`` is passed verbatim so the subprocess builds a REAL
     production ``VirtualAcceleratorConnector`` via ``ConnectorFactory`` under
@@ -793,8 +809,7 @@ def _host_ca_op_spec(
         # and dotted like the rest of this map; the subprocess shim assembles
         # the nested ``control_system`` section the resolver reads.
         "control_system.connector.virtual_accelerator.limits_checking.enabled": True,
-        "control_system.connector.virtual_accelerator.limits_checking"
-        ".allow_unlisted_channels": True,
+        "control_system.connector.virtual_accelerator.limits_checking.mode": "optional",
         "project_root": str(repo),
     }
     return {
@@ -803,8 +818,10 @@ def _host_ca_op_spec(
         "read": read,
         "write": write,
         # sp-echo SP->RB propagation is async; poll the readback until it
-        # reflects the write rather than race the echo (see _va_host_ca_op.py).
+        # reflects the write, within the readback's declared motion, rather
+        # than race the echo (see _va_host_ca_op.py).
         "settle_read": settle_read,
+        "settle_tolerance": settle_tolerance,
     }
 
 
@@ -898,8 +915,7 @@ def test_p1_co_deploy_health_binding_and_ordering() -> None:
 
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
-@pytest.mark.usefixtures("deployed_stack")
-def test_p2_full_manifest_liveness() -> None:
+def test_p2_full_manifest_liveness(deployed_stack: DeployedStack) -> None:
     # Runs scripts/va/sweep_check.py as its OWN subprocess/CA client, exactly
     # as it's meant to be invoked against a host-published container (see its
     # module docstring) — never in-process here: this process also acts as an
@@ -910,9 +926,13 @@ def test_p2_full_manifest_liveness() -> None:
     # The sweep script defaults EPICS_CA_NAME_SERVERS to localhost:5064; this
     # stack serves CA on the module's ephemeral VA_CA_PORT, so the subprocess
     # must be told explicitly (the in-process connectors get it via
-    # _VA_GATEWAY instead).
+    # _VA_GATEWAY instead). The view is the deployed render's, named
+    # absolutely: the script's default is relative to its working directory.
+    from osprey_connectors.simulation.view import SimulatorView
+
+    view_dir = SimulatorView.of_project(deployed_stack.repo).path
     proc = subprocess.run(
-        [sys.executable, str(SWEEP_SCRIPT)],
+        [sys.executable, str(SWEEP_SCRIPT), str(view_dir)],
         capture_output=True,
         text=True,
         timeout=SWEEP_TIMEOUT_SEC,
@@ -940,6 +960,8 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     sp, rb = deployed_stack.pairs["p3"]
     lo, hi = deployed_stack.bounds(sp)
     value = lo + 0.5 * (hi - lo)
+    # The readback serves the written value plus the motion its seed declares.
+    band = _orm_stack.repo_view(deployed_stack.repo).motion_envelope(rb)
 
     # Host side (pyepics), isolated in its own process: arrange a known,
     # non-default state (rather than comparing two never-written 0.0 defaults,
@@ -954,12 +976,14 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
             read=rb,
             write={"address": sp, "value": value},
             settle_read=True,
+            settle_tolerance=band,
         )
     )
     assert host["write_outcome"] == "confirmed", f"setup write to {sp} was not confirmed: {host}"
     assert host["read_settled"], (
-        f"host read of {rb} never settled to the written setpoint {value} "
-        f"(last read {host['read_value']}) — sp-echo SP->RB propagation did not complete"
+        f"host read of {rb} never settled to within {band:g} of the written setpoint "
+        f"{value} (last read {host['read_value']}) — sp-echo SP->RB propagation did not "
+        f"complete"
     )
     host_read = host["read_value"]
 
@@ -972,10 +996,10 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     run_id, status_body = await _run_scan(
         "grid_scan",
         {
-            "readbacks": [P3_DETECTOR],
+            "readbacks": [rb],
             "axes": [
                 {
-                    "setpoint": SCAN_MOTOR,
+                    "setpoint": m_sp,
                     "start": m_lo + 0.25 * (m_hi - m_lo),
                     "stop": m_lo + 0.75 * (m_hi - m_lo),
                     "num_points": 2,
@@ -991,18 +1015,19 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
     assert data["row_count"] == 2, f"expected one row per grid point: {data}"
-    col = _find_column(data["columns"], P3_DETECTOR)
+    col = _find_column(data["columns"], rb)
     bridge_value = data["rows"][0][col]
-    assert bridge_value is not None, f"no value recorded for {P3_DETECTOR}: {data}"
+    assert bridge_value is not None, f"no value recorded for {rb}: {data}"
 
-    # sp-echo is a plain software copy — the host write should be exactly
-    # reflected in both readers.
-    assert abs(host_read - value) <= 1e-6, (
-        f"host read of {rb} ({host_read}) does not match the written setpoint "
-        f"({value}) — sp-echo should be an exact copy"
+    # An sp-echo readback serves the written value plus its declared motion, so
+    # each reader, at its own instant, lands within that motion's band of it.
+    assert abs(host_read - value) <= band, (
+        f"host (pyepics) read of {rb} ({host_read}) is not within {band:g} (its seed's "
+        f"noise and drift) of the written setpoint {value}"
     )
-    assert abs(host_read - bridge_value) <= 1e-6, (
-        f"host (pyepics) read of {rb} = {host_read} != bridge (ophyd-async) read = {bridge_value}"
+    assert abs(bridge_value - value) <= band, (
+        f"bridge (ophyd-async) read of {rb} ({bridge_value}) is not within {band:g} (its "
+        f"seed's noise and drift) of the written setpoint {value}"
     )
 
 
@@ -1018,6 +1043,11 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     start = lo + 0.25 * (hi - lo)
     stop = lo + 0.75 * (hi - lo)
     num = 4
+    band = _orm_stack.repo_view(deployed_stack.repo).motion_envelope(rb)
+    # Where the readback sits before any point of this run: its setpoint's seed
+    # nominal, which the echo starts at.
+    level = _seed_nominal(deployed_stack.repo, sp)
+    grid_targets = [start + index * (stop - start) / (num - 1) for index in range(num)]
 
     # Driven step by step rather than through `_run_scan`: the host read below
     # has to be spawned between the armed start and the first poll, so this
@@ -1027,8 +1057,8 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
         BRIDGE_URL,
         "grid_scan",
         {
-            "readbacks": [P4_DETECTOR],
-            "axes": [{"setpoint": SCAN_MOTOR, "start": start, "stop": stop, "num_points": num}],
+            "readbacks": [rb],
+            "axes": [{"setpoint": sp, "start": start, "stop": stop, "num_points": num}],
         },
         client_id=_QUEUE_CLIENT_ID,
         token=token,
@@ -1088,97 +1118,165 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
     assert data["row_count"] == num, f"expected {num} rows: {data}"
-    col = _find_column(data["columns"], P4_DETECTOR)
+    col = _find_column(data["columns"], rb)
     row_values = [row[col] for row in data["rows"]]
     assert len(row_values) == num and all(v is not None for v in row_values), (
-        f"incomplete {P4_DETECTOR} column: {row_values}"
+        f"incomplete {rb} column: {row_values}"
+    )
+
+    # Every row was read once its point settled, so each lies within the
+    # readback's declared motion of its own commanded point: the run visited
+    # every point of the grid.
+    misses = [
+        (target, row)
+        for target, row in zip(grid_targets, row_values, strict=True)
+        if abs(row - target) > band
+    ]
+    assert not misses, (
+        f"{rb} rows not within {band:g} (its seed's noise and drift) of their commanded "
+        f"points, as (target, row): {misses}"
     )
 
     # The concurrent host read landed either before the first point settled
-    # (the pristine 0.0 default) or during the settled window of whichever
-    # point had most recently completed (sp-echo is a discrete, immediate
-    # step -- never interpolated, never noisy) -- so it MUST match one of
-    # these, never a value outside that set.
-    candidates = [0.0, *row_values]
-    assert any(abs(concurrent_value - c) <= 1e-6 for c in candidates), (
-        f"concurrent host read of {rb} ({concurrent_value}) matched neither the "
-        f"pristine default nor any row from the run {row_values}"
+    # (the starting level) or during the settled window of whichever point
+    # had most recently completed (sp-echo is a discrete, immediate step that
+    # carries the readback's declared motion) -- so it MUST lie within the
+    # band of one of these, never outside that set.
+    candidates = [level, *grid_targets]
+    assert any(abs(concurrent_value - c) <= band for c in candidates), (
+        f"concurrent host read of {rb} ({concurrent_value}) is within {band:g} of neither "
+        f"the starting level {level} nor any commanded point {grid_targets}"
     )
 
 
 # ---------------------------------------------------------------------------
-# P5: honest divergence under a pre-faulted setpoint (STRICT — no flaky mark)
+# P5: honest divergence under a stuck setpoint (STRICT — no flaky mark)
 # ---------------------------------------------------------------------------
+
+
+def _active_inside_va() -> str:
+    """The active scenarios file as the VA container reads it."""
+    result = subprocess.run(
+        ["docker", "exec", VA_CONTAINER, "cat", VA_ACTIVE_SCENARIOS],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return result.stdout if result.returncode == 0 else ""
+
+
+def _sim_apply(repo: Path, *scenarios: str) -> None:
+    """``osprey sim apply`` the scenarios at the deployment, then wait until the VA
+    serves them.
+
+    ``--no-seed``: the apply only rewrites the active set, and never reseeds the
+    logbook or the archive this stack deploys. The VA re-reads the file on every
+    runner pass and rebuilds at the new set, so once the container sees the file
+    two ticks are enough for it to serve the set.
+    """
+    from osprey_connectors.simulation import DEFAULT_TICK_S
+    from osprey_connectors.workspace import resolve_simulation_state_dir
+
+    applied = _run(
+        [str(_find_osprey_console_script()), "sim", "apply", *scenarios, "--no-seed"],
+        cwd=repo,
+        timeout=120,
+    )
+    assert applied.returncode == 0, (
+        f"osprey sim apply {' '.join(scenarios)} failed (rc={applied.returncode}):\n"
+        f"--- stdout ---\n{applied.stdout}\n--- stderr ---\n{applied.stderr}"
+    )
+    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    state_dir = resolve_simulation_state_dir(rendered, repo)
+    written = (state_dir / "active_scenarios").read_text(encoding="utf-8")
+    deadline = time.monotonic() + SCENARIO_VISIBLE_SEC
+    while _active_inside_va() != written:
+        assert time.monotonic() < deadline, (
+            f"{VA_CONTAINER} never saw the active scenarios the host wrote ({written!r})"
+        )
+        time.sleep(0.2)
+    time.sleep(2 * DEFAULT_TICK_S)
 
 
 async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: DeployedStack) -> None:
     sp, rb = deployed_stack.pairs["p5"]
     lo, hi = deployed_stack.bounds(sp)
-    # Away from 0.0 (the RB's frozen initial value) and from the midpoints
-    # P3/P4 use on their own disjoint pairs — irrelevant here, but keeps the
-    # chosen value unambiguous against a stuck-at-zero readback.
-    value = lo + 0.5 * (hi - lo)
-    assert abs(value) > 1e-6
+    band = _orm_stack.repo_view(deployed_stack.repo).motion_envelope(rb)
 
-    # Host side (pyepics), isolated in its own process: write the pre-faulted SP,
-    # then read the sibling RB back — one connect/write/read in one subprocess.
-    host = _run_host_ca_op(
-        _host_ca_op_spec(deployed_stack.repo, read=rb, write={"address": sp, "value": value})
-    )
-    # The SP always latches its own written value (records.py) even when stuck --
-    # only the propagation to RB is dropped. write_channel confirms by re-reading
-    # the SAME channel it wrote (the SP), so a stuck-RB fault is invisible to it:
-    # the outcome MUST be `confirmed`.
-    assert host["write_outcome"] == "confirmed", (
-        f"write to pre-faulted {sp} was not confirmed (SP always latches its own "
-        f"readback regardless of the fault): {host}"
-    )
+    _sim_apply(deployed_stack.repo, P5_STUCK_SCENARIO)
+    try:
+        # Where the readback is held before the write, read by the host itself.
+        held0 = _run_host_ca_op(_host_ca_op_spec(deployed_stack.repo, read=rb))["read_value"]
+        # Inside the setpoint's limits record and the farther of two points from
+        # the held level, so a readback that followed could not pass for one that
+        # held.
+        value = max((lo + 0.75 * (hi - lo), lo + 0.25 * (hi - lo)), key=lambda v: abs(v - held0))
 
-    # Independent read of the SIBLING readback — this is where the fault is
-    # honest: it must never have followed the SP.
-    host_rb = host["read_value"]
-    assert abs(host_rb - value) > 1e-6, (
-        f"expected {rb} to diverge from the written setpoint {value} under "
-        f"VA_STUCK_SETPOINTS, but it read {host_rb} — fault did not take effect"
-    )
+        # Host side (pyepics), isolated in its own process: write the stuck SP,
+        # then read its paired RB back — one connect/write/read in one subprocess.
+        host = _run_host_ca_op(
+            _host_ca_op_spec(deployed_stack.repo, read=rb, write={"address": sp, "value": value})
+        )
+        # A stuck setpoint takes the write and forwards none of it to the model;
+        # write_channel confirms by re-reading the SAME channel it wrote (the
+        # SP), so the fault is invisible to it: the outcome MUST be `confirmed`.
+        assert host["write_outcome"] == "confirmed", (
+            f"write to stuck {sp} was not confirmed (a stuck setpoint takes the write): {host}"
+        )
 
-    # grid_scan replaces the dropped `count` builtin (see P3): drive the p4
-    # scan setpoint, never the stuck p5 pair, and read the frozen p5 readback at
-    # each of the 2 grid points.
-    m_sp, _ = deployed_stack.pairs["p4"]
-    m_lo, m_hi = deployed_stack.bounds(m_sp)
-    run_id, status_body = await _run_scan(
-        "grid_scan",
-        {
-            "readbacks": [P5_DETECTOR],
-            "axes": [
-                {
-                    "setpoint": SCAN_MOTOR,
-                    "start": m_lo + 0.25 * (m_hi - m_lo),
-                    "stop": m_lo + 0.75 * (m_hi - m_lo),
-                    "num_points": 2,
-                }
-            ],
-        },
-        deployed_stack.repo,
-    )
-    assert status_body.get("status") == "completed", (
-        f"P5 divergence run did not complete: {status_body}"
-    )
+        # Independent read of the paired readback — this is where the fault is
+        # honest: it must never have followed the SP, so it sits farther from the
+        # written value than its motion can carry it, and where it was held.
+        host_rb = host["read_value"]
+        assert abs(host_rb - value) > max(band, 1e-6), (
+            f"expected {rb} to diverge from the written setpoint {value} under "
+            f"{P5_STUCK_SCENARIO!r}, but it read {host_rb} — fault did not take effect"
+        )
+        assert abs(host_rb - held0) <= band, (
+            f"host (pyepics) read of stuck {rb} = {host_rb} left its held level {held0} by "
+            f"more than {band:g} (its seed's noise and drift)"
+        )
 
-    status, data = _get(f"/runs/{run_id}/data")
-    assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
-    assert data["row_count"] == 2, f"expected one row per grid point: {data}"
-    col = _find_column(data["columns"], P5_DETECTOR)
-    bridge_rb = data["rows"][0][col]
-    assert bridge_rb is not None, f"no value recorded for {P5_DETECTOR}: {data}"
+        # grid_scan replaces the dropped `count` builtin (see P3): drive the p4
+        # scan setpoint, never the stuck p5 pair, and read the frozen p5 readback
+        # at each of the 2 grid points.
+        m_sp, _ = deployed_stack.pairs["p4"]
+        m_lo, m_hi = deployed_stack.bounds(m_sp)
+        run_id, status_body = await _run_scan(
+            "grid_scan",
+            {
+                "readbacks": [rb],
+                "axes": [
+                    {
+                        "setpoint": m_sp,
+                        "start": m_lo + 0.25 * (m_hi - m_lo),
+                        "stop": m_lo + 0.75 * (m_hi - m_lo),
+                        "num_points": 2,
+                    }
+                ],
+            },
+            deployed_stack.repo,
+        )
+        assert status_body.get("status") == "completed", (
+            f"P5 divergence run did not complete: {status_body}"
+        )
 
-    # Both independent CA clients (host pyepics, bridge ophyd-async) must
-    # agree on the frozen value -- honest divergence, not a per-client one.
-    assert abs(host_rb - bridge_rb) <= 1e-6, (
-        f"host (pyepics) read of frozen {rb} = {host_rb} != bridge (ophyd-async) "
-        f"read = {bridge_rb} — the two CA clients disagree on the stuck readback"
-    )
+        status, data = _get(f"/runs/{run_id}/data")
+        assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
+        assert data["row_count"] == 2, f"expected one row per grid point: {data}"
+        col = _find_column(data["columns"], rb)
+        bridge_rb = data["rows"][0][col]
+        assert bridge_rb is not None, f"no value recorded for {rb}: {data}"
+
+        # Both independent CA clients (host pyepics, bridge ophyd-async) read the
+        # readback where it was held -- honest divergence, not a per-client one.
+        assert abs(bridge_rb - held0) <= band, (
+            f"bridge (ophyd-async) read of stuck {rb} = {bridge_rb} left its held level "
+            f"{held0} by more than {band:g} (its seed's noise and drift)"
+        )
+    finally:
+        # The stack is module-scoped: the next proof gets the nominal machine.
+        _sim_apply(deployed_stack.repo, "nominal")
 
 
 # ---------------------------------------------------------------------------
@@ -1208,13 +1306,13 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
       * the served reading and the model's truth must AGREE before the accepted
         write and disagree by exactly the written offset after it, so neither
         half can be satisfied by a divergence that was already there. "Agree"
-        and "exactly" are to within the motion the machine file declares for
-        that reading (`_monitor_motion_bands`), which the served reading
+        and "exactly" are to within the motion the seeds declare for
+        that reading (`SimulatorView.motion_envelope`), which the served reading
         carries and the truth does not; the offset is sized far above it.
 
     No address is hardcoded, as everywhere else in this module: the fault to
-    write is discovered from ``info`` (a writable model-only ``.offset_x``) and
-    the address it is measured on is whichever served one the write actually
+    write is discovered from ``info`` (a writable model variable ending
+    ``/offset``) and the address it is measured on is whichever served one the write actually
     moves — which is also the blast-radius check, since a BPM reading error is
     a diagnostic fault and must perturb that BPM and nothing else.
     """
@@ -1253,37 +1351,30 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
 
     try:
         info = call("info")
-        # A writable model-only monitor offset: model-only because the surface
-        # refuses a write to a served address on principle, so this is what a
-        # write it can accept looks like at all.
+        # A writable monitor offset among the model variables: a model variable
+        # because the surface refuses a write to a served address on principle,
+        # so this is what a write it can accept looks like at all.
         faults = [
             var
             for var in info["variables"]
             if var["surface"] == SURFACE_MODEL_ONLY
             and not var["read_only"]
-            and var["name"].endswith(".offset_x")
+            and var["name"].endswith("/offset")
         ]
         assert faults, (
-            f"the deployed model declares no writable model-only '.offset_x' variable, so "
-            f"there is no fault to write (backend={info['backend']!r}, "
-            f"lattice_source={info['lattice_source']!r} — the reading errors exist only on a "
-            f"lattice-backed boot, which is what naming a lattice file in the repo's .env buys)"
+            "the deployed models declare no writable '<model>/<monitor>/offset' variable, so "
+            "there is no fault to write: the reading errors exist only on a model whose "
+            "engine reads monitors, and served_models.json names the models the view serves"
         )
         fault = faults[0]["name"]
 
         before = call("diff")
-        assert before, (
-            "diff reports no served model variable at all, so there is nowhere to observe "
-            f"a model write (backend={info['backend']!r})"
+        gaps_before = _numeric_gaps(before)
+        assert gaps_before, (
+            "diff reports no numeric channel at all, so there is nowhere to observe a model write"
         )
-        gaps_before = {
-            address: float(entry["served"]) - float(entry["truth"])
-            for address, entry in before.items()
-        }
-        bands = _monitor_motion_bands(
-            deployed_stack.repo,
-            {address: float(entry["truth"]) for address, entry in before.items()},
-        )
+        view = _orm_stack.repo_view(deployed_stack.repo)
+        bands = {address: view.motion_envelope(address) for address in gaps_before}
         # Two snapshots of one reading each carry an independent draw of its
         # motion, so a reading counts as moved only past twice its band.
         quiet = {address: 2.0 * band + MODEL_QUIET_TOL for address, band in bands.items()}
@@ -1294,7 +1385,7 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
         # reading on the machine and far above the loosest motion threshold,
         # floored far above the solver's own repeatability. Unmistakable on the
         # one channel it moves, in any unit.
-        scale = max(abs(float(entry["truth"])) for entry in before.values())
+        scale = max(abs(float(before[address]["truth"])) for address in gaps_before)
         offset = max(
             10.0 * scale,
             MODEL_OFFSET_OVER_MOTION * max(quiet.values()),
@@ -1323,10 +1414,7 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
         assert held_after == held_before, (
             f"the refused write still moved {fault} from {held_before!r} to {held_after!r}"
         )
-        gaps_refused = {
-            address: float(entry["served"]) - float(entry["truth"])
-            for address, entry in call("diff").items()
-        }
+        gaps_refused = _numeric_gaps(call("diff"))
         assert gaps_refused.keys() == gaps_before.keys(), (
             f"diff changed which addresses it reports across a REFUSED write: "
             f"{sorted(gaps_refused.keys() ^ gaps_before.keys())}"
@@ -1348,18 +1436,15 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
             )
 
             after = call("diff")
-            gaps_after = {
-                address: float(entry["served"]) - float(entry["truth"])
-                for address, entry in after.items()
-            }
+            gaps_after = _numeric_gaps(after)
             moved = sorted(
                 address
                 for address, gap in gaps_after.items()
                 if abs(gap - gaps_before[address]) > quiet[address]
             )
-            # A BPM reading error sits between the ring and the client, never in
-            # the ring: it must perturb the one BPM's served reading and leave
-            # every other served value where the physics put it.
+            # A BPM reading error sits between the served model and the client,
+            # never in the model: it must perturb the one BPM's served reading
+            # and leave every other served value where the physics put it.
             assert len(moved) == 1, (
                 f"writing {fault}={offset:g} should shift exactly one served reading away from "
                 f"the model's truth; it shifted {moved!r}"
@@ -1387,7 +1472,7 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
             )
         finally:
             # The fixture is module-scoped, so a failure above must not hand the
-            # next proof (or a rerun under `-p no:randomly`) a faulted ring.
+            # next proof (or a rerun under `-p no:randomly`) a faulted model.
             with contextlib.suppress(Exception):
                 call("set", values={fault: 0.0}, token=MODEL_WRITE_TOKEN)
     finally:

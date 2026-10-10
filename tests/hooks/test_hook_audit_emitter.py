@@ -844,12 +844,13 @@ class TestOtherHookDenies:
             yaml.dump(
                 {
                     "control_system": {
-                        "type": "mock",
+                        "type": "virtual_accelerator",
+                        "connector": {"virtual_accelerator": {"serving": "in_process"}},
                         "writes_enabled": True,
                         "limits_checking": {
                             "enabled": True,
                             "database_path": str(database),
-                            "allow_unlisted_channels": False,
+                            "mode": "exclusive",
                         },
                     }
                 }
@@ -882,12 +883,13 @@ class TestOtherHookDenies:
             yaml.dump(
                 {
                     "control_system": {
-                        "type": "mock",
+                        "type": "virtual_accelerator",
+                        "connector": {"virtual_accelerator": {"serving": "in_process"}},
                         "writes_enabled": True,
                         "limits_checking": {
                             "enabled": True,
                             "database_path": str(database),
-                            "allow_unlisted_channels": False,
+                            "mode": "exclusive",
                         },
                     }
                 }

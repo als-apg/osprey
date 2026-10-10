@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import warnings
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import pytest
+from tests.facility.served_tree import served_tree
 
 from osprey.health.models import Status
 from osprey.health.probes import ProbeContext, get_probe
@@ -337,7 +339,11 @@ async def test_none_config_with_unusable_global_config_is_error(
 # --- Real in-tree MockArchiverConnector end to end --------------------------
 
 
-async def test_real_mock_archiver_is_fresh() -> None:
+async def test_real_mock_archiver_is_fresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The render of a built tree, its config beside the simulator view the archiver serves."""
+    render = served_tree(tmp_path, readings=["BEAM:CURRENT"]).parent.parent
+    (render / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
+    monkeypatch.chdir(render)
     runtime = HealthRuntime({})
     try:
         ctx = ProbeContext(runtime=runtime, config={"archiver": {"type": "mock_archiver"}})

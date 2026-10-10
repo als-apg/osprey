@@ -65,8 +65,10 @@ REPO_FREE_COMMANDS: frozenset[str] = frozenset(
 #: rather than left unmentioned so that "no ``--repo`` here" reads as a recorded
 #: decision instead of an oversight.
 #:
-#: Two different reasons live here. ``knowledge``, ``ariel`` and ``artifacts``
-#: predate the lifecycle surface and were not rewired onto it.
+#: Two different reasons live here. ``ariel`` and ``artifacts`` predate the
+#: lifecycle surface and were not rewired onto it; ``knowledge`` is listed for
+#: its bundle verbs (``regen-index``, ``validate``), which act on the bundle
+#: path they are handed.
 #: ``health`` and ``channel-finder`` are here because a deployment repo is not
 #: the only subject they accept: both also act on a RENDERED project directory,
 #: which holds a ``config.yml`` at its own root and no ``profile.yml`` anywhere
@@ -77,6 +79,14 @@ REPO_FREE_COMMANDS: frozenset[str] = frozenset(
 #: repo, like every repo-scoped verb. ``health`` reports ON a deployment; it was
 #: previously filed under :data:`REPO_FREE_COMMANDS`, whose members act on the
 #: machine or the installed framework, and that claim was simply false.
+#:
+#: The ``knowledge`` entry names a GROUP, and one verb under it does not need
+#: the exemption: ``knowledge seed-from-ttl`` reads the graph view of the
+#: deployment the operator is standing in when no ``--ttl`` is given, so it
+#: finds its repo through :func:`find_repo_root` and takes ``--repo`` like every
+#: other repo-scoped verb. ``knowledge``'s other subcommands act on the bundle
+#: path they are handed or resolve their own inputs, which is what the entry is
+#: here for.
 SELF_DISCOVERING_COMMANDS: frozenset[str] = frozenset(
     {
         "knowledge",
@@ -118,9 +128,11 @@ EXPLICIT_TARGET_COMMANDS: frozenset[str] = frozenset(
 #: flag selecting it. They still take ``--repo``, because their default mode
 #: acts on a repo; the flag is what drops the requirement. Recorded here so the
 #: full exemption picture stays readable in one place even though the branch
-#: itself belongs to the command that owns the flag.
+#: itself belongs to the command that owns the flag. A key is a top-level
+#: command: ``facility``'s flag belongs to its verb ``facility import mml``.
 MODE_EXEMPT_FLAGS: Mapping[str, tuple[str, ...]] = {
     "config": ("--defaults",),
+    "facility": ("--print-exporter",),
 }
 
 _EXEMPT_COMMANDS = REPO_FREE_COMMANDS | SELF_DISCOVERING_COMMANDS | EXPLICIT_TARGET_COMMANDS

@@ -187,13 +187,15 @@ deployment will run carries its id, landing as
 not carry it (reason `<provider> does not serve <id>`) or when the agent is not in the new
 deployment. An obsolete pin's agent runs the main model.
 The confirmed card lands under `## Porting map (locked)`. An empty status quo
-(`generation: none`) maps nothing: no porting-map card, locked as `none`, and the four
+(`generation: none`) maps nothing: no porting-map card, locked as `none`, and the three
 facts below become this phase's card instead — MAP FACTS in `references/map.md`.
 
-MAP ends with four facts. Ask only for the ones the inventory did not yield, and say
-where the others came from: facility name; the short `facility.prefix` the web container
-names are built from; the IANA timezone for `system.timezone`; the project name. Only the
-last is an `osprey init` argument; the other three are `osprey set` keys applied after it.
+MAP ends with three facts. Ask only for the ones the inventory did not yield, and say
+where the others came from: facility name; the IANA timezone for `system.timezone`; the
+project name, which the web container names are built from. The project name is the
+`osprey init` argument, the timezone is the `osprey set` key applied after it, and the
+facility name goes into `data/facility/identity.yaml` as its `name:` — hello-world's
+ships `code:` only.
 
 ### 3. BUILD
 
@@ -224,29 +226,32 @@ last is an `osprey init` argument; the other three are `osprey set` keys applied
      Deferred. Never write a custom component mid-run.
 6. **Wiring rule.** A `port` on a data path, and an adopted area's data path, is complete
    only when the config keys binding that path are set. Files nothing points at are
-   invisible to the build. A harvest that emits two artifacts for one area binds one of
-   them; the other is `built, unbound` in the ledger, with the keys that would bind it.
+   invisible to the build. `data/facility/` is the exception: the build reads the tree
+   under the profile's data root with no key naming it.
 7. **Harvest.** For every source the user named in DISCOVER — documents, a channel list,
    an IOC database, a MATLAB Middle Layer, a lattice — one question: harvest it, or an
    empty placeholder. One question per source, batched up to four per AskUserQuestion
    call. The steps, the `derived` provenance and the commands are in
    `references/knowledge-starter.md`. Harvested material is curation owed, under Deferred.
    - A Middle Layer runs the chain in §3.1 of that file, in order:
-     `osprey scaffold pull control-assistant:data/mml/mml_export.m`; the user runs
-     `mml_export` once per sub-machine; `osprey mml import <machine>.<sub>.ao.json`;
-     `osprey mml map --init`; fill every `null`; answer every slot of the
-     `judgments:` block with the user; review every `derived` description,
-     direction, `class` and `branch` with the user and mark each slot `stated`;
-     `osprey mml map --check --no-derived`; `osprey mml emit`; on a 2.0 export
-     `osprey mml verify`, whose `data/mml/VA-REPORT.md` is read before building;
-     `osprey build`; then the PARADIGM card binds one of the two channel-finder
-     artifacts emit wrote.
-   - A 2.0 export also decides, family by family, what the model drives. `map --init`
-     appends the `virtual_accelerator:` block; the VA MAP card in `references/cards.md`
-     (`## VA MAP`) is drawn from it at that step and again after every answer, and its
-     open slots are answered there. `map --check` and `emit` refuse while one is open.
-   - `osprey mml emit` refuses while the deployment holds demo files it would contradict
-     and prints one `rm` line naming them. Run that line as printed, then emit again.
+     `osprey facility import mml --print-exporter > mml_export.m`; the user runs
+     `mml_export` once per sub-machine;
+     `osprey facility import mml <machine>.<sub>.ao.json`, whose first run writes the
+     draft `data/facility/imported/mml/mapping.yaml` and stops; fill every `null`;
+     answer every slot of the `judgments:` block with the user; review every
+     `derived` description, direction, `class`, `branch` and `devices` answer with
+     the user and mark each slot `stated`; the same import again, which writes the
+     records; `osprey facility validate`, whose `response check <model>` lines are
+     read before building; `osprey build`; then the PARADIGM card binds the
+     channel-finder view the build writes.
+   - The mapping also decides, family by family, what each model drives. The draft
+     proposes each model's `wiring` block; the MODEL WIRING card in
+     `references/cards.md` (`## MODEL WIRING`) is drawn from it and again after every
+     answer, and its open slots are answered there. The import refuses while one is
+     open.
+   - `osprey facility import mml` refuses while `data/facility/` holds record sources
+     of its own — on this base, hello-world's demo records — and prints one `rm` line
+     per file. Run those lines as printed, then import again.
 8. `osprey validate --drift=warn` after every change. Drift from the preset is expected.
 9. Core four, hardwired, resolved before wrap-up. **Provider, its key, and each agent's
    model**: the list is `providers.yml` beside the profile; `osprey init` writes
@@ -256,28 +261,33 @@ last is an `osprey init` argument; the other three are `osprey set` keys applied
    the main model unless the user pins it, one
    `osprey set config.claude_code.agent_models.<agent>=<id>` per pin, with ids from the
    entry's `models` list. The confirmed card goes under Decided, one line per pin or one
-   line saying every agent runs the main model. **Control system**: "simulated" is a fork — `mock` invents channels
-   in-process with no containers and is what hello-world emits, `virtual_accelerator` is a
+   line saying every agent runs the main model. **Control system**: "simulated" is a fork — `virtual_accelerator` with
+   `serving: in_process` serves the built facility file's channels in-process with no
+   containers and is what hello-world emits, `serving: served` is a
    containerized soft-IOC — or a real one; `osprey init --help` lists every connector.
    **Write access and safety**, where enabling writes forces the limits conversation.
    **Project identity**.
 10. **Base demo material.** hello-world emits two demo items of its own: the
-    `example_server` MCP example (keep or remove) and a populated
-    `data/channel_limits.json` (keep only with the facility's own channels, else empty
-    or replace). Both are ledger rows from the first step; the rules are in
-    `references/map.md`.
+    `example_server` MCP example (keep or remove) and three demo records in
+    `data/facility/limits.yaml` (keep only with the facility's own channels, else empty
+    or replace). Limits are authored in `data/facility/limits.yaml`; the build renders
+    them into `build/data/channel_limits.json`, a profile's own `channel_limits.json`
+    stops the build, and a channel with no record follows
+    `control_system.limits_checking.mode` (`optional` on this base). Both are ledger
+    rows from the first step; the rules are in `references/map.md`.
 
 No-invention rules, all detailed in `references/knowledge-starter.md`:
 
 - Facility knowledge: skeleton and index files, stubs in the user's words, or stubs
   derived from a named source and marked as such. Nothing else gets a file.
-- Channel databases: the shipped template, the facility's own file, one built from the
-  facility's CSV by `osprey channel-finder build-database`, or one emitted from the
-  facility's MML export by `osprey mml emit`. Never by hand.
-- The MML mapping: `data/mml/mapping.yaml` is reviewed to `stated` and every
-  `judgments:` slot is answered by the user before anything is emitted from it, and
-  every file `osprey mml emit` writes is `built` — the database, the ontology, the
-  knowledge pages and the corpus alike.
+- Facility records: imported from the facility's own channel list by
+  `osprey facility import list` or from its MML export by
+  `osprey facility import mml`, or authored under `data/facility/records/` from what
+  the user states. Never from a guess.
+- The MML mapping: `data/facility/imported/mml/mapping.yaml` is reviewed to `stated`
+  and every `judgments:` slot is answered by the user before the import writes a
+  record from it, and every file `osprey facility import mml` writes under
+  `data/facility/imported/mml/` is `built`.
 - Write limits: absent, empty, or ported, never a hand-written min or max.
 - Personas and users: emit all, then prune. One ordering, one home:
   `references/knowledge-starter.md` §6, which the web-terminal recipe points at too.
@@ -351,8 +361,8 @@ core: provider ✔ · models ✔ · control system ✔ · writes/safety ✖ · i
 ## Ledger
 | path or block | provenance | content | note |
 | --- | --- | --- | --- |
-| data/facility_knowledge/ | pulled | skeleton | indexes only |
-| data/facility_knowledge/subsystems/rf.md | derived | LCLS | from lcls-ops-wiki/rf.md |
+| data/facility/knowledge/ | pulled | skeleton | indexes only |
+| data/facility/knowledge/subsystems/rf.md | derived | LCLS | from lcls-ops-wiki/rf.md |
 | data/ariel/vocabulary.yml | stated | LCLS | localized stub, curation owed |
 | services.postgresql | ported | LCLS | ARIEL store |
 ## Decided

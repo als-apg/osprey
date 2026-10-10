@@ -32,12 +32,14 @@ async def test_load_osprey_config(tmp_path, monkeypatch):
     """load_osprey_config reads config.yml from working directory."""
     monkeypatch.chdir(tmp_path)
     config_file = tmp_path / "config.yml"
-    config_file.write_text("control_system:\n  type: mock\n  writes_enabled: true\n")
+    config_file.write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  writes_enabled: true\n"
+    )
 
     from osprey.utils.workspace import load_osprey_config
 
     config = load_osprey_config()
-    assert config["control_system"]["type"] == "mock"
+    assert config["control_system"]["type"] == "virtual_accelerator"
     assert config["control_system"]["writes_enabled"] is True
 
 
@@ -71,10 +73,10 @@ async def test_load_osprey_config_resolves_env_vars(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     config_file = tmp_path / "config.yml"
     config_file.write_text(
-        "control_system:\n  type: ${CS_TYPE:-mock}\n  host: ${CS_HOST:-localhost}\n"
+        "control_system:\n  type: ${CS_TYPE:-epics}\n  host: ${CS_HOST:-localhost}\n"
     )
 
-    # CS_TYPE not set → should use default "mock"
+    # CS_TYPE not set → should use default "epics"
     monkeypatch.delenv("CS_TYPE", raising=False)
     # CS_HOST set → should resolve
     monkeypatch.setenv("CS_HOST", "epics-server.example.com")
@@ -82,7 +84,7 @@ async def test_load_osprey_config_resolves_env_vars(tmp_path, monkeypatch):
     from osprey.utils.workspace import load_osprey_config
 
     config = load_osprey_config()
-    assert config["control_system"]["type"] == "mock"
+    assert config["control_system"]["type"] == "epics"
     assert config["control_system"]["host"] == "epics-server.example.com"
 
 
@@ -152,7 +154,9 @@ def _reset_config_globals():
 async def test_create_server_primes_config_builder(tmp_path, monkeypatch):
     """create_server() primes ConfigBuilder when OSPREY_CONFIG is set."""
     config_file = tmp_path / "config.yml"
-    config_file.write_text("control_system:\n  type: mock\n  writes_enabled: false\n")
+    config_file.write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  writes_enabled: false\n"
+    )
     monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
     monkeypatch.chdir(tmp_path)
 
@@ -163,7 +167,7 @@ async def test_create_server_primes_config_builder(tmp_path, monkeypatch):
     from osprey.utils.config import get_config_builder
 
     builder = get_config_builder()
-    assert builder.raw_config["control_system"]["type"] == "mock"
+    assert builder.raw_config["control_system"]["type"] == "virtual_accelerator"
 
 
 @pytest.mark.usefixtures("_reset_config_globals")
@@ -175,7 +179,9 @@ async def test_create_server_works_without_osprey_config(tmp_path, monkeypatch):
 
     # Provide a config.yml in cwd so ConfigBuilder doesn't raise
     config_file = tmp_path / "config.yml"
-    config_file.write_text("control_system:\n  type: mock\n")
+    config_file.write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
 
     from osprey.mcp_server.control_system.server import create_server
 

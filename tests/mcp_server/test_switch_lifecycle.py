@@ -18,10 +18,10 @@ import os
 import signal
 import subprocess
 import sys
-import tempfile
 import time
 
 import pytest
+import yaml
 
 from osprey.connectors.control_system.base import WriteOutcome
 from osprey.mcp_server.control_system import connector_host_manager, target_state
@@ -31,8 +31,6 @@ from osprey.mcp_server.control_system.connector_host_manager import (
     NoConnectorHostError,
     SwitchError,
     baseline_target,
-    kill_orphans,
-    looks_like_a_connector_host,
     switch_capable,
     target_display_metadata,
 )
@@ -48,6 +46,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.ipc.launch import host_env
+from osprey_connectors.ipc.pool import DEFAULT_CALL_DEADLINE_S
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
 from osprey_connectors.ipc.verification import (
     Endpoint,
@@ -56,6 +55,7 @@ from osprey_connectors.ipc.verification import (
 )
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
 from tests._control_context_fixtures import state_dir_under
+from tests.facility.served_tree import in_process_config
 from tests.fixtures.control_context import context_for
 from tests.mcp_server._switch_harness import (
     CA_LIVE_TYPE,
@@ -74,6 +74,7 @@ from tests.mcp_server._switch_harness import (
     narrow,
     project_config,
     raw_config,
+    served_view,
     started_on,
 )
 
@@ -387,6 +388,7 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
                     "read_only": Endpoint(host="gw.example.org", port=5064, mode="addr_list")
                 },
                 selected_role="read_only",
+                transport="ca",
             )
 
         monkeypatch.setattr(connector_host_manager, "derive_endpoints", derive)
@@ -397,6 +399,36 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
         assert raised.value.stage == "verify"
         assert raised.value.reason == connector_host_manager.REASON_VERIFICATION_FAILED
         assert raised.value.verification.field == "_epics_configured"
+
+        candidate = manager.spawned[1]
+        assert await wait_for(lambda: candidate.returncode is not None)
+        assert manager.active_target() == "live"
+        assert manager.active_generation() == 0
+        assert isinstance(
+            await manager.active_proxy().read_channel(LIVE_PROBE, timeout=10.0), ChannelValue
+        )
+
+    async def test_a_child_whose_posture_is_not_the_derived_one_is_refused(
+        self, make_manager, monkeypatch
+    ):
+        manager = await started_on(make_manager, "live")
+        real_writes = connector_host_manager.effective_writes_for_target
+
+        def writes(section, target):
+            # The parent derives 'va' armed; the child, handed no project
+            # config, comes up with its writes off. The 'va' block has no
+            # gateways, so only the posture check can tell the two apart.
+            return True if target == "va" else real_writes(section, target)
+
+        monkeypatch.setattr(connector_host_manager, "effective_writes_for_target", writes)
+
+        with pytest.raises(SwitchError) as raised:
+            await manager.switch("va")
+
+        assert raised.value.stage == "verify"
+        assert raised.value.reason == connector_host_manager.REASON_VERIFICATION_FAILED
+        assert raised.value.verification.field == "writes_enabled"
+        assert raised.value.verification.expected is True
 
         candidate = manager.spawned[1]
         assert await wait_for(lambda: candidate.returncode is not None)
@@ -893,6 +925,11 @@ class TestDraining:
 
 
 class TestRespawn:
+    async def test_the_launched_child_has_the_reference_call_deadline(self, make_manager):
+        manager = await started_on(make_manager, "live")
+
+        assert manager.active_proxy()._deadline_s == DEFAULT_CALL_DEADLINE_S
+
     async def test_a_same_target_respawn_replaces_the_process_without_a_generation_bump(
         self, make_manager
     ):
@@ -943,6 +980,62 @@ class TestRespawn:
 
         assert instance.disconnected is True
         assert context._connectors["control_system"].instance is None
+
+
+# ---------------------------------------------- the config file the child reads
+
+
+class TestTheChildsConfigFile:
+    """Parent and child derive a VA gateway's unset port from one file.
+
+    The manager's config was loaded from file A; this process's ``CONFIG_FILE``
+    names file B, which deploys the simulator on another port. The child is
+    handed A, so the parent must derive against A too, or the two disagree on
+    the port and a correct switch is refused.
+    """
+
+    PORT_A = 5071
+    PORT_B = 5072
+
+    def _files(self, tmp_path):
+        def write(name, port):
+            directory = tmp_path / name
+            directory.mkdir()
+            path = directory / "config.yml"
+            path.write_text(
+                yaml.safe_dump(
+                    {
+                        "control_system": {"writes_enabled": False},
+                        "services": {"virtual_accelerator": {"port": port}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return path
+
+        return write("a", self.PORT_A), write("b", self.PORT_B)
+
+    def _raw(self):
+        raw = raw_config()
+        va_block = raw["control_system"]["connector"]["virtual_accelerator"]
+        va_block["gateways"] = {"read_only": {"address": GATEWAY_HOST, "use_name_server": False}}
+        return raw
+
+    async def test_the_switch_derives_and_sends_the_file_the_manager_loaded(
+        self, make_manager, tmp_path, monkeypatch
+    ):
+        file_a, file_b = self._files(tmp_path)
+        monkeypatch.setenv("CONFIG_FILE", str(file_b))
+        manager = await started_on(make_manager, "live", raw=self._raw(), config_path=file_a)
+
+        derived = manager._derive("va")
+        payload = manager._init_kwargs("va", VIRTUAL_ACCELERATOR)
+        result = await manager.switch("va")
+
+        assert derived.derivation.endpoints["read_only"].port == self.PORT_A
+        assert payload["config_file"] == str(file_a.resolve())
+        assert result["target"] == "va"
+        assert int(result["endpoint"]["port"]) == self.PORT_A
 
 
 # ------------------------------------------ the destination already answers
@@ -1363,42 +1456,20 @@ class TestStartupSweep:
         finished.wait(timeout=SETTLE_TIMEOUT_S)
         return finished.pid
 
-    @staticmethod
-    def _orphan_host(root=None):
-        """A real connector-host child with nobody talking to it.
-
-        The agent-data root is STAMPED into its environment, not left to the
-        child. ``state_root`` redirects the root by patching
-        ``target_state.resolve_shared_data_root``, and a patch does not cross a
-        process boundary: this child would resolve it for itself, from a cwd
-        that is the repository, and create ``<repo>/var/agent_data``. It is a
-        detached process, so it does that on its own schedule — which is why
-        the leak showed up only under ``-n 8`` and never in a single-file run.
-
-        ``root`` is optional because two cases here only ever ask whether the
-        process *looks like* a connector host and never let it touch a state
-        directory; they still get a tmp root rather than none, so a future
-        change to the child cannot quietly reach the repository.
-        """
-        env = dict(os.environ)
-        env["OSPREY_AGENT_DATA_ROOT"] = str(root) if root is not None else tempfile.mkdtemp()
-        return subprocess.Popen(
-            [sys.executable, "-m", "osprey_connectors.ipc.host"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=env,
-        )
-
-    async def test_orphans_from_a_dead_server_are_killed_and_its_file_swept(
+    async def test_a_dead_servers_report_is_swept_and_its_recorded_children_are_not_signalled(
         self, make_manager, state_root
     ):
-        orphan = self._orphan_host(state_root)
+        """Start clears a dead server's report and leaves the PIDs it recorded alone.
+
+        A connector-host child exits once its supervisor is gone, so a PID a
+        dead server recorded is nobody's child to clear; whatever holds that
+        number now is a bystander.
+        """
+        bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
         dead_server = self._dead_pid()
         # The sweep lists ``target_state.state_dir()``, which carries the
         # acting identity's own hop below ``control_target/``. A report one
-        # level up is one the sweep never reads, so the dead server's orphan
-        # is never collected and never killed.
+        # level up is one the sweep never reads.
         stale = state_dir_under(state_root)
         stale.mkdir(parents=True, exist_ok=True)
         stale_file = stale / f"{target_state.REPORT_FILE_PREFIX}{dead_server}.json"
@@ -1410,7 +1481,7 @@ class TestStartupSweep:
                     "applied_target": "va",
                     "applied_generation": 4,
                     "targets": {},
-                    "children": [orphan.pid],
+                    "children": [bystander.pid],
                 }
             ),
             encoding="utf-8",
@@ -1419,8 +1490,8 @@ class TestStartupSweep:
         try:
             manager = make_manager()  # reset_state() runs in the factory
 
-            assert orphan.wait(timeout=SETTLE_TIMEOUT_S) is not None
             assert not stale_file.exists()
+            assert bystander.poll() is None
             record = target_state.read()
             # The report this server writes at start publishes no target at
             # all: the deployment's is the control-context record's to state,
@@ -1431,36 +1502,8 @@ class TestStartupSweep:
             assert record["applied_generation"] is None
             assert record["children"] == []
         finally:
-            if orphan.poll() is None:  # pragma: no cover - teardown safety net
-                orphan.kill()
-                orphan.wait(timeout=SETTLE_TIMEOUT_S)
-
-    def test_a_pid_that_is_already_gone_is_not_reported_as_killed(self):
-        assert kill_orphans([self._dead_pid()], grace_s=0.5) == []
-
-    def test_a_reused_pid_belonging_to_something_else_is_left_alone(self):
-        """A recorded PID the OS has since handed to another process.
-
-        Killing whatever now holds that number would be a far worse failure
-        than leaving one orphan behind, so the sweep checks the command line
-        before it signals anything.
-        """
-        bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
-        try:
-            assert looks_like_a_connector_host(bystander.pid) is False
-            assert kill_orphans([bystander.pid], grace_s=0.5) == []
-            assert bystander.poll() is None
-        finally:
             bystander.kill()
             bystander.wait(timeout=SETTLE_TIMEOUT_S)
-
-    def test_a_live_connector_host_is_recognised_as_one(self):
-        orphan = self._orphan_host()
-        try:
-            assert looks_like_a_connector_host(orphan.pid) is True
-        finally:
-            orphan.kill()
-            orphan.wait(timeout=SETTLE_TIMEOUT_S)
 
 
 # --------------------------------------------------------- the no-child state
@@ -1566,6 +1609,7 @@ class TestVerificationRule:
             connector_type="virtual_accelerator",
             endpoints=endpoints or {},
             selected_role="read_only",
+            transport="ca",
         )
 
     def test_a_gatewayless_target_passes_when_the_child_configured_nothing(self):
@@ -1606,6 +1650,7 @@ class TestVerificationRule:
                 "write_access": Endpoint(host="gw.example.org", port=5064, mode="addr_list")
             },
             selected_role="read_only",
+            transport="ca",
         )
 
         verification = verify_host_report(derivation, self.NOTHING_CONFIGURED)
@@ -1621,6 +1666,7 @@ class TestVerificationRule:
                 "write_access": Endpoint(host="gw.example.org", port=5064, mode="addr_list")
             },
             selected_role="read_only",
+            transport="ca",
         )
         report = {
             "selected_role": "read_only",
@@ -1654,6 +1700,88 @@ class TestVerificationRule:
         assert verification.expected == "gw.example.org"
         assert verification.got == "elsewhere.example.org"
 
+    def _posture_report(self, **changes):
+        report = {
+            **self.NOTHING_CONFIGURED,
+            "connector_type": "virtual_accelerator",
+            "transport": "ca",
+            "writes_enabled": False,
+            "readonly_run": False,
+        }
+        report.update(changes)
+        return report
+
+    def test_a_gatewayless_child_armed_where_the_parent_derived_off_fails_on_writes(self):
+        # The endpoint check sees posture only through the gateway role, which
+        # a gatewayless target never varies: only the posture check catches it.
+        verification = verify_host_report(
+            self._derivation(),
+            self._posture_report(writes_enabled=True),
+            readonly_run=False,
+            writes_enabled=False,
+        )
+
+        assert verification.ok is False
+        assert verification.field == "writes_enabled"
+        assert verification.expected is False
+        assert verification.got is True
+
+    def test_a_read_only_row_child_not_in_the_readonly_run_fails_on_readonly_run(self):
+        derivation = self._derivation(
+            {"read_only": Endpoint(host="gw.example.org", port=5064, mode="addr_list")}
+        )
+        report = self._posture_report(
+            selected_role="read_only",
+            mode="addr_list",
+            host="gw.example.org",
+            port=5064,
+            _epics_configured=True,
+            readonly_run=False,
+        )
+
+        verification = verify_host_report(
+            derivation, report, readonly_run=True, writes_enabled=False
+        )
+
+        assert verification.ok is False
+        assert verification.field == "readonly_run"
+        assert verification.expected is True
+        assert verification.got is False
+
+    def test_a_child_reporting_another_connector_type_fails_on_connector_type(self):
+        verification = verify_host_report(
+            self._derivation(),
+            self._posture_report(connector_type="epics"),
+            readonly_run=False,
+            writes_enabled=False,
+        )
+
+        assert verification.ok is False
+        assert verification.field == "connector_type"
+        assert verification.expected == "virtual_accelerator"
+        assert verification.got == "epics"
+
+    def test_a_child_whose_posture_matches_goes_on_to_the_endpoint_check(self):
+        verification = verify_host_report(
+            self._derivation(),
+            self._posture_report(),
+            readonly_run=False,
+            writes_enabled=False,
+        )
+
+        assert verification.ok is True
+        assert "derives no gateway" in verification.detail
+
+    def test_without_a_posture_the_check_is_the_endpoint_check_alone(self):
+        # Neither posture argument given: the report's type and posture fields
+        # are not consulted at all.
+        verification = verify_host_report(
+            self._derivation(),
+            self._posture_report(connector_type="epics", writes_enabled=True, readonly_run=False),
+        )
+
+        assert verification.ok is True
+
 
 # ------------------------------------------------- config-derived facts (unit)
 
@@ -1662,7 +1790,7 @@ class TestConfigDerivedFacts:
     def test_baseline_is_va_only_for_a_virtual_accelerator_deployment(self):
         assert baseline_target({"control_system": {"type": "virtual_accelerator"}}) == "va"
         assert baseline_target({"control_system": {"type": "epics"}}) == "live"
-        assert baseline_target({}) == "live"
+        assert baseline_target({}) == "va"
 
     def test_display_metadata_carries_the_probe_channel_and_the_real_machine_flag(self):
         metadata = target_display_metadata(raw_config())
@@ -1781,22 +1909,19 @@ class TestSwitchCapability:
 
         assert switch_capable(config) is True
 
-    def test_a_mock_deployment_with_an_epics_block_is_not_capable(self):
-        """The case that makes the naive predicate dangerous.
-
-        ``resolve_target`` answers 'live' for a mock deployment by looking in
-        the connector table and finding the epics block — so a predicate that
-        only asked "do both targets resolve" would serve this deployment from a
-        child pointed at a real machine its own config never selected.
-        """
+    def test_an_in_process_deployment_with_an_epics_block_is_capable(self):
+        """The simulator in process baselines on ``va``, and the epics block is ``live``."""
         config = {
             "control_system": {
-                "type": "mock",
-                "connector": {"mock": {}, "epics": {"gateways": {"read_only": {}}}},
+                "type": "virtual_accelerator",
+                "connector": {
+                    "virtual_accelerator": {"serving": "in_process"},
+                    "epics": {"gateways": {"read_only": {}}},
+                },
             }
         }
 
-        assert switch_capable(config) is False
+        assert switch_capable(config) is True
 
     def test_a_single_target_deployment_is_not_capable(self):
         assert (
@@ -2021,8 +2146,10 @@ class TestNonCapableDeploymentIsUntouched:
     def _mock_context():
         raw = {
             "control_system": {
-                "type": "mock",
-                "connector": {"mock": {"response_delay_ms": 1, "noise_level": 0.0}},
+                "type": "virtual_accelerator",
+                "connector": {
+                    "virtual_accelerator": in_process_config(served_view(), response_delay_ms=1)
+                },
             },
             "archiver": {"type": "mongodb_archiver"},
         }
@@ -2041,9 +2168,9 @@ class TestNonCapableDeploymentIsUntouched:
 
         connector = await context.control_system()
 
-        from osprey_connectors.control_system.mock_connector import MockConnector
+        from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 
-        assert isinstance(connector, MockConnector)
+        assert isinstance(connector, VAInProcessConnector)
         assert await context.control_system() is connector
         assert context._connectors["control_system"].instance is connector
         # No supervisor is created, so nothing can spawn a child.

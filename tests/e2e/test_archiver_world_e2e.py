@@ -5,7 +5,7 @@ whole thing — store, seeder, recorder, virtual accelerator — and asks the
 questions an operator would: is the history there, is it affordable, does what I
 just did to the machine show up in it, and does it admit what it does not know.
 
-Eight claims, in the order a deployment makes them true:
+Seven claims, in the order a deployment makes them true:
 
 * **The seed is affordable.** A first ``osprey up`` seeds the base series inside
   a measured budget and says so while it works. This lane keeps DEFAULT
@@ -19,10 +19,6 @@ Eight claims, in the order a deployment makes them true:
 * **The archive admits its edges.** A window before coverage begins returns no
   points, and ``get_metadata`` reports the oldest sample it really holds rather
   than a declared window.
-* **The seam is invisible.** Where seeded history ends and recorded reality
-  begins, the step in every fidelity partition is attributable to noise — the
-  threshold quoted from :func:`~osprey.simulation.procedural.deviation_bound`
-  per channel, never a constant embedded here.
 * **A scenario apply stays bounded.** Activating an eventful scenario rewrites
   event windows, not the archive; the document count is asked to stay inside a
   ratio, which is the budget the disk assertion above rests on.
@@ -80,7 +76,6 @@ from typing import Any
 
 import pytest
 
-from osprey.simulation.procedural import DEFAULT_NOISE_LEVEL, deviation_bound
 from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [
@@ -141,17 +136,6 @@ APPLY_GROWTH_RATIO = 1.25
 # See the assertion in the scenario-apply test for why this is not zero: a real
 # outage sits nowhere near 5%, while the archive's leading edge routinely does.
 UNCOVERED_FRACTION = 0.05
-
-# Channels are sampled per fidelity partition straight from the manifest's own
-# `partition` field, so the test needs no classification logic of its own and
-# cannot drift from how the manifest classifies.
-PARTITIONS = ("pyat-coupled", "sp-echo", "static-noisy")
-SEAM_SAMPLES_PER_PARTITION = 3
-
-# How far before the seed anchor the seam window starts. Only needs to be wide
-# enough to hold a few seeded samples at the hot cadence; the window's other end
-# is the newest sample, so the recorded side needs no allowance.
-SEAM_LEAD_TIME = timedelta(minutes=5)
 
 # `seeded 1,234 documents x 2,908 channels (... ) in 12.3s` -- the seeder's own
 # report line. Parsed rather than timing `osprey up` as a whole, which would
@@ -576,52 +560,10 @@ def _await_recorder_transition(
         time.sleep(RECORDER_POLL_SEC)
 
 
-def _as_utc(moment: datetime) -> datetime:
-    """Pin the zone on a datetime pymongo may have handed back naive.
+def _served_addresses(world: DeployedArchiverWorld) -> list[str]:
+    from osprey_connectors.simulation.view import SimulatorView
 
-    Read as UTC, which is what the store holds. Naive and aware values do not
-    compare, so a value that crosses into arithmetic with ``datetime.now(UTC)``
-    has to be pinned once, deliberately, rather than depending on which layer
-    happened to attach a zone.
-    """
-    return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment
-
-
-def _seed_anchor(world: DeployedArchiverWorld) -> datetime:
-    """The instant seeded history ends and recorded reality begins.
-
-    Read from the seed manifest the seeder writes into the store, so the seam
-    test can put its window ACROSS the seam rather than wherever the clock
-    happens to be when it runs.
-    """
-    from osprey.simulation.archiver_seed import MANIFEST_ID
-
-    with _collection(world) as collection:
-        manifest = collection.find_one({"_id": MANIFEST_ID})
-    assert manifest is not None, "the store holds no seed manifest, so there is no seam to locate"
-    anchor = manifest.get("seeded_at")
-    assert anchor is not None, "the seed manifest carries no seeded_at anchor"
-    return _as_utc(anchor)
-
-
-def _manifest_channels(world: DeployedArchiverWorld) -> list[dict[str, Any]]:
-    path = world.repo / "build" / "data" / "simulation" / "channel_manifest.json"
-    return json.loads(path.read_text(encoding="utf-8"))["channels"]
-
-
-def _sample_per_partition(world: DeployedArchiverWorld) -> dict[str, list[dict[str, Any]]]:
-    """A few channels from each fidelity partition, taken in manifest order.
-
-    Deterministic rather than random: a seam failure has to be reproducible from
-    the test name alone, and a random sample turns "this partition is broken"
-    into "this run was unlucky".
-    """
-    by_partition: dict[str, list[dict[str, Any]]] = {name: [] for name in PARTITIONS}
-    for channel in _manifest_channels(world):
-        bucket = by_partition.get(str(channel.get("partition")))
-        if bucket is not None and len(bucket) < SEAM_SAMPLES_PER_PARTITION:
-            bucket.append(channel)
-    return by_partition
+    return list(SimulatorView.of_project(world.repo).channels())
 
 
 # ---------------------------------------------------------------------------
@@ -742,7 +684,10 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     limits = json.loads(
         (archiver_world.repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8")
     )
-    setpoint = next(name for name in sorted(limits) if name.endswith(":SP"))
+    # The write needs a bounded, writable setpoint from the records the render enforces.
+    setpoint = next(
+        name for name in sorted(limits) if name.endswith(":SP") and limits[name]["writable"]
+    )
 
     async def _write_a_new_setpoint() -> tuple[float, datetime, Any]:
         register_builtin_connectors()  # idempotent; must run before create
@@ -792,7 +737,7 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
     reading its conclusion.
     """
     connector = _connector(archiver_world)
-    channel = str(_manifest_channels(archiver_world)[0]["address"])
+    channel = str(_served_addresses(archiver_world)[0])
 
     # "The oldest sample really held" is a moving target: every document carries
     # its own expireAt (sample time + retention span), and mongod's TTL monitor
@@ -803,7 +748,7 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
     # no sweep intervenes the bracket collapses to the old exact comparison.
     def oldest_held() -> datetime:
         with _collection(archiver_world) as collection:
-            from osprey.simulation.archiver_seed import oldest_sample
+            from osprey_connectors.simulation.archive import oldest_sample
 
             oldest = oldest_sample(collection)
         assert oldest is not None, "the seeded store reports no oldest sample"
@@ -877,79 +822,6 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
         f"the store held ({oldest_after_tool}); the agent-facing bound must be "
         f"real history, not a declared window"
     )
-
-
-# ---------------------------------------------------------------------------
-# The seam
-# ---------------------------------------------------------------------------
-
-
-def test_seam_between_seeded_and_recorded_history_is_within_the_noise_band(archiver_world):
-    """Across all three fidelity partitions, the seam is attributable to noise.
-
-    Seeded history ends at the seed anchor and recorded reality begins there. If
-    the two halves were generated from different baselines -- a different epoch
-    convention, a different boot value, a retuned generator -- the step at that
-    instant is a discontinuity no operator could read as anything but an event
-    that never happened.
-
-    The threshold is quoted per channel from ``deviation_bound`` and its own
-    default headroom, never a constant written here: a band embedded in this file
-    would keep passing after a generator retune it no longer describes.
-    """
-    # The bound is only meaningful if both halves were generated with the same
-    # noise level. The two constants are duplicated deliberately (osprey.simulation
-    # must stay importable without the VA service package), so nothing structural
-    # stops them drifting -- and a drift would widen this tolerance silently
-    # instead of failing. Retuning either side must red THIS lane.
-    from osprey.services.virtual_accelerator.ioc.engine_source import (
-        DEFAULT_NOISE_LEVEL as VA_NOISE_LEVEL,
-    )
-
-    assert DEFAULT_NOISE_LEVEL == VA_NOISE_LEVEL, (
-        "the simulation and VA noise levels have drifted "
-        f"({DEFAULT_NOISE_LEVEL} vs {VA_NOISE_LEVEL}); the seam bound below describes "
-        "the seeded half only, so it would pass against a mismatched recorded half"
-    )
-
-    connector = _connector(archiver_world)
-    sampled = _sample_per_partition(archiver_world)
-    # The window is anchored on the SEAM, not on the clock. Ending it at
-    # `archival_end` and reaching back a fixed span looked equivalent and is
-    # not: everything before the anchor is seeded and everything after it is
-    # recorded, so once more than that span separates the seed from this test --
-    # a cold image cache is enough, and CI has a 45-minute allowance -- the
-    # window holds recorded samples only. The step assertion then passes without
-    # a seam anywhere near it, which is the vacuous green this lane exists to
-    # refuse.
-    anchor = _seed_anchor(archiver_world)
-    for partition in PARTITIONS:
-        channels = sampled[partition]
-        assert channels, f"no channels found in the {partition!r} partition"
-        for channel in channels:
-            address = str(channel["address"])
-            metadata = asyncio.run(connector.get_metadata(address))
-            if metadata.archival_end is None:
-                pytest.fail(f"{address} ({partition}) holds no samples at all")
-
-            archival_end = _as_utc(metadata.archival_end)
-            assert archival_end >= anchor, (
-                f"{address} ({partition}) holds nothing at or after the seed anchor, so "
-                "this window covers seeded history only and crosses no seam"
-            )
-            frame = asyncio.run(
-                connector.get_data([address], anchor - SEAM_LEAD_TIME, archival_end)
-            )
-            values = [float(v) for v in frame["value"]] if len(frame) else []
-            if len(values) < 2:
-                continue  # a channel with one sample in the window has no seam to cross
-
-            step = max(abs(b - a) for a, b in zip(values, values[1:], strict=False))
-            bound = deviation_bound(address)
-            assert step <= 2 * bound, (
-                f"{address} ({partition}) steps by {step:.6g} across the seed/record "
-                f"seam, beyond the {2 * bound:.6g} the generator's own noise band allows"
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -1039,10 +911,8 @@ def test_health_reports_the_archive_fresh_while_the_recorder_writes(archiver_wor
     """
     from tests.e2e import _orm_stack
 
-    limits = json.loads(
-        (archiver_world.repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8")
-    )
-    assert FRESHNESS_CANARY in limits, (
+    served = set(_served_addresses(archiver_world))
+    assert FRESHNESS_CANARY in served, (
         f"{FRESHNESS_CANARY} is not a channel this machine model serves, so the derived "
         f"freshness check would report 'no samples' for a reason that has nothing to do "
         f"with the recorder. Pick a canary from the model and update FRESHNESS_CANARY."
@@ -1112,11 +982,11 @@ def _health_rows(report: Any) -> list[dict[str, Any]]:
     return [row for row in rows if isinstance(row, dict)]
 
 
-def test_recorder_idles_on_mock_control_system_and_resumes_after_the_flip(archiver_world):
-    """The recorder records a virtual accelerator, and nothing else.
+def test_recorder_idles_on_the_in_process_simulator_and_resumes_after_the_flip(archiver_world):
+    """The recorder records a virtual accelerator served on the network, and nothing else.
 
-    Recording whatever the control system happens to be would put synthesized
-    mock values into a store the agent reads as machine history. The enablement
+    Recording whatever the control system happens to be would put values no
+    served machine produced into a store the agent reads as machine history. The enablement
     is re-read on an interval rather than at startup precisely so this flip needs
     no redeploy -- which is what this test exercises, by flipping the mounted
     config and waiting rather than restarting anything.
@@ -1127,10 +997,10 @@ def test_recorder_idles_on_mock_control_system_and_resumes_after_the_flip(archiv
     yaml = YAML()
     yaml.preserve_quotes = True
 
-    def _set_control_system(kind: str) -> None:
+    def _set_serving(venue: str) -> None:
         with open(config_path) as handle:
             config = yaml.load(handle)
-        config["control_system"]["type"] = kind
+        config["control_system"]["connector"]["virtual_accelerator"]["serving"] = venue
         with open(config_path, "w") as handle:
             yaml.dump(config, handle)
 
@@ -1146,7 +1016,7 @@ def test_recorder_idles_on_mock_control_system_and_resumes_after_the_flip(archiv
     idle_baseline = _recorder_transitions(_RECORDER_IDLE_RE)
     recording_baseline = _recorder_transitions(_RECORDER_RECORDING_RE)
 
-    _set_control_system("mock")
+    _set_serving("in_process")
     try:
         noticed = _await_recorder_transition(
             _RECORDER_IDLE_RE, idle_baseline, announce_timeout, "idle"
@@ -1174,7 +1044,7 @@ def test_recorder_idles_on_mock_control_system_and_resumes_after_the_flip(archiv
             f"{while_idle} samples archived in the {settle:.0f}s that followed"
         )
     finally:
-        _set_control_system("virtual_accelerator")
+        _set_serving("served")
 
     resumed = _await_recorder_transition(
         _RECORDER_RECORDING_RE, recording_baseline, announce_timeout, "recording"

@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     # lazy-import budget test in tests/cli/test_main.py pins this).
     from .build_profile_model import BuildProfile
     from .templates.manager import TemplateManager
+    from .templates.preset_data import PresetData
 
 logger = get_logger("profile")
 
@@ -1228,7 +1229,7 @@ def _privileged_persona_problems(
     # lint's `web_terminals.invalid_user_access` there), and raising from this
     # rule would replace that report with a worse one. The unreadable entry is
     # dropped, so this rule says nothing about it — again as lint does.
-    resolved = resolve_personas(web_terminals, {}, "", project_name="", strict=False)
+    resolved = resolve_personas(web_terminals, {}, strict=False)
     problems.extend(shared_card_privileged_problems(resolved, absolute_privileges))
     return problems
 
@@ -1279,7 +1280,7 @@ def _persona_profile_texts(
 
     from .build_profile import resolve_build_profile
     from .build_profile_emit import emit_persona_delta_yaml, persona_catalog
-    from .build_profile_presets import _normalize_preset_name, preset_data_bundle
+    from .build_profile_presets import _normalize_preset_name
 
     catalog = persona_catalog(resolved.config)
     texts: dict[str, str] = {}
@@ -1321,17 +1322,18 @@ def _persona_profile_texts(
         except BuildProfileError as e:
             problems.append(f"{persona_name!r}: build_profile {preset_ref!r} does not resolve: {e}")
             continue
-        persona_bundle = preset_data_bundle(preset_ref)
-        if persona_bundle != preset_data_bundle(host_preset):
+        persona_data = _preset_data_names(preset_ref)
+        host_data = _preset_data_names(host_preset)
+        if persona_data != host_data:
             # The sibling profiles share ONE data tree, materialized from the
-            # host preset's packaged bundle. A persona whose preset names a
-            # different bundle would read a tree that was never built for it —
-            # caught here rather than surfacing as missing files at deploy time.
+            # host preset's app template and facility. A persona whose preset
+            # names a different pair would read a tree that was never built for
+            # it — caught here rather than surfacing as missing files at deploy
+            # time.
             problems.append(
-                f"{persona_name!r}: build_profile {preset_ref!r} names data bundle "
-                f"{persona_bundle!r}, but this profile materializes "
-                f"{preset_data_bundle(host_preset)!r} — one shared data tree "
-                f"cannot serve both"
+                f"{persona_name!r}: build_profile {preset_ref!r} reads "
+                f"{_describe_preset_data(persona_data)}, but this profile materializes "
+                f"{_describe_preset_data(host_data)} — one shared data tree cannot serve both"
             )
             continue
         persona_preset = _normalize_preset_name(preset_ref)
@@ -1367,6 +1369,21 @@ def _persona_profile_texts(
             "terminal that must not have it:\n  - " + "\n  - ".join(privilege_problems)
         )
     return texts
+
+
+def _preset_data_names(preset: str | None) -> tuple[str, str | None]:
+    """The ``(app template, facility)`` pair *preset*'s packaged data is composed from."""
+    from .build_profile_presets import preset_data_bundle, preset_facility
+
+    return preset_data_bundle(preset), preset_facility(preset)
+
+
+def _describe_preset_data(names: tuple[str, str | None]) -> str:
+    """*names* as a refusal prints them."""
+    app_template, facility = names
+    if facility is None:
+        return f"app template {app_template!r} with no facility"
+    return f"app template {app_template!r} with facility {facility!r}"
 
 
 def _cleanup(target: Path, seeded: tuple[str, ...] = ()) -> str:
@@ -1432,7 +1449,7 @@ def _app_template_root(manager: TemplateManager, data_bundle: str) -> Path:
     """The packaged app-template directory a bundle name points at.
 
     The one place that turns a ``data_bundle`` into a path on disk, so every
-    reader of an app template — the ``data/`` tree below, and the whole-template
+    reader of an app template — the ``data/`` tree, and the whole-template
     copiers beside it — fails the same way on the same missing directory.
     Checked up front, before anything is written, so a packaging regression
     surfaces as an actionable error here rather than as a missing-file error
@@ -1449,31 +1466,39 @@ def _app_template_root(manager: TemplateManager, data_bundle: str) -> Path:
     Raises:
         BuildProfileError: If the template is absent from the installation.
     """
-    template_root = Path(manager.template_root) / "apps" / data_bundle
-    if not template_root.is_dir():
-        raise BuildProfileError(
-            f"App template {data_bundle!r} is absent from this installation at "
-            f"{template_root}. This is a packaging bug — reinstall osprey-framework."
-        )
+    from .templates.preset_data import app_template_root
 
-    return template_root
+    return app_template_root(Path(manager.template_root), data_bundle)
 
 
-def _packaged_data_source(manager: TemplateManager, data_bundle: str) -> Path:
-    """The packaged ``data/`` tree this command copies verbatim.
+def _preset_data(manager: TemplateManager, preset_name: str) -> PresetData:
+    """The packaged data *preset_name* materializes: app template + facility.
+
+    Both names are preset-side facts read off the preset chain
+    (:func:`~.build_profile_presets.preset_data_bundle`,
+    :func:`~.build_profile_presets.preset_facility`), so a preset inheriting
+    either through ``extends:`` composes the same tree its parent does.
 
     Args:
         manager: The :class:`~.templates.manager.TemplateManager` locating the
             installed template root.
-        data_bundle: App template whose ``data/`` tree gets materialized.
+        preset_name: Bundled preset, in either spelling.
 
     Returns:
-        The ``data/`` directory inside the app template.
+        The composition :mod:`~.templates.preset_data` defines.
 
     Raises:
-        BuildProfileError: If the template is absent from the installation.
+        BuildProfileError: If a named directory is absent, or the app template
+            ships a facility of its own beside the one the preset names.
     """
-    return _app_template_root(manager, data_bundle) / "data"
+    from .build_profile_presets import preset_data_bundle, preset_facility
+    from .templates.preset_data import compose_preset_data
+
+    return compose_preset_data(
+        Path(manager.template_root),
+        preset_data_bundle(preset_name),
+        preset_facility(preset_name),
+    )
 
 
 def _resolve_preset_bundle(preset: str) -> tuple[str, str]:
@@ -1567,7 +1592,7 @@ def _materialize_profile_directory(
     Writes ``profile.yml`` — the preset's fully resolved content as an
     explicit, self-contained profile (comments preserved, no ``extends:``) —
     the ``providers.yml`` catalog beside it (:func:`_plan_provider_catalog`),
-    the bundle's ``data/`` tree copied verbatim, the profile's ``.env`` channel
+    the preset's packaged data (:func:`_preset_data`) copied verbatim, the profile's ``.env`` channel
     (:func:`_write_secret_channel`), and a tutorial ``README.md`` explaining the
     convention directories. ``--set`` pairs are edits of the resolved preset,
     made the way ``osprey set`` makes them to the file afterwards, so a
@@ -1624,7 +1649,6 @@ def _materialize_profile_directory(
     )
     from .build_profile_presets import preset_data_bundle
     from .templates.manager import TemplateManager
-    from .templates.shared_data import shared_data_files
 
     # Resolving through the public path validates the preset AND its --set
     # edits up front, and names the bundle whose data tree gets copied. It also
@@ -1676,15 +1700,16 @@ def _materialize_profile_directory(
         )
 
     manager = TemplateManager()
-    # The packaged tree this repo's `data/` is copied from. Read off the preset
-    # chain, not off `resolved`: the bundle name is preset-side only, so it
-    # never reaches the profile the emission below writes.
+    # The packaged data this repo's `data/` is copied from: the app template's
+    # `data/` plus the facility at `data/facility/`. Read off the preset chain,
+    # not off `resolved`: both names are preset-side only, so they never reach
+    # the profile the emission below writes.
     data_bundle = preset_data_bundle(normalized_preset)
-    data_source = _packaged_data_source(manager, data_bundle)
+    preset_data = _preset_data(manager, normalized_preset)
     # Read before the first mkdir, like every other input here: a malformed
     # declaration refuses before anything is written.
     try:
-        shared_files = shared_data_files(_app_template_root(manager, data_bundle))
+        preset_data.placed_files()
     except ValueError as e:
         raise click.UsageError(f"Cannot materialize {preset_name!r}: {e}") from e
 
@@ -1781,20 +1806,12 @@ def _materialize_profile_directory(
         # come across byte-identical — a profile data tree is content, never
         # templates, so nothing here is rendered. The one exclusion is build
         # exhaust the wheel does not ship either (_EXCLUDED_DATA_SUBTREES).
-        if data_source.is_dir():
-            shutil.copytree(
-                data_source,
-                target / _PROFILE_DATA_DIRNAME,
-                ignore=_data_copy_ignore(data_source),
-            )
-        else:
-            (target / _PROFILE_DATA_DIRNAME).mkdir(parents=True)
-        # The files this template shares with another one land beside its own,
-        # byte-identical, so the profile cannot tell them apart.
-        for relative, source in shared_files.items():
-            destination = target / _PROFILE_DATA_DIRNAME / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
+        # The facility, and any files this template shares with another one,
+        # land beside the template's own, byte-identical, so the profile
+        # cannot tell them apart.
+        preset_data.copy_into(
+            target / _PROFILE_DATA_DIRNAME, ignore=_data_copy_ignore(preset_data.app_data)
+        )
         (target / "profile.yml").write_text(profile_text, encoding="utf-8")
         (target / PROVIDERS_FILENAME).write_text(catalog.text, encoding="utf-8")
         if catalog.carried:

@@ -1,12 +1,10 @@
 """The live Channel Access venue must exist on the platform that must run it.
 
-``tests/va/test_record_factory.py`` and ``tests/va/test_apply_fault.py`` are the
-only places the write contract is asserted from the far side of a real Channel
-Access wire. Both guard their server import with ``pytest.importorskip``, which
-is the right behaviour on a host that cannot load it -- an honest, loud skip
-beats a hollow pass -- but it means a run in which nothing was exercised exits
-0 exactly like a run in which everything was. Measured: with the server made
-unimportable, the two suites report 9 passed, 44 skipped, and exit 0.
+``tests/va/test_apply_fault.py`` is where a scenario fault is asserted from the
+far side of a real Channel Access wire. It guards its server import with
+``pytest.importorskip``, which is the right behaviour on a host that cannot
+load it -- an honest, loud skip beats a hollow pass -- but it means a run in
+which nothing was exercised exits 0 exactly like a run in which everything was.
 
 The container venue closes that gap for itself (``scripts/va/live_ca/gate.py``
 rejects any run containing a skip). CI does not go through that gate: it
@@ -59,7 +57,7 @@ MIN_COLLECTED_TESTS = 15
 LIVE_CA_MODULE = "pcaspy"
 
 #: The suites whose assertions are only observable over a real CA wire.
-LIVE_SUITES = ("test_record_factory.py", "test_apply_fault.py")
+LIVE_SUITES = ("test_apply_fault.py",)
 
 #: The one platform with a loadable Channel Access server wheel, and therefore
 #: the one where a skipped live suite is a defect rather than an honest
@@ -76,8 +74,9 @@ LIVE_CA_MACHINES = frozenset({"x86_64", "amd64"})
 #: worst possible failure for a venue whose whole job is to prove what a
 #: client sees. Importable is therefore not the whole claim.
 #:
-#: ``pyproject.toml`` remains the authority that installs it; this is the
-#: independent check that what arrived is usable. A floor that falls behind
+#: The lume-pva-apg pin in ``pyproject.toml`` is the authority that installs
+#: it (its ``ca`` extra sets the floor); this is the independent check that
+#: what arrived is usable. A floor that falls behind
 #: pyproject's makes this test weaker, never falsely red.
 MINIMUM_VERSION = (0, 8, 1)
 REJECTED_VERSION = "0.8.0"

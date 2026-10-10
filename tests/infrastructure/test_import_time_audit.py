@@ -27,8 +27,8 @@ WHITELIST: dict[str, set[str]] = {
     # libca latches EPICS_CA_* at C-library init, on the first import of
     # epics/softioc anywhere in the process; the ports are picked from free
     # ones at the same moment for the same reason.
-    "va/test_record_factory.py": {"os.environ", "socket"},
     "va/test_apply_fault.py": {"os.environ", "socket"},
+    "va/test_lume_pva_seam.py": {"os.environ", "socket"},
     # Deploying suites reserve their CA / gallery ports at import: the value
     # binds into module-level constants and function default arguments (which
     # evaluate at import), so a fixture would run after those bindings exist.
@@ -48,7 +48,6 @@ WHITELIST: dict[str, set[str]] = {
     "scripts/test_changelog_fragments.py": {"sys.modules"},
     "scripts/test_docs_publish.py": {"sys.modules"},
     "scripts/test_fusion_calibration.py": {"sys.modules"},
-    "scripts/test_scenario_plots.py": {"sys.modules"},
     # The Teams relay ships as a service template, not a package: its
     # validation.py is loaded by path the same way, and the module-level load
     # feeds a parametrize decorator, which is evaluated at import.

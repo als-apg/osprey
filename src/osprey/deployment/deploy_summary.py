@@ -618,8 +618,8 @@ def _families_by_user(config: dict, project_root: Path | str | None) -> dict[str
             logger.debug(f"Panel bands not narrowed to their personas: {exc}")
             return None
         if persona not in serves:
-            # No persona in effect (every pre-catalog roster), or one whose
-            # project is unset, unrendered or unreadable. Either way nothing
+            # No persona (a roster the render refuses), or one whose project
+            # is unset, unrendered or unreadable. Either way nothing
             # says what this user serves, and a guess is not an answer.
             return None
         if name in by_user:

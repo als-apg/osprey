@@ -20,13 +20,13 @@ from tests.e2e.sdk_helpers import (
     is_claude_code_available,
     render_dir,
 )
+from tests.facility.served_tree import in_process_config, served_tree
 
 # Dedicated, preset-decoupled limits DB for the write-safety scenarios. The
-# generic safety e2e must not depend on any preset's production
-# channel_limits.json (which is a pure projection of the VA manifest and
-# carries no example read-only/bounded channels). This fixture supplies exactly
-# the two channels those tests need: a bounded writable setpoint and a
-# read-only readback.
+# generic safety e2e must not depend on the build's limits view (which is a
+# pure projection of the VA manifest and carries no example read-only/bounded
+# channels). This fixture supplies exactly the two channels those tests need: a
+# bounded writable setpoint and a read-only readback.
 SAFETY_LIMITS_DB = Path(__file__).parent / "fixtures" / "safety_limits.json"
 
 
@@ -40,13 +40,10 @@ def _point_at_safety_limits_db(repo: Path) -> None:
     is absolute, so it bypasses the relative-path resolution against
     ``CONFIG_FILE``'s directory entirely.
 
-    ``allow_unlisted_channels`` is pinned permissive alongside it. The preset
-    ships strict (an unlisted channel is refused), because the stand-in it
-    baselines on carries a real machine's posture; the safety scenarios here
-    were written against the permissive posture and one of them (scenario 5)
-    exists to prove an unlisted channel goes through under it. The pin selects
-    the posture the scenarios describe rather than inheriting whichever one the
-    preset ships.
+    ``mode`` is pinned ``optional`` alongside it. The safety scenarios here
+    describe the optional mode and one of them (scenario 5) exists to prove a
+    channel with no record goes through under it. The pin selects the mode the
+    scenarios describe rather than inheriting whichever one the preset ships.
 
     The pin stays DEPLOYMENT-WIDE on purpose, not spelled per connector type:
     this lane baselines on the live stand-in and its scenarios reach whichever
@@ -59,7 +56,33 @@ def _point_at_safety_limits_db(repo: Path) -> None:
     config = yaml.safe_load(config_path.read_text())
     limits = config["control_system"]["limits_checking"]
     limits["database_path"] = str(SAFETY_LIMITS_DB)
-    limits["allow_unlisted_channels"] = True
+    limits["mode"] = "optional"
+    config_path.write_text(yaml.dump(config, default_flow_style=False))
+
+
+#: The setpoints the safety scenarios write, and the channels they only read.
+#: The read-only readback in :data:`SAFETY_LIMITS_DB` is served as a readback.
+SAFETY_SETPOINTS = (
+    "MAG:HCM01:CURRENT:SP",
+    "SR:DIAG:TEMP:01:TEMPERATURE:SP",
+    "SR:RANDOM:UNLISTED",
+)
+SAFETY_READINGS = ("SR:BEAM:CURRENT", "SR:MAG:QF:01:CURRENT:RB")
+
+
+def _serve_safety_channels(repo: Path, root: Path) -> None:
+    """Point the render's in-process simulator at a tree serving the scenarios' channels.
+
+    The tree is built under *root* and holds every channel a safety scenario
+    reads or writes; the ``virtual_accelerator`` block names its simulator view,
+    so a block copied from it serves the same channels.
+    """
+    view = served_tree(root, SAFETY_SETPOINTS, SAFETY_READINGS)
+    config_path = render_dir(repo) / "config.yml"
+    config = yaml.safe_load(config_path.read_text())
+    connector = config["control_system"]["connector"]
+    block = connector.get("virtual_accelerator") or {}
+    connector["virtual_accelerator"] = {**block, **in_process_config(view)}
     config_path.write_text(yaml.dump(config, default_flow_style=False))
 
 
@@ -119,6 +142,7 @@ def safety_project(tmp_path_factory):
     """
     tmp = tmp_path_factory.mktemp("safety")
     repo = init_project(tmp, "safety-test-project", provider="als-apg")
+    _serve_safety_channels(repo, tmp / "served")
     _point_at_safety_limits_db(repo)
     return repo
 
@@ -139,6 +163,7 @@ def safety_project_writes_off(tmp_path_factory):
     """
     tmp = tmp_path_factory.mktemp("safety-writes-off")
     repo = init_project(tmp, "safety-writes-off", provider="als-apg")
+    _serve_safety_channels(repo, tmp / "served")
     config_path = render_dir(repo) / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     config["control_system"]["writes_enabled"] = False
@@ -148,13 +173,16 @@ def safety_project_writes_off(tmp_path_factory):
 
 
 #: The connector type the mixed-render fixture's ``live`` target resolves to: the
-#: mock connector by dotted path. ``live`` is derived from ``control_system.type``
-#: only when that type is not a simulated one, and the registry name ``mock`` is;
-#: the same class by its module path is "as written", so it counts as the
-#: deployment's real machine while still needing no hardware. It is the same
-#: device ``tests/mcp_server/test_switch_lifecycle.py`` uses to make a mock
-#: deployment switch-capable.
-MIXED_RENDER_LIVE_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
+#: in-process simulator by dotted path. ``live`` is derived from
+#: ``control_system.type`` only when that type is not a simulated one, and the
+#: registry name ``virtual_accelerator`` is; the same class by its module path is
+#: "as written", so it counts as the deployment's real machine while still
+#: needing no hardware. It is the same device
+#: ``tests/mcp_server/test_switch_lifecycle.py`` uses to serve ``live`` with no
+#: Channel Access.
+MIXED_RENDER_LIVE_TYPE = (
+    "osprey_connectors.control_system.va_in_process_connector.VAInProcessConnector"
+)
 
 
 @pytest.fixture(scope="module")
@@ -166,7 +194,7 @@ def safety_project_mixed_render(tmp_path_factory):
     the simulator — two of the three posture keys the shipped
     ``control-assistant-readwrite`` preset spells. The render is made
     switch-capable the way the switch lifecycle tests do it:
-    ``control_system.type`` is the mock connector by
+    ``control_system.type`` is the in-process simulator by
     dotted path (so ``live`` resolves to it) with a connector block of its own,
     beside the ``virtual_accelerator`` block the control-assistant render already
     carries. Nothing switches, so the session stays on the baseline ``live``
@@ -180,22 +208,26 @@ def safety_project_mixed_render(tmp_path_factory):
     PreToolUse hook chain — ``osprey_writes_check`` denying for the session's
     target and ``osprey_approval`` deferring.
 
-    The limits posture is pinned permissive like the other safety renders.
+    The limits mode is pinned ``optional`` like the other safety renders.
     Scenario 11 asserts that the refusal it gets back is ``osprey_writes_check``'s
-    — the one naming the live target. Under the preset's strict posture the
-    limits hook refuses the same unlisted channel in the same PreToolUse chain,
-    and which of two denies surfaces as the reason is not something the test
-    controls; the pin leaves the writes gate as the only hook with a say.
+    — the one naming the live target. Under ``exclusive`` the limits hook
+    refuses the same unlisted channel in the same PreToolUse chain, and which
+    of two denies surfaces as the reason is not something the test controls;
+    the pin leaves the writes gate as the only hook with a say.
     """
     tmp = tmp_path_factory.mktemp("safety-mixed-render")
     repo = init_project(tmp, "safety-mixed-render", provider="als-apg")
+    _serve_safety_channels(repo, tmp / "served")
     config_path = render_dir(repo) / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     section = config["control_system"]
     section["type"] = MIXED_RENDER_LIVE_TYPE
     section["writes_enabled"] = False
     connector = section["connector"]
-    connector[MIXED_RENDER_LIVE_TYPE] = dict(connector["mock"])
+    connector[MIXED_RENDER_LIVE_TYPE] = dict(connector["virtual_accelerator"])
+    # On a deployment whose own type is a real machine, ``va`` is the served
+    # venue; the in-process venue belongs to the simulator's own deployments.
+    connector["virtual_accelerator"].pop("serving", None)
     connector["virtual_accelerator"]["writes_enabled"] = True
     config_path.write_text(yaml.dump(config, default_flow_style=False))
     _point_at_safety_limits_db(repo)
@@ -214,6 +246,7 @@ def safety_project_selective(tmp_path_factory):
     """
     tmp = tmp_path_factory.mktemp("safety-selective")
     repo = init_project(tmp, "safety-selective", provider="als-apg")
+    _serve_safety_channels(repo, tmp / "served")
     config_path = render_dir(repo) / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     config["approval"] = {
@@ -244,6 +277,7 @@ def safety_project_default_policy_always(tmp_path_factory):
     """
     tmp = tmp_path_factory.mktemp("safety-default-always")
     repo = init_project(tmp, "safety-default-always", provider="als-apg")
+    _serve_safety_channels(repo, tmp / "served")
     config_path = render_dir(repo) / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     config["approval"] = {"enabled": True, "default_policy": "always"}

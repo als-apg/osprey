@@ -64,7 +64,11 @@ def render(tmp_path, monkeypatch):
     (tmp_path / "config.yml").write_text(
         yaml.dump(
             {
-                "control_system": {"type": "mock", "writes_enabled": False},
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                    "writes_enabled": False,
+                },
                 "agent_data": {"base_dir": "./_agent_data"},
                 "ui": {"theme": "light"},
             }

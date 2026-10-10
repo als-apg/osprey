@@ -263,7 +263,11 @@ def mock_project(tmp_path, monkeypatch, request) -> Path:
     (tmp_path / "config.yml").write_text(
         yaml.dump(
             {
-                "control_system": {"type": "mock", "limits_checking": {"enabled": False}},
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                    "limits_checking": {"enabled": False},
+                },
                 "execution": {"execution_method": "subprocess"},
                 "python_executor": {"execution_timeout_seconds": 120},
             }

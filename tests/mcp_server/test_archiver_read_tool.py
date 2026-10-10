@@ -19,6 +19,7 @@ import pytest
 from osprey.connectors.archiver._timerange import long_frame
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from tests.facility.served_tree import served_tree
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -57,13 +58,18 @@ def _get_archiver_read():
     return get_tool_fn(archiver_read)
 
 
+def _wire_archiver_project(project, monkeypatch):
+    """Make *project* the CWD, wired to the mock archiver, with the server context up."""
+    monkeypatch.chdir(project)
+    (project / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
+    initialize_server_context()
+    return project
+
+
 @pytest.fixture
 def archiver_project(tmp_path, monkeypatch):
     """A project CWD wired to the mock archiver, with the server context up."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("archiver:\n  type: mock_archiver\n")
-    initialize_server_context()
-    return tmp_path
+    return _wire_archiver_project(tmp_path, monkeypatch)
 
 
 @pytest.fixture
@@ -957,12 +963,28 @@ async def test_archiver_read_dedupes_repeated_channel_name(archiver_read_tool):
     assert queried_channels == ["SR:CURRENT:RB"]
 
 
-class TestArchiverReadRealMockConnector:
+class TestArchiverReadRealInProcessConnector:
     """End-to-end coverage through the real ``MockArchiverConnector``.
 
     Every test above patches the connector factory, so only these exercise a
     real connector's ``get_data`` — including its handling of ``precision_ms``.
     """
+
+    @pytest.fixture
+    def archiver_project(self, tmp_path, monkeypatch):
+        """A rendered project wired to the mock archiver, serving the channel read here.
+
+        The project is the render of a built tree holding ``SR:DCCT``, so the
+        archiver finds the simulator view at ``data/simulator`` beside its
+        config, where a rendered deployment keeps it. Its seed declares noise,
+        so the samples of one bin differ.
+        """
+        project = served_tree(
+            tmp_path,
+            readings=["SR:DCCT"],
+            channels={"SR:DCCT": {"simulation": {"nominal": 500.0, "noise": {"absolute": 1.0}}}},
+        ).parent.parent
+        return _wire_archiver_project(project, monkeypatch)
 
     @pytest.mark.usefixtures("archiver_project")
     async def test_bin_size_zero_full_resolution_succeeds(self):

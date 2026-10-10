@@ -16,7 +16,7 @@ from pathlib import Path
 
 from osprey import bluesky_tool_names as bsky
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT, POSTURE_ENV_VAR
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.phoebus_agent_access import DRIVE_TOOL, READ, READ_WRITE, SERVER_TEMPLATE
 from osprey.utils.identity import AUDIT_IDENTITY_ENV as AUDIT_IDENTITY_ENV  # re-exported
 from osprey.utils.identity import IDENTITY_ENV_LADDER
@@ -356,7 +356,6 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "session_summary",
             "archiver_downsample",
             "setup_inspect",
-            "lattice_init",
             "lattice_state",
             "lattice_set_param",
             "lattice_refresh",
@@ -365,8 +364,9 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "lattice_get_settings",
             "lattice_update_settings",
             # Baseline and settings are the simulation's own scratch state:
-            # nothing here reaches hardware. lattice_init sets a fresh
-            # baseline, so lattice_clear_baseline is undone by re-running it;
+            # nothing here reaches hardware. lattice_set_baseline sets a fresh
+            # baseline, so lattice_clear_baseline is undone by it; the
+            # dashboard's model switch also re-initialises the state;
             # settings are carried across a re-init instead, so a settings
             # change stands until it is set back. Neither is worth a prompt.
             # lattice_clear_baseline is nonetheless auto-classified
@@ -912,6 +912,10 @@ class AgentDefinition:
     # cli/templates/claude_code.py) -- an enabled agent declaring a tool that
     # is neither in allow nor ask fails build validation.
     requires_ask_tools: frozenset[str] = frozenset()
+    # What the agent needs that its condition stands for. When set, an unmet
+    # condition keeps the agent out even under ``enabled: true``, and the build
+    # logs one line naming this need.
+    condition_need: str | None = None
 
 
 FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
@@ -961,6 +965,9 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
     ),
     "pyat-specialist": AgentDefinition(
         name="pyat-specialist",
+        # Loads each served model's deck; a render serving none has no agent.
+        condition="served_decks",
+        condition_need="a served model with a deck",
         server_dependency="python",
         description=(
             "Delegate to this agent when the user needs lattice/optics quantities "
@@ -1911,7 +1918,11 @@ def resolve_agents(
             if spec.get("enabled") is False:
                 agents[name].default_enabled = False
             elif spec.get("enabled") is True:
-                agents[name].default_enabled = True
+                adef = agents[name]
+                if adef.condition_need and not ctx.get(adef.condition):
+                    logger.warning("Agent %r is left out: it needs %s", name, adef.condition_need)
+                else:
+                    adef.default_enabled = True
         else:
             if spec.get("enabled") is not False:
                 adef = _custom_agent_from_spec(name, spec)

@@ -1,121 +1,64 @@
-"""Composition contract: disjoint scenarios stack; overlapping ones are rejected.
+"""The built-in ``still`` scenario activates and composes as any listed scenario does."""
 
-Two simultaneously active scenarios must touch disjoint channel sets — archiver
-step/ramp events overwrite the synthesized series (and overrides collide on
-point reads), so overlapping scenarios would compose order-dependently and
-silently wrong. These tests pin both halves: (1) the disjoint target combo
-(vacuum-burst + rf-thermal) yields *both* fault signatures at once, and
-(2) ``validate_composition`` hard-errors on a hand-built same-channel collision.
-"""
+from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
 
-import numpy as np
 import pytest
+import yaml
 
-from osprey.simulation import SimulationEngine
+from osprey.simulation.apply import apply_scenarios
+from osprey_connectors.simulation.state import read_active_state
+from osprey_connectors.workspace import resolve_simulation_state_dir
 
-GAUGE07 = "SR:VAC:GAUGE:SR07:PRESSURE:RB"
-CAVITY01_TEMP = "SR:RF:CAVITY:01:TEMPERATURE:RB"
-RF_SERIES_N = 2016  # 7-day window at 5-minute resolution
+TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
+
+#: The config the example's view is rendered with: every model served.
+VIEW_CONFIG: dict[str, Any] = {"control_system": {"type": "virtual_accelerator"}}
 
 
-def _yesterday_1432_window(minutes: int = 10) -> list[datetime]:
-    """Per-second window straddling yesterday 14:32:08 (the vacuum at_time anchor)."""
-    center = (datetime.now(UTC) - timedelta(days=1)).replace(
-        hour=14, minute=32, second=8, microsecond=0
+@pytest.fixture(scope="module")
+def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A project whose render holds the example facility's simulator view, as a build writes it."""
+    from osprey.facility.build import build_facility
+    from osprey.facility.served import resolve_served
+    from osprey.facility.views import ViewInputs
+    from osprey.facility.views.simulator import write_simulator_view
+
+    root = tmp_path_factory.mktemp("project")
+    doc = build_facility(TEMPLATE_FACILITY, project_name="example")
+    write_simulator_view(
+        root / "data" / "simulator",
+        ViewInputs(
+            doc=doc,
+            rendered_config=VIEW_CONFIG,
+            facility_dir=TEMPLATE_FACILITY,
+            served=resolve_served(VIEW_CONFIG, doc),
+            reported=None,
+        ),
     )
-    start = center - timedelta(minutes=minutes / 2)
-    return [start + timedelta(seconds=i) for i in range(minutes * 60)]
+    (root / "config.yml").write_text(yaml.safe_dump({}), encoding="utf-8")
+    return root
 
 
-def _seven_day_window() -> list[datetime]:
-    """A 7-day window ending now.
-
-    rf-thermal's excursions are anchored (``at_when``, days and clock times
-    before the scenario-activation anchor T0), not window fractions, so this
-    window must *end at now* for them to appear in it: the fixture writes
-    ``active_scenarios`` as it builds the engine, which puts T0 within a second
-    of now, and the trip four days back always falls inside the week.
-    """
-    now = datetime.now()
-    step = timedelta(days=7) / RF_SERIES_N
-    return [now - timedelta(days=7) + step * i for i in range(RF_SERIES_N)]
+def _active(project: Path) -> list[str]:
+    return read_active_state(resolve_simulation_state_dir({}, project))[0]
 
 
-def _vacuum_spike_present(engine: SimulationEngine) -> bool:
-    series = np.array(engine.synthesize_series(GAUGE07, _yesterday_1432_window()))
-    # Baseline SR07 pressure is ~5e-8; the burst spikes it well above baseline.
-    return series.max() > 2.0 * np.median(series)
+def test_sim_apply_activates_the_built_in_still(project: Path) -> None:
+    result = apply_scenarios(project, ["still"], seed_logbook=False, seed_archive=False)
+
+    assert result.active == ("nominal", "still")
+    assert _active(project) == ["still"]
 
 
-def _rf_excursion_present(engine: SimulationEngine) -> bool:
-    series = np.array(engine.synthesize_series(CAVITY01_TEMP, _seven_day_window()))
-    # Nominal cavity body temp ~27 degC; excursions exceed 31 degC.
-    return series.max() > 31.0
+def test_still_and_rf_thermal_live_are_refused_together(project: Path) -> None:
+    apply_scenarios(project, ["still"], seed_logbook=False, seed_archive=False)
 
+    with pytest.raises(ValueError, match="both set the motion of"):
+        apply_scenarios(
+            project, ["still", "rf-thermal-live"], seed_logbook=False, seed_archive=False
+        )
 
-class TestDisjointComposition:
-    def test_nominal_alone_shows_neither_fault(self, engine_factory):
-        engine = engine_factory("nominal")
-        assert not _vacuum_spike_present(engine)
-        assert not _rf_excursion_present(engine)
-
-    def test_composed_pair_shows_both_faults(self, engine_factory):
-        engine = engine_factory("vacuum-burst", "rf-thermal")
-        assert engine.active_scenarios() == ("nominal", "vacuum-burst", "rf-thermal")
-        # Both overlays are live at once on their disjoint channels.
-        assert _vacuum_spike_present(engine), "vacuum burst signature missing under composition"
-        assert _rf_excursion_present(engine), "rf-thermal signature missing under composition"
-
-    def test_validate_composition_accepts_disjoint_trio(self, engine_factory):
-        engine = engine_factory("nominal")
-        assert engine.validate_composition(["nominal", "vacuum-burst", "rf-thermal"]) == []
-
-
-class TestCollisionRejected:
-    """A hand-built machine where two scenarios touch one channel must be rejected."""
-
-    COLLIDING = {
-        "name": "collide",
-        "channels": {"C": {"value": 1.0}, "D": {"value": 2.0}},
-        "scenarios": {
-            "nominal": {"description": "n"},
-            "over-a": {"description": "a", "overrides": {"C": 5.0}},
-            "over-b": {"description": "b", "overrides": {"C": 9.0}},
-            "arch-c": {
-                "description": "c",
-                "archiver": [{"channel": "C", "events": [{"shape": "step", "at": 0.5, "to": 7.0}]}],
-            },
-            "disjoint-d": {"description": "d", "overrides": {"D": 3.0}},
-        },
-    }
-
-    def _engine(self, make_machine_file) -> SimulationEngine:
-        return SimulationEngine.from_file(make_machine_file(self.COLLIDING))
-
-    def test_two_overrides_on_one_channel_collide(self, make_machine_file):
-        engine = self._engine(make_machine_file)
-        problems = engine.validate_composition(["over-a", "over-b"])
-        assert len(problems) == 1
-        assert "'C'" in problems[0]
-        assert "over-a" in problems[0] and "over-b" in problems[0]
-
-    def test_override_and_archiver_on_one_channel_collide(self, make_machine_file):
-        engine = self._engine(make_machine_file)
-        assert engine.validate_composition(["over-a", "arch-c"]) != []
-
-    def test_disjoint_scenarios_do_not_collide(self, make_machine_file):
-        engine = self._engine(make_machine_file)
-        assert engine.validate_composition(["over-a", "disjoint-d"]) == []
-
-    def test_set_active_scenarios_raises_on_collision(self, make_machine_file):
-        engine = self._engine(make_machine_file)
-        with pytest.raises(ValueError, match="disjoint channel sets"):
-            engine.set_active_scenarios(["over-a", "over-b"])
-
-    def test_unknown_scenario_reported(self, make_machine_file):
-        engine = self._engine(make_machine_file)
-        problems = engine.validate_composition(["no-such-scenario"])
-        assert len(problems) == 1
-        assert "Unknown scenario" in problems[0]
+    assert _active(project) == ["still"]

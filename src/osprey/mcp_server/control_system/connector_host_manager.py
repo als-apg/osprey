@@ -80,14 +80,15 @@ what refuses this server's writes and its session's launches until it lands
 somewhere; a server that silently stayed where it was would go on serving a
 target the deployment has moved off.
 
-Why the launch handshake bypasses the proxy
--------------------------------------------
-``init`` and ``spawn_probe`` are *supervisor* methods, not connector methods,
-and :class:`~osprey_connectors.ipc.proxy.ConnectorHostProxy` deliberately
-exposes only the connector surface. The handshake is spoken here on the child's
-raw pipes with the public frame codec, and the proxy is constructed only once
-the child has proven itself — so a child that fails to launch never becomes a
-connector anything can call, and no half-initialized proxy has to be unwound.
+The launch handshake
+--------------------
+``init`` and ``spawn_probe`` are *supervisor* methods, not connector methods.
+They travel over
+:meth:`~osprey_connectors.ipc.proxy.ConnectorHostProxy.supervisor_request`, the
+same supervisor surface :class:`~osprey_connectors.ipc.pool.ConnectorHostPool`
+launches its children through. A child that fails to launch is torn down with
+:func:`~osprey_connectors.ipc.launch.kill_host`, and its proxy never reaches a
+:class:`_Child`, so nothing can call it.
 
 Attributing a killed child's outstanding requests
 -------------------------------------------------
@@ -105,11 +106,7 @@ import asyncio
 import contextlib
 import copy
 import logging
-import os
-import signal
-import subprocess
 import sys
-import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -125,10 +122,19 @@ from osprey.mcp_server.control_system.target_eligibility import (
 )
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
 from osprey_connectors.control_system.base import is_readonly_run
-from osprey_connectors.ipc import frames
-from osprey_connectors.ipc.launch import CHILD_MODULE, AttributedReader, host_env, spawn_host
-from osprey_connectors.ipc.launch import terminate_host as _terminate_host
-from osprey_connectors.ipc.proxy import ConnectorHostProxy
+from osprey_connectors.ipc.launch import (
+    AttributedReader,
+    host_env,
+    kill_host,
+    spawn_host,
+    stop_host,
+)
+from osprey_connectors.ipc.pool import DEFAULT_CALL_DEADLINE_S
+from osprey_connectors.ipc.proxy import (
+    ChildUnresponsiveError,
+    ConnectorHostProxy,
+    raised_by_child,
+)
 from osprey_connectors.ipc.verification import (
     ROLE_READ_ONLY,
     ROLE_WRITE_ACCESS,
@@ -139,6 +145,7 @@ from osprey_connectors.ipc.verification import (
     derive_endpoints,
     verify_host_report,
 )
+from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code
 from osprey_connectors.types import (
     _SIMULATED_TYPES,
     TARGET_LIVE,
@@ -161,8 +168,6 @@ __all__ = [
     "NoConnectorHostError",
     "SwitchError",
     "baseline_target",
-    "kill_orphans",
-    "looks_like_a_connector_host",
     "reset_target_state",
     "switch_capable",
     "target_display_metadata",
@@ -195,15 +200,6 @@ DEFAULT_PROBE_TIMEOUT_S = 5.0
 #: covers a cold import of a control-system client library.
 DEFAULT_SPAWN_TIMEOUT_S = 30.0
 
-#: How long a child gets between ``SIGTERM`` and ``SIGKILL``.
-TERMINATE_GRACE_S = 2.0
-
-#: How long the parent waits, after killing a child, for the proxy's reader to
-#: turn the dead pipe into failures on the requests that were in flight.
-SETTLE_TIMEOUT_S = 2.0
-
-_READ_CHUNK = 65536
-
 # -- switch stages and machine-readable reasons -----------------------------
 
 STAGE_TARGET = "target"
@@ -218,9 +214,9 @@ REASON_PROBE_FAILED = "probe_failed"
 #: Not a switch stage: the state a session is in when its child has died.
 REASON_NO_CHILD = "no_connector_host"
 
-#: The operator-facing name each display branch defaults to — one word per way
-#: a target can be derived, not per target name, because that is what the name
-#: describes: the simulator is a Simulator whichever target selected it, and a
+#: The operator-facing name each display branch defaults to — one word per
+#: machine a target can reach, not per target name, because that is what the
+#: name describes: the facility's machine, its stand-in, and the simulator. A
 #: ``live`` target with no connector configured is still the Real machine (the
 #: "not set up" nuance is the reader's to render, never the name's to carry).
 #: A deployment renames any of them per target via
@@ -229,7 +225,6 @@ REASON_NO_CHILD = "no_connector_host"
 _DISPLAY_NAME_DEFAULTS = {
     "machine": "Real machine",
     "standin": "Rehearsal",
-    "simulated": "Demo",
     "va": "Simulator",
 }
 
@@ -312,80 +307,61 @@ class NoConnectorHostError(ConnectionError):
         }
 
 
-class _LaunchChannel:
-    """The launch handshake, spoken on a child's raw pipes.
+async def _launch_request(
+    target: str,
+    process: Any,
+    proxy: ConnectorHostProxy,
+    method: str,
+    kwargs: dict[str, Any],
+    timeout: float,
+    stage: str,
+    grace_s: float,
+) -> Any:
+    """One launch-handshake request to a starting child, its failures as :class:`SwitchError`.
 
-    One request at a time, one reply expected, matched by request id. The child
-    sends nothing unsolicited, so a reply that leaves bytes behind in the frame
-    reader means the stream is not what it claims to be — and those bytes would
-    be lost when the pipes are handed to the proxy, so the handshake refuses
-    rather than hand over a stream it has already truncated.
+    The request travels over the proxy's supervisor surface, which adds its own
+    grace to *timeout*. A closed pipe means the child is exiting: its status is
+    reaped, for up to *grace_s*, before anything signals it, so the refusal
+    names the exit code the child chose. Anything the child did not raise and
+    the pipe did not end propagates unchanged.
+    """
+    reason = REASON_PROBE_FAILED if stage == STAGE_PROBE else REASON_SPAWN_FAILED
+
+    def failure(what: str) -> SwitchError:
+        return SwitchError(
+            target,
+            stage,
+            reason,
+            f"The connector-host child for target {target!r} {what}.",
+        )
+
+    try:
+        return await proxy.supervisor_request(method, kwargs, timeout)
+    except ChildUnresponsiveError as exc:
+        raise failure(f"did not answer {method!r} within {timeout}s") from exc
+    except Exception as exc:
+        if isinstance(exc, ConnectionError) and not raised_by_child(exc):
+            returncode = await reap_exit_code(process, grace_s)
+            raise failure(
+                f"closed its output stream while answering {method!r} "
+                f"(exit code {returncode}): {exc}"
+            ) from exc
+        if raised_by_child(exc):
+            raise failure(f"failed {method!r}: {exc}") from exc
+        raise
+
+
+@dataclass(frozen=True)
+class _Derived:
+    """A destination's derivation and the posture it was taken under.
+
+    That posture is what the child will select its gateway on, and what its
+    post-connect report is held to.
     """
 
-    def __init__(self, target: str, process: Any) -> None:
-        self._target = target
-        self._process = process
-        self._frames = frames.FrameReader()
-
-    async def request(self, method: str, kwargs: dict[str, Any], timeout: float, stage: str) -> Any:
-        request_id = frames.new_request_id()
-        try:
-            self._process.stdin.write(frames.encode_request(request_id, method, kwargs))
-            await self._process.stdin.drain()
-        except (OSError, RuntimeError, ConnectionError, AttributeError) as exc:
-            raise self._failure(stage, f"could not send its {method!r} request: {exc}") from exc
-
-        frame = await self._reply(request_id, method, timeout, stage)
-        if isinstance(frame, frames.ErrorFrame):
-            raise self._failure(stage, f"failed {method!r}: {frame.message}")
-        return frame.value
-
-    async def _reply(self, request_id: str, method: str, timeout: float, stage: str) -> Any:
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + max(timeout, 0.0)
-        while True:
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                raise self._failure(stage, f"did not answer {method!r} within {timeout}s")
-            try:
-                chunk = await asyncio.wait_for(self._process.stdout.read(_READ_CHUNK), remaining)
-            except TimeoutError:
-                raise self._failure(stage, f"did not answer {method!r} within {timeout}s") from None
-            if not chunk:
-                raise self._failure(
-                    stage,
-                    f"closed its output stream while answering {method!r} "
-                    f"(exit code {self._process.returncode})",
-                )
-            decoded = self._frames.feed(chunk)
-            if not decoded:
-                continue
-            # One request, one reply: a chunk carrying more than one whole frame
-            # means the child said something nobody asked for, and the extra
-            # frame would be silently dropped here rather than reaching anyone.
-            if len(decoded) > 1 or getattr(decoded[0], "request_id", None) != request_id:
-                raise self._failure(stage, f"answered a request nobody made during {method!r}")
-            return decoded[0]
-
-    def assert_stream_is_clean(self) -> None:
-        """Refuse to hand the proxy a stream with an unread tail in it.
-
-        Bytes left in the reader are a partial frame the proxy will never see
-        the front of; whole unsolicited frames are caught in :meth:`_reply`,
-        which is the only place they can arrive.
-        """
-        if len(self._frames):
-            raise self._failure(
-                STAGE_SPAWN, f"left {len(self._frames)} unsolicited bytes on its output stream"
-            )
-
-    def _failure(self, stage: str, what: str) -> SwitchError:
-        return SwitchError(
-            self._target,
-            stage,
-            REASON_PROBE_FAILED if stage == STAGE_PROBE else REASON_SPAWN_FAILED,
-            f"The connector-host child for target {self._target!r} {what}.",
-        )
+    derivation: TargetDerivation
+    readonly_run: bool
+    writes_enabled: bool
 
 
 @dataclass
@@ -445,7 +421,8 @@ def baseline_target(config: Any) -> str:
 
 
 def switch_capable(config: Any) -> bool:
-    """Whether this deployment gives a session more than one runtime target.
+    """Whether this deployment gives a session more than one runtime target: a
+    deployment that configures at least two targets.
 
     The predicate itself lives in :func:`osprey_connectors.types.switch_capable`,
     beside the target resolution it is built from, so that the runtime and the
@@ -510,7 +487,10 @@ def _display_writes(config: Any, target: str, effective_writes: Mapping[str, boo
 
 
 def target_display_metadata(
-    config: Any, *, effective_writes: Mapping[str, bool] | None = None
+    config: Any,
+    *,
+    effective_writes: Mapping[str, bool] | None = None,
+    config_path: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Per-target display metadata for the state file's single writer.
 
@@ -547,6 +527,9 @@ def target_display_metadata(
             so the rendering and the enforcement cannot disagree; a target the
             mapping does not answer for falls back to this process's own
             posture.
+        config_path: The project config the child reads, which an unset
+            virtual-accelerator gateway port is filled from; ``None`` reads
+            ``CONFIG_FILE``, else ``./config.yml``.
 
     Returns:
         One entry per target name. Every entry carries every key: a target
@@ -557,13 +540,13 @@ def target_display_metadata(
     for target in target_state.TARGET_NAMES:
         try:
             # The ceiling derivation, and the only one identity is read from.
-            ceiling = derive_endpoints(config, target)
+            ceiling = derive_endpoints(config, target, config_path=config_path)
         except ValueError:
             # A deployment that has never named its real machine still needs a
             # slot: "unknown" is a truthful rendering, an absent key is not.
             metadata[target] = {
                 "label": _label(target, None),
-                "display_name": _display_name(config, target, None),
+                "display_name": _display_name(config, target),
                 "endpoint": "",
                 "selected_role": "",
                 "real_machine": False,
@@ -577,11 +560,14 @@ def target_display_metadata(
         # without them.
         standin = _is_live_standin(config, target, ceiling.selected_endpoint())
         selected = derive_endpoints(
-            config, target, writes_enabled=_display_writes(config, target, effective_writes)
+            config,
+            target,
+            writes_enabled=_display_writes(config, target, effective_writes),
+            config_path=config_path,
         )
         metadata[target] = {
             "label": _label(target, ceiling.connector_type, standin=standin),
-            "display_name": _display_name(config, target, ceiling.connector_type, standin=standin),
+            "display_name": _display_name(config, target, standin=standin),
             "endpoint": _endpoint_text(selected.selected_endpoint()),
             "selected_role": selected.selected_role,
             # True for the stand-in as well as the facility's machine, and the
@@ -638,8 +624,6 @@ def _label(target: str, connector_type: str | None, *, standin: bool = False) ->
         return "virtual accelerator (simulation)"
     if connector_type is None:
         return "live machine (not configured)"
-    if connector_type in _SIMULATED_TYPES:
-        return f"live target on a simulated connector ({connector_type})"
     # The parenthesis is the whole of what an operator is told differently, and
     # it belongs to the 'standin' target alone. Two conjuncts, both required:
     # the target is the one an operator selected by name, and its endpoint
@@ -654,14 +638,13 @@ def _label(target: str, connector_type: str | None, *, standin: bool = False) ->
     return "LIVE MACHINE (stand-in)" if (target == TARGET_STANDIN and standin) else "LIVE MACHINE"
 
 
-def _display_name(
-    config: Any, target: str, connector_type: str | None, *, standin: bool = False
-) -> str:
+def _display_name(config: Any, target: str, *, standin: bool = False) -> str:
     """The operator-facing name for *target*: configured, or the branch default.
 
-    Walks the same branches as :func:`_label`, from the same inputs, so the two
-    names cannot describe different machines — the label is the identity line's
-    truth, this is the word an operator reads on the chip. A non-empty
+    Walks the same branches as :func:`_label`, from the same target and
+    stand-in inputs, so the two names cannot describe different machines — the
+    label is the identity line's truth, this is the word an operator reads on
+    the chip. A non-empty
     ``control_system.target_display_names.<target>`` string wins verbatim
     (stripped); empty or absent falls to :data:`_DISPLAY_NAME_DEFAULTS`. The
     override is per target name rather than per branch on purpose: the operator
@@ -675,115 +658,36 @@ def _display_name(
         return override.strip()
     if target == TARGET_VA:
         return _DISPLAY_NAME_DEFAULTS["va"]
-    if connector_type in _SIMULATED_TYPES:
-        return _DISPLAY_NAME_DEFAULTS["simulated"]
     if target == TARGET_STANDIN and standin:
         return _DISPLAY_NAME_DEFAULTS["standin"]
     return _DISPLAY_NAME_DEFAULTS["machine"]
 
 
 # ---------------------------------------------------------------------------
-# Startup sweep
+# Start-up report
 # ---------------------------------------------------------------------------
-
-
-def looks_like_a_connector_host(pid: int) -> bool:
-    """Whether *pid*'s command line still names the connector-host module.
-
-    A PID recorded by a server that has since died may have been reused by the
-    operating system for something else entirely, and killing whatever now
-    holds that number would be far worse than leaving one orphan behind. This
-    is a best-effort identity check through ``ps``: an answer that cannot be
-    obtained at all — no ``ps``, a platform that spells it differently, a
-    process owned by another user — is treated as "yes", because the recorded
-    PID is still the only evidence there is and the sweep is what the design
-    relies on to clear a dead server's children.
-    """
-    try:
-        completed = subprocess.run(
-            ["ps", "-o", "command=", "-p", str(pid)],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:  # pragma: no cover - platform oddity
-        logger.debug("Could not read the command line of pid %s: %s", pid, exc)
-        return True
-    command = completed.stdout.strip()
-    if completed.returncode != 0 or not command:
-        # ps found nothing: the process is gone, and the kill below will say so.
-        return True
-    return CHILD_MODULE in command
-
-
-def kill_orphans(pids: list[int], *, grace_s: float = TERMINATE_GRACE_S) -> list[int]:
-    """Kill connector-host children left behind by a dead predecessor.
-
-    ``SIGTERM`` first, ``SIGKILL`` after *grace_s*. A PID that is already gone
-    is success: the point is that nothing is left holding a Channel Access
-    context this server did not spawn. A PID that is alive but does not look
-    like a connector host is skipped — see :func:`looks_like_a_connector_host`.
-
-    Returns:
-        The PIDs that were signalled, in the order they were given.
-    """
-    signalled: list[int] = []
-    for pid in pids:
-        if not looks_like_a_connector_host(pid):
-            logger.warning(
-                "Stale state file records connector-host child %s, but that pid now belongs "
-                "to something else; leaving it alone",
-                pid,
-            )
-            continue
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            continue
-        except (PermissionError, OSError) as exc:
-            logger.warning("Could not signal orphaned connector host %s: %s", pid, exc)
-            continue
-        signalled.append(pid)
-        deadline = time.monotonic() + max(grace_s, 0.0)
-        while time.monotonic() < deadline:
-            if not target_state.is_process_alive(pid):
-                break
-            time.sleep(0.05)
-        else:
-            with contextlib.suppress(OSError):
-                os.kill(pid, signal.SIGKILL)
-        logger.warning("Killed orphaned connector-host child %s from a stale state file", pid)
-    return signalled
 
 
 def reset_target_state(
     config: Any,
     *,
     targets_meta: dict[str, Any] | None = None,
-    grace_s: float = TERMINATE_GRACE_S,
-) -> list[int]:
-    """Write this server's report at start and kill any inherited orphans.
+) -> None:
+    """Write this server's report at start.
 
     Called once at server start, before anything can switch: this server's
-    report is written fresh (nothing a predecessor at this PID published
-    describes this process) and the child PIDs recorded by dead predecessors
-    are killed, because a connector host outliving its server holds a gateway
-    nobody is talking to.
+    report is written fresh, because nothing a predecessor at this PID
+    published describes this process.
 
     **No target is published here.** What the deployment is on lives in the
     control-context record, and a baseline written as this server's
     ``applied_target`` would tell every reader a child had already landed on a
     target this process has not launched one for. The report's binding stays
     null until :meth:`ConnectorHostManager._publish` says a child answered.
-
-    Returns:
-        The orphan PIDs that were signalled.
     """
-    orphans = target_state.write_server_record(
+    target_state.write_server_record(
         target_display_metadata(config) if targets_meta is None else targets_meta,
     )
-    return kill_orphans(orphans, grace_s=grace_s)
 
 
 # ---------------------------------------------------------------------------
@@ -812,7 +716,7 @@ class ConnectorHostManager:
         drain_timeout_s: float | None = None,
         probe_timeout_s: float | None = None,
         spawn_timeout_s: float = DEFAULT_SPAWN_TIMEOUT_S,
-        terminate_grace_s: float = TERMINATE_GRACE_S,
+        terminate_grace_s: float = DEFAULT_TERMINATE_GRACE_S,
         python_executable: str | None = None,
     ) -> None:
         self._config = config
@@ -948,7 +852,8 @@ class ConnectorHostManager:
             :func:`~osprey.mcp_server.control_system.target_state.publish_targets`
             takes.
         """
-        metadata = target_display_metadata(self._config.raw)
+        config_file = self._config_file()
+        metadata = target_display_metadata(self._config.raw, config_path=config_file)
         child = self._live_child()
         if child is None:
             return metadata
@@ -957,7 +862,9 @@ class ConnectorHostManager:
         if slot is None or reported is None:
             return metadata
         try:
-            endpoints = derive_endpoints(self._config.raw, self._target).endpoints
+            endpoints = derive_endpoints(
+                self._config.raw, self._target, config_path=config_file
+            ).endpoints
         except ValueError:
             # The slot is already the "not configured" rendering; a role
             # without an endpoint to put beside it would say less, not more.
@@ -1024,8 +931,8 @@ class ConnectorHostManager:
 
     # -- lifecycle ---------------------------------------------------------
 
-    def reset_state(self, *, grace_s: float | None = None) -> list[int]:
-        """Write this server's report at start and kill inherited orphans.
+    def reset_state(self) -> None:
+        """Write this server's report at start.
 
         Synchronous on purpose: it runs during server start, before the event
         loop that will own the children exists.
@@ -1036,11 +943,7 @@ class ConnectorHostManager:
         it twice — once for the file, once on the first refusal — is how the
         two would drift apart.
         """
-        return reset_target_state(
-            self._config.raw,
-            targets_meta=self.display_metadata(),
-            grace_s=self._terminate_grace_s if grace_s is None else grace_s,
-        )
+        reset_target_state(self._config.raw, targets_meta=self.display_metadata())
 
     async def start(self, target: str | None = None) -> dict[str, Any]:
         """Bring up the first connector host, on *target* or on the baseline."""
@@ -1379,7 +1282,8 @@ class ConnectorHostManager:
         force: bool,
         generation: int | None,
     ) -> dict[str, Any]:
-        derivation = self._derive(target)
+        derived = self._derive(target)
+        derivation = derived.derivation
         if not force:
             settled = self._already_served(target, derivation)
             if settled is not None:
@@ -1391,7 +1295,7 @@ class ConnectorHostManager:
 
         fallback: dict[str, Any] | None = None
         try:
-            candidate = await self._launch(target, derivation, probe_channel, first_child=not probe)
+            candidate = await self._launch(target, derived, probe_channel, first_child=not probe)
         except SwitchError as exc:
             read_derivation = self._read_role_fallback(derivation, exc)
             dead = derivation.selected_endpoint()
@@ -1410,9 +1314,11 @@ class ConnectorHostManager:
             )
             derivation = read_derivation
             try:
+                # The child is still armed as derived; only the gateway it may
+                # select moved, so the posture it is held to is the same one.
                 candidate = await self._launch(
                     target,
-                    derivation,
+                    replace(derived, derivation=derivation),
                     probe_channel,
                     without_write_gateway=True,
                     first_child=not probe,
@@ -1603,7 +1509,7 @@ class ConnectorHostManager:
         self.publish_display()
         return published
 
-    def _derive(self, target: str) -> TargetDerivation:
+    def _derive(self, target: str) -> _Derived:
         """The destination's derivation, or a refusal naming what is missing.
 
         The write posture handed in is the RECORDED one, not the config's: the
@@ -1613,15 +1519,24 @@ class ConnectorHostManager:
         would expect ``write_access`` from a child the operator has narrowed to
         ``read_only`` — and ``verify_child_report``, comparing the two, would
         abort the switch over a disagreement neither side got wrong.
+
+        The posture is read once and returned with the derivation, so the
+        derivation and the post-connect check of the child's reported posture
+        judge one snapshot of it.
         """
+        readonly_run = is_readonly_run()
+        writes = effective_writes_for_target(self._config.control_system, target)
         try:
-            return derive_endpoints(
+            derivation = derive_endpoints(
                 self._config.raw,
                 target,
-                writes_enabled=effective_writes_for_target(self._config.control_system, target),
+                writes_enabled=writes,
+                readonly_run=readonly_run,
+                config_path=self._config_file(),
             )
         except ValueError as exc:
             raise SwitchError(target, STAGE_TARGET, REASON_TARGET_UNRESOLVABLE, str(exc)) from exc
+        return _Derived(derivation=derivation, readonly_run=readonly_run, writes_enabled=writes)
 
     def _read_role_fallback(
         self, derivation: TargetDerivation, error: SwitchError
@@ -1696,7 +1611,7 @@ class ConnectorHostManager:
     async def _launch(
         self,
         target: str,
-        derivation: TargetDerivation,
+        derived: _Derived,
         probe_channel: str,
         *,
         without_write_gateway: bool = False,
@@ -1713,10 +1628,20 @@ class ConnectorHostManager:
         ``first_child`` is true only for the deployment's very first child,
         which has no session to protect.
         """
+        derivation = derived.derivation
         process = await self._spawn(target)
-        channel = _LaunchChannel(target, process)
+        # One reader object, held by both the proxy and this record: retiring it
+        # is how the parent names the reason the proxy's stream ended.
+        reader = AttributedReader(process.stdout)
+        # A call that names no timeout of its own still ends: a child silent
+        # past this deadline raises ChildUnresponsiveError, which the error
+        # handler answers by pinging the child and replacing it if it is wedged.
+        proxy = ConnectorHostProxy(reader, process.stdin, deadline_s=DEFAULT_CALL_DEADLINE_S)
         try:
-            report = await channel.request(
+            report = await _launch_request(
+                target,
+                process,
+                proxy,
                 "init",
                 self._init_kwargs(
                     target,
@@ -1725,6 +1650,7 @@ class ConnectorHostManager:
                 ),
                 self._spawn_timeout_s,
                 STAGE_SPAWN,
+                self._terminate_grace_s,
             )
             if not isinstance(report, dict):
                 raise SwitchError(
@@ -1734,7 +1660,12 @@ class ConnectorHostManager:
                     f"The connector-host child for target {target!r} answered its init frame "
                     f"with {type(report).__name__}, not the post-connect report.",
                 )
-            verification = verify_host_report(derivation, report)
+            verification = verify_host_report(
+                derivation,
+                report,
+                readonly_run=derived.readonly_run,
+                writes_enabled=derived.writes_enabled,
+            )
             if not verification.ok:
                 raise SwitchError(
                     target,
@@ -1746,11 +1677,15 @@ class ConnectorHostManager:
             if probe_channel:
                 probe_timeout = self._probe_timeout()
                 try:
-                    await channel.request(
+                    await _launch_request(
+                        target,
+                        process,
+                        proxy,
                         "spawn_probe",
                         {"channel": probe_channel, "timeout": probe_timeout},
-                        probe_timeout + 1.0,
+                        probe_timeout,
                         STAGE_PROBE,
+                        self._terminate_grace_s,
                     )
                 except SwitchError as exc:
                     # The probe channel alone does not say which endpoint would
@@ -1779,25 +1714,25 @@ class ConnectorHostManager:
                         "protect",
                         target,
                     )
-            channel.assert_stream_is_clean()
         except BaseException:
             # Nothing survives a failed launch: the previous child is still the
             # active one, and a spare process on the destination's gateway is
             # exactly the thing this design exists to prevent.
-            with contextlib.suppress(Exception):
-                process.stdin.close()
-            await self._kill_process(process)
+            await kill_host(
+                process,
+                proxy,
+                reader,
+                reason=f"The connector-host child for target {target!r} failed to start.",
+                grace_s=self._terminate_grace_s,
+            )
             raise
 
-        # One reader object, held by both the proxy and this record: retiring it
-        # is how the parent names the reason the proxy's stream ended.
-        reader = AttributedReader(process.stdout)
         return _Child(
             target=target,
             connector_type=derivation.connector_type,
             probe_channel=probe_channel,
             process=process,
-            proxy=ConnectorHostProxy(reader, process.stdin),
+            proxy=proxy,
             reader=reader,
             report=report,
         )
@@ -1814,6 +1749,17 @@ class ConnectorHostManager:
                 f"Could not spawn a connector-host child for target {target!r}: {exc}",
             ) from exc
 
+    def _config_file(self) -> str | None:
+        """The project config file every child is handed, resolved, or ``None``.
+
+        The one answer to "which file does the child read": the derivation, the
+        display and the init payload all take it from here, so an unset
+        virtual-accelerator gateway port is filled from the same file on both
+        sides of the pipe.
+        """
+        config_path = getattr(self._config, "config_path", None)
+        return str(Path(config_path).resolve()) if config_path else None
+
     def _init_kwargs(
         self, target: str, connector_type: str, *, without_write_gateway: bool = False
     ) -> dict[str, Any]:
@@ -1825,9 +1771,9 @@ class ConnectorHostManager:
             "control_system": control_system,
             "target": target,
         }
-        config_path = getattr(self._config, "config_path", None)
-        if config_path:
-            kwargs["config_file"] = str(Path(config_path).resolve())
+        config_file = self._config_file()
+        if config_file:
+            kwargs["config_file"] = config_file
         if is_readonly_run():
             # Restriction only. The child cannot be granted writes by launch
             # payload; ``control_system.writes_enabled`` is the only thing that
@@ -1850,8 +1796,7 @@ class ConnectorHostManager:
             child.proxy.refuse_new_requests(cause)
             drained = await child.proxy.drain(timeout)
             if drained:
-                await child.proxy.disconnect()
-                await self._kill_process(child.process)
+                await stop_host(child.process, child.proxy, grace_s=self._terminate_grace_s)
                 return True
 
             logger.warning(
@@ -1862,15 +1807,16 @@ class ConnectorHostManager:
                 child.target,
                 cause,
             )
-            child.reader.retire(
-                f"{cause} killed the connector-host child serving target {child.target!r} "
-                f"after its {timeout}s drain deadline expired with this request in flight"
+            await kill_host(
+                child.process,
+                child.proxy,
+                child.reader,
+                reason=(
+                    f"{cause} killed the connector-host child serving target {child.target!r} "
+                    f"after its {timeout}s drain deadline expired with this request in flight"
+                ),
+                grace_s=self._terminate_grace_s,
             )
-            await self._kill_process(child.process)
-            # Give the proxy's reader the chance to turn the dead pipe into the
-            # attributed failures before anything else touches the proxy.
-            await child.proxy.drain(SETTLE_TIMEOUT_S)
-            await child.proxy.disconnect()
             return False
         except Exception:  # pragma: no cover - defensive
             logger.warning("Error retiring connector-host child %s", child.pid, exc_info=True)
@@ -1878,16 +1824,15 @@ class ConnectorHostManager:
             # has to be told why — an unexpected failure in the orderly path is
             # not a reason to leave a caller waiting on a pipe nobody will
             # answer, nor to leave it guessing at the cause.
-            child.reader.retire(cause)
-            await self._kill_process(child.process)
             with contextlib.suppress(Exception):
-                await child.proxy.drain(SETTLE_TIMEOUT_S)
-                await child.proxy.disconnect()
+                await kill_host(
+                    child.process,
+                    child.proxy,
+                    child.reader,
+                    reason=cause,
+                    grace_s=self._terminate_grace_s,
+                )
             return False
-
-    async def _kill_process(self, process: Any) -> None:
-        """``SIGTERM``, then ``SIGKILL`` after the grace period."""
-        await _terminate_host(process, self._terminate_grace_s)
 
     # -- config ------------------------------------------------------------
 
@@ -1949,7 +1894,8 @@ class ConnectorHostManager:
 def _name_probed_gateway(error: SwitchError, derivation: TargetDerivation) -> SwitchError:
     """The same probe failure, naming the gateway the probe ran through.
 
-    A target that derives no endpoint (the mock, a gatewayless deployment) has
+    A target that derives no endpoint (the simulator in process, a gatewayless
+    deployment) has
     nothing to add, and the error passes through unchanged.
     """
     endpoint = derivation.selected_endpoint()

@@ -87,7 +87,7 @@ What ``osprey init`` writes
 
    my-facility/
      profile.yml     the full configuration — edit freely
-     data/           facility content: channel databases, knowledge, lattice
+     data/           the facility tree (data/facility/) and the agent's other data
      .env.example    every variable the agent reads, documented, no values
      .env.shared     shared, committed defaults — no secrets
      .env            your values and secrets (only when your shell had keys to seed)
@@ -109,13 +109,50 @@ the profile ships its ``deploy:`` block commented out, so there are no
 coordinates to render one from. Fill the block in and ``osprey scaffold ci``
 writes the pipeline — see :doc:`deploy-a-facility`.
 
-A preset with a simulated machine carries it under ``data/simulation/``:
-``machine.json`` and one directory per scenario under ``scenarios/``. What those
-files hold is the :doc:`/reference/contracts/simulation-bundle`.
-
 Directories for your own artifacts (``rules/``, ``skills/``, and the rest) are
 **not** created up front. Create the ones you need; a directory you never create
 simply means the profile contributes nothing of that kind.
+
+The facility tree
+-----------------
+
+``data/facility/`` holds every source of the facility file. A
+``control-assistant`` deployment starts with these authored files:
+
+.. code-block:: text
+
+   data/facility/
+     identity.yaml          the facility's code and display name
+     records/               places.yaml, devices.yaml, channels.yaml, groups.yaml
+     models.yaml            each simulated model, its engine and its wiring
+     decks/<model>.json     the deck a model runs
+     measurement/<model>.yaml  the measurement kinds a model offers
+     limits.yaml            the write limits, one record per channel
+     seeds.yaml             each simulated channel's nominal value and noise
+     scenarios/<name>.yaml  one simulation scenario each
+     knowledge/             the Markdown knowledge bundle
+
+An importer writes its own layer under ``imported/<layer>/``:
+``osprey facility import mml`` writes ``data/facility/imported/mml/``, beside
+the ``mapping.yaml`` you review there (see :doc:`/how-to/import-mml-export`).
+Edit the authored files; an import rewrites its own directory.
+
+``osprey build`` reads the tree and writes the facility file and its views into
+the render, never back into ``data/facility/``:
+
+.. code-block:: text
+
+   build/
+     facility.json                    the facility file
+     data/channel_limits.json         the limits view
+     data/facility_facts.json         the facts view
+     data/simulator/                  the simulator view and its decks
+     data/graph/facility.ttl          the graph view
+     data/channel_finder/<mode>.json  the channel-finder view the profile selects
+     data/bluesky_devices.yml         the device view, when Bluesky is configured
+
+``osprey facility show`` prints the facility the tree builds and each view's
+path. What a scenario file holds is in :doc:`/how-to/run-scenarios`.
 
 
 Convention directories
@@ -213,8 +250,8 @@ channel:
      - the profile's own ``.env`` file and ``env:`` keys
    * - ``.osprey-manifest.json``
      - the build itself
-   * - ``data/simulation/channel_manifest.json``, ``channel_limits.json``
-     - the profile's ``data/`` directory
+   * - ``data/simulation/channel_limits.json``
+     - the build, from ``data/facility/limits.yaml``
 
 A profile that targets one of these is rejected at build time, with the owning
 channel named. The same refusal applies to a claim (below).
@@ -628,22 +665,9 @@ The named plan is then invisible to the agent and non-runnable. The same
 block's ``plan_dir`` key does the opposite — it installs a directory of your
 facility's own plans; see :doc:`bluesky/write-plans`.
 
-``bluesky.devices_file`` names the third piece: the file listing the devices
-those plans may drive or record.
-
-.. code-block:: yaml
-
-   bluesky:
-     devices_file: data/bluesky_devices.yml
-
-That default puts the file inside the project, so it is built and shipped with
-the deployment. An absolute path is yours instead — the build reads it where it
-is and never rewrites or relocates it. A malformed entry fails the build, and a
-deployment on a real control system with no file yet at a project path gets one
-written for it, derived from the same description of the facility the channel
-finder reads: its knowledge graph corpus in graph mode, its channel-finder
-database otherwise. The file's format and the three cases are in
-:doc:`bluesky/write-plans`.
+The third piece, the file listing the devices those plans may drive or
+record, is not a profile key: the build writes it from your facility file. Its
+format is in :doc:`bluesky/write-plans`.
 
 
 .. _profile-host-variants:
@@ -790,9 +814,8 @@ start it yourself:
 Who else writes to ``.env``
 ---------------------------
 
-``osprey up`` and ``osprey build`` both append to the file — minted credentials
-and derived pointers respectively — and both leave a value already on file
-alone; :ref:`deployment-env-chain` has what each writes and why.
+``osprey up`` appends minted credentials to the file and leaves a value
+already on file alone; :ref:`deployment-env-chain` has what it writes and why.
 
 
 Profile YAML reference
@@ -802,24 +825,6 @@ Every key ``profile.yml`` accepts — the field table, ``config:`` overrides, MC
 servers, tool permissions, ``services``, ``va_archiver``, lifecycle commands,
 ``env``, dependencies and the execution environment — is in
 :doc:`/reference/configuration/profile`.
-
-
-Regenerating a channel database
-===============================
-
-``osprey channel-finder build-database`` writes the generated database **into the
-profile**, not into the project — beside the CSV inputs it came from, where it
-survives a rebuild. The sequence is meant to run to completion:
-
-.. code-block:: bash
-
-   osprey channel-finder build-database
-   # the deployment now reports its build as out of date
-   osprey build
-   # the report clears
-
-The drift report in between is the reminder that the new database has not been
-deployed yet — not a problem to fix. Use ``--output`` to write somewhere else.
 
 
 Building
@@ -923,7 +928,7 @@ What the build does
 ===================
 
 1. Settle the profile (materialize from a preset on first use, or read the one
-   you named), writing any ``--set`` / ``--tier`` into it.
+   you named), writing any ``--set`` into it.
 2. Resolve and validate the profile, including any persona delta merged over it.
 3. Check ``requires_osprey_version``; abort if unsatisfied.
 4. Clear the previous render. ``build/`` is wiped whole and re-made; nothing

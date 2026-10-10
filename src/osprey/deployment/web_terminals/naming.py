@@ -1,17 +1,17 @@
 """Container-name convention for the web-terminal stack.
 
-The authoritative producer of these names is the compose template
-(``templates/modules/web_terminals/docker-compose.web.yml.j2``), which declares
-``container_name: {{ project_name }}-web-{{ svc.user }}`` for each user
-terminal, ``{{ project_name }}-nginx`` for the reverse proxy and
-``{{ project_name }}-auth`` for the login sidecar. ``project_name`` is the
-deployment's compose project
-(:func:`~osprey.deployment.compose_generator.resolve_project_name`), so two
+The only input is the project name ``resolve_project_name()`` returns
+(:func:`osprey.deployment.compose_generator.resolve_project_name`): the
+deployment's identity names its containers, as it does for every other service
+of the stack. A user terminal is ``<project>-web-<user>``, the reverse proxy is
+``<project>-nginx`` and the login sidecar is ``<project>-auth``, so two
 deployments on one host never contend for a container name unless they also
-share a compose project. Every Python consumer that targets one of those
-containers by name (seeding, decommission, status) MUST derive the name through
-this module so a change to the template's pattern has exactly one Python edit
-point instead of silently stranding consumers on dead names.
+share a compose project.
+
+Every Python consumer that targets one of those containers by name (seeding,
+decommission, status) MUST derive the name through this module so the
+convention has exactly one Python edit point instead of silently stranding
+consumers on dead names.
 
 Discovering *which* web-terminal containers exist is not a name question: it is
 answered by the compose project and service labels (:data:`WEB_SERVICE_PREFIX`),
@@ -42,14 +42,14 @@ def web_service_user(service: str) -> str | None:
     return service[len(WEB_SERVICE_PREFIX) :] or None
 
 
-def web_container_name(project_name: str, user: str) -> str:
+def web_container_name(project: str, user: str) -> str:
     """Exact container name of one user's web terminal.
 
-    Must match ``docker-compose.web.yml.j2``'s
-    ``container_name: {{ project_name }}-web-{{ svc.user }}``.
-
     Args:
-        project_name: The deployment's compose project name.
-        user: Roster user name.
+        project: The project name ``resolve_project_name()`` returns.
+        user: The terminal's user, appended verbatim.
+
+    Returns:
+        ``<project>-web-<user>``.
     """
-    return f"{project_name}-{WEB_SERVICE_PREFIX}{user}"
+    return f"{project}-{WEB_SERVICE_PREFIX}{user}"

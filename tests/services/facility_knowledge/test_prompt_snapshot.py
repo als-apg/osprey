@@ -28,8 +28,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
-
 from osprey.services.facility_knowledge.seeder import prompt_snapshot as mod
 from osprey.utils.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
 
@@ -61,7 +59,7 @@ _DEFAULT_VOCABULARY: tuple[dict[str, Any], ...] = (
 
 #: One device with a binding, as the specimen query returns it.
 _DEFAULT_SPECIMEN: dict[str, Any] = {
-    "name": "SR01U-VGC1",
+    "device": "SR01U-VGC1",
     "section": "SR01",
     "system": "vacuum",
     "pv": "SR01U:VGC1:PRESSURE",
@@ -210,7 +208,7 @@ class TestResolveExampleValues:
         specimen = dict(_DEFAULT_SPECIMEN, system=None)
         values = mod.resolve_example_values(_FakeStore(specimen=specimen).run)
         assert "system" not in values
-        assert values["name"] == _DEFAULT_SPECIMEN["name"]
+        assert values["device"] == _DEFAULT_SPECIMEN["device"]
 
     def test_a_store_without_a_bound_device_resolves_nothing(self):
         assert mod.resolve_example_values(_FakeStore(specimen=None).run) == {}
@@ -316,10 +314,10 @@ class TestParameterLabelling:
     """No parameter set is unlabelled: the agent must be able to tell them apart."""
 
     def test_a_fully_resolved_example_is_labelled_captured(self):
-        example = _Example(parameters={"name": "SHIPPED", "section": "SHIPPED"})
+        example = _Example(parameters={"device": "SHIPPED", "section": "SHIPPED"})
         block = _block(examples=[example], values=_DEFAULT_SPECIMEN)
 
-        assert '"name": "SR01U-VGC1"' in block
+        assert '"device": "SR01U-VGC1"' in block
         assert '"section": "SR01"' in block
         assert f"— {mod.CAPTURED_PARAMETERS_NOTE}" in block
         assert "SHIPPED" not in block
@@ -334,10 +332,10 @@ class TestParameterLabelling:
 
     def test_a_partly_resolved_example_is_labelled_a_default(self):
         """One shipped literal left in the set means the whole set needs swapping."""
-        example = _Example(parameters={"name": "SHIPPED", "phrase": "vacuum gauge"})
+        example = _Example(parameters={"device": "SHIPPED", "phrase": "vacuum gauge"})
         block = _block(examples=[example], values=_DEFAULT_SPECIMEN)
 
-        assert '"name": "SR01U-VGC1"' in block
+        assert '"device": "SR01U-VGC1"' in block
         assert f"— {mod.DEFAULT_PARAMETERS_NOTE}" in block
         assert mod.CAPTURED_PARAMETERS_NOTE not in block
 
@@ -362,53 +360,6 @@ class TestParameterLabelling:
         block = _block()
         assert "*captured*" in block and "*framework defaults*" in block
         assert "must be swapped for values from this corpus" in block
-
-
-class TestDirectionProvenance:
-    """How this corpus's read/write edges were derived — or nothing at all."""
-
-    def test_limits_derived_edges_say_so(self):
-        block = _block(direction_source="limits")
-        assert "Direction provenance: read/write edges derived from this facility's" in block
-        assert "channel limits" in block
-
-    def test_grammar_derived_edges_say_why_they_are_grammar_derived(self):
-        block = _block(direction_source="grammar")
-        assert "derived from the address grammar" in block
-        assert "no channel limits were available" in block
-
-    def test_mapping_derived_edges_name_the_export_and_the_mapping_file(self):
-        block = _block(direction_source="mapping")
-        assert (
-            "Direction provenance: read/write edges derived from the MML export's "
-            "MemberOf tags and the facility's mapping file."
-        ) in block
-        assert "Direction provenance: `mapping`." not in block
-
-    def test_every_direction_source_has_a_provenance_line(self):
-        """A source the generator can record never falls back to the verbatim form."""
-        from osprey.services.facility_knowledge.ttl_generator.direction import DirectionSource
-
-        for source in DirectionSource:
-            assert f"Direction provenance: `{source.value}`." not in _block(
-                direction_source=source.value
-            )
-            assert mod.DIRECTION_PROVENANCE_LINES[source.value] in _block(
-                direction_source=source.value
-            )
-
-    def test_an_unrecognised_source_is_printed_verbatim(self):
-        """A newer builder's spelling beats silence."""
-        assert "Direction provenance: `handmade`." in _block(direction_source="handmade")
-
-    def test_an_older_corpus_recorded_nothing_and_gets_no_line(self):
-        """There is no honest default: the two derivations are not interchangeable."""
-        assert "Direction provenance" not in _block(direction_source=None)
-
-    @pytest.mark.parametrize("source", [None, "limits", "grammar", "mapping", "handmade"])
-    def test_no_variant_ever_names_a_limits_file(self, source):
-        """The prompt-surface guard forbids that bigram anywhere in the render."""
-        assert "limits file" not in _block(direction_source=source).lower()
 
 
 PLACEHOLDER = (
@@ -568,7 +519,6 @@ class TestBakeSnapshot:
 
         monkeypatch.setattr(graph_seeder, "read_marker", lambda session: "0123456789abcdef")
         monkeypatch.setattr(graph_seeder, "resource_count", lambda session: 42)
-        monkeypatch.setattr(graph_seeder, "read_direction_source", lambda session: "limits")
 
         agents = _render(tmp_path) / ".claude" / "agents"
         (agents / mod.CHANNEL_FINDER_FILENAME).write_text(PLACEHOLDER, encoding="utf-8")
@@ -590,7 +540,6 @@ class TestBakeSnapshot:
         for text in (kg, cf):
             assert "### Vocabulary" in text, "the store's synonyms reached only one agent"
             assert "| `VacuumGauge` |" in text
-            assert "Direction provenance:" in text
 
         # The vocabulary and the specimen are facts about the store, not about a
         # catalogue: capturing them once and sharing them is what keeps the two
@@ -604,7 +553,6 @@ class TestBakeSnapshot:
 
         monkeypatch.setattr(graph_seeder, "read_marker", lambda session: None)
         monkeypatch.setattr(graph_seeder, "resource_count", lambda session: 0)
-        monkeypatch.setattr(graph_seeder, "read_direction_source", lambda session: None)
 
         agents = _render(tmp_path) / ".claude" / "agents"
         store = _FakeStore(vocabulary=(), specimen=None)
@@ -615,7 +563,6 @@ class TestBakeSnapshot:
         text = (agents / mod.AGENT_FILENAME).read_text(encoding="utf-8")
         assert mod.NO_VOCABULARY_NOTE in text
         assert mod.DEFAULT_PARAMETERS_NOTE in text
-        assert "Direction provenance" not in text
 
     def test_a_store_that_raises_on_both_captures_still_bakes(self, tmp_path: Path, monkeypatch):
         """The guards must hold end to end, not just around each function.
@@ -627,7 +574,6 @@ class TestBakeSnapshot:
 
         monkeypatch.setattr(graph_seeder, "read_marker", lambda session: "0123456789abcdef")
         monkeypatch.setattr(graph_seeder, "resource_count", lambda session: 42)
-        monkeypatch.setattr(graph_seeder, "read_direction_source", lambda session: "grammar")
 
         agents = _render(tmp_path) / ".claude" / "agents"
 

@@ -106,8 +106,10 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     """Fail-fast web-terminal preflight, run BEFORE any image build.
 
     ``deploy_up`` invokes this ahead of its (minutes-long) project-image
-    build so the deploy aborts that need no image at all — an
-    unresolvable persona catalog, a persona that would hold
+    build so the deploy aborts that need no image at all — a roster
+    :func:`resolve_personas` refuses (no persona catalog or no
+    ``default_persona``, in either image source; an unknown reference; a
+    persona with no ``project``), checked first, a persona that would hold
     ``BLUESKY_LAUNCH_TOKEN`` while its agent may also run a shell
     (:func:`~osprey.deployment.web_terminals.artifacts.check_bash_launch_token_conflict`),
     a missing provider auth secret
@@ -153,16 +155,11 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     """
     root = _resolved_repo_root(config, repo_root)
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    # First, in both image sources: a roster with no persona catalog, no
+    # default_persona, an unknown reference or a persona with no project is
+    # refused before anything below mints a credential.
+    resolved_users = resolve_personas(web_terminals, config.get("registry") or {}, strict=True)
     if effective_image_source(web_terminals) == "local":
-        facility_prefix = (config.get("facility") or {}).get("prefix") or ""
-        registry_cfg = config.get("registry") or {}
-        resolved_users = resolve_personas(
-            web_terminals,
-            registry_cfg,
-            facility_prefix,
-            project_name=resolve_project_name(config),
-            strict=True,
-        )
         verify_persona_renders(config, resolved_users, repo_root=root)
     # BEFORE ensure_env_production, for the same reason auth provisioning runs
     # last: a persona that would hold BLUESKY_LAUNCH_TOKEN while its shipped
@@ -248,16 +245,9 @@ def persona_render_problem(config: dict, repo_root: Path | str) -> str | None:
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     if effective_image_source(web_terminals) != "local" and not deployment_is_open(config):
         return None
-    facility_prefix = (config.get("facility") or {}).get("prefix") or ""
     registry_cfg = config.get("registry") or {}
     try:
-        resolved_users = resolve_personas(
-            web_terminals,
-            registry_cfg,
-            facility_prefix,
-            project_name=resolve_project_name(config),
-            strict=True,
-        )
+        resolved_users = resolve_personas(web_terminals, registry_cfg, strict=True)
         verify_persona_renders(config, resolved_users, repo_root=Path(repo_root))
     except ValueError as exc:
         return str(exc)
@@ -1041,18 +1031,8 @@ def _roster_identities(config: dict) -> list[str]:
     :rtype: list[str]
     """
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
-    facility_prefix = (config.get("facility") or {}).get("prefix") or ""
     registry_cfg = config.get("registry") or {}
-    return [
-        entry["name"]
-        for entry in resolve_personas(
-            web_terminals,
-            registry_cfg,
-            facility_prefix,
-            project_name=resolve_project_name(config),
-            strict=False,
-        )
-    ]
+    return [entry["name"] for entry in resolve_personas(web_terminals, registry_cfg, strict=False)]
 
 
 def _ensure_control_target_dirs(config: dict, repo_root: Path | str) -> None:
@@ -1637,15 +1617,8 @@ def deploy_up_web_terminals(
         # (`web_terminal_preflight_problems`) blocks only on the open-door codes
         # of `_UP_BLOCKING_LINT_CODES`, so this strict resolve is still the only
         # preflight standing between a broken persona catalog and that opaque failure.
-        facility_prefix = (config.get("facility") or {}).get("prefix") or ""
         registry_cfg = config.get("registry") or {}
-        resolved_users = resolve_personas(
-            web_terminals,
-            registry_cfg,
-            facility_prefix,
-            project_name=resolve_project_name(config),
-            strict=True,
-        )
+        resolved_users = resolve_personas(web_terminals, registry_cfg, strict=True)
         # Every referenced persona must already have the project `osprey build`
         # rendered for it, so the image build below always finds a complete
         # context. This renders nothing: a gap is a stale or partial build, and

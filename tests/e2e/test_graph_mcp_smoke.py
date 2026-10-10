@@ -28,8 +28,8 @@ What the fixture stands up, and why each piece is shaped the way it is:
   override, exactly as ``tests/e2e/claude_code/conftest.py`` repoints the
   limits database. That the render carries ``graph`` at all is not assumed:
   :func:`_assert_graph_is_rendered` pins it before anything is patched.
-* **The corpus, seeded through the shipped verb.** ``osprey knowledge
-  seed-graph`` against the rendered project, so the graph the agent queries got
+* **The corpus, seeded the way ``osprey up`` seeds it.** The deploy's own
+  staging step against the rendered project, so the graph the agent queries got
   there by the same path an operator's would — including the ``_OspreySeed``
   marker.
 
@@ -73,11 +73,8 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import shutil
-import subprocess
-import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -140,31 +137,33 @@ PROBE_DEVICE_BINDINGS = (
     "SR:MAG:DIPOLE:01:STATUS:READY",
 )
 
-#: Facts the judge rubric is built from. Every one was queried from a store
-#: seeded with the same ``demo_machine.ttl`` this test seeds (25,845 triples,
-#: 512 devices, 2,908 bindings). Restated here rather than re-queried at run
-#: time on purpose: a rubric that asked the graph what the answer is could be
-#: satisfied by a graph that is wrong.
+#: Facts the judge rubric is built from. Every one was queried from the graph
+#: view the control-assistant build writes, the corpus this test seeds (24,486
+#: triples, 512 devices, 2,912 bindings). Restated here rather than re-queried
+#: at run time on purpose: a rubric that asked the graph what the answer is
+#: could be satisfied by a graph that is wrong.
 #:
 #: ``dipole_count_sr`` and ``dipole_count_machine`` are BOTH here, and the
 #: distinction is not pedantry: the ``Dipole`` class holds 44 devices across the
 #: whole corpus, but only 36 of them are in the storage ring — the other 8 are
-#: the booster's, at s = 10-17 m. A rubric carrying only the machine-wide figure
+#: the booster's, which carry no position. A rubric carrying only the machine-wide figure
 #: marks a correct "36 dipoles in the ring" answer as fabricated, which is
 #: exactly the wrong-answer-key failure a hand-written rubric invites. Both
 #: numbers are named so the judge can recognise either as right.
 _VERIFIED = {
     "device_name": "DIPOLE01",
-    "device_uri": "https://narad.example.org/device/demo_SR_DIPOLE01",
-    "section": "SR",
-    "s_position_m": 82.0,
-    "ordinal_in_section": 82,
+    "device_uri": "https://narad.example.org/device/ca_device_SR_x2F_DIPOLE01",
+    "section": "SECT1",
+    "place": "SR/SECT1",
+    "s_position_m": 6.781,
+    "ordinal_in_place": 1,
     "dipole_count_sr": 36,
     "dipole_count_machine": 44,
-    "sr_dipole_span_m": (82.0, 117.0),
-    "sr_dipole_spacing_m": 1.0,
-    "next_device": ("DIPOLE02", 83.0),
-    "previous_device": ("NEUTRON04", 81.0),
+    "sr_dipole_span_m": (6.781, 179.276),
+    "sr_dipoles_per_sector": 3,
+    "sr_dipole_spacing_m": (2.775, 9.628),
+    "next_device": ("SD01", 7.877),
+    "previous_device": ("QD01", 6.346),
 }
 
 #: Any ``SR:MAG:DIPOLE:01:…`` address the corpus does *not* hold is a fabricated
@@ -318,7 +317,7 @@ def _point_project_at_the_store(repo: Path, port: int) -> None:
     graphdb = config["services"]["graphdb"]
     assert graphdb.get("ttl_path"), (
         "control_assistant's services.graphdb block declares no ttl_path, so "
-        "`osprey knowledge seed-graph` has no corpus to load"
+        "`osprey up` has no corpus to load"
     )
     graphdb["port_host"] = port
     config_path.write_text(
@@ -333,37 +332,31 @@ def _point_project_at_the_store(repo: Path, port: int) -> None:
 
 
 def _seed_demo_corpus(repo: Path) -> str:
-    """Seed the store through ``osprey knowledge seed-graph``; return its report.
+    """Seed the store the way ``osprey up`` does; return the seed marker's digest.
 
-    The shipped verb, run as a subprocess against the rendered project, rather
-    than the seeder primitives directly: the point is that the corpus reached
-    the store by the path an operator's would, resolving ``ttl_path`` against
-    the config file's own directory and dialing the address the patched config
-    names. A non-zero exit fails here rather than as a mysterious empty graph
+    The deploy's own staging step, ``_bootstrap_and_seed_graphdb``, run against
+    the rendered project once the store answers, rather than the seeder
+    primitives directly: the point is that the corpus reached the store by the
+    path an operator's would, resolving ``ttl_path`` against the config file's
+    own directory and dialing the address the patched config names. A store
+    left without a marker fails here rather than as a mysterious empty graph
     three minutes and one LLM call later.
     """
-    config_path = render_dir(repo) / "config.yml"
-    env = dict(os.environ)
-    env["CONFIG_FILE"] = str(config_path)
-    env["OSPREY_CONFIG"] = str(config_path)
-    env["GRAPHDB_PASSWORD"] = GRAPHDB_TEST_PASSWORD
+    from osprey.deployment import container_lifecycle
+    from osprey.services.facility_knowledge.seeder import graph_seeder
 
-    result = subprocess.run(
-        [sys.executable, "-m", "osprey.cli.main", "knowledge", "seed-graph"],
-        capture_output=True,
-        text=True,
-        env=env,
-        cwd=str(render_dir(repo)),
-        timeout=600,
-    )
-    assert result.returncode == 0, (
-        f"osprey knowledge seed-graph failed (exit {result.returncode}):\n"
-        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr[-4000:]}"
-    )
-    assert "triples loaded" in result.stdout, (
-        f"seed-graph reported no import; the store may be empty:\n{result.stdout}"
-    )
-    return result.stdout
+    config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
+    connection = container_lifecycle._graphdb_connection(config, repo)
+    container_lifecycle._bootstrap_and_seed_graphdb(config, repo, connection)
+    with graph_seeder.open_session(
+        connection.uri,
+        connection.username,
+        connection.password,
+        database=connection.database,
+    ) as session:
+        marker = graph_seeder.read_marker(session)
+    assert marker, "the deploy's staging step left no seed marker; the store may be empty"
+    return marker
 
 
 @pytest.fixture(scope="module")
@@ -399,7 +392,7 @@ def graph_project(
         monkeypatch.setenv("GRAPHDB_PASSWORD", GRAPHDB_TEST_PASSWORD)
         _assert_graph_is_rendered(repo)
         _point_project_at_the_store(repo, graph_store_port)
-        logger.info("seed-graph: %s", _seed_demo_corpus(repo).strip().replace("\n", " | "))
+        logger.info("graph seeded: marker %s", _seed_demo_corpus(repo))
         yield repo
     finally:
         monkeypatch.undo()
@@ -440,18 +433,21 @@ GROUND TRUTH (read directly out of the corpus the agent was querying):
   * That device carries exactly six channel bindings:
     {", ".join(PROBE_DEVICE_BINDINGS)}.
     Only {PROBE_PV} is writable; the other five are read-only.
-  * The device sits in section {_VERIFIED["section"]} at longitudinal position
-    s = {_VERIFIED["s_position_m"]} m, ordinal {_VERIFIED["ordinal_in_section"]}
-    within its section. It is the FIRST dipole along the storage ring. The
-    device immediately downstream is {_VERIFIED["next_device"][0]} at
-    s = {_VERIFIED["next_device"][1]} m; the one immediately upstream is
-    {_VERIFIED["previous_device"][0]} (a beam-loss monitor) at
+  * The device sits in section {_VERIFIED["section"]} (place
+    {_VERIFIED["place"]}) at longitudinal position
+    s = {_VERIFIED["s_position_m"]} m, ordinal {_VERIFIED["ordinal_in_place"]}
+    within its place. It is the FIRST dipole along the storage ring. The
+    device immediately downstream is {_VERIFIED["next_device"][0]} (a
+    sextupole) at s = {_VERIFIED["next_device"][1]} m; the one immediately
+    upstream is {_VERIFIED["previous_device"][0]} (a quadrupole) at
     s = {_VERIFIED["previous_device"][1]} m.
   * Dipole census, and BOTH figures are correct depending on what is being
     counted: the storage ring holds {_VERIFIED["dipole_count_sr"]} dipoles
-    (DIPOLE01-DIPOLE{_VERIFIED["dipole_count_sr"]}), evenly spaced
-    {_VERIFIED["sr_dipole_spacing_m"]} m apart from
-    s = {_VERIFIED["sr_dipole_span_m"][0]} m to
+    (DIPOLE01-DIPOLE{_VERIFIED["dipole_count_sr"]}),
+    {_VERIFIED["sr_dipoles_per_sector"]} per sector,
+    {_VERIFIED["sr_dipole_spacing_m"][0]} m apart within a sector and
+    {_VERIFIED["sr_dipole_spacing_m"][1]} m apart across a sector boundary,
+    from s = {_VERIFIED["sr_dipole_span_m"][0]} m to
     s = {_VERIFIED["sr_dipole_span_m"][1]} m, while the machine as a whole holds
     {_VERIFIED["dipole_count_machine"]} — the other
     {_VERIFIED["dipole_count_machine"] - _VERIFIED["dipole_count_sr"]} are the

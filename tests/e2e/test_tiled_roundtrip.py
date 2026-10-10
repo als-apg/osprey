@@ -316,10 +316,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             )
 
         # Device names come from the device file the BUILD staged and the worker
-        # mounts -- this lane authors none of its own, so what is read back here
-        # is the turn-key derivation from the deployment's own
-        # channel_limits.json: never a hardcoded facility channel, and never a
-        # second copy of that derivation living in this test.
+        # mounts -- the build's Bluesky view of the facility file: never a
+        # hardcoded facility channel, and never a second copy of that view
+        # living in this test.
         correctors, bpms = _orm_stack.staged_devices(repo)
         assert correctors and bpms, "the build staged no plan devices for the worker"
 
@@ -327,10 +326,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             repo=repo,
             correctors=correctors,
             bpms=bpms,
-            # The repo's own copy, which the build copies into build/data
-            # verbatim: same bytes the deployed containers get, so the bounds
-            # below are the bounds the bridge enforces.
-            limits=json.loads((repo / "data" / "channel_limits.json").read_text(encoding="utf-8")),
+            limits=_orm_stack.channel_limits(repo),
             token=_env_value(repo, "BLUESKY_LAUNCH_TOKEN"),
         )
     finally:
@@ -441,12 +437,23 @@ def test_tiled_roundtrip(deployed_stack: DeployedStack) -> None:
     )
 
     # --- 2. compose the plan in the shared draft ---------------------------
-    # One corrector axis swept across the middle half of its OWN
-    # channel_limits band, reading one BPM. Device names and bounds both come
-    # from the render, never from a hardcoded channel.
-    axis_name = next(iter(deployed_stack.correctors))
-    sp_address, _rb = deployed_stack.correctors[axis_name]
-    entry = deployed_stack.limits[sp_address]
+    # One corrector axis swept across the middle half of its OWN limits
+    # record, reading one BPM. Device names and bounds both come from the
+    # deployment, never from a hardcoded channel: the axis is the first staged
+    # corrector a record bounds.
+    axis = next(
+        (
+            (name, deployed_stack.limits[setpoint])
+            for name, (setpoint, _rb) in deployed_stack.correctors.items()
+            if "min_value" in deployed_stack.limits.get(setpoint, {})
+        ),
+        None,
+    )
+    assert axis is not None, (
+        f"no staged corrector carries a limits record "
+        f"(staged correctors: {sorted(deployed_stack.correctors)})"
+    )
+    axis_name, entry = axis
     lo, hi = float(entry["min_value"]), float(entry["max_value"])
 
     status, patched = _request(

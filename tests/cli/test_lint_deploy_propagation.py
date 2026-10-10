@@ -46,7 +46,8 @@ DEPLOY_BLOCK: dict[str, Any] = {
 #: are the price of admission to a build, not a subject of any test in this file
 #: — the deploy/lint parity these tests are about is judged past them.
 POSTURE_FLOOR: dict[str, Any] = {
-    "control_system.type": "mock",
+    "control_system.type": "virtual_accelerator",
+    "control_system.connector.virtual_accelerator.serving": "in_process",
     "archiver.type": "mock_archiver",
     "claude_code.telemetry.enabled": False,
     "hooks.debug": False,
@@ -68,7 +69,7 @@ def runner() -> CliRunner:
 
 
 def _config(**extra: Any) -> dict[str, Any]:
-    return {"facility.prefix": "demo", "modules.web_terminals": dict(WEB_TERMINALS), **extra}
+    return {"modules.web_terminals": dict(WEB_TERMINALS), **extra}
 
 
 def _deploy(**extra: Any) -> Any:

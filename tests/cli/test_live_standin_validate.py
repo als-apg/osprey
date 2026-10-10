@@ -3,14 +3,8 @@
 The stand-in is a SECOND soft-IOC standing up a THIRD control target, so it can
 be wrong in ways the baseline soft-IOC cannot: it can land on a port some other
 block already spends, it can land on the very gateway the simulation is dialed
-through, it can be named as a deployment's baseline without being built, it can
-record a store that would be read as the real machine's past, and it can be
-built on a tree with no lattice behind the readout perturbation it ships.
-
-The perturbation itself is the deployment's own: the last tests here pin that
-:func:`~osprey.cli.build_profile_va_faults.effective_standin_bpm_errors` reads
-the ``machine.json`` this deployment serves and inherits nothing from the
-framework, so a facility's stand-in displaces the devices that facility named.
+through, it can be named as a deployment's baseline without being built, and it
+can record a store that would be read as the real machine's past.
 
 What it can no longer be is refused for standing beside a facility's own
 machine: ``live`` keeps meaning the authored ``epics`` block, so an ``epics``
@@ -25,17 +19,12 @@ several stand-in faults arrive in ONE
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from osprey.cli.build_profile import BuildProfile, _parse_profile
-from osprey.cli.build_profile_va_faults import (
-    effective_standin_bpm_errors,
-    shipped_bpm_errors_field_errors,
-)
 from osprey.errors import BuildProfileError
 
 
@@ -275,63 +264,18 @@ def test_live_standin_validate_leaves_an_archive_without_a_standin_alone(
     profile.validate(tmp_path)
 
 
-# --- the lattice the shipped perturbation needs ---------------------------
+# --- the lattice -----------------------------------------------------------
 
 
-def test_live_standin_validate_accepts_a_lattice_pinned_off_on_its_own(
+def test_live_standin_validate_accepts_a_fault_set_with_no_lattice(
     tmp_path: Path,
 ) -> None:
-    """``VA_LATTICE=none`` alone is a stand-in without faults, not a broken one.
+    """A stand-in serving no lattice is a legal stand-in, whatever its chain sets.
 
-    The shipped perturbation belongs to a served lattice — it names offsets on
-    a model — so a deployment that pinned the lattice off and asked for
-    nothing else gets the empty fault set from the render and has nothing to
-    refuse. A facility serving no lattice can still rehearse.
+    The stand-in carries no readout errors of its own, so nothing it serves
+    depends on a lattice being there to displace.
     """
-    (tmp_path / ".env").write_text("VA_LATTICE=none\n")
-    _standin_profile(5074).validate(tmp_path)
-
-
-def test_live_standin_validate_refuses_an_authored_fault_set_with_no_lattice(
-    tmp_path: Path,
-) -> None:
-    """The one shape that cannot boot: faults asked for, no model to apply them to."""
     (tmp_path / ".env").write_text("VA_LATTICE=none\nVA_STANDIN_BPM_ERRORS=BPM01:offset_x=1e-4\n")
-    assert _errors(_standin_profile(5074), tmp_path) == [
-        "virtual_accelerator.live_standin ships a readout perturbation, but this "
-        "deployment's env chain resolves VA_LATTICE='none'. There is no model to "
-        "displace, so the stand-in's IOC exits at boot rather than serving a machine "
-        "that ignores the faults it was configured with. Name the deployment's "
-        "lattice file in VA_LATTICE, or turn the perturbation off with "
-        "VA_STANDIN_BPM_ERRORS= (empty)."
-    ]
-
-
-def test_live_standin_validate_accepts_no_perturbation_with_no_lattice(
-    tmp_path: Path,
-) -> None:
-    """Turning the fault set off is the second way out, and the message names it.
-
-    An explicit empty value is honored as an empty fault set rather than
-    rounded back up to the shipped default, which is what makes the refusal's
-    advertised fix a real one.
-    """
-    (tmp_path / ".env").write_text("VA_LATTICE=none\nVA_STANDIN_BPM_ERRORS=\n")
-    _standin_profile(5074).validate(tmp_path)
-
-
-def test_live_standin_validate_reads_the_whole_chain_for_the_lattice(
-    tmp_path: Path,
-) -> None:
-    """``.env`` wins over ``.env.shared``, the precedence the chain defines."""
-    (tmp_path / ".env.shared").write_text("VA_LATTICE=none\n")
-    (tmp_path / ".env").write_text("VA_LATTICE=lattice.json\n")
-    _standin_profile(5074).validate(tmp_path)
-
-
-def test_live_standin_validate_accepts_a_chain_naming_a_lattice_file(tmp_path: Path) -> None:
-    """The pin the build would have written itself is not a fault."""
-    (tmp_path / ".env").write_text("VA_LATTICE=lattice.json\n")
     _standin_profile(5074).validate(tmp_path)
 
 
@@ -361,86 +305,3 @@ def test_live_standin_validate_leaves_a_profile_without_the_key_alone(tmp_path: 
     _parse_profile({"name": "x", "data": "data", "virtual_accelerator": {"port": 5064}}).validate(
         tmp_path
     )
-
-
-# --- the shipped perturbation's grammar ------------------------------------
-
-
-def test_live_standin_validate_shipped_bpm_errors_accepts_offsets_only() -> None:
-    """Static transverse offsets are the whole of what the shipped default may perturb."""
-    spec = "BPM01:offset_x=50e-6,offset_y=-30e-6;BPM07:offset_x=10e-6"
-    assert shipped_bpm_errors_field_errors(spec) == []
-
-
-def test_live_standin_validate_shipped_bpm_errors_names_every_other_field() -> None:
-    """One failure per non-offset field, each naming the entry it came from."""
-    spec = "BPM01:offset_x=50e-6,gain_y=1.05;BPM07:roll=0.01"
-    assert shipped_bpm_errors_field_errors(spec) == [
-        "VA_STANDIN_BPM_ERRORS entry 'BPM01:offset_x=50e-6,gain_y=1.05' perturbs 'gain_y'; "
-        "the shipped stand-in default is offset_x/offset_y only",
-        "VA_STANDIN_BPM_ERRORS entry 'BPM07:roll=0.01' perturbs 'roll'; "
-        "the shipped stand-in default is offset_x/offset_y only",
-    ]
-
-
-def test_live_standin_validate_shipped_bpm_errors_ignores_entries_naming_no_field() -> None:
-    """Empty and device-only entries are the IOC's to refuse; this check is about fields."""
-    assert shipped_bpm_errors_field_errors("") == []
-    assert shipped_bpm_errors_field_errors(";; ;") == []
-    assert shipped_bpm_errors_field_errors("BPM01;BPM07:") == []
-
-
-def _machine_stating(root: Path, spec: str | None) -> None:
-    """Give the deployment at ``root`` a machine, stating ``spec`` or nothing."""
-    simulation = root / "data" / "simulation"
-    simulation.mkdir(parents=True, exist_ok=True)
-    machine: dict[str, Any] = {"name": "a facility machine of its own", "channels": {}}
-    if spec is not None:
-        machine["standin_bpm_errors"] = spec
-    (simulation / "machine.json").write_text(json.dumps(machine), encoding="utf-8")
-
-
-def test_live_standin_validate_reads_the_perturbation_from_the_deployments_own_tree(
-    tmp_path: Path,
-) -> None:
-    """The devices the deployment's own machine names, and no others."""
-    _machine_stating(tmp_path, "C-A-01:offset_x=2.5e-4")
-    (tmp_path / ".env").write_text("VA_LATTICE=lattice.json\n")
-
-    assert effective_standin_bpm_errors(tmp_path) == "C-A-01:offset_x=2.5e-4"
-
-
-def test_live_standin_validate_ships_no_perturbation_a_tree_does_not_state(
-    tmp_path: Path,
-) -> None:
-    """No framework fallback: an unstated perturbation is an absent one.
-
-    A facility that says nothing about its stand-in gets a stand-in that reads
-    as its machine does, rather than one displaced at devices some other
-    facility's machine happens to serve.
-    """
-    _machine_stating(tmp_path, None)
-    (tmp_path / ".env").write_text("VA_LATTICE=lattice.json\n")
-
-    assert effective_standin_bpm_errors(tmp_path) == ""
-
-
-def test_live_standin_validate_lets_the_chains_own_fault_set_win(tmp_path: Path) -> None:
-    """``VA_STANDIN_BPM_ERRORS`` replaces the tree's answer wholesale."""
-    _machine_stating(tmp_path, "C-A-01:offset_x=2.5e-4")
-    (tmp_path / ".env").write_text(
-        "VA_LATTICE=lattice.json\nVA_STANDIN_BPM_ERRORS=C-B-02:offset_y=-1.0e-4\n"
-    )
-
-    assert effective_standin_bpm_errors(tmp_path) == "C-B-02:offset_y=-1.0e-4"
-
-
-def test_live_standin_validate_leaves_a_stated_perturbation_off_without_a_lattice(
-    tmp_path: Path,
-) -> None:
-    """Offsets displace a model, and a chain serving none has nothing to move."""
-    _machine_stating(tmp_path, "C-A-01:offset_x=2.5e-4")
-    (tmp_path / ".env").write_text("VA_LATTICE=none\n")
-
-    assert effective_standin_bpm_errors(tmp_path) == ""
-    assert _standin_profile().validate(tmp_path) is None

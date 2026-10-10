@@ -32,6 +32,16 @@ PRESET_DATA_BUNDLE_KEY = "app_template"
 #: The bundle used when no preset is in play, or when the preset names none.
 DEFAULT_DATA_BUNDLE = "control_assistant"
 
+#: The preset-side key naming the bundled facility a preset's ``data/facility/``
+#: tree comes from (``templates/facilities/<name>/``). Preset-side ONLY, handled
+#: exactly like :data:`PRESET_DATA_BUNDLE_KEY`: :func:`_load_preset_raw`
+#: consumes it, and a repo ``profile.yml`` spelling it is refused. A facility is
+#: owned by no app template and no preset; a preset only names which one it shows.
+PRESET_FACILITY_KEY = "facility"
+
+#: Every key a preset spells for ``osprey init`` and never for the profile it emits.
+PRESET_ONLY_KEYS: tuple[str, ...] = (PRESET_DATA_BUNDLE_KEY, PRESET_FACILITY_KEY)
+
 
 def _normalize_preset_name(name: str) -> str:
     """Normalize CLI preset spelling to the on-disk filename form.
@@ -141,9 +151,10 @@ def list_presets() -> list[str]:
 def _read_preset_document(name: str) -> tuple[dict[str, Any], Path]:
     """Read a bundled preset YAML verbatim; return (raw_dict, preset_file_path).
 
-    Keeps every preset-side key, including :data:`PRESET_DATA_BUNDLE_KEY`.
-    Only :func:`preset_data_bundle` reads that key, and only from here — every
-    other caller goes through :func:`_load_preset_raw`, which consumes it.
+    Keeps every preset-side key, including :data:`PRESET_ONLY_KEYS`. Only
+    :func:`preset_data_bundle` and :func:`preset_facility` read those keys, and
+    only from here — every other caller goes through :func:`_load_preset_raw`,
+    which consumes them.
 
     Raises ``BuildProfileError`` if the preset is unknown or invalid YAML.
     """
@@ -161,17 +172,37 @@ def _read_preset_document(name: str) -> tuple[dict[str, Any], Path]:
 def _load_preset_raw(name: str) -> tuple[dict[str, Any], Path]:
     """Read a bundled preset YAML as a profile layer; return (raw_dict, path).
 
-    ``app_template:`` is popped here, exactly the way ``extends:`` is consumed
-    during resolution: it selects the packaged data tree ``osprey init``
-    copies, and is not part of what the resolved profile says. Popping it at
-    the single read point is what lets it stay out of ``_KNOWN_PROFILE_KEYS``
-    while the presets keep spelling it.
+    ``app_template:`` and ``facility:`` are popped here, exactly the way
+    ``extends:`` is consumed during resolution: they select the packaged data
+    tree ``osprey init`` copies, and are not part of what the resolved profile
+    says. Popping them at the single read point is what lets them stay out of
+    ``_KNOWN_PROFILE_KEYS`` while the presets keep spelling them.
 
     Raises ``BuildProfileError`` if the preset is unknown or invalid YAML.
     """
     raw, target = _read_preset_document(name)
-    raw.pop(PRESET_DATA_BUNDLE_KEY, None)
+    for key in PRESET_ONLY_KEYS:
+        raw.pop(key, None)
     return raw, target
+
+
+def _nearest_preset_value(name: str, key: str) -> str | None:
+    """The nearest non-empty string *key* on preset *name*'s ``extends:`` chain.
+
+    Walks bundled presets only; a hop that names no bundled preset, or a cycle,
+    ends the walk. ``None`` when no preset on the chain spells the key.
+    """
+    seen: set[str] = set()
+    current: str | None = _normalize_preset_name(name)
+    while current and current not in seen and _preset_exists(current) is not None:
+        seen.add(current)
+        raw, _path = _read_preset_document(current)
+        value = raw.get(key)
+        if isinstance(value, str) and value:
+            return value
+        parent = raw.get("extends")
+        current = _normalize_preset_name(parent) if isinstance(parent, str) and parent else None
+    return None
 
 
 def preset_data_bundle(name: str | None) -> str:
@@ -191,17 +222,26 @@ def preset_data_bundle(name: str | None) -> str:
     """
     if not name:
         return DEFAULT_DATA_BUNDLE
-    seen: set[str] = set()
-    current: str | None = _normalize_preset_name(name)
-    while current and current not in seen and _preset_exists(current) is not None:
-        seen.add(current)
-        raw, _path = _read_preset_document(current)
-        bundle = raw.get(PRESET_DATA_BUNDLE_KEY)
-        if isinstance(bundle, str) and bundle:
-            return bundle
-        parent = raw.get("extends")
-        current = _normalize_preset_name(parent) if isinstance(parent, str) and parent else None
-    return DEFAULT_DATA_BUNDLE
+    return _nearest_preset_value(name, PRESET_DATA_BUNDLE_KEY) or DEFAULT_DATA_BUNDLE
+
+
+def preset_facility(name: str | None) -> str | None:
+    """The bundled facility *name* resolves to, following ``extends:``.
+
+    Read off the preset files like :func:`preset_data_bundle`: the nearest
+    ``facility:`` on the chain wins.
+
+    Args:
+        name: Preset name in either CLI spelling, or ``None`` for a profile
+            that names no preset.
+
+    Returns:
+        The facility the chain names, or ``None`` when the name is ``None``,
+        names no bundled preset, or the chain names none.
+    """
+    if not name:
+        return None
+    return _nearest_preset_value(name, PRESET_FACILITY_KEY)
 
 
 def _preset_extends_chain_reaches(child: str, ancestor: str) -> bool:

@@ -47,18 +47,7 @@ import yaml
 
 from osprey.cli.templates.manager import TemplateManager
 from osprey.registry.mcp import resolve_servers
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+from tests._preset_data import bundle_data_root
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -79,7 +68,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
@@ -377,7 +366,6 @@ def test_the_readers_connector_type_literals_match_the_frameworks() -> None:
 
     reader = _reader()
 
-    assert reader.MOCK_TYPE == connector_types.MOCK
     assert reader.VIRTUAL_ACCELERATOR_TYPE == connector_types.VIRTUAL_ACCELERATOR
     assert reader.LIVE_STANDIN_TYPE == connector_types.LIVE_STANDIN
     assert reader.SIMULATED_TYPES == connector_types._SIMULATED_TYPES

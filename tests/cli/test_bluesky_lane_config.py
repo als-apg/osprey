@@ -94,11 +94,22 @@ approval:
 """
 
 
+#: The ``cs_type`` that writes the simulator served in process.
+IN_PROCESS = "in_process"
+
+
 def _write_config(project_path: Path, cs_type: str = "epics") -> None:
     project_path.mkdir(parents=True, exist_ok=True)
-    (project_path / "config.yml").write_text(
-        CONFIG_TEMPLATE.format(cs_type=cs_type), encoding="utf-8"
-    )
+    text = CONFIG_TEMPLATE.format(cs_type=cs_type)
+    if cs_type == IN_PROCESS:
+        text = text.replace(
+            f'  type: "{IN_PROCESS}"\n',
+            '  type: "virtual_accelerator"\n'
+            "  connector:\n"
+            "    virtual_accelerator:\n"
+            "      serving: in_process\n",
+        )
+    (project_path / "config.yml").write_text(text, encoding="utf-8")
 
 
 def _read_config(project_path: Path) -> dict:
@@ -135,12 +146,12 @@ def test_schema_default_is_single_lane() -> None:
     assert BlueskyConfig().second_lane is False
 
 
-@pytest.mark.parametrize("cs_type", ["epics", "virtual_accelerator", "mock"])
+@pytest.mark.parametrize("cs_type", ["epics", "virtual_accelerator", IN_PROCESS])
 def test_single_lane_block_is_unchanged(tmp_path: Path, cs_type: str) -> None:
     """Default config renders exactly today's block, on any baseline.
 
     The regression pin for every project built before the lane axis existed:
-    the keys, their values, and the absence of every lane key. A ``mock``
+    the keys, their values, and the absence of every lane key. An in-process
     baseline is included because a single-lane deploy needs no switchable
     target at all — only the second lane does.
     """
@@ -155,7 +166,6 @@ def test_single_lane_block_is_unchanged(tmp_path: Path, cs_type: str) -> None:
         "port": LANE_ONE_PORT,
         "tiled_enabled": False,
         "tiled_port": TILED_PORT,
-        "devices_file": "data/bluesky_devices.yml",
     }
     assert config["deployed_services"] == ["postgresql", "bluesky"]
     assert [key for key in config["services"] if key.startswith("bluesky_")] == []
@@ -253,8 +263,7 @@ def test_live_baseline_renders_a_va_second_lane(tmp_path: Path) -> None:
 
 
 def test_second_lane_carries_facility_plan_keys(tmp_path: Path) -> None:
-    """Plans and devices belong to the facility, not to a target — both lanes
-    carry them, including the always-written ``devices_file``."""
+    """Plans belong to the facility, not to a target — both lanes carry them."""
     project = tmp_path / "project"
     _write_config(project, cs_type="epics")
 
@@ -263,7 +272,6 @@ def test_second_lane_carries_facility_plan_keys(tmp_path: Path) -> None:
             second_lane=True,
             plan_dir="/facility/plans",
             excluded_plans=["scan_a", "scan_b"],
-            devices_file="/facility/devices.yml",
         ),
         project,
         VAConfig(),
@@ -274,13 +282,11 @@ def test_second_lane_carries_facility_plan_keys(tmp_path: Path) -> None:
         lane = config["services"][lane_key]
         assert lane["plan_dir"] == "/facility/plans"
         assert lane["excluded_plans"] == os.pathsep.join(["scan_a", "scan_b"])
-        assert lane["devices_file"] == "/facility/devices.yml"
 
 
-def test_second_lane_carries_the_default_devices_file(tmp_path: Path) -> None:
-    """``devices_file`` is always-written, so an unconfigured two-lane deploy
-    still lands the default path on BOTH lanes — the staging step never has to
-    re-derive it for a lane that said nothing."""
+def test_no_lane_carries_a_devices_file(tmp_path: Path) -> None:
+    """The worker's device file is the build's view, so neither lane's block
+    names one."""
     project = tmp_path / "project"
     _write_config(project, cs_type="epics")
 
@@ -288,7 +294,7 @@ def test_second_lane_carries_the_default_devices_file(tmp_path: Path) -> None:
 
     config = _read_config(project)
     for lane_key in ("bluesky", "bluesky_va"):
-        assert config["services"][lane_key]["devices_file"] == "data/bluesky_devices.yml"
+        assert "devices_file" not in config["services"][lane_key]
 
 
 def test_second_lane_keeps_section_banner_and_list_intact(tmp_path: Path) -> None:
@@ -369,9 +375,9 @@ def test_authored_env_is_carried_on_both_lanes(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("cs_type", ["mock", "doocs"])
+@pytest.mark.parametrize("cs_type", [IN_PROCESS, "doocs"])
 def test_second_lane_refuses_an_unswitchable_baseline(tmp_path: Path, cs_type: str) -> None:
-    """A ``mock``/``doocs`` deployment has no second target to serve."""
+    """An in-process or ``doocs`` deployment has no Channel Access lane to serve."""
     project = tmp_path / "project"
     _write_config(project, cs_type=cs_type)
 

@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.mcp_server.graph.server_context import (
     GraphAuthFailed,
     GraphNotConfigured,
@@ -40,7 +41,6 @@ read_cypher_fn = get_tool_fn(mod.read_cypher)
 _MAX_ROWS_KEY = "services.graphdb.query_max_rows"
 
 #: The verb an empty-graph envelope must point at, likewise spelled out here.
-_SEED_COMMAND = "osprey knowledge seed-graph"
 
 
 class _FakeContext:
@@ -255,7 +255,7 @@ class TestEmptyGraph:
 
         envelope = captured["envelope"]
         assert "Resource" in envelope["error_message"]
-        assert any(_SEED_COMMAND in suggestion for suggestion in envelope["suggestions"])
+        assert any(GRAPHDB_REBUILD_HINT in suggestion for suggestion in envelope["suggestions"])
 
 
 class TestStoreErrorsMapToTheirEnvelopes:

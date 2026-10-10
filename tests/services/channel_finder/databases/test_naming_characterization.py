@@ -683,24 +683,24 @@ class TestBuildChannelsFromSelections:
         assert built == ["NOPE:NOPE:NOPE"]
         assert built[0] not in tree_only_db.channel_map
 
-    def test_channel_part_trees_require_the_emitted_part_not_the_tree_key(
+    def test_channel_part_trees_build_from_the_tree_key_or_the_emitted_part(
         self, channel_part_db
     ) -> None:
-        """Characterized as-is, not endorsed: navigating by tree key produces a bad name.
+        """A tree key a caller browsed with builds the channel its node names.
 
-        ``_build_channel_map`` maps ``Magnets`` to ``MAG``, but this method does
-        no such translation -- passing the key a caller would have browsed with
-        yields a channel that does not exist.
+        ``_build_channel_map`` maps ``Magnets`` to ``MAG`` and ``Power Supplies``
+        to ``PS``; selecting those keys builds the same channel, and the emitted
+        parts themselves, which match no key, stay as given.
         """
         assert channel_part_db.build_channels_from_selections(
             {"system": "MAG", "device": "PS", "signal": "Current"}
         ) == ["MAG:PS:Current"]
 
-        bogus = channel_part_db.build_channels_from_selections(
+        browsed = channel_part_db.build_channels_from_selections(
             {"system": "Magnets", "device": "Power Supplies", "signal": "Current"}
         )
-        assert bogus == ["Magnets:Power Supplies:Current"]
-        assert bogus[0] not in channel_part_db.channel_map
+        assert browsed == ["MAG:PS:Current"]
+        assert browsed[0] in channel_part_db.channel_map
 
     def test_expanded_instances_are_selectable_by_their_generated_names(
         self, hybrid_expansion_db, range_instances_db

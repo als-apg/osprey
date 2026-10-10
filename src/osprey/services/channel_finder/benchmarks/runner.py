@@ -43,11 +43,11 @@ logger = logging.getLogger(__name__)
 # Map paradigm names to their config key path for the database.
 #
 # Deliberately NOT derived from
-# :data:`osprey.build.build_tiers.VALID_CHANNEL_FINDER_MODES`: every entry here
+# :data:`osprey.build.modes.VALID_CHANNEL_FINDER_MODES`: every entry here
 # is a ``database.path`` config key, so only paradigms backed by a database
 # file the harness can open belong in this map. A paradigm whose store is a
 # service rather than a file has no path to name and stays out.
-# ``tests/build/test_mode_registry_single_source.py`` pins which paradigms are
+# ``tests/build_pipeline/test_modes.py`` pins which paradigms are
 # excluded, so the gap stays a decision rather than an oversight.
 PARADIGM_CONFIG_KEYS: dict[str, list[str]] = {
     "in_context": [
@@ -113,6 +113,33 @@ def read_db_path_from_config(project_dir: Path, paradigm: str) -> Path:
     if not db_path.is_absolute():
         db_path = project_dir / db_path
     return db_path.resolve()
+
+
+def read_index_count(index_path: Path) -> int:
+    """The row count a channel-finder index file states.
+
+    The view that writes an index counts the rows it writes and states the
+    number as ``count`` beside ``schema``. This is the only thing read from
+    the file: the index's body is never parsed here.
+
+    Raises:
+        FileNotFoundError: ``index_path`` does not exist.
+        ValueError: The file is not a JSON object, or states no
+            non-negative integer ``count``.
+    """
+    if not index_path.is_file():
+        raise FileNotFoundError(f"Channel-finder index not found: {index_path}")
+    try:
+        document = json.loads(index_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Channel-finder index {index_path} is not JSON: {exc}") from exc
+    count = document.get("count") if isinstance(document, dict) else None
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        raise ValueError(
+            f"Channel-finder index {index_path} states no row count: an index `osprey build` "
+            "writes carries a non-negative integer `count` beside `schema`."
+        )
+    return count
 
 
 def model_slug(model: str) -> str:
@@ -205,48 +232,25 @@ class BenchmarkRunner:
     def _count_channels(self) -> int:
         """Count the channels the active pipeline can retrieve.
 
-        The file paradigms count rows in their database file, and a file they
-        cannot read leaves the count at zero: it labels a saved run, it does not
-        score one, so it must not take a benchmark down.
-
-        The graph paradigm has no database file — its channels live in the
-        store — so it is counted by asking the store, and store errors are
-        allowed to propagate. A run whose store is unreachable has nothing
-        truthful to say about the count, and a plausible-looking
-        ``channel_count`` of zero saved beside real scores would misreport the
-        corpus the agent searched.
+        The file modes read the count their index states; the graph mode asks
+        the store. No mode reports a number it did not read, so every failure
+        propagates: a ``channel_count`` saved beside real scores always names
+        the corpus the agent searched.
 
         Returns:
-            The number of channels behind the active paradigm.
+            The number of channels behind the active pipeline mode.
 
         Raises:
-            Exception: Whatever the graph store raises, on the graph paradigm —
+            PipelineModeError: The active mode has no index file and no store.
+            FileNotFoundError: The index file the config names does not exist.
+            ValueError: The index file states no row count.
+            Exception: Whatever the graph store raises, in graph mode —
                 unreachable store, refused credentials, failed query.
         """
         mode = self._resolve_pipeline_mode()
         if mode == "graph":
             return self._count_graph_channels()
-        try:
-            db_path = read_db_path_from_config(self.project_dir, mode)
-            if not db_path.exists():
-                return 0
-            data = json.loads(db_path.read_text(encoding="utf-8"))
-            if isinstance(data, list):  # in_context format
-                return len(data)
-            if isinstance(data, dict) and "tree" in data:  # hierarchical
-                from osprey.services.channel_finder.benchmarks.generator import (
-                    expand_hierarchy,
-                )
-
-                return len(expand_hierarchy(data))
-            # middle_layer — count ChannelNames
-            from osprey.services.channel_finder.benchmarks.generator import (
-                collect_middle_layer_pvs,
-            )
-
-            return len(collect_middle_layer_pvs(data))
-        except Exception:
-            return 0
+        return read_index_count(read_db_path_from_config(self.project_dir, mode))
 
     def _count_graph_channels(self) -> int:
         """Count ``ChannelBinding`` nodes in the project's graph store.
@@ -377,6 +381,12 @@ class BenchmarkRunner:
 
         Returns:
             BenchmarkRun with per-query results and aggregates.
+
+        Raises:
+            PipelineModeError: The active mode has no index file and no store.
+            FileNotFoundError: The index file the config names does not exist.
+            ValueError: The index file states no row count.
+            Exception: Whatever the graph store raises, in graph mode.
         """
         all_queries = self.load_queries()
 
@@ -386,6 +396,9 @@ class BenchmarkRunner:
             queries = list(enumerate(all_queries))
 
         pipeline_mode = self._resolve_pipeline_mode()
+        # The census comes first: a run that cannot state the corpus it
+        # searched is refused before any query is sent.
+        channel_count = self._count_channels()
         semaphore = asyncio.Semaphore(self.max_concurrent)
 
         if output_dir is not None:
@@ -492,8 +505,6 @@ class BenchmarkRunner:
         raw_results = await asyncio.gather(*tasks)
         results = [r for r in raw_results if r is not None]
         num_failed = len(raw_results) - len(results)
-
-        channel_count = self._count_channels()
 
         return BenchmarkRun.from_query_results(
             paradigm=pipeline_mode,

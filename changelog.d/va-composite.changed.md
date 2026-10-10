@@ -1,0 +1,5 @@
+The virtual accelerator boots one composite over the simulator view `osprey build` renders from the facility definition, and its served channels are that view's `addresses.json`; no channel manifest is read, so a project `.env` carrying `VA_CHANNELS_FILE` changes nothing.
+A different physics engine is registered as an engine plug-in under the `osprey.simulation.engines` entry-point group; the container no longer runs a replacement entrypoint module, and `VA_ENTRYPOINT_MODULE` has no effect.
+The cavity frequency, `SR:RF:CAVITY:01:FREQUENCY:SP` and `SR:RF:CAVITY:01:FREQUENCY:RB`, now serves the value the deck states.
+The twelve ion-pump voltages, `SR:VAC:ION-PUMP:01:VOLTAGE:SP` through `SR:VAC:ION-PUMP:06:VOLTAGE:SP` and their `:RB` readbacks, now serve the seed's nominal instead of zero.
+The virtual accelerator now serves five more addresses: the model's optics outputs `SR:DIAG:TUNE:X`, `SR:DIAG:TUNE:Y`, `SR:DIAG:CHROM:X` and `SR:DIAG:CHROM:Y`, and the physics model's status channel `ca:SIM:SR:STATUS`.

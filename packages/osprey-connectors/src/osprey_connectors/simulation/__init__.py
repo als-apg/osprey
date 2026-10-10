@@ -1,24 +1,103 @@
-"""Data-driven simulation engine for OSPREY mock connectors.
+"""The simulated machine behind OSPREY's simulator connectors.
 
-Provides :class:`SimulationEngine`, which loads a machine description
-(``machine.json``) and serves channel reads/writes plus synthesized archiver
-time-series to the mock control-system and archiver connectors.
+The package root holds only what every reader needs without loading a model:
+the tick period, value coercion, char-waveform decoding, the active-scenario
+state helpers and the model status lookups. It imports neither numpy nor lume;
+the composite, the texture engine, the archive and the series primitives are
+imported from their own modules.
 """
 
-from osprey_connectors.simulation.engine import (
-    SimReading,
-    SimulationEngine,
-    engine_from_connector_config,
-    engine_serves,
+from collections.abc import Mapping
+from typing import Any
+
+from osprey_connectors.simulation.state import (
+    ACTIVE_SCENARIOS_FILENAME,
+    DEFAULT_SCENARIO,
+    OVERLAP_EVENT,
+    STILL_SCENARIO,
+    Overlap,
+    composed_set,
+    format_overlap_record,
+    overlap_record,
+    parse_active_state,
+    read_active_state,
+    resolve_active_scenarios,
+    scenario_targets,
+    validate_composition,
+    write_active_state,
 )
-from osprey_connectors.simulation.expressions import ExpressionError
-from osprey_connectors.simulation.machine import DEFAULT_SCENARIO
+from osprey_connectors.simulation.status import model_status, read_model_status
+from osprey_connectors.simulation.values import coerce
 
 __all__ = [
+    "ACTIVE_SCENARIOS_FILENAME",
     "DEFAULT_SCENARIO",
-    "ExpressionError",
-    "SimReading",
-    "SimulationEngine",
-    "engine_from_connector_config",
-    "engine_serves",
+    "DEFAULT_TICK_S",
+    "OVERLAP_EVENT",
+    "STILL_SCENARIO",
+    "Overlap",
+    "TICK_KEY",
+    "coerce",
+    "composed_set",
+    "decode_char_waveform",
+    "format_overlap_record",
+    "model_status",
+    "overlap_record",
+    "parse_active_state",
+    "read_active_state",
+    "read_model_status",
+    "resolve_active_scenarios",
+    "resolve_tick_s",
+    "scenario_targets",
+    "validate_composition",
+    "write_active_state",
 ]
+
+#: The config key holding the simulated machine's tick period, in seconds.
+TICK_KEY = "simulation.tick_s"
+
+#: The tick period when the config does not set one, in seconds.
+DEFAULT_TICK_S = 1.0
+
+
+def resolve_tick_s(config: Mapping[str, Any]) -> float:
+    """The simulated machine's tick period a config asks for.
+
+    Args:
+        config: The full project config.
+
+    Returns:
+        ``simulation.tick_s`` in seconds, or :data:`DEFAULT_TICK_S` when the
+        ``simulation`` section or its ``tick_s`` entry is absent.
+
+    Raises:
+        ValueError: If the value is not a number greater than zero; the
+            message names the key.
+    """
+    section = config.get("simulation") or {}
+    raw = section.get("tick_s")
+    if raw is None:
+        return DEFAULT_TICK_S
+    if isinstance(raw, bool) or not isinstance(raw, int | float) or raw <= 0:
+        raise ValueError(f"{TICK_KEY} must be a number of seconds greater than 0 (got {raw!r})")
+    return float(raw)
+
+
+def decode_char_waveform(value: Any) -> str:
+    """The text a string channel holds, whichever shape it arrives in.
+
+    A ``str`` passes unchanged. An array of character codes (a list, a tuple
+    or a numpy array, signed or unsigned bytes) is read up to its first NUL
+    and decoded as UTF-8, an invalid byte becoming U+FFFD.
+
+    Args:
+        value: The value read from the channel.
+
+    Returns:
+        The decoded text.
+    """
+    if isinstance(value, str):
+        return value
+    codes = value.tolist() if hasattr(value, "tolist") else list(value)
+    raw = bytes(int(code) % 256 for code in codes)
+    return raw.split(b"\0", 1)[0].decode("utf-8", errors="replace")

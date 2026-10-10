@@ -17,18 +17,17 @@ read off the fixture, not recomputed by the test.
 from __future__ import annotations
 
 import time
-from importlib.resources import as_file, files
 from pathlib import Path
 from statistics import median
 
 import pytest
+from tests._builds import BuiltProject
 from tests.services.channel_finder.graph_index import corpora
 
 from osprey.services.channel_finder.graph_index.builder import (
     CALLER_META_KEYS,
     ParsedCorpus,
     build_from_rows,
-    channels_from_rows,
     parse_corpus,
 )
 from osprey.services.channel_finder.graph_index.reader import GraphIndex, open_graph_index
@@ -77,7 +76,7 @@ def _meta(parsed: ParsedCorpus, **overrides: object) -> dict:
     """The ``meta`` mapping a corpus build states for *parsed*."""
     values = {
         "corpus_sha256": "b" * 64,
-        "corpus_filename": "demo_machine.ttl",
+        "corpus_filename": "facility.ttl",
         "binding_count": len(parsed.binding_rows),
         "device_count": len({row.device_uri for row in parsed.binding_rows}),
         "class_count": len(parsed.class_rows),
@@ -94,7 +93,6 @@ def _write(parsed: ParsedCorpus, index_path: Path, **overrides: object) -> Path:
     build_from_rows(
         parsed.binding_rows,
         parsed.class_rows,
-        channels_from_rows(parsed.binding_rows),
         index_path,
         _meta(parsed, **overrides),
     )
@@ -490,8 +488,8 @@ class TestEmptyIndex:
         assert payload["rows"] == []
         assert all(entries == [] for entries in payload["facets"].values())
         (suggestion,) = payload["suggestions"]
-        assert "demo_machine.ttl" in suggestion
-        assert "osprey knowledge build-ttl" in suggestion
+        assert "facility.ttl" in suggestion
+        assert "osprey build && osprey up" in suggestion
 
     def test_an_index_that_binds_something_carries_no_suggestion(self, mixed_index: GraphIndex):
         payload = mixed_index.search(tokens=["no-such-channel"])
@@ -511,19 +509,14 @@ class TestClosedIndex:
 
 
 class TestDemoCorpusTiming:
-    """The shipped corpus, on the budget the flat index exists to hold."""
+    """The build's graph view, on the budget the flat index exists to hold."""
 
     @pytest.fixture(scope="class")
-    def demo_index_path(self, tmp_path_factory: pytest.TempPathFactory) -> Path:
-        resource = (
-            files("osprey.templates")
-            .joinpath("apps")
-            .joinpath("control_assistant")
-            .joinpath("data")
-            .joinpath("demo_machine.ttl")
-        )
-        with as_file(resource) as path:
-            parsed = parse_corpus(path.read_text(encoding="utf-8"))
+    def demo_index_path(
+        self, built_control_assistant: BuiltProject, tmp_path_factory: pytest.TempPathFactory
+    ) -> Path:
+        view = built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+        parsed = parse_corpus(view.read_text(encoding="utf-8"))
         return _write(parsed, tmp_path_factory.mktemp("demo") / "graph.duckdb")
 
     def test_the_first_search_after_opening_answers_at_once(self, demo_index_path: Path):
@@ -532,7 +525,7 @@ class TestDemoCorpusTiming:
             payload = index.search()
             elapsed = time.perf_counter() - started
 
-        assert payload["total"] == 2908
+        assert payload["total"] == 2952
         # Budgeted at 100 ms; asserted well above it, because a shared CI
         # machine is slower than a workstation by more than the margin.
         print(f"first search on the demo index: {elapsed * 1000:.1f} ms")

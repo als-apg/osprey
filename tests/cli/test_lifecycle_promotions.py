@@ -57,19 +57,8 @@ from osprey.deployment.web_terminals import (
     seeding,
 )
 from osprey.simulation import apply
+from tests._preset_data import bundle_data_root
 from tests.cli.conftest import TerminalProbe
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -90,7 +79,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
@@ -500,9 +489,7 @@ class TestSubStepRows:
         _stub_reapply(monkeypatch, active=("nominal", "bpm_dropout"), archiver_describe="rewrote 3")
         printed.open_phase()
 
-        container_lifecycle._reapply_active_scenarios(
-            {}, tmp_path, _engine("nominal", "bpm_dropout")
-        )
+        container_lifecycle._reapply_active_scenarios({}, tmp_path)
 
         assert_sub_step(printed, "scenarios re-applied: nominal, bpm_dropout")
         assert "(rewrote 3)" in printed.flowed
@@ -519,7 +506,7 @@ class TestSubStepRows:
         _stub_reapply(monkeypatch, active=("nominal",), archiver_describe=None)
         printed.open_phase()
 
-        container_lifecycle._reapply_active_scenarios({}, tmp_path, _engine("nominal"))
+        container_lifecycle._reapply_active_scenarios({}, tmp_path)
 
         assert_sub_step(printed, "scenarios re-applied: nominal")
         assert "(" not in printed.flowed.split("scenarios re-applied")[-1]
@@ -529,7 +516,7 @@ class TestSubStepRows:
         _stub_reapply(monkeypatch, active=("nominal",), archiver=None)
         printed.open_phase()
 
-        container_lifecycle._reapply_active_scenarios({}, tmp_path, _engine("nominal"))
+        container_lifecycle._reapply_active_scenarios({}, tmp_path)
 
         assert_sub_step(printed, "scenarios re-applied: nominal")
         assert "(" not in printed.flowed.split("scenarios re-applied")[-1]
@@ -560,9 +547,9 @@ class TestDemotedRows:
 
         assert _levels_for(caplog, "already present") == {logging.DEBUG}
 
-    def test_having_no_machine_model_to_reseed_is_a_debug_line(self, tmp_path, caplog):
+    def test_having_no_simulator_view_to_reseed_is_a_debug_line(self, tmp_path, caplog):
         with caplog.at_level(logging.DEBUG):
-            container_lifecycle._reapply_active_scenarios({}, tmp_path, None)
+            container_lifecycle._reapply_active_scenarios({}, tmp_path)
 
         assert _levels_for(caplog, "no scenarios to re-apply") == {logging.DEBUG}
 
@@ -725,9 +712,9 @@ def _stub_label_sweep(monkeypatch: pytest.MonkeyPatch, *, container_ids: list[st
 
 def _seed_state(name: str):
     """The archiver seeder's fingerprint verdict, by ``SeedState`` member name."""
-    from osprey.simulation import archiver_seed
+    from osprey_connectors.simulation import archive
 
-    return getattr(archiver_seed.SeedState, name)
+    return getattr(archive.SeedState, name)
 
 
 @pytest.fixture
@@ -739,7 +726,7 @@ def archiver_stubs(monkeypatch: pytest.MonkeyPatch) -> dict:
     of them says something, and at what altitude.
     """
     from osprey.simulation import apply as apply_mod
-    from osprey.simulation import archiver_seed as seed_mod
+    from osprey_connectors.simulation import archive as seed_mod
 
     state: dict = {"state": _seed_state("ABSENT")}
 
@@ -764,13 +751,7 @@ def archiver_stubs(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(
         container_lifecycle,
         "_archiver_seed_inputs",
-        lambda config, project_dir: (
-            [{"address": "SR:BPM1:X"}, {"address": "SR:BPM2:X"}],
-            None,
-            {},
-            None,
-            None,
-        ),
+        lambda config, project_dir: SimpleNamespace(addresses=["SR:BPM1:X", "SR:BPM2:X"]),
     )
     monkeypatch.setattr(container_lifecycle, "_wait_for_archiver_store", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_reapply_active_scenarios", lambda *a, **k: None)
@@ -829,6 +810,7 @@ def _stub_reapply(
         archiver: Pass ``None`` for a result whose rewrite never ran at all.
     """
     from osprey.simulation import apply as apply_mod
+    from osprey_connectors.simulation import state as state_mod
 
     if archiver is ...:
         archiver = SimpleNamespace(
@@ -837,13 +819,10 @@ def _stub_reapply(
         )
     result = SimpleNamespace(active=active, archiver=archiver)
 
+    monkeypatch.setattr(apply_mod, "view_scenarios", lambda project_dir: {})
+    monkeypatch.setattr(state_mod, "read_active_state", lambda state_dir: (list(active), None))
     monkeypatch.setattr(apply_mod, "apply_scenarios", lambda *a, **k: result)
     monkeypatch.setattr(apply_mod, "persisted_scenario_anchor", lambda config, project_dir: None)
-
-
-def _engine(*active: str) -> SimpleNamespace:
-    """A machine model that reports ``active`` as its live scenario set."""
-    return SimpleNamespace(active_scenarios=lambda: list(active))
 
 
 def _stub_ariel_stage(monkeypatch: pytest.MonkeyPatch, *, seeded: int) -> None:
@@ -952,15 +931,6 @@ class TestPromotedFactsOnTheMiscDeployPath:
 
         assert_promoted(default_altitude, printed, "Compose files not rendered")
 
-    def test_the_one_env_write_outside_build_is_reported(self, default_altitude, printed, tmp_path):
-        """The build's only write into the operator's own file, named."""
-        _repo_with_a_channel_manifest(tmp_path)
-
-        build_cmd._wire_build_derived_env(tmp_path, tmp_path / "build")
-
-        assert (tmp_path / ".env").is_file()
-        assert_promoted(default_altitude, printed, "at the generated channel manifest")
-
 
 class TestSubStepRowsOnTheMiscDeployPath:
     """Rows 22, 36 and 37: a ``  · name`` line under the open phase."""
@@ -1004,7 +974,7 @@ class TestTheBuildsIdentityLine:
     """Row 24 and the two rows it absorbs, read off one real build."""
 
     def test_the_three_identity_fields_arrive_as_one_line(self, built_exemplar):
-        assert re.search(r"profile .+? \(bundle \S+, tier \d\)", built_exemplar.flowed), (
+        assert re.search(r"profile .+? \(bundle \S+\)", built_exemplar.flowed), (
             built_exemplar.flowed
         )
 
@@ -1321,15 +1291,6 @@ def _offer_the_env_seed(monkeypatch: pytest.MonkeyPatch, *, answer: bool) -> Non
     monkeypatch.setenv(secret_var, "sk-from-the-shell")
     monkeypatch.setattr(deploy_cmd, "_stdin_is_a_terminal", lambda: True)
     monkeypatch.setattr(deploy_cmd.click, "confirm", lambda *a, **k: answer)
-
-
-def _repo_with_a_channel_manifest(repo: Path) -> None:
-    """A repo whose build produced the manifest the ``.env`` pointer names."""
-    from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
-
-    simulation = repo / "build" / "data" / "simulation"
-    simulation.mkdir(parents=True)
-    (simulation / MANIFEST_FILENAME).write_text('{"channels": []}', encoding="utf-8")
 
 
 def _stub_a_successful_wheel_build(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1928,7 +1889,14 @@ def _seed_config(users: list[str]) -> dict:
         "project_name": "demo",
         "facility": {"name": "Demo", "prefix": "dls"},
         "system": {"timezone": "UTC"},
-        "modules": {"web_terminals": {"enabled": True, "users": users}},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "users": users,
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": "demo-assistant"}},
+            }
+        },
     }
 
 

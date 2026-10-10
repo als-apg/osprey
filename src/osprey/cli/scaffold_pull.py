@@ -1,7 +1,8 @@
-"""Core of ``osprey scaffold pull`` — copying packaged app-template content out.
+"""Core of ``osprey scaffold pull`` — copying a preset's packaged content out.
 
-A deployment starts from a packaged app template, and everything in that
-template is a starting point rather than a fixture: a facility replaces the
+A deployment starts from a preset's packaged content — the app template's
+``data/`` and the facility the preset names, landing under ``data/facility/`` —
+and all of it is a starting point rather than a fixture: a facility replaces the
 example knowledge base with its own, keeps the channel-database examples as a
 shape reference, and adds to the web-terminal context. ``scaffold pull`` is how
 that content leaves the installation and lands in a deployment repo where it can
@@ -19,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
-from .templates.shared_data import SHARED_DATA_FILENAME, shared_data_files
+from .templates.preset_data import PresetData
 
 # ---------------------------------------------------------------------------
 # Catalog: what a template offers
@@ -31,11 +32,11 @@ from .templates.shared_data import SHARED_DATA_FILENAME, shared_data_files
 #: bundled MCP server ships its own ``__init__.py`` and is content — so these
 #: names are dropped at the root only.
 _ROOT_ONLY_EXCLUDED_SUFFIXES: tuple[str, ...] = (".j2",)
-_ROOT_ONLY_EXCLUDED_NAMES: frozenset[str] = frozenset({"__init__.py", SHARED_DATA_FILENAME})
+_ROOT_ONLY_EXCLUDED_NAMES: frozenset[str] = frozenset({"__init__.py"})
 
 
-def list_pullable_paths(app_root: Path, subtree: str | None = None) -> list[str]:
-    """Every path in an app template an operator can pull, directories first.
+def list_pullable_paths(source: PresetData, subtree: str | None = None) -> list[str]:
+    """Every path in a preset's packaged content an operator can pull, directories first.
 
     The listing excludes what a pull could never usefully produce: the
     root-level build machinery (:data:`_ROOT_ONLY_EXCLUDED_NAMES` and the
@@ -45,13 +46,17 @@ def list_pullable_paths(app_root: Path, subtree: str | None = None) -> list[str]
     two can never disagree about what a wheel actually ships.
 
     Directories come first because they are what an operator usually wants to
-    name: pulling ``data/facility_knowledge/`` is the common case, and pulling a
+    name: pulling ``data/facility/knowledge/`` is the common case, and pulling a
     single file the exception. Both groups are sorted, so the order is stable
     across releases and machines.
 
+    The app template's own tree is listed as it stands; the facility the
+    preset names, and any file the template takes from another one, are
+    listed where they land (:meth:`~.templates.preset_data.PresetData.placed_files`).
+
     Args:
-        app_root: The app template to list, as returned by
-            :func:`~.profile_cmd._app_template_root`.
+        source: The preset's packaged content, as returned by
+            :func:`~.profile_cmd._preset_data`.
         subtree: Optional template-relative path to restrict the listing to. A
             directory yields itself and everything below it; a file yields just
             that file.
@@ -67,7 +72,8 @@ def list_pullable_paths(app_root: Path, subtree: str | None = None) -> list[str]
     """
     from .profile_cmd import _data_copy_ignore
 
-    data_root = app_root / "data"
+    app_root = source.app_root
+    data_root = source.app_data
     data_ignore = _data_copy_ignore(data_root)
 
     directories: list[str] = []
@@ -93,8 +99,9 @@ def list_pullable_paths(app_root: Path, subtree: str | None = None) -> list[str]
                 files.append(relative)
 
     visit(app_root)
-    # The files the template takes from another one, listed where they land.
-    for relative in shared_data_files(app_root):
+    # The facility and the files the template takes from another one, listed
+    # where they land.
+    for relative in source.placed_files():
         files.append(f"data/{relative}")
         for parent in PurePosixPath(relative).parents:
             if parent.name and f"data/{parent.as_posix()}/" not in directories:
@@ -141,7 +148,7 @@ PullActionKind = Literal["written", "updated", "unchanged", "refused", "skipped"
 #: documents are demo content a facility replaces, while the ``index.md`` files
 #: are the structure it keeps, so a plain pull produces a skeleton and
 #: ``--with-content`` produces the worked example.
-_KNOWLEDGE_ROOT = "data/facility_knowledge"
+_KNOWLEDGE_ROOT = "data/facility/knowledge"
 _KNOWLEDGE_INDEX_NAME = "index.md"
 
 
@@ -164,7 +171,7 @@ class PullAction:
 
 
 def plan_pull(
-    app_root: Path,
+    source: PresetData,
     repo_root: Path,
     rel_path: str | None,
     *,
@@ -181,7 +188,7 @@ def plan_pull(
 
     The rules, keyed on each file's template-relative path:
 
-    1. Under ``data/facility_knowledge/``, anything not named ``index.md`` is
+    1. Under ``data/facility/knowledge/``, anything not named ``index.md`` is
        ``skipped`` unless ``with_content``, leaving the structure without the
        demo documents. A request that resolves to exactly one such file is
        ``refused`` instead, because skipping it would do nothing at all.
@@ -199,8 +206,8 @@ def plan_pull(
     never has to reason about a half-applied copy.
 
     Args:
-        app_root: The app template to pull from, as returned by
-            :func:`~.profile_cmd._app_template_root`.
+        source: The preset's packaged content to pull from, as returned by
+            :func:`~.profile_cmd._preset_data`.
         repo_root: The deployment repo the copy would land in. Targets mirror
             the template-relative path under it.
         rel_path: Template-relative path to pull, or ``None`` for the whole
@@ -218,25 +225,23 @@ def plan_pull(
             top-level entries.
     """
     candidates = [
-        entry for entry in list_pullable_paths(app_root, rel_path) if not entry.endswith("/")
+        entry for entry in list_pullable_paths(source, rel_path) if not entry.endswith("/")
     ]
     # A single filtered file is the one case where "skipped" would be a silent
     # no-op for the entire command, so it is reported as a refusal instead.
     only_one = len(candidates) == 1
 
-    shared = {
-        f"data/{relative}": source for relative, source in shared_data_files(app_root).items()
-    }
+    placed = {f"data/{relative}": path for relative, path in source.placed_files().items()}
     actions: list[PullAction] = []
     for relative in candidates:
-        source = shared.get(relative, app_root / relative)
+        origin = placed.get(relative, source.app_root / relative)
         target = repo_root / relative
 
         if not with_content and _is_knowledge_content(relative):
             if only_one:
                 actions.append(
                     PullAction(
-                        source,
+                        origin,
                         target,
                         "refused",
                         "only index.md comes from the knowledge base; "
@@ -246,7 +251,7 @@ def plan_pull(
             else:
                 actions.append(
                     PullAction(
-                        source,
+                        origin,
                         target,
                         "skipped",
                         "knowledge content rather than an index; --with-content pulls it",
@@ -256,28 +261,28 @@ def plan_pull(
 
         refusal = _target_refusal(repo_root, target)
         if refusal is not None:
-            actions.append(PullAction(source, target, "refused", refusal))
+            actions.append(PullAction(origin, target, "refused", refusal))
             continue
 
         if target.exists():
             if not force:
                 actions.append(
                     PullAction(
-                        source,
+                        origin,
                         target,
                         "refused",
                         "already exists in this repo; --force overwrites it",
                     )
                 )
-            elif source.read_bytes() == target.read_bytes():
+            elif origin.read_bytes() == target.read_bytes():
                 actions.append(
-                    PullAction(source, target, "unchanged", "already identical to the template")
+                    PullAction(origin, target, "unchanged", "already identical to the template")
                 )
             else:
-                actions.append(PullAction(source, target, "updated", "replaced under --force"))
+                actions.append(PullAction(origin, target, "updated", "replaced under --force"))
             continue
 
-        actions.append(PullAction(source, target, "written", "not in this repo yet"))
+        actions.append(PullAction(origin, target, "written", "not in this repo yet"))
 
     return actions
 

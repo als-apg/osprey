@@ -105,7 +105,7 @@ def test_shorthand_overrides_an_existing_literal_key() -> None:
             "name": "x",
             "data": "data",
             "connector": "doocs",
-            "config": {CONNECTOR_CONFIG_KEY: "mock"},
+            "config": {CONNECTOR_CONFIG_KEY: "epics"},
         }
     )
 
@@ -115,17 +115,27 @@ def test_shorthand_overrides_an_existing_literal_key() -> None:
 def test_parse_without_shorthand_leaves_config_untouched() -> None:
     """No shorthand, no injected config key — the fold is opt-in."""
     profile = _parse_profile(
-        {"name": "x", "data": "data", "config": {"control_system.type": "mock"}}
+        {
+            "name": "x",
+            "data": "data",
+            "config": {
+                "control_system.type": "virtual_accelerator",
+                "control_system.connector.virtual_accelerator.serving": "in_process",
+            },
+        }
     )
 
-    assert profile.config == {"control_system.type": "mock"}
+    assert profile.config == {
+        "control_system.type": "virtual_accelerator",
+        "control_system.connector.virtual_accelerator.serving": "in_process",
+    }
 
 
 def test_config_must_be_a_mapping_to_carry_the_shorthand() -> None:
     """A scalar ``config:`` cannot hold the folded key, and says so."""
     with pytest.raises(BuildProfileError, match="must be a mapping to carry"):
         _parse_profile(
-            {"name": "x", "data": "data", "connector": "mock", "config": "not-a-mapping"}
+            {"name": "x", "data": "data", "connector": "epics", "config": "not-a-mapping"}
         )
 
 
@@ -141,7 +151,7 @@ def test_a_cli_edit_folds_the_set_shorthand() -> None:
 
 def test_the_set_shorthand_replaces_the_documents_connector() -> None:
     """The resolved document's connector is replaced, not merged alongside."""
-    base = {"name": "x", "data": "data", "config": {CONNECTOR_CONFIG_KEY: "mock"}}
+    base = {"name": "x", "data": "data", "config": {CONNECTOR_CONFIG_KEY: "epics"}}
     edited = apply_cli_edits(base, ("connector=virtual_accelerator",))
 
     assert edited["config"][CONNECTOR_CONFIG_KEY] == "virtual_accelerator"
@@ -297,7 +307,7 @@ def test_dotted_config_override_is_not_reported() -> None:
 def test_reported_keys_keep_shorthand_order() -> None:
     """Model-selection keys still come first, in their declared order."""
     keys = explicit_model_override_keys(
-        ("connector=mock", "model=claude-sonnet-5", "provider=anthropic")
+        ("connector=epics", "model=claude-sonnet-5", "provider=anthropic")
     )
 
     assert keys == ["provider", "model", "connector"]
@@ -382,14 +392,14 @@ def test_osprey_set_retires_the_shorthands_it_rewrites(tmp_path: Path) -> None:
     profile.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
     written = runner.invoke(
-        set_command, ["--repo", str(target), "connector=mock", "port_base=42000"]
+        set_command, ["--repo", str(target), "connector=epics", "port_base=42000"]
     )
     assert written.exit_code == 0, written.output
 
     baked = yaml.safe_load(profile.read_text(encoding="utf-8"))
     assert CONNECTOR_PROFILE_KEY not in baked
     assert PORT_BASE_PROFILE_KEY not in baked
-    assert baked["config"][CONNECTOR_CONFIG_KEY] == "mock"
+    assert baked["config"][CONNECTOR_CONFIG_KEY] == "epics"
     assert baked["config"][PORT_BASE_CONFIG_KEY] == 42000
 
 

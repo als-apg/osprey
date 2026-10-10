@@ -33,10 +33,11 @@ from typing import Any
 from osprey_connectors.config import config_flag
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.types import (
-    MOCK,
     STANDIN_TYPES,
     TARGET_LIVE,
+    TRANSPORT_IN_PROCESS,
     VIRTUAL_ACCELERATOR,
+    connector_transport,
     resolve_target,
     target_writes_enabled,
 )
@@ -105,12 +106,17 @@ class TargetDerivation:
 
     ``selected_role`` is the row the child will actually configure the process
     with: EPICS keeps one process-wide context, so exactly one gateway is used.
+
+    ``transport`` is the wire the child's connector will speak
+    (:func:`~osprey_connectors.types.connector_transport`), so a child that
+    built the other venue of the simulator is refused by what it echoes.
     """
 
     target: str
     connector_type: str
     endpoints: dict[str, Endpoint]
     selected_role: str
+    transport: str | None
 
     def selected_endpoint(self) -> Endpoint | None:
         """The row the child will configure, or ``None`` when config has none."""
@@ -264,6 +270,18 @@ def derive_endpoints(
     """
     control_system = _section(config, "control_system")
     connector_type = resolve_target(control_system, target)
+    transport = connector_transport(control_system, connector_type)
+
+    if transport == TRANSPORT_IN_PROCESS:
+        # The simulator served inside the child dials nothing, so there is no
+        # block to read endpoints from and no gateway role to select.
+        return TargetDerivation(
+            target=target,
+            connector_type=connector_type,
+            endpoints={},
+            selected_role=ROLE_READ_ONLY,
+            transport=transport,
+        )
 
     if writes_enabled is None:
         writes_enabled = _config_writes_enabled(config, target)
@@ -272,8 +290,9 @@ def derive_endpoints(
 
     raw_block = connector_block(config, connector_type)
     block = raw_block if isinstance(raw_block, dict) else {}
-    # The virtual accelerator is a service this project deploys, so an unset
-    # gateway port follows services.virtual_accelerator.port. Filled through the
+    # The virtual accelerator served from its container is a service this
+    # project deploys, so an unset gateway port follows
+    # services.virtual_accelerator.port. Filled through the
     # connector's own helper rather than restated, so the roster cannot name a
     # port the child will not use.
     if connector_type == VIRTUAL_ACCELERATOR:
@@ -314,6 +333,7 @@ def derive_endpoints(
         selected_role=_selected_role(
             gateways, writes_enabled=bool(writes_enabled), readonly_run=bool(readonly_run)
         ),
+        transport=transport,
     )
 
 
@@ -362,7 +382,7 @@ def same_endpoint(first: Endpoint, second: Endpoint) -> bool:
 
 #: Types that are never the facility's own machine, so an endpoint one of them
 #: selects must never be an endpoint ``live`` derives.
-NEVER_LIVE_TYPES = frozenset({MOCK, VIRTUAL_ACCELERATOR, *STANDIN_TYPES})
+NEVER_LIVE_TYPES = frozenset({VIRTUAL_ACCELERATOR, *STANDIN_TYPES})
 
 
 @dataclass(frozen=True)
@@ -502,13 +522,89 @@ def verify_child_report(derivation: TargetDerivation, report: Mapping[str, Any])
     )
 
 
-def verify_host_report(derivation: TargetDerivation, report: dict[str, Any]) -> Verification:
+def _verify_posture(
+    derivation: TargetDerivation,
+    report: Mapping[str, Any],
+    *,
+    readonly_run: bool,
+    writes_enabled: bool | None,
+) -> Verification | None:
+    """The identity and posture failure in *report*, or ``None`` when there is none.
+
+    The child echoes the target it was sent, so only the type it resolved that
+    target to can differ — a child from another build of the package. Posture
+    is checked for every connector type: the endpoint check sees it only
+    through the gateway role, which a connector with no gateways, or with a
+    ``read_only`` row alone, never varies.
+    """
+    got_type = report.get("connector_type")
+    if got_type != derivation.connector_type:
+        return Verification(
+            False,
+            "connector_type",
+            derivation.connector_type,
+            got_type,
+            f"The child reports connector type {got_type!r} where target "
+            f"{derivation.target!r} derives {derivation.connector_type!r}.",
+        )
+    got_transport = report.get("transport")
+    if got_transport != derivation.transport:
+        return Verification(
+            False,
+            "transport",
+            derivation.transport,
+            got_transport,
+            f"The child for target {derivation.target!r} reports transport "
+            f"{got_transport!r} where {derivation.transport!r} was derived.",
+        )
+    if readonly_run:
+        got_readonly = report.get("readonly_run")
+        if got_readonly is not True:
+            return Verification(
+                False,
+                "readonly_run",
+                True,
+                got_readonly,
+                f"The child for target {derivation.target!r} was asked to run readonly "
+                "but reports it is not in a readonly run.",
+            )
+        return None
+    if writes_enabled is None:
+        return None
+    got_writes = report.get("writes_enabled")
+    if (got_writes is True) != writes_enabled:
+        return Verification(
+            False,
+            "writes_enabled",
+            writes_enabled,
+            got_writes,
+            f"The child for target {derivation.target!r} reports writes "
+            f"{'armed' if got_writes is True else 'off'} where this process derives them "
+            f"{'armed' if writes_enabled else 'off'}.",
+        )
+    return None
+
+
+def verify_host_report(
+    derivation: TargetDerivation,
+    report: dict[str, Any],
+    *,
+    readonly_run: bool | None = None,
+    writes_enabled: bool | None = None,
+) -> Verification:
     """Assert the child came up where the derivation said it would.
+
+    Given the posture the derivation was taken under (*readonly_run*,
+    *writes_enabled*), the report is first held to it: its ``connector_type``
+    and its ``transport`` must be the derived ones, and then a readonly run requires the report's
+    ``readonly_run`` to be ``True`` while any other run requires its
+    ``writes_enabled`` to equal *writes_enabled*. With neither given, only the
+    endpoint check below runs.
 
     :func:`verify_child_report` answers this for every target whose config
     names a gateway. A deployment can also select a connector that talks to no
-    gateway at all — the mock is one, and it is the generic template's default
-    — and for that one the derivation has no endpoint and the child reports
+    gateway at all — the simulator served in process is one, and it is the
+    fail-safe default — and for that one the derivation has no endpoint and the child reports
     none. Nothing is verified there because there is no endpoint to get wrong,
     but the *symmetry* is: a child that configured Channel Access where the
     config derived nothing has inherited an environment from somewhere, and
@@ -522,7 +618,25 @@ def verify_host_report(derivation: TargetDerivation, report: dict[str, Any]) -> 
     it finds, and that is precisely the unpinned-CA case verification exists to
     catch. It goes to :func:`verify_child_report`, which refuses it either for
     reporting no gateway or for having no derived endpoint to compare against.
+
+    Args:
+        derivation: The derivation for the target, from :func:`derive_endpoints`.
+        report: The child's post-connect report.
+        readonly_run: Whether the derivation was taken for a readonly run.
+        writes_enabled: Whether the derivation was taken with writes armed.
+
+    Returns:
+        A passing :class:`Verification`, or a failing one naming the field
+        (``connector_type``, ``transport``, ``readonly_run``, ``writes_enabled`` or an
+        endpoint field), the expected value and the value the child reported.
     """
+    if readonly_run is not None or writes_enabled is not None:
+        refusal = _verify_posture(
+            derivation, report, readonly_run=bool(readonly_run), writes_enabled=writes_enabled
+        )
+        if refusal is not None:
+            return refusal
+
     if derivation.endpoints:
         return verify_child_report(derivation, report)
 

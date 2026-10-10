@@ -1,7 +1,7 @@
 """Tests for the whole build: a Turtle corpus in, a DuckDB index file out.
 
 The pieces below it have their own lanes -- ``test_parse_corpus.py`` for the
-rows, ``test_channels.py`` for the roster, ``test_writer.py`` for the file. What
+rows, ``test_writer.py`` for the file. What
 is only true of the entry point is pinned here: that the census it states is the
 one the seeded store would count, that the digest it stamps is the seeder's own
 so a store and an index filled from one corpus agree they hold one corpus, and
@@ -16,55 +16,47 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from importlib.resources import as_file, files
 from pathlib import Path
 
 import duckdb
 import pytest
+from tests._builds import BuiltProject
 from tests.services.channel_finder.graph_index import corpora
 
-from osprey.channel_roster import RosterSource, RosterSourceKind
-from osprey.channel_roster.graph import read_graph_roster
 from osprey.services.channel_finder.core.exceptions import GraphIndexBuildError
 from osprey.services.channel_finder.graph_index.builder import (
     IndexBuildReport,
     build_graph_index,
-    channels_from_corpus,
     parse_corpus,
 )
 from osprey.services.channel_finder.graph_index.schema import META_KEYS, SCHEMA_VERSION
 from osprey.services.channel_finder.graph_index.taxonomy import prune_device_taxonomy
 from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
 
-#: The shipped demo corpus, as the store counts its populations. ``bindings``,
-#: ``devices`` and ``classes`` are the numbers ``test_parse_corpus.py`` pins
-#: against the parity lane; ``signals`` is what ``GRAPH_SIGNAL_COUNT_CYPHER``
-#: counts, and ``sections`` what ``GRAPH_SECTION_COUNT_CYPHER`` does.
-DEMO_BINDINGS = 2908
-DEMO_DEVICES = 512
+#: The control-assistant build's graph view, as the store counts its
+#: populations. ``bindings``, ``devices`` and ``classes`` are the numbers
+#: ``test_parse_corpus.py`` pins against the parity lane; ``devices`` counts
+#: every binding owner, so the top place ``SR``, which carries the tune and
+#: chromaticity channels itself, is one of the 533; ``signals`` is what
+#: ``GRAPH_SIGNAL_COUNT_CYPHER`` counts, and ``sections`` what
+#: ``GRAPH_SECTION_COUNT_CYPHER`` does.
+DEMO_BINDINGS = 2952
+DEMO_DEVICES = 533
 DEMO_CLASSES = 19
-DEMO_SIGNALS = 113
+DEMO_SIGNALS = 31
 
-#: Derived from the corpus (three distinct ``narad_p:sectionCode`` literals),
+#: Derived from the view (sixteen distinct ``narad_p:sectionCode`` literals:
+#: ``SECT1`` to ``SECT12`` and the top-place codes ``SR``, ``BR``, ``BTS`` and
+#: ``LINE``),
 #: not read off a store-backed assertion -- no census test seeds this corpus and
-#: asks the store for its section count. It is corroborated by the store-backed
-#: search facet in ``tests/integration/test_graph_mcp.py``, which asserts the
-#: seeded demo store answers ``{"SR", "BR", "BTS"}`` for the section facet.
-DEMO_SECTIONS = 3
+#: asks the store for its section count.
+DEMO_SECTIONS = 16
 
 
 @pytest.fixture(scope="module")
-def demo_path():
-    """The packaged demo corpus, materialised on disk."""
-    resource = (
-        files("osprey.templates")
-        .joinpath("apps")
-        .joinpath("control_assistant")
-        .joinpath("data")
-        .joinpath("demo_machine.ttl")
-    )
-    with as_file(resource) as path:
-        yield path
+def demo_path(built_control_assistant: BuiltProject) -> Path:
+    """The graph view the control-assistant build writes."""
+    return built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
 
 
 def _read(index_path: Path, sql: str) -> list[tuple]:
@@ -91,7 +83,7 @@ def _write(path: Path, text: str, *, crlf: bool = False) -> Path:
 
 
 class TestDemoCorpus:
-    """The shipped corpus, built end to end."""
+    """The build's graph view, indexed end to end."""
 
     @pytest.fixture(scope="class")
     def built(self, demo_path: Path, tmp_path_factory) -> tuple[IndexBuildReport, Path]:
@@ -115,7 +107,7 @@ class TestDemoCorpus:
         assert _meta_row(index_path) == {
             "schema_version": SCHEMA_VERSION,
             "corpus_sha256": ttl_sha256(demo_path.read_text(encoding="utf-8")),
-            "corpus_filename": "demo_machine.ttl",
+            "corpus_filename": "facility.ttl",
             "binding_count": DEMO_BINDINGS,
             "device_count": DEMO_DEVICES,
             "class_count": DEMO_CLASSES,
@@ -124,11 +116,10 @@ class TestDemoCorpus:
         }
 
     def test_the_tables_hold_the_rows_the_report_counted(self, built):
-        report, index_path = built
+        _, index_path = built
 
         assert _read(index_path, "SELECT count(*) FROM bindings") == [(DEMO_BINDINGS,)]
         assert _read(index_path, "SELECT count(*) FROM classes") == [(DEMO_CLASSES,)]
-        assert _read(index_path, "SELECT count(*) FROM channels") == [(report.channel_count,)]
         assert _read(index_path, "SELECT count(DISTINCT device_uri) FROM bindings") == [
             (DEMO_DEVICES,)
         ]
@@ -158,40 +149,13 @@ class TestDemoCorpus:
         assert report.class_count == len(parsed.class_rows)
         assert report.class_count == len(prune_device_taxonomy(raw))
 
-    def test_the_channels_table_is_the_roster_the_reader_answers(
-        self, built, demo_path: Path
-    ) -> None:
-        """The rows the build wrote are the records the roster hands back.
-
-        The oracle is the CORPUS, not the file: the channels the derivation
-        rules read out of the same Turtle are what a consumer has to get back
-        out of the index, in that order, with each direction and readback
-        intact. Comparing the reader against a query over the file it just read
-        would pass on any index the writer and the reader agreed to truncate
-        together. The census the report states is asserted alongside it.
-        """
-        report, index_path = built
-        expected = channels_from_corpus(
-            parse_corpus(demo_path.read_text(encoding="utf-8")),
-            RosterSource(kind=RosterSourceKind.GRAPH, path=demo_path),
-        )
-
-        records = read_graph_roster(
-            RosterSource(kind=RosterSourceKind.GRAPH, path=index_path)
-        ).records
-
-        assert [(r.address, r.direction, r.readback) for r in records] == [
-            (row.address, row.direction, row.readback) for row in expected
-        ]
-        assert len(records) == report.channel_count == DEMO_BINDINGS
-
     def test_the_build_logs_one_line_naming_its_counts(
         self, demo_path: Path, tmp_path: Path, caplog
     ):
         """One DEBUG line with the counts and the timing; nothing at INFO.
 
-        The callers own the operator-facing sentence (the build's progress
-        line, the ``build-index`` verb's summary), and a build keeps absolute
+        The caller owns the operator-facing sentence (the build's progress
+        line), and a build keeps absolute
         paths out of its INFO view, so the builder's own line stays at DEBUG.
         """
         builder_logger = "osprey.services.channel_finder.graph_index.builder"
@@ -201,8 +165,8 @@ class TestDemoCorpus:
         records = [record for record in caplog.records if record.name == builder_logger]
         assert [record.levelno for record in records] == [logging.DEBUG], records
         line = records[0].getMessage()
-        assert "2908 bindings" in line
-        assert "512 devices" in line
+        assert "2952 bindings" in line
+        assert "533 devices" in line
         assert " s: " in line, line
 
     def test_the_package_exports_the_entry_point_lazily(self):
@@ -289,7 +253,6 @@ class TestCorpusWithoutBindings:
         assert index_path.exists()
         assert report.binding_count == 0
         assert report.device_count == 0
-        assert report.channel_count == 0
         assert _read(index_path, "SELECT count(*) FROM bindings") == [(0,)]
         assert any("bound no channels" in record.getMessage() for record in caplog.records)
 

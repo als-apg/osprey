@@ -121,7 +121,17 @@ def test_snapshot_guard_expression_normalizes_to_empty() -> None:
     assert control_system_snapshot(None) == {}
     assert control_system_snapshot({}) == {}
     assert control_system_snapshot({"control_system": None}) == {}
-    assert control_system_snapshot({"control_system": {"type": "mock"}}) == {"type": "mock"}
+    assert control_system_snapshot(
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        }
+    ) == {
+        "type": "virtual_accelerator",
+        "connector": {"virtual_accelerator": {"serving": "in_process"}},
+    }
 
 
 # -- reconcile: construction + re-snapshot -------------------------------------
@@ -136,7 +146,14 @@ async def test_reconcile_constructs_lazily_from_first_snapshot(
     lc = HealthRuntimeLifecycle()
     assert lc.runtime is None
 
-    rows = lc.reconcile({"control_system": {"type": "mock"}})
+    rows = lc.reconcile(
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        }
+    )
     assert rows == []
     assert lc.runtime is not None
     # Snapshot stored, nothing constructed until a probe asks for a connector.
@@ -144,7 +161,12 @@ async def test_reconcile_constructs_lazily_from_first_snapshot(
     assert construct_calls == []
 
     await lc.runtime.get_connector()
-    assert construct_calls == [{"type": "mock"}]
+    assert construct_calls == [
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    ]
 
 
 async def test_reconcile_unchanged_snapshot_is_noop(
@@ -153,10 +175,24 @@ async def test_reconcile_unchanged_snapshot_is_noop(
     _patch_factory(monkeypatch, _SpyConnector(), [])
 
     lc = HealthRuntimeLifecycle()
-    lc.reconcile({"control_system": {"type": "mock"}})
+    lc.reconcile(
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        }
+    )
     first = lc.runtime
 
-    rows = lc.reconcile({"control_system": {"type": "mock"}})
+    rows = lc.reconcile(
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        }
+    )
     assert rows == []
     assert lc.runtime is first  # same instance, no re-snapshot
 
@@ -168,7 +204,14 @@ async def test_reconcile_resnapshots_before_any_construction(
     _patch_factory(monkeypatch, _SpyConnector(), construct_calls)
 
     lc = HealthRuntimeLifecycle()
-    lc.reconcile({"control_system": {"type": "mock"}})
+    lc.reconcile(
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        }
+    )
     first = lc.runtime
 
     # No connector was ever constructed → a changed mapping silently replaces
@@ -193,12 +236,24 @@ async def test_reconcile_broken_first_snapshot_then_fixed(
     # Broken-config first refresh: no `control_system` section → empty snapshot.
     lc.reconcile({})
     # A later fixed config re-snapshots (empty was never latched into a connector).
-    rows = lc.reconcile({"control_system": {"type": "mock"}})
+    rows = lc.reconcile(
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        }
+    )
     assert rows == []
 
     await lc.runtime.get_connector()  # type: ignore[union-attr]
     # The real connector is built from the fixed config, not the broken empty one.
-    assert construct_calls == [{"type": "mock"}]
+    assert construct_calls == [
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        }
+    ]
 
 
 # -- reconcile: restart notice after construction ------------------------------
@@ -211,7 +266,14 @@ async def test_reconcile_emits_restart_notice_after_construction(
     _patch_factory(monkeypatch, _SpyConnector(), [])
 
     lc = HealthRuntimeLifecycle()
-    lc.reconcile({"control_system": {"type": "mock"}})
+    lc.reconcile(
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        }
+    )
     runtime = lc.runtime
     assert runtime is not None
     await runtime.get_connector()  # ever_constructed → True
@@ -237,7 +299,14 @@ async def test_restart_notice_row_persists_but_warning_logs_once(
     _patch_factory(monkeypatch, _SpyConnector(), [])
 
     lc = HealthRuntimeLifecycle()
-    lc.reconcile({"control_system": {"type": "mock"}})
+    lc.reconcile(
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        }
+    )
     await lc.runtime.get_connector()  # type: ignore[union-attr]
 
     with caplog.at_level(logging.WARNING, logger=_LIFECYCLE_LOGGER):
@@ -258,13 +327,27 @@ async def test_reconcile_back_to_live_config_clears_notice_and_relogs(
     _patch_factory(monkeypatch, _SpyConnector(), [])
 
     lc = HealthRuntimeLifecycle()
-    lc.reconcile({"control_system": {"type": "mock"}})
+    lc.reconcile(
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        }
+    )
     await lc.runtime.get_connector()  # type: ignore[union-attr]
 
     with caplog.at_level(logging.WARNING, logger=_LIFECYCLE_LOGGER):
         lc.reconcile({"control_system": {"type": "epics"}})  # diverge → warn + row
         # Config reverts to what the live connector was built from: no notice.
-        back = lc.reconcile({"control_system": {"type": "mock"}})
+        back = lc.reconcile(
+            {
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                }
+            }
+        )
         caplog.clear()
         # Diverging again re-arms the one-time warning (latch was cleared).
         again = lc.reconcile({"control_system": {"type": "epics"}})
@@ -288,7 +371,14 @@ def test_shutdown_disconnects_on_owning_loop_thread(
 
         async def _setup() -> None:
             lc.bind_loop()
-            lc.reconcile({"control_system": {"type": "mock"}})
+            lc.reconcile(
+                {
+                    "control_system": {
+                        "type": "virtual_accelerator",
+                        "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                    }
+                }
+            )
             await lc.runtime.get_connector()  # type: ignore[union-attr]
 
         _run_on(loop, _setup())
@@ -312,7 +402,14 @@ def test_shutdown_cancels_inflight_refresh_before_disconnect(
         async def _setup() -> None:
             lc = HealthRuntimeLifecycle()
             lc.bind_loop()
-            lc.reconcile({"control_system": {"type": "mock"}})
+            lc.reconcile(
+                {
+                    "control_system": {
+                        "type": "virtual_accelerator",
+                        "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                    }
+                }
+            )
             await lc.runtime.get_connector()  # type: ignore[union-attr]
 
             async def _hang() -> None:
@@ -347,7 +444,14 @@ def test_atexit_hook_noops_without_a_constructed_connector(
     )
 
     lc = HealthRuntimeLifecycle()
-    lc.reconcile({"control_system": {"type": "mock"}})  # snapshot only, no connector
+    lc.reconcile(
+        {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"serving": "in_process"}},
+            }
+        }
+    )  # snapshot only, no connector
 
     class _FakeLoop:
         def is_closed(self) -> bool:
@@ -372,7 +476,14 @@ def test_atexit_wedged_teardown_logs_single_warning_without_traceback(
     lc = HealthRuntimeLifecycle()
 
     async def _build() -> None:
-        lc.reconcile({"control_system": {"type": "mock"}})
+        lc.reconcile(
+            {
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                }
+            }
+        )
         await lc.runtime.get_connector()  # type: ignore[union-attr]
 
     asyncio.run(_build())

@@ -13,6 +13,10 @@ name: Channel Finder Standalone
 # bundled demo hierarchical database, no Postgres / logbook / benchmark data).
 app_template: channel_finder_standalone
 
+# Which bundled facility this shows. Its files are copied into data/facility/,
+# and that copy is what the build reads from then on.
+facility: example
+
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit
 # these in place, keeping your comments.
 provider: anthropic
@@ -97,21 +101,6 @@ default_panel: channel-finder
 # channel-finder pipeline block (from `channel_finder_mode:`), the panel
 # selection (from `web_panels:` / `default_panel:`), and every host port.
 config:
-  # ── Facility ───────────────────────────────────────────────────────────────
-  # Display name woven into the agent prompts and the web landing page. Keep it
-  # in sync with .claude/rules/facility.md.
-  facility.name: Example Research Facility
-  # Short facility token. It keys the facility graph's identifiers and names
-  # the web-terminal directory `/app/<prefix>-assistant`. Container names come
-  # from the top-level `project_name:` instead.
-  # facility.prefix: ex
-  # This facility's compiled ontology table, the JSON `osprey knowledge
-  # compile-ontology` writes, relative to the project root. It is the one
-  # source for the device vocabulary the channel-finder subagent's terminology
-  # table renders. Drop the key and the subagent is told no vocabulary was
-  # declared; point it at a missing file and the build stops and says so.
-  facility.ontology: data/facility_ontology.json
-
   # ── Channel finder ─────────────────────────────────────────────────────────
   # The pipeline itself is derived from `channel_finder_mode:` above. What is
   # left to configure here is optional, so it ships commented out.
@@ -124,15 +113,6 @@ config:
   # channel_finder.web.host: 127.0.0.1
   # channel_finder.web.port: <a port outside this deployment's block>
   # channel_finder.web.auto_launch: true
-  # Descriptive names for channels that belong to no device family, generated
-  # offline by `osprey channel-finder build-database --use-llm`. That flag
-  # needs `provider` set (no fallback to the agent's provider); `model_id` is a
-  # model id the provider serves; omitted, the deployment's main model.
-  # Build-time only.
-  # channel_finder.channel_name_generation.llm_model.provider: anthropic
-  # channel_finder.channel_name_generation.llm_model.model_id: claude-haiku-4-5
-  # channel_finder.channel_name_generation.llm_model.max_tokens: 1000
-  # channel_finder.channel_name_generation.llm_batch_size: 10
   # No benchmark query set ships here. `osprey channel-finder benchmark` still
   # runs with `--queries-path FILE`; to make a file the default, name it here.
   # channel_finder.benchmark.dataset_path: data/benchmarks/queries.json
@@ -300,6 +280,11 @@ config:
   # Container runtime `osprey up` uses: auto (Docker first, then Podman),
   # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
   container_runtime: auto
+  # Models the simulator serves, named from data/facility/models.yaml. null
+  # serves every model; [texture] serves no physics.
+  simulation.models: null
+  # Seconds between the simulator's ticks; must be greater than 0.
+  simulation.tick_s: 1.0
   # The channel finder is file-backed and needs no standing service, so
   # `osprey web` runs it with zero `osprey up`. Nothing to deploy.
   deployed_services: []

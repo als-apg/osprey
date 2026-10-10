@@ -15,9 +15,9 @@ import plotly.graph_objects as go
 
 from osprey.interfaces.lattice_dashboard.workers._base import (
     load_baseline_ring,
+    load_job,
     load_ring,
     load_settings,
-    load_state,
     parse_args,
     save_data,
     unpack_tracking,
@@ -290,18 +290,18 @@ def main() -> None:
     # surfaces it when a computation fails, so records need a handler here.
     configure_logging()
 
-    state_path, output_path = parse_args()
-    state = load_state(state_path)
+    job_path, output_path = parse_args()
+    job = load_job(job_path)
 
-    ring = load_ring(state)
-    settings = load_settings(state, "lma")
+    ring = load_ring(job)
+    settings = load_settings(job, "lma")
     nturns = settings["nturns"]
     n_refpts = settings["n_refpts"]
     dp_max = settings["dp_max_pct"] / 100.0
     n_bisect = settings["n_bisect"]
 
     circumference = float(ring.get_s_pos(len(ring))[0])
-    periodicity = state.get("summary", {}).get("periodicity", 1)
+    periodicity = job.get("periodicity", 1)
     n_sectors_setting = settings["n_sectors"]
     n_sectors = n_sectors_setting if n_sectors_setting is not None else periodicity
     sector_length = circumference / n_sectors
@@ -325,7 +325,7 @@ def main() -> None:
         "baseline": None,
     }
 
-    baseline_ring = load_baseline_ring(state_path, state)
+    baseline_ring = load_baseline_ring(job)
     if baseline_ring is not None:
         bs, bdp_p, bdp_m = compute_lma(
             baseline_ring,
@@ -341,7 +341,7 @@ def main() -> None:
             "dp_minus": bdp_m.tolist(),
         }
 
-    save_data(raw, output_path)
+    save_data(job, raw, output_path)
 
 
 if __name__ == "__main__":

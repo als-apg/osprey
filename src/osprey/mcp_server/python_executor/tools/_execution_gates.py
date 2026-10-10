@@ -36,14 +36,19 @@ a spawned task.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from osprey.audit import posture
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
+
+if TYPE_CHECKING:
+    from osprey.mcp_server.python_executor.executor import ExecutionResult
 
 logger = logging.getLogger("osprey.mcp_server.tools.execution_gates")
 
@@ -122,6 +127,30 @@ def require_known_execution_mode(execution_mode: str) -> None:
         f"Unknown execution_mode {execution_mode!r}.",
         ['Use "readonly" (default) to block control-system writes, or "readwrite" to allow them.'],
     )
+
+
+def write_activity_detail(has_writes: bool, execution_mode: str) -> str | None:
+    """The Web Terminal write-activity detail for a launched run, or ``None``.
+
+    A detected write pattern is reported in any mode but readonly. A
+    read-write run is reported even when the scan found no write: a library
+    call such as a pyAML ``strengths.set(...)`` writes through the runtime
+    without matching any write pattern.
+
+    Args:
+        has_writes: Whether pattern detection found a control-system write.
+        execution_mode: The run's execution mode.
+
+    Returns:
+        The detail to emit, or ``None`` when the run reports no write activity.
+    """
+    if execution_mode == "readonly":
+        return None
+    if has_writes:
+        return "ran a script with control-system writes"
+    if execution_mode == "readwrite":
+        return "ran a script in read-write mode"
+    return None
 
 
 def recorded_control_target() -> str | None:
@@ -748,3 +777,185 @@ def _refusal_lines(stderr: str, marker: str) -> list[str]:
     *marker* keep what an auditor actually reads.
     """
     return [line.strip() for line in stderr.splitlines() if marker in line]
+
+
+#: The subject of the pre-execution safety refusal, per tool. ``execute_file``
+#: refuses a file the operator can open; every other tool refuses code it was
+#: handed.
+_SAFETY_SUBJECT = {"execute_file": "File"}
+
+
+async def run_gated_execution(
+    *,
+    tool: str,
+    code: str,
+    description: str,
+    execution_mode: str,
+    project_root: Path | None = None,
+    record_code: str | None = None,
+    notify: Callable[..., Awaitable[Any]] | None = None,
+) -> tuple[ExecutionResult, dict]:
+    """Run *code* through every executor gate, launch it, and report the run.
+
+    The one gate sequence every executor tool runs, in this order: the posture
+    clamp, ``quick_safety_check``, the path policy, the readonly import
+    denylist, pattern detection, the deployment writes gate, the readonly
+    pattern refusal, the launch, the write-activity report and the
+    runtime-refusal report. A call that trips several gates is told about the
+    first one only, so the order is part of what every tool says, and keeping
+    it here is what stops two tools from drifting apart on it.
+
+    The posture clamp goes first on purpose. Whether this *session* may write
+    at all is not a question the deployment config, the pattern detector or the
+    path policy get a say in, and a sandboxed caller should be told that rather
+    than whatever a later gate happens to object to first. It is also what
+    makes the executor's ``sandbox_env["OSPREY_EXECUTION_MODE"] =
+    execution_mode`` overwrite safe: under the sandbox posture the only mode
+    that ever reaches the spawn is readonly, so the overwrite can only ever
+    re-assert the posture it found.
+
+    The write-activity report fires once the script has been handed to the
+    subprocess — writes it performed are already on the machine and a mid-run
+    error does not undo them. ``execution_time_seconds`` is the launch
+    discriminator: only the subprocess path sets it, while every "never
+    launched" outcome comes back from ``execute_code``'s setup handler with it
+    still ``None``. :func:`write_activity_detail` decides whether the run
+    reports and with which words.
+
+    The timeout is not a parameter: ``execute_code`` reads it from config.
+
+    Args:
+        tool: Tool name as the agent knows it — recorded with every refusal and
+            reported with the run.
+        code: The source handed to the subprocess backend.
+        description: Caller's description, recorded with any refusal.
+        execution_mode: ``"readonly"`` or ``"readwrite"``; anything else is
+            refused before any gate.
+        project_root: Project root when the caller has already resolved one;
+            ``None`` lets the path-policy resolvers derive it.
+        record_code: The source the gates inspect and the audit records, when
+            it differs from what is launched — ``execute_file`` launches its
+            file behind an argv preamble but gates and records the file as the
+            operator would read it. ``None`` means *code*.
+        notify: The write-activity reporter. A tool passes its own module-level
+            reference so the seam a caller patches is the tool's; ``None``
+            reports through this module's.
+
+    Returns:
+        ``(exec_result, patterns)`` — the backend's result and the pattern
+        detector's findings, for the tool's own response builder.
+
+    Raises:
+        Whatever :func:`make_error` raises for the refusing gate.
+    """
+    gated = code if record_code is None else record_code
+
+    require_known_execution_mode(execution_mode)
+    enforce_posture_clamp(execution_mode, tool=tool)
+
+    try:
+        from osprey.services.python_executor.analysis.safety_checks import quick_safety_check
+
+        passed, safety_issues = quick_safety_check(gated)
+        if not passed:
+            make_error(
+                "safety_error",
+                f"{_SAFETY_SUBJECT.get(tool, 'Code')} failed pre-execution safety checks.",
+                safety_issues,
+            )
+    except ImportError:
+        logger.warning("Safety check module unavailable — executing without pre-checks")
+
+    await enforce_path_policy(
+        tool=tool,
+        code=gated,
+        description=description,
+        execution_mode=execution_mode,
+        project_root=project_root,
+    )
+
+    # The pre-execution half of the readonly contract; the runtime half (the
+    # wrapper's readonly guard and the connector refusal) catches what no
+    # static check can.
+    if execution_mode == "readonly":
+        try:
+            from osprey.services.python_executor.analysis.safety_checks import (
+                check_readonly_imports,
+            )
+
+            import_issues = check_readonly_imports(gated)
+        except ImportError:
+            import_issues = []
+        if import_issues:
+            await refuse_readonly_write(
+                tool=tool,
+                layer=LAYER_IMPORT_DENYLIST,
+                trigger=import_issues,
+                code=gated,
+                description=description,
+                message="Control-system client libraries cannot be imported in readonly mode.",
+                suggestions=[
+                    *import_issues,
+                    "Use read_channel() from osprey.runtime for reads.",
+                    (
+                        "Set execution_mode to 'readwrite' if writes are intentional, "
+                        "and write through osprey.runtime.write_channel(address, value)."
+                    ),
+                ],
+            )
+
+    try:
+        from osprey.services.python_executor.analysis.pattern_detection import (
+            detect_control_system_operations,
+        )
+
+        patterns = detect_control_system_operations(gated)
+    except ImportError:
+        logger.warning("Pattern detection module unavailable — skipping write detection")
+        patterns = {"has_writes": False, "has_reads": False, "detected_patterns": {}}
+
+    # The deployment kill switch, independent of pattern detection accuracy,
+    # asked about the target the sandbox will be stamped with.
+    enforce_deployment_writes_gate(execution_mode, recorded_control_target())
+
+    if patterns.get("has_writes") and execution_mode == "readonly":
+        await refuse_readonly_write(
+            tool=tool,
+            layer=LAYER_PATTERN_DETECTION,
+            trigger=patterns.get("detected_patterns", {}),
+            code=gated,
+            description=description,
+            message="Control-system write patterns detected in readonly mode.",
+            suggestions=[
+                (
+                    "Set execution_mode to 'readwrite' if writes are intentional, "
+                    "and write through osprey.runtime.write_channel(address, value)."
+                ),
+                "Detected patterns: " + json.dumps(patterns.get("detected_patterns", {})),
+            ],
+        )
+
+    from osprey.mcp_server.python_executor.executor import execute_code
+
+    exec_result = await execute_code(
+        code=code,
+        execution_mode=execution_mode,
+        description=description,
+    )
+
+    detail = write_activity_detail(bool(patterns.get("has_writes")), execution_mode)
+    if detail is not None and exec_result.execution_time_seconds is not None:
+        reporter = notify if notify is not None else notify_agent_activity_async
+        await reporter(tool, "channel", detail=detail)
+
+    # A write the runtime guard refused mid-run reaches here only as a
+    # traceback on stderr; report it like the pre-execution refusals.
+    await report_runtime_refusal(
+        tool=tool,
+        stderr=exec_result.stderr,
+        code=gated,
+        description=description,
+        execution_mode=execution_mode,
+    )
+
+    return exec_result, patterns

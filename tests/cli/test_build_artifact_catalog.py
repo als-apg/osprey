@@ -140,9 +140,12 @@ class TestRegistryMatchesTemplateDirectory:
         Exemptions: __pycache__, .pyc, directories-only, __init__.py, partials
         under an underscore-prefixed directory (``_terminology``, ``_shared`` —
         included by the agent templates, never rendered on their own; the same
-        rule the renderer applies), and ``web-terminal-context/`` — the
-        web-terminal persona baseline. The catalog governs artifacts rendered
-        into ``.claude/`` and claimable via ``osprey scaffold claim``; base.md
+        rule the renderer applies), underscore-prefixed files at the template
+        root (``_facility_facts.md.j2`` — the facts view renders it into
+        ``data/facility_facts.md``, never into ``.claude/``), and
+        ``web-terminal-context/`` — the web-terminal persona baseline. The
+        catalog governs artifacts rendered into ``.claude/`` and claimable via
+        ``osprey scaffold claim``; base.md
         is copied verbatim to ``docker/web-terminal-context/`` for deploy-time
         seeding and never passes through the override machinery, so a catalog
         entry for it would advertise a claim that the build ignores.
@@ -163,6 +166,8 @@ class TestRegistryMatchesTemplateDirectory:
                 continue
             rel_path = template_file.relative_to(template_root)
             if any(part.startswith("_") for part in rel_path.parts[:-1]):
+                continue
+            if rel_path.name.startswith("_"):
                 continue
             if "web-terminal-context" in rel_path.parts:
                 continue

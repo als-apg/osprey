@@ -91,9 +91,9 @@
 #                  key yet (the forward-declared ones), or the value is
 #                  deliberately three-state and "unstated" is not "false".
 #                  The nine limits_checking keys are the last kind, and the
-#                  distinction is load-bearing: an unstated leaf makes every
-#                  write path refuse unlisted channels, so recording `false`
-#                  there would misdescribe a safety gate.
+#                  distinction is load-bearing: an unstated leaf is not a
+#                  stated one, so recording `false` there would misdescribe a
+#                  safety gate.
 #
 # `derived` and `no-fallback` say nothing on their own, so each carries a
 # `default_note:` naming the derivation or the consequence. That is what stops
@@ -131,40 +131,6 @@ keys:
     default_note: >-
       unset names no application registry, and the framework-only registry is
       used
-  facility:
-    evidence: 'config\.get\("facility"\)'
-    note: >-
-      Live in ariel_standalone and channel_finder_standalone (name), in
-      channel_finder_standalone and control_assistant (ontology); commented
-      in hello_world. Canonical spelling.
-    default: {}
-  facility.name:
-    evidence: 'facility\.get\("name"\)'
-    default: derived
-    default_note: the project name
-  facility.ontology:
-    evidence: 'as_dict\(config\.get\("facility"\)\)\.get\("ontology"\)'
-    note: >-
-      Live in control_assistant and channel_finder_standalone, which ship the
-      compiled demo table at data/facility_ontology.json; a commented example
-      in ariel_standalone (its agents read the vocabulary out of the seeded
-      store, not the file); absent from hello_world. The sole reader is
-      cli/templates/claude_code.py `_facility_vocabulary`, and it is the sole
-      source of the device rows in the channel-finder terminology tables. A
-      declared path that will not load is a hard build error — never a silent
-      skip and never a fallback to the packaged demo ontology.
-    default: null
-  facility.prefix:
-    evidence: 'as_dict\(config\.get\("facility"\)\)\.get\("prefix"\)'
-    note: >-
-      Only the multi-user web-terminal stack reads it. `control-assistant`
-      ships it live (`facility.prefix: ca`) because that preset is the one that
-      deploys the web-terminal stack; `ariel-standalone` and
-      `channel-finder-standalone` carry it commented, and `hello-world` omits
-      it. The ONLY enforcement anywhere is a non-emptiness lint
-      (deployment/web_terminals/lint.py `_check_empty_facility_prefix`); no
-      charset or length rule exists in code. See notes.prefix_rule_drift.
-    default: ''
 
   # ── Container runtime / deployment ──────────────────────────────────
   container_runtime:
@@ -279,29 +245,6 @@ keys:
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
     default: {}
-  # The bluesky bridge's plan-lane blocks are INJECTOR-written, not template-
-  # rendered: `_inject_bluesky` writes `services.bluesky` (and, on a two-lane
-  # deploy, its `bluesky_va`/`bluesky_live` sibling) into an already-rendered
-  # project config, so no shipped preset carries them and they
-  # are outside the rendered union this manifest is otherwise derived from.
-  # Only `devices_file` is recorded, because only it is written UNCONDITIONALLY
-  # on every lane of every bluesky deploy — its disappearance is therefore a
-  # real signal, where the omit-when-unset neighbours (`plan_dir`,
-  # `excluded_plans`) would go silent for a configuration reason.
-  services.bluesky.devices_file:
-    rendered: false
-    evidence: '\{"devices_file": bluesky\.devices_file\}'
-    note: >-
-      Names where the Bluesky plan device file is AUTHORED, replacing the
-      per-deployment env-var channel. Written by `_inject_bluesky` via
-      `_facility_plan_keys` in cli/build_injectors.py, from `bluesky.devices_file`
-      in the build profile; defaults to `data/bluesky_devices.yml`. A relative
-      path resolves against the rendered config's own directory (so it travels
-      with the built project); an absolute path is operator-owned and read
-      as-is. `rendered: false` because no shipped config.yml.j2 renders it —
-      the injector does — which is what would otherwise trip the phantom-key
-      check.
-    default: data/bluesky_devices.yml
   services.openobserve: {evidence: 'get\("openobserve", \{\}\)', default: {}}
   services.openobserve.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build injector writes ./services/openobserve"}
   services.openobserve.port: {evidence: 'services\.openobserve\.port', default: derived, default_note: the layout's openobserve slot at this deployment's port base}
@@ -447,27 +390,20 @@ keys:
     default: derived
     default_note: the layout's graphdb_http slot at this deployment's port base
   services.graphdb.ttl_path:
+    rendered: false
     evidence: '_optional_text\(block\.get\("ttl_path"\)'
     note: >-
-      Optional RDF/Turtle corpus the store is seeded from; unset brings the
-      store up bootstrapped but empty. Kept verbatim by
-      GraphdbServiceConfig.ttl_path and resolved against the config file's
-      directory by its consumers, per the `facility_knowledge.bundle_path` rule
-      — resolving it against the process cwd would give a deploy and a CLI verb
-      two different files from one config value.
-    default: null
-  services.graphdb.index_path:
-    rendered: false
-    evidence: 'block\.get\("index_path"\)'
-    note: >-
-      DuckDB search index derived from `ttl_path` at build time, read by the
-      channel explorer's search, the channel roster and the agent's keyword
-      tool instead of querying the store. Resolved against the config file's
-      directory like `ttl_path`, and for the same reason: the build writes it
-      into the `data/` tree it assembled there. Left unset it resolves to the
-      default below, so a deployment moves the index by naming this key once
-      and every consumer follows.
-    default: ./data/channel_databases/graph.duckdb
+      RDF/Turtle corpus the store is seeded from and the search index is
+      derived from. Kept verbatim by GraphdbServiceConfig.ttl_path and resolved
+      against the config file's directory by its consumers, per the
+      `facility_knowledge.bundle_path` rule — resolving it against the process
+      cwd would give a deploy and a CLI verb two different files from one
+      config value. A rendered block without it is a render defect the deploy
+      refuses.
+    default: derived
+    default_note: >-
+      ./data/graph/facility.ttl, the graph view the build writes; rendered into
+      every services.graphdb block that names no corpus
   services.graphdb.heap_initial_size:
     evidence: 'block\.get\("heap_initial_size"\)'
     note: >-
@@ -906,16 +842,38 @@ keys:
       .claude/hooks/hook_debug.jsonl, which is what the web terminal's Safety
       panel hook feed reads; false writes neither.
 
+  # ── Simulation ──────────────────────────────────────────────────────
+  simulation: {evidence: 'rendered_config\.get\("simulation"\)', default: {}}
+  simulation.models:
+    all-templates: true
+    evidence: 'requested = simulation\.get\("models"\)'
+    note: null or absent = every model in the facility file; [texture] and [] = no physics
+    default: null
+  simulation.tick_s:
+    all-templates: true
+    evidence: 'resolve_tick_s\('
+    note: seconds between the simulator's ticks; a value at or below 0 stops the build
+    default: 1.0
+  simulation.default_scenarios:
+    evidence: '\.get\("default_scenarios"\)'
+    note: >-
+      Per-preset: control-assistant alone states it ([rf-thermal]), the one
+      preset whose facility tree ships scenarios. Read at deploy time by
+      `simulation.apply.activate_default_scenarios`, only while the deployment
+      has no scenario state.
+    default: []
+
   # ── Control system ──────────────────────────────────────────────────
   control_system: {evidence: 'get_config_value\("control_system", \{\}\)', default: {}}
   control_system.type:
-    evidence: 'get_config_value\("control_system\.type", "mock"\)'
+    evidence: 'get_config_value\("control_system\.type", None\)'
     default: required
     default_note: >-
-      The types a project can be built on are `mock`, `epics`,
-      `virtual_accelerator`, `doocs` and `tango`. `live_standin` is settable
-      on a deployment that has a stand-in, and `osprey init` never offers it,
-      so a fresh project cannot start there.
+      The types a project can be built on are `epics`, `virtual_accelerator`,
+      `doocs` and `tango`. `live_standin` is settable on a deployment that has
+      a stand-in, and `osprey init` never offers it, so a fresh project cannot
+      start there. A section that states no type is the simulator served in
+      process, which dials nothing.
   control_system.writes_enabled:
     evidence: '"control_system\.writes_enabled"'
     note: >-
@@ -928,7 +886,7 @@ keys:
       `WRITES_ENABLED_KEY` and every refusal quotes back to the operator.
       Escaped, so the vacuity cap does not apply.
     default: false
-  control_system.limits_checking: {evidence: 'limits_checking', default: no-fallback, default_note: "an absent block states no posture; both leaves read as unstated and every write path then refuses unlisted channels"}
+  control_system.limits_checking: {evidence: 'limits_checking', default: no-fallback, default_note: "an absent block states no posture; both leaves read as unstated and limits checking is off"}
   control_system.limits_checking.enabled:
     evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
     note: >-
@@ -948,6 +906,7 @@ keys:
     default_note: >-
       an unstated leaf is not False — it means the deployment configured no limits checking, and the write paths fail closed
   control_system.limits_checking.database_path:
+    rendered: false
     evidence: 'config_lookup\(LIMITS_DATABASE_CONFIG_KEY, None\)'
     note: >-
       Deliberately NOT per connector type: a deployment mounts one limits
@@ -957,21 +916,27 @@ keys:
       other consumer (the compose mount, the build's parse, the bridge's
       startup gate, the roster, the knowledge graph) resolves through; the key
       is spelled once, as `LIMITS_DATABASE_CONFIG_KEY` beside it in
-      `limits_validator.py`, and that call is the anchor.
-    default: null
-  control_system.limits_checking.allow_unlisted_channels:
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
-    note: >-
-      Anchored on the leaf read in `_block_limits_posture` rather than on the
-      bare word: `allow_unlisted_channels` now travels as a policy field and as
-      an answering key through the validator, the tool layer and the roster, so
-      a bare match no longer proves a config reader exists. That one reader
-      serves the per-type entries below too. Same absent/unreadable reading as
-      `enabled` above, and only literal `true` lets a write reach a channel the
-      limits database does not list.
-    default: no-fallback
+      `limits_validator.py`, and that call is the anchor. A profile that
+      states the key, at either scope, is refused by
+      `_check_limits_database_path` in `build_profile_load.py`.
+    default: derived
     default_note: >-
-      an unstated leaf is not False — the write paths fail closed and refuse unlisted channels
+      the build writes `data/channel_limits.json`, the file the limits view renders from `data/facility/limits.yaml`, into every render that states a limits block; a profile that states the key, at either scope, stops the build (`profile-invalid`)
+  control_system.limits_checking.mode:
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
+    note: >-
+      The limits mode, one of `exclusive` or `optional`. `exclusive`: only
+      channels in the limits database can be written. `optional`: a channel in
+      the database is held to its limits and every other channel is written
+      with no limits. Anchored on the leaf read in `_block_limits_posture`
+      rather than on the bare word: `mode` travels as a policy field and as an
+      answering key through the validator, the tool layer and the roster, so a
+      bare match would not prove a config reader exists. That one reader
+      serves the per-type entries below too. A leaf absent here is unset; one
+      PRESENT but not one of the two values makes the block incomplete, the
+      same reading `enabled` above gets.
+    default: no-fallback
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.write_tools:
     rendered: false
     evidence: 'control_system\.get\("write_tools", \[\]\)'
@@ -1000,7 +965,7 @@ keys:
       display-metadata mint point; state-file and roster readers render the
       name they are handed and never read this key again.
     default: {}
-  control_system.target_display_names.live: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Real machine', or 'Demo' when the resolved connector type is simulated"}
+  control_system.target_display_names.live: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Real machine'"}
   control_system.target_display_names.standin: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Rehearsal' when a stand-in is deployed, else the machine name"}
   control_system.target_display_names.va: {covered-by: control_system.target_display_names, rendered: false, default: derived, default_note: "'Simulator'"}
   control_system.read_inline_max_elements:
@@ -1010,30 +975,6 @@ keys:
     evidence: '"control_system\.channel_read_artifact_retention"'
     default: 20
   control_system.connector: {covered-by: control_system, default: n/a}
-  control_system.connector.mock: {covered-by: control_system.connector, default: n/a}
-  control_system.connector.mock.simulation_file: {evidence: 'simulation_file', default: null}
-  # The mock connector's two tuning knobs. `rendered: false` since the app
-  # templates went: the presets ship the mock connector at the connector's own
-  # defaults and state neither knob, so a deployment that wants a slower or
-  # noisier machine authors them itself.
-  control_system.connector.mock.response_delay_ms: {rendered: false, evidence: 'response_delay_ms', default: 10}
-  control_system.connector.mock.noise_level: {rendered: false, evidence: 'noise_level', default: 0.01}
-  control_system.connector.virtual_accelerator.noise_level:
-    rendered: false
-    evidence: 'va_block\.get\("noise_level", mock_block\.get\("noise_level"\)\)'
-    note: >-
-      Fractional noise on the readings the simulator synthesises — the one knob
-      deciding whether a reading looks alive or flat, so it is a config key and
-      not only a container variable. The build renders it as the default of the
-      compose file's `VA_NOISE_LEVEL` interpolation, which is why the evidence
-      anchors on the resolver in `deployment/compose_generator.py` rather than
-      on the entrypoint that consumes the variable: an exported VA_NOISE_LEVEL
-      still outranks it, so the variable is the carrier and this key is the
-      surface. Commented in `control-assistant`, so nothing renders it.
-    default: derived
-    default_note: >-
-      falls through to control_system.connector.mock.noise_level, and then to the
-      entrypoint's own 0.01
   control_system.connector.epics: {covered-by: control_system.connector, default: n/a}
   control_system.connector.epics.timeout_s: {covered-by: control_system.connector.epics, default: 5.0}
   control_system.connector.epics.step_read_timeout_s:
@@ -1104,12 +1045,22 @@ keys:
       unset leaves PyTango reading the TANGO_HOST already in the container's environment
   control_system.connector.tango.timeout_s: {rendered: false, covered-by: control_system.connector.tango, default: 5.0}
   control_system.connector.virtual_accelerator: {covered-by: control_system.connector, default: n/a}
+  control_system.connector.virtual_accelerator.serving:
+    evidence: 'SERVING_LEAF = "serving"'
+    default: served
+    note: >-
+      `served` is the simulator's container over Channel Access; `in_process`
+      runs it inside the process that asks, with no network. A section that
+      states no type is the simulator in process, and the leaf is not read.
+  # The in-process simulator's one tuning knob. `rendered: false`: the presets
+  # serve the simulator in process at the connector's own delay and do not
+  # state it, so a deployment that wants a slower machine authors it itself.
+  control_system.connector.virtual_accelerator.response_delay_ms: {rendered: false, evidence: 'response_delay_ms', default: 10}
   control_system.connector.virtual_accelerator.timeout_s: {covered-by: control_system.connector.virtual_accelerator, default: 5.0}
   # The VA connector subclasses the EPICS one and hands its own block to
   # `super().connect()`, so the step-read budget above is read from this type's
   # block too; the evidence is that one site.
   control_system.connector.virtual_accelerator.step_read_timeout_s: {rendered: false, covered-by: control_system.connector.virtual_accelerator, default: 2.0}
-  control_system.connector.virtual_accelerator.simulation_file: {evidence: 'simulation_file', default: derived, default_note: falls through to control_system.connector.mock.simulation_file}
   control_system.connector.virtual_accelerator.gateways:
     evidence: 'gateways = config\.get\("gateways"\)'
     note: >-
@@ -1252,6 +1203,7 @@ keys:
     default: derived
     default_note: falls through to control_system.writes_enabled
   control_system.connector.virtual_accelerator.limits_checking:
+    rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
     note: >-
       Per-connector-type override of the deployment-wide
@@ -1259,25 +1211,23 @@ keys:
       grew a per-type shape at all: a deployment running a live machine beside
       a virtual accelerator holds one limits posture per machine, not one per
       deployment. It overrides WHOLE -- a block that is present states both
-      leaves below and then answers alone, inheriting nothing -- so a global
-      relaxation meant for a simulator can never complete a half-written block
-      into permission on hardware. Only the two leaves below: `database_path`
+      leaves below and then answers alone, inheriting nothing -- so a
+      deployment-wide `optional` meant for a simulator can never complete a
+      half-written block into permission on hardware. Only the two leaves below: `database_path`
       stays deployment-wide because a deployment mounts one limits database.
-      `control-assistant` is the one shipped preset that writes this block, and
-      it writes both leaves LIVE, so the path is in the rendered union and an
-      audit of a built deployment finds them. The permissive pair it ships is
-      about the simulator only, which is why the per-type shape exists.
+      No shipped preset writes this block.
       The reader is `type_limits_posture` in `osprey_connectors.types`, and the
       evidence is the line in it that takes this block out of the resolved
       connector block -- disjoint from the deployment-wide read in
       `_global_limits_posture` (`section[...]`), so each entry dies with exactly
       its own reader. The epics and live_standin entries below cite the same
       site on purpose: one type-keyed resolver serves every connector type, a
-      custom connector's dotted module path included. No `mock` or `doocs`
-      entry, because no shipped preset writes either block.
+      custom connector's dotted module path included. No `doocs` entry,
+      because no shipped preset writes that block.
     default: derived
     default_note: falls through to control_system.limits_checking
   control_system.connector.virtual_accelerator.limits_checking.enabled:
+    rendered: false
     evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
     note: >-
       Whether limits checking runs for this connector type. Literal `true` or
@@ -1291,34 +1241,25 @@ keys:
       configured" and wave every write through. The evidence is the shared leaf
       read in `_block_limits_posture`, which answers for the deployment-wide
       entry above too; the per-type branch is pinned by the parent entry's
-      block lookup. `control-assistant` ships this leaf live as `true`, so it
-      is in the rendered union; the epics and live_standin siblings below stay
-      commented and keep `rendered: false`.
+      block lookup.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
-  control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels:
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+  control_system.connector.virtual_accelerator.limits_checking.mode:
+    rendered: false
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
-      Whether channels the limits database does not list may be written for
-      this connector type. Same reading and the same shared reader as
-      `enabled` above, and write paths allow only on literal `true`.
-      This is the leaf the per-type block was added for: a facility running a
-      live machine beside a simulator could not hold `false` for the machine
-      and `true` for the simulator, and carried the relaxation deployment-wide
-      as a marked deviation instead. `control-assistant` ships it live as
-      `true` — the simulator-only relaxation the block exists for — so it is in
-      the rendered union.
+      The limits mode for this connector type alone, with the same two values
+      and the same shared reader as the deployment-wide leaf above. A per-type
+      block states both leaves and then answers alone.
     default: no-fallback
-    default_note: an unstated leaf is not False — the write paths fail closed
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.connector.epics.limits_checking:
     rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
     note: >-
       Same block, same whole-block override semantics and the same single
-      type-keyed reader for the epics block, written commented in
-      `control-assistant` so no preset's resolved config carries it.
-      Relaxing limits against a live machine is a facility decision that cannot
-      ship pre-made, so no shipped preset writes this one.
+      type-keyed reader for the epics block. No shipped preset writes it: a
+      live machine's limits posture is the facility's to state.
     default: derived
     default_note: falls through to control_system.limits_checking
   control_system.connector.epics.limits_checking.enabled:
@@ -1329,22 +1270,20 @@ keys:
       for the epics block.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
-  control_system.connector.epics.limits_checking.allow_unlisted_channels:
+  control_system.connector.epics.limits_checking.mode:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
-      Same leaf, same absent/unreadable reading and the same shared reader
-      for the epics block. Setting it `true` is what makes a live target stop
-      counting
-      as strict, which the target-switch gate refuses by naming this key.
+      The same leaf, same absent/unreadable reading and the same shared reader,
+      for the epics block.
     default: no-fallback
-    default_note: an unstated leaf is not False — the write paths fail closed
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.connector.doocs.limits_checking:
     rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
     note: >-
       The same block reached through the doocs block, overriding whole the way
-      every per-type block does. Commented in `control-assistant`: a DOOCS
+      every per-type block does. No shipped preset writes it: a DOOCS
       machine's limits posture is the facility's to state.
     default: derived
     default_note: falls through to control_system.limits_checking
@@ -1356,21 +1295,21 @@ keys:
       for the doocs block.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
-  control_system.connector.doocs.limits_checking.allow_unlisted_channels:
+  control_system.connector.doocs.limits_checking.mode:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
-      The same leaf and the same shared reader for the doocs block; the write
-      paths allow only on a literal `true`.
+      The same leaf, same absent/unreadable reading and the same shared reader,
+      for the doocs block.
     default: no-fallback
-    default_note: an unstated leaf is not False — the write paths fail closed
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.connector.tango.limits_checking:
     rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
     note: >-
       The same block reached through the tango block, with the same
-      whole-block override semantics. Commented in `control-assistant` for the
-      same reason the doocs one is.
+      whole-block override semantics. No shipped preset writes it, for the
+      same reason as the doocs one.
     default: derived
     default_note: falls through to control_system.limits_checking
   control_system.connector.tango.limits_checking.enabled:
@@ -1381,14 +1320,14 @@ keys:
       for the tango block.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
-  control_system.connector.tango.limits_checking.allow_unlisted_channels:
+  control_system.connector.tango.limits_checking.mode:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
-      The same leaf and the same shared reader for the tango block; the write
-      paths allow only on a literal `true`.
+      The same leaf, same absent/unreadable reading and the same shared reader,
+      for the tango block.
     default: no-fallback
-    default_note: an unstated leaf is not False — the write paths fail closed
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
   control_system.connector.live_standin.limits_checking:
     rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
@@ -1400,7 +1339,7 @@ keys:
       one inside any other `control_system.connector.<type>` block. The
       stand-in is a connector type of its own, so it does NOT inherit the
       virtual_accelerator block a deployment wrote -- a rehearsal target that
-      silently took the simulator's relaxation would be the one deployment
+      silently took the simulator's mode would be the one deployment
       where the posture an operator reads is not the posture that runs.
     default: derived
     default_note: falls through to control_system.limits_checking
@@ -1413,16 +1352,15 @@ keys:
       types.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
-  control_system.connector.live_standin.limits_checking.allow_unlisted_channels:
+  control_system.connector.live_standin.limits_checking.mode:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
       The other leaf of the derived block. Same absent/unreadable reading and
-      the same shared reader; the shipped `control-assistant` preset writes no
-      live_standin block, so a stand-in target there answers the
-      deployment-wide posture and stays strict where the deployment is.
+      the same shared reader; a deployment that writes no live_standin block
+      has its stand-in target answer the deployment-wide posture.
     default: no-fallback
-    default_note: an unstated leaf is not False — the write paths fail closed
+    default_note: an unstated mode is not optional — the write paths fail closed and refuse a channel with no limits record
 
   # ── Control-system target switch ────────────────────────────────────
   control_system.target_switch:
@@ -1908,46 +1846,20 @@ keys:
 
   # ── Channel finder ──────────────────────────────────────────────────
   channel_finder: {evidence: 'channel_finder = config\.get\("channel_finder"', default: null}
-  channel_finder.channel_name_generation.llm_model.provider:
-    rendered: false
-    evidence: 'llm_config\.get\("provider"\)'
-    note: Documented as a commented override in the presets.
-    default: no-fallback
-    default_note: the channel namer refuses to run without a provider
-  channel_finder.channel_name_generation.llm_model.model_id:
-    rendered: false
-    evidence: 'llm_config\.get\("model_id"\)'
-    note: Documented as a commented override in the presets.
-    default: derived
-    default_note: the deployment's main model
-  channel_finder.channel_name_generation.llm_model.max_tokens:
-    rendered: false
-    evidence: 'llm_config\.get\("max_tokens", 1000\)'
-    note: Documented as a commented override in the presets.
-    default: 1000
   channel_finder.pipeline_mode: {evidence: 'pipeline_mode', default: derived, default_note: "the paradigm implied by whichever pipeline database paths are configured"}
   channel_finder.pipelines: {covered-by: channel_finder, default: {}}
   channel_finder.pipelines.in_context: {covered-by: channel_finder.pipelines, default: {}}
   channel_finder.pipelines.in_context.database: {covered-by: channel_finder.pipelines.in_context, default: {}}
-  channel_finder.pipelines.in_context.database.type: {covered-by: channel_finder.pipelines.in_context.database, default: template}
   channel_finder.pipelines.in_context.database.path: {covered-by: channel_finder.pipelines.in_context.database, default: ''}
-  channel_finder.pipelines.in_context.database.presentation_mode:
-    evidence: 'presentation_mode'
-    note: >-
-      Preview rendering only — honoured by the preview/validate paths; the MCP
-      server and web UI build their own prompt text and never consult it.
-    default: template
   channel_finder.pipelines.in_context.subagent_model: {evidence: 'subagent_model', default: derived, default_note: the outer agent's claude_code.provider and default_model}
   channel_finder.pipelines.hierarchical: {covered-by: channel_finder.pipelines, default: {}}
   channel_finder.pipelines.hierarchical.database: {covered-by: channel_finder.pipelines.hierarchical, default: {}}
-  channel_finder.pipelines.hierarchical.database.type: {covered-by: channel_finder.pipelines.hierarchical.database, default: template}
   channel_finder.pipelines.hierarchical.database.path: {covered-by: channel_finder.pipelines.hierarchical.database, default: ''}
   channel_finder.pipelines.hierarchical.feedback: {covered-by: channel_finder.pipelines.hierarchical, default: {}}
   channel_finder.pipelines.hierarchical.feedback.enabled: {covered-by: channel_finder.pipelines.hierarchical.feedback, default: false}
   channel_finder.pipelines.hierarchical.feedback.store_path: {evidence: 'store_path', default: var/agent_data/feedback/hierarchical_feedback.json}
   channel_finder.pipelines.middle_layer: {covered-by: channel_finder.pipelines, default: {}}
   channel_finder.pipelines.middle_layer.database: {covered-by: channel_finder.pipelines.middle_layer, default: {}}
-  channel_finder.pipelines.middle_layer.database.type: {covered-by: channel_finder.pipelines.middle_layer.database, default: template}
   channel_finder.pipelines.middle_layer.database.path: {covered-by: channel_finder.pipelines.middle_layer.database, default: ''}
   channel_finder.pipelines.middle_layer.database.duckdb_path: {covered-by: channel_finder.pipelines.middle_layer.database, default: null}
   channel_finder.query_max_rows:
@@ -1965,9 +1877,10 @@ keys:
     evidence: 'channel_finder\.benchmark\.dataset_path'
     note: >-
       control_assistant ONLY, deliberately. It is the only bundle shipping the
-      query corpus; materialize_tier_artifacts no-ops for bundles with no
-      data/channel_databases/tiers/ subtree, so a dataset_path in the other
-      templates would name a phantom. The channel-finder app runs the command
+      query corpus; the build copies the mode's benchmark query file to
+      data/benchmarks/queries.json, and a bundle that ships none has no
+      queries.json, so a dataset_path in the other templates would name a
+      phantom. The channel-finder app runs the command
       via --queries-path instead.
     default: {}
   channel_finder.benchmark.dataset_path:
@@ -1981,11 +1894,11 @@ keys:
   ariel.demo_narrative:
     evidence: 'DEMO_NARRATIVE_KEY = "demo_narrative"'
     note: >-
-      A directory of scenario narratives (one subdirectory per scenario, each a
-      logbook.json and the pictures it attaches) that `osprey up` seeds into an
-      empty logbook of a deployment with no simulation, and `osprey ariel
-      quickstart` seeds and enhances. Live in ariel-standalone, whose init
-      materializes it from the control-assistant scenario bundles.
+      `all` or a list of scenario names whose logbook entries, read from the
+      built simulator view with the pictures they attach, `osprey up` seeds into
+      an empty logbook in place of the active set's, and `osprey ariel
+      quickstart` seeds and enhances. A directory value is refused. Live in
+      ariel-standalone as `all`.
     default: null
   ariel.ingestion:
     rendered: false
@@ -3054,7 +2967,12 @@ keys:
   modules.web_terminals.image_source:
     evidence: 'web_terminals\.get\("image_source"\) == "local"'
     default: registry
-  modules.web_terminals.default_persona: {covered-by: modules.web_terminals, default: null}
+  modules.web_terminals.default_persona:
+    covered-by: modules.web_terminals
+    default: no-fallback
+    default_note: >-
+      resolve_personas refuses an enabled web_terminals block with no
+      default_persona (lint web_terminals.requires_catalog)
   modules.web_terminals.auth: {evidence: 'as_dict\(web_terminals\.get\("auth"\)\)', default: {}}
   modules.web_terminals.auth.method:
     evidence: 'method if isinstance\(method, str\) and method else "token"'
@@ -3152,7 +3070,10 @@ keys:
       read, never which tiers a facility declares. Each entry's leaves
       (`project`, `project_path`, `build_profile`, `landing_group`) are read by
       personas.resolve_personas from the entry it was handed.
-    default: {}
+    default: no-fallback
+    default_note: >-
+      resolve_personas refuses an enabled web_terminals block with no personas
+      catalog (lint web_terminals.requires_catalog)
   modules.web_terminals.users:
     evidence: 'normalize_users\(web_terminals\.get\("users"\)\)'
     note: >-
@@ -3185,6 +3106,14 @@ deleted:
 - approval.tools.channel_limits
   # Ledger 7 / 9 / 10 / 11 / 15
 - channel_finder.pipelines.in_context.processing
+  # The in_context index is the build's flat file; there is no loader choice.
+- channel_finder.pipelines.in_context.database.type
+  # The in_context index has one rendering; there is no preview mode to pick.
+- channel_finder.pipelines.in_context.database.presentation_mode
+  # The hierarchical index is the build's own file; there is no loader choice.
+- channel_finder.pipelines.hierarchical.database.type
+  # The middle-layer index is the build's own file; there is no loader choice.
+- channel_finder.pipelines.middle_layer.database.type
 - channel_finder.explicit_validation_mode
 - channel_finder.pipelines.hierarchical.tree_preview
 - channel_finder.benchmark.execution
@@ -3217,17 +3146,29 @@ deleted:
 - applications
 - current_application
 - configurable
-  # Task 6.3 — retired facility spelling. The READER fallback in
-  # utils/facility.resolve_facility_name stays deliberately; no TEMPLATE may
-  # ship this key again.
+  # The top-level spelling of the facility's display name; no TEMPLATE may ship it.
 - facility_name
+  # The facility's display name is the build's facility identity, its device
+  # vocabulary is the build's facts, and the clock is system.timezone: none is
+  # a facility config key.
+- facility.name
+  # No orphan site: the key and its reader both postdate the back-test
+  # baseline, so no regex for them can match there.
+- facility.ontology
+- facility.timezone
+  # The worker's device file is the build's Bluesky view; the lane key and its
+  # reader both postdate the baseline, so there is no orphan site.
+- services.bluesky.devices_file
+  # The graph search index sits at data/channel_databases/graph.duckdb under the
+  # render, a fixed path every reader resolves; nothing moves it.
+- services.graphdb.index_path
   # ── Leaves removed by derive / consolidate / replace items ──────────
   # These have NO deleted ancestor: the parent block legitimately survives (or
   # survives as a commented override stanza), so only the LEAF is banned. Each
   # was verified present at merge-base ccf324d7 and absent on the branch.
-  # Ledger 39 — the mock_archiver simulation_file is now DERIVED from
-  # control_system.connector.<type>.simulation_file. The `mock_archiver:` block
-  # itself stays as a commented override example, so only the leaf is listed.
+  # The mock archiver replays history from the build's simulator view and takes
+  # no file setting. The commented `archiver.type: mock_archiver` example stays,
+  # so only the leaf is listed.
 - archiver.mock_archiver.simulation_file
   # Ledger 24+35 — the ARIEL DSN is derived from services.postgresql. An
   # explicit `uri` still WINS when set, and the commented external-DB override
@@ -3238,6 +3179,12 @@ deleted:
 - ariel.enhancement_modules.semantic_processor.model.provider
   # Ledger 26 — mock connector knob nothing read (project template only).
 - control_system.connector.mock.simulate_delays
+  # The simulator in process is `control_system.type: virtual_accelerator` with
+  # `control_system.connector.virtual_accelerator.serving: in_process`; its delay
+  # is that block's `response_delay_ms`. The build refuses the retired type name
+  # and any block under it, naming the new spelling.
+- control_system.connector.mock
+- control_system.connector.mock.response_delay_ms
   # Ledger 56 — VA gateway ports are default-filled from
   # services.virtual_accelerator.port. The commented override example stays; the
   # EPICS gateway ports are untouched and remain live.
@@ -3254,8 +3201,7 @@ deleted:
 - logbook.composition.default_tier
   # Preset-config surface: a commented `# system.facility_name: My Facility`
   # dotted override in profiles/presets/control-assistant.yml at merge-base,
-  # removed by this branch. Distinct from the dispatch-profile `facility_name`
-  # field (build_profile_schema.py:166), which is a different surface and stays.
+  # removed by this branch.
 - system.facility_name
   # The embedding index is HNSW, which takes no list count, so there is no
   # number left for a deployment to author.
@@ -3264,6 +3210,29 @@ deleted:
 - archiver.mongodb_archiver.username
 - archiver.mongodb_archiver.password_env
 - archiver.mongodb_archiver.timeout
+  # The boolean became `limits_checking.mode: exclusive | optional`, at both scopes.
+- control_system.limits_checking.allow_unlisted_channels
+- control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels
+- control_system.connector.epics.limits_checking.allow_unlisted_channels
+- control_system.connector.doocs.limits_checking.allow_unlisted_channels
+- control_system.connector.tango.limits_checking.allow_unlisted_channels
+- control_system.connector.live_standin.limits_checking.allow_unlisted_channels
+  # The CSV database builder and its LLM channel namer are gone; nothing names a
+  # model for channel names.
+- channel_finder.channel_name_generation.llm_model.provider
+- channel_finder.channel_name_generation.llm_model.model_id
+- channel_finder.channel_name_generation.llm_model.max_tokens
+  # Container names and persona projects come from the project name; the
+  # knowledge graph's identifiers come from the facility file's identity code.
+- facility.prefix
+  # The noise a simulated reading carries belongs to the simulator view the
+  # build writes; neither connector nor the simulator's container takes a level.
+- control_system.connector.mock.noise_level
+- control_system.connector.virtual_accelerator.noise_level
+  # Every connector serves the simulator view the build writes from the
+  # facility file; no connector block names a model file to load.
+- control_system.connector.mock.simulation_file
+- control_system.connector.virtual_accelerator.simulation_file
 
 # ---------------------------------------------------------------------------
 # deleted_commented_examples — the keys above whose COMMENTED example in a
@@ -3293,6 +3262,35 @@ deleted_commented_examples:
 # regex here must match ZERO times under the listed root (failure mode 4).
 # ---------------------------------------------------------------------------
 orphan_sites:
+  control_system.connector.mock:
+  - root:
+    - src/osprey/templates
+    - src/osprey/profiles/presets
+    regex: '^\s+mock:\s*$|connector\.mock\b'
+    back_test: {base_matches: 3, branch_matches: 0}
+    why: >-
+      a template or preset block keyed `mock:` under the connector table, or a
+      line naming `control_system.connector.mock`.
+  control_system.connector.mock.response_delay_ms:
+  - root:
+    - src/osprey/templates
+    - src/osprey/profiles/presets
+    regex: 'connector\.mock\.response_delay_ms|configure: response_delay_ms'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: >-
+      a template or preset line stating or advertising the mock block's delay.
+  facility.prefix:
+  - root: src/osprey/profiles/presets
+    regex: 'facility\.prefix'
+    back_test: {base_matches: 2, branch_matches: 0}
+    why: >-
+      the live `facility.prefix: ca` override in control-assistant and the
+      commented examples in the standalone presets. Rooted at the presets so
+      this manifest's own `deleted:` entry is out of scope.
+  - root: src/osprey/deployment/web_terminals
+    regex: 'facility\.prefix'
+    back_test: {base_matches: 3, branch_matches: 0}
+    why: the web-terminal lint and persona readers of the key, and their docstrings.
   approval.tools.channel_limits:
   - root: src/osprey/templates
     regex: '^\s+channel_limits:\s'
@@ -3354,6 +3352,55 @@ orphan_sites:
     why: >-
       the deleted processing block's own leaf names — `processing` alone is
       far too common to anchor on.
+  channel_finder.pipelines.in_context.database.type:
+  - root: src/osprey/mcp_server/channel_finder_in_context
+    regex: 'db_config\.get\("type"'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: >-
+      the in_context server's loader choice. Rooted at the in_context server so
+      middle_layer's rendered `type:` line stays out of scope.
+  - root:
+    - src/osprey/templates/project
+    - src/osprey/templates/apps
+    regex: '"template" \(device-family expansion\) or "flat"'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: >-
+      the rendered in_context `type:` line and its comment, absent from the
+      project template and the app templates alike.
+  channel_finder.pipelines.in_context.database.presentation_mode:
+  - root: src/osprey/services/channel_finder/tools
+    regex: 'presentation_mode'
+    back_test: {base_matches: 9, branch_matches: 0}
+    why: >-
+      the preview and validate tools' reads of the key and of a database
+      file's own `presentation_mode` field, the key's last readers; rooted at
+      the tools, where every read lived.
+  - root:
+    - src/osprey/templates/project
+    - src/osprey/templates/apps
+    regex: 'presentation_mode: template'
+    back_test: {base_matches: 2, branch_matches: 0}
+    why: >-
+      the rendered in_context `presentation_mode:` line, absent from the
+      project template and the app templates alike.
+  channel_finder.pipelines.hierarchical.database.type:
+  - root:
+    - src/osprey/templates/project
+    - src/osprey/templates/apps
+    regex: 'type: hierarchical\s+# Always "hierarchical"'
+    back_test: {base_matches: 2, branch_matches: 0}
+    why: >-
+      the rendered hierarchical `type:` line and its comment, absent from the
+      project template and the app templates alike; no loader reads the key.
+  channel_finder.pipelines.middle_layer.database.type:
+  - root:
+    - src/osprey/templates/project
+    - src/osprey/templates/apps
+    regex: 'type: middle_layer\s+# Always "middle_layer"'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: >-
+      the rendered middle_layer `type:` line and its comment, absent from the
+      project template and the app templates alike; no loader reads the key.
   channel_finder.benchmark.execution:
   - root: src/osprey
     regex: 'runs_per_query.*delay_between_runs|continue_on_error'
@@ -3414,9 +3461,113 @@ orphan_sites:
     regex: '^facility_name:'
     why: >-
       the retired top-level spelling, now migrated to the canonical
-      `facility:` block in every template. The READER fallback in
-      utils/facility.py is deliberate and must NOT be removed — this regex is
-      scoped to templates only for exactly that reason.
+      `facility:` block in every template.
+  facility.name:
+  - root:
+    - src/osprey
+    - docs/source
+    regex: 'facility\.name\b'
+    why: >-
+      the retired display-name key: a preset line, a reader, a help example or
+      a reference row still spelling it. The facility identity's `name` is the
+      one display name.
+  facility.timezone:
+  - root: src/osprey/deployment/web_terminals
+    regex: 'facility\.get\("timezone"\)'
+    why: >-
+      the web-terminal readers that took the clock from the facility block;
+      system.timezone is the one clock key.
+  control_system.limits_checking.allow_unlisted_channels:
+  - root: src/osprey
+    regex: 'allow_unlisted_channels'
+    why: >-
+      the retired boolean leaf, at either scope: a reader, a preset line, a
+      template comment or a tool reply still spelling it. The bare token,
+      because `limits_checking.mode` replaced it on every surface and nothing
+      under src/osprey has a reason to name it.
+  channel_finder.channel_name_generation.llm_model.provider:
+  - root:
+    - src/osprey
+    - docs/source
+    regex: 'channel_name_generation\.llm_model\.provider\b|llm_config\.get\("provider"'
+    why: >-
+      the retired channel-namer key: the namer's read of it, a preset comment
+      or a reference row still spelling it.
+  channel_finder.channel_name_generation.llm_model.model_id:
+  - root:
+    - src/osprey
+    - docs/source
+    regex: 'channel_name_generation\.llm_model\.model_id\b|llm_config\.get\("model_id"'
+    why: >-
+      the retired channel-namer key: the namer's read of it, a preset comment
+      or a reference row still spelling it.
+  channel_finder.channel_name_generation.llm_model.max_tokens:
+  - root:
+    - src/osprey
+    - docs/source
+    regex: 'channel_name_generation\.llm_model\.max_tokens\b|llm_config\.get\("max_tokens"'
+    why: >-
+      the retired channel-namer key: the namer's read of it, a preset comment
+      or a reference row still spelling it.
+
+  control_system.connector.mock.noise_level:
+  - root:
+    - src/osprey/connectors/control_system
+    - packages/osprey-connectors/src/osprey_connectors/control_system
+    regex: 'noise_level'
+    back_test: {base_matches: 5, branch_matches: 0}
+    why: >-
+      the mock connector's read of the knob, its docstring and its example.
+  - root:
+    - src/osprey/templates
+    - src/osprey/profiles/presets
+    regex: 'noise_level'
+    back_test: {base_matches: 2, branch_matches: 0}
+    why: >-
+      a template or preset line stating or advertising the knob.
+  control_system.connector.virtual_accelerator.noise_level:
+  - root:
+    - src/osprey/templates
+    - src/osprey/deployment
+    regex: 'noise_level|VA_NOISE_LEVEL'
+    back_test: {base_matches: 2, branch_matches: 0}
+    why: >-
+      the generator's resolver of the key, the context key it filled and the VA
+      compose variable it rendered. The key postdates the back-test baseline,
+      so the baseline matches are the templates' noise_level mentions, which
+      the same regex keeps out of every template.
+  control_system.connector.mock.simulation_file:
+  - root:
+    - src/osprey/connectors/control_system
+    - packages/osprey-connectors/src/osprey_connectors/control_system
+    regex: 'simulation_file'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: the mock connector's read of the model file.
+  - root:
+    - src/osprey/templates
+    - src/osprey/profiles/presets
+    regex: 'simulation_file'
+    back_test: {base_matches: 6, branch_matches: 0}
+    why: >-
+      a template, preset or bundled skill line stating or advertising a model
+      file for any connector.
+  control_system.connector.virtual_accelerator.simulation_file:
+  - root:
+    - src/osprey/simulation
+    - packages/osprey-connectors/src/osprey_connectors/simulation
+    regex: 'simulation_file'
+    back_test: {base_matches: 18, branch_matches: 0}
+    why: >-
+      the type-aware lookup that read the model file from the active
+      connector's block, falling through to the mock one.
+  - root:
+    - src/osprey/templates
+    - src/osprey/profiles/presets
+    regex: 'simulation_file'
+    back_test: {base_matches: 6, branch_matches: 0}
+    why: >-
+      a template or preset line stating the Virtual Accelerator connector's
+      model file.
 
 # ---------------------------------------------------------------------------
 # render_contexts — the matrix the guard renders every template under, then
@@ -3458,7 +3609,6 @@ render_contexts:
     # no services, no deployed_services and no per-app blocks any more.
     channel_finder_mode: [in_context, hierarchical, middle_layer]
     ariel_server_on: [true, false]
-    middle_layer_duckdb: [true, false]
     web_selection:
     - panels: all          # every builtin the registry declares
       default_panel: ariel
@@ -3494,13 +3644,12 @@ render_contexts:
   self_test_keys:
     enable_in_context: channel_finder.pipelines.in_context.subagent_model
     enable_hierarchical: channel_finder.pipelines.hierarchical.feedback.store_path
-    enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
-    middle_layer_duckdb: channel_finder.pipelines.middle_layer.database.duckdb_path
+    enable_middle_layer: channel_finder.pipelines.middle_layer.database.duckdb_path
     ariel_server_on: ariel.enhancement_modules.semantic_processor.model.model_id
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 357
+  expected_union_size: 346
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
@@ -3602,14 +3751,6 @@ governed_sets:
 # names across src/ without this exclusion list goes red against intended code.
 # ---------------------------------------------------------------------------
 kept_readers:
-  facility_name_reader:
-    site: src/osprey/utils/facility.py
-    covers: [facility_name]
-    detail: >-
-      resolve_facility_name still honours the retired top-level `facility_name`
-      as a fallback so pre-consolidation configs keep working. The key is banned
-      from TEMPLATES, not from readers — which is why that orphan regex is
-      scoped to src/osprey/templates.
   tree_preview_util:
     site: src/osprey/services/channel_finder
     covers: [channel_finder.pipelines.hierarchical.tree_preview]
@@ -3691,29 +3832,14 @@ absent_paths:
     `from osprey.services.machine_state` or the module path. A content regex
     for it therefore matches 0 both before and after the deletion — it cannot
     distinguish success from failure. Path absence is the only assertion that
-    actually tests this deletion. Note the deliberate asymmetry with
-    `keeps`: the same ledger item both DELETES this module and KEEPS the
-    control_assistant machine_state_channels.json asset, so the two
-    sections guard opposite halves of one change.
+    actually tests this deletion.
 
 # ---------------------------------------------------------------------------
 # keeps — ADDENDUM 3. Assets whose CONTINUED EXISTENCE is load-bearing but
 # which no grep gate protects, because the asset does not contain the string
 # that would be searched for.
 # ---------------------------------------------------------------------------
-keeps:
-- path: src/osprey/templates/apps/control_assistant/data/machine_state_channels.json
-  assert: exists
-  why: >-
-    Feeds VA manifest reconciliation via
-    services/virtual_accelerator/manifest/loaders.load_machine_state_candidate_addresses,
-    surfacing as _metadata.machine_state_reconciliation. The machine_state
-    DELETION's grep gate passes partly for the wrong reason: this file never
-    contains the string `machine_state` in its CONTENT, only in its filename,
-    so a content grep can never protect it. Today only
-    tests/templates/test_machine_state_channels.py and tests/va/test_manifest.py
-    fail on its deletion. An explicit existence assertion makes the dependency
-    visible in the manifest rather than implicit in two test files.
+keeps: []
 
 # ---------------------------------------------------------------------------
 # notes — carried forward from tasks 3.2, 5.1 and 6.3. Not guard rules.
@@ -3727,27 +3853,6 @@ notes:
       takes a model id the provider serves, spelled as the gateway spells it;
       a vendor-routed id with a '/' is a legitimate value for a gateway that
       serves one.
-  prefix_rule_drift:
-    detail: >-
-      RESOLVED. The only place stating facility.prefix must be lowercase alnum
-      plus hyphens, 2-6 chars, as a hard requirement was the facility-config
-      schema reference, which has been removed along with the rest of the
-      facility-config surface. Nothing enforces that rule and nothing claims it
-      any more: the only validation in the tree is a non-emptiness lint at
-      deployment/web_terminals/lint.py `_check_empty_facility_prefix`.
-    inert: >-
-      Stronger than unenforced. facility.prefix reaches only the facility-graph
-      token and the legacy ``/app/<prefix>-assistant`` persona directory — never
-      a container name, an nginx location key or a URL segment, which is the
-      specific reason usernames and persona names do get the charset regex.
-      There is NO sink at which violating the
-      2-6/lowercase rule breaks anything.
-    remedy_direction: >-
-      None. Do NOT add a validator, and do NOT let this manifest grow a charset
-      rule for facility.prefix: a new check would reject configurations that
-      work correctly today, converting a cosmetic doc inconsistency into a
-      breaking change. The three presets that carry the key already describe it
-      in prose, and none of them claims a charset or length rule.
   legacy_fixture_out_of_scope:
     path: tests/utils/fixtures/legacy_config_all_deleted_keys.yml
     detail: >-

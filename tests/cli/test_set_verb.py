@@ -278,7 +278,7 @@ def test_dotted_config_key_replaces_the_literal_entry(runner, lifecycle_repo):
     assert result.exit_code == 0, result.output
     after = _profile_text(lifecycle_repo)
     assert "control_system.type: epics" in after
-    assert "control_system.type: mock" not in after
+    assert "control_system.type: virtual_accelerator" not in after
     # The rest of the config: block is untouched — including the nested
     # web-terminals module a whole-subtree write would have flattened away.
     assert "claude_code.servers.health.enabled: true" in after
@@ -292,14 +292,14 @@ def test_multiple_pairs_all_written(runner, lifecycle_repo):
         lifecycle_repo,
         "provider=cborg",
         "channel_finder_mode=in_context",
-        "config.facility.name=Test Ring",
+        "config.system.timezone=UTC",
     )
 
     assert result.exit_code == 0, result.output
     after = _profile_text(lifecycle_repo)
     assert "provider: cborg" in after
     assert "channel_finder_mode: in_context" in after
-    assert "facility.name: Test Ring" in after
+    assert "system.timezone: UTC" in after
 
 
 def test_values_are_read_as_yaml(runner, lifecycle_repo):
@@ -321,12 +321,18 @@ def test_build_config_is_never_touched(runner, lifecycle_repo):
     """Goal 6: the generated config.yml is not what `set` edits."""
     rendered = lifecycle_repo / "build" / "config.yml"
     rendered.parent.mkdir(parents=True, exist_ok=True)
-    rendered.write_text("control_system:\n  type: mock\n", encoding="utf-8")
+    rendered.write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
+        encoding="utf-8",
+    )
 
     result = _invoke(runner, lifecycle_repo, "connector=epics")
 
     assert result.exit_code == 0, result.output
-    assert rendered.read_text(encoding="utf-8") == "control_system:\n  type: mock\n"
+    assert (
+        rendered.read_text(encoding="utf-8")
+        == "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
 
 
 # --- shorthand keys ---------------------------------------------------------
@@ -380,16 +386,6 @@ def test_no_facility_gateway_addresses_are_shipped():
     assert not data_dir.exists() or not any(data_dir.rglob("*.py")), sorted(data_dir.rglob("*.py"))
 
 
-def test_tier_is_a_settable_key(runner, lifecycle_repo):
-    """Absorbs `build --tier`: the tier is profile content like anything else."""
-    result = _invoke(runner, lifecycle_repo, "tier=1", "channel_finder_mode=in_context")
-
-    assert result.exit_code == 0, result.output
-    after = _profile_text(lifecycle_repo)
-    assert "tier: 1" in after
-    assert "channel_finder_mode: in_context" in after
-
-
 # --- unrecognized keys ------------------------------------------------------
 
 
@@ -418,7 +414,11 @@ def test_recognized_and_config_prefixed_keys_are_never_called_out(runner, lifecy
     nothing) cannot read as a pass in either direction.
     """
     result = _invoke(
-        runner, lifecycle_repo, "model=claude-sonnet-5", "config.facility.name=Somewhere", "tier=2"
+        runner,
+        lifecycle_repo,
+        "model=claude-sonnet-5",
+        "config.system.timezone=UTC",
+        "channel_finder_mode=hierarchical",
     )
 
     assert result.exit_code == 0, result.output
@@ -496,7 +496,7 @@ def test_no_pairs_is_a_usage_error(runner, lifecycle_repo):
 
 def test_resolves_the_repo_from_a_subdirectory(runner, lifecycle_repo, monkeypatch):
     """The walk-up rule: any subdirectory is inside the deployment."""
-    monkeypatch.chdir(lifecycle_repo / "data" / "channel_databases")
+    monkeypatch.chdir(lifecycle_repo / "data" / "facility" / "knowledge")
 
     result = runner.invoke(set_command, ["model=claude-opus-5"], catch_exceptions=False)
 
@@ -522,12 +522,12 @@ def test_drift_hint_reports_the_build_this_edit_invalidated(runner, lifecycle_re
 
 
 def test_written_keys_are_reported(runner, lifecycle_repo):
-    result = _invoke(runner, lifecycle_repo, "model=claude-sonnet-5", "config.facility.name=Ring")
+    result = _invoke(runner, lifecycle_repo, "model=claude-sonnet-5", "config.system.timezone=UTC")
 
     assert result.exit_code == 0, result.output
     assert str(lifecycle_repo / "profile.yml") in result.output
     assert "model" in result.output
-    assert "config.facility.name" in result.output
+    assert "config.system.timezone" in result.output
 
 
 # --- the verb is reachable --------------------------------------------------
@@ -575,9 +575,8 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
         "provider: cborg\n"
         "model: claude-haiku-4-5\n"
         "channel_finder_mode: in_context\n"
-        "tier: 1\n"
         "config:\n"
-        "  control_system.type: mock\n"
+        "  control_system.type: epics\n"
         "  archiver.type: mock_archiver\n"
         "  approval.enabled: true\n"
         "  approval.default_policy: always\n"
@@ -593,14 +592,10 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
     # limits validator reads `channel_limits.json` out of it and the Reach
     # Contract refuses a render whose source zone is not there, so the packaged
     # tree is copied whole rather than stubbed.
-    import shutil
+    from tests._preset_data import copy_bundle_data
 
-    from osprey.cli.templates.manager import TemplateManager
-
-    shutil.copytree(
-        TemplateManager().template_root / "apps" / "control_assistant" / "data", repo / "data"
-    )
-    (repo / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+    copy_bundle_data(repo / "data")
+    (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     return repo
 
 
@@ -624,7 +619,7 @@ class TestASetPairingIsJudgedAtTheNextBuild:
         # The refusal reaches the operator through the logger, and the Rich
         # handler wraps rendered lines — read the records, which carry the
         # message whole (the repo-wide CliRunner convention).
-        assert "mock" in caplog.text
+        assert "mock_archiver" in caplog.text
 
     def test_va_with_only_the_shipped_mock_archive_is_refused(self, runner, tmp_path, caplog):
         """The pairing is judged on the value, not on who typed it.
@@ -680,10 +675,16 @@ class TestASetPairingIsJudgedAtTheNextBuild:
 
         assert result.exit_code == 0, result.output
 
-    def test_mock_onto_the_mock_archiver_builds(self, runner, tmp_path):
-        """Mock-on-mock claims nothing is real, so nothing lies."""
+    def test_the_simulator_in_process_onto_the_mock_archiver_builds(self, runner, tmp_path):
+        """The simulator in process has no recorder, so its synthesized archive lies about nothing."""
         repo = _honesty_repo(tmp_path)
-        assert _invoke(runner, repo, "connector=mock").exit_code == 0
+        wrote = _invoke(
+            runner,
+            repo,
+            "connector=virtual_accelerator",
+            "config.control_system.connector.virtual_accelerator.serving=in_process",
+        )
+        assert wrote.exit_code == 0, wrote.output
 
         result = _build(runner, repo)
 

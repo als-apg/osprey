@@ -15,7 +15,8 @@ guessing it from a field name.
 
 This plan opens its own run, so it stamps its own run metadata through
 ``scan_metadata()``: the channels it moves and reads, and the total point
-count (one point per corrector per swept current). No dimensionality hint —
+count (one point per corrector per swept current). It adds ``regressor``, the
+corrector value its response fit regresses on. No dimensionality hint —
 the sweeps are serial and per-corrector, not one continuous traversal, so
 there is no truthful value for one.
 """
@@ -56,6 +57,7 @@ from osprey.services.bluesky_bridge.orm_analysis import (
 from osprey.services.bluesky_bridge.plan_fields import (
     MovableChannels,
     ReadableChannels,
+    Regressor,
     scan_metadata,
 )
 
@@ -84,6 +86,11 @@ class PARAMS(BaseModel):
     (one-sided, for a corrector that should never be driven below where it
     already sits).
 
+    ``regressor`` chooses what the fitted slopes are per unit of:
+    ``setpoint`` (the default) regresses each BPM on the corrector's
+    commanded current, the convention of MML and pySC; ``readback`` regresses
+    on the corrector's measured current instead.
+
     ``span_a`` carries no upper bound of its own. It is an excursion, not an
     absolute setpoint, and how large an excursion a corrector tolerates is a
     property of the deployment, not of this schema — the connector's
@@ -93,8 +100,8 @@ class PARAMS(BaseModel):
     facility's number.
 
     The ``x-widget`` schema hints steer the plan panel's parameter GUI —
-    device lists render as scrollable channel columns, ``sweep`` as a two-way
-    segmented control — without changing what this model validates.
+    device lists render as scrollable channel columns, ``sweep`` and
+    ``regressor`` as two-way segmented controls — without changing what this model validates.
     """
 
     correctors: MovableChannels = Field(
@@ -135,6 +142,15 @@ class PARAMS(BaseModel):
         ),
         json_schema_extra={"x-widget": "segmented"},
     )
+    regressor: Regressor = Field(
+        default="setpoint",
+        title="Regress on",
+        description=(
+            "setpoint: slopes per unit of commanded current (the MML/pySC convention); "
+            "readback: per unit of measured current."
+        ),
+        json_schema_extra={"x-widget": "segmented"},
+    )
 
     @model_validator(mode="after")
     def _correctors_and_bpms_disjoint(self) -> PARAMS:
@@ -169,13 +185,12 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     the plan mean the same thing on a real ring as on a virtual accelerator
     whose correctors happen to idle at zero.
 
-    The read is `bps.rd`, so the working point is the corrector's own
-    readback — which is the right value to restore under this bridge's
-    device contract, where a settable's ``set()`` does not complete until
-    the readback agrees with the demand (see ``devices/connector.py``'s
-    ``ConnectorSettable``). It happens BEFORE the ``try``, so a corrector
-    whose read fails is never entered at all and the restore below can never
-    run without a target.
+    The working point is the setpoint the corrector locates at
+    (``bps.locate``), because the restore is a setpoint write: it puts back
+    what was demanded, and a readback sample carries the readback channel's
+    drift and noise, so restoring one would leave the corrector shifted by
+    exactly that much. It happens BEFORE the ``try``, so a corrector whose read fails is never
+    entered at all and the restore below can never run without a target.
 
     Each corrector is restored to its recorded working point once its own
     sweep finishes, including on abort (the ``try``/``finally`` runs on
@@ -185,7 +200,9 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     The run this opens is stamped with ``scan_metadata()``: the correctors it
     moves, the BPMs it reads, and ``num`` points per corrector across every
     corrector. Sweeps are serial and per-corrector rather than one continuous
-    traversal, so no dimensionality hint is declared.
+    traversal, so no dimensionality hint is declared. Beside those keys it
+    records ``regressor``, the corrector value the run's slopes are fitted
+    against, so a run launched on the default still says which one it used.
 
     Raises:
         ValueError: A corrector read back a non-finite working point. Every
@@ -209,15 +226,18 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 
     @bpp.stage_decorator(all_devices)
     @bpp.run_decorator(
-        md=scan_metadata(
-            movable=params.correctors,
-            readable=params.readbacks,
-            points=params.num * len(params.correctors),
-        )
+        md={
+            **scan_metadata(
+                movable=params.correctors,
+                readable=params.readbacks,
+                points=params.num * len(params.correctors),
+            ),
+            "regressor": params.regressor,
+        }
     )
     def _sweep():
         for name, corrector in correctors:
-            working_point = float((yield from bps.rd(corrector)))
+            working_point = float((yield from bps.locate(corrector))["setpoint"])
             if not math.isfinite(working_point):
                 raise ValueError(
                     f"orm plan: corrector {name!r} read back a non-finite working "
@@ -302,7 +322,10 @@ def _trace_panels(
     *,
     section: str | None,
 ) -> list[Panel]:
-    """One panel per traced corrector: BPM readings against that corrector's current.
+    """One panel per traced corrector: BPM readings against that corrector's regressor.
+
+    The x axis is the column the fit regressed on (``fit.regressor``), and the
+    axis label names it.
 
     A corrector that has recorded no current yet -- the sweep has not reached
     it, or the run's rows never carried that device -- gets no panel at all; an
@@ -348,7 +371,7 @@ def _trace_panels(
         panels.append(
             Panel(
                 title=f"{fit.correctors[j]} sweep",
-                x_label="Corrector current",
+                x_label=f"Corrector {fit.regressor}",
                 x_units="A",
                 y_label="BPM reading",
                 annotations=annotations,
@@ -465,6 +488,8 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
     Only completed sweeps have columns, so the heatmap's x axis is
     `fitted_correctors` (a subsequence of the requested correctors) and says so
     when the two differ -- an in-flight corrector must not read as a dead one.
+    The matrix panel also says what its slopes are per unit of
+    (``fit.regressor``).
     """
     incomplete = len(fit.correctors) - len(fit.fitted_correctors)
     matrix_note = (
@@ -475,6 +500,11 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
         if incomplete
         else []
     )
+    regressor_note = (
+        "Slopes are per ampere of commanded current (the corrector setpoint)."
+        if fit.regressor == "setpoint"
+        else "Slopes are per ampere of measured current (the corrector readback)."
+    )
 
     return [
         Panel(
@@ -483,6 +513,7 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
             y_label="BPM",
             annotations=[
                 *matrix_note,
+                regressor_note,
                 "Colour is signed: one hue each side of zero, scaled "
                 "symmetrically, so an unresponsive BPM reads as background "
                 "rather than as a mid-scale response.",
@@ -534,7 +565,13 @@ def _build(window: RowWindow, params: PARAMS, *, with_fit: bool) -> Figure:
     """Assemble the figure. Raises freely -- `render` is what must not."""
     truncated = not window.rows_complete
 
-    fit = sliced_response_matrix(window.rows, params.correctors, params.readbacks, params.num)
+    fit = sliced_response_matrix(
+        window.rows,
+        params.correctors,
+        params.readbacks,
+        params.num,
+        regressor=params.regressor,
+    )
 
     lead_annotations: list[str] = []
     if truncated:
@@ -584,7 +621,8 @@ def render(window: RowWindow, params: PARAMS) -> Figure:
     Panel order is stable, so a live figure grows rather than rearranging:
 
     1. One **sweep trace** panel per corrector that has recorded a point --
-       every BPM reading against that corrector's own current. These always
+       every BPM reading against that corrector's own regressor value (its
+       setpoint by default, see ``PARAMS.regressor``). These always
        appear, for a `monodirectional` sweep as readily as a `bidirectional`
        one and for a run three points in as readily as a finished one.
     2. Once at least one corrector's sweep has completed, the **response

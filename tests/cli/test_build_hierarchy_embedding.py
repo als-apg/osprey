@@ -1,7 +1,7 @@
 """The hierarchy a build embeds in the channel-finder agent, and its failure log.
 
 ``resolve_hierarchy_context`` reads the deployment's channel database at render
-time and embeds its levels and naming pattern in the agent's prompt, so the
+time and embeds its levels in the agent's prompt, so the
 agent needs no ``hierarchy_info()`` round trip to know the shape of the
 facility. The shortcut is optional by design — a database that will not open
 costs the agent a shortcut, not the build — and that is exactly what makes it
@@ -118,21 +118,28 @@ class TestUnreadableDatabaseIsReportedNotDumped:
 class TestTheReferenceDeploymentEmbedsItsHierarchy:
     """The positive property, against a real build of the exemplar repo."""
 
-    def test_the_rendered_agent_carries_the_naming_pattern(
+    def test_the_rendered_agent_carries_the_hierarchy_levels(
         self, runner: CliRunner, lifecycle_repo: Path
     ) -> None:
-        """The exemplar's own channel database has to load, or the prompt is poorer.
+        """The index the build writes has to load, or the prompt is poorer.
 
-        This fails the moment the exemplar ships a database the loader rejects,
+        This fails the moment the build writes an index the loader rejects,
         which is the failure the build itself only ever warned about.
         """
         _pin_hierarchical(lifecycle_repo)
         assert _build(runner, lifecycle_repo).exit_code == 0
 
-        agent = lifecycle_repo / "build" / ".claude" / "agents" / "channel-finder.md"
-        prompt = agent.read_text(encoding="utf-8")
-        assert "naming_pattern" in prompt
-        assert "{ring}:{system}:{family}:{device}:{field}:{subfield}" in prompt
+        build_dir = lifecycle_repo / "build"
+        index = json.loads(
+            (build_dir / "data" / "channel_finder" / "hierarchical.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        prompt = (build_dir / ".claude" / "agents" / "channel-finder.md").read_text(
+            encoding="utf-8"
+        )
+        levels = [level["name"] for level in index["hierarchy"]["levels"]]
+        assert f"- **hierarchy_levels**: {levels}" in prompt
 
     def test_the_build_log_holds_no_traceback(
         self, runner: CliRunner, lifecycle_repo: Path, caplog: pytest.LogCaptureFixture

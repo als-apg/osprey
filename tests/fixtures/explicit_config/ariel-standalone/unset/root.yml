@@ -15,7 +15,7 @@ approval:
     entry_create: always
 ariel:
   default_search_mode: hybrid
-  demo_narrative: data/logbook_seed
+  demo_narrative: all
   embedding:
     provider: ollama
   enhancement_modules:
@@ -111,7 +111,7 @@ services:
     port_host: 10802
     query_max_rows: 200
     query_timeout_s: 15
-    ttl_path: ./data/demo_machine.ttl
+    ttl_path: ./data/graph/facility.ttl
   openobserve:
     path: ./services/openobserve
     port: 10050

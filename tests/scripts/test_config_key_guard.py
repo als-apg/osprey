@@ -223,12 +223,12 @@ def test_leaves_below_a_data_map_are_not_demanded():
 
 def test_mode_2_unmatched_evidence_regex_goes_red():
     def break_the_evidence(manifest):
-        manifest["keys"]["facility.name"]["evidence"] = "no_reader_spells_this_anywhere"
+        manifest["keys"]["images.registry"]["evidence"] = "no_reader_spells_this_anywhere"
 
     guard = make_guard(break_the_evidence)
     guard.check_evidence()
     assert "evidence" in modes(guard)
-    assert "facility.name" in details(guard)
+    assert "images.registry" in details(guard)
 
 
 def test_mode_3_deleted_key_back_in_the_rendered_union_goes_red():
@@ -688,11 +688,9 @@ def test_mode_6_full_set_documented_nowhere_goes_red(tmp_path):
 def test_kept_reader_names_are_present_in_src_but_never_grepped():
     """Deleted keys with deliberate surviving readers must not turn the guard red.
 
-    ``resolve_facility_name`` still honours the retired ``facility_name``
-    spelling, and ``generate_tree_preview`` is a kept utility.
-    Those names are therefore in ``src/`` BY DESIGN, and a guard that grepped
-    deleted key names across the tree would go permanently red against intended
-    code — which is why the deleted list is enforced against the rendered union,
+    ``generate_tree_preview`` is a kept utility, so its name is in ``src/``
+    BY DESIGN, and a guard that grepped deleted key names across the tree would
+    go permanently red against intended code — which is why the deleted list is enforced against the rendered union,
     the presets and the loader, but never against source text.
 
     The first assertion is what makes this discriminating rather than
@@ -737,10 +735,9 @@ def test_a_rendered_key_marked_unrendered_goes_red():
     Skipped only when the key is absent, the flag rots silently in exactly the
     direction the phantom check exists to catch: a key that starts being shipped
     keeps a marking saying nothing ships it, and the prose beside it goes on
-    describing a commented example while a preset writes the key live. Four
-    entries had drifted that way — ``facility.prefix`` and the three
-    virtual-accelerator ``limits_checking`` paths, all of them live in
-    ``control-assistant``.
+    describing a commented example while a preset writes the key live. The
+    virtual-accelerator ``limits_checking`` paths, live in ``control-assistant``,
+    are keys of that kind.
 
     The failure has to name the source, because the fix is to say what ships it.
     """

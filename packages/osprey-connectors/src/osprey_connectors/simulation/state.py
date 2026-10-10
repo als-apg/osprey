@@ -1,0 +1,370 @@
+"""The active scenario set and the composition rule scenarios must obey.
+
+Every reader of the active set — ``sim apply``, the archive, the composite
+and the stand-in — resolves it and checks it here, so they cannot
+disagree on which scenarios run or on which sets compose; ``sim apply`` writes
+it here too, with :func:`write_active_state`.
+
+Scenarios compose only when they write disjoint targets: two scenarios writing
+one target would apply in an order-dependent way, so such a set is refused as
+an :class:`Overlap` naming the target. A scenario's ``still`` meets only the
+motion other scenarios set: it overlaps the ``noise`` or ``couple`` of the
+readings it stills, never another target and never another ``still``. A process that serves without a
+scenario because of an overlap logs one :func:`overlap_record`, and readers
+print it with :func:`format_overlap_record`.
+
+The module imports neither numpy nor lume.
+"""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Collection, Mapping, Sequence
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.logger import get_logger
+
+__all__ = [
+    "ACTIVE_SCENARIOS_FILENAME",
+    "DEFAULT_SCENARIO",
+    "OVERLAP_EVENT",
+    "STILL_SCENARIO",
+    "Overlap",
+    "composed_set",
+    "format_overlap_record",
+    "overlap_record",
+    "parse_active_state",
+    "read_active_state",
+    "resolve_active_scenarios",
+    "scenario_targets",
+    "validate_composition",
+    "write_active_state",
+]
+
+#: Name of the plain-text file holding the active scenario set.
+ACTIVE_SCENARIOS_FILENAME = "active_scenarios"
+
+#: The baseline scenario, active in every set.
+DEFAULT_SCENARIO = "nominal"
+
+#: The scenario every view lists, which stills every reading.
+STILL_SCENARIO = "still"
+
+#: The ``event`` an overlap record carries in a simulator log.
+OVERLAP_EVENT = "scenario-overlap"
+
+logger = get_logger("simulation_state")
+
+#: The ``still`` value that stills every reading.
+_STILL_ALL = "all"
+#: Marks a target of the motion namespace, which ``noise``, ``couple`` and
+#: ``still`` share; no address holds the character.
+_MOTION_MARK = "\x00"
+_SETS_MOTION = _MOTION_MARK + "sets:"
+_STILLS = _MOTION_MARK + "stills:"
+_STILLS_ALL = _MOTION_MARK + "stills-all"
+
+
+def parse_active_state(text: str) -> tuple[list[str], float | None]:
+    """The scenario names and the anchor an ``active_scenarios`` file records.
+
+    Blank lines and ``#`` comments are skipped. A ``key=value`` line is
+    metadata, of which only ``anchor=<ISO 8601>`` is read; every other line is
+    a scenario name, kept in file order. A naive anchor is read in the
+    facility timezone; a malformed one is logged and ignored.
+
+    Args:
+        text: The file's contents.
+
+    Returns:
+        The names, and the anchor as epoch seconds or ``None`` when the file
+        records none.
+    """
+    names: list[str] = []
+    anchor_epoch: float | None = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" in stripped:
+            key, _, value = stripped.partition("=")
+            if key.strip() == "anchor":
+                try:
+                    parsed = datetime.fromisoformat(value.strip())
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=get_facility_timezone())
+                    anchor_epoch = parsed.timestamp()
+                except ValueError:
+                    logger.warning(f"Ignoring malformed anchor in state file: {stripped!r}")
+            continue
+        names.append(stripped)
+    return names, anchor_epoch
+
+
+def read_active_state(state_dir: Path) -> tuple[list[str], float | None]:
+    """The scenario names and the anchor the ``active_scenarios`` file in *state_dir* records.
+
+    Args:
+        state_dir: The directory holding the file.
+
+    Returns:
+        What :func:`parse_active_state` reads from the file, or ``([], None)``
+        when the file is absent.
+    """
+    path = state_dir / ACTIVE_SCENARIOS_FILENAME
+    if not path.is_file():
+        return [], None
+    return parse_active_state(path.read_text(encoding="utf-8"))
+
+
+def write_active_state(
+    path: Path,
+    scenarios_view: Mapping[str, Collection[str]],
+    names: Sequence[str],
+    *,
+    anchor: datetime | None = None,
+) -> list[str]:
+    """Activate a scenario set by writing the ``active_scenarios`` file.
+
+    The file holds an ``anchor=<ISO 8601>`` line when ``anchor`` is given, then
+    the set's scenarios other than ``nominal``, or ``nominal`` alone. It is
+    written to a sibling ``.tmp`` file and renamed into place, so a reader
+    polling it never reads a half-written set.
+
+    Args:
+        path: The state file.
+        scenarios_view: Each scenario's name mapped to the targets it writes.
+        names: The requested scenario names; ``nominal`` is always active.
+        anchor: The instant the set is applied at.
+
+    Returns:
+        The resolved set, ``nominal`` first.
+
+    Raises:
+        ValueError: If a name is unknown or the set does not compose; nothing
+            is written.
+    """
+    resolved = resolve_active_scenarios(names)
+    try:
+        overlaps = validate_composition(scenarios_view, resolved)
+    except ValueError as exc:
+        raise ValueError(f"Cannot activate scenarios: {exc}") from None
+    if overlaps:
+        raise ValueError("Cannot activate scenarios: " + "; ".join(map(str, overlaps)))
+
+    body = [] if anchor is None else [f"anchor={anchor.isoformat()}"]
+    body.extend([name for name in resolved if name != DEFAULT_SCENARIO] or [DEFAULT_SCENARIO])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staged = path.with_name(f"{path.name}.tmp")
+    staged.write_text("\n".join(body) + "\n", encoding="utf-8")
+    os.replace(staged, path)
+    return resolved
+
+
+def resolve_active_scenarios(names: Sequence[str]) -> list[str]:
+    """The active scenario set a request for ``names`` really means.
+
+    ``nominal`` is the machine's baseline, not a fault: it is always active, so
+    it is prepended whether or not the caller named it. The rest keep the
+    caller's order and are deduplicated, because activating a scenario twice
+    would compose its physics twice.
+
+    One function for a rule two callers depend on — activation writes the state
+    file from it, and physics-fault rendering derives ``VA_*`` variables from
+    it — so the environment a project is built with and the scenarios its
+    engine runs cannot describe different machines.
+    """
+    resolved: list[str] = [DEFAULT_SCENARIO]
+    for name in names:
+        if name != DEFAULT_SCENARIO and name not in resolved:
+            resolved.append(name)
+    return resolved
+
+
+@dataclass(frozen=True)
+class Overlap:
+    """One target written by two scenarios of one set.
+
+    Attributes:
+        target: The address or variable both scenarios write.
+        first: The scenario that claimed the target first, in set order.
+        second: The scenario that writes it again.
+        motion: True when one scenario stills the reading at ``target`` and
+            the other sets its motion.
+    """
+
+    target: str
+    first: str
+    second: str
+    motion: bool = False
+
+    def __str__(self) -> str:
+        if self.motion:
+            return (
+                f"Scenarios {self.first!r} and {self.second!r} both set the motion of "
+                f"{self.target!r}; active scenarios must not"
+            )
+        return (
+            f"Channel {self.target!r} is touched by both {self.first!r} and {self.second!r}; "
+            f"active scenarios must touch disjoint channel sets"
+        )
+
+
+def scenario_targets(scenario: Mapping[str, Any]) -> set[str]:
+    """The targets a scenario writes: addresses, engine variables and coupled channels.
+
+    Args:
+        scenario: One entry of the simulator view's scenario list.
+
+    Returns:
+        The keys of its ``overrides``, the keys of every fault's ``writes``,
+        the keys of its ``channel_faults``, each ``archiver`` entry's channel,
+        and the keys of ``couple`` and ``noise``; a block the scenario does not
+        state contributes nothing.
+        The ``couple`` and ``noise`` keys and the ``still`` readings are also
+        targets of the motion namespace, which :func:`validate_composition`
+        reads apart.
+    """
+    targets: set[str] = set(scenario.get("overrides") or {})
+    for fault in (scenario.get("faults") or {}).values():
+        targets.update(fault.get("writes") or {})
+    targets.update(str(address) for address in scenario.get("channel_faults") or {})
+    for entry in scenario.get("archiver") or []:
+        targets.add(str(entry["channel"]))
+    moved = {str(address) for slot in ("couple", "noise") for address in scenario.get(slot) or {}}
+    targets.update(moved)
+    targets.update(_SETS_MOTION + address for address in moved)
+    still = scenario.get("still")
+    if still == _STILL_ALL:
+        targets.add(_STILLS_ALL)
+    elif still and not isinstance(still, str):
+        targets.update(_STILLS + str(address) for address in still)
+    return targets
+
+
+def validate_composition(
+    scenarios_view: Mapping[str, Collection[str]], names: Sequence[str]
+) -> list[Overlap]:
+    """Return the overlaps of a scenario set; an empty list means it composes.
+
+    ``nominal`` writes nothing, so it is skipped when the view does not list
+    it.
+
+    Args:
+        scenarios_view: Each scenario's name mapped to the targets it writes.
+        names: Scenario names to check, in set order.
+
+    Returns:
+        One :class:`Overlap` per target a later scenario writes again, sorted
+        by target within each scenario, then one per reading and scenario pair
+        where one scenario stills the reading and the other sets its motion.
+
+    Raises:
+        ValueError: If a name is not in ``scenarios_view``.
+    """
+    unknown = [n for n in names if n not in scenarios_view and n != DEFAULT_SCENARIO]
+    if unknown:
+        raise ValueError(f"Unknown scenarios {unknown!r}. Available: {sorted(scenarios_view)}")
+    overlaps: list[Overlap] = []
+    owner: dict[str, str] = {}
+    for name in names:
+        for target in sorted(scenarios_view.get(name, ())):
+            if target.startswith(_MOTION_MARK):
+                continue
+            if target in owner and owner[target] != name:
+                overlaps.append(Overlap(target=target, first=owner[target], second=name))
+            else:
+                owner[target] = name
+    return overlaps + _motion_overlaps(scenarios_view, names)
+
+
+def _motion_overlaps(
+    scenarios_view: Mapping[str, Collection[str]], names: Sequence[str]
+) -> list[Overlap]:
+    """One motion :class:`Overlap` per reading one scenario stills and another moves."""
+    movers: list[tuple[str, set[str]]] = []
+    stillers: list[tuple[str, set[str] | None]] = []
+    for name in names:
+        targets = scenarios_view.get(name, ())
+        moved = {t.removeprefix(_SETS_MOTION) for t in targets if t.startswith(_SETS_MOTION)}
+        if moved:
+            movers.append((name, moved))
+        if _STILLS_ALL in targets:
+            stillers.append((name, None))
+        elif stilled := {t.removeprefix(_STILLS) for t in targets if t.startswith(_STILLS)}:
+            stillers.append((name, stilled))
+    order = {name: index for index, name in enumerate(names)}
+    found: dict[tuple[str, str, str], Overlap] = {}
+    for mover, addresses in movers:
+        for stiller, readings in stillers:
+            if stiller == mover:
+                continue
+            first, second = sorted((mover, stiller), key=order.__getitem__)
+            for address in sorted(addresses if readings is None else addresses & readings):
+                found.setdefault(
+                    (first, second, address),
+                    Overlap(target=address, first=first, second=second, motion=True),
+                )
+    return sorted(found.values(), key=lambda o: (order[o.second], order[o.first], o.target))
+
+
+def composed_set(
+    scenarios_view: Mapping[str, Collection[str]], names: Sequence[str]
+) -> tuple[list[str], list[Overlap]]:
+    """The set a reader serves for ``names``: the set itself, or ``nominal`` alone.
+
+    A set whose scenarios write one target twice does not compose, and a
+    reader serves the machine without its scenarios rather than in an
+    order-dependent state.
+
+    Args:
+        scenarios_view: Each scenario's name mapped to the targets it writes.
+        names: The resolved set, ``nominal`` first.
+
+    Returns:
+        The set to serve, and the overlaps that kept its scenarios out.
+
+    Raises:
+        ValueError: If a name is not in ``scenarios_view``.
+    """
+    overlaps = validate_composition(scenarios_view, names)
+    if overlaps:
+        return resolve_active_scenarios([]), overlaps
+    return list(names), []
+
+
+def overlap_record(overlap: Overlap, *, instance: str, pid: int) -> dict[str, Any]:
+    """The log record a process writes when it serves without a scenario.
+
+    Args:
+        overlap: The overlap that kept the scenario out.
+        instance: The serving instance that logs it.
+        pid: The process id of that instance.
+
+    Returns:
+        The record, one JSON line in the simulator log.
+    """
+    return {"instance": instance, "pid": pid, "event": OVERLAP_EVENT, "target": overlap.target}
+
+
+def format_overlap_record(model: str, record: Mapping[str, Any]) -> str:
+    """One printable line for an overlap record read back from a model's log.
+
+    The line names where it came from, so a reader never takes it for the
+    model's status.
+
+    Args:
+        model: The model whose log holds the record.
+        record: The record as :func:`overlap_record` wrote it.
+
+    Returns:
+        ``<model> (log, instance <i>, pid <p>): <event> on <target>``.
+    """
+    return (
+        f"{model} (log, instance {record['instance']}, pid {record['pid']}): "
+        f"{record['event']} on {record['target']}"
+    )

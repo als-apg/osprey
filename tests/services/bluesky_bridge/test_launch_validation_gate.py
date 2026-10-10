@@ -217,12 +217,12 @@ def test_gate_ignores_a_request_with_no_plan_name() -> None:
 _VA_LIMITS_SECTION: dict = {
     "type": "epics",
     "writes_enabled": False,
-    "limits_checking": {"enabled": False, "allow_unlisted_channels": True},
+    "limits_checking": {"enabled": False, "mode": "optional"},
     "connector": {
         "epics": {"gateway_address": "epics-gateway.example"},
         "virtual_accelerator": {
             "writes_enabled": True,
-            "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+            "limits_checking": {"enabled": True, "mode": "exclusive"},
         },
     },
 }
@@ -233,12 +233,12 @@ _VA_LIMITS_SECTION: dict = {
 _VA_UNCHECKED_SECTION: dict = {
     "type": "epics",
     "writes_enabled": False,
-    "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+    "limits_checking": {"enabled": True, "mode": "exclusive"},
     "connector": {
         "epics": {"gateway_address": "epics-gateway.example"},
         "virtual_accelerator": {
             "writes_enabled": True,
-            "limits_checking": {"enabled": False, "allow_unlisted_channels": True},
+            "limits_checking": {"enabled": False, "mode": "optional"},
         },
     },
 }

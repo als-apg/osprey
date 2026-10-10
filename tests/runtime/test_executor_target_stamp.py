@@ -23,6 +23,7 @@ import asyncio
 import contextlib
 import json
 import os
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,7 @@ from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.runtime import ControlTargetChangedError
 from osprey_connectors import control_context, posture_store
 from tests._control_context_fixtures import state_dir_under
+from tests.facility.served_tree import in_process_config, served_tree
 
 # ---------------------------------------------------------------------------
 # Fixtures and helpers
@@ -169,20 +171,39 @@ def markers_in(root: Path) -> list[dict[str, Any]]:
     ]
 
 
-#: A deployment that has both a simulated baseline and one real machine, so
-#: 'va' and 'live' each resolve to exactly one connector block.
-CONTROL_SYSTEM_SECTION = {
-    "type": "mock",
-    "connector": {
-        "mock": {"response_delay_ms": 0},
-        "epics": {"timeout_s": 1.0},
-        "virtual_accelerator": {"timeout_s": 9.0},
-    },
-}
+#: The addresses the write-pin cases write.
+WRITTEN = ("TEST:PV", "TEST:PV1", "TEST:PV2")
 
-#: A development checkout that has never named a real machine: 'live' has no
-#: answer here, which is what resolve_target refuses on.
-MOCK_ONLY_SECTION = {"type": "mock", "connector": {"mock": {}}}
+
+@pytest.fixture
+def view(tmp_path):
+    """The simulator view the in-process block serves, holding :data:`WRITTEN`."""
+    return served_tree(tmp_path / "served", WRITTEN)
+
+
+def _control_system_section(view: Path) -> dict[str, Any]:  # noqa: ARG001 - the in-process section's signature
+    """A deployment on its real machine, with the simulator served beside it.
+
+    'va' and 'live' each resolve to exactly one connector block.
+    """
+    return {
+        "type": "epics",
+        "connector": {
+            "epics": {"timeout_s": 1.0},
+            "virtual_accelerator": {"timeout_s": 9.0},
+        },
+    }
+
+
+def _in_process_only_section(view: Path) -> dict[str, Any]:
+    """A development checkout that has never named a real machine.
+
+    'live' has no answer here, which is what resolve_target refuses on.
+    """
+    return {
+        "type": "virtual_accelerator",
+        "connector": {"virtual_accelerator": in_process_config(view)},
+    }
 
 
 def _section_reader(section):
@@ -195,14 +216,15 @@ def _section_reader(section):
 
 
 @pytest.fixture
-def deployment_config(monkeypatch):
+def deployment_config(monkeypatch, view):
     """Serve one control_system section to both halves of the stamp.
 
     Host and sandbox deliberately read the same function, so a target the host
     stamps is a target the sandbox can build.
     """
     monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value", _section_reader(CONTROL_SYSTEM_SECTION)
+        "osprey_connectors.config.get_config_value",
+        _section_reader(_control_system_section(view)),
     )
 
 
@@ -232,6 +254,7 @@ def test_env_names_agree_across_the_process_boundary():
 
     assert host_executor.ENV_CONTROL_TARGET == runtime.ENV_CONTROL_TARGET
     assert host_executor.ENV_CONTROL_TARGET_GENERATION == runtime.ENV_CONTROL_TARGET_GENERATION
+    assert host_executor.ENV_EXECUTION_DEADLINE == runtime.ENV_EXECUTION_DEADLINE
 
 
 def test_the_sandbox_carries_no_state_file_identity():
@@ -352,17 +375,18 @@ class TestStampApplication:
             assert name not in env
 
     def test_live_on_a_deployment_without_a_real_machine_is_not_stamped(
-        self, state_root, monkeypatch
+        self, state_root, monkeypatch, view
     ):
         """A target the sandbox could not build is declined here, not there.
 
-        ``resolve_target(section, 'live')`` refuses on a mock-only checkout by
+        ``resolve_target(section, 'live')`` refuses on an in-process-only checkout by
         design. Stamping it anyway would turn every execute() on such a
         deployment into a ValueError raised inside the sandbox; declining leaves
         the run on the baseline, which is what it was on before any of this.
         """
         monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _section_reader(MOCK_ONLY_SECTION)
+            "osprey_connectors.config.get_config_value",
+            _section_reader(_in_process_only_section(view)),
         )
         write_record(state_root, target="live", generation=1)
         env: dict[str, str] = {}
@@ -371,10 +395,11 @@ class TestStampApplication:
         for name in host_executor._STAMP_ENV_NAMES:
             assert name not in env
 
-    def test_va_is_stamped_on_that_same_deployment(self, state_root, monkeypatch):
+    def test_va_is_stamped_on_that_same_deployment(self, state_root, monkeypatch, view):
         """Only the unresolvable half is declined: 'va' resolves everywhere."""
         monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _section_reader(MOCK_ONLY_SECTION)
+            "osprey_connectors.config.get_config_value",
+            _section_reader(_in_process_only_section(view)),
         )
         write_record(state_root, target="va", generation=1)
         env: dict[str, str] = {}
@@ -412,14 +437,15 @@ class TestLaunchPostureStamp:
         assert host_executor._apply_target_stamp(env) == "va"
         assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=sandbox"
 
-    def test_an_unstamped_run_is_still_pinned(self, state_root, monkeypatch):
+    def test_an_unstamped_run_is_still_pinned(self, state_root, monkeypatch, view):
         """A target the run cannot be placed on: routing names go, the pin stays.
 
         It names every target, because a run that cannot say which machine it is
         about must not be the one run a narrowing fails to reach.
         """
         monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _section_reader(MOCK_ONLY_SECTION)
+            "osprey_connectors.config.get_config_value",
+            _section_reader(_in_process_only_section(view)),
         )
         write_record(state_root, target="live", generation=1, posture={"live": "sandbox"})
         env: dict[str, str] = {}
@@ -613,7 +639,9 @@ class TestExecuteViaLocalStamping:
     """End-to-end through ``_execute_via_local``, with the subprocess faked out."""
 
     @staticmethod
-    def _run(tmp_path, monkeypatch, *, spawn=True) -> tuple[dict[str, str], Any]:
+    def _run(
+        tmp_path, monkeypatch, *, spawn=True, timeout: float | None = 5
+    ) -> tuple[dict[str, str], Any]:
         """Run the adapter against a fake subprocess; return (env, result)."""
         captured: dict[str, dict[str, str]] = {}
 
@@ -643,7 +671,7 @@ class TestExecuteViaLocalStamping:
             host_executor._execute_via_local(
                 "print('hello')",
                 "readonly",
-                {"timeout": 5},
+                {"timeout": timeout},
                 folder,
             )
         )
@@ -697,6 +725,41 @@ class TestExecuteViaLocalStamping:
         for name in host_executor._STAMP_ENV_NAMES:
             assert name not in env
         assert result.control_target == host_executor.CONTROL_TARGET_BASELINE
+
+    @pytest.mark.usefixtures("deployment_config")
+    def test_sandbox_env_carries_the_execution_deadline(self, state_root, tmp_path, monkeypatch):
+        """The child learns the Unix time at which the executor will kill it."""
+        write_record(state_root, target="va", generation=5)
+
+        env, _ = self._run(tmp_path, monkeypatch)
+
+        deadline = float(env[host_executor.ENV_EXECUTION_DEADLINE])
+        assert abs(deadline - time.time() - 5) < 1
+
+    @pytest.mark.usefixtures("state_root", "deployment_config")
+    def test_unstamped_run_still_carries_the_execution_deadline(self, tmp_path, monkeypatch):
+        """The deadline is not part of the target stamp; every spawned run has one."""
+        monkeypatch.setenv(host_executor.ENV_EXECUTION_DEADLINE, "0")
+
+        env, _ = self._run(tmp_path, monkeypatch)
+
+        deadline = float(env[host_executor.ENV_EXECUTION_DEADLINE])
+        assert abs(deadline - time.time() - 5) < 1
+
+    @pytest.mark.usefixtures("state_root", "deployment_config")
+    def test_a_null_timeout_runs_unbounded_and_stamps_no_deadline(self, tmp_path, monkeypatch):
+        """``execution_timeout_seconds: null`` is an unbounded run, not a crash.
+
+        The config key is read without a schema, so an explicit YAML null
+        reaches the adapter as ``None``. There is no deadline to announce, and
+        an inherited one must not reach the child either.
+        """
+        monkeypatch.setenv(host_executor.ENV_EXECUTION_DEADLINE, "0")
+
+        env, result = self._run(tmp_path, monkeypatch, timeout=None)
+
+        assert host_executor.ENV_EXECUTION_DEADLINE not in env
+        assert result.failure_kind is None
 
     @pytest.mark.usefixtures("deployment_config")
     def test_a_switch_in_flight_fails_the_run_without_spawning(
@@ -753,7 +816,7 @@ def fake_registry(deployment_config):  # noqa: ARG001 - deployment_config serves
     from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 
     with isolated_connector_registries():
-        for name in ("mock", "epics", "virtual_accelerator"):
+        for name in ("epics", "virtual_accelerator"):
             ConnectorFactory.register_control_system(name, _FakeConnector)
         _FakeConnector.last_config = None
         _FakeConnector.disconnected = []
@@ -774,7 +837,7 @@ class TestSandboxRouting:
         asyncio.run(runtime._get_connector())
 
         # 9.0 is the VA block's timeout: reaching it proves the factory read
-        # control_system.connector.virtual_accelerator and not the mock block.
+        # control_system.connector.virtual_accelerator and not the epics block.
         assert _FakeConnector.last_config == {"timeout_s": 9.0}
 
     @pytest.mark.usefixtures("fake_registry", "clear_runtime_state")
@@ -796,7 +859,7 @@ class TestSandboxRouting:
 
         asyncio.run(runtime._get_connector())
 
-        assert _FakeConnector.last_config == {"response_delay_ms": 0}
+        assert _FakeConnector.last_config == {"timeout_s": 1.0}
 
     @pytest.mark.usefixtures("clear_runtime_state")
     def test_blank_stamp_counts_as_absent(self, monkeypatch):
@@ -807,8 +870,8 @@ class TestSandboxRouting:
         assert runtime._target_connector_config() is None
 
     @pytest.mark.usefixtures("clear_runtime_state")
-    def test_unresolvable_live_target_refuses_rather_than_falling_back(self, monkeypatch):
-        """A deployment that never named its real machine gets an error, not the mock.
+    def test_unresolvable_live_target_refuses_rather_than_falling_back(self, monkeypatch, view):
+        """A deployment that never named its real machine gets an error, not the simulator.
 
         The host declines to stamp this combination in the first place (see
         ``TestStampApplication``); this is the second line of that defence, for a
@@ -816,7 +879,8 @@ class TestSandboxRouting:
         """
         monkeypatch.setenv("OSPREY_CONTROL_TARGET", "live")
         monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _section_reader(MOCK_ONLY_SECTION)
+            "osprey_connectors.config.get_config_value",
+            _section_reader(_in_process_only_section(view)),
         )
 
         import osprey.runtime as runtime

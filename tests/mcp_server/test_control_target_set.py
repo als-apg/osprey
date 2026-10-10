@@ -43,7 +43,6 @@ from osprey.mcp_server.control_system.server_context import ControlSystemContext
 from osprey.mcp_server.control_system.target_eligibility import (
     ACK_LEAF,
     REASON_ARCHIVE_BELONGS_TO_STANDIN,
-    REASON_LIMITS_POSTURE,
     REASON_OPERATOR_ACK_MISSING,
     REASON_PROBE_CHANNEL_MISSING,
     REASON_TARGET_UNREACHABLE,
@@ -273,9 +272,10 @@ def config_with_a_standin(
     *baseline_standin* makes the stand-in this deployment's *own* machine
     (``control_system.type: live_standin``), which is what puts a deployment on
     ``standin`` with nothing switched and makes ``live`` a destination to be
-    gated. The remaining three arguments set the FR-8 facts the live family is
-    judged on: the limits posture, the operator acknowledgment, and whether an
+    gated. *acknowledged* and *recorder* set the FR-8 facts the live machine is
+    judged on: the operator acknowledgment, and whether an
     ``archiver_recorder`` makes the archive the stand-in's history.
+    *strict_limits* sets the limits block, which no switch is judged on.
 
     *live_type* names the connector type ``live`` resolves to, for the tests
     that ask what happens on the way to it: see :data:`EPICS_TYPE`.
@@ -289,7 +289,7 @@ def config_with_a_standin(
     if baseline_standin:
         control_system["type"] = LIVE_STANDIN
     if strict_limits:
-        control_system["limits_checking"] = {"enabled": True, "allow_unlisted_channels": False}
+        control_system["limits_checking"] = {"enabled": True, "mode": "exclusive"}
     if acknowledged:
         control_system["target_switch"] = {ACK_LEAF: ACK_HOST}
     raw["services"] = {"live_standin": {"port": STANDIN_PORT}}
@@ -615,9 +615,8 @@ class TestTheGateRefusals:
 class TestTheStandinIsGatedAsAThirdTarget:
     """SC-4 at the switch: three targets, and the live family split in two.
 
-    The stand-in is a real-machine posture, so it meets the strict limits gate
-    the facility's machine meets. It does *not* meet the operator
-    acknowledgment: that one is the operator saying the configured gateways
+    The stand-in does *not* meet the operator acknowledgment: that one is the
+    operator saying the configured gateways
     really are this facility's, and the stand-in's equivalent was said at build
     time by the profile line that stood it up.
 
@@ -627,31 +626,27 @@ class TestTheStandinIsGatedAsAThirdTarget:
     baseline, and the baseline here is the stand-in.
     """
 
-    async def test_the_standin_needs_the_strict_limits_posture(
-        self, make_manager, monkeypatch, emitted, record_root
+    @pytest.mark.usefixtures("emitted")
+    async def test_the_standin_is_not_refused_for_any_limits_reason(
+        self, make_manager, monkeypatch, record_root
     ):
-        """And the refusal names the target, not "the live machine"."""
+        """No limits block at all, and the switch goes through."""
         raw = config_with_a_standin(strict_limits=False)
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
-        owned_here(record_root)
+        owned_here(record_root, target="live", generation=1)
+        our_report(record_root, last_switch=applied_block(2))
 
-        with assert_raises_error(error_type=control_target.ERROR_REFUSED) as ctx:
-            await TOOL(target="standin")
+        payload = extract_response_dict(await TOOL(target="standin"))
 
-        envelope = ctx["envelope"]
-        assert envelope["details"]["reason"] == REASON_LIMITS_POSTURE
-        assert (
-            "Switching to target 'standin' requires the strict limits posture"
-            in (envelope["error_message"])
-        )
-        assert [call["reason"] for call in emitted] == [REASON_LIMITS_POSTURE]
+        assert payload["summary"]["target"] == "standin"
+        assert control_context.read_record().target == "standin"
 
     @pytest.mark.usefixtures("emitted")
     async def test_the_standin_is_never_asked_for_the_operator_acknowledgment(
         self, make_manager, monkeypatch, record_root
     ):
-        """Strict limits and no acknowledgment: the gate lets the stand-in through.
+        """No acknowledgment: the gate lets the stand-in through.
 
         Proven by the record moving, which is what "was not refused" means now
         that the tool's own answer is a record write.
@@ -694,31 +689,6 @@ class TestTheStandinIsGatedAsAThirdTarget:
         assert ctx["envelope"]["details"]["reason"] == REASON_OPERATOR_ACK_MISSING
         # The operator's line says where the deployment actually is.
         assert [call["from_target"] for call in emitted] == ["standin"]
-
-    @pytest.mark.usefixtures("emitted")
-    async def test_going_live_from_a_standin_baseline_also_wants_the_limits_posture(
-        self, make_manager, monkeypatch, record_root
-    ):
-        """Same direction, the earlier of the two away-gates, and target-worded."""
-        raw = config_with_a_standin(
-            baseline_standin=True,
-            strict_limits=False,
-            acknowledged=True,
-            live_type=EPICS_TYPE,
-        )
-        manager = make_manager(raw=raw)
-        install_context(manager, monkeypatch)
-        owned_here(record_root, target="standin")
-
-        with assert_raises_error(error_type=control_target.ERROR_REFUSED) as ctx:
-            await TOOL(target="live")
-
-        envelope = ctx["envelope"]
-        assert envelope["details"]["reason"] == REASON_LIMITS_POSTURE
-        assert (
-            "Switching to target 'live' requires the strict limits posture"
-            in (envelope["error_message"])
-        )
 
     @pytest.mark.usefixtures("emitted")
     async def test_a_recorded_standin_archive_refuses_the_live_machine(
@@ -1113,8 +1083,8 @@ class TestAFollowerFilesARequest:
             owner_answers(
                 record_root,
                 status=control_context.SWITCH_REFUSED,
-                reason=REASON_LIMITS_POSTURE,
-                detail="Switching to target 'va' requires the strict limits posture.",
+                reason=REASON_PROBE_CHANNEL_MISSING,
+                detail="Target 'va' names no probe channel.",
                 mint=False,
             )
         )
@@ -1123,10 +1093,8 @@ class TestAFollowerFilesARequest:
         await answering
 
         envelope = ctx["envelope"]
-        assert envelope["details"]["reason"] == REASON_LIMITS_POSTURE
-        assert envelope["error_message"] == (
-            "Switching to target 'va' requires the strict limits posture."
-        )
+        assert envelope["details"]["reason"] == REASON_PROBE_CHANNEL_MISSING
+        assert envelope["error_message"] == "Target 'va' names no probe channel."
         assert emitted == []
         record = control_context.read_record()
         assert (record.target, record.generation) == ("live", 1)
@@ -1453,15 +1421,15 @@ class RecordingProber:
 
 
 class TestServerStartup:
-    async def test_create_server_adopts_the_record_and_sweeps_orphans(
+    async def test_create_server_adopts_the_record_and_sweeps_the_dead_report(
         self, tmp_path, monkeypatch, record_root
     ):
         """Start adopts; it does not reset.
 
         Three things happen, and each is the wiring a refactor of
         ``create_server`` can silently drop: this server writes its own report,
-        the children a dead predecessor left behind are killed, and the record
-        is claimed — at the baseline, because there was no record to adopt.
+        a dead predecessor's report is swept, and the record is claimed — at
+        the baseline, because there was no record to adopt.
 
         The report publishes no target at all. Identity lives in the record
         now, and a start-time guess published as ``applied_target`` would let a
@@ -1471,19 +1439,14 @@ class TestServerStartup:
         readers are hooks that render an identity line and must never have to
         branch on a missing key.
         """
-        from osprey.mcp_server.control_system import connector_host_manager
         from osprey.mcp_server.control_system import server as server_mod
 
         gone = dead_pid()
         write_server_report(record_root, gone, children=[4242])
-        swept: list[list[int]] = []
-        monkeypatch.setattr(
-            connector_host_manager, "kill_orphans", lambda pids, **kw: swept.append(list(pids))
-        )
 
         config_file = tmp_path / "config.yml"
         config_file.write_text(
-            "control_system:\n  type: mock\n  writes_enabled: false\n"
+            "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  writes_enabled: false\n"
             "archiver:\n  type: mongodb_archiver\n",
             encoding="utf-8",
         )
@@ -1505,11 +1468,11 @@ class TestServerStartup:
         standin_slot = report["targets"]["standin"]
         assert standin_slot["endpoint"] == ""
         assert "probe_channel" not in standin_slot
-        assert swept == [[4242]], "the orphan recorded by the dead server was not swept"
+        assert target_state.read(gone) is None, "the dead server's report was not swept"
 
         record = control_context.read_record()
         assert record is not None, "create_server must claim the control context"
-        assert (record.target, record.generation) == ("live", 0)
+        assert (record.target, record.generation) == ("va", 0)
         assert record.owner.pid == os.getpid()
         assert record.owner.kind == control_context.OWNER_CONTROLS_SERVER
 
@@ -1521,7 +1484,18 @@ class TestServerStartup:
         RecordingProber.instances.clear()
         monkeypatch.setattr(endpoint_prober, "EndpointProber", RecordingProber)
         context = ControlSystemContext()
-        context._config = type("Config", (), {"raw": {"control_system": {"type": "mock"}}})()
+        context._config = type(
+            "Config",
+            (),
+            {
+                "raw": {
+                    "control_system": {
+                        "type": "virtual_accelerator",
+                        "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                    }
+                }
+            },
+        )()
         monkeypatch.setattr("osprey.mcp_server.control_system.server_context._registry", context)
 
         async with server_mod._lifespan(server_mod.mcp):

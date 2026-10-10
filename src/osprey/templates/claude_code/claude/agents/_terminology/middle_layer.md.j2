@@ -10,20 +10,18 @@ Navigation follows the MML convention used in many accelerator control systems.
 ### Terminology Mapping
 
 Operators use domain language.
-{% if facility_vocabulary %}
-The device rows below are this deployment's own vocabulary, read from the
-compiled ontology it declares (`facility.ontology`) — the same table the
-channel database was generated from, so the family tokens are the ones this
-facility actually uses:
+{% if facility_facts.device_classes %}
+The device rows below are read from this facility's build: each device class it
+holds, the words operators use for it and the families its devices belong to.
 {% else %}
-No facility ontology is declared (`facility.ontology`), so the table below
-carries only navigation guidance and no device vocabulary — match on names and
+This facility's build holds no device class.
+The table below carries only navigation guidance: match on names and
 descriptions in the database and verify with a lookup rather than guessing.
 {% endif %}
 | Operator Language | MML Navigation |
 |---|---|
-{%- for entry in facility_vocabulary | default(none) or [] %}
-| {{ '"' ~ (entry.synonyms | join('", "')) ~ '"' }} | {% if entry.families %}Family: {{ '`' ~ (entry.families | join('` or `')) ~ '`' }}{% else %}Umbrella class {{ entry.class_name }} — no family of its own; narrow to a specific family first{% endif %} |
+{%- for name, entry in facility_facts.device_classes | dictsort(case_sensitive=true) %}
+| {{ ('"' ~ (entry.aliases | join('", "')) ~ '"') if entry.aliases else name }} | {% if middle_layer_families[name] %}Family: {% for family in middle_layer_families[name] %}`{{ family.name }}`{% if family.system %} (System {{ family.system }}){% endif %}{% if not loop.last %} or {% endif %}{% endfor %} (class {{ name }}){% else %}Class {{ name }}: no family holds its devices; match on names and descriptions{% endif %} |
 {%- endfor %}
 | "readback" / "monitor" | Navigate to system/family first, then select `Monitor` field |
 | "setpoint" / "control" | Navigate to system/family first, then select `Setpoint` field |

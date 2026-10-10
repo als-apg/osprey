@@ -14,21 +14,11 @@ CA. These tests assert the prohibitions render for both ``epics`` and
 from pathlib import Path
 
 import yaml
+from tests._control_system import IN_PROCESS, section_for
+from tests._preset_data import bundle_data_root
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -49,7 +39,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
@@ -76,7 +66,11 @@ def _render_safety_rule(tmp_path, project_name: str, control_system_type: str | 
 
     config = yaml.safe_load((project_dir / "config.yml").read_text())
     if control_system_type is not None:
-        config.setdefault("control_system", {})["type"] = control_system_type
+        section = config.setdefault("control_system", {})
+        named = section_for(control_system_type)
+        section["type"] = named["type"]
+        for key, block in named.get("connector", {}).items():
+            section.setdefault("connector", {}).setdefault(key, {}).update(block)
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
     ctx = claude_code.build_claude_code_context(
@@ -123,12 +117,10 @@ def test_epics_and_virtual_accelerator_prohibited_sections_match(tmp_path):
     assert _prohibited_section(epics_content) == _prohibited_section(va_content)
 
 
-def test_mock_keeps_current_generic_text(tmp_path):
-    """The mock branch renders the generic text and no EPICS-family lines."""
-    content = _render_safety_rule(tmp_path, "safety-mock", "mock")
+def test_the_simulator_in_process_renders_no_epics_family_lines(tmp_path):
+    """The simulator in process speaks no Channel Access: no EPICS-family lines."""
+    content = _render_safety_rule(tmp_path, "safety-in-process", IN_PROCESS)
 
-    assert "Control System" in content
-    assert "direct hardware library calls" in content
     assert "osprey.runtime" in content
     assert "import epics" not in content
     assert "epics.caget" not in content
@@ -150,10 +142,10 @@ def test_test_ioc_rule_renders_for_epics_family(tmp_path):
         assert rule.read_text().strip()
 
 
-def test_test_ioc_rule_absent_for_mock(tmp_path):
-    """The template's EPICS-family gate renders empty for mock, and the
+def test_test_ioc_rule_absent_for_the_simulator_in_process(tmp_path):
+    """The template's Channel Access gate renders empty in process, and the
     empty-file cleanup must remove it rather than leave a blank rule."""
-    rules_dir = _rendered_rules_dir(tmp_path, "ioc-mock", "mock")
+    rules_dir = _rendered_rules_dir(tmp_path, "ioc-in-process", IN_PROCESS)
     assert not (rules_dir / "test-ioc-safety.md").exists()
 
 

@@ -72,10 +72,10 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
  * @property {string} target  the config name (`live` / `va` / `standin`) — a
  *   state key, never display text
  * @property {string} label  what the controls server calls that machine
- * @property {string} short_label  the chip's word: LIVE / STAND-IN / VIRTUAL /
- *   SIMULATED, derived server-side from `real_machine` and the label's shape
+ * @property {string} short_label  the chip's word: LIVE / STAND-IN / VIRTUAL,
+ *   derived server-side from `real_machine` and the label's shape
  * @property {string} kind  the plain-language word for the same derivation
- *   (`live machine` / `stand-in` / `virtual accelerator` / `simulated`)
+ *   (`live machine` / `stand-in` / `virtual accelerator`)
  * @property {string} endpoint
  * @property {boolean} real_machine  true for the facility's own machine AND
  *   for a stand-in — both get every limit and prompt hardware gets
@@ -203,7 +203,6 @@ const KIND_ATTR = {
   'live machine': 'live',
   'stand-in': 'standin',
   'virtual accelerator': 'va',
-  simulated: 'simulated',
 };
 
 /**
@@ -828,8 +827,7 @@ export function kindAttr(row) {
   if (published) return published;
   const label = String(row.label || '').trim().toLowerCase();
   if (row.real_machine) return label.includes('(stand-in)') ? 'standin' : 'live';
-  if (label.startsWith('virtual accelerator')) return 'va';
-  return 'simulated';
+  return 'va';
 }
 
 /**
@@ -854,8 +852,8 @@ export function stateWord(row) {
 }
 
 /**
- * The kind of machine the deployment stands on — `live`, `standin`, `va` or
- * `simulated` — or `null` while nothing has been read yet.
+ * The kind of machine the deployment stands on — `live`, `standin` or `va` —
+ * or `null` while nothing has been read yet.
  *
  * The chip's own two steps, the row it speaks for and that row's kind, handed
  * out as one answer. A consumer that phrases what a read or a write MEANS here

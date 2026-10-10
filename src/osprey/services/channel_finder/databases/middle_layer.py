@@ -29,7 +29,8 @@ Example structure:
       },
       "setup": {
         "CommonNames": ["BPM 1", "BPM 2", ...],
-        "DeviceList": [[1, 1], [1, 2], ...]  # [sector, device] pairs
+        "DeviceList": [[1, 1], [1, 2], ...],  # [place index, ordinal] pairs
+        "PlaceList": ["SR/S01", "SR/S01", ...]  # each device's place, optional
       }
     }
   }
@@ -39,12 +40,15 @@ Example structure:
 import json
 from typing import Any
 
-from ..core.base_database import BaseDatabase, DatabaseWriteError
+from ..core.base_database import BaseDatabase
 
 #: Keys under which a middle-layer field lists its channel addresses, in the
 #: order readers consult them. ``ChannelNames`` holds Channel Access names and
 #: ``TangoNames`` Tango device attributes; a field may carry either or both.
 CHANNEL_KEYS: tuple[str, ...] = ("ChannelNames", "TangoNames")
+
+#: Top-level keys of an index that describe the document, not a system.
+DOCUMENT_KEYS = frozenset({"schema", "count"})
 
 # Metadata keys to skip during tree traversal (not navigable families/fields)
 _ML_META_KEYS = frozenset(
@@ -68,7 +72,7 @@ _ML_META_KEYS = frozenset(
 )
 
 
-def _get_setup(family_data: dict) -> dict:
+def get_setup(family_data: dict) -> dict:
     """Return the setup block from a family node.
 
     Checks for both ``"setup"`` (legacy MML exports) and ``"_setup"``
@@ -83,30 +87,46 @@ def _get_setup(family_data: dict) -> dict:
     return family_data.get("setup") or family_data.get("_setup") or {}
 
 
-def _count_field_channels(field_data: dict) -> int:
-    """Return the number of channel slots a field lists under every channel key.
+def _subfield_key(subfield: list[str] | str | None) -> str:
+    """Return a membership's subfield path as one string: a list ":"-joined, None as ""."""
+    if isinstance(subfield, list):
+        return ":".join(subfield)
+    return subfield or ""
 
-    A list counts its length and any other value (a bare string) counts one.
 
-    Args:
-        field_data: A field or subfield dict from the MML tree.
+def _listing_path(membership: dict[str, Any]) -> tuple[str, str, str, str]:
+    """Return the (System, Family, Field, Subfield) path a membership lists its channel at."""
+    return (
+        membership["system"],
+        membership["family"],
+        membership["field"],
+        _subfield_key(membership["subfield"]),
+    )
 
-    Returns:
-        The slot count summed over the keys of ``CHANNEL_KEYS`` present.
+
+def _add_membership(channels: dict[str, dict], name: str, membership: dict[str, Any]) -> None:
+    """File one listing of ``name`` among its channel entry's memberships.
+
+    A channel entry holds one membership per (System, Family, Field, Subfield)
+    path that lists the channel, in document order: a family that lists the
+    channel under several fields or subfields keeps each of them. A repeat of
+    the exact same path keeps the last listing in that path's place.
     """
-    count = 0
-    for channel_key in CHANNEL_KEYS:
-        if channel_key in field_data:
-            names = field_data[channel_key]
-            count += len(names) if isinstance(names, list) else 1
-    return count
+    entry = channels.setdefault(name, {"channel": name, "address": name, "memberships": []})
+    memberships: list[dict[str, Any]] = entry["memberships"]
+    path = _listing_path(membership)
+    for index, held in enumerate(memberships):
+        if _listing_path(held) == path:
+            memberships[index] = membership
+            return
+    memberships.append(membership)
 
 
 class MiddleLayerDatabase(BaseDatabase):
     """
     Database for middle-layer (MML) style channel organization.
 
-    Supports functional hierarchy with optional device/sector filtering.
+    Supports functional hierarchy with optional place/device filtering.
     Designed for React agent-style exploration using query tools.
     """
 
@@ -140,7 +160,7 @@ class MiddleLayerDatabase(BaseDatabase):
                 "Invalid database format: a middle-layer database is a dict of "
                 "systems -> families -> fields, keyed by name at every level; this "
                 f"file's root is a {type(self.data).__name__}. See "
-                "data/channel_databases/tiers/tier3/middle_layer.json for the "
+                "data/channel_finder/middle_layer.json for the "
                 "expected format."
             )
 
@@ -152,13 +172,20 @@ class MiddleLayerDatabase(BaseDatabase):
         Flatten MML hierarchy into channel map for O(1) validation.
 
         Keys starting with ``_`` are metadata (``_description``, ``_meta``) at
-        any level and are skipped. Any other value that is not a mapping is a
+        any level and are skipped, as are the top-level document keys
+        (``schema``, ``count``). Any other value that is not a mapping is a
         shape error, and is named rather than skipped: a system or family that
         silently contributed nothing would read as a facility with fewer
         channels, not as a broken file.
 
+        A channel is keyed once, however many families list it: its entry is
+        ``{"channel", "address", "memberships"}``, one membership
+        (``system``, ``family``, ``field``, ``subfield``, ``description``,
+        ``protocol`` and the field's metadata) per (System, Family, Field,
+        Subfield) path that lists it, in document order.
+
         Returns:
-            Dict mapping channel names to metadata
+            Dict mapping channel names to their entries
 
         Raises:
             ValueError: A system or family whose value is not a mapping.
@@ -166,13 +193,13 @@ class MiddleLayerDatabase(BaseDatabase):
         channels: dict[str, dict[str, Any]] = {}
 
         for system, families in self.data.items():
-            if system.startswith("_"):
+            if system.startswith("_") or system in DOCUMENT_KEYS:
                 continue
             if not isinstance(families, dict):
                 raise ValueError(
                     f"Invalid database format: system '{system}' must map family "
                     f"names to their fields, got a {type(families).__name__}. See "
-                    "data/channel_databases/tiers/tier3/middle_layer.json for the "
+                    "data/channel_finder/middle_layer.json for the "
                     "expected format."
                 )
 
@@ -184,7 +211,7 @@ class MiddleLayerDatabase(BaseDatabase):
                         f"Invalid database format: family '{system}:{family}' must "
                         f"map field names to their definitions, got a "
                         f"{type(fields).__name__}. See "
-                        "data/channel_databases/tiers/tier3/middle_layer.json for the "
+                        "data/channel_finder/middle_layer.json for the "
                         "expected format."
                     )
 
@@ -254,26 +281,28 @@ class MiddleLayerDatabase(BaseDatabase):
                     if meta_key in value:
                         metadata[meta_key] = value[meta_key]
 
-                # Store each channel with its metadata. A name listed under
-                # several keys of this field keeps the protocol of the first
-                # key in CHANNEL_KEYS order.
+                # Record each channel's membership of this family with the
+                # field's metadata. A name listed under several keys of this
+                # field keeps the protocol of the first key in CHANNEL_KEYS order.
                 field_names: set[str] = set()
                 for channel_name, protocol in channel_names:
                     # Strip whitespace from channel names (MML exports have padding)
                     clean_name = channel_name.strip()
                     if clean_name and clean_name not in field_names:
                         field_names.add(clean_name)
-                        channels[clean_name] = {
-                            "channel": clean_name,
-                            "address": clean_name,
-                            "system": system,
-                            "family": family,
-                            "field": field_path[0] if field_path else "",
-                            "subfield": field_path[1:] if len(field_path) > 1 else None,
-                            "description": f"{system}:{family}:{':'.join(field_path)}",
-                            "protocol": protocol,
-                            **metadata,  # Include MML metadata if present
-                        }
+                        _add_membership(
+                            channels,
+                            clean_name,
+                            {
+                                "system": system,
+                                "family": family,
+                                "field": field_path[0] if field_path else "",
+                                "subfield": field_path[1:] if len(field_path) > 1 else None,
+                                "description": f"{system}:{family}:{':'.join(field_path)}",
+                                "protocol": protocol,
+                                **metadata,  # Include MML metadata if present
+                            },
+                        )
             else:
                 # Recurse into nested structure (handles subfields)
                 self._extract_channels_from_field(channels, system, family, value, path + [key])
@@ -286,7 +315,9 @@ class MiddleLayerDatabase(BaseDatabase):
             channel_name: Channel name to lookup
 
         Returns:
-            Channel dict or None if not found
+            The channel's entry, whose ``memberships`` list every
+            (System, Family, Field, Subfield) path that lists it, or None if
+            not found
         """
         return self.channel_map.get(channel_name.strip())
 
@@ -472,7 +503,7 @@ class MiddleLayerDatabase(BaseDatabase):
         family: str,
         field: str,
         subfield: str | None = None,
-        sectors: list[int] | None = None,
+        place: str | None = None,
         devices: list[int] | None = None,
         *,
         protocol: str | None = None,
@@ -485,8 +516,11 @@ class MiddleLayerDatabase(BaseDatabase):
             family: Family name
             field: Field name
             subfield: Optional subfield name
-            sectors: Optional list of sector numbers to filter by
-            devices: Optional list of device numbers to filter by
+            place: Optional place id or path prefix to include: the place
+                itself and every place below it, matched against the family's
+                ``PlaceList``. A family with no ``PlaceList`` takes the bare
+                place index its rows carry.
+            devices: Optional list of device ordinals inside their place to include
             protocol: ``"ca"`` for the ``ChannelNames`` list or ``"tango"`` for
                 the ``TangoNames`` list. When omitted, the list under the first
                 present key in ``CHANNEL_KEYS`` order is returned.
@@ -552,31 +586,32 @@ class MiddleLayerDatabase(BaseDatabase):
             channel_names = [channel_names]
 
         # Apply filtering if requested
-        if sectors or devices:
-            channel_names = self._filter_by_device_sectors(
-                system, family, channel_names, sectors, devices
+        if place is not None or devices:
+            channel_names = self._filter_by_device_places(
+                system, family, channel_names, place, devices
             )
 
         # Strip whitespace and filter empty strings
         return [name.strip() for name in channel_names if name.strip()]
 
-    def _filter_by_device_sectors(
+    def _filter_by_device_places(
         self,
         system: str,
         family: str,
         channel_names: list[str],
-        sectors: list[int] | None,
+        place: str | None,
         devices: list[int] | None,
     ) -> list[str]:
         """
-        Filter channel names by device and sector numbers.
+        Filter channel names by place and device ordinal.
 
         Args:
             system: System name
             family: Family name
             channel_names: Full list of channel names
-            sectors: Optional list of sectors to include
-            devices: Optional list of devices to include
+            place: Optional place id or path prefix to include; the bare place
+                index where the family has no ``PlaceList``
+            devices: Optional list of device ordinals to include
 
         Returns:
             Filtered list of channel names
@@ -586,12 +621,12 @@ class MiddleLayerDatabase(BaseDatabase):
         """
         # Get DeviceList from setup
         family_data = self.data[system][family]
-        setup = _get_setup(family_data)
+        setup = get_setup(family_data)
         device_list = setup.get("DeviceList")
 
         if not device_list:
             raise ValueError(
-                f"Cannot filter by sectors/devices for '{system}:{family}' - "
+                f"Cannot filter by place/devices for '{system}:{family}' - "
                 f"DeviceList not defined in database"
             )
 
@@ -601,9 +636,15 @@ class MiddleLayerDatabase(BaseDatabase):
                 f"DeviceList length ({len(device_list)}) for '{system}:{family}'"
             )
 
+        place_list = setup.get("PlaceList")
+        if place_list is not None and len(place_list) != len(device_list):
+            raise ValueError(
+                f"PlaceList length ({len(place_list)}) does not match "
+                f"DeviceList length ({len(device_list)}) for '{system}:{family}'"
+            )
+
         # Build filtered list
         filtered = []
-        sectors_set = set(sectors) if sectors else None
         devices_set = set(devices) if devices else None
 
         for i, (channel_name, device_entry) in enumerate(
@@ -612,19 +653,26 @@ class MiddleLayerDatabase(BaseDatabase):
             if not isinstance(device_entry, list) or len(device_entry) != 2:
                 raise ValueError(f"Invalid DeviceList entry at index {i}: {device_entry}")
 
-            sector, device = device_entry
+            place_index, device = device_entry
 
             # Check filters
-            sector_match = sectors_set is None or sector in sectors_set
+            if place is None:
+                place_match = True
+            elif place_list is None:
+                place_match = str(place_index) == place
+            else:
+                held = place_list[i]
+                place_match = held is not None and (
+                    held == place or str(held).startswith(place + "/")
+                )
             device_match = devices_set is None or device in devices_set
 
-            if sector_match and device_match:
+            if place_match and device_match:
                 filtered.append(channel_name)
 
         if not filtered:
             raise ValueError(
-                f"No channels match filter criteria. "
-                f"Requested sectors: {sectors}, devices: {devices}"
+                f"No channels match filter criteria. Requested place: {place}, devices: {devices}"
             )
 
         return filtered
@@ -644,7 +692,7 @@ class MiddleLayerDatabase(BaseDatabase):
             return None
 
         family_data = self.data[system][family]
-        setup = _get_setup(family_data)
+        setup = get_setup(family_data)
         return setup.get("CommonNames")
 
     def get_device_info(self, system: str, family: str) -> dict:
@@ -655,252 +703,28 @@ class MiddleLayerDatabase(BaseDatabase):
             family: Family name.
 
         Returns:
-            Dict with common_names, device_list, sectors, devices_per_sector,
-            and total_devices.
+            Dict with common_names, device_list, place_list (``None`` where the
+            family states no ``PlaceList``) and total_devices.
         """
         empty: dict[str, Any] = {
             "common_names": None,
             "device_list": None,
-            "sectors": [],
-            "devices_per_sector": {},
+            "place_list": None,
             "total_devices": 0,
         }
         if system not in self.data or family not in self.data[system]:
             return empty
 
-        setup = _get_setup(self.data[system][family])
+        setup = get_setup(self.data[system][family])
         common_names = setup.get("CommonNames")
         device_list = setup.get("DeviceList")
 
         if not device_list:
             return {**empty, "common_names": common_names}
 
-        from collections import Counter
-
-        sector_counts = Counter(entry[0] for entry in device_list if len(entry) >= 2)
-        sectors = sorted(sector_counts.keys())
-
         return {
             "common_names": common_names,
             "device_list": device_list,
-            "sectors": sectors,
-            "devices_per_sector": dict(sector_counts),
+            "place_list": setup.get("PlaceList"),
             "total_devices": len(device_list),
         }
-
-    # === Persistence ===
-
-    def _serialize(self) -> dict:
-        """Serialize the MML tree back to JSON-compatible dict."""
-        return self.data
-
-    # === Navigation helper ===
-
-    def _ml_navigate(self, system: str, family: str | None = None) -> dict:
-        """Navigate to a system or family node in the MML tree.
-
-        Args:
-            system: System name.
-            family: Optional family name.
-
-        Returns:
-            The target node dict.
-
-        Raises:
-            DatabaseWriteError: If system/family not found.
-        """
-        if system not in self.data:
-            raise DatabaseWriteError(f"System '{system}' not found", "not_found")
-        node: dict[str, Any] = self.data[system]
-        if family is not None:
-            if family not in node:
-                raise DatabaseWriteError(
-                    f"Family '{family}' not found in system '{system}'", "not_found"
-                )
-            node = node[family]
-        return node
-
-    # === Write methods ===
-
-    def add_family(self, system: str, family: str, description: str = "") -> dict:
-        """Add a new family to a system.
-
-        Args:
-            system: System name (must already exist).
-            family: New family name.
-            description: Optional description.
-
-        Returns:
-            Success dict.
-
-        Raises:
-            DatabaseWriteError: If family already exists.
-        """
-        sys_node = self._ml_navigate(system)
-
-        if family in sys_node:
-            raise DatabaseWriteError(
-                f"Family '{family}' already exists in system '{system}'", "duplicate"
-            )
-
-        new_family: dict = {}
-        if description:
-            new_family["_description"] = description
-
-        sys_node[family] = new_family
-        self._commit()
-
-        return {"success": True, "system": system, "family": family}
-
-    def delete_family(self, system: str, family: str) -> dict:
-        """Delete a family and all its channels.
-
-        Returns:
-            Success dict with affected channel count.
-
-        Raises:
-            DatabaseWriteError: If family not found.
-        """
-        sys_node = self._ml_navigate(system)
-
-        if family not in sys_node:
-            raise DatabaseWriteError(
-                f"Family '{family}' not found in system '{system}'", "not_found"
-            )
-
-        affected = self._count_channels_in_family(sys_node[family])
-        del sys_node[family]
-        self._commit()
-
-        return {
-            "success": True,
-            "system": system,
-            "family": family,
-            "affected_channels": affected,
-        }
-
-    def add_channel(
-        self,
-        system: str,
-        family: str,
-        field: str,
-        channel_name: str,
-        subfield: str | None = None,
-    ) -> dict:
-        """Add a channel to a family's field.
-
-        Creates the field/subfield path if it doesn't exist.
-
-        Args:
-            system: System name.
-            family: Family name.
-            field: Field name (e.g., "Monitor").
-            channel_name: Channel PV name to add.
-            subfield: Optional subfield name.
-
-        Returns:
-            Success dict.
-
-        Raises:
-            DatabaseWriteError: If channel already exists.
-        """
-        fam_node = self._ml_navigate(system, family)
-
-        if field not in fam_node:
-            fam_node[field] = {}
-        target = fam_node[field]
-
-        if subfield is not None:
-            if not isinstance(target, dict):
-                raise DatabaseWriteError(
-                    f"Field '{field}' is not a dict, cannot add subfield", "invalid_path"
-                )
-            if subfield not in target:
-                target[subfield] = {}
-            target = target[subfield]
-
-        if "ChannelNames" not in target:
-            target["ChannelNames"] = []
-        names = target["ChannelNames"]
-        if isinstance(names, str):
-            names = [names]
-            target["ChannelNames"] = names
-
-        if channel_name in names:
-            raise DatabaseWriteError(
-                f"Channel '{channel_name}' already exists in this field", "duplicate"
-            )
-
-        names.append(channel_name)
-        self._commit()
-
-        return {
-            "success": True,
-            "channel": channel_name,
-            "path": f"{system}:{family}:{field}",
-        }
-
-    def delete_channel(
-        self,
-        system: str,
-        family: str,
-        field: str,
-        channel_name: str,
-        subfield: str | None = None,
-    ) -> dict:
-        """Delete a channel from a family's field.
-
-        Returns:
-            Success dict.
-
-        Raises:
-            DatabaseWriteError: If channel not found.
-        """
-        fam_node = self._ml_navigate(system, family)
-
-        if field not in fam_node:
-            raise DatabaseWriteError(f"Field '{field}' not found in family '{family}'", "not_found")
-
-        target = fam_node[field]
-        if subfield is not None:
-            if not isinstance(target, dict) or subfield not in target:
-                raise DatabaseWriteError(f"Subfield '{subfield}' not found", "not_found")
-            target = target[subfield]
-
-        names = target.get("ChannelNames", [])
-        if isinstance(names, str):
-            names = [names]
-
-        if channel_name not in names:
-            raise DatabaseWriteError(f"Channel '{channel_name}' not found", "not_found")
-
-        names.remove(channel_name)
-        target["ChannelNames"] = names
-        self._commit()
-
-        return {"success": True, "channel": channel_name}
-
-    def count_family_channels(self, system: str, family: str) -> int:
-        """Count channels in a family (for delete impact preview).
-
-        Returns:
-            Number of channels.
-        """
-        fam_node = self._ml_navigate(system, family)
-        return self._count_channels_in_family(fam_node)
-
-    @staticmethod
-    def _count_channels_in_family(family_node: dict) -> int:
-        """Count total channels in a middle layer family."""
-        count = 0
-        for key, val in family_node.items():
-            if key in _ML_META_KEYS or key.startswith("_"):
-                continue
-            if isinstance(val, dict):
-                if any(channel_key in val for channel_key in CHANNEL_KEYS):
-                    count += _count_field_channels(val)
-                else:
-                    for _sk, sv in val.items():
-                        if isinstance(sv, dict):
-                            count += _count_field_channels(sv)
-        return count

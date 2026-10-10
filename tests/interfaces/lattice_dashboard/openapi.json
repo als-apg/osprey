@@ -1,0 +1,1154 @@
+{
+  "components": {
+    "schemas": {
+      "BaselineResponse": {
+        "description": "The comparison baseline: the overrides and summary it was set at.",
+        "properties": {
+          "overrides": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Overrides",
+            "type": "object"
+          },
+          "set_at": {
+            "title": "Set At",
+            "type": "string"
+          },
+          "summary": {
+            "additionalProperties": true,
+            "title": "Summary",
+            "type": "object"
+          }
+        },
+        "required": [
+          "summary",
+          "overrides",
+          "set_at"
+        ],
+        "title": "BaselineResponse",
+        "type": "object"
+      },
+      "CapabilitiesModel": {
+        "description": "The figures the selected model draws.",
+        "properties": {
+          "fast_figures": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Fast Figures",
+            "type": "array"
+          },
+          "figures": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Figures",
+            "type": "array"
+          },
+          "verify": {
+            "title": "Verify",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "figures",
+          "fast_figures",
+          "verify"
+        ],
+        "title": "CapabilitiesModel",
+        "type": "object"
+      },
+      "DataResponse": {
+        "description": "A figure of the inputs on screen, as the raw data it is drawn from.",
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
+            "type": "object"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "status": {
+            "const": "ready",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "key",
+          "data"
+        ],
+        "title": "DataResponse",
+        "type": "object"
+      },
+      "FamilyModel": {
+        "description": "One magnet family of the selected deck.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "param": {
+            "title": "Param",
+            "type": "string"
+          },
+          "range": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Range",
+            "type": "array"
+          },
+          "type": {
+            "enum": [
+              "quadrupole",
+              "sextupole"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "type",
+          "param",
+          "value",
+          "count",
+          "range"
+        ],
+        "title": "FamilyModel",
+        "type": "object"
+      },
+      "FigureNotCurrent": {
+        "description": "Why there is no figure for the inputs on screen (404).",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "status": {
+            "enum": [
+              "computing",
+              "failed",
+              "stale",
+              "not_computed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "key",
+          "error"
+        ],
+        "title": "FigureNotCurrent",
+        "type": "object"
+      },
+      "FigureResponse": {
+        "description": "A figure of the inputs on screen, as a Plotly figure.",
+        "properties": {
+          "figure": {
+            "additionalProperties": true,
+            "title": "Figure",
+            "type": "object"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "status": {
+            "const": "ready",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "key",
+          "figure"
+        ],
+        "title": "FigureResponse",
+        "type": "object"
+      },
+      "FigureStatusModel": {
+        "description": "One figure's status for the inputs on screen.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "computing",
+              "failed",
+              "stale",
+              "not_computed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated"
+          }
+        },
+        "required": [
+          "status",
+          "key",
+          "updated",
+          "error"
+        ],
+        "title": "FigureStatusModel",
+        "type": "object"
+      },
+      "FigureUnavailable": {
+        "description": "A figure the selected model cannot draw (409).",
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "const": "unavailable",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "reason"
+        ],
+        "title": "FigureUnavailable",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "service"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "LaunchResponse": {
+        "description": "The figures a refresh launched.",
+        "properties": {
+          "launched": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Launched",
+            "type": "array"
+          },
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "launched"
+        ],
+        "title": "LaunchResponse",
+        "type": "object"
+      },
+      "ModelEntry": {
+        "description": "One model the build offers.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "selected": {
+            "title": "Selected",
+            "type": "boolean"
+          },
+          "served": {
+            "title": "Served",
+            "type": "boolean"
+          },
+          "solve": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Solve"
+          }
+        },
+        "required": [
+          "name",
+          "served",
+          "solve",
+          "selected",
+          "error"
+        ],
+        "title": "ModelEntry",
+        "type": "object"
+      },
+      "ParamRequest": {
+        "properties": {
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "family",
+          "value"
+        ],
+        "title": "ParamRequest",
+        "type": "object"
+      },
+      "SelectModelRequest": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SelectModelRequest",
+        "type": "object"
+      },
+      "SelectionModel": {
+        "description": "The model the dashboard draws.",
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/CapabilitiesModel"
+          },
+          "deck_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deck Sha256"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "status": {
+            "enum": [
+              "loading",
+              "ready",
+              "failed",
+              "none"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "deck_sha256",
+          "status",
+          "error",
+          "capabilities"
+        ],
+        "title": "SelectionModel",
+        "type": "object"
+      },
+      "SettingsRequest": {
+        "properties": {
+          "settings": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Settings",
+            "type": "object"
+          }
+        },
+        "required": [
+          "settings"
+        ],
+        "title": "SettingsRequest",
+        "type": "object"
+      },
+      "SettingsResetResponse": {
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/SettingsResponse"
+          },
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "settings"
+        ],
+        "title": "SettingsResetResponse",
+        "type": "object"
+      },
+      "SettingsResponse": {
+        "additionalProperties": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "object"
+        },
+        "description": "The computation settings, by group.",
+        "title": "SettingsResponse",
+        "type": "object"
+      },
+      "StateResponse": {
+        "description": "The dashboard state for the inputs on screen.",
+        "properties": {
+          "baseline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BaselineResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "families": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FamilyModel"
+            },
+            "title": "Families",
+            "type": "object"
+          },
+          "figures": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FigureStatusModel"
+            },
+            "title": "Figures",
+            "type": "object"
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice"
+          },
+          "overrides": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Overrides",
+            "type": "object"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/SelectionModel"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/SettingsResponse"
+          },
+          "summary": {
+            "additionalProperties": true,
+            "title": "Summary",
+            "type": "object"
+          }
+        },
+        "required": [
+          "selection",
+          "families",
+          "overrides",
+          "summary",
+          "figures",
+          "baseline",
+          "settings",
+          "notice"
+        ],
+        "title": "StateResponse",
+        "type": "object"
+      },
+      "StatusResponse": {
+        "properties": {
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "StatusResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Live lattice visualization dashboard",
+    "title": "Lattice Dashboard",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Root"
+      }
+    },
+    "/api/baseline": {
+      "delete": {
+        "operationId": "clear_baseline_api_baseline_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Clear Baseline"
+      },
+      "post": {
+        "operationId": "set_baseline_api_baseline_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaselineResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Set Baseline"
+      }
+    },
+    "/api/data/{name}": {
+      "get": {
+        "operationId": "get_data_api_data__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FigureNotCurrent"
+                }
+              }
+            },
+            "description": "No figure for the inputs on screen"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FigureUnavailable"
+                }
+              }
+            },
+            "description": "The selected model cannot draw it"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Data"
+      }
+    },
+    "/api/events": {
+      "get": {
+        "operationId": "sse_stream_api_events_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sse Stream"
+      }
+    },
+    "/api/figures/{name}": {
+      "get": {
+        "operationId": "get_figure_api_figures__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FigureResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FigureNotCurrent"
+                }
+              }
+            },
+            "description": "No figure for the inputs on screen"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FigureUnavailable"
+                }
+              }
+            },
+            "description": "The selected model cannot draw it"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Figure"
+      }
+    },
+    "/api/models": {
+      "get": {
+        "operationId": "list_models_api_models_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ModelEntry"
+                  },
+                  "title": "Response List Models Api Models Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Models"
+      }
+    },
+    "/api/models/select": {
+      "post": {
+        "operationId": "select_model_api_models_select_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelectModelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelectionModel"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Select Model"
+      }
+    },
+    "/api/refresh": {
+      "post": {
+        "operationId": "refresh_fast_api_refresh_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LaunchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Refresh Fast"
+      }
+    },
+    "/api/refresh/{figure}": {
+      "post": {
+        "operationId": "refresh_figure_api_refresh__figure__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "figure",
+            "required": true,
+            "schema": {
+              "title": "Figure",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LaunchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FigureUnavailable"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Refresh Figure"
+      }
+    },
+    "/api/settings": {
+      "delete": {
+        "operationId": "reset_settings_api_settings_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Reset Settings"
+      },
+      "get": {
+        "operationId": "get_settings_api_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Settings"
+      },
+      "put": {
+        "operationId": "update_settings_api_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Settings"
+      }
+    },
+    "/api/state": {
+      "get": {
+        "operationId": "get_state_api_state_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get State"
+      }
+    },
+    "/api/state/param": {
+      "post": {
+        "operationId": "set_param_api_state_param_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParamRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Param"
+      }
+    },
+    "/api/verify": {
+      "post": {
+        "operationId": "verify_api_verify_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LaunchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FigureUnavailable"
+                }
+              }
+            },
+            "description": "Conflict"
+          }
+        },
+        "summary": "Verify"
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    }
+  }
+}

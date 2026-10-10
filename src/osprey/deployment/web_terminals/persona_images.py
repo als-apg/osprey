@@ -33,7 +33,10 @@ from osprey.deployment.runtime_helper import get_runtime_command
 from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.env_production import deploy_issued_credential_vars
 from osprey.deployment.web_terminals.persona_naming import persona_project
-from osprey.deployment.web_terminals.personas import effective_image_source
+from osprey.deployment.web_terminals.personas import (
+    PERSONA_CATALOG_REQUIRED,
+    effective_image_source,
+)
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.docs_links import installer_remedy
 from osprey.utils.config import ConfigBuilder
@@ -238,13 +241,12 @@ def _referenced_personas(config: dict, resolved_users: list[dict]) -> list[dict[
     ``persona`` name, the ``project`` tag prefix
     :func:`osprey.deployment.web_terminals.personas.resolve_personas` already
     resolved for that entry (reused as-is, not re-derived, so this stays in
-    sync with that function's own default-persona/no-persona fallback
-    rules), and ``project_path`` looked up from the persona catalog — the one
+    sync with that function's own default-persona rule), and ``project_path`` looked up from the persona catalog — the one
     field ``resolve_personas`` doesn't carry through, since it belongs to the
     build path, not the render path.
 
-    An entry whose ``persona`` is ``None`` (zero-migration, no persona system
-    in effect for that user) or whose catalog lookup misses (a stale/bad
+    An entry whose ``persona`` is ``None`` (the lenient unresolved entry) or
+    whose catalog lookup misses (a stale/bad
     reference a lenient, lifecycle-style resolution left in place) is skipped
     rather than raised — well-formedness is lint's job; this function only
     decides what to build from what already resolved. A referenced persona
@@ -288,10 +290,10 @@ def _referenced_personas(config: dict, resolved_users: list[dict]) -> list[dict[
             )
             continue
         seen.add(persona_name)
-        # Trust resolve_personas' contract that every resolved entry carries a
-        # non-empty "project" and "image" — no fallback derivation here, which
-        # would silently diverge from the tag resolve_personas itself resolved
-        # if that contract were ever violated.
+        # Every strictly resolved entry carries a non-empty "project" and
+        # "image"; callers hand this function a strict resolve. No fallback
+        # derivation here, which would silently diverge from the tag
+        # resolve_personas itself resolved.
         project = cast(str, entry.get("project"))
         image = cast(str, entry.get("image"))
         # The delta this entry says its project was rendered from; carried here
@@ -800,17 +802,16 @@ def build_persona_images(
     the dispatch worker's ``<project>:local`` image is a different tag,
     disjoint from every persona tag this function produces — a disjointness
     the ``persona_project_shadows_worker_image`` lint rule enforces now that
-    persona tags carry no ``-<persona>`` suffix of their own (the legacy
-    no-``project`` fallback keeps its suffix and stays disjoint by
-    construction) — and is built independently.
+    persona tags carry no ``-<persona>`` suffix of their own — and is built
+    independently.
 
     No-op when ``modules.web_terminals.image_source`` is not ``"local"``
     (the default, ``"registry"``): a registry-mode deploy pulls every
     persona's image instead — nothing here to build. In local mode, a
     missing ``modules.web_terminals.personas`` catalog or
-    ``default_persona`` raises ``ValueError``, mirroring the same guard
-    :func:`osprey.deployment.web_terminals.personas.resolve_personas` enforces
-    under ``strict=True`` and the lint rule it mirrors — ``osprey up``
+    ``default_persona`` raises the same refusal
+    :func:`osprey.deployment.web_terminals.personas.resolve_personas` raises
+    under ``strict=True`` in every image source — ``osprey up``
     never runs lint, so this fail-closed check must live on the build path
     too, not only on whichever render/resolve call happened to run first.
 
@@ -846,11 +847,7 @@ def build_persona_images(
     personas_catalog: dict = personas_raw if isinstance(personas_raw, dict) else {}
     default_persona = web_terminals.get("default_persona")
     if not personas_catalog or not isinstance(default_persona, str) or not default_persona:
-        raise ValueError(
-            "modules.web_terminals.image_source: local requires both a "
-            "modules.web_terminals.personas catalog and default_persona to be "
-            "configured"
-        )
+        raise ValueError(PERSONA_CATALOG_REQUIRED)
 
     referenced = _referenced_personas(config, resolved_users)
     if not referenced:

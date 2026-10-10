@@ -8,6 +8,7 @@ refuses a start when `osprey build` has not written a persona's project.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ import pytest
 from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 from osprey.deployment.errors import CapturedProcessError
 from osprey.deployment.web_terminals import persona_images
+from osprey.deployment.web_terminals.personas import PERSONA_CATALOG_REQUIRED
 
 # ---------------------------------------------------------------------------
 # build_persona_images -- local-mode per-persona image builder
@@ -71,7 +73,7 @@ def test_build_persona_images_noop_in_registry_mode(monkeypatch):
 def test_build_persona_images_local_without_catalog_raises():
     config = {"modules": {"web_terminals": {"image_source": "local"}}}
 
-    with pytest.raises(ValueError, match="requires both"):
+    with pytest.raises(ValueError, match=re.escape(PERSONA_CATALOG_REQUIRED)):
         persona_images.build_persona_images(config, [], False, {})
 
 
@@ -85,7 +87,7 @@ def test_build_persona_images_local_without_default_persona_raises(tmp_path):
         }
     }
 
-    with pytest.raises(ValueError, match="requires both"):
+    with pytest.raises(ValueError, match=re.escape(PERSONA_CATALOG_REQUIRED)):
         persona_images.build_persona_images(config, [], False, {})
 
 
@@ -183,11 +185,11 @@ def test_build_persona_images_builds_a_shared_render_once(
     assert "shared-app:local" in calls[0]
 
 
-def test_build_persona_images_never_builds_zero_migration_entries(
+def test_build_persona_images_never_builds_unresolved_entries(
     monkeypatch, tmp_path, _no_dev_wheel_staging
 ):
-    """An entry with persona=None (no persona system in effect) is skipped --
-    it never contributes a build unit, even in local mode."""
+    """The lenient unresolved entry (persona and image None) is skipped -- it
+    never contributes a build unit, even in local mode."""
     ops_path = _make_persona_project(tmp_path, "ops-app")
     config = {
         "project_name": "myfacility",
@@ -199,7 +201,7 @@ def test_build_persona_images_never_builds_zero_migration_entries(
             }
         },
     }
-    resolved_users = [{"name": "legacy", "persona": None, "project": "myfacility-assistant"}]
+    resolved_users = [{"name": "legacy", "persona": None, "project": None, "image": None}]
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []

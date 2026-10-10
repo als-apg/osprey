@@ -74,18 +74,7 @@ from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_M
 from osprey.interfaces.web_terminal.routes.config import _changed_protected_keys
 from osprey.utils.config_writer import config_update_fields
 from osprey.utils.identity import acting_identity
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+from tests._preset_data import bundle_data_root
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -106,7 +95,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
@@ -296,7 +285,14 @@ PROTECTED_CASES = [
     pytest.param("approval.mode", "disabled", id="approval-gate"),
     pytest.param("claude_code.permissions.deny", [], id="permission-surface"),
     pytest.param("agent_data.base_dir", "/tmp/elsewhere", id="agent-data-root"),
-    pytest.param("control_system", {"type": "mock"}, id="ancestor-block"),
+    pytest.param(
+        "control_system",
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        },
+        id="ancestor-block",
+    ),
 ]
 
 
@@ -765,11 +761,9 @@ class TestPutProtectedDocumentDiff:
         because ``artifacts.*`` sits beside it. The ones that are not are the
         ones whose subtree the flatten can lose, and each of today's names a
         path value that cannot be made to point anywhere by planting a block
-        there -- ``simulation.state_dir`` and ``services.*.devices_file``
-        because their readers treat a block as unset (the devices reader is
-        ``isinstance(str)``-gated and the worker's own path is baked into its
-        environment at build), the feedback store because its reader chokes on
-        it and leaves the store off. A new pattern gets neither guarantee for
+        there -- ``simulation.state_dir`` because its reader treats a block as
+        unset, the feedback store because its reader chokes on it and leaves
+        the store off. A new pattern gets neither guarantee for
         free, so if this fails the PUT gate's note needs re-deciding, not
         extending.
         """
@@ -777,7 +771,6 @@ class TestPutProtectedDocumentDiff:
         known_inert = {
             "simulation.state_dir",
             "services.channel_finder.pipelines.hierarchical.feedback.store_path",
-            "services.*.devices_file",
         }
 
         leaky = {

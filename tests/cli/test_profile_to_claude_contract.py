@@ -44,6 +44,7 @@ from osprey.registry.mcp import (
     FRAMEWORK_AGENTS,
     FRAMEWORK_SERVERS,
 )
+from tests._preset_data import bundle_data_root
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -51,18 +52,6 @@ from osprey.registry.mcp import (
 
 
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures give ``create_project`` as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the same content the render used to
-    reach for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -111,15 +100,19 @@ def _apply_preset_config(manager: TemplateManager, project: Path, preset: str) -
 
     A project's declarative config — its control system, its services, the
     servers it enables — is its preset's, and the framework template renders
-    none of it. So a build overlays the resolved ``config:`` onto config.yml
-    and regenerates ``.claude/`` from the result, and a fixture that stops at
-    the render is holding half a project.
+    none of it. So a build overlays the resolved ``config:`` onto config.yml,
+    writes the facility views and regenerates ``.claude/`` from the result, and
+    a fixture that stops at the render is holding half a project.
     """
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.utils.config_writer import config_update_fields
+    from tests._facility_file import write_facility_views
 
     profile, _profile_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
+    # The build writes the facility views before it regenerates, so the
+    # agent facts name the models the render serves.
+    write_facility_views(project, preset.replace("-", "_"))
     manager.regenerate_claude_code(project)
     return project
 
@@ -134,7 +127,7 @@ def _build_control_assistant(tmp_path_factory) -> Path:
         output_dir=out_dir,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
     return _apply_preset_config(manager, project, "control-assistant")
 
@@ -147,7 +140,7 @@ def _build_hello_world(tmp_path_factory) -> Path:
         project_name="hw-contract",
         output_dir=out_dir,
         data_bundle="hello_world",
-        data_root=_bundle_data_root("hello_world"),
+        data_root=bundle_data_root("hello_world"),
     )
     return _apply_preset_config(manager, project, "hello-world")
 
@@ -530,7 +523,7 @@ def test_narrowed_skill_selection_renders_only_the_selected_skills(tmp_path):
             "output_styles": ["control-operator"],
             "web_panels": ["ariel"],
         },
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
 
     skills_dir = project / ".claude" / "skills"
@@ -554,7 +547,7 @@ def test_overlay_agent_frontmatter_preserved(tmp_path):
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
 
     # Drop a custom agent file with a known frontmatter shape.
@@ -612,7 +605,7 @@ def test_extends_phoebus2_rendered_artifacts(tmp_path, monkeypatch):
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
 
     from osprey.utils.config_writer import config_update_fields
@@ -699,7 +692,7 @@ def test_hook_config_write_tools_dedupe(tmp_path):
         project_name="write-tools-dedupe",
         output_dir=tmp_path,
         data_bundle="hello_world",
-        data_root=_bundle_data_root("hello_world"),
+        data_root=bundle_data_root("hello_world"),
     )
 
     baseline = _read_hook_config(project)["write_tools"]
@@ -751,7 +744,7 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
         project_name="no-servers",
         output_dir=tmp_path,
         data_bundle="hello_world",
-        data_root=_bundle_data_root("hello_world"),
+        data_root=bundle_data_root("hello_world"),
     )
 
     enabled = _server_names_from_prefixes(_read_hook_config(project))
@@ -798,7 +791,7 @@ def test_hook_config_lane_addressed_tools_come_from_the_registry(tmp_path):
         project_name="lane-addressed-tools",
         output_dir=tmp_path,
         data_bundle="hello_world",
-        data_root=_bundle_data_root("hello_world"),
+        data_root=bundle_data_root("hello_world"),
     )
 
     hook_cfg = _read_hook_config(project)
@@ -961,7 +954,7 @@ def test_crown_jewel_invariant_catches_missing_tool(tmp_path):
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
 
     bogus = project / ".claude" / "agents" / "bogus.md"
@@ -995,7 +988,7 @@ def test_crown_jewel_invariant_rejects_wildcards(tmp_path):
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
 
     wild = project / ".claude" / "agents" / "wild.md"
@@ -1132,7 +1125,7 @@ def _killswitch_project(tmp_path, name: str, fields: dict) -> Path:
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
     _apply_preset_config(manager, project, "control-assistant")
     config_update_fields(project / "config.yml", fields)
@@ -1546,7 +1539,7 @@ def test_a_deployment_whose_only_target_is_disarmed_still_renders_the_deny(tmp_p
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
     _apply_preset_config(manager, project, "control-assistant")
     config_update_fields(
@@ -1597,7 +1590,7 @@ def _render_preset_project(tmp_path_factory, preset: str) -> Path:
         # reads it.
         data_bundle=preset_data_bundle(preset),
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root(preset_data_bundle(preset)),
+        data_root=bundle_data_root(preset_data_bundle(preset)),
     )
     config_update_fields(project / "config.yml", profile.config)
     manager.regenerate_claude_code(project)
@@ -1716,7 +1709,7 @@ def test_hook_helper_libraries_are_copied_but_never_wired(tmp_path):
             "hooks": ["hook-log", "target-state", "hook-config", "approval", "memory-guard"],
             "rules": ["safety"],
         },
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
     )
 
     helpers = ("osprey_hook_log.py", "osprey_target_state.py")
@@ -1806,7 +1799,7 @@ def _project_with_hooks(
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=_bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("control_assistant"),
         artifacts=_selection_without(manager, *dropped),
     )
     profile, _profile_dir = resolve_build_profile(None, preset="control-assistant")
@@ -2005,7 +1998,7 @@ def test_a_sibling_data_directory_grants_no_read_permission(tmp_path):
         project_name="hw-textbooks",
         output_dir=out_dir,
         data_bundle="hello_world",
-        data_root=_bundle_data_root("hello_world"),
+        data_root=bundle_data_root("hello_world"),
     )
     _apply_preset_config(manager, project, "hello-world")
 

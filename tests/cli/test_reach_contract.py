@@ -58,11 +58,11 @@ def _host_reading(profile: BuildProfile) -> dict[str, Any]:
             project_deps=[],
             skip_deps=True,
             manager=TemplateManager(),
-            va_manifests={},
-            va_reported=set(),
             graph_indexes={},
             graph_facts_reported=set(),
             model_facts_reported=set(),
+            facility={},
+            facility_sha256="",
         )
         return build_cmd._template_host_config(
             shared,

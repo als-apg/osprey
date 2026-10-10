@@ -155,6 +155,7 @@ __all__ = [
     "LIVE_STANDIN_PORT_KEY",
     "LOOPBACK_HOSTNAME",
     "archive_belongs_to_standin",
+    "archive_recorder_configured",
     "live_standin_active",
     "live_standin_port",
 ]
@@ -240,16 +241,23 @@ def archive_belongs_to_standin(config: Mapping[str, Any]) -> bool:
     """
     if live_standin_port(config) is None:
         return False
-    return _records_its_own_store(config)
+    return archive_recorder_configured(config)
 
 
-def _records_its_own_store(config: Mapping[str, Any]) -> bool:
+def archive_recorder_configured(config: Mapping[str, Any]) -> bool:
     """Whether *config* says the deployment runs the archive recorder.
 
     The listing on a deploying render, the projected block on an attached one.
     A block that is not a non-empty mapping says nothing: an empty or null
     stanza declares no service, and a non-mapping value is not the block the
     injector writes.
+
+    Args:
+        config: The full config mapping, as loaded from ``config.yml``.
+
+    Returns:
+        ``True`` when the render lists ``archiver_recorder`` in
+        ``deployed_services`` or carries a non-empty recorder block.
     """
     if ARCHIVER_RECORDER_SERVICE in _deployed_services(config):
         return True

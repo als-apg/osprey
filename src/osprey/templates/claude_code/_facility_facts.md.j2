@@ -1,0 +1,73 @@
+schema: {{ facility_facts.schema }}
+
+# {{ facility_facts.identity.name }}
+
+{% if facility_facts.identity.description -%}
+{{ facility_facts.identity.description }}
+
+{% endif -%}
+These facts are read from this facility's build.
+
+- Code: `{{ facility_facts.identity.code }}`
+- Channels: {{ facility_facts.channel_count }}
+- Place levels: {{ facility_facts.place_levels | join(', ') if facility_facts.place_levels else 'none' }}
+
+## Places
+
+{% if facility_facts.places -%}
+| Place | Level | Names | Devices |
+|---|---|---|---|
+{% for place in facility_facts.places -%}
+| `{{ place.id }}` | {{ place.level if place.level else '-' }} | {{ place.names | join(', ') if place.names else '-' }} | {% for name, n in place.devices | dictsort(case_sensitive=true) %}{{ name }} {{ n }}{% if not loop.last %}, {% endif %}{% else %}-{% endfor %} |
+{% endfor -%}
+{% else -%}
+This facility's build holds no place.
+{% endif -%}
+{% if facility_facts.unplaced_devices %}
+Devices in no place: {% for name, n in facility_facts.unplaced_devices | dictsort(case_sensitive=true) %}{{ name }} {{ n }}{% if not loop.last %}, {% endif %}{% endfor %}.
+{% endif %}
+## Models
+
+| Model | Engine | Served | Solve |
+|---|---|---|---|
+{% for model in facility_facts.models -%}
+| `{{ model.name }}` | {{ model.engine }} | {{ 'yes' if model.served else 'no' }} | {{ model.solve if model.solve else '-' }} |
+{% endfor %}
+## Device classes
+
+{% if facility_facts.device_classes -%}
+| Class | Devices | Aliases | Groups |
+|---|---|---|---|
+{% for name, entry in facility_facts.device_classes | dictsort(case_sensitive=true) -%}
+| {{ name }} | {{ entry.count }} | {{ entry.aliases | join(', ') if entry.aliases else '-' }} | {{ '`' ~ (entry.groups | join('`, `')) ~ '`' if entry.groups else '-' }} |
+{% endfor -%}
+{% else -%}
+This facility's build holds no device class.
+{% endif %}
+## Channels
+
+A channel is found through its device (by class, place, group or name), then by its signal on that device, then by its role: a setpoint is written and its pair is the readback that reports it.
+
+{% set roles = facility_facts.vocabulary.roles -%}
+Roles: readback {{ roles.get('readback', 0) }}, setpoint {{ roles.get('setpoint', 0) }} ({{ facility_facts.vocabulary.paired_setpoints }} paired with a readback){% if roles.get('none') %}, none {{ roles.none }}{% endif %}
+{% if facility_facts.vocabulary.signals %}
+| Signal | Channels | Roles | Meaning |
+|---|---|---|---|
+{% for name, entry in facility_facts.vocabulary.signals | dictsort(case_sensitive=true) -%}
+| `{{ name }}` | {{ entry.count }} | {% for role, n in entry.roles | dictsort(case_sensitive=true) %}{{ role }} {{ n }}{% if not loop.last %}, {% endif %}{% endfor %} | {{ entry.description if entry.description else '-' }} |
+{% endfor -%}
+{% endif -%}
+{% if facility_facts.vocabulary.unsigned_channels %}
+{{ facility_facts.vocabulary.unsigned_channels }} channels carry no signal.
+{% endif %}
+## Measurement models
+
+{% if facility_facts.measurement_models -%}
+| Model | View |
+|---|---|
+{% for name, entry in facility_facts.measurement_models | dictsort(case_sensitive=true) -%}
+| `{{ name }}` | `{{ entry.path }}` |
+{% endfor -%}
+{% else -%}
+This render carries no measurement view.
+{% endif -%}

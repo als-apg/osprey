@@ -14,17 +14,17 @@ Stub document format (OKF §9)::
     ---
     type: device_stub
     title: GTL:BC1 (BuckingCoil)
-    description: Auto-generated stub for BuckingCoil GTL:BC1.
-    resource: https://narad.example.org/device/ex_GTL_BC1
+    description: Auto-generated stub for BuckingCoil GTL/BC1.
+    resource: https://narad.example.org/device/ex_device_GTL_x2F_BC1
     device_class: BuckingCoil
-    device_id: narad:device:ex:GTL:BC1
+    device_id: GTL/BC1
     ---
 
     # Schema
 
-    | Channel | PV | Signal | Direction | Protocol |
-    | ------- | -- | ------ | --------- | -------- |
-    | Monitor | GTL:BC1:CurrentRBV | current_readback | reads | ca |
+    | Channel | PV | Signal | Direction |
+    | ------- | -- | ------ | --------- |
+    | GTL:BC1:CurrentRBV | GTL:BC1:CurrentRBV | current_readback | reads |
     ...
 
 Idempotency: callers are responsible for comparing :attr:`DeviceStub.body`
@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     # Only imported at type-checking time so the runtime import stays lazy.
-    from rdflib import Graph, URIRef  # noqa: F401
+    from rdflib import Graph, Node
 
 # ---------------------------------------------------------------------------
 # NARAD namespace constants (strings — avoid importing rdflib at module level)
@@ -53,14 +53,14 @@ _RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
 _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 
 _P_DEVICE_ID = _NARAD_P + "deviceId"
+_P_FACILITY = _NARAD_P + "facility"
 _P_SOURCE_NAME = _NARAD_P + "sourceName"
 _P_SECTION_CODE = _NARAD_P + "sectionCode"
 _P_HAS_BINDING = _NARAD_P + "hasBinding"
+_P_BINDING_ID = _NARAD_P + "bindingId"
 _P_FULL_PV = _NARAD_P + "fullPv"
-_P_PROTOCOL = _NARAD_P + "protocol"
 _P_READS_SIGNAL = _NARAD_P + "readsSignal"
 _P_WRITES_SIGNAL = _NARAD_P + "writesSignal"
-_P_CONFIDENCE = _NARAD_P + "confidence"
 
 
 # ---------------------------------------------------------------------------
@@ -73,20 +73,16 @@ class ChannelRow:
     """One row in the channel-bindings schema table.
 
     Args:
-        channel: Short channel name (last segment of the binding IRI, e.g. ``Monitor``).
+        channel: The channel's address, decoded from the binding IRI.
         pv: Full EPICS PV string (``narad_p:fullPv``).
         signal: Semantic signal name (local name of the ``readsSignal``/``writesSignal`` object).
         direction: ``"reads"`` or ``"writes"``.
-        protocol: Protocol string, e.g. ``"ca"``.
-        confidence: Confidence tag from the ontology, e.g. ``"high"``.
     """
 
     channel: str
     pv: str
     signal: str
     direction: str
-    protocol: str
-    confidence: str
 
 
 @dataclass
@@ -135,26 +131,56 @@ def local_name(iri: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _binding_channel_name(binding_iri: str) -> str:
-    """Extract the short channel name from a NARAD binding IRI.
+def _binding_channel_name(binding_iri: str, code: str, binding_id: str) -> str:
+    """Name a channel by the address its binding IRI was minted from.
 
-    NARAD binding IRIs follow the pattern::
+    The graph view mints ``.../channel/<code>_channel_<escaped address>``, which
+    :func:`osprey.facility.views.graph_iri.decode` reverses with the facility's
+    identity ``code``. An IRI it did not mint names the channel by its
+    ``bindingId`` literal, and by the IRI's local name when that is absent.
 
-        .../binding/narad_endpoint_<facility>_<section>_<device>_<Channel>
+    Args:
+        binding_iri: The binding node's IRI.
+        code: The owning device's ``narad_p:facility`` literal; empty when it
+            carries none.
+        binding_id: The binding's ``narad_p:bindingId`` literal; empty when it
+            carries none.
 
-    The channel name is the last ``_``-delimited token of the path segment.
-
-    Examples::
-
-        .../narad_endpoint_ex_GTL_BC1_Monitor   -> "Monitor"
-        .../tst_SEC_QF1_Setpoint                -> "Setpoint"
+    Returns:
+        The channel name.
     """
-    segment = local_name(binding_iri)
-    parts = segment.rsplit("_", maxsplit=1)
-    return parts[-1] if len(parts) > 1 else segment
+    from osprey.facility.views.graph_iri import decode
+
+    try:
+        return decode(binding_iri, code)
+    except ValueError:
+        return binding_id or local_name(binding_iri)
 
 
-def _build_channel_rows(g: Graph, binding_iris: list[str]) -> list[ChannelRow]:
+def _device_id(g: Graph, subject: Node) -> str:
+    """Return the id a device node names, as the facility file holds it.
+
+    ``narad_p:deviceId`` when the node carries one. Otherwise the IRI's local
+    name, decoded with the node's ``narad_p:facility`` code when the IRI is one
+    the graph view minted for that code, and verbatim when it is not.
+    """
+    from rdflib import URIRef
+
+    device_id = g.value(subject, URIRef(_P_DEVICE_ID))
+    if device_id is not None and str(device_id):
+        return str(device_id)
+    code = g.value(subject, URIRef(_P_FACILITY))
+    if code is not None:
+        from osprey.facility.views.graph_iri import decode
+
+        try:
+            return decode(str(subject), str(code))
+        except ValueError:
+            pass
+    return local_name(str(subject))
+
+
+def _build_channel_rows(g: Graph, binding_iris: list[str], code: str) -> list[ChannelRow]:
     """Build sorted channel rows from a list of binding IRIs."""
     # Import lazily — callers guarantee rdflib is available by this point.
     from rdflib import URIRef
@@ -163,8 +189,7 @@ def _build_channel_rows(g: Graph, binding_iris: list[str]) -> list[ChannelRow]:
     for b_iri in binding_iris:
         b_node = URIRef(b_iri)
         pv = str(g.value(b_node, URIRef(_P_FULL_PV)) or "")
-        protocol = str(g.value(b_node, URIRef(_P_PROTOCOL)) or "")
-        confidence = str(g.value(b_node, URIRef(_P_CONFIDENCE)) or "")
+        binding_id = str(g.value(b_node, URIRef(_P_BINDING_ID)) or "")
 
         reads_obj = g.value(b_node, URIRef(_P_READS_SIGNAL))
         writes_obj = g.value(b_node, URIRef(_P_WRITES_SIGNAL))
@@ -179,8 +204,8 @@ def _build_channel_rows(g: Graph, binding_iris: list[str]) -> list[ChannelRow]:
             direction = "unknown"
             signal = ""
 
-        channel = _binding_channel_name(b_iri)
-        rows.append(ChannelRow(channel, pv, signal, direction, protocol, confidence))
+        channel = _binding_channel_name(b_iri, code, binding_id)
+        rows.append(ChannelRow(channel, pv, signal, direction))
 
     rows.sort(key=lambda r: r.channel)
     return rows
@@ -192,13 +217,11 @@ def _render_schema_table(channels: list[ChannelRow]) -> str:
         return "_No channel bindings declared._\n"
 
     lines = [
-        "| Channel | PV | Signal | Direction | Protocol |",
-        "| ------- | -- | ------ | --------- | -------- |",
+        "| Channel | PV | Signal | Direction |",
+        "| ------- | -- | ------ | --------- |",
     ]
     for row in channels:
-        lines.append(
-            f"| {row.channel} | {row.pv} | {row.signal} | {row.direction} | {row.protocol} |"
-        )
+        lines.append(f"| {row.channel} | {row.pv} | {row.signal} | {row.direction} |")
     return "\n".join(lines) + "\n"
 
 
@@ -241,8 +264,9 @@ def seed_from_ttl(ttl_path: Path | str | None) -> list[DeviceStub]:
 
     * ``resource`` — the verbatim device IRI.
     * ``device_class`` — the local name of the ``rdf:type`` class.
-    * ``device_id`` — value of ``narad_p:deviceId`` (fallback: local name of the
-      device IRI when ``narad_p:deviceId`` is absent).
+    * ``device_id`` — value of ``narad_p:deviceId``; when it is absent, the
+      device IRI decoded with its ``narad_p:facility`` code, else the IRI's
+      local name.
     * ``title`` — ``"<sectionCode>:<sourceName> (<device_class>)"`` when both
       section and source are present, otherwise ``"<device_class> <device_id>"``.
     * ``channels`` — sorted :class:`ChannelRow` list from all ``narad_p:hasBinding``
@@ -304,24 +328,25 @@ def seed_from_ttl(ttl_path: Path | str | None) -> list[DeviceStub]:
             continue
         device_class = narad_sem_classes[0]
 
-        device_id = str(g.value(subject, URIRef(_P_DEVICE_ID)) or "")
+        device_id = _device_id(g, subject)
         source_name = str(g.value(subject, URIRef(_P_SOURCE_NAME)) or "")
         section_code = str(g.value(subject, URIRef(_P_SECTION_CODE)) or "")
+        code = str(g.value(subject, URIRef(_P_FACILITY)) or "")
 
         # Build a human-readable title.
         if section_code and source_name:
             title = f"{section_code}:{source_name} ({device_class})"
         else:
-            title = f"{device_class} {device_id or local_name(subject_str)}"
+            title = f"{device_class} {device_id}"
 
         # Collect binding IRIs.
         binding_iris = [str(b) for b in g.objects(subject, URIRef(_P_HAS_BINDING))]
-        channels = _build_channel_rows(g, binding_iris)
+        channels = _build_channel_rows(g, binding_iris, code)
 
         stub = DeviceStub(
             resource=subject_str,
             device_class=device_class,
-            device_id=device_id or local_name(subject_str),
+            device_id=device_id,
             title=title,
             channels=channels,
         )

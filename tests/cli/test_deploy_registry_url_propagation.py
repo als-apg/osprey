@@ -97,7 +97,7 @@ def test_a_registry_mapping_without_a_url_is_filled() -> None:
 
 def test_local_mode_fills_nothing_and_draws_no_unused_url_warning() -> None:
     deploy = _parsed({**DEPLOY_BLOCK, "image_source": "local"})
-    config = {"facility.prefix": "demo", "modules.web_terminals": dict(WEB_TERMINALS_CATALOG)}
+    config = {"modules.web_terminals": dict(WEB_TERMINALS_CATALOG)}
 
     assert deploy_config_overrides(deploy, config) == {IMAGE_SOURCE_CONFIG_KEY: "local"}
     warnings = deploy_aware_config_warnings(deploy, config)
@@ -137,7 +137,7 @@ def test_the_spelling_probe(config: Any, expected: str | None) -> None:
 
 def test_the_filled_url_satisfies_the_lint() -> None:
     deploy = _parsed(DEPLOY_BLOCK)
-    config = {"facility.prefix": "demo", "modules.web_terminals": dict(WEB_TERMINALS_CATALOG)}
+    config = {"modules.web_terminals": dict(WEB_TERMINALS_CATALOG)}
 
     merged = deploy_aware_config_errors(deploy, config)
     raw = profile_config_errors(config)

@@ -1,0 +1,1 @@
+The pyat engine builds its LUME model from a model's wiring and serves the deck's tunes and chromaticity, with each wired readback following its setpoint; each magnet setpoint carries its own supply calibration, and a batch writes its faults before its setpoints.

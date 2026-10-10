@@ -83,7 +83,6 @@ _WEB_CONFIG = _RENDERED_CONFIG + "modules:\n  web_terminals:\n    enabled: true\
 #: addresses is built from the file it writes.
 _WEB_STACK_CONFIG = _RENDERED_CONFIG + (
     "facility:\n"
-    "  name: Demo Light Source\n"
     "  prefix: dls\n"
     "system:\n"
     "  timezone: UTC\n"
@@ -96,6 +95,10 @@ _WEB_STACK_CONFIG = _RENDERED_CONFIG + (
     "    enabled: true\n"
     "    users:\n"
     "      - alice\n"
+    "    default_persona: assistant\n"
+    "    personas:\n"
+    "      assistant:\n"
+    "        project: demo-assistant\n"
     "    auth:\n"
     "      method: password\n"
     "      allow_insecure_http: true\n"
@@ -1038,6 +1041,8 @@ def test_web_stack_nginx_mounts_name_the_files_the_writer_writes(tmp_path: Path)
             "web_terminals": {
                 "enabled": True,
                 "users": ["alice"],
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": "als-assistant"}},
             }
         },
     }
@@ -1077,7 +1082,7 @@ def test_web_stack_nginx_mounts_name_the_files_the_writer_writes(tmp_path: Path)
 def _web_config(users: list[str]) -> dict:
     return {
         "project_name": "demo-project",
-        "facility": {"name": "Demo Light Source", "prefix": "dls"},
+        "facility": {"prefix": "dls"},
         "system": {"timezone": "UTC"},
         "registry": {"url": "registry.example.org"},
         "deploy": {"fqdn": "deploy.example.org"},
@@ -1085,6 +1090,8 @@ def _web_config(users: list[str]) -> dict:
             "web_terminals": {
                 "enabled": True,
                 "users": users,
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": "demo-project-assistant"}},
                 "auth": {"method": "password", "allow_insecure_http": True},
             }
         },

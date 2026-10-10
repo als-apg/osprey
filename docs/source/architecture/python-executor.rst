@@ -589,7 +589,7 @@ and the operator alert are what is missing.
    ``osprey.runtime`` utilities (``read_channel()``, ``write_channel()``),
    not direct connector imports. The execution wrapper configures these
    automatically from the deployment context, so code works with any
-   connector (EPICS, Mock, etc.) and notebooks remain reproducible.
+   connector (EPICS, the simulator, etc.) and notebooks remain reproducible.
 
 .. note::
 

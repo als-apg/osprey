@@ -3,9 +3,9 @@
 The rows must reproduce what the n10s-seeded store answers through
 ``GRAPH_SEARCH_CYPHER`` and ``GRAPH_ONTOLOGY_CYPHER``; a parity lane checks that
 against a live store, and these tests pin each rule the parse copies from the
-Cypher on corpora small enough to state the expected rows by hand. The shipped
-demo corpus is then parsed against the counts the store integration tests
-verified against Neo4j.
+Cypher on corpora small enough to state the expected rows by hand. The graph
+view the control-assistant build writes is then parsed against the counts the
+store integration tests verified against Neo4j.
 """
 
 from __future__ import annotations
@@ -13,14 +13,12 @@ from __future__ import annotations
 import subprocess
 import sys
 import textwrap
-from importlib.resources import as_file, files
 from pathlib import Path
 
 import pytest
+from tests._builds import BuiltProject
 from tests.services.channel_finder.graph_index import corpora
 
-from osprey.channel_roster import RosterSource, RosterSourceKind
-from osprey.channel_roster.graph import _corpus_readbacks, _records, read_graph_roster
 from osprey.services.channel_finder.core.exceptions import GraphIndexBuildError
 from osprey.services.channel_finder.graph_index.builder import (
     EDGE_READS,
@@ -28,7 +26,6 @@ from osprey.services.channel_finder.graph_index.builder import (
     BindingRow,
     ClassRow,
     ParsedCorpus,
-    build_graph_index,
     parse_corpus,
 )
 
@@ -36,16 +33,24 @@ SEM = corpora.NARAD_SEM
 DEVICE = corpora.DEVICE
 BINDING = corpora.BINDING
 
-#: Store-verified counts for the shipped demo corpus, as
+#: Store-verified counts for the control-assistant build's graph view, as
 #: ``tests/integration/test_graph_mcp.py`` pins them against Neo4j.
-DEMO_DEVICES = 512
-DEMO_BINDINGS = 2908
-DEMO_WRITE_ONLY = 396
-DEMO_READ_ONLY = 2512
-DEMO_MAGNETS = 382
+#: ``DEMO_DEVICES`` counts every binding owner: the 532 typed devices and the
+#: top place ``SR``, which carries the tune and chromaticity channels itself.
+DEMO_DEVICES = 533
+DEMO_TYPED_DEVICES = 532
+DEMO_BINDINGS = 2952
+DEMO_WRITE_ONLY = 412
+DEMO_READ_ONLY = 2536
+DEMO_MAGNETS = 398
 #: 21 ``owl:Class`` subjects less the ``SemanticSignal`` and ``ChannelBinding``
 #: leaves that pruning drops.
 DEMO_CLASS_COUNT = 19
+#: The channels bound to the top place rather than to a device: no system, no
+#: signal, no class.
+DEMO_PLACE_BOUND = frozenset(
+    {"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
+)
 
 
 def _rows_by_pv(parsed: ParsedCorpus) -> dict[str, BindingRow]:
@@ -59,33 +64,14 @@ def _classes_by_name(parsed: ParsedCorpus) -> dict[str, ClassRow]:
 
 
 @pytest.fixture(scope="module")
-def demo_path():
-    resource = (
-        files("osprey.templates")
-        .joinpath("apps")
-        .joinpath("control_assistant")
-        .joinpath("data")
-        .joinpath("demo_machine.ttl")
-    )
-    with as_file(resource) as path:
-        yield path
+def demo_path(built_control_assistant: BuiltProject) -> Path:
+    """The graph view the control-assistant build writes."""
+    return built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
 
 
 @pytest.fixture(scope="module")
 def demo(demo_path: Path) -> ParsedCorpus:
     return parse_corpus(demo_path.read_text(encoding="utf-8"))
-
-
-@pytest.fixture(scope="module")
-def demo_index(demo_path: Path, tmp_path_factory) -> Path:
-    """The demo corpus built into an index, for the one test that reads one.
-
-    The roster reader opens an index rather than a corpus, so reaching it as
-    an oracle means writing one first.
-    """
-    index_path = tmp_path_factory.mktemp("demo_index") / "graph.duckdb"
-    build_graph_index(demo_path, index_path)
-    return index_path
 
 
 class TestSubclassChain:
@@ -109,6 +95,9 @@ class TestSubclassChain:
             "device_name",
             "section",
             "system",
+            "place_path",
+            "s_position_m",
+            "ordinal_in_place",
             "edges",
             "signal_uris",
             "signal_names",
@@ -219,24 +208,34 @@ class TestSubclassChain:
         assert "ChannelBinding" not in names
         assert "SemanticSignal" not in names
 
-    def test_roster_raw_material_is_shaped_as_the_roster_reader_shapes_it(self, parsed):
-        assert parsed.writes == {corpora_uri("QF1_SP")}
-        assert parsed.reads == {corpora_uri("QF1_RB")}
-        assert sorted(parsed.bindings) == [
-            ("SR:MAG:QF1:CURRENT:RB", corpora_uri("QF1_RB")),
-            ("SR:MAG:QF1:CURRENT:SP", corpora_uri("QF1_SP")),
-            ("SR:MAG:QF1:NOTE", corpora_uri("QF1_NOTE")),
-        ]
-
     def test_census_extras(self, parsed):
         assert parsed.section_codes == frozenset({"SR"})
         assert parsed.signal_count == 2
 
 
-def corpora_uri(binding: str):
-    from rdflib import URIRef
+class TestPlacedDevices:
+    @pytest.fixture(scope="class")
+    def parsed(self) -> ParsedCorpus:
+        return parse_corpus(corpora.PLACED_DEVICES)
 
-    return URIRef(BINDING + binding)
+    def test_a_device_row_carries_its_place_position_and_ordinal(self, parsed):
+        row = _rows_by_pv(parsed)["SR:QF8:RB"]
+        assert row.place_path == "SR/SECT1"
+        assert row.s_position_m == 12.5
+        assert isinstance(row.s_position_m, float)
+        assert row.ordinal_in_place == 2
+        assert isinstance(row.ordinal_in_place, int)
+
+    def test_a_place_binding_carries_the_path_and_no_position(self, parsed):
+        row = _rows_by_pv(parsed)["SR:SECT1:TEMP"]
+        assert row.device_uri == "https://narad.example.org/place/demo_SR_SECT1"
+        assert row.place_path == "SR/SECT1"
+        assert row.s_position_m is None
+        assert row.ordinal_in_place is None
+
+    def test_a_device_the_corpus_does_not_place_has_null_columns(self):
+        row = _rows_by_pv(parse_corpus(corpora.SUBCLASS_CHAIN))["SR:MAG:QF1:CURRENT:SP"]
+        assert (row.place_path, row.s_position_m, row.ordinal_in_place) == (None, None, None)
 
 
 class TestBothEdges:
@@ -275,14 +274,6 @@ class TestSharedFullPv:
         keys = [(row.full_pv, row.device_uri) for row in parsed.binding_rows]
         assert keys == sorted(keys)
 
-    def test_the_roster_vote_collapses_them_to_one_address_with_no_direction(
-        self, parsed, tmp_path
-    ):
-        source = RosterSource(kind=RosterSourceKind.GRAPH, path=tmp_path / "shared.ttl")
-        readbacks = _corpus_readbacks(parsed.graph, parsed.writes, parsed.reads, parsed.bindings)
-        records = _records(parsed.bindings, source, parsed.writes, parsed.reads, readbacks)
-        assert [(r.address, r.direction) for r in records] == [("SR:MAG:SHARED:CURRENT", None)]
-
 
 class TestBindingUnderTwoDevices:
     @pytest.fixture(scope="class")
@@ -301,9 +292,6 @@ class TestBindingUnderTwoDevices:
         by_name = _classes_by_name(parsed)
         assert by_name["Quadrupole"].direct_devices == 2
         assert by_name["Magnet"].rollup_devices == 2
-
-    def test_the_roster_sees_one_binding(self, parsed):
-        assert len(parsed.bindings) == 1
 
 
 class TestDeviceWithoutSectionOrSystem:
@@ -382,12 +370,6 @@ class TestUntypedTargets:
         assert "SR:MAG:QF7:UNTYPED" not in _rows_by_pv(parsed)
         assert len(parsed.binding_rows) == 2
 
-    def test_but_the_roster_raw_material_keeps_it(self, parsed):
-        addresses = sorted(address for address, _ in parsed.bindings)
-        assert addresses == ["SR:MAG:QF7:LABELLESS", "SR:MAG:QF7:RB", "SR:MAG:QF7:UNTYPED"]
-        assert len(parsed.reads) == 3
-        assert parsed.writes == set()
-
     def test_an_edge_to_a_node_not_typed_semantic_signal_is_no_edge(self, parsed):
         row = _rows_by_pv(parsed)["SR:MAG:QF7:RB"]
         assert row.edges == []
@@ -412,8 +394,6 @@ class TestNoBindings:
     def test_is_not_an_error(self):
         parsed = parse_corpus(corpora.NO_BINDINGS)
         assert parsed.binding_rows == []
-        assert parsed.bindings == []
-        assert parsed.writes == set() and parsed.reads == set()
 
     def test_abstract_parents_survive_with_zero_counts(self):
         parsed = parse_corpus(corpora.NO_BINDINGS)
@@ -463,7 +443,7 @@ class TestModuleImport:
         assert "ok" in result.stdout
 
 
-class TestTheShippedDemoCorpus:
+class TestTheBuildsGraphView:
     def test_binding_and_device_counts_match_the_store(self, demo):
         assert len(demo.binding_rows) == DEMO_BINDINGS
         assert len({row.device_uri for row in demo.binding_rows}) == DEMO_DEVICES
@@ -475,22 +455,28 @@ class TestTheShippedDemoCorpus:
         assert (writes, reads) == (DEMO_WRITE_ONLY, DEMO_READ_ONLY)
 
     def test_every_row_invariant(self, demo):
+        place_bound = set()
         for row in demo.binding_rows:
             assert row.haystack == row.haystack.lower()
             assert row.full_pv.lower() in row.haystack
             assert set(row.edges) <= {EDGE_READS, EDGE_WRITES}
             assert row.edges == sorted(row.edges)
-            assert row.section != "" and row.system != ""
-            assert row.section is not None and row.system is not None
+            assert row.section != "" and row.section is not None
             assert len(row.signal_uris) == len(row.signal_names)
             assert row.signal_names == sorted(row.signal_names)
             assert row.class_uris == sorted(row.class_uris)
+            if row.device_name is None:
+                place_bound.add(row.full_pv)
+                assert (row.system, row.edges, row.class_uris) == (None, [], [])
+                continue
+            assert row.system != "" and row.system is not None
             assert row.class_uris, row.full_pv
+        assert place_bound == DEMO_PLACE_BOUND
 
     def test_class_rows_match_the_store(self, demo):
         assert len(demo.class_rows) == DEMO_CLASS_COUNT
         by_name = _classes_by_name(demo)
-        assert by_name["AcceleratorDevice"].rollup_devices == DEMO_DEVICES
+        assert by_name["AcceleratorDevice"].rollup_devices == DEMO_TYPED_DEVICES
         assert by_name["AcceleratorDevice"].direct_devices == 0
         assert by_name["Magnet"].rollup_devices == DEMO_MAGNETS
         assert by_name["Magnet"].parents == [SEM + "AcceleratorDevice"]
@@ -498,20 +484,10 @@ class TestTheShippedDemoCorpus:
         assert [row.name for row in demo.class_rows] == sorted(row.name for row in demo.class_rows)
 
     def test_direct_counts_sum_to_the_rollup_of_the_root(self, demo):
-        assert sum(row.direct_devices for row in demo.class_rows) == DEMO_DEVICES
+        assert sum(row.direct_devices for row in demo.class_rows) == DEMO_TYPED_DEVICES
 
     def test_censuses(self, demo):
-        assert demo.signal_count == 113
-        assert demo.section_codes == frozenset({"SR", "BR", "BTS"})
-
-    def test_roster_raw_material_reproduces_the_roster_reader(self, demo, demo_index):
-        """The parse's bindings, run through the roster's own rules, are what
-        the reader answers off an index built from the same corpus.
-
-        Both sides are attributed to the index, so the comparison is record for
-        record -- provenance included -- rather than field by field.
-        """
-        source = RosterSource(kind=RosterSourceKind.GRAPH, path=demo_index)
-        readbacks = _corpus_readbacks(demo.graph, demo.writes, demo.reads, demo.bindings)
-        records = _records(demo.bindings, source, demo.writes, demo.reads, readbacks)
-        assert records == read_graph_roster(source).records
+        assert demo.signal_count == 31
+        assert demo.section_codes == frozenset(
+            {"SR", "BR", "BTS", "LINE", *(f"SECT{number}" for number in range(1, 13))}
+        )

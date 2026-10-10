@@ -451,7 +451,7 @@ def _unit_test_install_cmd(wf: dict[str, Any]) -> str:
 
 def test_unit_test_job_installs_required_extras(workflow: dict[str, Any]) -> None:
     """The `virtual-accelerator` extra carries the serving stack the live
-    tests/va suites need — pcaspy, and `lume-pva-apg[ca,pva]` which brings p4p
+    tests/va suites need — `lume-pva-apg[ca,pva]`, which brings pcaspy and p4p
     with it. Those suites guard their imports, so without the extra they SKIP
     rather than error and the lane reports green having never touched Channel
     Access; `dev` carries pytest itself."""
@@ -487,8 +487,9 @@ def test_bluesky_stack_is_a_core_dependency() -> None:
 
 
 def test_lume_pyat_is_a_core_dependency() -> None:
-    """`model.pyat` imports lume_pyat at module level — PyATRingModel subclasses
-    LUMEPyATModel — so the VA cannot boot without it. Placement, not just
+    """`osprey.simulation.engines.pyat_model` imports lume_pyat at module level
+    — PyATLatticeModel subclasses LUMEPyATModel — so the VA cannot boot
+    without it. Placement, not just
     presence, is what this guards: the dev-wheel channel builds the VA image's
     dependency manifest from the wheel's base `Requires-Dist` only
     (`wheel_build._wheel_base_requirements` drops every entry gated behind an
@@ -517,7 +518,7 @@ def test_lume_pyat_is_a_core_dependency() -> None:
 
 
 #: The one platform with a loadable Channel Access server wheel, and therefore
-#: the marker both serving entries must carry. Spelled with DOUBLE quotes
+#: the marker the serving entry must carry. Spelled with DOUBLE quotes
 #: because this is compared against ``str(Requirement(...).marker)``, which is
 #: packaging's normalised rendering — pyproject.toml itself writes the same
 #: marker with single quotes, and both parse to this.
@@ -551,7 +552,7 @@ def test_lume_pva_is_pinned_in_the_va_extra(pyproject: dict[str, Any]) -> None:
     image at all. Core placement would be worse than absent — the `ca` extra
     requires pcaspy unconditionally, so a core pin would drag the Channel
     Access server onto every plain `uv sync`, including the macOS hosts the
-    pcaspy marker beside it exists to keep clear of a source build."""
+    marker it carries exists to keep clear of a source build."""
     assert _requirement(_va_extra(pyproject), "lume-pva-apg") is not None, (
         "lume-pva-apg must be pinned in the `virtual-accelerator` extra"
     )
@@ -617,29 +618,30 @@ def test_lume_pva_pin_carries_both_transports__mutation_drops_one(dropped: str) 
         test_lume_pva_pin_carries_both_transports(mutated)
 
 
-def test_lume_pva_pin_shares_the_pcaspy_platform_marker(pyproject: dict[str, Any]) -> None:
-    """The two entries must be marked identically or the marker on pcaspy is
-    decorative: `lume-pva-apg[ca]` requires pcaspy with no marker of its own,
-    so an unmarked serving pin re-introduces it on exactly the hosts the
-    pcaspy line excludes — verified, not assumed (resolving
-    `lume-pva-apg[ca,pva]` for macOS at 3.13 selects pcaspy 0.8.1, whose only
-    artifact there is the sdist, i.e. the EPICS source build)."""
+def test_lume_pva_pin_carries_the_live_ca_marker(pyproject: dict[str, Any]) -> None:
+    """`lume-pva-apg[ca]` requires pcaspy with no marker of its own, so an
+    unmarked serving pin drags the Channel Access server onto hosts with no
+    loadable wheel — verified, not assumed (resolving `lume-pva-apg[ca,pva]`
+    for macOS at 3.13 selects pcaspy 0.8.1, whose only artifact there is the
+    sdist, i.e. the EPICS source build). The extra names pcaspy nowhere: the
+    serving pin is its only route in, and that pin's `ca` extra carries the
+    floor."""
     extra = _va_extra(pyproject)
-    pcaspy = _requirement(extra, "pcaspy")
     lume_pva = _requirement(extra, "lume-pva-apg")
-    # Anchored absolutely, not only to each other. Parity alone would be
-    # satisfied by two entries edited together to some other platform, which
-    # is the one way this pair can drift and still agree.
-    assert pcaspy is not None and str(pcaspy.marker) == LIVE_CA_MARKER, (
-        f"pcaspy must stay marked {LIVE_CA_MARKER!r} — the one platform with a "
-        f"loadable Channel Access server wheel; got {pcaspy.marker}"
+    # Anchored absolutely: a marker retargeted to some other platform is still
+    # a marker, and only the comparison against the one platform with a
+    # loadable Channel Access server wheel rejects it.
+    assert lume_pva is not None and str(lume_pva.marker) == LIVE_CA_MARKER, (
+        f"lume-pva-apg must stay marked {LIVE_CA_MARKER!r} — the one platform with a "
+        f"loadable Channel Access server wheel; got {lume_pva and lume_pva.marker}"
     )
-    assert lume_pva is not None and str(lume_pva.marker) == str(pcaspy.marker), (
-        f"lume-pva-apg must carry pcaspy's marker ({pcaspy.marker}); got {lume_pva.marker}"
+    assert _requirement(extra, "pcaspy") is None, (
+        "the `virtual-accelerator` extra must not declare pcaspy directly — it arrives "
+        "through lume-pva-apg[ca], which carries its floor"
     )
 
 
-def test_lume_pva_pin_shares_the_pcaspy_platform_marker__mutation_unmarks_it() -> None:
+def test_lume_pva_pin_carries_the_live_ca_marker__mutation_unmarks_it() -> None:
     """An unmarked serving pin must fail."""
     mutated = _load_pyproject()
     extra = _va_extra(mutated)
@@ -652,29 +654,38 @@ def test_lume_pva_pin_shares_the_pcaspy_platform_marker__mutation_unmarks_it() -
         "mutation matched nothing — the marker is already absent"
     )
     with pytest.raises(AssertionError):
-        test_lume_pva_pin_shares_the_pcaspy_platform_marker(mutated)
+        test_lume_pva_pin_carries_the_live_ca_marker(mutated)
 
 
-def test_lume_pva_pin_shares_the_pcaspy_platform_marker__mutation_moves_both_to_another_platform() -> (
-    None
-):
-    """Retargeting BOTH entries together must fail.
-
-    This is the mutation the parity check alone could not catch: two markers
-    edited in step still agree with each other, so only the absolute anchor
-    rejects them. Darwin is the pointed choice — it is where pcaspy's wheels
-    exist but do not load, so a plausible edit could land here."""
+def test_lume_pva_pin_carries_the_live_ca_marker__mutation_moves_to_another_platform() -> None:
+    """Retargeting the serving pin to another platform must fail. Darwin is the
+    pointed choice — it is where pcaspy's wheels exist but do not load, so a
+    plausible edit could land here."""
     mutated = _load_pyproject()
     extra = _va_extra(mutated)
     before = list(extra)
     mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
-        f"{dep.split(';', 1)[0].strip()}; sys_platform == 'darwin'" for dep in extra
+        f"{dep.split(';', 1)[0].strip()}; sys_platform == 'darwin'"
+        if Requirement(dep).name == "lume-pva-apg"
+        else dep
+        for dep in extra
     ]
     assert mutated["project"]["optional-dependencies"]["virtual-accelerator"] != before, (
-        "mutation matched nothing — the markers are already not the pinned pair"
+        "mutation matched nothing — the serving pin is gone"
     )
-    with pytest.raises(AssertionError, match="pcaspy must stay marked"):
-        test_lume_pva_pin_shares_the_pcaspy_platform_marker(mutated)
+    with pytest.raises(AssertionError, match="lume-pva-apg must stay marked"):
+        test_lume_pva_pin_carries_the_live_ca_marker(mutated)
+
+
+def test_lume_pva_pin_carries_the_live_ca_marker__mutation_redeclares_pcaspy() -> None:
+    """A direct pcaspy entry beside the serving pin must fail, marked or not."""
+    mutated = _load_pyproject()
+    mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
+        *_va_extra(mutated),
+        "pcaspy>=0.8.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    ]
+    with pytest.raises(AssertionError, match="must not declare pcaspy directly"):
+        test_lume_pva_pin_carries_the_live_ca_marker(mutated)
 
 
 def test_lume_pva_pin_is_exact(pyproject: dict[str, Any]) -> None:
@@ -1010,9 +1021,10 @@ def test_every_boot_smoke_test_runs_in_one_cell__mutation_hides_the_case_in_a_cl
 #: run on every event the unit lane does, which is the deliberate trade in each
 #: case:
 #:
-#:  * the two live Channel Access modules run one pytest process per module
-#:    through scripts/va/live_ca/gate.py, in a step of the unit job itself that
-#:    is gated on a single matrix cell. libca is process-global and not
+#:  * every live module scripts/va/live_ca/gate.py runs — its Channel Access
+#:    suites, and in --pva mode its PVAccess suites too — runs one pytest
+#:    process per module through that gate, in a step of the unit job itself
+#:    that is gated on a single matrix cell. libca is process-global and not
 #:    thread-safe, so a shared xdist worker is precisely what they cannot have,
 #:    and the gate — not a path in a run step — is what proves they ran;
 #:  * the search-index scale guard holds latency budgets taken on a workstation
@@ -1021,8 +1033,8 @@ def test_every_boot_smoke_test_runs_in_one_cell__mutation_hides_the_case_in_a_cl
 #:    pyproject.toml states the same rule from the other side.
 UNIT_LANE_IGNORE_EXEMPTIONS = frozenset(
     {
-        "tests/va/test_record_factory.py",
         "tests/va/test_apply_fault.py",
+        "tests/va/test_lume_pva_seam.py",
         "tests/services/channel_finder/graph_index/test_scale.py",
     }
 )
@@ -1172,7 +1184,7 @@ def test_every_ignored_file_has_a_host__mutation_a_host_that_only_ignores_the_fi
 
 def test_every_ignored_file_has_a_host__mutation_an_unhosted_ignore_is_reported() -> None:
     """A new ignore with no host anywhere must come back named, not swallowed
-    by the two entries that do have one."""
+    by the entries that do have one."""
     mutated = copy.deepcopy(_load_workflow())
     orphan = "tests/integration/test_nothing_else_runs_this.py"
     step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
@@ -1182,6 +1194,19 @@ def test_every_ignored_file_has_a_host__mutation_an_unhosted_ignore_is_reported(
     assert orphan in ignored, "the appended ignore did not reach the scan"
     unhosted = [path for path in ignored if not _unconditional_hosts(mutated, path)]
     assert unhosted == [orphan]
+
+
+#: The module that builds every shipped preset.
+PRESET_BUILD_TEST_FILE = "tests/integration/test_preset_build.py"
+
+
+def test_the_preset_build_runs_in_the_static_job_and_not_in_the_unit_lane(
+    workflow: dict[str, Any],
+) -> None:
+    """Every preset is built once per event, by the Tier 0 static job, rather
+    than once per cell of the unit lane's matrix."""
+    assert PRESET_BUILD_TEST_FILE in _unit_lane_ignored_files(workflow)
+    assert _unconditional_hosts(workflow, PRESET_BUILD_TEST_FILE) == [PARSE_ONLY_JOB]
 
 
 # ---------------------------------------------------------------------------
@@ -3508,6 +3533,31 @@ def test_channel_combobox_browser_test_runs_in_the_browser_lane__mutation_drops_
     step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
     step["run"] = step["run"].replace(f"{COMBOBOX_BROWSER_TEST_FILE} \\\n", "")
     assert COMBOBOX_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
+
+
+# ---------------------------------------------------------------------------
+# (h2b) lattice-dashboard browser test: same vacuous-green shape as (h) — the
+# lane runs an explicit file list, and a suite missing from it runs nowhere
+# ---------------------------------------------------------------------------
+
+LATTICE_BROWSER_TEST_FILE = "tests/interfaces/test_lattice_dashboard_browser.py"
+
+
+def test_lattice_dashboard_browser_test_runs_in_the_browser_lane(
+    workflow: dict[str, Any],
+) -> None:
+    """The lattice dashboard suite has to be NAMED in the lane's pytest
+    invocation — the unit lane skips browser-marked files, so this lane is the
+    only place it is ever collected."""
+    assert LATTICE_BROWSER_TEST_FILE in _browser_lane_files(workflow)
+
+
+def test_lattice_dashboard_browser_test_runs_in_the_browser_lane__mutation_drops_the_file() -> None:
+    """Removing the file from the invocation must fail the guard."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step["run"] = step["run"].replace(f"{LATTICE_BROWSER_TEST_FILE} \\\n", "")
+    assert LATTICE_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -6094,7 +6144,7 @@ def test_va_live_suite_discovery_has_a_floor() -> None:
     partition rather than whichever part happens to be largest."""
     found = _va_live_suites_on_disk()
     assert f"{VA_LIVE_SUITE_DIR}/test_target_switch.py" in found, found
-    assert f"{VA_LIVE_SUITE_DIR}/test_serving_parity.py" in found, found
+    assert f"{VA_LIVE_SUITE_DIR}/test_substrate_parity.py" in found, found
     assert f"{VA_LIVE_SUITE_DIR}/test_bluesky_lanes.py" in found, found
 
 
@@ -6145,6 +6195,66 @@ def test_no_live_va_suite_is_named_by_two_lanes__mutation_names_a_suite_in_both_
         test_no_live_va_suite_is_named_by_two_lanes(mutated)
     with pytest.raises(AssertionError):
         test_every_live_va_suite_is_named_by_one_lane(mutated)
+
+
+# The chain's boot half runs in the lane whose job builds the image it boots.
+# The partition above is satisfied by any one lane naming the module, so the
+# lane is pinned here by name, with the collection floor the run step's
+# comment promises of every module it names.
+CHAIN_BOOT_MODULE = f"{VA_LIVE_SUITE_DIR}/test_chain_boot.py"
+_COLLECTED_FLOOR_RE = re.compile(r"^MIN_COLLECTED_TESTS = (\d+)$", re.MULTILINE)
+_CHAIN_BOOT_FLOOR_GUARD = "len(collected) >= MIN_COLLECTED_TESTS"
+
+
+def test_chain_boot_suite_runs_in_the_va_live_run_step(
+    workflow: dict[str, Any] | None = None,
+) -> None:
+    """The VA live job's run step names the chain's boot module by path."""
+    wf = workflow if workflow is not None else _load_workflow()
+    assert (REPO_ROOT / CHAIN_BOOT_MODULE).is_file()
+    named = _va_live_lane_named_files(wf, VA_LIVE_JOB)
+    assert CHAIN_BOOT_MODULE in named, f"'{VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB]}' runs {named}"
+
+
+def test_chain_boot_suite_runs_in_the_va_live_run_step__mutation_moves_it_to_another_lane() -> None:
+    """The partition still holds on this mutation, so only the pin sees it."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
+    step["run"] = step["run"].replace(f"{CHAIN_BOOT_MODULE} ", "")
+    other = _find_named_step(mutated, TARGET_SWITCH_JOB, VA_LIVE_LANE_RUN_STEPS[TARGET_SWITCH_JOB])
+    other["run"] = f"{other['run']} {CHAIN_BOOT_MODULE}\n"
+    test_every_live_va_suite_is_named_by_one_lane(mutated)
+    test_no_live_va_suite_is_named_by_two_lanes(mutated)
+    with pytest.raises(AssertionError):
+        test_chain_boot_suite_runs_in_the_va_live_run_step(mutated)
+
+
+def _collected_floor_errors(source: str, *, guard: str) -> list[str]:
+    """What a module's collection floor is missing, read from its text.
+
+    Read rather than imported: a lane module may resolve its lane at import,
+    and the floor is a fact about its source. ``guard`` is the text of the
+    module's own assertion of its collection against the floor.
+    """
+    errors: list[str] = []
+    match = _COLLECTED_FLOOR_RE.search(source)
+    if match is None or int(match.group(1)) < 1:
+        errors.append("declares no positive MIN_COLLECTED_TESTS")
+    if guard not in source:
+        errors.append("never asserts its collection against MIN_COLLECTED_TESTS")
+    return errors
+
+
+def test_chain_boot_module_carries_its_collection_floor() -> None:
+    source = (REPO_ROOT / CHAIN_BOOT_MODULE).read_text(encoding="utf-8")
+    assert _collected_floor_errors(source, guard=_CHAIN_BOOT_FLOOR_GUARD) == []
+
+
+def test_chain_boot_module_carries_its_collection_floor__mutation_drops_the_floor() -> None:
+    source = (REPO_ROOT / CHAIN_BOOT_MODULE).read_text(encoding="utf-8")
+    guard = _CHAIN_BOOT_FLOOR_GUARD
+    assert _collected_floor_errors(_COLLECTED_FLOOR_RE.sub("", source), guard=guard)
+    assert _collected_floor_errors(source.replace(guard, "collected"), guard=guard)
 
 
 @pytest.mark.parametrize("job_name", sorted(VA_LIVE_LANE_RUN_STEPS))
@@ -6205,6 +6315,91 @@ def test_live_va_lane_fails_on_any_skipped_test__mutation_drops_the_gate(job_nam
     job["steps"] = [s for s in job["steps"] if s.get("name") != VA_LIVE_SKIP_GATE_STEP]
     with pytest.raises(AssertionError):
         test_live_va_lane_fails_on_any_skipped_test(job_name, mutated)
+
+
+# ---------------------------------------------------------------------------
+# The real-facility lane, on the committed NSLS-II stand-in
+# ---------------------------------------------------------------------------
+#
+# The real-facility lane installs an export that never enters the repository,
+# so in CI it runs over a committed stand-in tree: the same import, build and
+# boot, on the VA live job's image. It is a step of its own rather than a path
+# in the run step above, because that step's suites are the tests/va/e2e
+# partition and this module is not one of them. Without its variable the
+# module skips by design, so its report goes through the same zero-skip gate.
+
+ALS_LANE_STEP = "Run the real-facility lane on the NSLS-II stand-in"
+ALS_LANE_MODULE = "tests/cli/test_als_lane.py"
+ALS_STAND_IN_ENV = "OSPREY_ALS_LANE_STAND_IN"
+ALS_STAND_IN = "tests/fixtures/mml/nsls2"
+_ALS_LANE_FLOOR_GUARD = "len(collected) >= MIN_COLLECTED_TESTS"
+
+
+def test_als_lane_runs_on_the_stand_in_in_the_va_live_job(
+    workflow: dict[str, Any] | None = None,
+) -> None:
+    """The step exists, runs the lane module alone, and names the committed stand-in."""
+    wf = workflow if workflow is not None else _load_workflow()
+    step = _find_named_step(wf, VA_LIVE_JOB, ALS_LANE_STEP)
+    named = [token for token in step["run"].split() if token.endswith(".py")]
+    assert named == [ALS_LANE_MODULE], f"'{ALS_LANE_STEP}' runs {named}"
+    assert "uv run pytest" in step["run"], step["run"]
+    value = step.get("env", {}).get(ALS_STAND_IN_ENV)
+    assert value == ALS_STAND_IN, f"'{ALS_LANE_STEP}' sets {ALS_STAND_IN_ENV} to {value!r}"
+    assert (REPO_ROOT / ALS_STAND_IN / "imported" / "mml" / "mapping.yaml").is_file()
+
+    names = _step_names(wf, VA_LIVE_JOB)
+    image = names.index(next(n for n in names if n.startswith("Build the virtual accelerator")))
+    assert names.index(ALS_LANE_STEP) > image, "the lane boots the image this job builds"
+
+
+def test_als_lane_runs_on_the_stand_in__mutation_drops_the_variable() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, VA_LIVE_JOB, ALS_LANE_STEP)["env"][ALS_STAND_IN_ENV]
+    with pytest.raises(AssertionError):
+        test_als_lane_runs_on_the_stand_in_in_the_va_live_job(mutated)
+
+
+def test_als_lane_runs_on_the_stand_in__mutation_drops_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[VA_LIVE_JOB]
+    job["steps"] = [s for s in job["steps"] if s.get("name") != ALS_LANE_STEP]
+    with pytest.raises(AssertionError):
+        test_als_lane_runs_on_the_stand_in_in_the_va_live_job(mutated)
+
+
+def test_als_lane_report_goes_through_the_zero_skip_gate(
+    workflow: dict[str, Any] | None = None,
+) -> None:
+    """One report of its own, read by the gate beside the VA run step's."""
+    wf = workflow if workflow is not None else _load_workflow()
+    reports = _junit_reports_written_by([_find_named_step(wf, VA_LIVE_JOB, ALS_LANE_STEP)])
+    assert len(reports) == 1, f"'{ALS_LANE_STEP}' must write one --junitxml report; got {reports}"
+    run_step = _find_named_step(wf, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
+    assert reports[0] not in _junit_reports_written_by([run_step]), reports
+    gate = _find_named_step(wf, VA_LIVE_JOB, VA_LIVE_SKIP_GATE_STEP)["run"]
+    assert reports[0] in gate, f"'{VA_LIVE_SKIP_GATE_STEP}' never reads {reports[0]}"
+
+
+def test_als_lane_report_goes_through_the_zero_skip_gate__mutation_drops_it() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    (report,) = _junit_reports_written_by([_find_named_step(mutated, VA_LIVE_JOB, ALS_LANE_STEP)])
+    gate = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_SKIP_GATE_STEP)
+    gate["run"] = gate["run"].replace(report, "")
+    with pytest.raises(AssertionError):
+        test_als_lane_report_goes_through_the_zero_skip_gate(mutated)
+
+
+def test_als_lane_module_carries_its_collection_floor() -> None:
+    source = (REPO_ROOT / ALS_LANE_MODULE).read_text(encoding="utf-8")
+    assert _collected_floor_errors(source, guard=_ALS_LANE_FLOOR_GUARD) == []
+
+
+def test_als_lane_module_carries_its_collection_floor__mutation_drops_the_floor() -> None:
+    source = (REPO_ROOT / ALS_LANE_MODULE).read_text(encoding="utf-8")
+    guard = _ALS_LANE_FLOOR_GUARD
+    assert _collected_floor_errors(_COLLECTED_FLOOR_RE.sub("", source), guard=guard)
+    assert _collected_floor_errors(source.replace(guard, "collected"), guard=guard)
 
 
 # ---------------------------------------------------------------------------
@@ -7472,6 +7667,22 @@ def test_spending_lane_gating__mutation_adds_a_schedule_arm() -> None:
         test_spending_lane_runs_only_under_label_or_revalidation(mutated, "agentic-per-preset")
 
 
+def test_spending_lanes_name_no_base_ref(workflow: dict[str, Any]) -> None:
+    """The label is the only pull-request gate on a spending lane: no clause
+    names the base branch. Widening the workflow trigger to another base
+    therefore cannot start a spending lane on an unlabeled pull request."""
+    scoped = sorted(lane for lane in SPENDING_LANES if "base.ref" in _jobs(workflow)[lane]["if"])
+    assert scoped == [], f"spending lanes whose if: names a base ref: {scoped}"
+
+
+def test_spending_lanes_name_no_base_ref__mutation_adds_an_integration_base() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)["scan-agentic-e2e"]
+    job["if"] = job["if"] + " || startsWith(github.event.pull_request.base.ref, 'integration/')"
+    with pytest.raises(AssertionError, match="names a base ref"):
+        test_spending_lanes_name_no_base_ref(mutated)
+
+
 def test_workflow_has_no_schedule_trigger(workflow: dict[str, Any]) -> None:
     """No cron at all: every run of this workflow is one somebody asked for
     (a push, a pull request, a dispatch), so every red has a reader. A
@@ -8112,3 +8323,217 @@ def test_cli_tool_inventory_check_runs_on_every_push__mutation_writes_instead() 
     step["run"] = step["run"].replace("--check", "--write")
     with pytest.raises(AssertionError):
         test_cli_tool_inventory_check_runs_on_every_push(mutated)
+
+
+# ---------------------------------------------------------------------------
+# Web-terminal cleanup steps address containers by the compose project name
+# ---------------------------------------------------------------------------
+
+#: Every belt-and-suspenders cleanup step that removes web-terminal containers,
+#: with the compose project names its lane deploys. A web-terminal container is
+#: ``<project>-web-<user>`` / ``<project>-nginx`` / ``<project>-auth``, so an
+#: exact-named removal spelled any other way removes nothing the lane created.
+WEB_TERMINAL_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
+    (
+        "multi-user-deploy-lifecycle-e2e",
+        "Clean up any stranded lifecycle-e2e resources",
+    ): ("osprey-e2e-mus-p3",),
+    (
+        "multi-user-deploy-lifecycle-e2e-podman",
+        "Clean up any stranded lifecycle-e2e resources",
+    ): ("osprey-e2e-mus-p3",),
+    (
+        "qmd-sidecar-e2e",
+        "Clean up any stranded shared-bundle e2e resources",
+    ): ("osprey-e2e-mus-p3",),
+    (
+        "auth-perimeter-e2e",
+        "Clean up any stranded auth-perimeter resources",
+    ): ("osprey-e2e-auth-perimeter",),
+    (
+        "terminal-auth-multiuser-e2e",
+        "Clean up any stranded terminal-auth-multiuser resources",
+    ): ("osprey-e2e-token-multiuser", "osprey-e2e-open-multiuser"),
+    (
+        "full-chain-auth-e2e",
+        "Clean up any stranded full-chain-auth resources",
+    ): ("osprey-e2e-full-chain-auth",),
+    (
+        "jupyter-panel-e2e",
+        "Clean up any stranded notebook-panel resources",
+    ): ("osprey-e2e-jnb",),
+}
+
+#: The lanes whose deploy builds the auth sidecar, which is ``<project>-auth``
+#: running ``<project>-auth:local``.
+AUTH_SIDECAR_CLEANUP_STEPS = (
+    ("auth-perimeter-e2e", "Clean up any stranded auth-perimeter resources"),
+    ("full-chain-auth-e2e", "Clean up any stranded full-chain-auth resources"),
+)
+
+_CONTAINER_REMOVAL = re.compile(r'\b(?:docker|podman) rm -f "?([^"\s]+)"?')
+
+
+def _cleanup_step_run(wf: dict[str, Any], job: str, step_name: str) -> str:
+    return _find_named_step(wf, job, step_name).get("run", "")
+
+
+def test_web_terminal_cleanup_removes_project_named_containers(
+    workflow: dict[str, Any],
+) -> None:
+    """Each cleanup step removes its lane's per-user and nginx containers by the
+    compose project name the same step tears down."""
+    for (job, step_name), projects in WEB_TERMINAL_CLEANUP_STEPS.items():
+        run = _cleanup_step_run(workflow, job, step_name)
+        removed = _CONTAINER_REMOVAL.findall(run)
+        for project in projects:
+            assert f"compose -p {project} down" in run, (
+                f"'{job}' / '{step_name}' does not tear down compose project {project}"
+            )
+            assert any(name.startswith(f"{project}-web-") for name in removed), (
+                f"'{job}' / '{step_name}' removes no {project}-web-<user> container"
+            )
+            assert f"{project}-nginx" in removed, (
+                f"'{job}' / '{step_name}' does not remove {project}-nginx"
+            )
+
+
+def test_web_terminal_cleanup_removes_only_project_named_containers(
+    workflow: dict[str, Any],
+) -> None:
+    """No exact-named removal in these steps is spelled off anything but one of
+    the step's own compose project names."""
+    for (job, step_name), projects in WEB_TERMINAL_CLEANUP_STEPS.items():
+        run = _cleanup_step_run(workflow, job, step_name)
+        removed = _CONTAINER_REMOVAL.findall(run)
+        assert removed, f"'{job}' / '{step_name}' removes no container"
+        strays = [
+            name
+            for name in removed
+            if not any(name.startswith(f"{project}-") for project in projects)
+        ]
+        assert not strays, (
+            f"'{job}' / '{step_name}' removes containers not named by its project: {strays}"
+        )
+
+
+def test_auth_sidecar_cleanup_removes_project_named_sidecar(workflow: dict[str, Any]) -> None:
+    """The auth lanes remove ``<project>-auth`` and its ``<project>-auth:local``
+    image."""
+    for job, step_name in AUTH_SIDECAR_CLEANUP_STEPS:
+        (project,) = WEB_TERMINAL_CLEANUP_STEPS[(job, step_name)]
+        run = _cleanup_step_run(workflow, job, step_name)
+        assert f"{project}-auth" in _CONTAINER_REMOVAL.findall(run), (
+            f"'{job}' does not remove the {project}-auth container"
+        )
+        assert f"rmi -f {project}-auth:local" in run, (
+            f"'{job}' does not remove the {project}-auth:local image"
+        )
+
+
+def test_web_terminal_cleanup_removes_project_named_containers__mutation_prefix_spelling() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(
+        mutated, "auth-perimeter-e2e", "Clean up any stranded auth-perimeter resources"
+    )
+    original = step["run"]
+    step["run"] = original.replace("osprey-e2e-auth-perimeter-nginx", "authe2e-nginx")
+    assert step["run"] != original, "no project-named nginx removal — mutation is stale"
+    with pytest.raises(AssertionError):
+        test_web_terminal_cleanup_removes_project_named_containers(mutated)
+
+
+def test_web_terminal_cleanup_removes_only_project_named_containers__mutation_stray() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(
+        mutated,
+        "multi-user-deploy-lifecycle-e2e",
+        "Clean up any stranded lifecycle-e2e resources",
+    )
+    step["run"] += "\ndocker rm -f e2e-nginx || true\n"
+    with pytest.raises(AssertionError):
+        test_web_terminal_cleanup_removes_only_project_named_containers(mutated)
+
+
+def test_auth_sidecar_cleanup_removes_project_named_sidecar__mutation_prefix_image() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(
+        mutated, "full-chain-auth-e2e", "Clean up any stranded full-chain-auth resources"
+    )
+    original = step["run"]
+    step["run"] = original.replace("osprey-e2e-full-chain-auth-auth:local", "fullchain-auth:local")
+    assert step["run"] != original, "no project-named sidecar image — mutation is stale"
+    with pytest.raises(AssertionError):
+        test_auth_sidecar_cleanup_removes_project_named_sidecar(mutated)
+
+
+# ---------------------------------------------------------------------------
+# the graph-reseed lane: its own job, secret-free, out of the shared lane, gated
+# ---------------------------------------------------------------------------
+
+GRAPH_RESEED_JOB = "graph-reseed-e2e"
+GRAPH_RESEED_TEST_FILE = "tests/e2e/test_graph_reseed_stamp.py"
+GRAPH_RESEED_STEP = "Run graph reseed stamp E2E"
+
+
+def test_graph_reseed_job_runs_its_file_in_a_named_step(workflow: dict[str, Any]) -> None:
+    step = _find_named_step(workflow, GRAPH_RESEED_JOB, GRAPH_RESEED_STEP)
+    assert f"pytest {GRAPH_RESEED_TEST_FILE}" in step["run"]
+
+
+def test_graph_reseed_job_runs_its_file_in_a_named_step__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][GRAPH_RESEED_JOB]
+    with pytest.raises((AssertionError, KeyError)):
+        test_graph_reseed_job_runs_its_file_in_a_named_step(mutated)
+
+
+def test_graph_reseed_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
+    """Every assertion in that file reads the store or the render; no model is
+    reached, so a secret here would mean the lane's scope silently grew."""
+    assert not _job_declares_secret(workflow, GRAPH_RESEED_JOB, SECRET_TOKEN)
+
+
+def test_graph_reseed_job_has_no_llm_secret__mutation_adds_secret() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][GRAPH_RESEED_JOB]["steps"].append(
+        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
+    )
+    with pytest.raises(AssertionError):
+        test_graph_reseed_job_has_no_llm_secret(mutated)
+
+
+def test_e2e_tests_ignores_the_graph_reseed_file(workflow: dict[str, Any]) -> None:
+    step = _find_named_step(workflow, E2E_TESTS_JOB, "Run E2E tests")
+    assert f"--ignore={GRAPH_RESEED_TEST_FILE}" in step["run"]
+
+
+def test_e2e_tests_ignores_the_graph_reseed_file__mutation_drops_ignore() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], GRAPH_RESEED_TEST_FILE)
+    with pytest.raises(AssertionError):
+        test_e2e_tests_ignores_the_graph_reseed_file(mutated)
+
+
+def test_all_checks_passed_needs_graph_reseed(workflow: dict[str, Any]) -> None:
+    """``needs:`` makes the roll-up wait, ``check_pr_lane`` makes it care."""
+    assert GRAPH_RESEED_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+    assert f"needs.{GRAPH_RESEED_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_all_checks_passed_needs_graph_reseed__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(GRAPH_RESEED_JOB)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_graph_reseed(mutated)
+
+
+def test_all_checks_passed_needs_graph_reseed__mutation_drops_check_pr_lane_line() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if GRAPH_RESEED_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_graph_reseed(mutated)

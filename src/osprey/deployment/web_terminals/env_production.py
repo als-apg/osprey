@@ -708,14 +708,10 @@ def _claude_code_auth_secret_vars(
     source description for error messages):
 
     - **required** — vars some deployed web container actually authenticates
-      with: each referenced persona project's provider (persona catalogs), or
-      the deploy config's own provider when no persona catalog is configured
-      (the zero-migration path, where the web image is the facility project
-      itself).
+      with: each referenced persona project's provider.
     - **extra** — vars worth *copying* when present but not worth failing
-      over: the deploy config's own provider when a persona catalog is in
-      play (per-user containers run persona projects, not the deploy
-      project), and any provider whose models-registry adapter declares
+      over: the deploy config's own provider (per-user containers run persona
+      projects, not the deploy project), and any provider whose models-registry adapter declares
       ``requires_api_key = False`` (ollama, vllm, ds4 — local servers with
       no auth). A keyless provider's var still ships when the chain sets it
       (a site may front the server with an authenticating proxy), but its
@@ -758,9 +754,6 @@ def _claude_code_auth_secret_vars(
             api_providers = None
         return provider, provider_auth_secret_env(provider, api_providers)
 
-    catalog = ((config.get("modules") or {}).get("web_terminals") or {}).get("personas")
-    catalog = catalog if isinstance(catalog, dict) else {}
-    referenced = _referenced_persona_names(config)
     entries = _referenced_persona_entries(config)
 
     required: dict[str, str] = {}
@@ -806,12 +799,8 @@ def _claude_code_auth_secret_vars(
         if var and var not in required:
             origin = f"claude_code.provider {provider!r} (deploy config)"
             if _provider_is_keyless(provider):
-                extra.setdefault(var, origin)
                 keyless.add(var)
-            elif catalog and referenced:
-                extra.setdefault(var, origin)
-            else:
-                required[var] = origin
+            extra.setdefault(var, origin)
 
     return required, extra, keyless
 
@@ -900,12 +889,13 @@ def _provider_endpoint_vars(
 
     Returns two ``{var: origin}`` dicts, mirroring the auth-secret split:
 
-    - **required** — an agent provider that will resolve no endpoint without
-      the variable. Absent from the chain, the deploy is refused rather than
-      generated.
+    - **required** — a referenced persona's agent provider that will resolve
+      no endpoint without the variable. Absent from the chain, the deploy is
+      refused rather than generated.
     - **extra** — worth copying when present, never worth failing over: a
-      redirect variable for a provider that already has an endpoint, and every
-      ``llm.provider`` endpoint. The llm provider backs services inside the
+      redirect variable for a provider that already has an endpoint, the deploy
+      config's own provider (per-user containers run persona projects, not the
+      deploy project), and every ``llm.provider`` endpoint. The llm provider backs services inside the
       container one call at a time rather than deciding whether the container
       starts, which is the same reason ``llm.api_key_env_var`` is copied but
       never required.
@@ -935,17 +925,13 @@ def _provider_endpoint_vars(
             else:
                 extra.setdefault(var, origin)
 
-    catalog = ((config.get("modules") or {}).get("web_terminals") or {}).get("personas")
-    catalog = catalog if isinstance(catalog, dict) else {}
-    referenced = _referenced_persona_names(config)
-
     for persona_name, persona_config in _readable_persona_configs(config, project_root):
         _record(persona_config, f"(persona {persona_name!r})", enforce=True)
 
-    # Under a catalog the per-user containers run persona projects, so the
-    # deploy config's own provider answers for no container and its endpoint is
-    # copy-if-present — the same carve-out the auth secrets make.
-    _record(config, "(deploy config)", enforce=not (catalog and referenced))
+    # Per-user containers run persona projects, so the deploy config's own
+    # provider answers for no container and its endpoint is copy-if-present —
+    # the same rule the auth secrets follow.
+    _record(config, "(deploy config)", enforce=False)
     return required, extra
 
 
@@ -1075,15 +1061,6 @@ def _build_env_production_subset(
     server's read transactions rather than by which persona holds the password.
     It still stays out of this file, because a rosterwide copy would grant it to
     personas that configure no graph store at all.
-
-    One nuance applies to all four credentials alike. A roster entry that names
-    no persona — the zero-migration path, where the web image IS the deploy
-    project — consults no persona set at all; the render answers it straight
-    from the deploy config, via ``config_needs_launch_token``,
-    ``config_needs_dispatcher_token``, ``config_needs_ariel_password`` or
-    ``config_needs_graphdb_password``. An empty persona set therefore does NOT
-    mean "this credential is granted nowhere": persona-less entries are decided
-    independently of it.
 
     This is the security spec for this function: a var absent from the
     enumerated list above can never appear in the returned dict, regardless of

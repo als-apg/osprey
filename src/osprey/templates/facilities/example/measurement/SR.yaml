@@ -1,0 +1,26 @@
+kinds:
+- orm
+- dispersion
+- trm
+- crm
+- chromaticity_monitor
+groups:
+  bpm: SR/BPM
+  hcor: SR/HCM
+  vcor: SR/VCM
+  quad: SR/QF
+  sext: SR/SF
+instruments:
+  tune: SR:DIAG:TUNE:X
+  chromaticity: SR:DIAG:CHROM:X
+  rf: SR:RF:CAVITY:01:FREQUENCY:SP
+n_step: 5
+n_avg_meas: 1
+fit_order: 2
+singular_values: 16
+sleep_between_step: 0.0
+sleep_between_meas: 0.0
+corrector_delta: 1.0e-05
+quad_delta: 0.001
+sextu_delta: 0.01
+frequency_delta: 100.0

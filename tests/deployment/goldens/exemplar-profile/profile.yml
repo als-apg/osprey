@@ -179,7 +179,7 @@ config:
   # This facility drives the deployed VA soft-IOC end to end: correctors move,
   # BPMs read, and every write goes through the same approval/limits layers a
   # live machine would. Use "epics" once the connector points at real hardware,
-  # or "mock" for a browse-only stack that touches nothing.
+  # or serve the simulator in process for a browse-only stack that touches nothing.
   control_system.type: virtual_accelerator
   # Selects the archive the `va_archiver:` block above declares. A separate
   # decision from declaring where the archive lives — the block never flips this
@@ -190,9 +190,6 @@ config:
   # (default_enabled=False); opt in so operators can run read-only stack checks.
   claude_code.servers.health.enabled: true
   system.timezone: America/Los_Angeles
-  # Facility display name, woven into the agent prompts (CLAUDE.md, the
-  # channel-finder agent) and the web-terminal landing page.
-  facility.name: Demo Facility
   # Exactly the three services this facility runs. Set explicitly because the
   # packaged control_assistant skeleton also declares `postgresql` — declared
   # is not deployed, and this list is what `osprey up` reads.
@@ -205,11 +202,6 @@ config:
   # this facility runs needs it.
   deployed_services:
     - openobserve
-  # Container-name prefix for the web stack: names are `<prefix>-nginx` /
-  # `<prefix>-web-<user>`, so this MUST be a non-empty valid Docker name start
-  # ([a-zA-Z0-9]). Keep it short and distinct from the project name (used for
-  # image tags). Set to your own facility abbreviation when you copy this preset.
-  facility.prefix: demo
   # Landing-URL origin for the multi-user web stack: render refuses to build
   # OSPREY_TERMINAL_LANDING_URL without deploy.fqdn once users are configured.
   # 127.0.0.1 matches the single-trusted-host tutorial posture; set your
@@ -276,15 +268,6 @@ config:
 # schema both read.
 
   # ── Facility ───────────────────────────────────────────────────────────────
-  # Your facility's name, used in the agent's prompts and on the web landing
-  # page. Defaults to the deployment name.
-  # facility.name: My Facility
-  # This facility's compiled ontology table, the JSON `osprey knowledge
-  # compile-ontology` writes, relative to the project root. It is the one
-  # source for the device vocabulary the channel-finder subagent's terminology
-  # table renders. Drop the key and the subagent is told no vocabulary was
-  # declared; point it at a missing file and the build stops and says so.
-  facility.ontology: data/facility_ontology.json
   # Your facility's own registry module — the file that registers its
   # connectors, providers and ARIEL adapters with the framework (see
   # "Extending Osprey" in the docs). Relative to the project root; unset means
@@ -308,28 +291,14 @@ config:
   # control_system.target_display_names.live: Real machine
   # control_system.target_display_names.standin: Rehearsal
   # control_system.target_display_names.va: Simulator
-  # Every write checked against data/channel_limits.json, and a channel that
-  # file does not list refused rather than waved through. Both hardware-shaped
-  # targets — `standin` and `live` — require this pair before a session may
-  # switch onto them, so a rehearsal runs the posture the real machine gets.
+  # Limits are optional. `enabled: false` = no limits at all. `mode:
+  # exclusive` = only channels in the limits file can be written. `mode:
+  # optional` = channels in the file are held to their limits, every other
+  # channel is written with no limits. A
+  # `control_system.connector.<type>.limits_checking` block stating both
+  # leaves overrides this pair for that connector type.
   control_system.limits_checking.enabled: true
-  control_system.limits_checking.allow_unlisted_channels: false
-  # The limits file, relative to the build directory. It is a build copy: edit
-  # the one in data/ beside this file and rebuild.
-  control_system.limits_checking.database_path: data/channel_limits.json
-  # The sandbox simulator is the exception, and it states the exception as a
-  # whole block: a per-type posture REPLACES the pair above for that connector
-  # type rather than merging with it, so both leaves are written out here.
-  # Writes to the simulator are still checked against the same file; what
-  # changes is that a channel the file does not list is allowed through
-  # instead of refused, because on a scratch machine an unlisted channel is a
-  # gap in the file rather than a hazard. `live_standin` deliberately gets NO
-  # block of its own: it is hardware-shaped, so it keeps the strict pair the
-  # real machine gets, and a permissive block here would make
-  # `control_target_set standin` refuse the very switch this preset exists to
-  # rehearse.
-  control_system.connector.virtual_accelerator.limits_checking.enabled: true
-  control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels: true
+  control_system.limits_checking.mode: optional
   # Largest array channel_read returns inline, in elements. Anything bigger is
   # saved as an artifact and reported as a summary plus a handle. One call
   # inlines at most 4x this many elements across all the channels it read;
@@ -349,25 +318,23 @@ config:
   # control_system.patterns.write: ['my_custom_cs_lib\.write\(']
   # control_system.patterns.read: ['my_custom_cs_lib\.read\(']
 
-  # Mock connector: driven by the simulation machine model below. Switch
-  # scenarios with `osprey sim apply NAME...` (see the simulation bundle reference).
-  control_system.connector.mock.simulation_file: data/simulation/machine.json
   # Virtual-accelerator connector: a containerized PyAT-backed soft IOC
   # reached over real EPICS Channel Access, with the same gateway shape as the
   # `epics` block. Deployed by the `virtual_accelerator:` section above.
 
   # Channel Access timeout in seconds.
   control_system.connector.virtual_accelerator.timeout_s: 5.0
-  # Same machine model as the mock connector, so `osprey sim apply` stays
-  # consistent whichever connector is active.
-  control_system.connector.virtual_accelerator.simulation_file: data/simulation/machine.json
   # Write posture for the simulator alone. Uncomment to arm writes here while
   # the master switch keeps the live machine read-only; the shipped
   # `control-assistant-readwrite` and `control-assistant-admin` personas write
   # this key.
   # control_system.connector.virtual_accelerator.writes_enabled: true
+  # Where the simulator runs: `served` is its container over Channel Access; `in_process` is inside this process, with no container.
+  # control_system.connector.virtual_accelerator.serving: served
+  # Milliseconds each read and write takes when the simulator is served in process; unread when served.
+  # control_system.connector.virtual_accelerator.response_delay_ms: 10
   # Channel the target switch reads to prove this target is reachable before
-  # making it active. Served by the simulation machine model.
+  # making it active. The simulator serves it from the built facility.
   control_system.connector.virtual_accelerator.probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
   # Gateways in CA name-server (TCP) mode against localhost, the one
   # host-to-container configuration that works across container runtimes. No
@@ -390,9 +357,6 @@ config:
   # Write posture for the live machine. Stating it pins it: a type with its
   # own posture never falls back to the master switch.
   # control_system.connector.epics.writes_enabled: false
-  # Limits posture for the live machine alone, both leaves required.
-  # control_system.connector.epics.limits_checking.enabled: true
-  # control_system.connector.epics.limits_checking.allow_unlisted_channels: false
   # Channel the target switch reads to prove the live machine is reachable.
   # While unset this target is never switched to.
   # control_system.connector.epics.probe_channel: SR:BEAM:CURRENT
@@ -424,10 +388,10 @@ config:
   # When a read names no bin size, the bin is chosen so a continuously archived
   # channel returns about this many points. The agent is told which bin it got.
   archiver.auto_bin_points: 10000
-  # Mock archiver: synthesizes history from the same simulation machine model
-  # as the control-system connector, derived from
-  # `control_system.connector.<type>.simulation_file`. Set only to override.
-  # archiver.mock_archiver.simulation_file: data/simulation/machine.json
+  # Mock archiver: replays history from the build's simulator view, the same
+  # view the simulator serves; it takes no file setting.
+  # archiver.type: mock_archiver
+  # archiver.settings.sample_rate_hz: 1.0
   # EPICS Archiver Appliance: ships unconfigured on purpose, for the same
   # reason as the `epics` gateways. Authoring it travels with the flip to
   # `archiver.type: epics_archiver`.
@@ -467,15 +431,6 @@ config:
   # channel_finder.web.host: 127.0.0.1
   # channel_finder.web.port: <a port outside this deployment's block>
   # channel_finder.web.auto_launch: true
-  # Descriptive names for channels that belong to no device family, generated
-  # offline by `osprey channel-finder build-database --use-llm`. That flag
-  # needs `provider` set (no fallback to the agent's provider); `model_id` is a
-  # model id the provider serves; omitted, the deployment's main model.
-  # Build-time only.
-  # channel_finder.channel_name_generation.llm_model.provider: anthropic
-  # channel_finder.channel_name_generation.llm_model.model_id: claude-haiku-4-5
-  # channel_finder.channel_name_generation.llm_model.max_tokens: 1000
-  # channel_finder.channel_name_generation.llm_batch_size: 10
 
   # ── Human-in-the-loop approval ─────────────────────────────────────────────
   # The THIRD guard: a write that passed the master switch and the limits check
@@ -631,7 +586,7 @@ config:
   # facility_knowledge server, `osprey knowledge` and the KNOWLEDGE tab.
   # Relative to the project root. Replace with your own bundle once you have
   # customised the example content.
-  facility_knowledge.bundle_path: data/facility_knowledge
+  facility_knowledge.bundle_path: data/facility/knowledge
   # osprey:panel-port okf
   # The KNOWLEDGE tab's own web server. It launches when `okf` is in
   # `web_panels:` above, on this deployment's knowledge slot. Uncomment to
@@ -757,8 +712,8 @@ config:
   # is the primary re-index trigger, so this is the ceiling on staleness.
   # Raise it on a large corpus, where a no-op sweep is not free.
   services.qmd.interval: 30
-  # Neo4j graph store holding a DISPOSABLE mirror of an RDF/Turtle corpus. The
-  # TTL on disk stays the source of truth and `osprey knowledge seed-graph`
+  # Neo4j graph store holding a DISPOSABLE mirror of the build's graph view.
+  # The facility file stays the source of truth and `osprey build && osprey up`
   # rebuilds the graph from it. It answers the multi-hop questions keyword and
   # semantic search cannot, and it is what the channel finder reads when
   # `channel_finder_mode:` selects the graph paradigm.
@@ -770,12 +725,10 @@ config:
   # or a pre-baked image on an air-gapped host.
   services.graphdb.image: neo4j:5.26-community
   # Corpus to seed the store from, relative to the build directory. This is
-  # the demo machine: the same devices and channels the channel database in
-  # data/ describes, rebuilt as a graph, so graph answers and channel search
-  # agree. Regenerate it after editing the channel database with
-  # `osprey knowledge build-ttl data/demo_machine.ttl`. Point it at your own
-  # TTL, or remove the key to bring the store up bootstrapped but empty.
-  services.graphdb.ttl_path: ./data/demo_machine.ttl
+  # the graph view the build writes from data/facility/, so graph answers and
+  # channel search describe the same facility. The build fills this key with
+  # the graph view when it is left out.
+  services.graphdb.ttl_path: ./data/graph/facility.ttl
   # JVM memory. Neo4j sizes nothing automatically inside a container, so all
   # three are spelled out. Budget roughly heap_max_size + pagecache_size +
   # ~0.5G overhead; a substantially larger graph wants more.
@@ -923,14 +876,6 @@ requires_osprey_version: '>=2026.8.0'
 deploy_services: true
 # Named web-terminal layouts, as label -> list of panel ids.
 panel_presets: {}
-
-# --- Channel-database tier ---------------------------------------------------
-# Build-time only (1 or 3), selecting which bundled tier DB is materialized.
-# Left unset the build picks a paradigm-aware default, which is why it stays
-# commented: pinning it here would override that default on every rebuild.
-# Tier 1 ships the in_context paradigm only.
-#
-# tier: 3
 
 # --- Default web-terminal panel ----------------------------------------------
 # Panel id opened when the web terminal loads. Must be a built-in, an entry in

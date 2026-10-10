@@ -920,10 +920,17 @@ def test_end_to_end_switch_prompt_previews_the_destination(tmp_path, hook_runner
 # answer literally rather than deriving it from either implementation.
 
 #: A deployment that has never said anything about writes.
-MOCK_SECTION = {"type": "mock"}
+MOCK_SECTION = {
+    "type": "virtual_accelerator",
+    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+}
 
 #: The hello_world shape: one deployment-wide "no", no connector table at all.
-HELLO_WORLD_SECTION = {"type": "mock", "writes_enabled": False}
+HELLO_WORLD_SECTION = {
+    "type": "virtual_accelerator",
+    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+    "writes_enabled": False,
+}
 
 #: One real machine, armed deployment-wide.
 EPICS_ARMED_SECTION = {
@@ -958,9 +965,10 @@ INHERIT_SECTION = {"type": "epics", "writes_enabled": True}
 #: Two non-simulated blocks under a simulated baseline: `live` names no single
 #: type, so neither block's posture can answer for it.
 UNDERIVABLE_LIVE_SECTION = {
-    "type": "mock",
+    "type": "virtual_accelerator",
     "writes_enabled": True,
     "connector": {
+        "virtual_accelerator": {"serving": "in_process"},
         "epics": {"writes_enabled": False},
         "doocs": {"writes_enabled": False},
     },
@@ -1046,26 +1054,28 @@ def test_a_simulator_only_deployment_is_armed_for_an_unidentified_call(reader):
     assert reader.most_restrictive_posture(VA_ONLY_ARMED_SECTION) is True
 
 
-def test_a_mock_carrying_one_live_block_answers_for_the_mock_it_builds(reader):
-    """`live` resolves to the block, but the connector the runtime built is the mock.
+def test_the_simulator_in_process_carrying_one_live_block_is_two_targets(reader):
+    """`live` resolves to the block and the baseline is `va`, so both are reachable.
 
-    Requiring the baseline target to resolve back to `control_system.type` is
-    what keeps such a deployment out of the two-target world, so the posture a
-    session here can hold is the mock's — the deployment-wide key it inherits,
-    and not the `false` in a block no session reaches.
+    Two targets are configured, so the deployment is in the two-target world,
+    and the most restrictive posture a session here can
+    hold is the live block's `false`.
     """
     section = {
-        "type": "mock",
+        "type": "virtual_accelerator",
         "writes_enabled": True,
-        "connector": {"epics": {"writes_enabled": False}},
+        "connector": {
+            "virtual_accelerator": {"serving": "in_process"},
+            "epics": {"writes_enabled": False},
+        },
     }
 
-    assert reader.session_types(section) == {"live": "mock"}
-    assert reader.most_restrictive_posture(section) is True
+    assert reader.session_types(section) == {"live": "epics", "va": "virtual_accelerator"}
+    assert reader.most_restrictive_posture(section) is False
 
 
 def test_both_targets_are_reachable_only_on_a_switch_capable_render(reader):
-    """Both types configured with a block, and the baseline naming its own type."""
+    """Both types configured with a block."""
     section = {
         "type": "epics",
         "writes_enabled": True,

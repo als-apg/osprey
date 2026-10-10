@@ -1,0 +1,155 @@
+﻿id: https://narad.example.org/schema/concept_vocabulary
+name: concept_vocabulary
+title: NARAD Concept Vocabulary Schema
+description: >
+  Schema for concept vocabulary datasets that bridge informal human language to
+  the formal NARAD semantic vocabulary. Every facility adapter must provide a
+  concept vocabulary conforming to this schema.
+
+prefixes:
+  narad_cv: https://narad.example.org/schema/concept_vocabulary/
+  linkml: https://w3id.org/linkml/
+
+default_prefix: narad_cv
+default_range: string
+
+imports:
+  - linkml:types
+
+classes:
+  ConceptVocabularyDataset:
+    tree_root: true
+    description: >
+      Root container for one concept vocabulary dataset. One file per facility
+      (plus the shared vocabulary with facility omitted).
+    slots:
+      - vocabulary_id
+      - facility
+      - device_class_concepts
+      - signal_role_concepts
+      - device_groups
+      - section_concepts
+
+  DeviceClassConcept:
+    description: >
+      Maps a semantic device class to its description and alias terms.
+    slots:
+      - class_name
+      - description
+      - shared_aliases
+      - facility_aliases
+
+  SignalRoleConcept:
+    description: >
+      Maps a semantic signal role to its description and alias terms.
+    slots:
+      - role_name
+      - description
+      - shared_aliases
+      - facility_aliases
+
+  DeviceGroup:
+    description: >
+      A named grouping of devices that operators refer to by a collective name.
+      The description field should document ordinal semantics when the group has
+      a well-defined member ordering (e.g. cavity 1 vs cavity 2).
+    slots:
+      - group_name
+      - canonical_aliases
+      - member_device_ids
+      - member_class
+      - group_section
+      - description
+      - group_facility
+
+  SectionConcept:
+    description: Maps a canonical section ID to its informal alias names.
+    slots:
+      - section_id
+      - section_aliases
+
+slots:
+  vocabulary_id:
+    identifier: true
+    required: true
+
+  facility:
+    description: >
+      Facility identifier (e.g. UITF, PALS). Omitted for the shared vocabulary.
+    required: false
+
+  device_class_concepts:
+    range: DeviceClassConcept
+    multivalued: true
+    inlined_as_list: true
+
+  signal_role_concepts:
+    range: SignalRoleConcept
+    multivalued: true
+    inlined_as_list: true
+
+  device_groups:
+    range: DeviceGroup
+    multivalued: true
+    inlined_as_list: true
+
+  section_concepts:
+    range: SectionConcept
+    multivalued: true
+    inlined_as_list: true
+
+  class_name:
+    identifier: true
+    required: true
+    description: >
+      Matches a class defined in shared_semantics.yaml (e.g. Quadrupole,
+      BeamPositionMonitor).
+
+  role_name:
+    identifier: true
+    required: true
+    description: >
+      Matches a value in semantic_signal_enum in shared_semantics.yaml
+      (e.g. position_x_readback, current_setpoint).
+
+  group_name:
+    identifier: true
+    required: true
+    description: Unique name for this device group within the facility.
+
+  section_id:
+    identifier: true
+    required: true
+
+  description:
+    required: false
+
+  shared_aliases:
+    multivalued: true
+    description: Alias terms valid across all facilities.
+
+  facility_aliases:
+    multivalued: true
+    description: Alias terms specific to one facility.
+
+  canonical_aliases:
+    multivalued: true
+    description: All informal terms that refer to this device group.
+
+  member_device_ids:
+    multivalued: true
+    description: >
+      List of source_name values (matching DeviceRecord.source_name in
+      canonical ingest) for devices that are members of this group.
+
+  member_class:
+    description: Semantic class name of the member devices.
+
+  group_section:
+    description: Section ID where this device group is located.
+
+  group_facility:
+    description: Facility identifier for this device group.
+
+  section_aliases:
+    multivalued: true

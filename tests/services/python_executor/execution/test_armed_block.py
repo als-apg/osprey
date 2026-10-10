@@ -58,7 +58,7 @@ def _validator() -> LimitsValidator:
                 channel_address="TEST:PV", min_value=0, max_value=100, writable=True
             )
         },
-        {"allow_unlisted_channels": False, "on_violation": "error"},
+        {"mode": "exclusive", "on_violation": "error"},
     )
 
 

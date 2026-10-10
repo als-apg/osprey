@@ -3,40 +3,55 @@
 
 ### Database Profile
 
-This is a **hierarchical** channel database — channels are organized in a tree
-structure with named levels (e.g., system → device → signal). You navigate
-level-by-level, selecting options at each level to narrow down to specific channels.
+This is a **hierarchical** channel database. The tree's levels, top to bottom,
+are {% for level in facility_facts.place_levels %}`{{ level }}` → {% endfor %}`class` → `device` → `leaf`.
+{% for level in facility_facts.place_levels %}
+- `{{ level }}` holds this facility's places of that kind.
+{%- endfor %}
+- `class` holds the device classes.
+- `device` holds the device ids.
+- `leaf` holds one channel, keyed by its signal (or signal:role when one device
+  has two channels of a signal, or its address when it has no signal or shares
+  both with another channel of its device).
+- `-` at any level means none: a device in no place of that level, a channel on
+  a place rather than a device.
 
 ### Terminology Mapping
 
 Operators use domain language.
-{% if facility_vocabulary %}
-The device rows below are this deployment's own vocabulary, read from the
-compiled ontology it declares (`facility.ontology`) — the same table the
-channel database was generated from, so the words and tokens are the ones this
-facility actually uses:
-{% else %}
-No facility ontology is declared (`facility.ontology`), so the table below
-carries only navigation guidance and no device vocabulary — match on names and
-descriptions in the database and verify with a lookup rather than guessing.
-{% endif %}
+{% if facility_facts.device_classes %}
+The rows below are read from this facility's build: each device class it holds
+and the words operators use for it.
+{%- else %}
+This facility's build holds no device class.
+Match on names and descriptions in the database and verify with a lookup
+rather than guessing.
+{%- endif %}
+
 | Operator Language | Hierarchy Navigation |
 |---|---|
-{%- for entry in facility_vocabulary | default(none) or [] %}
-| {{ '"' ~ (entry.synonyms | join('", "')) ~ '"' }} | {% if entry.families %}System/section → Device: {{ '`' ~ (entry.families | join('`, `')) ~ '`' }} (class {{ entry.class_name }}){% else %}Umbrella class {{ entry.class_name }} — no device of its own; narrow to a specific device first{% endif %} |
+{%- for name, entry in facility_facts.device_classes | dictsort(case_sensitive=true) %}
+| {{ ('"' ~ (entry.aliases | join('", "')) ~ '"') if entry.aliases else name }} | `class` level: `{{ name }}` ({{ entry.count }} devices) |
 {%- endfor %}
-| "readback" / "monitor" | Navigate to device first, then select readback/monitor signal level |
-| "setpoint" / "control" | Navigate to device first, then select setpoint/control signal level |
-| "in sector 3" / "at cell 5" | Map to the appropriate hierarchy level for location (system, section, cell) |
-| "all" of a device kind | Select that device at device level, then use wildcard/range at instance level |
+{%- for place in facility_facts.places if place.names and place.level %}
+| "{{ place.names | join('", "') }}" | `{{ place.level }}` level: `{{ place.id.split('/') | last }}` |
+{%- endfor %}
+| a place by number ("sector 3") | the level of that kind of place: pick the option whose id names it; `-` holds what sits in none |
+{%- set role_words = {
+  "readback": '"readback" / "monitor" / "measured"',
+  "setpoint": '"setpoint" / "control" / "set"',
+  "none": '"status" / "neither read back nor set"',
+} %}
+{%- for role in facility_facts.vocabulary.roles | dictsort(case_sensitive=true) | map("first") %}
+{%- set signals = facility_facts.vocabulary.signals | dictsort(case_sensitive=true) | selectattr("1.roles." ~ role, "defined") | map("first") | list %}
+| {{ role_words.get(role, '"' ~ role ~ '"') }} | at `leaf`, the leaf of a {{ role }} signal{% if signals %}: {{ '`' ~ (signals | join('`, `')) ~ '`' }}{% endif %} (or signal:role) |
+{%- endfor %}
+| "all" of something | select every option at that level |
 
 ### Hierarchy Conventions
 
-- Refer to the **Hierarchy Structure** section above — level names and types vary by facility
-- **Tree levels** have categorical options (e.g., system names) — select by name match
-- **Instance levels** have numbered options (e.g., device #1–#20) — select by number or range
-- When the user specifies a location, map it to the correct hierarchy level
-  (different facilities name location levels differently: "sector", "cell", "section", etc.)
-- If an operator says "all" for a level, you may need to enumerate or use a wildcard
-- The **naming_pattern** above shows how levels combine into PV names
-  (e.g., `{system}:{device}:{signal}`)
+- Step 1 above names the levels this database has
+- Every level is a choice among named options; select by name match
+- When the user specifies a location, select it at the level of that kind of place
+- `build_channels` returns the address each selected leaf holds; an address is
+  never assembled from the levels

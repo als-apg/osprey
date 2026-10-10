@@ -44,7 +44,6 @@ execution:
   execution_method: subprocess
 facility:
   name: Example Research Facility
-  ontology: data/facility_ontology.json
 file_paths:
   api_calls_dir: api_calls
   registry_exports_dir: registry_exports

@@ -1,0 +1,3 @@
+The mock connector serves the addresses of the built facility file from the simulator view and refuses any other address with `<address> is not in build/facility.json`; it needs `osprey build` before it connects.
+The mock connector refuses a write to a channel that is not a writable setpoint before anything is put, and keeps session writes in a journal under the simulation state directory, which every mock connector on the same build replays and which a reset or a change of the active scenarios empties; a journal that is not replayed is logged in the process log and in every physics model's log.
+The mock archiver serves the history of the built simulator view through the archive composite and refuses any other address; it no longer reads a machine file.

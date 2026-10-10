@@ -48,15 +48,26 @@ RETIRED_GATEWAY_KEY = "epics_gateway"
 GATEWAY_KEY_PREFIX = "config.control_system.connector.epics.gateways"
 
 
-def _refuse_retired_shorthands(pairs: tuple[str, ...]) -> None:
-    """Refuse the retired ``epics_gateway=`` spelling before anything is written.
+#: The two spellings that state a control-system type on this command line.
+_TYPE_KEYS = ("connector", "config.control_system.type")
 
-    Runs before the shared parser sees anything, so the refusal costs no
-    partial write: the whole command line is rejected the way a malformed pair
-    is.
+
+def _refuse_retired_shorthands(pairs: tuple[str, ...]) -> None:
+    """Refuse retired spellings before anything is written.
+
+    Two refusals: the ``epics_gateway=`` shorthand, and a retired control-system
+    type name stated through ``connector=`` or
+    ``config.control_system.type=`` — the latter names the new spelling. Runs
+    before the shared parser sees anything, so the refusal costs no partial
+    write: the whole command line is rejected the way a malformed pair is.
     """
+    from osprey_connectors.types import RETIRED_CONTROL_SYSTEM_TYPES, retired_type_message
+
     for pair in pairs:
-        key, separator, _ = pair.partition("=")
+        key, separator, value = pair.partition("=")
+        if separator and key.strip() in _TYPE_KEYS:
+            if value.strip() in RETIRED_CONTROL_SYSTEM_TYPES:
+                raise click.UsageError(retired_type_message(value.strip()))
         if separator and key.strip() == RETIRED_GATEWAY_KEY:
             raise click.UsageError(
                 f"`{RETIRED_GATEWAY_KEY}=` named a facility out of a gateway table "
@@ -232,7 +243,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     from it and is never hand-edited or CLI-edited. Run `osprey build` to carry
     a setting through to build/, then `osprey up` to deploy it.
 
-    KEY is a top-level profile key (provider, model, tier, channel_finder_mode,
+    KEY is a top-level profile key (provider, model, channel_finder_mode,
     connector) or a dotted path. `model` is a model id the provider serves, and so is
     each `config.claude_code.agent_models.<agent>` pin. Keys under `config.` address the rendered
     config: `config.control_system.type=epics` writes that literal dotted entry
@@ -253,8 +264,8 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
       $ osprey set model=claude-sonnet-5
       $ osprey set config.claude_code.agent_models.logbook-deep-research=claude-opus-5-5
       $ osprey set connector=epics
-      $ osprey set tier=1 channel_finder_mode=in_context
-      $ osprey set config.facility.name='Storage Ring'
+      $ osprey set channel_finder_mode=in_context
+      $ osprey set config.system.timezone=America/Los_Angeles
       $ osprey set --repo ~/my-assistant config.control_system.writes_enabled=true
       $ osprey set config.control_system.connector.virtual_accelerator.writes_enabled=true
     """

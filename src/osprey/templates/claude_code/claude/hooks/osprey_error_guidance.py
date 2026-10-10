@@ -132,6 +132,11 @@ ERROR_CLASS_MAP = {
     "invalid_item": "Validation",
     # A page offset outside an earlier answer: the message names the range.
     "bad_offset": "Validation",
+    # A lattice figure that is not computed for the inputs on screen: the
+    # message names its status and the suggestion the step that fixes it.
+    "figure_not_current": "Validation",
+    # A lattice figure the selected model cannot draw: pick another figure.
+    "figure_unavailable": "Validation",
     # ---- Data: a lookup that missed. Report what was asked for and that
     # nothing was found; suggest refining.
     "not_found": "Data",

@@ -18,26 +18,23 @@ import functools
 import json
 import logging
 from collections.abc import Callable, Iterable, Mapping
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.deployment.graphdb_service import (
-    DEFAULT_INDEX_PATH,
-    GRAPHDB_BUILD_INDEX_COMMAND,
+    GRAPH_INDEX_BUILD_SUGGESTIONS,
+    GRAPHDB_REBUILD_HINT,
     GRAPHDB_SERVICE_NAME,
     GRAPHDB_TTL_PATH_CONFIG_KEY,
-    UNRESOLVED_INDEX_PATH_REMEDY,
     graph_corpus_configured,
-    unresolved_index_path_detail,
 )
 from osprey.mcp_server.graph.server_context import GraphStoreError
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
-from osprey.services.channel_finder.core.base_database import BaseDatabase, DatabaseWriteError
+from osprey.services.channel_finder.core.base_database import BaseDatabase
 from osprey.services.channel_finder.databases import (
     FlatChannelDatabase,
     HierarchicalChannelDatabase,
@@ -112,12 +109,7 @@ _NO_GRAPH_CONTEXT_SUGGESTIONS = [
 _NO_GRAPH_INDEX_DETAIL = "The search index is not open."
 
 #: What an operator does about an index that is missing, unreadable or stale.
-#: Two facts: the verb that writes one, and the build that runs that verb as
-#: part of rendering the project.
-_NO_GRAPH_INDEX_SUGGESTIONS = [
-    f"Build the index with `{GRAPHDB_BUILD_INDEX_COMMAND}`.",
-    "`osprey build` renders the project and builds the index in one step.",
-]
+_NO_GRAPH_INDEX_SUGGESTIONS = list(GRAPH_INDEX_BUILD_SUGGESTIONS)
 
 #: Said when a read of an *open* index failed: the file was there and was
 #: built, so the build pair would be untrue. A request that raced shutdown
@@ -125,45 +117,8 @@ _NO_GRAPH_INDEX_SUGGESTIONS = [
 #: only then is a rebuild the remedy.
 _INDEX_READ_FAILED_SUGGESTIONS = [
     f"Retry the request; if it keeps failing, rebuild the index with "
-    f"`{GRAPHDB_BUILD_INDEX_COMMAND}` and restart the channel finder.",
+    f"`{GRAPHDB_REBUILD_HINT}` and restart the channel finder.",
 ]
-
-
-class UnresolvedIndexPath(GraphIndexAbsence):
-    """The absence a config that spells ``index_path`` wrongly resolves to.
-
-    Its own type rather than a sentence to match on: the 503 builder has to
-    tell this state apart from an index that is merely not built yet, because
-    it answers no build remedy — a build would read the same malformed key —
-    and recognising it by the tail of its prose would come undone the first
-    time that prose is edited.
-
-    An ``unreadable`` absence to every other reader, which is what it is: the
-    config named no path this process could read the index from.
-    """
-
-
-def unresolved_index_path(exc: ValueError) -> UnresolvedIndexPath:
-    """Build the absence a malformed ``index_path`` puts on the app's state.
-
-    A config typo is not a missing artifact, and there is no resolved path to
-    name — so the absence carries the key's default location, and its own
-    sentence says which key to fix.
-
-    Args:
-        exc: What :func:`~osprey.deployment.graphdb_service.resolve_graph_index_path`
-            refused with.
-
-    Returns:
-        The absence, carrying the resolver's own sentence and the remedy.
-    """
-    # The remedy travels in the sentence itself, so every surface that shows the
-    # detail — the 503 body, the log line — shows the fix.
-    return UnresolvedIndexPath(
-        "unreadable",
-        Path(DEFAULT_INDEX_PATH),
-        f"{unresolved_index_path_detail(exc).rstrip('.')}. {UNRESOLVED_INDEX_PATH_REMEDY}",
-    )
 
 
 #: Said instead when the project configures no corpus: there is nothing to
@@ -183,12 +138,20 @@ _NO_ROSTER_DETAIL = (
     "The channel roster could not be read, so which channels this facility has is unknown."
 )
 
-#: What an operator edits when an enumeration route reports no roster. Named on
-#: every such answer, including the ones whose reason already names a path: the
-#: path says which file was unreadable, this says which key put it there.
+#: What an operator does when an enumeration route reports no roster and the
+#: facility file is not the reason it is empty: the file is an output of
+#: ``osprey build``, so the remedy is the build, not a config edit.
 _NO_ROSTER_SUGGESTIONS = [
-    f"Check that 'services.{GRAPHDB_SERVICE_NAME}.ttl_path' names a readable "
-    "knowledge-graph corpus and restart the channel finder.",
+    "Run `osprey build` so the render holds its facility file (facility.json), "
+    "then restart the channel finder.",
+]
+
+#: What an operator does when the facility file is built and declares no
+#: channels. The build is not the remedy: it writes what the project's tree
+#: declares, so the tree is what changes.
+_EMPTY_FACILITY_SUGGESTIONS = [
+    "Declare the channels in the project's data/facility tree, then rebuild "
+    "and restart the channel finder.",
 ]
 
 
@@ -240,12 +203,8 @@ def _graph_index_error_payload(
     added here, because only a surface knows what an operator can do about it.
 
     Which remedy depends on what the project has, decided the way the MCP
-    tool decides it so the two surfaces never name different steps. An
-    An
-    :class:`UnresolvedIndexPath` — the absence a malformed ``index_path``
-    resolves to — gets no further remedy, since a build would read the same
-    malformed key. A deployment that
-    configures no corpus has nothing to build an index *from*, and the build
+    tool decides it so the two surfaces never name different steps. A
+    deployment that configures no corpus has nothing to build an index *from*, and the build
     refuses in that state, so it is told to configure one. Everything else is
     one build away from an answer.
 
@@ -258,9 +217,7 @@ def _graph_index_error_payload(
     Returns:
         The response body: the detail, ``service_unavailable``, and the remedy.
     """
-    if isinstance(absence, UnresolvedIndexPath):
-        suggestions: list[str] = []
-    elif not graph_corpus_configured(config):
+    if not graph_corpus_configured(config):
         suggestions = _NO_GRAPH_CORPUS_SUGGESTIONS
     else:
         suggestions = _NO_GRAPH_INDEX_SUGGESTIONS
@@ -419,14 +376,20 @@ def _roster_unavailable(absence: RosterAbsence | None) -> JSONResponse:
 
     Returns:
         The 503, in the body shape the other graph routes answer an unavailable
-        store in: detail, error type, and the remedy.
+        store in: detail, error type, and the remedy -- the project's facility
+        tree for a file that declares no channels, the build for every other
+        reason.
     """
+    from osprey.channel_roster import RosterAbsenceReason
+
+    empty = absence is not None and absence.reason is RosterAbsenceReason.FACILITY_EMPTY
+    suggestions = _EMPTY_FACILITY_SUGGESTIONS if empty else _NO_ROSTER_SUGGESTIONS
     return JSONResponse(
         status_code=503,
         content={
             "detail": absence.message() if absence is not None else _NO_ROSTER_DETAIL,
             "error_type": "service_unavailable",
-            "suggestions": list(_NO_ROSTER_SUGGESTIONS),
+            "suggestions": list(suggestions),
         },
     )
 
@@ -436,10 +399,9 @@ def _serve_from_roster(request: Request, answer: Callable[[], Any]) -> Any:
 
     The roster is read once, at lifespan, so a route only reads it off state
     here. Both routes that enumerate share what happens when there is nothing to
-    read — an app whose corpus could not be resolved keeps no roster, and one
-    whose corpus could not be parsed or holds no channel keeps the absence
-    saying so — so neither can drift into reporting the same unstaged
-    deployment differently.
+    read — an app whose facility file was not found, could not be read or
+    declares no channels keeps the absence saying so — so neither can drift
+    into reporting the same unstaged deployment differently.
 
     The gate is on the records, not on the absence: a source that enumerated
     its channels but cannot say which are settable carries both, and neither of
@@ -492,93 +454,6 @@ class ValidateRequest(BaseModel):
     """Request body for channel validation."""
 
     channels: list[str]
-
-
-class AddNodeRequest(BaseModel):
-    """Request body for adding a hierarchical node."""
-
-    level: str
-    parent_selections: dict[str, str] = {}
-    name: str
-    description: str = ""
-
-
-class EditNodeRequest(BaseModel):
-    """Request body for editing a hierarchical node (name and/or description)."""
-
-    level: str
-    selections: dict[str, str] = {}
-    old_name: str
-    new_name: str | None = None
-    description: str | None = None
-
-
-class DeleteNodeRequest(BaseModel):
-    """Request body for deleting a hierarchical node."""
-
-    level: str
-    selections: dict[str, str] = {}
-    name: str
-
-
-class EditExpansionRequest(BaseModel):
-    """Request body for editing an instance-level expansion config."""
-
-    level: str
-    selections: dict[str, str] = {}
-    pattern: str | None = None
-    range_start: int | None = None
-    range_end: int | None = None
-
-
-class AddFamilyRequest(BaseModel):
-    """Request body for adding a middle-layer family."""
-
-    system: str
-    family: str
-    description: str = ""
-
-
-class DeleteFamilyRequest(BaseModel):
-    """Request body for deleting a middle-layer family."""
-
-    system: str
-    family: str
-
-
-class AddMLChannelRequest(BaseModel):
-    """Request body for adding a middle-layer channel."""
-
-    system: str
-    family: str
-    field: str
-    channel_name: str
-    subfield: str | None = None
-
-
-class DeleteMLChannelRequest(BaseModel):
-    """Request body for deleting a middle-layer channel."""
-
-    system: str
-    family: str
-    field: str
-    channel_name: str
-    subfield: str | None = None
-
-
-class AddICChannelRequest(BaseModel):
-    """Request body for adding an in-context channel."""
-
-    channel_name: str
-    address: str = ""
-    description: str = ""
-
-
-class UpdateICChannelRequest(BaseModel):
-    """Request body for updating an in-context channel."""
-
-    description: str | None = None
-    address: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -887,8 +762,7 @@ def _read_graph_ontology(index: GraphIndex) -> dict[str, Any]:
 def _device_signal_groups(groups: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Reduce a device's signal groups to what the device card draws.
 
-    The store hands back more than the card shows — a binding's protocol and
-    the confidence it was matched with — so those are dropped here. The signal
+    Each binding keeps its address, its signal edges and its description. The
     edges travel on untouched: the card derives direction from them exactly as
     the result table does, which is why the two cannot disagree.
 
@@ -907,8 +781,6 @@ def _device_signal_groups(groups: Iterable[Mapping[str, Any]]) -> list[dict[str,
                     "fullPv": binding.get("fullPv"),
                     "edges": list(binding.get("edges") or []),
                     "description": binding.get("description"),
-                    "subfieldDescription": binding.get("subfieldDescription"),
-                    "fieldDescription": binding.get("fieldDescription"),
                 }
                 for binding in group.get("bindings") or []
             ],
@@ -1094,10 +966,9 @@ async def _read_graph_device(ctx: Any, *, uri: str) -> Any:
         "section": row.get("section"),
         "system": row.get("system"),
         "sPositionM": row.get("sPositionM"),
-        "ordinalInSection": row.get("ordinalInSection"),
+        "ordinalInPlace": row.get("ordinalInPlace"),
         "systemDescription": row.get("systemDescription"),
         "familyDescription": row.get("familyDescription"),
-        "ringDescription": row.get("ringDescription"),
         "signals": _device_signal_groups(row.get("signals") or []),
     }
 
@@ -1250,7 +1121,7 @@ async def explore_channels(
     family: str,
     field: str,
     subfield: str | None = None,
-    sectors: str | None = None,
+    place: str | None = None,
     devices: str | None = None,
     protocol: Literal["ca", "tango"] | None = None,
 ):
@@ -1262,26 +1133,26 @@ async def explore_channels(
         family: Family name.
         field: Field name (e.g., "Monitor", "Setpoint").
         subfield: Optional subfield name.
-        sectors: Optional JSON-encoded list of sector numbers.
-        devices: Optional JSON-encoded list of device numbers.
+        place: Optional place id or path prefix: that place and every place
+            below it.
+        devices: Optional JSON-encoded list of device ordinals.
         protocol: Optional channel protocol, ``ca`` or ``tango``. Absent, the
             field's first listed names are returned.
     """
     db = _get_middle_layer_database(request)
 
     try:
-        parsed_sectors = json.loads(sectors) if sectors else None
         parsed_devices = json.loads(devices) if devices else None
         extra = {} if protocol is None else {"protocol": protocol}
         channels = db.list_channel_names(
-            system, family, field, subfield, parsed_sectors, parsed_devices, **extra
+            system, family, field, subfield, place, parsed_devices, **extra
         )
         return {"channels": channels, "total": len(channels)}
 
     except json.JSONDecodeError as exc:
         raise HTTPException(
             status_code=422,
-            detail=f"Invalid JSON in sectors or devices parameter: {exc}",
+            detail=f"Invalid JSON in devices parameter: {exc}",
         ) from exc
     except Exception as exc:
         logger.exception("Failed to list channels")
@@ -1400,7 +1271,7 @@ def _roster_channels(addresses: tuple[str, ...], chunk_idx: int | None) -> dict[
 
 
 # ---------------------------------------------------------------------------
-# CRUD helpers
+# Database accessors
 # ---------------------------------------------------------------------------
 
 
@@ -1467,293 +1338,3 @@ def _get_facility_name(request: Request) -> str:
     pt = _pipeline_type(request)
     facility_names: dict[str, str] = getattr(request.app.state, "facility_names", {})
     return facility_names.get(pt, "")
-
-
-# ---------------------------------------------------------------------------
-# Hierarchical CRUD endpoints
-# ---------------------------------------------------------------------------
-
-
-@router.post("/tree/node")
-async def add_tree_node(request: Request, body: AddNodeRequest):
-    """Add a new node at a hierarchy level."""
-    db = _get_hierarchical_database(request)
-
-    try:
-        return db.add_node(
-            level=body.level,
-            parent_selections=body.parent_selections,
-            name=body.name,
-            description=body.description,
-        )
-    except DatabaseWriteError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to add tree node")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@router.put("/tree/node")
-async def edit_tree_node(request: Request, body: EditNodeRequest):
-    """Edit a node's name and/or description at a hierarchy level."""
-    db = _get_hierarchical_database(request)
-
-    try:
-        return db.edit_node(
-            level=body.level,
-            selections=body.selections,
-            old_name=body.old_name,
-            new_name=body.new_name,
-            description=body.description,
-        )
-    except DatabaseWriteError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to edit tree node")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@router.delete("/tree/node")
-async def delete_tree_node(request: Request, body: DeleteNodeRequest):
-    """Delete a node (and all descendants) at a hierarchy level."""
-    db = _get_hierarchical_database(request)
-
-    try:
-        return db.delete_node(
-            level=body.level,
-            selections=body.selections,
-            name=body.name,
-        )
-    except DatabaseWriteError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to delete tree node")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@router.post("/tree/impact")
-async def tree_impact(request: Request, body: DeleteNodeRequest):
-    """Preview the impact of deleting a hierarchy node."""
-    db = _get_hierarchical_database(request)
-
-    try:
-        impact = db.count_descendants(
-            level=body.level,
-            selections=body.selections,
-            name=body.name,
-        )
-        return {
-            "affected_channels": impact.get("channels", 0),
-            "breakdown": {k: v for k, v in impact.items() if k != "channels"},
-        }
-    except DatabaseWriteError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to compute tree impact")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@router.get("/tree/expansion")
-async def get_tree_expansion(request: Request, level: str, selections: str | None = None):
-    """Get the current expansion config for an instance-type level."""
-    db = _get_hierarchical_database(request)
-
-    try:
-        parsed_selections = json.loads(selections) if selections else {}
-        return db.get_expansion(
-            level=level,
-            selections=parsed_selections,
-        )
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid selections JSON: {exc}") from exc
-    except DatabaseWriteError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to get expansion config")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@router.put("/tree/expansion")
-async def edit_tree_expansion(request: Request, body: EditExpansionRequest):
-    """Edit the expansion config for an instance-type level."""
-    db = _get_hierarchical_database(request)
-
-    try:
-        return db.edit_expansion(
-            level=body.level,
-            selections=body.selections,
-            pattern=body.pattern,
-            range_start=body.range_start,
-            range_end=body.range_end,
-        )
-    except DatabaseWriteError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to edit expansion config")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-# ---------------------------------------------------------------------------
-# Middle Layer CRUD endpoints
-# ---------------------------------------------------------------------------
-
-
-@router.post("/structure/family")
-async def add_family(request: Request, body: AddFamilyRequest):
-    """Add a new family to a system."""
-    db = _get_middle_layer_database(request)
-
-    try:
-        return db.add_family(
-            system=body.system,
-            family=body.family,
-            description=body.description,
-        )
-    except DatabaseWriteError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to add family")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@router.delete("/structure/family")
-async def delete_family(request: Request, body: DeleteFamilyRequest):
-    """Delete a family and all its channels."""
-    db = _get_middle_layer_database(request)
-
-    try:
-        return db.delete_family(
-            system=body.system,
-            family=body.family,
-        )
-    except DatabaseWriteError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to delete family")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@router.post("/structure/channel")
-async def add_ml_channel(request: Request, body: AddMLChannelRequest):
-    """Add a channel to a family's field."""
-    db = _get_middle_layer_database(request)
-
-    try:
-        return db.add_channel(
-            system=body.system,
-            family=body.family,
-            field=body.field,
-            channel_name=body.channel_name,
-            subfield=body.subfield,
-        )
-    except DatabaseWriteError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to add ML channel")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@router.delete("/structure/channel")
-async def delete_ml_channel(request: Request, body: DeleteMLChannelRequest):
-    """Delete a channel from a family's field."""
-    db = _get_middle_layer_database(request)
-
-    try:
-        return db.delete_channel(
-            system=body.system,
-            family=body.family,
-            field=body.field,
-            channel_name=body.channel_name,
-            subfield=body.subfield,
-        )
-    except DatabaseWriteError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to delete ML channel")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@router.post("/structure/impact")
-async def structure_impact(request: Request, body: DeleteFamilyRequest):
-    """Preview the impact of deleting a middle-layer family."""
-    db = _get_middle_layer_database(request)
-
-    try:
-        count = db.count_family_channels(
-            system=body.system,
-            family=body.family,
-        )
-        return {"affected_channels": count}
-    except DatabaseWriteError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to compute structure impact")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-# ---------------------------------------------------------------------------
-# In-Context CRUD endpoints
-# ---------------------------------------------------------------------------
-
-
-@router.post("/channels")
-async def create_channel(request: Request, body: AddICChannelRequest):
-    """Add a new channel to the in-context database."""
-    db = _get_in_context_database(request)
-
-    try:
-        return db.add_channel(
-            channel=body.channel_name,
-            address=body.address,
-            description=body.description,
-        )
-    except DatabaseWriteError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to create channel")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@router.put("/channels/{channel_id:path}")
-async def update_channel(channel_id: str, request: Request, body: UpdateICChannelRequest):
-    """Update an in-context channel's description and/or address.
-
-    Args:
-        channel_id: Channel name (uses :path converter for colon-separated PV names).
-        request: FastAPI request.
-        body: Fields to update.
-    """
-    db = _get_in_context_database(request)
-
-    try:
-        return db.update_channel(
-            channel=channel_id,
-            new_description=body.description,
-            new_address=body.address,
-        )
-    except DatabaseWriteError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to update channel")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@router.delete("/channels/{channel_id:path}")
-async def delete_channel(channel_id: str, request: Request):
-    """Delete a channel from the in-context database.
-
-    Args:
-        channel_id: Channel name (uses :path converter for colon-separated PV names).
-        request: FastAPI request.
-    """
-    db = _get_in_context_database(request)
-
-    try:
-        return db.delete_channel(
-            channel=channel_id,
-        )
-    except DatabaseWriteError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Failed to delete channel")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc

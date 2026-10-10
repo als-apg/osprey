@@ -22,7 +22,7 @@ from osprey.agent_runner.build_artifacts.ownership import framework_template_has
 from osprey.agent_runner.tool_names import DENY_DEFAULTS, WRITE_CAPABLE_BUILTINS
 from osprey.ariel_attachment_view import attachment_view_enabled
 from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, ownership_name
 from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
@@ -30,7 +30,6 @@ from osprey.cli.templates._rendering import render_template
 from osprey.errors import BuildProfileError
 from osprey.phoebus_agent_access import agent_access as phoebus_agent_access
 from osprey.utils.config import resolve_env_vars
-from osprey.utils.facility import resolve_facility_name
 from osprey_connectors import yaml_loader
 
 logger = logging.getLogger("osprey.cli.templates")
@@ -77,8 +76,8 @@ def resolve_hierarchy_context(channel_finder: dict, project_dir: Path) -> dict[s
     is warned about, never raised: an unreadable database costs the agent a
     render-time shortcut, not the build.
 
-    Both the initial project creation and every later Claude Code re-render read
-    the hierarchy through here, so the two cannot embed different levels for the
+    Every Claude Code re-render after the build writes the index reads the
+    hierarchy through here, so no two renders embed different levels for the
     same database.
 
     The warning it emits names the database and repeats why the loader turned
@@ -223,89 +222,8 @@ def _graphdb_configured(config: dict) -> bool:
         return False
 
 
-def _facility_vocabulary(config: dict, project_dir: Path) -> list[dict[str, Any]] | None:
-    """The deployment's device vocabulary, read from its compiled ontology.
-
-    ``facility.ontology`` names the compiled ontology table
-    (``osprey knowledge compile-ontology``'s JSON output) this deployment's
-    corpus was generated from, resolved against the project root. It is the
-    facility's own device vocabulary, and it is the ONLY source the rendered
-    terminology tables draw on: the paradigm partials used to spell device
-    tokens themselves, and the spelling had already drifted — the hierarchical
-    table named four family tokens that exist in no shipped channel database.
-    A prompt that names a device kind the corpus does not have sends the agent
-    looking for something that returns no rows and no error.
-
-    Read here rather than in either render path's own context so both of them
-    carry it. The block goes through :func:`~osprey.deployment.web_terminals.
-    personas.as_dict` like every other ``facility:`` reader in the tree, so a
-    scalar block — a plausible slip, given that a top-level ``facility_name``
-    exists — falls through to "no ontology declared" instead of a traceback.
-    The table itself is loaded through the same reader ``osprey knowledge
-    build-ttl`` uses, imported lazily so an ordinary render never pays for the
-    knowledge stack.
-
-    Args:
-        config: Parsed ``config.yml`` mapping.
-        project_dir: Root of the project being rendered; a relative
-            ``facility.ontology`` resolves against it. A leading ``~`` is
-            expanded first, as every other path key in ``config.yml`` does.
-
-    Returns:
-        One row per class that carries synonyms — ``class_name``, its sorted
-        ``synonyms``, and the sorted ``families`` (FAMILY tokens) that map to
-        it — or ``None`` when no ontology is declared, which renders as an
-        honest "no vocabulary table here" line rather than as demo tokens.
-
-    Raises:
-        BuildProfileError: If the key is set but the file cannot be read or
-            does not validate. A declared ontology that is not there is an
-            operator error worth stopping the build for; falling back to the
-            packaged demo table would ship a facility an agent that speaks
-            somebody else's vocabulary and says nothing about it.
-    """
-    from osprey.deployment.web_terminals.personas import as_dict
-
-    declared = as_dict(config.get("facility")).get("ontology")
-    if not declared:
-        return None
-
-    from osprey.services.facility_knowledge.ttl_generator import ontology_map
-
-    path = Path(str(declared)).expanduser()
-    if not path.is_absolute():
-        path = Path(project_dir) / path
-    try:
-        table = ontology_map.load_ontology(path)
-    except (OSError, ontology_map.OntologyMapError) as exc:
-        raise BuildProfileError(
-            f"facility.ontology names {declared!r}, which does not resolve to a "
-            f"readable compiled ontology table at {path}: {exc}. Point the key at "
-            "the JSON `osprey knowledge compile-ontology` wrote for this "
-            "deployment, or drop it — a build profile that renders this key from "
-            "an app template removes it with a bare `facility.ontology:` entry, "
-            "with no value, under its own `config:` block. An absent key renders "
-            "the agent's terminology tables without a vocabulary section, which "
-            "is honest. It is never filled in from the packaged demo ontology."
-        ) from exc
-
-    families_by_class: dict[str, list[str]] = {}
-    for family, class_name in table.family_to_class.items():
-        families_by_class.setdefault(class_name, []).append(family)
-
-    return [
-        {
-            "class_name": name,
-            "synonyms": sorted(class_def.alt_labels),
-            "families": sorted(families_by_class.get(name, ())),
-        }
-        for name, class_def in sorted(table.classes.items())
-        if class_def.alt_labels
-    ]
-
-
 def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
-    """The template-context keys read straight out of a project's ``config.yml``.
+    """The template-context keys read out of a project's ``config.yml`` and facts file.
 
     Two paths render the Claude Code artifacts — the build's
     :func:`build_claude_code_context` and the first render inside
@@ -320,14 +238,22 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         config: Parsed ``config.yml`` mapping (``{}`` when the bundle renders
             none — every value below then falls back to its own empty default).
         project_dir: Root of the project being rendered; declared hooks are
-            resolved against the files it ships.
+            resolved against the files it ships, and the facts are read from
+            its ``data/facility_facts.json``.
     """
     from osprey.deployment.web_terminals.personas import config_needs_dispatcher_token
+    from osprey.facility.views.facts import hook_measurement, read_facts
     from osprey.mcp_server.http import phoebus_bridge_default
     from osprey.utils.workspace import agent_data_base_dir
+    from osprey_connectors.types import connector_transport, resolve_control_system_type
 
     control_system = config.get("control_system", {}) or {}
     declared_hooks = _build_declared_hook_rules(config, project_dir)
+    # What the build wrote about this render's facility. A render with no facts
+    # file is read as a facility with no sources, so the facts and the
+    # measurement block always come from the one reader.
+    facility_facts = read_facts(project_dir, config.get("project_name", project_dir.name))
+    facility = _read_facility(project_dir)
     ariel_attachment_view = _ariel_attachment_view(config)
     return {
         # User-owned files: regen skips these, users edit in-place
@@ -359,7 +285,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # hook source.
         "lane_addressed_tools": list(QUEUE_CONTROL_TOOLS),
         # Control system type for protocol-aware safety rules
-        "control_system_type": control_system.get("type", "mock"),
+        "control_system_type": resolve_control_system_type(control_system),
+        # The wire it speaks, so a rule about a protocol library is rendered
+        # only where that protocol is spoken.
+        "control_system_transport": connector_transport(control_system),
         # Whether this deployment renders the target switch, for the
         # switch-aware half of the control-system safety rule.
         "target_switch_enabled": _renders_the_target_switch(control_system),
@@ -390,6 +319,16 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # resolve_servers runs, which both render paths do, so both refuse an
         # unknown value.
         "phoebus_agent_access": _phoebus_agent_access(config),
+        # The agent facts the build wrote: the facts page and the channel-finder
+        # terminology tables render from them.
+        "facility_facts": facility_facts,
+        "middle_layer_families": _middle_layer_families(facility),
+        # The gate for the pyat-specialist agent: a render that serves no model
+        # with a deck has no lattice for it to load. A plain truthiness test,
+        # merged before resolve_agents runs, like the server gates above.
+        "served_decks": _served_decks(facility_facts, facility),
+        "pyaml_view_present": bool(facility_facts["measurement_models"]),
+        "measurement": hook_measurement(facility_facts),
         # `ariel.attachments.view.enabled`: whether the ARIEL agents may look at
         # logbook pictures. resolve_servers reads it to withhold
         # attachment_view, and the logbook templates read it to leave the tool
@@ -399,11 +338,6 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # agent never to call itself, from the static registry entry (never
         # create_server(), which has start-up side effects).
         "ariel_read_tools": _ariel_read_tools(ariel_attachment_view),
-        # The device vocabulary the channel-finder terminology partials render
-        # their rows from, out of the deployment's own compiled ontology
-        # (`facility.ontology`). None when no ontology is declared — the
-        # partials then say so instead of falling back to demo tokens.
-        "facility_vocabulary": _facility_vocabulary(config, project_dir),
         # The interactive deny floor settings.json.j2 renders into
         # permissions.deny. Sourced from DENY_DEFAULTS so the template, the
         # build lint and the read-only-floor drift test cannot fork.
@@ -433,6 +367,86 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # renders it as `cleanupPeriodDays`, absent when the deployment is silent.
         "transcripts_retention_days": _transcripts_retention_days(config),
     }
+
+
+def _read_facility(project_dir: Path) -> dict[str, Any]:
+    """The render's facility file, or an empty facility when it holds none.
+
+    Args:
+        project_dir: Root of the render.
+
+    Returns:
+        The parsed ``facility.json``; ``{}`` when the file is absent or cannot
+        be read as a JSON object.
+    """
+    from osprey.facility import FACILITY_FILE
+
+    path = project_dir / FACILITY_FILE
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        logger.warning("The facility file %s could not be read", path, exc_info=True)
+        return {}
+    return document if isinstance(document, dict) else {}
+
+
+def _served_decks(facts: dict[str, Any], facility: dict[str, Any]) -> list[dict[str, str]]:
+    """The decks a render serves that the pyat-specialist can load.
+
+    Args:
+        facts: The render's agent facts.
+        facility: The render's facility file (``{}`` when it holds none).
+
+    Returns:
+        ``{"model", "path"}`` for each of the facts' served models, engine
+        other than ``texture``, whose facility-file record names a deck,
+        sorted by model; ``path`` is the file the simulator view writes the
+        deck to, relative to the render root.
+    """
+    from osprey.facility import TEXTURE
+    from osprey.facility.views.simulator import served_deck_path
+    from osprey_connectors.simulation.view import VIEW_RELPATH
+
+    paths = {
+        str(model.get("name")): served_deck_path(model)
+        for model in facility.get("models", [])
+        if isinstance(model, dict)
+    }
+    return [
+        {"model": name, "path": f"{VIEW_RELPATH}/{paths[name]}"}
+        for name in sorted(
+            str(model["name"])
+            for model in facts.get("models", [])
+            if model.get("served") and model.get("engine") != TEXTURE and paths.get(model["name"])
+        )
+    ]
+
+
+def _middle_layer_families(facility: dict[str, Any]) -> dict[str, list[dict[str, str | None]]]:
+    """Each class's families as the middle-layer index files and names them.
+
+    The pairs come from the middle-layer view itself, so a cell names only
+    what ``list_families`` returns. When one class has families under several
+    Systems, each name carries its System.
+
+    Args:
+        facility: The render's facility file.
+
+    Returns:
+        Class name -> ``[{"name", "system"}]``, ``system`` ``None`` where the
+        cell does not name it; a class no family holds is absent.
+    """
+    from osprey.facility.views.channel_finder import middle_layer_families
+
+    out: dict[str, list[dict[str, str | None]]] = {}
+    for name, pairs in middle_layer_families(facility).items():
+        qualified = len({system for system, _family in pairs}) > 1
+        out[name] = [
+            {"name": family, "system": system if qualified else None} for system, family in pairs
+        ]
+    return out
 
 
 def _phoebus_agent_access(config: dict) -> str:
@@ -560,8 +574,8 @@ def _renders_the_target_switch(control_system: dict) -> bool:
     predicate the controls server uses at run time to decide whether its tools
     are served by a connector-host child. Restating it here — "an epics block
     and a virtual_accelerator block", say — would be a second opinion that gets
-    a ``doocs`` deployment wrong and a ``mock``-with-an-epics-block deployment
-    wrong in the other direction, and the failure would be a frozen rule
+    a ``doocs`` deployment wrong, or a simulator deployment carrying a live
+    block, and the failure would be a frozen rule
     promising the agent a switch the runtime refuses to perform.
 
     Deliberately not keyed on the ``control_system.target_switch`` tuning keys:
@@ -679,6 +693,10 @@ def build_claude_code_context(
     # Derive feature flags from artifact selections
     selected_hooks = artifacts.get("hooks", [])
 
+    # Everything the templates read straight out of config.yml and the build's
+    # facts file, read once per render (see config_derived_context).
+    derived = config_derived_context(config, project_dir)
+
     ctx = {
         "project_name": project_name,
         "package_name": package_name,
@@ -705,13 +723,14 @@ def build_claude_code_context(
         ),
         "preset": preset,
         "claude_md_template": claude_md_template,
-        "facility_name": resolve_facility_name(config, project_name),
+        "facility_name": derived["facility_facts"]["identity"]["name"],
         "system_timezone": config.get("system", {}).get("timezone", "UTC"),
         "selected_hooks": selected_hooks,
     }
 
-    # Everything the templates read straight out of config.yml, in the one
-    # spelling the create_project render path shares (see config_derived_context).
+    # Everything the templates read out of config.yml and the facts file, in the
+    # one spelling the create_project render path shares (see
+    # config_derived_context).
     #
     # Merged HERE, before the registry resolves servers and agents, because a
     # `condition=` on a ServerDefinition is a plain truthiness test on a ctx key:
@@ -719,7 +738,7 @@ def build_claude_code_context(
     # silently disabled with no warning. create_project merges the same helper
     # before its own resolve_servers call, so this is also what keeps the two
     # paths from forking on any server gated by a config-derived key.
-    ctx.update(config_derived_context(config, project_dir))
+    ctx.update(derived)
 
     # Derive channel finder configuration
     channel_finder = config.get("channel_finder")

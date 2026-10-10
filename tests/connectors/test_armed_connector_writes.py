@@ -34,11 +34,12 @@ from osprey_connectors.control_system import doocs_connector, tango_connector
 from osprey_connectors.control_system.base import WriteOutcome
 from osprey_connectors.control_system.doocs_connector import DOOCSConnector
 from osprey_connectors.control_system.epics_connector import EPICSConnector
-from osprey_connectors.control_system.mock_connector import MockConnector
 from osprey_connectors.control_system.tango_connector import TangoConnector
 from osprey_connectors.control_system.va_connector import VirtualAcceleratorConnector
+from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
 from osprey_connectors.control_system.write_door import door_is_open
 from osprey_connectors.errors import RAW_CLIENT_WRITE_MARKER, ChannelWriteBlockedError
+from tests.facility.served_tree import in_process_config, served_tree
 from tests.runtime._patch_restore import restore_patches  # noqa: F401
 
 #: Row owners that resolve to a fake below and to nothing a real library owns.
@@ -239,12 +240,13 @@ def test_doocs_connector_write_passes_and_raw_set_is_refused(fakes, monkeypatch)
     assert len(doocs4py.calls) == 1
 
 
-def test_mock_connector_writes_still_work_with_the_block_armed(fakes, monkeypatch):
-    _writes_on(monkeypatch, MockConnector)
+def test_mock_connector_writes_still_work_with_the_block_armed(fakes, monkeypatch, tmp_path):
+    _writes_on(monkeypatch, VAInProcessConnector)
+    view = served_tree(tmp_path, ["TEST:CHANNEL:SP"])
 
     async def main():
-        connector = MockConnector()
-        await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
+        connector = VAInProcessConnector()
+        await connector.connect(in_process_config(view, response_delay_ms=0))
         result = await connector.write_channel("TEST:CHANNEL:SP", 4.25, confirm=False)
         read = await connector.read_channel("TEST:CHANNEL:SP")
         await connector.disconnect()

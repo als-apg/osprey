@@ -110,7 +110,9 @@ async def test_channel_write_limits_violation_no_emit(tmp_path, monkeypatch):
     from osprey.errors import ChannelLimitsViolationError
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
 
     from osprey.connectors.control_system.limits_validator import LimitsValidator
 
@@ -147,7 +149,9 @@ async def test_channel_write_partial_success_emits_executed_only(tmp_path, monke
     from osprey.mcp_server.control_system.server_context import initialize_server_context
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
 
     results = [
@@ -192,7 +196,9 @@ async def test_channel_write_all_blocked_no_emit(tmp_path, monkeypatch):
     from osprey.mcp_server.control_system.server_context import initialize_server_context
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
 
     results = [
@@ -233,7 +239,9 @@ async def test_channel_write_full_success_single_emit(tmp_path, monkeypatch):
     from osprey.mcp_server.control_system.server_context import initialize_server_context
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
 
     write_result = _make_write_result(channel="SR01:HCM1:SP", value=42.0)
@@ -1130,8 +1138,10 @@ async def test_execute_safety_check_refusal_no_emit(tool_name, tmp_path, monkeyp
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
-async def test_execute_readwrite_without_write_patterns_no_emit(tool_name, tmp_path, monkeypatch):
-    """readwrite alone is not a write: with no detected write patterns, stay silent."""
+async def test_execute_readwrite_without_write_patterns_emits_mode_detail(
+    tool_name, tmp_path, monkeypatch
+):
+    """A read-write run reports even with no detected write: a library call can write unseen."""
     monkeypatch.chdir(tmp_path)
     mod, call = _execute_tool_call(tool_name, tmp_path)
 
@@ -1139,7 +1149,7 @@ async def test_execute_readwrite_without_write_patterns_no_emit(tool_name, tmp_p
         await call(execution_mode="readwrite")
 
     exec_code.assert_called_once()
-    notify.assert_not_called()
+    notify.assert_called_once_with(tool_name, "channel", detail="ran a script in read-write mode")
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
@@ -1177,16 +1187,15 @@ async def test_execute_deployment_writes_disabled_no_emit(tool_name, tmp_path, m
 
 # ── lattice dashboard mutators ──────────────────────────────────────────────
 #
-# The six mutators share one refusal shape: every failure arrives as an
+# The five mutators share one refusal shape: every failure arrives as an
 # exception out of ``_dashboard_request`` and every handler funnels into
 # ``make_error``, which raises before the emit can run. Both failure classes
 # the module handles by name — an unreachable dashboard and a non-2xx response
-# — are therefore exercised against all six rather than per-mutator variants.
+# — are therefore exercised against all five rather than per-mutator variants.
 # The read-only tools share the same body minus the emit, so they are pinned
 # as a group too.
 
 _LATTICE_MUTATORS = [
-    ("lattice_init", {"lattice_path": "machine_data/als.m"}),
     ("lattice_set_param", {"family": "QF", "value": 1.25}),
     ("lattice_refresh", {}),
     ("lattice_set_baseline", {}),
@@ -1237,7 +1246,6 @@ def _lattice_http_error(status: int = 400, text: str = "unknown family"):
 @pytest.mark.parametrize(
     "tool_name,kwargs,detail",
     [
-        ("lattice_init", {"lattice_path": "machine_data/als.m"}, "machine_data/als.m"),
         ("lattice_set_param", {"family": "QF", "value": 1.25}, "QF = 1.25"),
         ("lattice_refresh", {}, "recomputing fast figures"),
         ("lattice_refresh", {"figure": "da"}, "recomputing da"),
@@ -1336,7 +1344,15 @@ _MANAGE_WINDOW_ACTIONS = [
 def setup_project(tmp_path):
     """Project root holding both patchable files, with config resolution pinned."""
     (tmp_path / "config.yml").write_text(
-        yaml.dump({"control_system": {"type": "mock", "writes_enabled": False}})
+        yaml.dump(
+            {
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                    "writes_enabled": False,
+                }
+            }
+        )
     )
     (tmp_path / ".mcp.json").write_text(
         '{\n  "mcpServers": {\n    "demo": {\n'
@@ -1624,7 +1640,9 @@ async def test_channel_write_result_unchanged_when_terminal_down(tmp_path, monke
     from osprey.mcp_server.control_system.server_context import initialize_server_context
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
 
     write_result = _make_write_result(channel="TEST:PV", value=42.0)

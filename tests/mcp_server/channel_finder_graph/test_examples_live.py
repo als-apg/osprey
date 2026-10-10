@@ -15,8 +15,8 @@ text:
   the same predicate to a file-level test and opposite walks to the store.  One
   of them returns rows; the other returns none, silently.
 * **Composition.**  Two predicates that both exist can still never co-occur on
-  one subject.  ``by_field_meaning`` requires a field description *and* a
-  subfield description on the same binding; ``by_synonym`` requires a class with
+  one subject.  ``by_group_purpose`` requires a group's description on a device
+  that also carries a binding; ``by_synonym`` requires a class with
   the synonym, a subclass chain down from it, a device typed into that chain and
   a binding hanging off the device — a four-way join whose emptiness no corpus
   census predicts.
@@ -30,8 +30,8 @@ through the tool rather than the driver is deliberate: the query gate vets the
 text before the store is dialled, so a catalogue entry the gate would refuse
 fails here rather than in an operator's session.
 
-The corpus is seeded into a wiped store — the sequence ``seed-graph --force``
-performs — and every example runs with its shipped parameter set.  What this
+The corpus is seeded into a wiped store — the sequence ``osprey up`` performs
+on a stamp mismatch — and every example runs with its shipped parameter set.  What this
 file does pin is that the lane ran a non-empty set: a catalogue that declared
 nothing would otherwise pass by running nothing.
 
@@ -53,9 +53,8 @@ import json
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
-from importlib.resources import files
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -67,6 +66,9 @@ from tests._graphdb_container import (
     graphdb_store,
 )
 
+if TYPE_CHECKING:
+    from tests._builds import BuiltProject
+
 logger = logging.getLogger(__name__)
 
 # xdist_group("docker") keeps every container-starting module on one xdist
@@ -77,7 +79,7 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 DEMO = "demo"
 
 #: The row cap this lane installs.  It sits above every example's own ``LIMIT``
-#: (all of which are at most 200) and below the corpus' 2908 channel bindings,
+#: (all of which are at most 200) and below the corpus' 2952 channel bindings,
 #: which is what gives ``truncated`` its meaning here: an example that
 #: reports truncation filled this cap, and the only way to do that is to have
 #: lost the ``LIMIT`` the catalogue says every query carries.  Under the shipped
@@ -111,16 +113,12 @@ def examples_store_uri(graphdb_plugin_dir: Path) -> Iterator[str]:
 
 
 @pytest.fixture(scope="module")
-def demo_ttl() -> str:
-    """The generated demo corpus, read the way installed code reads it."""
-    resource = (
-        files("osprey.templates")
-        .joinpath("apps")
-        .joinpath("control_assistant")
-        .joinpath("data")
-        .joinpath("demo_machine.ttl")
-    )
-    return resource.read_text(encoding="utf-8")
+def demo_ttl(built_control_assistant: BuiltProject) -> str:
+    """The graph view the control-assistant build writes."""
+    from osprey.facility.views.graph import GRAPH_FILE
+
+    path = built_control_assistant.build_dir / "data" / "graph" / GRAPH_FILE
+    return path.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +127,7 @@ def demo_ttl() -> str:
 
 
 def _seed(uri: str, ttl: str, label: str) -> None:
-    """Wipe the store and load *ttl* into it the way ``seed-graph --force`` does.
+    """Wipe the store and load *ttl* into it the way ``osprey up`` replaces a store.
 
     ``wipe`` takes the n10s graph config and the namespace prefixes with the
     data, so the corpus is bootstrapped into a store in the state a fresh
@@ -156,7 +154,6 @@ def _seed(uri: str, ttl: str, label: str) -> None:
         graph_seeder.write_marker(
             session,
             graph_seeder.ttl_sha256(ttl),
-            graph_seeder.parse_direction_source(ttl),
         )
         logger.info(
             f"{label}: seeded {imported.triples_loaded} triples, "
@@ -286,13 +283,13 @@ def test_every_demo_example_answers_on_the_demo_corpus(
 
     One test over one seeded store rather than one per example: every example
     below is a question about the *same* graph, so a parametrized lane would
-    re-import 2.7 MB of Turtle per question and prove nothing extra.
+    re-import the whole corpus per question and prove nothing extra.
     ``_usability_failures`` keeps the per-example detail that parametrizing
     would otherwise have bought.
 
     Both halves of the catalogue run here: the prose searches — description,
-    field/subfield and system — which the demo corpus carries because it is
-    generated from a channel database with prose, and the structural ones —
+    family and system — which the demo corpus carries because its facility
+    file describes its channels, groups and places, and the structural ones —
     synonym lookup, section listing, a device's addresses, an address back to
     its device.
     """

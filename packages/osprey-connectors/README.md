@@ -27,12 +27,11 @@ directly.
 | `osprey.connectors` | `osprey_connectors` |
 | `osprey.connectors.factory` | `osprey_connectors.factory` |
 | `osprey.connectors.types` | `osprey_connectors.types` |
-| `osprey.connectors.channel_taxonomy` | `osprey_connectors.channel_taxonomy` |
 | `osprey.connectors.control_system` | `osprey_connectors.control_system` |
 | `osprey.connectors.control_system.base` | `osprey_connectors.control_system.base` |
 | `osprey.connectors.control_system.epics_connector` | `osprey_connectors.control_system.epics_connector` |
 | `osprey.connectors.control_system.doocs_connector` | `osprey_connectors.control_system.doocs_connector` |
-| `osprey.connectors.control_system.mock_connector` | `osprey_connectors.control_system.mock_connector` |
+| `osprey.connectors.control_system.va_in_process_connector` | `osprey_connectors.control_system.va_in_process_connector` |
 | `osprey.connectors.control_system.va_connector` | `osprey_connectors.control_system.va_connector` |
 | `osprey.connectors.control_system.limits_validator` | `osprey_connectors.control_system.limits_validator` |
 | `osprey.connectors.archiver` | `osprey_connectors.archiver` |
@@ -45,11 +44,6 @@ directly.
 | `osprey.utils.config` | `osprey_connectors.config` |
 | `osprey.utils.logger` | `osprey_connectors.logger` |
 | `osprey.utils.relative_time` | `osprey_connectors.relative_time` |
-| `osprey.simulation` | `osprey_connectors.simulation` |
-| `osprey.simulation.engine` | `osprey_connectors.simulation.engine` |
-| `osprey.simulation.expressions` | `osprey_connectors.simulation.expressions` |
-| `osprey.simulation.machine` | `osprey_connectors.simulation.machine` |
-| `osprey.simulation.series` | `osprey_connectors.simulation.series` |
 
 ## Optional runtime dependencies
 

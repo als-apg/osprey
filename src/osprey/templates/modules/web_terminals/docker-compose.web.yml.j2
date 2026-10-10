@@ -11,18 +11,11 @@
   ----------------------------------------------------------------------------
 
     project_name: str
-      The deployment's compose project, `resolve_project_name()` of the as-built
-      config. Every container name here is `<project_name>-…`
-      (`<project_name>-web-<user>`, `<project_name>-nginx`,
-      `<project_name>-auth`), as is the sidecar's local image tag, so two
-      deployments on one host contend for a name only when they share a compose
-      project. naming.py spells the same pattern for Python consumers.
-
-    facility_prefix: str
-      `facility.prefix` from the deployed project's config (e.g. "ex"). Not read
-      by this template: no container or image name carries it. The per-user
-      agent-data mount path comes from each service's own
-      `container_agent_data_dir` (below).
+      The deployment's project name, as resolve_project_name() returns it
+      (e.g. "my-assistant"). Used for container_name (`<project>-web-<user>`,
+      `<project>-nginx`, `<project>-auth`) and the sidecar's local image tag
+      only — the per-user agent-data mount path comes from each service's own
+      `container_agent_data_dir` (below), not this field.
 
     registry_url: str
       `registry.url` from the deployed project's config. NOT read directly by this
@@ -33,7 +26,7 @@
 
     services: list[dict], required (may be empty — the 0-user case)
       ONE entry per configured user, PRE-BUILT by render.py from
-      `resolve_personas()` (deployment/web_terminals/ports.py) +
+      `resolve_personas()` (deployment/web_terminals/personas.py) +
       `allocate_ports()` — persona resolution and port arithmetic both stay
       in Python; this template only iterates. Each entry is
       `{"user": str, "image": str, "project": str, "container_project_dir": str,
@@ -108,10 +101,7 @@
       (allocate_ports() also merges each companion family's port under its
       family name — e.g. "artifact": int — for callers/tests; this template
       reads only "web" and "panel_env".)
-      A no-personas config resolves every entry's `image` to
-      `<registry_url>/web-terminal:latest` and every entry's
-      `container_project_dir` to `/app/<facility_prefix>-assistant` (see
-      resolve_personas()'s docstring). render.py MUST NOT include an entry
+      render.py MUST NOT include an entry
       whose "user" is "nginx" (reserved service name; enforced by the lint
       against the roster).
       This template ALSO refuses to render such a `services` list (see the
@@ -122,7 +112,7 @@
 
     facility_bundle_source: str, required (may be "")
       The deployment's facility-knowledge bundle on the HOST, spelled as a compose
-      bind source (`./data/facility_knowledge`, or an absolute path verbatim).
+      bind source (`./data/facility/knowledge`, or an absolute path verbatim).
       ONE directory for every user — the corpus is shared, not copied per user —
       paired with each service's own `container_bundle_dir` target. `""` when the
       deployment configures no `facility_knowledge.bundle_path`, which emits no
@@ -135,6 +125,24 @@
       service's own `container_mirror_dir` target. ONE directory for every user
       and for the host's own exporter — the sidecar indexes the union. `""` when
       the deployment runs no qmd export, which emits no mount for anyone.
+
+    simulator_log_source: str, required (may be "")
+      The deployment's simulator model-log directory on the HOST (`var/simulator`),
+      spelled as a compose bind source, and paired with each service's
+      `<container_project_dir>/var/simulator` target, where the in-process
+      composite appends its logs. `""` when no simulated target is configured,
+      which emits no mount for anyone.
+
+    simulator_log_relpath: str, required
+      `var/simulator`, the target's spelling under each service's
+      `container_project_dir`, handed down from the workspace constant.
+
+    guarded_run_source: str, required
+      The deployment's guarded-run directory on the HOST (`var/guarded_run`),
+      spelled as a compose bind source, and paired with each service's
+      `<container_project_dir>/var/guarded_run` target, where a guarded run
+      keeps its per-target lock and journal. Always set: every terminal runs
+      the agent.
 
     ariel_mirror_gid: str, required (may be "")
       Group id of that host directory, for the same `group_add:` reason as
@@ -1036,6 +1044,14 @@ services:
          can see. #}
       - OSPREY_ARIEL_MIRROR_DIR={{ svc.container_mirror_dir }}
 {%- endif %}
+{%- if simulator_log_source %}
+      {#- The simulator log mount's target, for the same contract: the composite
+         appending to it runs as the DROPPED user. #}
+      - OSPREY_SIMULATOR_LOG_DIR={{ svc.container_project_dir }}/{{ simulator_log_relpath }}
+{%- endif %}
+      {#- The guarded-run mount's target, for the same contract: the lock and
+         journal under it are written by the DROPPED user. #}
+      - OSPREY_GUARDED_RUN_DIR={{ svc.container_project_dir }}/var/guarded_run
       - OSPREY_TERMINAL_LANDING_URL={{ landing_url }}
       - OSPREY_TERMINAL_BIND_HOST={{ bind_host }}
       - OSPREY_TERMINAL_WEB_PORT={{ svc.web }}
@@ -1450,7 +1466,7 @@ services:
 
          If you are here because a concept you baked into a persona image is not
          showing up: this line is why. The persona image may ship its own
-         `data/facility_knowledge/` — `osprey build` renders one into the project
+         `data/facility/knowledge/` — `osprey build` renders one into the project
          — and this bind mount covers that directory entirely. The container sees
          the DEPLOYMENT's bundle at that path and nothing of the image's own.
 
@@ -1532,6 +1548,21 @@ services:
       # the next recreate discards.
       - {{ ariel_mirror_source }}:{{ svc.container_mirror_dir }}
 {%- endif %}
+{%- if simulator_log_source %}
+      # The DEPLOYMENT's simulator model logs, read-write: the in-process
+      # composite appends `<model>.log` here, beside the records the Virtual
+      # Accelerator writes, and `osprey sim status` prints these paths. The
+      # deploy provisions the directory setgid + group-writable, and the
+      # entrypoint joins its group (OSPREY_SIMULATOR_LOG_DIR above).
+      - {{ simulator_log_source }}:{{ svc.container_project_dir }}/{{ simulator_log_relpath }}
+{%- endif %}
+      # The DEPLOYMENT's guarded-run directory, read-write: one lock and one
+      # journal per control target, shared with every other container that
+      # runs the agent, so a run started here contends for the same lock and
+      # restores the same journal. The deploy provisions it setgid +
+      # group-writable, and the entrypoint joins its group
+      # (OSPREY_GUARDED_RUN_DIR above).
+      - {{ guarded_run_source }}:{{ svc.container_project_dir }}/var/guarded_run
 {%- for mount in svc.extra_mounts %}
       - {{ mount }}
 {%- endfor %}

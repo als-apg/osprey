@@ -57,15 +57,11 @@ def _env_map(env_list: list) -> dict[str, str]:
 def _sample_config() -> dict:
     """A self-contained config exercising the web_terminals stanza: the base
     ports/users/landing-groups shape of a ``modules.web_terminals`` block, plus
-    the deploy/facility/registry sections ``render_web_terminals()`` reads. The roster uses the explicit
-    ``{name, index}`` form — the lint-clean identity form the
+    the deploy/registry sections ``render_web_terminals()`` reads. The roster
+    uses the explicit ``{name, index}`` form — the lint-clean identity form the
     ``bare_list_port_drift_risk`` warning steers legacy bare-string lists
     toward."""
     return {
-        "facility": {
-            "name": "Demo Light Source",
-            "prefix": "dls",
-        },
         "system": {"timezone": "America/Los_Angeles"},
         "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
@@ -82,6 +78,8 @@ def _sample_config() -> dict:
                     {"name": "bob", "index": 1},
                     {"name": "carol", "index": 2},
                 ],
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": "dls-assistant"}},
                 "landing": {
                     "groups": [
                         {"type": "users"},
@@ -103,13 +101,18 @@ def _sample_config() -> dict:
     }
 
 
-def test_scaffold_render_consistency_across_all_generated_artifacts() -> None:
+def test_scaffold_render_consistency_across_all_generated_artifacts(tmp_path: Path) -> None:
     """The full generator (render + lint) produces internally-consistent,
     per-family artifacts for a sample facility-config, with a clean lint
     (zero findings, not just zero errors)."""
     # Arrange
     config = _sample_config()
     web_terminals = config["modules"]["web_terminals"]
+    # The default persona's render, which the lint reads its privileges from.
+    persona = tmp_path / "dls-assistant"
+    persona.mkdir()
+    (persona / "config.yml").write_text("project_name: dls-assistant\n", encoding="utf-8")
+    web_terminals["personas"]["assistant"]["project_path"] = "dls-assistant"
     roster = web_terminals["users"]
     users = [entry["name"] for entry in roster]
     # Same effective base set the render allocates from: config values plus
@@ -117,7 +120,7 @@ def test_scaffold_render_consistency_across_all_generated_artifacts() -> None:
     base_ports = base_ports_from_config(web_terminals, base=resolve_port_base(config))
 
     # Act
-    findings = lint_web_terminals(config)
+    findings = lint_web_terminals(config, project_root=tmp_path)
     artifacts = render_web_terminals(config)
 
     # Assert: clean lint.

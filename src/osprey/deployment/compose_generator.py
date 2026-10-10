@@ -21,7 +21,6 @@ import shutil
 import stat
 import tempfile
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
@@ -31,7 +30,6 @@ from jinja2 import Environment, FileSystemLoader
 
 from osprey.agent_runner.claude_state import CLAUDE_CONFIG_VOLUME_SUFFIX
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS, lane_control_identity
-from osprey.channel_roster import RosterAbsenceReason, RosterResult, registered_channels
 from osprey.cli import output
 from osprey.cli.phase_reporter import report_step
 from osprey.deployment.channel_snapshot import compute_channel_snapshot
@@ -813,7 +811,7 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
 
     One configured value — ``control_system.limits_checking.database_path`` —
     names one file, and three parties have to agree about which file that is:
-    the operator who authors it, the compose bind source that resolves on the
+    the build that names it, the compose bind source that resolves on the
     host, and the connector that opens it in the container after reading the
     same key out of the mounted config. Deriving all of it here, once per
     render, is the point: the template consumes finished strings and makes no
@@ -833,10 +831,10 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
       connector resolves the same relative path against the same directory and
       lands on the mount.
 
-    An absolute path is operator-owned: it names a file outside the repo, is
-    mounted at the identical path inside the container, and is never rewritten
-    (hence ``repo_root=None``) — rewriting it repo-relative would silently
-    re-point the mount at a file that is not there.
+    An absolute path is a hand-edited render's: it names a file outside the
+    repo, is mounted at the identical path inside the container, and is never
+    rewritten (hence ``repo_root=None``) — rewriting it repo-relative would
+    silently re-point the mount at a file that is not there.
 
     Refusals are gated on
     :func:`~osprey_connectors.types.any_armed_target_checks_limits`: a target
@@ -905,11 +903,10 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                     f"they cannot read."
                 ),
                 remedy=(
-                    f"Set {LIMITS_DATABASE_CONFIG_KEY} to the limits file, "
-                    "relative to the deployment repo root, and rebuild:\n"
-                    "    control_system:\n"
-                    "      limits_checking:\n"
-                    "        database_path: data/channel_limits.json\n"
+                    "Rebuild with `osprey build`; it names data/channel_limits.json as "
+                    f"{LIMITS_DATABASE_CONFIG_KEY}, which it renders from "
+                    "data/facility/limits.yaml, whenever the profile states a limits "
+                    "block.\n"
                     "Or turn limits checking off for the armed target — "
                     "limits_checking.enabled: false, deployment-wide or in that "
                     "target's control_system.connector.<type> block — which "
@@ -958,13 +955,10 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                     f"against a limits database it cannot read."
                 ),
                 remedy=(
-                    f"Put the limits database at {on_host}, or point "
-                    f"{LIMITS_DATABASE_CONFIG_KEY} at where it already is, and "
-                    "rebuild. The limits database is authored in the build "
-                    "profile's `data/` tree and copied into the deployment by "
-                    "`osprey build`, so a path that is right in the profile and "
-                    "absent here usually means the build has not been re-run. To "
-                    "deploy without one, set limits_checking.enabled: false for "
+                    "Rebuild with `osprey build`; it writes data/channel_limits.json "
+                    "from data/facility/limits.yaml and names it as "
+                    f"{LIMITS_DATABASE_CONFIG_KEY}, so a file absent here usually "
+                    "means the build has not been re-run. To deploy without one, set limits_checking.enabled: false for "
                     "the armed target — a target that checks no limits opens no "
                     "database."
                 ),
@@ -1596,83 +1590,6 @@ def _bluesky_lane_write_posture(services, control_system):
     }
 
 
-def _standin_perturbation(config, repo_root):
-    """The lattice the stand-in will boot with, and the perturbation that follows.
-
-    Which perturbation follows from which lattice is
-    :func:`~osprey.services.virtual_accelerator.manifest.standin_defaults.default_bpm_errors_for_lattice`'s
-    to say: a chain serving no lattice has no model for those offsets to
-    displace, so the stand-in serves its manifest unperturbed rather than
-    carrying faults nothing can apply. Asked here rather than restated, because
-    the build resolves the same rule to decide what it can boot with
-    (:func:`osprey.cli.build_profile_va_faults.effective_standin_bpm_errors`).
-
-    The perturbation itself is the deployment's own
-    (:func:`~osprey.services.virtual_accelerator.manifest.standin_defaults.served_data_root`
-    over the same two roots the lattice resolves from): a deployment is handed
-    the machine its own tree describes, never another facility's devices.
-
-    Read through :func:`~osprey_connectors.dotenv.resolved_va_lattice`, the
-    resolver validation refuses on
-    (:func:`osprey.cli.build_profile_va_faults.live_standin_lattice_errors`),
-    from the same two roots — the deployment repo, then the render zone the
-    containers are actually handed — so a build that validated on one answer
-    cannot render on another.
-
-    The manifest package is imported inside the function, following
-    ``container_lifecycle``'s own use of it: it pulls in the channel-finder
-    database readers at import, and the deployment layer keeps that off the
-    module import path every ``osprey`` invocation pays for.
-
-    :param config: The config being rendered; read for its ``build_dir`` only.
-    :param repo_root: The deployment repo root, already resolved by the caller.
-    :return: ``(lattice, default)`` — the resolved ``VA_LATTICE``, and the value
-        the stand-in's ``${VA_STANDIN_BPM_ERRORS-...}`` interpolation falls back
-        to when the chain names no perturbation.
-    :rtype: tuple[str, str]
-    """
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
-        default_bpm_errors_for_lattice,
-        served_data_root,
-    )
-    from osprey.utils.workspace import BUILD_DIR_NAME
-
-    build_dir = Path(str(config.get("build_dir", f"./{BUILD_DIR_NAME}")))
-    if not build_dir.is_absolute():
-        build_dir = Path(repo_root) / build_dir
-    lattice = dotenv.resolved_va_lattice(Path(repo_root), build_dir)
-    default = default_bpm_errors_for_lattice(
-        lattice != dotenv.VA_LATTICE_DEFAULT,
-        served_data_root(Path(repo_root), build_dir),
-    )
-    return lattice, default
-
-
-def _va_noise_level(config):
-    """The noise the Virtual Accelerator's synthesised readings carry, as text.
-
-    A config key rather than a bare ``.env`` variable, because how noisy a
-    reading is belongs to the machine being simulated and is therefore the
-    facility's to state — and it falls through to
-    ``control_system.connector.mock.noise_level`` exactly as ``simulation_file``
-    beside it does, so a deployment describing one simulated machine describes
-    it once whichever connector serves it.
-
-    :param config: The config being rendered.
-    :return: The resolved level as the string the template interpolates, or
-        ``""`` when neither key is stated — which leaves the entrypoint's own
-        default in force.
-    :rtype: str
-    """
-    from osprey_connectors.types import MOCK, VIRTUAL_ACCELERATOR
-
-    connector = (config.get("control_system") or {}).get("connector") or {}
-    va_block = connector.get(VIRTUAL_ACCELERATOR) or {}
-    mock_block = connector.get(MOCK) or {}
-    level = va_block.get("noise_level", mock_block.get("noise_level"))
-    return "" if level is None else str(level)
-
-
 def _telemetry_link_host(config):
     """The host the dashboard's per-run telemetry link names, or ``None``.
 
@@ -1894,6 +1811,7 @@ def _inject_project_metadata(config):
     # outside the repo has no relative spelling and is emitted absolute.
     from osprey.utils.workspace import (
         AUDIT_DIR_RELPATH,
+        SIMULATOR_LOG_DIR_RELPATH,
         agent_data_base_dir,
         resolve_simulation_state_dir,
     )
@@ -1950,6 +1868,28 @@ def _inject_project_metadata(config):
         container_project_dir / AUDIT_DIR_RELPATH
     ).as_posix()
     config_with_labels["osprey_audit_mount_source"] = repo_relative_mount_source(AUDIT_DIR_RELPATH)
+
+    # The simulator's model-log directory as an agent container binds it: the
+    # host's `var/simulator` at `<container repo root>/var/simulator`, the path
+    # the in-process composite resolves from the config the container loads.
+    # ``None`` when no simulated target is configured, which renders no mount.
+    config_with_labels["osprey_simulator_log_mount"] = (
+        {
+            "source": repo_relative_mount_source(SIMULATOR_LOG_DIR_RELPATH),
+            "target": (container_project_dir / SIMULATOR_LOG_DIR_RELPATH).as_posix(),
+        }
+        if simulated_target_configured(config)
+        else None
+    )
+
+    # The guarded-run root as an agent container binds it: the host's
+    # `var/guarded_run` at `<container repo root>/var/guarded_run`, the path
+    # `osprey.runtime.guarded_run_dir` resolves from the config the container
+    # loads. Every worker runs the agent, so every worker binds it.
+    config_with_labels["osprey_guarded_run_mount"] = {
+        "source": repo_relative_mount_source(guarded_run_relpath()),
+        "target": (container_project_dir / guarded_run_relpath()).as_posix(),
+    }
 
     # The control-identity step, in the two values a template needs: the fixed
     # container path the module is mounted at (the copy
@@ -2125,30 +2065,21 @@ def _inject_project_metadata(config):
                 services[lane_key] = {**services[lane_key], "writes_enabled": armed}
             config_with_labels["services"] = services
 
-    # The BPM readout perturbation the Virtual Accelerator's stand-in instance
-    # ships with, rendered as the default inside its
-    # ``${VA_STANDIN_BPM_ERRORS-...}`` interpolation. Derived here rather than
-    # written into the template for the reason every constant here is: the same
-    # value is consumed host-side by the archiver seed, and a template literal
-    # would be a second copy of it that could drift into a stand-in whose
-    # present and whose recorded past disagree about which machine it is.
-    #
-    # Lattice-conditional (:func:`_standin_perturbation`): a deployment whose
-    # chain serves no lattice renders the EMPTY set, because there is no model
-    # for those offsets to displace. That such a stand-in serves its manifest
-    # unperturbed is reported once per render, by
-    # :func:`prepare_compose_files` — not here, which runs per service template.
-    #
-    # Injected unconditionally — a single-instance render never names the key
-    # (the template gates it on the stand-in branch), so this is inert for every
-    # project that has not asked for a second instance.
-    _, config_with_labels["standin_bpm_errors_default"] = _standin_perturbation(config, repo_root)
+    # The simulated machine's tick period, resolved through the one function the
+    # in-process simulator and the build's profile check call, so every surface
+    # serving the composite ticks at the period the config states. Rendered as
+    # a value rather than a ``${...}`` passthrough: the config is the only
+    # source of the tick.
+    from osprey_connectors.simulation import resolve_tick_s
 
-    # The Virtual Accelerator's noise level, resolved here for the same reason:
-    # the template cannot follow the fall-through from the VA connector block to
-    # the mock one (:func:`_va_noise_level`), and a second copy of that rule is
-    # a second answer waiting to disagree with the first.
-    config_with_labels["va_noise_level"] = _va_noise_level(config)
+    config_with_labels["va_tick_s"] = resolve_tick_s(config)
+
+    # Where each Virtual Accelerator instance appends its model logs on the
+    # host, keyed by instance. Instance 1 writes the deployment's simulator log
+    # directory, the stand-in a subdirectory of it, so a record's directory
+    # names the machine that wrote it. Both are provisioned host-side by
+    # :func:`ensure_simulator_log_dirs` before compose runs.
+    config_with_labels["osprey_simulator_log_sources"] = simulator_log_mount_sources()
 
     # The host the dispatcher dashboard's per-run telemetry link names, derived
     # from the one external-origin authority (:func:`_telemetry_link_host`).
@@ -2469,7 +2400,7 @@ def ensure_shared_corpus_dir(path, relative_to=None):
     :param relative_to: Root to spell the directory against in the INFO line
         below. The default view carries exactly one absolute path — the tree the
         build wrote — and a second one wraps a normal terminal and buries it, so
-        this line names ``data/facility_knowledge`` rather than 90 characters of
+        this line names ``data/facility/knowledge`` rather than 90 characters of
         ``/private/var/folders/...``. Affects the message only; the directory
         acted on is always *path*.
     :type relative_to: str | pathlib.Path | None
@@ -3326,6 +3257,150 @@ def render_service_templates(source_dir, config, out_dir):
     return rendered
 
 
+def simulator_log_mount_sources():
+    """Each Virtual Accelerator instance's model-log bind source, keyed by instance.
+
+    Spelled relative to the repo root with an explicit ``./``, because that is
+    the compose project directory every invocation pins (see
+    :func:`compose_base_cmd`). Instance 1 binds the deployment's simulator log
+    directory, the live stand-in its own subdirectory of it.
+
+    :return: ``{instance key: bind source}``
+    :rtype: dict[str, str]
+    """
+    from osprey.connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
+    from osprey.utils.workspace import SIMULATOR_LOG_DIR_RELPATH, SIMULATOR_STANDIN_LOG_SUBDIR
+
+    base = PurePosixPath(SIMULATOR_LOG_DIR_RELPATH)
+    return {
+        VIRTUAL_ACCELERATOR: f"./{base}",
+        LIVE_STANDIN: f"./{base / SIMULATOR_STANDIN_LOG_SUBDIR}",
+    }
+
+
+def simulated_target_configured(config):
+    """Whether a session on this deployment can be pointed at a simulated machine.
+
+    True when the deployment's own control system is the simulator, in either
+    venue, or the live stand-in, or when the ``va`` or ``standin`` target
+    has its connector block. Every such target is served by the composite, in
+    process or in a Virtual Accelerator container, and so writes model logs.
+
+    :param config: The rendered project config
+    :type config: dict
+    :return: Whether any configured target is simulated
+    :rtype: bool
+    """
+    from osprey.connectors.types import (
+        _SIMULATED_TYPES,
+        STANDIN_TYPES,
+        TARGET_STANDIN,
+        TARGET_VA,
+        resolve_control_system_type,
+        target_configured,
+    )
+
+    section = config.get("control_system") if isinstance(config, Mapping) else None
+    try:
+        own_type = resolve_control_system_type(section)
+    except (TypeError, ValueError):
+        own_type = None
+    if own_type in (*_SIMULATED_TYPES, *STANDIN_TYPES):
+        return True
+    return any(target_configured(section, target) for target in (TARGET_VA, TARGET_STANDIN))
+
+
+def ensure_simulator_log_dirs(repo_root, relative_to=None):
+    """Provision the simulator's model-log directories before any bind mounts them.
+
+    ``var/simulator/`` and its stand-in subdirectory, each setgid and
+    group-writable (see :func:`ensure_shared_corpus_dir`): the Virtual
+    Accelerator container and every agent container that runs the composite
+    append to the same ``<model>.log`` files under different uids, and the
+    setgid group is what they share. Created here, before compose runs, for the
+    root-owned-mount-source reason every provisioned bind has.
+
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param relative_to: Root to spell the directories against in the INFO line
+    :type relative_to: str | pathlib.Path | None
+    :return: The group id of ``var/simulator/``, or ``None`` when it could not
+        be provisioned or the platform reports none
+    :rtype: int | None
+    """
+    from osprey.utils.workspace import SIMULATOR_LOG_DIR_RELPATH, SIMULATOR_STANDIN_LOG_SUBDIR
+
+    log_dir = Path(repo_root) / SIMULATOR_LOG_DIR_RELPATH
+    gid = _ensure_group_shared_dir(
+        log_dir,
+        relative_to=relative_to,
+        label="Simulator log dir",
+        noun="simulator log directory",
+        consequence="A container may be unable to append to the model logs.",
+    )
+    _ensure_group_shared_dir(
+        log_dir / SIMULATOR_STANDIN_LOG_SUBDIR,
+        relative_to=relative_to,
+        label="Simulator log dir",
+        noun="simulator log directory",
+        consequence="The stand-in may be unable to append to its model logs.",
+    )
+    return gid
+
+
+def guarded_run_relpath():
+    """``var/guarded_run``, the guarded-run root relative to the repo root.
+
+    Spelled from the state-zone name and the runtime's own directory name, so
+    the directory the deploy provisions and binds is the one
+    :func:`osprey.runtime.guarded_run.guarded_run_dir` resolves inside every
+    container.
+
+    :return: The repo-relative POSIX path
+    :rtype: str
+    """
+    from osprey.runtime.guarded_run import GUARDED_RUN_DIR
+    from osprey.utils.workspace import STATE_DIR_NAME
+
+    return f"{STATE_DIR_NAME}/{GUARDED_RUN_DIR}"
+
+
+def ensure_guarded_run_dirs(repo_root, config, relative_to=None):
+    """Provision the guarded-run directory of every target the deployment has.
+
+    ``var/guarded_run/`` and one ``<target>/`` below it per configured control
+    target, each setgid and group-writable (see :func:`ensure_shared_corpus_dir`):
+    a guarded run's lock and journal are shared by every container of the
+    deployment, each under its own uid, and the setgid group is what they
+    share. Created here, before compose runs, for the root-owned-mount-source
+    reason every provisioned bind has.
+
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param config: The rendered project config
+    :type config: dict
+    :param relative_to: Root to spell the directories against in the INFO line
+    :type relative_to: str | pathlib.Path | None
+    :return: The group id of ``var/guarded_run/``, or ``None`` when it could not
+        be provisioned or the platform reports none
+    :rtype: int | None
+    """
+    from osprey.connectors.types import configured_targets
+
+    section = config.get("control_system") if isinstance(config, Mapping) else None
+    root = Path(repo_root) / guarded_run_relpath()
+    provision = {
+        "relative_to": relative_to,
+        "label": "Guarded-run dir",
+        "noun": "guarded-run directory",
+        "consequence": "A guarded run may be unable to take its lock or keep its journal.",
+    }
+    gid = _ensure_group_shared_dir(root, **provision)
+    for target in configured_targets(section):
+        _ensure_group_shared_dir(root / target, **provision)
+    return gid
+
+
 def _ensure_agent_data_structure(config):
     """Ensure the agent-data directory and subdirectories exist before deployment.
 
@@ -3392,6 +3467,17 @@ def _ensure_agent_data_structure(config):
         state_path = resolve_simulation_state_dir(config, Path(project_root))
         state_path.mkdir(parents=True, exist_ok=True)
         logger.debug(f"Created scenario state directory: {state_path}")
+
+    # The simulator's model-log directories, bound read-write into every
+    # container that runs the composite: the Virtual Accelerator instances, and
+    # the agent containers whenever a simulated target is configured.
+    deployed = {str(name) for name in config.get("deployed_services") or []}
+    if VIRTUAL_ACCELERATOR in deployed or simulated_target_configured(config):
+        ensure_simulator_log_dirs(project_root, relative_to=project_root)
+
+    # The guarded-run directories, bound read-write into every container that
+    # runs the agent, whatever the deployment's targets are.
+    ensure_guarded_run_dirs(project_root, config, relative_to=project_root)
 
     # The facility-knowledge bundle, for the same root-owned-mount-source reason
     # as the scenario state directory above — the qmd sidecar binds it READ-ONLY
@@ -3634,22 +3720,9 @@ def _bluesky_panel_roster_owners(config, source_dir, persona_root=None):
 #: staging below has to be idempotent for that reason rather than by luck.
 _BLUESKY_DEVICES_SERVICE = "bluesky"
 
-#: The plan-lane service keys, in the order the authored device file is looked
-#: up under ``services:``. A fixed order rather than "whichever lane is being
-#: rendered": the device file is a property of the FACILITY and every lane
-#: carries the same value (``_facility_plan_keys``), so reading it in one order
-#: makes the double render land on one answer even for a hand-edited config
-#: whose lanes disagree.
-#:
-#: Imported from :mod:`osprey.bluesky_bridge_connection`, the one registry of
-#: lane service keys, so a lane added there is looked up here without a second
-#: edit — a lane this table did not know would stage no device file at all.
-_BLUESKY_LANE_KEYS = LANE_KEYS
-
 #: Name the device file carries INSIDE the build context. The compose template
 #: mounts this literal source (``./build/services/bluesky/bluesky_devices.yml``),
-#: so the staged name is part of the contract and is never derived from whatever
-#: the authored file happened to be called.
+#: so the staged name is part of the contract.
 BLUESKY_DEVICES_FILENAME = "bluesky_devices.yml"
 
 #: Mode the staged device file carries, matching
@@ -3657,11 +3730,6 @@ BLUESKY_DEVICES_FILENAME = "bluesky_devices.yml"
 #: bind-mounted read-only, as a container user that is not the host user who
 #: rendered it, so the 0600 a temp file is created with would be unreadable.
 _STAGED_DEVICES_MODE = 0o644
-
-#: Profile key the device file is authored under. Every refusal below names
-#: THIS — not "the build" — because it is the one thing an operator edits to
-#: make the refusal go away.
-BLUESKY_DEVICES_CONFIG_KEY = "bluesky.devices_file"
 
 
 def _render_anchor_dir(config):
@@ -3686,38 +3754,12 @@ def _render_anchor_dir(config):
     return Path(os.getcwd())
 
 
-def _configured_devices_file(config):
-    """The device file the profile authored, as written, or ``None``.
-
-    Read out of the plan lanes' own service blocks rather than from a
-    ``bluesky:`` block, because ``services.<lane>.devices_file`` is where the
-    build injector puts it — on EVERY lane of every deploy, authored or
-    defaulted, so a lane block is always the authority for what to stage.
-
-    :param config: The render config
-    :type config: dict
-    :return: The configured path, stripped, or ``None`` when no lane names one
-    :rtype: str or None
-    """
-    services = config.get("services") or {}
-    if not isinstance(services, dict):
-        return None
-    for lane in _BLUESKY_LANE_KEYS:
-        block = services.get(lane)
-        if not isinstance(block, dict):
-            continue
-        raw = block.get("devices_file")
-        if isinstance(raw, str) and raw.strip():
-            return raw.strip()
-    return None
-
-
 def _discard_staged_devices(staged_path):
     """Remove a device file an earlier build left in this context.
 
     The incremental path reuses the directory, so a deployment that stops having
-    a device set — the VA dropped, the control system switched to mock, the
-    authored file deleted — would otherwise keep mounting the previous render's
+    a device set — the Bluesky lane dropped, the simulator moved in process —
+    would otherwise keep mounting the previous render's
     devices into a worker that is now supposed to be browse-only.
 
     :param staged_path: Where the device file would have been staged
@@ -3766,7 +3808,7 @@ def _write_staged_devices(source, staged_path):
     half-written device set. The mode is set explicitly because the worker reads
     the file as a container user that is not the host user who rendered it.
 
-    :param source: The authored device file
+    :param source: The render's Bluesky devices view
     :type source: Path
     :param staged_path: Destination inside the build context
     :type staged_path: str
@@ -3783,277 +3825,28 @@ def _write_staged_devices(source, staged_path):
         raise
 
 
-@dataclass(frozen=True, slots=True)
-class _DerivedDevices:
-    """Whether this render stages a roster-derived plan-device file, and from what.
-
-    The derivation decision, made ONCE per render for
-    :func:`_stage_bluesky_devices`, which acts on it, and for anything else
-    that has to know whether a derived file lands. Computed in one place rather
-    than re-derived from the config at each site, so no two readers can
-    disagree about what this render stages.
-
-    ``roster`` is carried because the decision and its FACT come from the same
-    read: the line an operator is handed names the source
-    (:meth:`~osprey.channel_roster.records.RosterSource.describe`) or the
-    reason there is none
-    (:meth:`~osprey.channel_roster.records.RosterAbsence.message`), and neither
-    is re-derived from config keys here.
-
-    :ivar derives: True iff a roster-derived device file will be staged when
-        the bluesky service directory is rendered. It says what the DECISION
-        is, not that a render has happened: this is a pure function of the
-        config plus the filesystem, so a reader that asks before the service
-        loop starts gets the same answer the staging step will act on.
-    :ivar is_mock: True when the control system is the mock, which has no
-        channels to drive whatever else is configured
-    :ivar configured: ``bluesky.devices_file`` as the profile spelled it, or
-        ``None`` when no lane names one
-    :ivar authored: That spelling resolved to a path — absolute as written,
-        relative against the loaded config's directory — or ``None`` when no
-        lane names a file at all
-    :ivar authored_present: Whether that file is actually there; the
-        filesystem probe is part of the decision, not a later step
-    :ivar roster: The roster the decision consulted, or ``None`` when it never
-        got that far — a mock control system, an authored file that is there,
-        an absolute configured path, or no ``devices_file`` key at all
-    :ivar usable: The roster records that named a direction. A record whose
-        direction the source could not state becomes no device, so it is the
-        length of THIS list that decides whether there is a device set worth
-        staging — see :func:`_plan_derived_devices`.
-    """
-
-    derives: bool
-    is_mock: bool
-    configured: str | None = None
-    authored: Path | None = None
-    authored_present: bool = False
-    roster: RosterResult | None = None
-    usable: tuple = ()
-
-
-def _plan_derived_devices(config):
-    """Decide whether this render derives the queueserver worker's device file.
-
-    The full predicate, in the order the reasons rule each other out:
-
-    1. A **mock** control system drives no channels, so nothing is derived for
-       it whatever else the config says.
-    2. An **authored** file wins over a derived one — the operator named the
-       device set, and this build does not second-guess it.
-    3. The configured path must be **relative and absent**. An absolute path
-       names a file outside the repo, which is the deployment saying an
-       operator supplies it: its absence means it is not staged yet, not that
-       OSPREY should choose the device set on their behalf and mount it in its
-       place. A config naming no file at all derives nothing either — the
-       build injector writes ``devices_file`` on every lane, so an absent key
-       is a hand-edited config rather than a request.
-    4. The facility's **roster** must actually enumerate channels that point
-       somewhere: :func:`~osprey.channel_roster.registered_channels` returning
-       records against a resolved source, at least one of them carrying a
-       direction. A record whose direction the source could not state becomes
-       no device, so a roster of nothing but those would stage an EMPTY device
-       file over the top of a facility that has channels — a browse-only worker
-       reported as a device set. A roster that is absent, corrupt, or whose
-       directions it could not derive at all stages nothing either; see
-       :func:`_stage_bluesky_devices` for what each of those is reported as.
-
-    The roster read is memoized per source file, so calling this once per lane
-    costs one parse of the corpus or database.
-
-    :param config: The render config
-    :type config: dict
-    :return: The decision, with the inputs it was made from
-    :rtype: _DerivedDevices
-    """
-    from osprey.connectors.types import MOCK, resolve_control_system_type
-
-    raw = _configured_devices_file(config)
-    configured = Path(raw).expanduser() if raw is not None else None
-    if configured is None:
-        authored = None
-    elif configured.is_absolute():
-        authored = configured
-    else:
-        authored = _render_anchor_dir(config) / configured
-
-    is_mock = resolve_control_system_type(config.get("control_system")) == MOCK
-    authored_present = authored is not None and authored.is_file()
-    decided = _DerivedDevices(
-        derives=False,
-        is_mock=is_mock,
-        configured=raw,
-        authored=authored,
-        authored_present=authored_present,
-    )
-
-    if is_mock or authored_present or configured is None or configured.is_absolute():
-        return decided
-
-    roster = registered_channels(config)
-    usable = tuple(record for record in roster.records if record.direction is not None)
-    return replace(
-        decided,
-        derives=roster.absence is None and bool(usable),
-        roster=roster,
-        usable=usable,
-    )
-
-
-def _omitted_phrase(plan):
-    """Name the channels the derivation had to leave out, or say nothing.
-
-    A record whose direction the source could not state becomes no device
-    (:func:`~osprey.services.bluesky_bridge.substrate_devices.devices_document`
-    emits neither a settable nor a readable for it), so a roster that is partly
-    directionless stages a device set SMALLER than the facility. Counting the
-    difference into the fact is what keeps that from being a silent drop: the
-    counts alone would read as a smaller machine.
-
-    :param plan: The derivation decision
-    :type plan: _DerivedDevices
-    :return: A clause to append to the derived fact, or the empty string
-    :rtype: str
-    """
-    omitted = len(plan.roster.records) - len(plan.usable)
-    if not omitted:
-        return ""
-    channels = "channel" if omitted == 1 else "channels"
-    was = "was" if omitted == 1 else "were"
-    return f"; {omitted} {channels} whose direction the source could not state {was} omitted"
-
-
-def _derive_staged_devices(plan, staged_path):
-    """Write the device set this facility's channel roster enumerates.
-
-    The turn-key half of the feature: a deployment that has authored no device
-    file still gets a worker holding real channel names, because the facility
-    already describes which channels it has — in its knowledge graph, or in the
-    channel-finder database the same ``detect_pipeline_config`` selects for
-    every other consumer. Never a hardcoded preset, and never the write-limits
-    projection ``channel_limits.json``, which gates a subset of the channels a
-    facility has and was never an enumeration of them.
-
-    One producer writes the document
-    (:func:`~osprey.services.bluesky_bridge.substrate_devices.write_devices_file`),
-    shared with the e2e harness, so the build path and the harness cannot drift
-    on what the worker is handed.
-
-    Only the records that named a direction are handed over: they are the ones
-    that become devices, and passing the whole roster would let the staged
-    file's contents differ from what the decision above counted.
-
-    :param plan: The derivation decision, carrying the roster's usable records
-        and the source the staged file's header credits
-    :type plan: _DerivedDevices
-    :param staged_path: Destination inside the build context
-    :type staged_path: str
-    :return: The written document
-    :rtype: dict
-    """
-    from osprey.services.bluesky_bridge.substrate_devices import write_devices_file
-
-    return write_devices_file(Path(staged_path), plan.usable, source=plan.roster.source)
-
-
-def _refuse_corrupt_roster(absence):
-    """Refuse the render for a roster source that is there and unreadable.
-
-    The build's three-way rule, as
-    :func:`osprey.services.virtual_accelerator.manifest.build.prepare_project_manifest`
-    applies it to a data tree: an ABSENT source is a facility this project did
-    not describe, and leaves the worker honestly browse-only; a source that is
-    there and cannot be read is one it meant to describe and got wrong, and
-    deriving past it would stage a device set nobody authored — a worker
-    holding a partial namespace looks exactly like a healthy one.
-
-    Which of the two a roster hit is the roster's own answer
-    (:attr:`~osprey.channel_roster.records.RosterAbsenceReason.MISSING_SOURCE`
-    against
-    :attr:`~osprey.channel_roster.records.RosterAbsenceReason.CORRUPT_SOURCE`),
-    never a second filesystem probe here: the file behind an absence has
-    already been opened once, and re-``stat``ing it to classify it would be
-    answering about a disk that has moved on since.
-
-    :param absence: The corrupt-source absence the roster came back with
-    :type absence: osprey.channel_roster.RosterAbsence
-    :raises DeploymentPreconditionError: always
-    """
-    raise DeploymentPreconditionError(
-        reason=(
-            f"{absence.message()} The queueserver worker's plan devices are derived from "
-            f"that source, so this build cannot say which channels this facility has, nor "
-            f"which of them are settable."
-        ),
-        remedy=(
-            f"Repair the source named above, or point the build at a different one, and "
-            f"rebuild. To bring the worker up without it, author a device file and set "
-            f"{BLUESKY_DEVICES_CONFIG_KEY} to it. A source that is simply absent leaves "
-            f"the worker browse-only; one that is present and unreadable is refused, "
-            f"because deriving past it would stage a device set this facility did not "
-            f"describe."
-        ),
-    )
-
-
 def _stage_bluesky_devices(config, source_dir, out_dir):
-    """Put the queueserver worker's plan-device file into the bluesky build
-    context; report whether one landed.
+    """Copy the render's Bluesky devices view into the bluesky build context;
+    report whether one landed.
 
-    The boolean return is the value the render context's ``bluesky_devices`` key
-    carries, gated fail-closed exactly like ``channel_snapshot`` and dev_mode's
-    wheel: the compose template may only mount a file that was actually
-    written. When the decision is not to stage, a file left in ``out_dir`` by an
-    earlier build is removed, so neither an incremental rebuild nor a re-render
-    can go on mounting a device set the deployment no longer has.
+    ``osprey build`` writes the view to ``data/bluesky_devices.yml`` under the
+    render root (:func:`_render_anchor_dir`), and this copies it unchanged to
+    the name the compose template mounts. The boolean return is the value the
+    render context's ``bluesky_devices`` key carries, gated fail-closed exactly
+    like ``channel_snapshot`` and dev_mode's wheel: the compose template may
+    only mount a file that was actually written.
 
-    :func:`_plan_derived_devices` makes the decision; this function performs it
-    and reports it. The ORDER carries more of the meaning than any single
-    branch:
-
-    1. A **mock** control system has no channels to drive, so its lanes are
-       browse-only whatever file is lying around. Decided first, so an authored
-       file cannot make a mock deployment look like it can steer anything.
-    2. An **authored** file wins over everything else, and is validated with
-       ``validate_device_document``. A document with problems REFUSES the
-       render, because the worker's own loader is fail-soft by design: it skips
-       a malformed entry with a warning, so a deployment built from a bad file
-       comes up healthy and silently missing exactly those devices.
-    3. Otherwise the set is **derived** from this facility's own channel roster
-       — the knowledge graph or channel-finder database
-       :func:`~osprey.channel_roster.registered_channels` enumerates.
-    4. Otherwise there is no device file, and the fact says why in the roster's
-       own words: nothing configured, graph mode naming no corpus, a source
-       that is not there, one that enumerates nothing, or a source whose
-       directions cannot be derived. The worker comes up able to browse plans
-       and run none. A roster source that is present and UNREADABLE is the one
-       case that refuses instead (:func:`_refuse_corrupt_roster`) — the roster
-       tells the two apart itself, so nothing here re-``stat``s the file.
-
-    Deriving a device set for a live lane is deliberate
-    ---------------------------------------------------
-
-    This function is lane-blind: it stages ONE file, which both plan lanes of a
-    two-lane deploy mount, and it never asks which target a lane points at. That
-    is a considered position rather than an oversight. A device in the worker's
-    namespace is a name a plan MAY reference, never a write that has happened;
-    the gates that decide whether a write lands sit on the write path — the
-    connector's per-put reference monitor and the bridge's arming + limits
-    facade. A derived device moves through the same connector as any other
-    channel write and meets the same checks there, including the optional,
-    per-target limits check. Withholding the machine's own
-    channels from the namespace would add no gate: it would only make the
-    channels an agent is allowed to READ invisible to it, and push operators
-    back to hand-authored device files that nothing keeps in step with the
-    facility.
+    The simulator **served in process** speaks no Channel Access, so its lanes
+    are browse-only:
+    the view is written but never staged. Whenever nothing is staged, a file an
+    earlier build left in ``out_dir`` is removed, so neither an incremental
+    rebuild nor a re-render goes on mounting a device set the deployment no
+    longer has.
 
     Called once per plan lane, and a two-lane deploy renders this one directory
-    twice (both lanes declare the same service ``path``). That second call is
-    what the idempotence is for: it re-derives the same decision from the same
-    config — the lookup order in ``_configured_devices_file`` is fixed for this
-    reason, and the roster read behind it is memoized — and rewrites identical
-    bytes atomically, so a running deployment holding this file as a bind mount
-    never sees it half-written or briefly absent.
+    twice (both lanes declare the same service ``path``); the second call copies
+    the same bytes atomically, so a running deployment holding this file as a
+    bind mount never sees it half-written or briefly absent.
 
     :param config: Full project configuration dictionary
     :type config: dict
@@ -4063,110 +3856,34 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
     :type out_dir: str
     :return: True iff a device file is staged in ``out_dir``
     :rtype: bool
-    :raises DeploymentPreconditionError: An authored device file exists and is
-        not one the worker can load in full, or the roster source this build
-        would derive from is present and unreadable
     """
     if os.path.basename(source_dir) != _BLUESKY_DEVICES_SERVICE:
         return False
 
-    from osprey.services.bluesky_bridge.devices._specs_from_file import validate_device_document
+    from osprey.connectors.types import talks_to_network
+    from osprey.facility.views.bluesky import BLUESKY_DEVICES_FILE
 
     staged_path = os.path.join(out_dir, BLUESKY_DEVICES_FILENAME)
-    plan = _plan_derived_devices(config)
-    raw = plan.configured
+    view_path = f"data/{BLUESKY_DEVICES_FILE}"
 
-    if plan.is_mock:
+    if not talks_to_network(config.get("control_system")):
         _discard_staged_devices(staged_path)
-        _report_fact("bluesky plans browse-only: a mock control system drives no channels")
+        _report_fact("bluesky plans browse-only: the simulator in process serves no Channel Access")
         return False
 
-    if plan.authored_present:
-        authored = plan.authored
-        try:
-            document = yaml.safe_load(authored.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, yaml.YAMLError) as e:
-            document = None
-            problems = [f"the file could not be read as YAML/JSON ({e})"]
-        else:
-            problems = validate_device_document(document)
-        if problems:
-            # Before the refusal, not after: a build that stops here must not
-            # leave an earlier render's device file mounted into a worker on the
-            # strength of a file this render refused to accept.
-            _discard_staged_devices(staged_path)
-            listed = "\n".join(f"  - {problem}" for problem in problems)
-            raise DeploymentPreconditionError(
-                reason=(
-                    f"{BLUESKY_DEVICES_CONFIG_KEY} is {raw!r}, and the device file "
-                    f"at {authored} is not one the queueserver worker can load in "
-                    f"full:\n{listed}\n"
-                    f"The worker skips a malformed entry with a warning rather than "
-                    f"failing, so a deployment built from this file would come up "
-                    f"healthy while missing exactly the devices listed above."
-                ),
-                remedy=(
-                    f"Fix the entries named above in {authored}, or point "
-                    f"{BLUESKY_DEVICES_CONFIG_KEY} at a different file, and rebuild. "
-                    f"Every entry is a mapping: a settable carries 'name' and "
-                    f"'setpoint' (and optionally 'readback'), a readable carries "
-                    f"'name' and 'pv', and a device name may appear only once across "
-                    f"both sections."
-                ),
-            )
-        _write_staged_devices(authored, staged_path)
-        settables, readables = _document_counts(document)
-        # The fact names the CONFIGURED spelling, never the resolved path: a
-        # relative one resolves against the build's staging tree, so spelling it
-        # out puts a `build/.tmp/...` path nobody can retype in the default view
-        # (the same reason `_stage_channel_snapshot` keeps its path at DEBUG).
-        _report_fact(
-            f"bluesky plan devices: {settables} settable / {readables} readable from {raw}"
-        )
-        logger.debug(f"Staged the bluesky plan device file from {authored} to {staged_path}")
-        return True
-
-    roster = plan.roster
-    if plan.derives:
-        document = _derive_staged_devices(plan, staged_path)
-        settables, readables = _document_counts(document)
-        _report_fact(
-            f"bluesky plan devices: {settables} settable / {readables} readable "
-            f"derived from {roster.source.describe()}{_omitted_phrase(plan)}"
-        )
-        logger.debug(f"Derived the bluesky plan device set from {roster.source.path}")
-        return True
-
-    _discard_staged_devices(staged_path)
-
-    if roster is not None and roster.absence is not None:
-        if roster.absence.reason is RosterAbsenceReason.CORRUPT_SOURCE:
-            _refuse_corrupt_roster(roster.absence)
-        # Every other absence -- a source that is not there included -- is
-        # fail-soft, and is reported in the roster's own words rather than
-        # re-phrased here: the fact an operator reads is the same sentence
-        # every other consumer of this absence renders.
-        _report_fact(f"bluesky plans browse-only: {roster.absence.message()}")
+    view = _render_anchor_dir(config) / view_path
+    if not view.is_file():
+        _discard_staged_devices(staged_path)
+        _report_fact(f"bluesky plans browse-only: this render has no {view_path}")
         return False
 
-    if roster is not None:
-        # Records, a source, no absence -- and not one of them says which way it
-        # points. Nothing is staged: a device file built from these would name
-        # no settable and no readable, which reads downstream as a facility that
-        # has no channels rather than as a source that did not say.
-        _report_fact(
-            f"bluesky plans browse-only: {roster.source.describe()} enumerates "
-            f"{len(roster.records)} channels and states a direction for none of them"
-        )
-    elif plan.authored is None:
-        _report_fact(f"bluesky plans browse-only: no {BLUESKY_DEVICES_CONFIG_KEY} is configured")
-    else:
-        _report_fact(
-            f"bluesky plans browse-only: {BLUESKY_DEVICES_CONFIG_KEY} is {raw!r} and no "
-            "file is there"
-        )
-        logger.debug(f"No bluesky plan device file at {plan.authored}")
-    return False
+    _write_staged_devices(view, staged_path)
+    settables, readables = _document_counts(yaml.safe_load(view.read_text(encoding="utf-8")))
+    _report_fact(
+        f"bluesky plan devices: {settables} settable / {readables} readable from {view_path}"
+    )
+    logger.debug(f"Staged the bluesky devices view {view} to {staged_path}")
+    return True
 
 
 #: The build contexts whose compose fragments mount the control-identity module
@@ -4981,27 +4698,6 @@ def prepare_compose_files(
     record_env_chain_membership(
         config.get("build_dir", "./build"), env_chain_names(resolve_repo_root(config))
     )
-
-    # What a stand-in without a lattice actually serves. The shipped readout
-    # perturbation displaces a model, and a chain that serves no lattice has
-    # none — so the render hands the stand-in the EMPTY set
-    # (:func:`_standin_perturbation`) instead of refusing the build,
-    # and the operator is told which of the two they got. Reported here rather
-    # than beside the derivation because this function runs once per render
-    # while ``_inject_project_metadata`` runs once per service template.
-    #
-    # Gated on a stand-in existing at all: ``live_standin_port`` is the single
-    # piece of evidence that this deployment built one, and a project without
-    # one has no fact here to report.
-    from osprey_connectors.standin import live_standin_port
-
-    if live_standin_port(config) is not None:
-        standin_lattice, standin_default = _standin_perturbation(config, resolve_repo_root(config))
-        if not standin_default:
-            _report_fact(
-                "stand-in serves the facility manifest unperturbed "
-                f"(VA_LATTICE={standin_lattice}: no model to displace)"
-            )
 
     compose_files = []
 

@@ -242,7 +242,7 @@ def test_validate_still_runs_the_deploy_config_lint(
         root,
         {
             "name": "Demo Facility",
-            "config": {"facility.prefix": "demo", "modules.web_terminals": dict(WEB_TERMINALS)},
+            "config": {"modules.web_terminals": dict(WEB_TERMINALS)},
         },
     )
     monkeypatch.chdir(root)
@@ -276,7 +276,7 @@ def test_validate_refuses_a_per_type_limits_block_missing_a_leaf(
     result = runner.invoke(validate, [])
 
     assert result.exit_code == 2, result.output
-    assert "allow_unlisted_channels" in result.output
+    assert "mode" in result.output
     assert "virtual_accelerator" in result.output
 
 
@@ -294,8 +294,7 @@ def test_validate_passes_a_complete_per_type_limits_block(
             "name": "Demo Facility",
             "config": {
                 "control_system.connector.virtual_accelerator.limits_checking.enabled": True,
-                "control_system.connector.virtual_accelerator.limits_checking."
-                "allow_unlisted_channels": True,
+                "control_system.connector.virtual_accelerator.limits_checking.mode": "optional",
             },
         },
     )

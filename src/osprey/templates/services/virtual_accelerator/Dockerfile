@@ -84,10 +84,10 @@ ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
 # Refuse to build anywhere but amd64. The pin above should make this
 # unreachable, but a `--platform` override, or someone lifting this recipe into
 # their own file, would otherwise produce an image that BUILDS CLEANLY AND
-# CANNOT SERVE: osprey's `virtual-accelerator` extra marks pcaspy
-# `sys_platform == 'linux' and platform_machine == 'x86_64'`, and an
-# environment marker that does not match is not an error — pip simply installs
-# nothing for it. The first sign would be a runtime ImportError on
+# CANNOT SERVE: osprey's `virtual-accelerator` extra marks lume-pva-apg, whose
+# `ca` extra brings pcaspy, `sys_platform == 'linux' and
+# platform_machine == 'x86_64'`, and an environment marker that does not match
+# is not an error — pip simply installs nothing for it. The first sign would be a runtime ImportError on
 # `import pcaspy` inside serving/runner.py, long after the build reported
 # success. Fail here instead, where the message can say why.
 RUN arch="$(dpkg --print-architecture)"; [ "$arch" = "amd64" ] \
@@ -237,12 +237,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     fi \
     && rm -rf /tmp/ctx
 
-# The entrypoint module is configuration, not a bake-time constant: a
-# facility may supply its own entrypoint module (e.g. one serving a
-# file-backed manifest with no lattice) without rebuilding the image.
-# `exec` replaces the shell so SIGTERM reaches python directly and
-# entrypoint.py's shutdown handlers still run on `docker stop`.
-# `:-` treats the compose passthrough's empty string the same as unset.
+# The image runs the shipped entrypoint module by name. `exec` replaces the
+# shell so SIGTERM reaches python directly and entrypoint.py's shutdown
+# handlers still run on `docker stop`.
 #
 # EPICS_CAS_SERVER_PORT is derived here rather than set in the compose
 # environment, because it has to track EPICS_CA_SERVER_PORT and cannot be
@@ -252,7 +249,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # the server kept binding 5064 — and a CA search reply carries the server's own
 # port, so clients would be handed an address nothing listens on, with no
 # useful error.
-CMD ["/bin/sh", "-c", "export EPICS_CAS_SERVER_PORT=\"${EPICS_CAS_SERVER_PORT:-${EPICS_CA_SERVER_PORT:-5064}}\"; exec python -u -m ${VA_ENTRYPOINT_MODULE:-osprey.services.virtual_accelerator.entrypoint}"]
+CMD ["/bin/sh", "-c", "export EPICS_CAS_SERVER_PORT=\"${EPICS_CAS_SERVER_PORT:-${EPICS_CA_SERVER_PORT:-5064}}\"; exec python -u -m osprey.services.virtual_accelerator.entrypoint"]
 
 # Project metadata, kept as the final metadata-only layer so the shared deps
 # cache chain above stays identical across projects (a per-project value here

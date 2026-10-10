@@ -27,13 +27,12 @@ from typing import Any, Literal, get_args
 from fastmcp.exceptions import ToolError
 
 from osprey.deployment.graphdb_service import (
-    GRAPHDB_BUILD_INDEX_COMMAND,
-    GRAPHDB_INDEX_PATH_CONFIG_KEY,
+    DEFAULT_INDEX_PATH,
+    GRAPH_INDEX_BUILD_SUGGESTIONS,
+    GRAPHDB_REBUILD_HINT,
     GRAPHDB_TTL_PATH_CONFIG_KEY,
-    UNRESOLVED_INDEX_PATH_REMEDY,
     graph_corpus_configured,
     resolve_graph_index_path,
-    unresolved_index_path_detail,
 )
 from osprey.services.channel_finder.graph_index.reader import (
     DEFAULT_PAGE_SIZE,
@@ -116,7 +115,7 @@ def _absence_suggestions(absence: GraphIndexAbsence, config: dict[str, Any]) -> 
     if absence.reason == "schema_mismatch":
         return [
             "The index was built under another schema version and must be rebuilt "
-            f"by this one: run `{GRAPHDB_BUILD_INDEX_COMMAND}`.",
+            f"by this one: run `{GRAPHDB_REBUILD_HINT}`.",
             "read_cypher answers the same questions against the graph store while "
             "there is no index.",
         ]
@@ -129,10 +128,9 @@ def _absence_suggestions(absence: GraphIndexAbsence, config: dict[str, Any]) -> 
             "there is no index.",
         ]
     return [
-        f"Build the index with `{GRAPHDB_BUILD_INDEX_COMMAND}`.",
-        "`osprey build` renders the project and builds the index in one step.",
-        f"{GRAPHDB_INDEX_PATH_CONFIG_KEY} says where the index is read from; the build "
-        "writes it to the same place.",
+        *GRAPH_INDEX_BUILD_SUGGESTIONS,
+        f"The index is read from {DEFAULT_INDEX_PATH} beside config.yml, where the build "
+        "writes it.",
         "read_cypher answers the same questions against the graph store while there is no index.",
     ]
 
@@ -158,16 +156,7 @@ def _get_index() -> GraphIndex:
         config = load_osprey_config() or {}
         # No config_dir: the render is found through OSPREY_CONFIG, which is how
         # an in-container consumer resolves it, and this server is one.
-        try:
-            path = resolve_graph_index_path(config)
-        except ValueError as exc:
-            # A malformed key is a config typo, not a server fault: say which key
-            # and stop, rather than reporting it as an internal failure.
-            make_error(
-                "service_unavailable",
-                unresolved_index_path_detail(exc),
-                [UNRESOLVED_INDEX_PATH_REMEDY],
-            )
+        path = resolve_graph_index_path(config)
         opened = open_graph_index(path)
         if isinstance(opened, GraphIndexAbsence):
             logger.warning("search_channels: no usable index at %s (%s)", path, opened.reason)
@@ -270,9 +259,10 @@ def search_channels(
     Args:
         query: Words that must all appear in a channel's text. Empty matches
             every channel, which is how a facet-only search is asked.
-        section: One section code to keep, e.g. ``"SR"``. A channel whose
-            device is placed in no section is never kept by this filter.
-        system: One system code to keep, e.g. ``"MAG"``.
+        section: One section code to keep: the last part of a device's
+            place, e.g. ``"SECT1"``; a device placed at a top place has that
+            place as its section.
+        system: One top place to keep, e.g. ``"SR"``.
         class_uri: One device-class URI to keep, as the ``class`` facet spells
             it. Subclasses of it are kept too.
         signal: One semantic signal name to keep, as the ``signal`` facet

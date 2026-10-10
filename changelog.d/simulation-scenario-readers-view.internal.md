@@ -1,0 +1,1 @@
+The logbook entries, the anchor and the archiver events of the active scenario set are read from the simulator view (`<render>/data/simulator/scenarios.json`) and the active-scenarios state file; `osprey.facility.scenarios.ScenarioLogEntry` holds a scenario's logbook entries, and `osprey_connectors.simulation.state.parse_active_state` is the one reader of the state file.

@@ -866,14 +866,25 @@ def _web_terminals_repo(root: Path, *, users=("alice", "bob")) -> Path:
     project = repo / "build"
     project.mkdir(parents=True)
     (repo / "profile.yml").write_text("name: demo\n", encoding="utf-8")
+    # The default persona's render, which the lint reads its privileges from.
+    persona = project / "demo-assistant"
+    persona.mkdir()
+    (persona / "config.yml").write_text("project_name: demo-assistant\n", encoding="utf-8")
     config = {
-        "facility": {"name": "Demo Light Source", "prefix": "dls"},
+        "facility": {"prefix": "dls"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
         "registry": {"url": "registry.example.org/demo"},
         "modules": {
             "web_terminals": {
                 "enabled": True,
                 "users": [{"name": name, "index": i} for i, name in enumerate(users)],
+                "default_persona": "assistant",
+                "personas": {
+                    "assistant": {
+                        "project": "demo-assistant",
+                        "project_path": "build/demo-assistant",
+                    }
+                },
                 "landing": {"groups": [{"type": "users"}]},
             }
         },

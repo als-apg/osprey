@@ -626,12 +626,12 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     mean the same thing on a real ring as on a virtual accelerator whose
     correctors happen to idle at zero.
 
-    The read is `bps.rd`, so the working point is the corrector's own readback
-    — the right value to restore under this bridge's device contract, where a
-    settable's ``set()`` does not complete until the readback agrees with the
-    demand (see ``devices/connector.py``'s ``ConnectorSettable``). Every read
-    happens BEFORE the ``try``, so a corrector whose read fails is never
-    entered at all and the restore below can never run without a target.
+    The working point is the setpoint each corrector locates at
+    (``bps.locate``), because every restore is a setpoint write: it puts back
+    what was demanded, and a readback sample carries the readback channel's
+    drift and noise, so restoring one would leave the corrector shifted by
+    exactly that much. Every read happens BEFORE the ``try``, so a corrector whose read fails is
+    never entered at all and the restore below can never run without a target.
 
     Correctors are restored on every exit path, including a RunEngine abort,
     which is delivered into the plan as an exception, and one corrector's
@@ -745,7 +745,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     def _bump():
         working_points: list[float] = []
         for name, corrector in correctors:
-            working_point = float((yield from bps.rd(corrector)))
+            working_point = float((yield from bps.locate(corrector))["setpoint"])
             if not math.isfinite(working_point):
                 raise ValueError(
                     f"orbit_bump_sweep plan: corrector {name!r} read back a non-finite "

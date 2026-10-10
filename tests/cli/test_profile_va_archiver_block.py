@@ -18,8 +18,9 @@ two it selected.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
@@ -45,10 +46,22 @@ from osprey.cli.build_profile_load import _KNOWN_PROFILE_KEYS, load_profile
 from osprey.cli.profile_cmd import profile
 from osprey.errors import BuildProfileError
 
+if TYPE_CHECKING:
+    from tests._builds import BuiltProject
+
+#: The render file listing every address the simulator serves.
+SERVED_ADDRESSES = "data/simulator/addresses.json"
+
 
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
+
+
+#: The leaf that serves the simulator from its container. The profiles below
+#: extend hello-world, which serves it in process, so a profile about the served
+#: simulator states the venue.
+_SERVING = "control_system.connector.virtual_accelerator.serving"
 
 
 def _write_profile(tmp_path: Path, va_archiver: Any, **profile_keys: Any) -> Path:
@@ -430,13 +443,16 @@ def test_validate_reports_the_blocks_problems_alongside_the_profiles(
     """Reported from BuildProfile.validate() rather than raised at parse time,
     so a facility meets every problem its profile has in one pass."""
     path = _write_profile(
-        tmp_path, {"compression": "brotli"}, tier=2, default_panel="does-not-exist"
+        tmp_path,
+        {"compression": "brotli"},
+        channel_finder_mode="in-context",
+        default_panel="does-not-exist",
     )
     result = runner.invoke(profile, ["validate", str(path)])
 
     assert result.exit_code != 0
     assert "compression" in result.output
-    assert "tier" in result.output
+    assert "channel_finder_mode" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -489,7 +505,14 @@ def test_saying_nothing_about_the_archiver_is_saying_mock(config: dict[str, Any]
         pytest.param(
             {"control_system.type": _VA, "archiver.type": "epics_archiver"}, id="facility"
         ),
-        pytest.param({"control_system.type": "mock", "archiver.type": "mock_archiver"}, id="mock"),
+        pytest.param(
+            {
+                "control_system.type": "virtual_accelerator",
+                "control_system.connector.virtual_accelerator.serving": "in_process",
+                "archiver.type": "mock_archiver",
+            },
+            id="mock",
+        ),
         pytest.param(
             {"control_system.type": "epics", "archiver.type": "mock_archiver"}, id="epics"
         ),
@@ -572,12 +595,17 @@ def test_the_pairing_is_reported_with_the_profiles_other_problems(
     runner: CliRunner, tmp_path: Path
 ) -> None:
     """Accumulated into validate()'s one report, like every other profile rule."""
-    path = _write_profile(tmp_path, None, config={"control_system.type": _VA}, tier=2)
+    path = _write_profile(
+        tmp_path,
+        None,
+        config={"control_system.type": _VA, _SERVING: "served"},
+        channel_finder_mode="in-context",
+    )
     result = runner.invoke(profile, ["validate", str(path)])
 
     assert result.exit_code != 0
     assert "archiver" in result.output
-    assert "tier" in result.output
+    assert "channel_finder_mode" in result.output
 
 
 def test_declaring_the_block_alone_does_not_lift_the_refusal(
@@ -586,7 +614,9 @@ def test_declaring_the_block_alone_does_not_lift_the_refusal(
     """The block says where an archive lives; `archiver.type` says which archiver
     the deployment reads. A profile that declares the store and then leaves the
     connector on the mock deploys a store nothing reads."""
-    path = _write_profile(tmp_path, {"retention_days": 2}, config={"control_system.type": _VA})
+    path = _write_profile(
+        tmp_path, {"retention_days": 2}, config={"control_system.type": _VA, _SERVING: "served"}
+    )
     result = runner.invoke(profile, ["validate", str(path)])
 
     assert result.exit_code != 0
@@ -597,7 +627,11 @@ def test_a_profile_that_pairs_honestly_validates(runner: CliRunner, tmp_path: Pa
     path = _write_profile(
         tmp_path,
         {"retention_days": 2, "hot_span_hours": 2},
-        config={"control_system.type": _VA, "archiver.type": "mongodb_archiver"},
+        config={
+            "control_system.type": _VA,
+            _SERVING: "served",
+            "archiver.type": "mongodb_archiver",
+        },
     )
     result = runner.invoke(profile, ["validate", str(path)])
 
@@ -622,7 +656,8 @@ def _render_overrides(tmp_path: Path, overrides: dict[str, Any]) -> dict[str, An
     project = tmp_path / "project"
     project.mkdir(parents=True, exist_ok=True)
     (project / "config.yml").write_text(
-        "control_system:\n  type: mock\narchiver:\n  type: mock_archiver\n", encoding="utf-8"
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\narchiver:\n  type: mock_archiver\n",
+        encoding="utf-8",
     )
     _apply_config_overrides(project, overrides)
     return yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
@@ -797,7 +832,7 @@ def test_an_unrelated_health_category_is_left_alone() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The shipped preset's canary has to be a channel the shipped machine serves
+# The shipped preset's canary has to be a channel the built facility serves
 # ---------------------------------------------------------------------------
 
 
@@ -813,26 +848,28 @@ def test_the_control_assistant_preset_names_a_canary() -> None:
     assert profile.va_archiver.freshness_channel
 
 
-def test_the_presets_canary_is_a_channel_the_virtual_accelerator_serves() -> None:
+@pytest.mark.slow
+def test_the_presets_canary_is_a_channel_the_virtual_accelerator_serves(
+    built_control_assistant: BuiltProject,
+) -> None:
     """Same standard the L0 e2e holds its own canary to, applied where the
     choice is actually made.
 
     A canary the IOC does not serve is never recorded, so the check would report
     "no samples" forever — a permanently yellow health row that says nothing
-    about the archive. Asserted against the manifest builder the VA and the
-    recorder both read, so a machine-model change that drops this channel fails
-    here rather than in a deployed operator's face.
+    about the archive. Asserted against the simulator view the build writes, the
+    address list the VA serves, so a facility change that drops this channel
+    fails here rather than in a deployed operator's face.
     """
     from osprey.cli.build_profile import resolve_build_profile
-    from osprey.services.virtual_accelerator.manifest.build import build_manifest
 
     profile, _ = resolve_build_profile(None, "control-assistant")
     assert profile.va_archiver is not None
     canary = profile.va_archiver.freshness_channel
 
-    served = {channel["address"] for channel in build_manifest()["channels"]}
+    served = set(json.loads(built_control_assistant.outputs[0].files[SERVED_ADDRESSES])["channels"])
     assert canary in served, (
         f"the control-assistant preset's freshness_channel {canary!r} is not served by the "
-        f"shipped machine model, so the derived check could never see a sample. Pick a "
-        f"channel the manifest carries."
+        f"built facility, so the derived check could never see a sample. Pick a channel "
+        f"the simulator view lists."
     )

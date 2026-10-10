@@ -1,89 +1,72 @@
 # PyAT Virtual Accelerator — full image
 
-A single-container EPICS server for OSPREY's Control Assistant Tutorial: PyAT
-physics for the SR lattice, the `lume-pva-apg` serving stack for the wire, and
-the same in-repo `SimulationEngine` the `mock` connector uses for everything
-outside the lattice. Selected via `control_system.type: virtual_accelerator`
-(`mock` stays the default; `epics` remains production-pointed and untouched).
+A single-container EPICS server for OSPREY's Control Assistant Tutorial: the
+simulator view a build writes, served through one composite (PyAT physics for
+the lattice-backed models, the texture for every other channel) on the
+`lume-pva-apg` serving stack. Selected via
+`control_system.type: virtual_accelerator` (`mock` stays the default; `epics`
+remains production-pointed and untouched).
 
-How the service is put together — layers, transports, partitions, LUME pins and
-the model seam — is documented once, on the *Virtual Accelerator* architecture
-page (`docs/source/architecture/virtual-accelerator.rst`). This file covers
-running and building the image.
+How the service is put together — layers, transports, LUME pins and the model
+seam — is documented once, on the *Virtual Accelerator* architecture page
+(`docs/source/architecture/virtual-accelerator.rst`). This file covers running
+and building the image.
 
-The VA service itself (`manifest/`, `lattice/`, `ioc/`, `serving/`,
-`entrypoint.py`) lives at `src/osprey/services/virtual_accelerator/` and ships
-as part of the `osprey` package; only the `Containerfile` (this **full** image,
-serving the entire manifest namespace) stays here. A separate, minimal
-toy-ring reachability probe — used only to prove the CA host↔container path
-works at all — lives under `scripts/va/probe_pcaspy/`.
+The VA service itself (`serving/`, `entrypoint.py`) lives at
+`src/osprey/services/virtual_accelerator/` and ships as part of the `osprey`
+package; only the `Containerfile` (this **full** image) stays here. The image's
+`CMD` runs `osprey.services.virtual_accelerator.entrypoint` by name. A
+separate, minimal reachability probe — used only to prove the CA
+host↔container path works at all — lives under `scripts/va/probe_pcaspy/`.
 
 ## Quick start
 
-```bash
-scripts/va/run_va.sh
-```
-
-Builds the image on first run (cached after that; `OSPREY_VA_REBUILD=1` to
-force a rebuild after editing anything under
-`src/osprey/services/virtual_accelerator/`, this `Containerfile`, or the
-`virtual-accelerator` extra in `pyproject.toml`), then serves CA on
-`localhost:5064` using the packaged control_assistant preset's own
-`data/simulation/` as a zero-argument default. Point it at a real project
-instead:
+`osprey build` writes the simulator view into `build/data/simulator/`, and
+`osprey up` starts the compose block that runs this image against it. To run
+the image by hand against a built project:
 
 ```bash
-scripts/va/run_va.sh /path/to/your/project/data/simulation
+docker run --rm -p 5064:5064/tcp \
+    -v <project>/build/data:/data:ro \
+    -v <project>/var/agent_data/simulation:/state/simulation:ro \
+    -v <project>/var/simulator:/var/simulator \
+    -e VA_INSTANCE=virtual_accelerator \
+    -e VA_STATE_DIR=/state/simulation \
+    osprey-va-full:latest
 ```
 
 Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
 
 ## Run contract
 
-- **Bind-mount the data root `data/`** to `/data` in the container, so the
-  served directory lands at `/data/simulation` (`VA_DATA_DIR` env var overrides
-  which directory that is). This is the build-owned simulation model —
-  `machine.json`, its `scenarios/` bundles, and the lattice and bindings when
-  the tree carries them — re-rendered from the project's profile on every
-  build. The whole root is mounted rather than the served directory alone
-  because a lattice-backed boot also reads the tree's write bands from
-  `channel_limits.json` at the root, one level above what it serves; without
-  them the model has no bounds to build its variables from and the boot
-  refuses by name. Read-only; the IOC never writes it.
-- **Set `VA_CHANNELS_FILE`** to the channel manifest to serve. **Required** —
-  the IOC has no default channel namespace and refuses to start without one,
-  because the only namespace it could pick unasked is the framework's own
-  bundled demo namespace, and a container serving those addresses under a
-  facility's name is indistinguishable, on the wire, from one serving the
-  facility. A relative name resolves against the data mount, which is where a
-  built project's manifest sits: `osprey build` generates
-  `channel_manifest.json` into `build/data/simulation/` alongside the
-  `channel_limits.json` the drive bands come from, and writes
-  `VA_CHANNELS_FILE=channel_manifest.json` into the deployment's `.env` for
-  compose to pass through. For a standalone demo, name the packaged demo
-  manifest explicitly — it ships as package data inside the image, at the path
-  `osprey.services.virtual_accelerator.manifest.paths.MANIFEST_OUTPUT`
-  resolves to, and the startup refusal prints that path for you.
-- **`VA_LATTICE`** names the lattice file to serve, relative to the data dir,
-  or `none`. **Defaults to `none`**: a manifest names a facility's channels and
-  says nothing about whether the mounted tree holds a model for them, so a
-  deployment that wants one asks for it by name. The name is looked up in the
-  served tree verbatim, case included, and a name the tree does not carry
-  refuses the boot rather than degrading to no physics. `osprey build` derives
-  the value from the tree it publishes — a tree staging the bindings that tie
-  its channels to a ring serves that ring, one staging none serves nothing —
-  and writes it beside `VA_CHANNELS_FILE`.
+- **Bind-mount the render's data root `build/data/`** to `/data` in the
+  container. The IOC serves the simulator view at `/data/simulator/`
+  (`VA_DATA_DIR` names a different root): `served_models.json`,
+  `addresses.json`, `variables.json`, `seeds.json`, `scenarios.json` and the
+  decks of the lattice-backed models, re-rendered from the project's
+  `data/facility/` on every build. Read-only; the IOC never writes it, and a
+  missing view file refuses the boot by its path.
+- **Set `VA_INSTANCE`** to `virtual_accelerator` or `live_standin`.
+  **Required** — a missing or unknown value refuses the boot. The value is
+  written into the composite's log records and the model RPC's `status`
+  reply. The compose blocks `osprey build` renders set it on each instance.
 - **Bind-mount the repo's `var/agent_data/simulation/`** to `/state/simulation`
   and point `VA_STATE_DIR` at it. It holds `active_scenarios`, which
   `osprey sim apply NAME` rewrites on the host while the system runs — hence a
-  mount separate from the build-owned `data/` tree. **Mount the directory,
+  mount separate from the build-owned data root. **Mount the directory,
   never the single file:** `sim apply` atomic-renames a new `active_scenarios`
-  into place, and a directory mount lets that inode swap through, so a scenario
-  switch reaches the IOC within about a second with no restart; a single-file
-  mount would keep the old inode bound while the host swapped to a new one.
-  With `VA_STATE_DIR` unset the IOC reads the state from the data dir instead —
-  the historical layout, for a hand-run container whose state file still sits
-  next to `machine.json`.
+  into place, and a directory mount lets that inode swap through, so the
+  composite sees the change on its next pass with no restart. With
+  `VA_STATE_DIR` unset the IOC serves `nominal` alone.
+- **Bind-mount the repo's `var/simulator/`** read-write to `/var/simulator`
+  for the virtual accelerator, or `var/simulator/standin/` for the live
+  stand-in. It is the one directory the IOC writes: the composite appends each
+  physics model's log records to `<model>.log` there, so a reader tells the
+  two machines apart by where a record sits.
+- **`VA_POLL_INTERVAL_S`** is the period of the runner's own passes, in
+  seconds, greater than zero (the compose block fills it from
+  `simulation.tick_s`); unset, the default tick applies. **`VA_MODEL_WRITE_TOKEN`**
+  arms model RPC writes; unset refuses them.
 - **Port `5064/tcp`**, Channel Access name-server mode
   (`EPICS_CA_NAME_SERVERS=<host>:5064`, `EPICS_CA_AUTO_ADDR_LIST=NO` on the
   connecting client) — the one host↔container CA configuration proven to
@@ -99,28 +82,26 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
   useful error. Pass `EPICS_CA_SERVER_PORT` to move both together; the image
   derives `EPICS_CAS_SERVER_PORT` from it, which is the variable the CA
   *server* library actually reads (it does not fall back to the client-side
-  one). The PVAccess server's port is not published — PVA is served inside the
-  container only.
+  one). The PVAccess server's port is not published by the image itself.
 - The container reports readiness by printing `virtual accelerator IOC
   serving PVs: <N> channels` to stdout — the whole line, with nothing after
-  the count; the `(<X> pyat-coupled, <Y> static-noisy)` breakdown is its own
-  earlier line. `scripts/va/build_and_boot_check.sh` polls container logs for
-  the readiness line rather than guessing a fixed sleep.
+  the count, where `<N>` is the number of channels `addresses.json` lists.
+  The line is printed once the first publishing pass has published every
+  served channel. A first pass that fails exits the container non-zero
+  without it. The ready line is the boot-time view only.
+- After every publishing pass the runner rewrites its health record to
+  `/run/osprey-va/health.json` inside the container. The compose healthcheck
+  reads that file: it passes while `state` is `serving` or `degraded` and
+  fails once more than `failed_pass_tolerance` (default 3) passes in a row
+  have failed, or when the file is missing or not JSON. The image itself
+  declares no `HEALTHCHECK`.
 
 ## What it serves
 
-Whatever manifest `VA_CHANNELS_FILE` names, whole — the container has no
-namespace of its own. For a built project that is the manifest `osprey build`
-generated from the project's own channel databases. For the quick start above
-it is the packaged demo manifest
-(`src/osprey/services/virtual_accelerator/manifest/channel_manifest.json`) —
-a few thousand addresses, with the authoritative count in that file's own
-`_metadata.total_channels` rather than repeated here, since that set too is
-generated from the tutorial's channel-finder databases and never hand-listed.
-
-Every address falls into one of three physics-fidelity partitions
-(pyat-coupled, sp-echo, static-noisy); what each one means is on the
-architecture page linked at the top of this file.
+Every channel of the simulator view's `addresses.json`, and one status channel
+per served physics model, on Channel Access and PVAccess; the container has no
+namespace of its own. Which models are served is the view's
+`served_models.json`, from the profile's `simulation.models`.
 
 ## Image contents and why they're pinned this way
 
@@ -136,8 +117,9 @@ architecture page linked at the top of this file.
 
   A build-time guard right after the `FROM` refuses any other architecture.
   It exists because the failure it prevents is silent: osprey's
-  `virtual-accelerator` extra marks `pcaspy` with
-  `sys_platform == 'linux' and platform_machine == 'x86_64'`, and an
+  `virtual-accelerator` extra marks `lume-pva-apg`, whose `ca` extra brings
+  `pcaspy`, with `sys_platform == 'linux' and platform_machine == 'x86_64'`,
+  and an
   environment marker that does not match is not an error — pip installs
   nothing for it. Without the guard, an aarch64 build would succeed and
   produce an image with **no Channel Access server**, first visible as a
@@ -155,11 +137,10 @@ architecture page linked at the top of this file.
   `--only-binary pcaspy` as a guard: a wheel always exists on this platform,
   so a build that reaches for the sdist should fail immediately rather than
   stall inside an EPICS compile.
-- **`accelerator-toolbox==0.7.1`** — matching what this repo's own `uv.lock`
-  resolves, and what `lattice/response.py` and `ioc/physics_bridge.py` were
-  built and tested against. Installed before `osprey` so a resolver backtrack
-  can never silently substitute a different PyAT than the lattice code
-  expects.
+- **`accelerator-toolbox==0.8.0`** — matching what this repo's own `uv.lock`
+  resolves, and what the pyAT engine plug-in was built and tested against.
+  Installed before `osprey` so a resolver backtrack can never silently
+  substitute a different PyAT than the plug-in expects.
 - **`osprey` installed from the repo source**, not PyPI — the image always
   matches whatever checkout built it (this feature may not be released to
   PyPI yet). The whole dependency graph (FastAPI, Playwright, scikit-learn,
@@ -170,11 +151,11 @@ architecture page linked at the top of this file.
 ## Building manually
 
 The build context **must** be a staging directory containing exactly
-`pyproject.toml`, `README.md`, `src/`, and
+`pyproject.toml`, `README.md`, `src/`, `packages/`, and
 `docker/virtual-accelerator/Containerfile` — never the repo root, which also
 contains `.venv/`, `.git/`, and worktrees that would make every build re-tar
 gigabytes of unrelated content for no benefit.
-`scripts/va/run_va.sh` and `scripts/va/build_and_boot_check.sh` both stage this
+`scripts/va/build_and_boot_check.sh` stages this
 automatically; if building by hand, reproduce the same staging step first.
 
 That staging directory deliberately has no `.git`, and osprey's version comes
@@ -185,33 +166,54 @@ report and would fail outright. The host resolves the version and passes it as
 container. A build that omits the arg still succeeds but honestly reports an
 unknown version rather than a plausible wrong one.
 
-`manifest/paths.py` locates the channel-finder database JSON files via the
-installed `osprey.templates` package location
-(`Path(osprey.templates.__file__).parent`), not a fixed-depth `__file__`
-climb — so the VA modules under `src/osprey/services/virtual_accelerator/`
-need no special copy step; they ship automatically with the `src/` copy the
-`Containerfile`'s `pip install .` already installs.
+The VA modules under `src/osprey/services/virtual_accelerator/` ship with the
+`src/` copy and the `osprey-connectors` workspace member with the `packages/`
+copy, both of which the `Containerfile` installs, so no extra copy step exists.
 
 ## Validating
 
 ```bash
-scripts/va/build_and_boot_check.sh [DATA_DIR]
+scripts/va/build_and_boot_check.sh [DATA_ROOT]
 ```
 
-Stages the build context, builds the image, boots a container (bind-mounting
-`DATA_DIR`, defaulting to the packaged control_assistant preset's own
-`data/simulation/`), waits up to 240 s for the ready log line, then reads a PV
-over CA from the host. Exits 0 only if all of that succeeds; tears the
-container down either way.
+Stages the build context, builds the image and boots a container serving a
+simulator view. `DATA_ROOT` is a render's data root, `<project>/build/data`;
+the script refuses one without `simulator/served_models.json`. With no
+`DATA_ROOT` it renders the demo view from the packaged example facility,
+`src/osprey/templates/facilities/example`, the way `osprey build` does. Either
+way it serves a copy of the view under the `still` scenario, so a served
+reading is the model's reading and nothing else. Before asserting anything it runs an identity handshake, so the
+steps below measure its own container and not another one holding the port.
+Then it asserts eight steps:
 
-`OSPREY_VA_CA_PORT` overrides the port, for a host where something else
-already holds 5064. `OSPREY_VA_BOOT_TIMEOUT_SECS` overrides the ready wait;
-the 240 s default covers a linux/amd64 boot under emulation on an arm64 host.
+1. The ready line carries the marker and a positive channel count.
+2. A Channel Access read of a quiescent BPM answers; this is the baseline.
+3. Exciting a corrector moves the BPMs off zero.
+4. The runner's own control PV is absent, beside a known-good PV that answers.
+5. The model RPC answers from the host over the published PVAccess port:
+   `status` carries its six keys, `info` lists the served addresses and the
+   models' own variables, a `set` without a token is refused, a `set` with the
+   run's token is accepted, and `diff` then shows the written offset.
+6. A PVAccess put above the drive limit lands clamped, on both views.
+7. A refused put moves nothing.
+8. Both served ports are live inside the container.
 
-Worth knowing if you extend it: **reading a BPM position at boot proves
-connectivity, not physics.** The tutorial lattice's closed orbit with no
-correctors excited is exactly zero, so `SR:DIAG:BPM:01:POSITION:X` reads `0`
-on a fully working IOC — indistinguishable from an unseeded PV. What
-exercises the manifest → serving database → physics bridge → lattice chain is
-writing a corrector and requiring the orbit to move: `SR:MAG:HCM:01:CURRENT:SP`
-= 0.5 puts `SR:DIAG:BPM:01:POSITION:X` at ~4.5e-6.
+Exits 0 only if all of that holds; tears the container down either way.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `OSPREY_VA_CA_PORT` | `5164` | Channel Access port to bind and publish. |
+| `OSPREY_VA_PVA_PORT` | `5175` | PVAccess port to bind and publish. |
+| `OSPREY_VA_RUNTIME` | auto-detected | Container runtime, podman or docker. |
+| `OSPREY_VA_BOOT_TIMEOUT_SECS` | `240` | Seconds to wait for the ready line; covers a linux/amd64 boot under emulation on an arm64 host. |
+
+Building the image needs BuildKit (`docker buildx`): the `Containerfile`'s
+`FROM --platform=linux/amd64` is honoured by BuildKit only, and a legacy
+builder pulls the host's own architecture and stops at the `Containerfile`'s
+architecture guard.
+
+Worth knowing if you extend it: **a quiescent BPM read proves connectivity,
+not physics.** The demo deck's closed orbit with no corrector excited is
+exactly zero, so a BPM reads `0` on a fully working IOC, indistinguishable
+from an unseeded PV. The corrector write is what proves the view → composite →
+physics model chain: only that chain can move a reading.

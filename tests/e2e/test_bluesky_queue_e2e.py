@@ -62,7 +62,7 @@ Stages, in order, each an independently-reportable test:
    and history (they live in Redis, not in the bridge), the completed runs'
    data now serves off the DURABLE Tiled path (``run_uid`` populated), and that
    stored table exports as a real CSV and parquet file.
-8. ``test_8_mock_flip_*``        -- ``osprey set connector=mock`` + rebuild +
+8. ``test_8_in_process_flip_*``  -- serve the simulator in process + rebuild +
    redeploy: every container still healthy, ``/health`` still 200 but
    ``can_execute: false`` / ``browse_only_connector``, and enqueue refused --
    a browse-only deployment never holds items it could never run.
@@ -82,7 +82,7 @@ one deploy back every stage (a per-test deploy would take hours). Later stages
 consume earlier ones' run ids through the module-level ``_S`` state object and
 ``pytest.skip`` when a prerequisite never happened, so a failure in stage 3
 reports as one failure plus honest skips rather than eight cascading errors.
-Stage 8 leaves the deployment on the mock connector on purpose -- it is the
+Stage 8 leaves the deployment on the simulator in process on purpose -- it is the
 last stage that needs an executable one, and stage 9's probes are connector-
 independent.
 
@@ -203,7 +203,7 @@ TILED_CONTAINER = f"{PROJECT_NAME}-bluesky-tiled"
 PANELS_CONTAINER = f"{PROJECT_NAME}-bluesky-web"
 VA_CONTAINER = f"{PROJECT_NAME}-virtual-accelerator"
 
-# Every container this proof asserts healthy after the mock flip (stage 8).
+# Every container this proof asserts healthy after the in-process flip (stage 8).
 _STACK_CONTAINERS = (
     BRIDGE_CONTAINER,
     QUEUESERVER_CONTAINER,
@@ -517,19 +517,16 @@ def _env_value(repo: Path, key: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _grid_args(stack: QueueStack, num_points: int) -> dict[str, Any]:
-    """Minimal ``grid_scan`` args: one corrector axis, one BPM readback.
+def _grid_axis(stack: QueueStack) -> tuple[str, dict[str, Any]]:
+    """The corrector every grid plan here sweeps, with its limits record.
 
-    The sweep band is the middle half of the corrector's OWN
-    ``channel_limits.json`` entry, so this never hardcodes a facility channel
-    and never asks the reference monitor for a value outside its band.
-
-    The corrector NAMES come from the device file the build staged, derived
-    from the facility channel roster; the band VALUES come from the limits
-    projection, which gates a subset of those channels and enumerates none of
-    them. The two are not the same set, so the axis is the first staged
-    corrector the limits file actually BOUNDS — indexing the projection by the
-    first staged name raises inside a fixture the stages cannot report from.
+    The corrector NAMES come from the device file the build staged; the band
+    VALUES come from the limits table, which holds the records the facility
+    tree authors and names no other channel. The two are not the same set, so
+    the axis is the first staged corrector a record BOUNDS — indexing the
+    table by the first staged name raises inside a fixture the stages cannot
+    report from. Every plan's args and every check of what a plan swept take
+    the axis from here, so the two cannot disagree.
     """
     axis = next(
         (
@@ -542,10 +539,20 @@ def _grid_args(stack: QueueStack, num_points: int) -> dict[str, Any]:
         None,
     )
     assert axis is not None, (
-        "no staged corrector carries a channel_limits band, so this plan has no "
+        "no staged corrector carries a limits record, so this plan has no "
         f"axis to sweep (staged correctors: {sorted(stack.correctors)})"
     )
-    axis_name, entry = axis
+    return axis
+
+
+def _grid_args(stack: QueueStack, num_points: int) -> dict[str, Any]:
+    """Minimal ``grid_scan`` args: one corrector axis, one BPM readback.
+
+    The axis is ``_grid_axis``'s corrector. The sweep band is the middle half
+    of that corrector's OWN limits record, so this never hardcodes a facility
+    channel and never asks the reference monitor for a value outside its band.
+    """
+    axis_name, entry = _grid_axis(stack)
     lo, hi = float(entry["min_value"]), float(entry["max_value"])
     start = lo + 0.375 * (hi - lo)
     stop = lo + 0.625 * (hi - lo)
@@ -894,39 +901,32 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         _sidecar_secret = _env_value(repo, "OSPREY_TERMINAL_SECRET")
 
         # Device names come from the device file the BUILD staged and the
-        # worker mounts -- this lane authors none of its own, so what is read
-        # back here is the turn-key derivation from the deployment's own
-        # channel_limits.json. Reading it rather than re-deriving is what makes
+        # worker mounts -- the build's Bluesky view of the facility file.
+        # Reading it rather than re-deriving is what makes
         # the plans this test composes name exactly the devices the deployed
         # worker registered, and a change in that derivation show up here as a
         # real failure rather than a silently-diverging second copy of the logic.
         correctors, bpms = _orm_stack.staged_devices(repo)
-        # Narrowed to the pyat-coupled partition, in the file's own order. The
-        # stages drive the FIRST settable and read the FIRST readable, and the
-        # staged file's order is the derivation's, not a contract: derived from
-        # the knowledge graph it leads with booster and transfer-line devices,
-        # which the accelerator model does not couple -- a setpoint echo and a
-        # static monitor -- so a sweep of one drains in seconds and the ~1 s
-        # liveness sampling test_3 rests on never sees a row count advance. The
-        # grid sizes above are calibrated against modelled devices.
-        # Asked of THIS deployment's tree, not of the bundled one: the answer is
-        # about the channels these containers serve, and a deployment harvested
-        # from a facility export couples an entirely different set.
-        deployed = repo / "data"
-        correctors = {
-            name: pair
-            for name, pair in correctors.items()
-            if _orm_stack.pyat_coupled(pair[0], data_root=deployed)
-        }
-        bpms = {
-            name: pv for name, pv in bpms.items() if _orm_stack.pyat_coupled(pv, data_root=deployed)
-        }
+        # Narrowed to the correctors and monitors the accelerator model wires,
+        # in the file's own order. The stages drive the FIRST settable and read
+        # the FIRST readable, and the staged file's order is the derivation's,
+        # not a contract: derived from the knowledge graph it leads with
+        # booster and transfer-line devices, which the accelerator model does
+        # not couple -- a setpoint echo and a static monitor -- so a sweep of
+        # one drains in seconds and the ~1 s liveness sampling test_3 rests on
+        # never sees a row count advance. The grid sizes above are calibrated
+        # against modelled devices.
+        # Asked of THIS deployment's simulator view, not of the bundled tree:
+        # the answer is about the channels these containers serve, and a
+        # deployment harvested from a facility export wires an entirely
+        # different set.
+        modelled = _orm_stack.claimed_addresses(_orm_stack.repo_view(repo))
+        correctors = {name: pair for name, pair in correctors.items() if pair[0] in modelled}
+        bpms = {name: pv for name, pv in bpms.items() if pv in modelled}
         assert correctors, "the build staged no modelled settable device -- nothing to drive"
         assert bpms, "the build staged no modelled readable device -- nothing to read"
 
-        # The repo's own copy, which the build copies into build/data verbatim:
-        # same bytes, same channels the deployed containers see.
-        limits = json.loads((repo / "data" / "channel_limits.json").read_text(encoding="utf-8"))
+        limits = _orm_stack.channel_limits(repo)
 
         yield QueueStack(
             repo=repo,
@@ -1770,11 +1770,14 @@ def test_4_results_read_back_off_the_live_buffer(stack: QueueStack) -> None:
         # The analysis block rides along on every data read, in one six-key
         # shape. Its x axis is the channel the PLAN declared movable -- not a
         # column guessed out of the table -- which is the whole reason the role
-        # declaration exists.
+        # declaration exists. That channel is the corrector the grid plan
+        # sweeps: the first staged corrector a limits record bounds.
         analysis = _analysis_of(data)
         if analysis["available"]:
-            assert analysis["x_channel"] == next(iter(stack.correctors)), (
-                f"the analysis chose an x axis the plan never declared movable: {analysis}"
+            expected_axis = _grid_axis(stack)[0]
+            assert analysis["x_channel"] == expected_axis, (
+                "the analysis chose an x axis the plan never declared movable "
+                f"(expected the swept corrector {expected_axis!r}): {analysis}"
             )
             assert analysis["x_column"] in data["columns"], (
                 f"the analysis names an x column that is not in the table: {analysis}"
@@ -1902,10 +1905,10 @@ def _session_plan_args(stack: QueueStack) -> dict[str, Any]:
     actually run with.
 
     The plan body sweeps ``-span_a .. span_a`` absolutely and restores to 0.0,
-    so the device must be one whose own ``channel_limits.json`` band contains
-    that range -- a bipolar corrector. The staged device set is the whole
-    roster (dipoles and all), so the first settable is not that device; pick
-    the first one whose limits prove it is.
+    so the device must be one whose own limits record contains that range -- a
+    bipolar corrector. The staged device set is every channel of the facility
+    file (dipoles and all), so the first settable is not that device; pick the
+    first one whose record proves it is.
     """
     span_a = 1.0
     corrector = next(
@@ -1921,7 +1924,7 @@ def _session_plan_args(stack: QueueStack) -> dict[str, Any]:
         None,
     )
     assert corrector is not None, (
-        f"no staged settable has a channel_limits band covering "
+        f"no staged settable has a limits record covering "
         f"[-{span_a}, {span_a}] -- the session sweep needs a bipolar corrector"
     )
     return {
@@ -2387,12 +2390,12 @@ def test_7_export_refuses_in_the_uniform_shape() -> None:
 
 
 # ===========================================================================
-# Stage 8 -- flip to mock: browse-only
+# Stage 8 -- serve the simulator in process: browse-only
 # ===========================================================================
 
 
-def test_8_mock_flip_makes_the_deployment_browse_only(stack: QueueStack) -> None:
-    """``osprey set connector=mock`` + rebuild + redeploy -> healthy, but browse-only.
+def test_8_in_process_flip_makes_the_deployment_browse_only(stack: QueueStack) -> None:
+    """Serve the simulator in process + rebuild + redeploy -> healthy, but browse-only.
 
     Three claims, and the first is the one people get wrong: a browse-only
     deployment is a HEALTHY deployment. ``/health`` still answers 200 and every
@@ -2409,15 +2412,20 @@ def test_8_mock_flip_makes_the_deployment_browse_only(stack: QueueStack) -> None
     render and will not quietly deploy an edit that was never built.
 
     Deliberately last among the functional stages: it leaves the deployment on
-    the mock connector, and stage 9's probes do not care which connector is
+    the simulator in process, and stage 9's probes do not care which connector is
     configured.
     """
     flip = _run(
-        [str(stack.osprey_bin), "set", "connector=mock"],
+        [
+            str(stack.osprey_bin),
+            "set",
+            "connector=virtual_accelerator",
+            "config.control_system.connector.virtual_accelerator.serving=in_process",
+        ],
         cwd=stack.repo,
         timeout=180,
     )
-    assert flip.returncode == 0, f"osprey set connector=mock failed: {flip.stdout}\n{flip.stderr}"
+    assert flip.returncode == 0, f"the in-process flip failed: {flip.stdout}\n{flip.stderr}"
 
     rebuild = _run(
         [str(stack.osprey_bin), "build", "--skip-deps", "--skip-lifecycle", "--dev"],
@@ -2425,7 +2433,7 @@ def test_8_mock_flip_makes_the_deployment_browse_only(stack: QueueStack) -> None
         timeout=BUILD_TIMEOUT_SEC,
     )
     assert rebuild.returncode == 0, (
-        f"rebuild after the mock flip failed: {rebuild.stdout}\n{rebuild.stderr}"
+        f"rebuild after the in-process flip failed: {rebuild.stdout}\n{rebuild.stderr}"
     )
 
     up = _run(
@@ -2433,7 +2441,9 @@ def test_8_mock_flip_makes_the_deployment_browse_only(stack: QueueStack) -> None
         cwd=stack.repo,
         timeout=DEPLOY_UP_TIMEOUT_SEC,
     )
-    assert up.returncode == 0, f"redeploy after the mock flip failed: {up.stdout}\n{up.stderr}"
+    assert up.returncode == 0, (
+        f"redeploy after the in-process flip failed: {up.stdout}\n{up.stderr}"
+    )
 
     _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
     _wait_for_health(f"{PANELS_URL}/health", HEALTH_TIMEOUT_SEC)
@@ -2445,9 +2455,11 @@ def test_8_mock_flip_makes_the_deployment_browse_only(stack: QueueStack) -> None
     assert body["status"] == "ok", f"liveness must not track capability: {body}"
 
     capability = body["capability"]
-    assert capability["can_execute"] is False, f"mock must not be executable: {capability}"
+    assert capability["can_execute"] is False, (
+        f"the simulator in process must not be executable: {capability}"
+    )
     assert capability["reason"] == REASON_BROWSE_ONLY_CONNECTOR, (
-        f"wrong capability reason on the mock connector: {capability}"
+        f"wrong capability reason in process: {capability}"
     )
     # Asserted against the bridge's own FLIP_COMMAND rather than a literal: the
     # subject is that the detail NAMES the flip command, and a copy of its

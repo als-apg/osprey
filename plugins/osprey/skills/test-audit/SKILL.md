@@ -252,7 +252,7 @@ in the checkout. Run gates in the foreground. Run e2e only by path
    `uv run pytest tests/<area>/test_x.py`, then, for a unit area,
    `uv run pytest tests/<area> -m "not pty" -n 4 --dist loadgroup` with the
    unit lane's `--ignore` list from ci.yml (the files CI runs in their own
-   jobs, such as tests/va/test_record_factory.py; run those by path). Run
+   jobs, such as tests/va/test_apply_fault.py; run those by path). Run
    `tests/pty -m pty` serially. For e2e, run one file by path, serially or
    with `-n 4 --dist loadfile`. Neither run is evidence
    for the other. For vitest files, run `npm run test:js -- <path>`, then

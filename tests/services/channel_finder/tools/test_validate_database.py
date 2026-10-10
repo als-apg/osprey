@@ -14,6 +14,7 @@ from pathlib import Path
 from rich.console import Console
 
 from osprey.cli.styles import osprey_theme
+from osprey.facility.views.channel_finder import CHANNEL_FINDER_SCHEMA
 from osprey.services.channel_finder.tools import validate_database as mod
 from osprey.services.channel_finder.tools.validate_database import (
     print_validation_results,
@@ -55,33 +56,29 @@ class TestValidateJsonStructure:
         assert ok is False
         assert any("Invalid JSON format" in e for e in errors)
 
-    def test_legacy_list_format_warns_but_valid(self, tmp_path: Path):
+    def test_a_top_level_list_is_rejected(self, tmp_path: Path):
         p = _write(
             tmp_path / "list.json",
             [{"channel": "A:B", "address": "A:B", "description": "desc"}],
         )
-        ok, errors, warnings = validate_json_structure(p)
-        assert ok is True
-        assert errors == []
-        assert any("legacy array format" in w for w in warnings)
+        ok, errors, _ = validate_json_structure(p)
+        assert ok is False
+        assert any("Invalid top-level type" in e for e in errors)
+
+    def test_an_index_without_its_schema_is_rejected(self, tmp_path: Path):
+        p = _write(
+            tmp_path / "d.json",
+            {"channels": [{"channel": "A", "address": "A", "description": "d"}]},
+        )
+        ok, errors, _ = validate_json_structure(p)
+        assert ok is False
+        assert any(CHANNEL_FINDER_SCHEMA in e for e in errors)
 
     def test_dict_missing_channels_key(self, tmp_path: Path):
-        p = _write(tmp_path / "d.json", {"metadata": {}})
+        p = _write(tmp_path / "d.json", {"schema": CHANNEL_FINDER_SCHEMA, "metadata": {}})
         ok, errors, _ = validate_json_structure(p)
         assert ok is False
         assert any("Missing 'channels' key" in e for e in errors)
-
-    def test_unknown_presentation_mode_warns(self, tmp_path: Path):
-        p = _write(
-            tmp_path / "d.json",
-            {
-                "presentation_mode": "weird",
-                "channels": [{"channel": "A", "address": "A", "description": "d"}],
-            },
-        )
-        ok, errors, warnings = validate_json_structure(p)
-        assert ok is True
-        assert any("Unknown presentation_mode" in w for w in warnings)
 
     def test_invalid_top_level_type(self, tmp_path: Path):
         p = _write(tmp_path / "d.json", 42)
@@ -90,25 +87,31 @@ class TestValidateJsonStructure:
         assert any("Invalid top-level type" in e for e in errors)
 
     def test_channels_not_a_list(self, tmp_path: Path):
-        p = _write(tmp_path / "d.json", {"channels": {"not": "a list"}})
+        p = _write(
+            tmp_path / "d.json", {"schema": CHANNEL_FINDER_SCHEMA, "channels": {"not": "a list"}}
+        )
         ok, errors, _ = validate_json_structure(p)
         assert ok is False
         assert any("'channels' must be a list" in e for e in errors)
 
     def test_empty_channels(self, tmp_path: Path):
-        p = _write(tmp_path / "d.json", {"channels": []})
+        p = _write(tmp_path / "d.json", {"schema": CHANNEL_FINDER_SCHEMA, "channels": []})
         ok, errors, _ = validate_json_structure(p)
         assert ok is False
         assert any("no channels" in e for e in errors)
 
     def test_channel_entry_not_dict(self, tmp_path: Path):
-        p = _write(tmp_path / "d.json", {"channels": ["not-a-dict"]})
+        p = _write(
+            tmp_path / "d.json", {"schema": CHANNEL_FINDER_SCHEMA, "channels": ["not-a-dict"]}
+        )
         ok, errors, _ = validate_json_structure(p)
         assert ok is False
         assert any("must be a dict" in e for e in errors)
 
     def test_standalone_missing_required_fields(self, tmp_path: Path):
-        p = _write(tmp_path / "d.json", {"channels": [{"channel": "A"}]})
+        p = _write(
+            tmp_path / "d.json", {"schema": CHANNEL_FINDER_SCHEMA, "channels": [{"channel": "A"}]}
+        )
         ok, errors, _ = validate_json_structure(p)
         assert ok is False
         assert any("missing required field 'address'" in e for e in errors)
@@ -117,7 +120,10 @@ class TestValidateJsonStructure:
     def test_standalone_empty_field_warns(self, tmp_path: Path):
         p = _write(
             tmp_path / "d.json",
-            {"channels": [{"channel": "A", "address": "A", "description": ""}]},
+            {
+                "schema": CHANNEL_FINDER_SCHEMA,
+                "channels": [{"channel": "A", "address": "A", "description": ""}],
+            },
         )
         ok, errors, warnings = validate_json_structure(p)
         assert ok is True
@@ -126,135 +132,15 @@ class TestValidateJsonStructure:
     def test_valid_standalone_no_issues(self, tmp_path: Path):
         p = _write(
             tmp_path / "d.json",
-            {"channels": [{"channel": "A", "address": "A:ADDR", "description": "ok"}]},
+            {
+                "schema": CHANNEL_FINDER_SCHEMA,
+                "channels": [{"channel": "A", "address": "A:ADDR", "description": "ok"}],
+            },
         )
         ok, errors, warnings = validate_json_structure(p)
         assert ok is True
         assert errors == []
         assert warnings == []
-
-
-class TestValidateJsonStructureTemplates:
-    def test_template_missing_required_fields(self, tmp_path: Path):
-        p = _write(tmp_path / "t.json", {"channels": [{"template": True}]})
-        ok, errors, _ = validate_json_structure(p)
-        assert ok is False
-        assert any("missing required field 'base_name'" in e for e in errors)
-        assert any("missing required field 'instances'" in e for e in errors)
-
-    def test_template_instances_wrong_shape(self, tmp_path: Path):
-        p = _write(
-            tmp_path / "t.json",
-            {
-                "channels": [
-                    {
-                        "template": True,
-                        "base_name": "B",
-                        "instances": [1, 2, 3],
-                        "description": "d",
-                    }
-                ]
-            },
-        )
-        ok, errors, _ = validate_json_structure(p)
-        assert ok is False
-        assert any("'instances' must be [start, end]" in e for e in errors)
-
-    def test_template_instances_start_after_end(self, tmp_path: Path):
-        p = _write(
-            tmp_path / "t.json",
-            {
-                "channels": [
-                    {
-                        "template": True,
-                        "base_name": "B",
-                        "instances": [5, 2],
-                        "description": "d",
-                    }
-                ]
-            },
-        )
-        ok, errors, _ = validate_json_structure(p)
-        assert ok is False
-        assert any("start (5) > end (2)" in e for e in errors)
-
-    def test_template_sub_channels_not_list(self, tmp_path: Path):
-        p = _write(
-            tmp_path / "t.json",
-            {
-                "channels": [
-                    {
-                        "template": True,
-                        "base_name": "B",
-                        "instances": [1, 2],
-                        "description": "d",
-                        "sub_channels": "SP",
-                    }
-                ]
-            },
-        )
-        ok, errors, _ = validate_json_structure(p)
-        assert ok is False
-        assert any("'sub_channels' must be a list" in e for e in errors)
-
-    def test_template_sub_channels_empty_warns(self, tmp_path: Path):
-        p = _write(
-            tmp_path / "t.json",
-            {
-                "channels": [
-                    {
-                        "template": True,
-                        "base_name": "B",
-                        "instances": [1, 2],
-                        "description": "d",
-                        "sub_channels": [],
-                        "address_pattern": "X",
-                        "channel_descriptions": {},
-                    }
-                ]
-            },
-        )
-        ok, errors, warnings = validate_json_structure(p)
-        assert ok is True
-        assert any("'sub_channels' is empty" in w for w in warnings)
-
-    def test_template_axes_not_list(self, tmp_path: Path):
-        p = _write(
-            tmp_path / "t.json",
-            {
-                "channels": [
-                    {
-                        "template": True,
-                        "base_name": "B",
-                        "instances": [1, 2],
-                        "description": "d",
-                        "axes": "X",
-                    }
-                ]
-            },
-        )
-        ok, errors, _ = validate_json_structure(p)
-        assert ok is False
-        assert any("'axes' must be a list" in e for e in errors)
-
-    def test_template_missing_optional_fields_warn(self, tmp_path: Path):
-        p = _write(
-            tmp_path / "t.json",
-            {
-                "channels": [
-                    {
-                        "template": True,
-                        "base_name": "B",
-                        "instances": [1, 2],
-                        "description": "d",
-                    }
-                ]
-            },
-        )
-        ok, errors, warnings = validate_json_structure(p)
-        assert ok is True
-        assert any("missing 'address_pattern'" in w for w in warnings)
-        assert any("missing 'channel_descriptions'" in w for w in warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +152,10 @@ class TestValidateDatabaseLoading:
     def test_in_context_loads_and_reports_stats(self, tmp_path: Path):
         p = _write(
             tmp_path / "db.json",
-            {"channels": [{"channel": "A:B", "address": "A:B", "description": "d"}]},
+            {
+                "schema": CHANNEL_FINDER_SCHEMA,
+                "channels": [{"channel": "A:B", "address": "A:B", "description": "d"}],
+            },
         )
         ok, errors, stats = validate_database_loading(p, "in_context")
         assert ok is True
@@ -362,7 +251,10 @@ class TestRunValidation:
     def test_valid_in_context_db_returns_zero(self, tmp_path: Path):
         p = _write(
             tmp_path / "db.json",
-            {"channels": [{"channel": "A:B", "address": "A:B", "description": "d"}]},
+            {
+                "schema": CHANNEL_FINDER_SCHEMA,
+                "channels": [{"channel": "A:B", "address": "A:B", "description": "d"}],
+            },
         )
         console = _capture_console()
         rc = run_validation(database=str(p), pipeline="in_context", console=console)
@@ -370,7 +262,7 @@ class TestRunValidation:
         assert "VALID" in _text(console)
 
     def test_invalid_structure_short_circuits_to_one(self, tmp_path: Path):
-        p = _write(tmp_path / "db.json", {"channels": []})
+        p = _write(tmp_path / "db.json", {"schema": CHANNEL_FINDER_SCHEMA, "channels": []})
         console = _capture_console()
         rc = run_validation(database=str(p), pipeline="in_context", console=console)
         assert rc == 1
@@ -450,7 +342,10 @@ class TestRunValidation:
 
         p = _write(
             tmp_path / "db.json",
-            {"channels": [{"channel": "A:B", "address": "A:B", "description": "d"}]},
+            {
+                "schema": CHANNEL_FINDER_SCHEMA,
+                "channels": [{"channel": "A:B", "address": "A:B", "description": "d"}],
+            },
         )
         monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: {})
         monkeypatch.setattr(
@@ -465,7 +360,10 @@ class TestRunValidation:
 
         p = _write(
             tmp_path / "db.json",
-            {"channels": [{"channel": "A:B", "address": "A:B", "description": "d"}]},
+            {
+                "schema": CHANNEL_FINDER_SCHEMA,
+                "channels": [{"channel": "A:B", "address": "A:B", "description": "d"}],
+            },
         )
         monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: {})
         monkeypatch.setattr(mod, "detect_pipeline_config", lambda config: ("graph", None))
@@ -505,7 +403,7 @@ class TestRunValidationPipelineOverride:
         monkeypatch.setattr(workspace_mod, "resolve_path", lambda s: tmp_path / s)
 
     def test_override_validates_the_named_pipelines_database(self, tmp_path, monkeypatch):
-        _write(tmp_path / "ctx.json", {"channels": []})
+        _write(tmp_path / "ctx.json", {"schema": CHANNEL_FINDER_SCHEMA, "channels": []})
         _write(tmp_path / "hier.json", _HIERARCHICAL_DB)
         self._config(
             monkeypatch,
@@ -531,7 +429,10 @@ class TestRunValidationPipelineOverride:
     def test_override_without_its_database_refuses_naming_the_key(self, tmp_path, monkeypatch):
         _write(
             tmp_path / "ctx.json",
-            {"channels": [{"channel": "A:B", "address": "A:B", "description": "d"}]},
+            {
+                "schema": CHANNEL_FINDER_SCHEMA,
+                "channels": [{"channel": "A:B", "address": "A:B", "description": "d"}],
+            },
         )
         self._config(
             monkeypatch,

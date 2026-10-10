@@ -10,7 +10,7 @@
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { applyEmbedded, isEmbedded, onModeChange } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-display-menu.js';
-import { refreshFast, runVerification, createNetClient } from './net.js';
+import { runVerification, createNetClient } from './net.js';
 import {
   updateSummaryStats,
   updateLED,
@@ -23,6 +23,15 @@ import {
 } from './render.js';
 import { createUI } from './ui.js';
 import { createHeader } from './header.js';
+import {
+  bindModelSelect,
+  renderModelSelect,
+  renderNotice,
+  selectionNotice,
+  showFigureUnavailable,
+  syncAvailability,
+  unavailableFigures,
+} from './models.js';
 import { loadSettings, renderSettingsForm } from './settings.js';
 
 // Standalone, this page owns its own theme chrome (the header
@@ -36,9 +45,10 @@ initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
 
 // ── Configuration ───────────────────────────────────────
 
-const FAST_FIGURES = ['optics', 'resonance', 'chromaticity', 'footprint'];
-const VERIFICATION_FIGURES = ['da', 'lma'];
-const ALL_FIGURES = [...FAST_FIGURES, ...VERIFICATION_FIGURES];
+// Every figure cell the page has. Which of them Refresh computes is the
+// selected model's, and comes with each /api/state as
+// `selection.capabilities.fast_figures`.
+const ALL_FIGURES = ['optics', 'resonance', 'chromaticity', 'footprint', 'da', 'lma'];
 
 // ── Renderer ─────────────────────────────────────────────
 // Network effects are threaded through as callbacks — render.js has no
@@ -46,7 +56,12 @@ const ALL_FIGURES = [...FAST_FIGURES, ...VERIFICATION_FIGURES];
 
 const renderer = createRenderer(ALL_FIGURES, {
   onSliderChange: (family, val) => net.setParam(family, val),
-  onFigureReady: (name) => net.fetchAndRenderFigure(name),
+  // A panel the selected model cannot draw is filled by syncAvailability.
+  onFigureReady: (name) => {
+    if (!unavailableFigures(net.getState(), ALL_FIGURES).includes(name)) {
+      net.fetchAndRenderFigure(name);
+    }
+  },
   getOverrides: () => net.getState()?.overrides,
 });
 
@@ -57,11 +72,18 @@ const renderer = createRenderer(ALL_FIGURES, {
 const net = createNetClient({
   onState: (state) => {
     renderer.renderState(state);
+    syncAvailability(state, ALL_FIGURES, net.fetchAndRenderFigure);
+    renderNotice(selectionNotice(state));
     header.syncState(state);
     loadSettings();
   },
+  onModels: (models) => {
+    renderModelSelect(models);
+    header.syncModels(models);
+  },
   onParamSet: (result) => updateFigureStatuses(result.figures),
   onFigureData: (name, figData) => renderPlotly(name, figData),
+  onFigureUnavailable: showFigureUnavailable,
   onFigureStatus: (name, status) => {
     updateLED(name, status);
     if (status === 'computing') showSpinner(name);
@@ -71,7 +93,7 @@ const net = createNetClient({
     hideSpinner(name);
   },
   onFigureError: (name, error) => {
-    updateLED(name, 'error');
+    updateLED(name, 'failed');
     hideSpinner(name);
     showFigureError(name, error);
   },
@@ -88,9 +110,10 @@ const ui = createUI(ALL_FIGURES);
 // ── Header Actions (standalone top bar + embedded tile bar) ──
 
 const header = createHeader({
-  onRefresh: refreshFast,
+  onRefresh: () => net.refresh(),
   onVerify: runVerification,
   onBaseline: net.setBaseline,
+  onSelectModel: net.selectModel,
 });
 
 // ── Initialization ──────────────────────────────────────
@@ -102,6 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Refresh/Verify/Baseline. Must follow applyEmbedded(): the tile-bar
   // contribution it publishes is a no-op until the body class is set.
   header.init();
+  bindModelSelect(net.selectModel);
 
   // Layout toggle (guarded — btn may not exist in cached HTML)
   const layoutBtn = document.getElementById('btn-layout');
@@ -132,8 +156,9 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(ui.reflowFigures, 60);
   });
 
-  // Load initial state
+  // Load initial state and the models to choose from
   net.fetchState();
+  net.fetchModels();
 
   // Re-fetch state when page becomes visible again (e.g. tab switch, navigation)
   document.addEventListener('visibilitychange', () => {

@@ -176,13 +176,11 @@ VA_PROBE_CHANNEL = BENCH_PROBE_CHANNEL
 
 #: The one setpoint this module writes. Listed in the render's shipped
 #: ``data/channel_limits.json`` with a ±12 A band — which matters, because the
-#: overlay's deployment-wide ``allow_unlisted_channels: false`` answers the
-#: ``live`` target (no per-type block of its own), while the ``va`` baseline
-#: runs the preset's permissive ``virtual_accelerator`` block: the limits hook
-#: sits AHEAD of the approval hook in the PreToolUse chain, so on ``live`` a
-#: write to an unlisted channel is denied before approval ever runs, and this
-#: module would then observe no hook event at all. Every channel this lane
-#: writes is listed either way.
+#: overlay's deployment-wide ``mode: exclusive`` answers every target (no
+#: per-type block): the limits hook sits AHEAD of the approval hook in the
+#: PreToolUse chain, so a write to an unlisted channel is denied before
+#: approval ever runs, and this module would then observe no hook event at
+#: all. Every channel this lane writes is listed.
 CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
 SMOKE_WRITE_VALUE = 0.5
 
@@ -333,39 +331,17 @@ def _virtual_accelerator(port: int, repo: Path) -> Iterator[str]:
     server's port, so a remap would hand every client a port it cannot reach,
     with no useful error — and that number also names the container.
 
-    The served directory is the RENDER's ``data/simulation``, not the packaged
-    template's. Same lattice either way, but pointing the container at the same
-    tree the agent's own config names means a future edit to one cannot leave
-    the machine the agent reasons about and the machine it talks to describing
-    different accelerators. What is MOUNTED is the render's whole ``data/``,
-    with ``VA_DATA_DIR`` naming the served directory inside it: the model
-    behind that directory is resolved against the tree around it -- the write
-    bands its variables are built from sit at the data root beside it -- so a
-    served directory mounted on its own carries no bands and a lattice-backed
-    boot is refused. The basename is read off the directory rather than typed;
-    a lattice-backed boot still requires it to be ``simulation``, because the
-    manifest paths anchor the model files there.
-
-    The channel source comes from the deployment's own ``.env`` rather than from
-    constants here. The IOC has no default namespace — it refuses to boot
-    without ``VA_CHANNELS_FILE`` rather than serving the framework's bundled
-    demo namespace under this project's name — and ``osprey build`` writes that
-    pointer, together with the ``VA_LATTICE`` it derived from the generated
-    manifest, into the repo-root ``.env`` compose is handed. Reading them back
-    boots this container exactly as ``osprey up`` would, and fails loudly here
-    if the build ever stops writing them.
+    The container serves the simulator view the build wrote: the RENDER's
+    ``data/`` is mounted at ``/data``, where the entrypoint reads
+    ``simulator/addresses.json``, so the machine the agent reasons about and
+    the machine it talks to are described by one tree.
     """
-    from osprey.deployment.compose_generator import COMPOSE_ENV_FILENAME
-    from osprey.utils.dotenv import VA_LATTICE_KEY, parse_dotenv_file
+    from osprey_connectors.simulation.view import SimulatorView
 
-    served_dir = render_dir(repo) / "data" / "simulation"
-    env_path = repo / COMPOSE_ENV_FILENAME
-    build_env = parse_dotenv_file(env_path) if env_path.is_file() else {}
-    channels_file = build_env.get("VA_CHANNELS_FILE", "")
-    lattice = build_env.get(VA_LATTICE_KEY, "")
-    assert channels_file and lattice, (
-        f"osprey build wrote no VA_CHANNELS_FILE/{VA_LATTICE_KEY} into {env_path}; "
-        "the virtual accelerator has no namespace to serve and will refuse to boot"
+    data_dir = render_dir(repo) / "data"
+    assert SimulatorView.find(render_dir(repo)) is not None, (
+        f"osprey build wrote no simulator view under {data_dir}; "
+        "the virtual accelerator has nothing to serve and will refuse to boot"
     )
 
     name = f"{VA_CONTAINER_PREFIX}-{port}"
@@ -381,15 +357,11 @@ def _virtual_accelerator(port: int, repo: Path) -> Iterator[str]:
         "-e",
         f"EPICS_CA_SERVER_PORT={port}",
         "-e",
-        f"VA_CHANNELS_FILE={channels_file}",
-        "-e",
-        f"{VA_LATTICE_KEY}={lattice}",
+        "VA_INSTANCE=virtual_accelerator",
         "-p",
         f"127.0.0.1:{port}:{port}/tcp",
         "-v",
-        f"{served_dir.parent}:/data:ro",
-        "-e",
-        f"VA_DATA_DIR=/data/{served_dir.name}",
+        f"{data_dir}:/data:ro",
         VA_IMAGE,
     )
     if started.returncode != 0:
@@ -455,19 +427,12 @@ def _profile_edits(*, bench_port: int, va_port: int) -> dict[str, Any]:
         acknowledgment gate is genuinely exercised rather than sidestepped.
     ``target_switch.live_gateway_acknowledged``
         The operator acknowledgment naming this run's bench endpoint.
-    ``limits_checking.allow_unlisted_channels``
-        The only DEPLOYMENT-WIDE limits key these edits set. The preset
-        already ships it ``false``, and the render keeps its own 2908-channel
-        ``data/channel_limits.json`` as ``database_path``; the line is restated
-        here so the lane pins the posture it needs rather than silently
-        inheriting whatever the preset's posture later becomes. The
-        strict-limits gate requires it falsy — true or absent leaves the live
-        target blocked on a limits-posture reason and no switch is ever
-        reachable. Nothing here writes a per-type
-        ``connector.<type>.limits_checking`` block of its own: the preset's
-        permissive ``virtual_accelerator`` block rides along and answers for the
-        simulator, while ``live`` — an ``epics`` target with no block of its own
-        — is answered by this deployment-wide key.
+    ``limits_checking.mode``
+        The only limits key these edits set, pinned ``exclusive`` so the lane
+        states the mode it runs under rather than inheriting the preset's. The
+        render keeps its own ``data/channel_limits.json`` as ``database_path``.
+        Nothing here writes a per-type ``connector.<type>.limits_checking``
+        block, so this deployment-wide key answers for every target.
 
     And the trims, which remove backends AND every surface that names them:
 
@@ -482,7 +447,7 @@ def _profile_edits(*, bench_port: int, va_port: int) -> dict[str, Any]:
     ``virtual_accelerator.live_standin: null``
         The preset ships a live stand-in on: a second virtual accelerator that
         the build installs AS the live machine, deriving the whole ``epics``
-        block from it and taking limits checking strict. This lane supplies its
+        block from it. This lane supplies its
         own live machine — the bench IOC — so leaving the stand-in on collides
         with every ``epics`` key below (the build refuses one fact spelled in
         two places) and stands up a container no scenario here talks to. Nulled
@@ -515,7 +480,7 @@ def _profile_edits(*, bench_port: int, va_port: int) -> dict[str, Any]:
         "services": {},
         "va_archiver": None,
         # The preset's live stand-in is a second VA installed as the live machine:
-        # it derives the `epics` block below and forces strict limits. This lane
+        # it derives the `epics` block below. This lane
         # brings its own live machine (the bench IOC), so the stand-in is both a
         # collision and a container nothing here talks to.
         "virtual_accelerator": {"live_standin": None},
@@ -555,11 +520,10 @@ def _profile_edits(*, bench_port: int, va_port: int) -> dict[str, Any]:
             "control_system.connector.virtual_accelerator.gateways.write_access.use_name_server": True,
             # The operator acknowledgment, naming this run's live endpoint.
             "control_system.target_switch.live_gateway_acknowledged": (f"localhost:{bench_port}"),
-            # The only DEPLOYMENT-WIDE limits key. The preset already ships it
-            # false; restated so the lane pins the posture rather than inheriting
-            # it. No per-type epics block, so this is what answers for live. The
-            # render's own 2908-channel database stays.
-            "control_system.limits_checking.allow_unlisted_channels": False,
+            # The only limits key, pinned so the lane states its mode rather
+            # than inheriting it. No per-type block, so this answers for every
+            # target. The render's own database stays.
+            "control_system.limits_checking.mode": "exclusive",
             "claude_code.servers.bluesky.enabled": False,
             "modules.web_terminals.enabled": False,
         },
@@ -592,7 +556,7 @@ def _init_and_build(workspace: Path, *, bench_port: int, va_port: int) -> Path:
     """Render one switch-capable deployment repo, and return its ROOT.
 
     A bespoke pinned init rather than :func:`tests.e2e.sdk_helpers.init_project`:
-    that helper pins ``connector=mock`` and ``archiver=mock_archiver`` on purpose
+    that helper serves the simulator in process and pins ``archiver=mock_archiver`` on purpose
     (it builds containerless projects) and takes no overlay of its own. This
     module is the opposite case — the containers are the point.
 
@@ -1063,21 +1027,20 @@ def test_the_roster_makes_va_the_baseline_and_live_reachable(
 
     * ``va.is_baseline`` — the deployment's own config still selects the
       simulator. If an overlay edit ever flipped the baseline to ``epics``,
-      going live would become DIRECTION_BACK, and the acknowledgment and
-      strict-limits gates the scenarios are built to exercise would be
-      sidestepped rather than passed.
-    * ``live`` eligible — no ``operator_ack_missing``, no ``limits_posture``.
-      Those are exactly the two gates the overlay's
-      ``live_gateway_acknowledged`` and ``allow_unlisted_channels: false``
-      lines answer, and a roster that blocked here would make every switch
-      scenario fail as a refusal that looks like the agent's fault.
+      going live would become DIRECTION_BACK, and the acknowledgment gate
+      the scenarios are built to exercise would be sidestepped rather than
+      passed.
+    * ``live`` eligible — no ``operator_ack_missing``. That is the gate the
+      overlay's ``live_gateway_acknowledged`` line answers, and a roster that
+      blocked here would make every switch scenario fail as a refusal that
+      looks like the agent's fault.
     """
     config = switch_deployment.config
     baseline = baseline_target(config)
     assert baseline == "va", (
         f"the deployment baseline is {baseline!r}, not 'va' — a switch to the live machine "
-        "would no longer be a move away from home, so the acknowledgment and strict-limits "
-        "gates would not be exercised at all"
+        "would no longer be a move away from home, so the acknowledgment "
+        "gate would not be exercised at all"
     )
 
     rows = target_rows(config, control_target=baseline, baseline=baseline)
@@ -1093,10 +1056,7 @@ def test_the_roster_makes_va_the_baseline_and_live_reachable(
     assert rows["live"]["available_now"] is True, (
         f"the live target is not switchable: reason={rows['live']['reason']!r} "
         f"detail={rows['live']['detail']!r}. The overlay's acknowledgment "
-        f"({switch_deployment.live_endpoint}) or its "
-        "limits_checking.allow_unlisted_channels: false line — the only DEPLOYMENT-WIDE "
-        "limits key this lane sets, and with no per-type epics block the one that answers "
-        "for live — is no longer reaching the render."
+        f"({switch_deployment.live_endpoint}) is no longer reaching the render."
     )
     assert rows["live"].get("probe_channel") == BENCH_PROBE_CHANNEL, (
         "the live target has no destination probe channel, so every switch toward it would "

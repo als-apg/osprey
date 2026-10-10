@@ -426,6 +426,98 @@ class TestReadChannel:
         assert result["GOOD"] is good
 
 
+#: DBR_TIME_DOUBLE: what a connected double channel's field type promotes to.
+_SERVED_TYPE = 20
+
+#: An unconnected channel's field type (-1) promoted to its TIME variant: a
+#: request type no server answers and pyepics cannot unpack.
+_UNCONNECTED_TYPE = 13
+
+
+class _TypedPV:
+    """A connected pyepics PV holding the request type its constructor stored.
+
+    Mirrors the pyepics behaviour the read path depends on: a get made with a
+    request type other than the one the channel serves fails at once (pyepics
+    raises ``ChannelAccessGetFailure: Get failed; unknown type``), and
+    ``force_connect`` re-runs the connection handler, which recomputes the
+    request type and its name from the connected channel.
+    """
+
+    def __init__(self, ftype: int) -> None:
+        self.chid = 7
+        self.form = "time"
+        self.ftype = ftype
+        self.type = "time_double" if ftype == _SERVED_TYPE else "unknown"
+        self.connected = True
+        self.timestamp = 1_750_000_000.0
+        self.units = "mm"
+        self.precision = 3
+        self.status = 0
+        self.severity = 0
+        self.count = 1
+        self.force_connects = 0
+
+    def wait_for_connection(self, timeout: float | None = None) -> bool:  # noqa: ARG002 - pyepics PV signature
+        return True
+
+    def force_connect(self) -> None:
+        self.force_connects += 1
+        self.ftype = _SERVED_TYPE
+        self.type = "time_double"
+
+    def get(self, timeout: float | None = None, use_monitor: bool = True) -> float:  # noqa: ARG002 - pyepics PV signature
+        if self.ftype != _SERVED_TYPE:
+            raise RuntimeError(f"Get failed; unknown type: {self.ftype}")
+        return 1.5
+
+
+def _typed_pv_connector(pv: _TypedPV) -> EPICSConnector:
+    epics = MagicMock()
+    epics.PV.return_value = pv
+    epics.ca.promote_type.return_value = _SERVED_TYPE
+    return _connector(epics=epics)
+
+
+class TestRequestTypeSettling:
+    """A PV whose constructor stored a stale request type is read with the served one.
+
+    pyepics's constructor and its preemptive connection callback both store a
+    PV's request type; when the callback wins the race, the constructor's
+    value -- derived while the channel was unconnected -- lands last. Batch
+    reads create their PVs concurrently and hit that window.
+    """
+
+    @pytest.mark.parametrize("use_monitor", [True, False], ids=["read", "confirming-read"])
+    def test_stale_request_type_is_recomputed_before_the_get(self, monkeypatch, use_monitor):
+        monkeypatch.setattr(
+            "osprey.connectors.control_system.epics_connector.get_facility_timezone",
+            lambda: __import__("zoneinfo").ZoneInfo("UTC"),
+        )
+        pv = _TypedPV(_UNCONNECTED_TYPE)
+        connector = _typed_pv_connector(pv)
+
+        result = connector._read_channel_sync("SR:BPM1:X", 1.0, use_monitor=use_monitor)
+
+        assert result.value == 1.5
+        assert pv.force_connects == 1
+        assert result.metadata.raw_metadata["type"] == "time_double"
+        connector._epics.ca.promote_type.assert_called_with(7, use_time=True, use_ctrl=False)
+
+    def test_served_request_type_is_left_alone(self, monkeypatch):
+        monkeypatch.setattr(
+            "osprey.connectors.control_system.epics_connector.get_facility_timezone",
+            lambda: __import__("zoneinfo").ZoneInfo("UTC"),
+        )
+        pv = _TypedPV(_SERVED_TYPE)
+        connector = _typed_pv_connector(pv)
+
+        result = connector._read_channel_sync("SR:BPM1:X", 1.0)
+
+        assert result.value == 1.5
+        assert pv.force_connects == 0
+
+
 # ---------------------------------------------------------------------------
 # write_channel — the confirm flow
 # ---------------------------------------------------------------------------

@@ -240,13 +240,12 @@ output_styles:
 web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
+  - lattice         # LATTICE tab, optics of the simulator's served models
   - okf             # KNOWLEDGE tab, for browsing the facility knowledge bundle
   - system-health   # SYSTEM tab, a framework health dashboard
   - jupyter         # JUPYTER tab, JupyterLab with kernels that follow the terminal session
   # The events and bluesky panels are declared by the write-armed personas
   # (readwrite and admin) instead, so the read-only login is built without them.
-  # Available — uncomment to enable:
-  # - lattice  # Lattice dashboard
 
 # ── Scanning and simulated hardware ──────────────────────────────────────────
 # These three blocks give you a working plan setup with no real hardware: a
@@ -269,12 +268,12 @@ virtual_accelerator:
   # set). Like `port`, it is outside this deployment's port block, so a second
   # deployment on this host that also runs the simulator sets its own.
   # pva_port: 5075
-  # A second copy of the simulator with a small fixed offset on its readouts,
-  # stood up as this deployment's own third control target: `standin`. From
+  # A second copy of the simulator, with no errors of its own, stood up as
+  # this deployment's own third control target: `standin`. From
   # this key alone the build derives the target's connector block,
   # `control_system.connector.live_standin` — seven leaves, nothing else.
   # `control_target_set standin` points a session at it, and what an operator
-  # meets there is a real machine's behaviour — approval prompts, strict-limit
+  # meets there is a real machine's behaviour — approval prompts, limit
   # refusals, the LIVE MACHINE (stand-in) banner — on something that cannot
   # move a magnet.
   # Delete the line on a laptop: the simulator image is amd64-only, so a
@@ -285,8 +284,8 @@ virtual_accelerator:
   # in that block — so pointing this deployment at your facility is that one
   # edit and nothing here.
   # `osprey sim apply` moves both machines — a scenario changes the world, not
-  # one lane. The archiver records the stand-in, and its seeded history carries
-  # the same offsets: the archive belongs to the machine.
+  # one lane. The archiver records the stand-in: the archive belongs to the
+  # machine.
   # `true` serves the stand-in on this deployment's own stand-in port, so two
   # deployments on one host never collide over it. Write a Channel Access port
   # number instead only to pin it somewhere specific.
@@ -334,15 +333,6 @@ va_archiver:
 # `va_archiver:`, `dispatch:` and `mcp_servers:` sections above stand for.
 config:
   # ── Facility ───────────────────────────────────────────────────────────────
-  # Your facility's name, used in the agent's prompts and on the web landing
-  # page. Defaults to the deployment name.
-  # facility.name: My Facility
-  # This facility's compiled ontology table, the JSON `osprey knowledge
-  # compile-ontology` writes, relative to the project root. It is the one
-  # source for the device vocabulary the channel-finder subagent's terminology
-  # table renders. Drop the key and the subagent is told no vocabulary was
-  # declared; point it at a missing file and the build stops and says so.
-  facility.ontology: data/facility_ontology.json
   # Your facility's own registry module — the file that registers its
   # connectors, providers and ARIEL adapters with the framework (see
   # "Extending Osprey" in the docs). Relative to the project root; unset means
@@ -356,14 +346,15 @@ config:
   # simulator, and this deployment's baseline: it is the one machine here where
   # a write is harmless, while "live_standin", the stand-in declared above, is
   # a target the operator switches to on purpose. "epics" is your own control
-  # system, "mock" needs no containers but cannot complete a plan. "doocs" and
-  # "tango" reach those control systems in place of Channel Access. Those five
-  # are every type `osprey init` will materialize; `osprey config --defaults`
-  # lists them too.
+  # system. "doocs" and "tango" reach those control systems in place of
+  # Channel Access. Those four are every type `osprey init` will materialize;
+  # `osprey config --defaults` lists them too.
+  # `control_system.connector.virtual_accelerator.serving: in_process` runs the
+  # same simulator without containers, but cannot complete a plan.
   # `control_target_set live` moves a session onto the machine authored under
   # `epics:`. The template ships that block unconfigured — author its
-  # `gateways` and `probe_channel` first — then the switch probes that target,
-  # requires the strict limits pair below, then your own
+  # `gateways` and `probe_channel` first — then the switch probes that target
+  # and requires your own
   # `control_system.target_switch.live_gateway_acknowledged` — the operator
   # saying those gateways really are this facility's — and it still refuses
   # while this deployment records its own archive from the stand-in, because
@@ -389,30 +380,14 @@ config:
   # control_system.target_display_names.live: Real machine
   # control_system.target_display_names.standin: Rehearsal
   # control_system.target_display_names.va: Simulator
-  # Every write checked against data/channel_limits.json, and a channel that
-  # file does not list refused rather than waved through. Both hardware-shaped
-  # targets — `standin` and `live` — require this pair before a session may
-  # switch onto them, so a rehearsal runs the posture the real machine gets.
+  # Limits are optional. `enabled: false` = no limits at all. `mode:
+  # exclusive` = only channels in the limits file can be written. `mode:
+  # optional` = channels in the file are held to their limits, every other
+  # channel is written with no limits. A
+  # `control_system.connector.<type>.limits_checking` block stating both
+  # leaves overrides this pair for that connector type.
   control_system.limits_checking.enabled: true
-  control_system.limits_checking.allow_unlisted_channels: false
-  # The limits file, relative to the build directory. It is a build copy: edit
-  # the one in data/ beside this file and rebuild.
-  control_system.limits_checking.database_path: data/channel_limits.json
-  # The sandbox simulator is the exception, and the machine a session starts
-  # on, so this block is the posture a session opens under. It states the
-  # exception as a whole block: a per-type posture REPLACES the pair above for
-  # that connector type rather than merging with it, so both leaves are written
-  # out here.
-  # Writes to the simulator are still checked against the same file; what
-  # changes is that a channel the file does not list is allowed through
-  # instead of refused, because on a scratch machine an unlisted channel is a
-  # gap in the file rather than a hazard. `live_standin` deliberately gets NO
-  # block of its own: it is hardware-shaped, so it keeps the strict pair the
-  # real machine gets, and a permissive block here would make
-  # `control_target_set standin` refuse the very switch this preset exists to
-  # rehearse.
-  control_system.connector.virtual_accelerator.limits_checking.enabled: true
-  control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels: true
+  control_system.limits_checking.mode: optional
   # Largest array channel_read returns inline, in elements. Anything bigger is
   # saved as an artifact and reported as a summary plus a handle. One call
   # inlines at most 4x this many elements across all the channels it read;
@@ -432,30 +407,23 @@ config:
   # control_system.patterns.write: ['my_custom_cs_lib\.write\(']
   # control_system.patterns.read: ['my_custom_cs_lib\.read\(']
   #
-  # Mock connector: driven by the simulation machine model below. Switch
-  # scenarios with `osprey sim apply NAME...` (see the simulation bundle reference).
-  control_system.connector.mock.simulation_file: data/simulation/machine.json
   # Virtual-accelerator connector: a containerized PyAT-backed soft IOC
   # reached over real EPICS Channel Access, with the same gateway shape as the
   # `epics` block. Deployed by the `virtual_accelerator:` section above.
   #
   # Channel Access timeout in seconds.
   control_system.connector.virtual_accelerator.timeout_s: 5.0
-  # Same machine model as the mock connector, so `osprey sim apply` stays
-  # consistent whichever connector is active.
-  control_system.connector.virtual_accelerator.simulation_file: data/simulation/machine.json
-  # Fractional noise on the synthesised readings. Unset falls through to
-  # `control_system.connector.mock.noise_level`, and then to the simulator's
-  # own 0.01; `0` serves the channels flat, which is what a comparison of two
-  # reads wants. It reaches the container as VA_NOISE_LEVEL.
-  # control_system.connector.virtual_accelerator.noise_level: 0.01
   # Write posture for the simulator alone. Uncomment to arm writes here while
   # the master switch keeps the live machine read-only; the shipped
   # `control-assistant-readwrite` and `control-assistant-admin` personas write
   # this key.
   # control_system.connector.virtual_accelerator.writes_enabled: true
+  # Where the simulator runs: `served` is its container over Channel Access; `in_process` is inside this process, with no container.
+  # control_system.connector.virtual_accelerator.serving: served
+  # Milliseconds each read and write takes when the simulator is served in process; unread when served.
+  # control_system.connector.virtual_accelerator.response_delay_ms: 10
   # Channel the target switch reads to prove this target is reachable before
-  # making it active. Served by the simulation machine model.
+  # making it active. The simulator serves it from the built facility.
   control_system.connector.virtual_accelerator.probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
   # Gateways in CA name-server (TCP) mode against localhost, the one
   # host-to-container configuration that works across container runtimes. No
@@ -482,9 +450,6 @@ config:
   # Write posture for the live machine. Stating it pins it: a type with its
   # own posture never falls back to the master switch.
   # control_system.connector.epics.writes_enabled: false
-  # Limits posture for the live machine alone, both leaves required.
-  # control_system.connector.epics.limits_checking.enabled: true
-  # control_system.connector.epics.limits_checking.allow_unlisted_channels: false
   # Channel the target switch reads to prove the live machine is reachable.
   # While unset this target is never switched to.
   # control_system.connector.epics.probe_channel: SR:BEAM:CURRENT
@@ -509,15 +474,12 @@ config:
   # DOOCS connector: no coordinates of its own. doocs4py reaches the ENS the
   # facility's own DOOCS environment already names, so the empty coordinate set
   # is the point of this block rather than an omission — what is left is how
-  # long a call is given and the four leaves every connector type answers.
+  # long a call is given and the two leaves every connector type answers.
   # Seconds an ENS lookup, a property read or a property set is given.
   # control_system.connector.doocs.timeout_s: 5.0
   # Write posture for the DOOCS machine. Same tri-state as the epics leaf
   # above: stating it pins it, and only a literal true arms writes.
   # control_system.connector.doocs.writes_enabled: false
-  # Limits posture for the DOOCS machine alone, both leaves required.
-  # control_system.connector.doocs.limits_checking.enabled: true
-  # control_system.connector.doocs.limits_checking.allow_unlisted_channels: false
   # Property the target switch reads to prove this machine is reachable.
   # control_system.connector.doocs.probe_channel: FACILITY/DEVICE/LOCATION/PROPERTY
   # TANGO connector: one coordinate of its own, the device database, spelled
@@ -529,10 +491,8 @@ config:
   # control_system.connector.tango.tango_host: your-tango-db.example.com:10000
   # Seconds a device call waits before it is given up on.
   # control_system.connector.tango.timeout_s: 5.0
-  # The same four leaves as every other connector type, for the TANGO machine.
+  # The same two leaves as every other connector type, for the TANGO machine.
   # control_system.connector.tango.writes_enabled: false
-  # control_system.connector.tango.limits_checking.enabled: true
-  # control_system.connector.tango.limits_checking.allow_unlisted_channels: false
   # control_system.connector.tango.probe_channel: sys/tg_test/1/ampli
   # Target switch: how a running session moves between the connectors above.
   #
@@ -561,11 +521,10 @@ config:
   # When a read names no bin size, the bin is chosen so a continuously archived
   # channel returns about this many points. The agent is told which bin it got.
   archiver.auto_bin_points: 10000
-  # Mock archiver: synthesizes history from the same simulation machine model
-  # as the control-system connector, derived from
-  # `control_system.connector.<type>.simulation_file`. Set only to override.
+  # Mock archiver: replays history from the build's simulator view, the same
+  # view the simulator serves; it takes no file setting.
   # archiver.type: mock_archiver
-  # archiver.settings.simulation_file: data/simulation/machine.json
+  # archiver.settings.sample_rate_hz: 1.0
   # EPICS Archiver Appliance: ships unconfigured on purpose, for the same
   # reason as the `epics` gateways. Authoring it travels with the flip to
   # `archiver.type: epics_archiver`.
@@ -658,15 +617,6 @@ config:
   # channel_finder.web.host: 127.0.0.1
   # channel_finder.web.port: <a port outside this deployment's block>
   # channel_finder.web.auto_launch: true
-  # Descriptive names for channels that belong to no device family, generated
-  # offline by `osprey channel-finder build-database --use-llm`. That flag
-  # needs `provider` set (no fallback to the agent's provider); `model_id` is a
-  # model id the provider serves; omitted, the deployment's main model.
-  # Build-time only.
-  # channel_finder.channel_name_generation.llm_model.provider: anthropic
-  # channel_finder.channel_name_generation.llm_model.model_id: claude-haiku-4-5
-  # channel_finder.channel_name_generation.llm_model.max_tokens: 1000
-  # channel_finder.channel_name_generation.llm_batch_size: 10
 
   # ── Human-in-the-loop approval ─────────────────────────────────────────────
   # The THIRD guard: a write that passed the master switch and the limits check
@@ -907,7 +857,7 @@ config:
   # facility_knowledge server, `osprey knowledge` and the KNOWLEDGE tab.
   # Relative to the project root. Replace with your own bundle once you have
   # customised the example content.
-  facility_knowledge.bundle_path: data/facility_knowledge
+  facility_knowledge.bundle_path: data/facility/knowledge
   # osprey:panel-port okf
   # The KNOWLEDGE tab's own web server. It launches when `okf` is in
   # `web_panels:` above, on this deployment's knowledge slot. Uncomment to
@@ -1049,8 +999,8 @@ config:
   # exists and is non-empty, so until then it is legitimately unhealthy. Scale
   # it with the corpus: too short reports a working container as failed.
   # services.qmd.first_index_grace: 3600
-  # Neo4j graph store holding a DISPOSABLE mirror of an RDF/Turtle corpus. The
-  # TTL on disk stays the source of truth and `osprey knowledge seed-graph`
+  # Neo4j graph store holding a DISPOSABLE mirror of the build's graph view.
+  # The facility file stays the source of truth and `osprey build && osprey up`
   # rebuilds the graph from it. It answers the multi-hop questions keyword and
   # semantic search cannot, and it is what the channel finder reads when
   # `channel_finder_mode:` selects the graph paradigm.
@@ -1061,20 +1011,6 @@ config:
   # the RDF, has no manifest entry for anything newer. Repoint it at a mirror
   # or a pre-baked image on an air-gapped host.
   services.graphdb.image: neo4j:5.26-community
-  # Corpus to seed the store from, relative to the build directory. This is
-  # the demo machine: the same devices and channels the channel database in
-  # data/ describes, rebuilt as a graph, so graph answers and channel search
-  # agree. Regenerate it after editing the channel database with
-  # `osprey knowledge build-ttl data/demo_machine.ttl`. Point it at your own
-  # TTL, or remove the key to bring the store up bootstrapped but empty.
-  services.graphdb.ttl_path: ./data/demo_machine.ttl
-  # Search index derived from the corpus above at build time, and the default —
-  # uncomment only to move it. The channel explorer's search, the channel roster
-  # and the agent's keyword tool read this file rather than querying the store,
-  # so it answers in milliseconds at any corpus size. Resolved against the
-  # render like `ttl_path`; rebuild it by hand after regenerating the TTL with
-  # `osprey knowledge build-index`.
-  # services.graphdb.index_path: ./data/channel_databases/graph.duckdb
   # JVM memory. Neo4j sizes nothing automatically inside a container, so all
   # three are spelled out. Budget roughly heap_max_size + pagecache_size +
   # ~0.5G overhead; a substantially larger graph wants more.
@@ -1140,8 +1076,8 @@ config:
   # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
   artifact_server.example_artifact: true
   # osprey:panel-port lattice_dashboard
-  # The LATTICE tab never auto-launches here: it needs this section and
-  # `lattice` in `web_panels:` above.
+  # The LATTICE tab needs no section: with `lattice` in `web_panels:` it
+  # binds its slot. Uncomment only to move it or switch it off.
   # lattice_dashboard.host: 127.0.0.1
   # lattice_dashboard.port: <a port outside this deployment's block>
   # lattice_dashboard.auto_launch: true
@@ -1266,11 +1202,6 @@ config:
   # `modules.web_terminals.enabled: false` to have `osprey up` deploy backend
   # services only.
   #
-  # Short facility token; use your facility's initials. It keys the facility
-  # graph's identifiers and names `/app/<prefix>-assistant`, the in-container
-  # directory of a terminal with no persona render of its own. Container names
-  # come from the top-level `project_name:` instead.
-  facility.prefix: ca
   # The hostname people open in a browser. 127.0.0.1 is your own machine; set
   # your real hostname to reach it from anywhere else.
   deploy.fqdn: 127.0.0.1
@@ -1453,6 +1384,15 @@ config:
   # Container runtime `osprey up` uses: auto (Docker first, then Podman),
   # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
   container_runtime: auto
+  # Models the simulator serves, named from data/facility/models.yaml. null
+  # serves every model; [texture] serves no physics.
+  simulation.models:
+  # Seconds between the simulator's ticks; must be greater than 0.
+  simulation.tick_s: 1.0
+  # Scenarios a deployment that never chose a set starts in, by name from
+  # the facility's scenarios; `osprey sim apply` replaces the set.
+  # Absent or [] starts in nominal alone.
+  simulation.default_scenarios: [rf-thermal]
 
 # ── Record archive ─────────────────────────────────────────────────────────
 # Copies transcripts, dispatch runs, plan-queue history, the audit ledger and a
@@ -1525,14 +1465,6 @@ provenance:
 deploy_services: true
 # Named web-terminal layouts, as label -> list of panel ids.
 panel_presets: {}
-
-# --- Channel-database tier ---------------------------------------------------
-# Build-time only (1 or 3), selecting which bundled tier DB is materialized.
-# Left unset the build picks a paradigm-aware default, which is why it stays
-# commented: pinning it here would override that default on every rebuild.
-# Tier 1 is the flat whole-database view, so it serves one paradigm only.
-#
-# tier: 3
 
 # --- Default web-terminal panel ----------------------------------------------
 # Panel id opened when the web terminal loads. Must be a built-in, an entry in
@@ -1749,6 +1681,7 @@ exclude:
     - logbook-deep-research
   web_panels:
     - channel-finder
+    - lattice         # Simulator optics belong to the control room
     - okf
     - system-health
     - jupyter         # Notebook kernels read and write through the control target
@@ -1884,6 +1817,7 @@ exclude:
     - pyat-specialist         # Lattice computation needs the Python sandbox
   web_panels:
     - ariel
+    - lattice         # Simulator optics belong to the control room
     - system-health
     - jupyter         # Notebook kernels read and write through the control target
 # The `safety` rule is deliberately NOT excluded. Its tools are gone, so the
@@ -2947,112 +2881,101 @@ exit 0
 # volume. Each file below is valid content of its real kind.
 
 DATA_README_MD = """\
-# Data
+# Project Data Directory
 
 Everything the agent reads from disk lives here: channel databases, benchmark
-query sets, facility knowledge, and simulation scenarios. These are your files.
-They are tracked, and `osprey build` only ever reads them.
+query sets, and the facility's sources and scenarios. These are your files —
+edit them freely.
+
+## Directory Structure
+
+The channel-finder indexes are not here: each is a view the build writes from
+`facility/` into the render. As shipped by the preset:
 
 ```
 data/
-├── raw/                                  # CSV address data (in_context path)
 ├── channel_databases/
-│   ├── tiers/tier{1,3}/<paradigm>.json  # staged, one per paradigm
-│   └── TEMPLATE_EXAMPLE.json            # database format example
-├── benchmarks/cross_paradigm/queries/    # staged query sets, one per tier
-├── channel_limits.json                   # per-channel write limits
-├── facility_ontology.json                # device vocabulary (facility.ontology)
-├── machine_state_channels.json           # address list reconciled against the VA manifest
-├── facility_knowledge/                   # markdown knowledge bundle
-└── simulation/                           # mock-connector scenarios
+│   └── examples/                         # Hierarchy-shape examples
+├── benchmarks/
+│   └── cross_paradigm/queries/           # Benchmark query sources, one per channel-finder pipeline
+├── ariel/
+│   ├── vocabulary.yml                    # Logbook shorthand -> the words entries use
+│   └── README.md                         # Vocabulary format walkthrough
+├── facility/                              # The facility's authored sources
+│   ├── knowledge/                         # Markdown knowledge bundle
+│   └── scenarios/                         # Simulation scenarios
 ```
 
-The build collapses the staged sets down to the ones `channel_finder_mode` and
-`tier` select, writing the result under `build/`. This directory is never
-rewritten by a build.
-"""
+`osprey build` copies the benchmark query file matching `channel_finder_mode`
+to `benchmarks/queries.json`: `in_context_queries.json` for `in_context`,
+`tree_queries.json` for every other mode. Each channel-finder index is the view
+the build writes at its own path; nothing is flattened. The render drops the
+`benchmarks/cross_paradigm/` subtree.
 
-CHANNEL_DB_HIERARCHICAL_JSON = """\
-{
-  "_comment": "Hierarchical channel database. Unified 6-level naming: RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD.",
-  "hierarchy": {
-    "levels": [
-      { "name": "ring", "type": "tree" },
-      { "name": "system", "type": "tree" },
-      { "name": "family", "type": "tree" },
-      { "name": "device", "type": "instances" },
-      { "name": "field", "type": "tree" },
-      { "name": "subfield", "type": "tree" }
-    ],
-    "naming_pattern": "{ring}:{system}:{family}:{device}:{field}:{subfield}"
-  },
-  "tree": {
-    "SR": {
-      "DIAG": {
-        "BPM": {
-          "DEVICE": {
-            "_expansion": { "_type": "list", "_instances": ["01", "02"] },
-            "POSITION": {
-              "X": { "description": "Horizontal beam position", "units": "mm" },
-              "Y": { "description": "Vertical beam position", "units": "mm" }
-            }
-          }
-        },
-        "DCCT": {
-          "DEVICE": {
-            "_expansion": { "_type": "list", "_instances": ["01"] },
-            "CURRENT": {
-              "RB": { "description": "Total stored beam current", "units": "mA" }
-            }
-          }
-        }
-      },
-      "MAG": {
-        "HCM": {
-          "DEVICE": {
-            "_expansion": { "_type": "list", "_instances": ["01", "02"] },
-            "CURRENT": {
-              "RB": { "description": "Horizontal corrector current readback", "units": "A" },
-              "SP": { "description": "Horizontal corrector current setpoint", "units": "A" }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-"""
+## Database Paradigms
 
-CHANNEL_DB_IN_CONTEXT_JSON = """\
-{
-  "_comment": "Flat in-context channel database. One entry per address.",
-  "channels": {
-    "SR:DIAG:DCCT:01:CURRENT:RB": {
-      "description": "Total stored beam current",
-      "units": "mA"
-    },
-    "SR:DIAG:BPM:01:POSITION:X": {
-      "description": "BPM 1 horizontal beam position",
-      "units": "mm"
-    },
-    "SR:MAG:HCM:01:CURRENT:SP": {
-      "description": "Horizontal corrector 1 current setpoint",
-      "units": "A"
-    }
-  }
-}
-"""
+`channel_finder_mode` in the build profile picks one of three ways to organize
+the same channel namespace as a file; all three are views of the same
+facility records. The mode's fourth value, `graph`, is not one of them: it
+answers from the facility knowledge graph rather than a channel database. Its
+corpus is `data/graph/facility.ttl`, the graph view the build writes from
+`facility/`, seeded into the `services.graphdb` store.
 
-CHANNEL_DB_TEMPLATE_EXAMPLE_JSON = """\
-{
-  "_comment": "Database format example. Copy this shape when hand-authoring a channel database.",
-  "channels": {
-    "FACILITY:SYSTEM:FAMILY:01:FIELD:RB": {
-      "description": "What this channel reports, in one sentence",
-      "units": "mm"
-    }
-  }
-}
+### `in_context` — flat structure
+
+Best for fewer than about 1,000 channels. The whole database fits in the
+agent's context, so lookup is direct semantic search over a flat list of
+channels.
+
+### `hierarchical` — nested structure
+
+Best for more than about 1,000 channels. The agent navigates the hierarchy
+level by level instead of loading everything at once: the facility's place
+words by depth, then class, device and leaf.
+
+### `middle_layer` — functional structure
+
+An MML-organized functional hierarchy: System / Family / Field / Subfield.
+Navigation mirrors the way operators reason about devices rather than the way
+the control system names them.
+
+## Database Tools
+
+Database tools are `osprey channel-finder` CLI subcommands. Each reads the
+active database from `config.yml` unless you pass `--database`.
+
+Validate database format and structure:
+
+```bash
+osprey channel-finder validate
+osprey channel-finder validate --database data/channel_finder/hierarchical.json
+```
+
+Preview database contents:
+
+```bash
+osprey channel-finder preview
+osprey channel-finder preview --database data/channel_finder/hierarchical.json
+```
+
+## Benchmarks
+
+Evaluate channel-finder accuracy against the query set in
+`data/benchmarks/queries.json`:
+
+```bash
+# Full query set
+osprey channel-finder benchmark --model anthropic/claude-haiku-4-5
+
+# A slice of the query set
+osprey channel-finder benchmark --model anthropic/claude-haiku-4-5 --queries 0:10
+
+# Repeat each query to measure run-to-run variance
+osprey channel-finder benchmark --model anthropic/claude-haiku-4-5 --runs-per-query 3
+```
+
+Results are written to `data/benchmarks/results/` as JSON reports carrying
+per-query outcomes, accuracy, timing, and cost.
 """
 
 BENCHMARK_QUERIES_JSON = """\
@@ -3066,77 +2989,6 @@ BENCHMARK_QUERIES_JSON = """\
     "targeted_pv": ["SR:DIAG:BPM:01:POSITION:X", "SR:DIAG:BPM:02:POSITION:X"]
   }
 ]
-"""
-
-#: The exemplar's own compiled ontology — the table ``facility.ontology`` names.
-#:
-#: A profile that carries a ``data:`` tree REPLACES the bundle's, so the copy
-#: control-assistant ships never reaches this repo: an exemplar facility
-#: declares its own vocabulary or it declares none, and a declared table that is
-#: not on disk stops the build by design. Written against this repo's own three
-#: families (``BPM``, ``DCCT``, ``HCM``) rather than copied from the demo
-#: machine, because that is what a real facility's table looks like and what the
-#: rendered terminology tables should show.
-FACILITY_ONTOLOGY_JSON = """\
-{
-  "_generated": "Generated from facility_ontology.yaml by `osprey knowledge compile-ontology`. Do not edit.",
-  "root": "AcceleratorDevice",
-  "family_to_class": {
-    "BPM": "BeamPositionMonitor",
-    "DCCT": "BeamCurrentMonitor",
-    "HCM": "HCorrector"
-  },
-  "classes": {
-    "AcceleratorDevice": { "altLabels": [], "parent": null },
-    "BeamCurrentMonitor": {
-      "altLabels": ["beam current monitor", "current monitor", "dcct"],
-      "parent": "Instrumentation"
-    },
-    "BeamPositionMonitor": {
-      "altLabels": ["beam position monitor", "bpm", "position monitor"],
-      "parent": "Instrumentation"
-    },
-    "Corrector": {
-      "altLabels": ["corrector", "orbit corrector", "steering magnet"],
-      "parent": "Magnet"
-    },
-    "HCorrector": {
-      "altLabels": ["hcor", "horizontal corrector", "horizontal steering magnet"],
-      "parent": "Corrector"
-    },
-    "Instrumentation": { "altLabels": ["diagnostics", "instrumentation"], "parent": "AcceleratorDevice" },
-    "Magnet": { "altLabels": ["electromagnet", "magnet"], "parent": "AcceleratorDevice" }
-  }
-}
-"""
-
-CHANNEL_LIMITS_JSON = """\
-{
-  "_comment": "Write limits, enforced by the limits hook before any write reaches the control system. A channel is writable if and only if it is a setpoint (:SP); every other address is read-only, whatever this file says.",
-  "SR:MAG:HCM:01:CURRENT:SP": { "min_value": -5.0, "max_value": 5.0, "writable": true },
-  "SR:MAG:HCM:02:CURRENT:SP": { "min_value": -5.0, "max_value": 5.0, "writable": true }
-}
-"""
-
-MACHINE_STATE_CHANNELS_JSON = """\
-{
-  "_comment": "Machine-state addresses, reconciled against the VA manifest at build time; only the keys are read. One canonical list regardless of channel-finder mode.",
-  "_version": "2.0",
-
-  "SR:DIAG:DCCT:01:CURRENT:RB": { "label": "Beam current (DCCT)", "group": "beam" },
-  "SR:DIAG:BPM:01:POSITION:X": { "label": "BPM 1 horizontal position", "group": "orbit" },
-  "SR:DIAG:BPM:01:POSITION:Y": { "label": "BPM 1 vertical position", "group": "orbit" },
-  "SR:MAG:HCM:01:CURRENT:RB": { "label": "Corrector 1 current", "group": "magnets" }
-}
-"""
-
-RAW_ADDRESS_LIST_CSV = """\
-address,description,family_name,instances,sub_channel
-# === STANDALONE CHANNELS (no templating) ===
-SR:DIAG:DCCT:01:CURRENT:RB,Total stored beam current in milliamps,,,
-# === DEVICE FAMILIES (one row expands to one channel per instance) ===
-SR:DIAG:BPM:{i}:POSITION:X,Horizontal beam position,BPM,01;02,X
-SR:DIAG:BPM:{i}:POSITION:Y,Vertical beam position,BPM,01;02,Y
 """
 
 FK_INDEX_MD = """\
@@ -3218,141 +3070,33 @@ Never open a sector valve against a pressure differential. The interlock will
 refuse, and forcing it risks the whole ring's vacuum.
 """
 
-#: Each channel is a mapping carrying exactly one of ``value`` or ``expr`` --
-#: the schema ``osprey.simulation.machine.parse_machine`` enforces, and the one
-#: the shipped presets are written in. A bare number here would look like a
-#: reasonable shorthand and is not: the parser rejects it, so the exemplar would
-#: name a simulation model that no engine can load.
-DEMO_MACHINE_TTL = """\
-# The knowledge-graph corpus `services.graphdb` seeds and the graph channel
-# finder answers from. One device per channel family of machine.json, each
-# binding stating its address and its direction.
-@prefix narad_p: <https://narad.example.org/property/> .
-@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .
-
-<https://narad.example.org/device/demo_SR_DCCT01> a narad_sem:BeamCurrentMonitor ;
-    narad_p:deviceId "narad:device:demo:SR:DCCT01" ;
-    narad_p:facility "demo" ;
-    narad_p:hasBinding <https://narad.example.org/binding/demo_SR_DCCT01_CURRENT_RB> ;
-    narad_p:ordinalInFacility 1 ;
-    narad_p:ordinalInSection 1 ;
-    narad_p:rawType "DCCT" ;
-    narad_p:sPositionM 0.0 ;
-    narad_p:sectionCode "SR" ;
-    narad_p:sourceName "DCCT01" ;
-    narad_p:system "DIAG" .
-
-<https://narad.example.org/binding/demo_SR_DCCT01_CURRENT_RB> a narad_sem:ChannelBinding ;
-    narad_p:bindingId "narad:binding:demo:SR:DCCT01:CURRENT_RB" ;
-    narad_p:description "Stored beam current" ;
-    narad_p:fullPv "SR:DIAG:DCCT:01:CURRENT:RB" ;
-    narad_p:protocol "ca" ;
-    narad_p:readsSignal narad_sem:beam_current .
-
-<https://narad.example.org/device/demo_SR_BPM01> a narad_sem:BeamPositionMonitor ;
-    narad_p:deviceId "narad:device:demo:SR:BPM01" ;
-    narad_p:facility "demo" ;
-    narad_p:hasBinding <https://narad.example.org/binding/demo_SR_BPM01_POSITION_X>,
-        <https://narad.example.org/binding/demo_SR_BPM01_POSITION_Y> ;
-    narad_p:ordinalInFacility 2 ;
-    narad_p:ordinalInSection 2 ;
-    narad_p:rawType "BPM" ;
-    narad_p:sPositionM 1.0 ;
-    narad_p:sectionCode "SR" ;
-    narad_p:sourceName "BPM01" ;
-    narad_p:system "DIAG" .
-
-<https://narad.example.org/binding/demo_SR_BPM01_POSITION_X> a narad_sem:ChannelBinding ;
-    narad_p:bindingId "narad:binding:demo:SR:BPM01:POSITION_X" ;
-    narad_p:description "Beam position monitor 1, horizontal" ;
-    narad_p:fullPv "SR:DIAG:BPM:01:POSITION:X" ;
-    narad_p:protocol "ca" ;
-    narad_p:readsSignal narad_sem:bpm_position_x .
-
-<https://narad.example.org/binding/demo_SR_BPM01_POSITION_Y> a narad_sem:ChannelBinding ;
-    narad_p:bindingId "narad:binding:demo:SR:BPM01:POSITION_Y" ;
-    narad_p:description "Beam position monitor 1, vertical" ;
-    narad_p:fullPv "SR:DIAG:BPM:01:POSITION:Y" ;
-    narad_p:protocol "ca" ;
-    narad_p:readsSignal narad_sem:bpm_position_y .
-
-<https://narad.example.org/device/demo_SR_HCM01> a narad_sem:HorizontalCorrector ;
-    narad_p:deviceId "narad:device:demo:SR:HCM01" ;
-    narad_p:facility "demo" ;
-    narad_p:hasBinding <https://narad.example.org/binding/demo_SR_HCM01_CURRENT_RB>,
-        <https://narad.example.org/binding/demo_SR_HCM01_CURRENT_SP> ;
-    narad_p:ordinalInFacility 3 ;
-    narad_p:ordinalInSection 3 ;
-    narad_p:rawType "HCM" ;
-    narad_p:sPositionM 2.0 ;
-    narad_p:sectionCode "SR" ;
-    narad_p:sourceName "HCM01" ;
-    narad_p:system "MAG" .
-
-<https://narad.example.org/binding/demo_SR_HCM01_CURRENT_RB> a narad_sem:ChannelBinding ;
-    narad_p:bindingId "narad:binding:demo:SR:HCM01:CURRENT_RB" ;
-    narad_p:description "Horizontal corrector 1 current, readback" ;
-    narad_p:fullPv "SR:MAG:HCM:01:CURRENT:RB" ;
-    narad_p:protocol "ca" ;
-    narad_p:readsSignal narad_sem:hcm_current .
-
-<https://narad.example.org/binding/demo_SR_HCM01_CURRENT_SP> a narad_sem:ChannelBinding ;
-    narad_p:bindingId "narad:binding:demo:SR:HCM01:CURRENT_SP" ;
-    narad_p:description "Horizontal corrector 1 current, setpoint" ;
-    narad_p:fullPv "SR:MAG:HCM:01:CURRENT:SP" ;
-    narad_p:protocol "ca" ;
-    narad_p:writesSignal narad_sem:hcm_current .
+#: The facility's records, cut to the one channel the profile names: the
+#: virtual accelerator's ``probe_channel`` must be a channel of the facility
+#: file the build assembles from them.
+FACILITY_PLACES_YAML = """\
+- id: SR
+  level: machine
+  description: Storage ring
 """
 
-SIMULATION_MACHINE_JSON = """\
-{
-  "name": "Als Exemplar demo machine",
-  "description": "Nominal machine values the mock connector serves as readbacks.",
-  "channels": {
-    "SR:DIAG:DCCT:01:CURRENT:RB": {
-      "value": 500.0,
-      "units": "mA",
-      "description": "Stored beam current"
-    },
-    "SR:DIAG:BPM:01:POSITION:X": {
-      "value": 0.02,
-      "units": "mm",
-      "description": "Beam position monitor 1, horizontal"
-    },
-    "SR:DIAG:BPM:01:POSITION:Y": {
-      "value": -0.01,
-      "units": "mm",
-      "description": "Beam position monitor 1, vertical"
-    },
-    "SR:MAG:HCM:01:CURRENT:RB": {
-      "value": 0.0,
-      "units": "A",
-      "description": "Horizontal corrector 1 current, readback"
-    },
-    "SR:MAG:HCM:01:CURRENT:SP": {
-      "value": 0.0,
-      "units": "A",
-      "description": "Horizontal corrector 1 current, setpoint"
-    }
-  }
-}
+FACILITY_DEVICES_YAML = """\
+- id: SR/GAUGESR01
+  class: Gauge
+  names:
+  - GAUGESR01
+  place: SR
 """
 
-SIMULATION_NOMINAL_SCENARIO_JSON = """\
-{
-  "description": "All systems nominal."
-}
+FACILITY_CHANNELS_YAML = """\
+- id: SR:VAC:GAUGE:SR01:PRESSURE:RB
+  'on':
+    device: SR/GAUGESR01
+  signal: vacuum_readback
+  unit: Pa
+  names:
+  - StorageRing_VacGauge_SR01_Pressure_Readback
+  description: Storage ring vacuum gauge SR01 pressure readback
 """
-
-SIMULATION_VACUUM_BURST_SCENARIO_JSON = """\
-{
-  "description": "A vacuum excursion in sector 1 costs beam lifetime; stored current falls.",
-  "overrides": {
-    "SR:DIAG:DCCT:01:CURRENT:RB": 380.0
-  }
-}
-"""
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # The exemplar, assembled
@@ -3378,23 +3122,15 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "web-terminal-context/bob/.gitkeep": "",
     "web-terminal-context/knowledge/.gitkeep": "",
     "data/README.md": DATA_README_MD,
-    "data/channel_databases/TEMPLATE_EXAMPLE.json": CHANNEL_DB_TEMPLATE_EXAMPLE_JSON,
-    "data/channel_databases/tiers/tier1/in_context.json": CHANNEL_DB_IN_CONTEXT_JSON,
-    "data/channel_databases/tiers/tier3/hierarchical.json": CHANNEL_DB_HIERARCHICAL_JSON,
-    "data/benchmarks/cross_paradigm/queries/tier3_queries.json": BENCHMARK_QUERIES_JSON,
-    "data/channel_limits.json": CHANNEL_LIMITS_JSON,
-    "data/facility_ontology.json": FACILITY_ONTOLOGY_JSON,
-    "data/machine_state_channels.json": MACHINE_STATE_CHANNELS_JSON,
-    "data/raw/address_list.csv": RAW_ADDRESS_LIST_CSV,
-    "data/facility_knowledge/index.md": FK_INDEX_MD,
-    "data/facility_knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
-    "data/facility_knowledge/subsystems/vacuum.md": FK_VACUUM_MD,
-    "data/facility_knowledge/procedures/index.md": FK_PROCEDURES_INDEX_MD,
-    "data/facility_knowledge/procedures/vacuum-recovery.md": FK_VACUUM_RECOVERY_MD,
-    "data/demo_machine.ttl": DEMO_MACHINE_TTL,
-    "data/simulation/machine.json": SIMULATION_MACHINE_JSON,
-    "data/simulation/scenarios/nominal/scenario.json": SIMULATION_NOMINAL_SCENARIO_JSON,
-    "data/simulation/scenarios/vacuum-burst/scenario.json": SIMULATION_VACUUM_BURST_SCENARIO_JSON,
+    "data/benchmarks/cross_paradigm/queries/tree_queries.json": BENCHMARK_QUERIES_JSON,
+    "data/facility/records/places.yaml": FACILITY_PLACES_YAML,
+    "data/facility/records/devices.yaml": FACILITY_DEVICES_YAML,
+    "data/facility/records/channels.yaml": FACILITY_CHANNELS_YAML,
+    "data/facility/knowledge/index.md": FK_INDEX_MD,
+    "data/facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
+    "data/facility/knowledge/subsystems/vacuum.md": FK_VACUUM_MD,
+    "data/facility/knowledge/procedures/index.md": FK_PROCEDURES_INDEX_MD,
+    "data/facility/knowledge/procedures/vacuum-recovery.md": FK_VACUUM_RECOVERY_MD,
 }
 
 #: The scaffolded CI pipeline. Emitted only where the profile names deploy

@@ -192,8 +192,8 @@ def values_match(sent: Any, observed: Any, *, enum_label: str | None = None) -> 
     1. A string against a reported ``enum_label`` compares as text: an enum
        channel written as ``"Open"`` reads back as its integer index, and the
        label the connector resolved for that reading is what the text is
-       compared with. A connector that reports no ``enum_label`` (Mock, DOOCS)
-       falls through to the ordinary comparison.
+       compared with. A connector that reports no ``enum_label`` (DOOCS) falls
+       through to the ordinary comparison.
     2. A length-1 sequence is unwrapped to its element, on both sides.
     3. After unwrapping, exactly one side a sequence is ``False``: a scalar is
        not a vector. This is what stops a numpy broadcast
@@ -863,7 +863,7 @@ class ControlSystemConnector(ABC):
     Abstract base class for control system connectors.
 
     Implementations provide interfaces to different control systems
-    (EPICS, LabVIEW, Tango, Mock, etc.) using a unified API.
+    (EPICS, LabVIEW, Tango, the simulator, etc.) using a unified API.
 
     Example:
         >>> connector = await ConnectorFactory.create_control_system_connector()
@@ -888,6 +888,16 @@ class ControlSystemConnector(ABC):
     # bridge lane's own target. Stays None on an instance nobody built through
     # the factory, and on a caller that has no target to name.
     _control_target: str | None = None
+    # The wire this instance speaks, stamped by the same factory seam from the
+    # type and the serving leaf. Stays None on an instance nobody built through
+    # the factory.
+    _transport: str | None = None
+
+    @property
+    def transport(self) -> str | None:
+        """The factory-stamped wire this instance speaks (``None`` off the factory)."""
+        return self._transport
+
     # What the last :attr:`_writes_enabled` evaluation saw in the posture store,
     # so the refusal it leads to can name the right cause without reading the
     # store a second time — a narrowing lifted between the two reads would
@@ -1109,9 +1119,9 @@ class ControlSystemConnector(ABC):
         """Whether a write to this channel must be confirmed by re-reading it.
 
         The limits database is the single home of write policy: the channel's
-        own ``confirm`` → the ``defaults`` block's ``confirm`` → ``True``. A
-        connector with no validator has limits checking disabled and no policy
-        to read, so it takes the fleet default and confirms.
+        own ``confirm``, else ``True``. A connector with no validator has limits
+        checking disabled and no policy to read, so it takes the fleet default
+        and confirms.
         """
         if self._limits_validator is None:
             return True
@@ -1208,8 +1218,8 @@ class ControlSystemConnector(ABC):
             with no opinion leaves the keyword off entirely; the connector then
             resolves the policy for this specific channel through
             :meth:`_resolve_confirm`: the channel's own ``confirm`` entry in the
-            limits database, then the ``defaults`` block, then ``True``. The
-            limits database is the single home of write policy.
+            limits database, else ``True``. The limits database is the single
+            home of write policy.
 
             An explicit ``confirm=False`` is an answer and must travel as one, so
             every guard on the omission is ``if confirm is not None`` and never

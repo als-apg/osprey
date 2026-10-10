@@ -116,8 +116,7 @@ BOTH_EDGES = (
 )
 
 #: Two devices each binding their own ``ChannelBinding`` node under one
-#: ``fullPv``, one reading and one writing. The store answers two search rows;
-#: the roster collapses them to one address with no direction.
+#: ``fullPv``, one reading and one writing. The store answers two search rows.
 SHARED_FULL_PV = (
     PREFIXES
     + SHARED_ONTOLOGY
@@ -281,6 +280,49 @@ narad_sem:unlabelled_signal a narad_sem:SemanticSignal .
     narad_p:readsSignal narad_sem:quad_current_rb .
 
 owl:Thing narad_p:sectionCode "LTB" .
+"""
+)
+
+#: Two devices in one place, carrying the place path, the s position and the
+#: ordinal the graph view writes, and the place node itself binding a channel
+#: that is ``on`` it. The place carries a path and no position, so its row's
+#: position and ordinal are NULL.
+PLACED_DEVICES = (
+    PREFIXES
+    + SHARED_ONTOLOGY
+    + """
+<https://narad.example.org/device/demo_SR_QF8> a narad_sem:Quadrupole ;
+    narad_p:hasBinding <https://narad.example.org/binding/QF8_RB> ;
+    narad_p:ordinalInPlace 2 ;
+    narad_p:placePath "SR/SECT1" ;
+    narad_p:sPositionM 12.5 ;
+    narad_p:sectionCode "SECT1" ;
+    narad_p:sourceName "QF8" ;
+    narad_p:system "SR" .
+
+<https://narad.example.org/device/demo_SR_QF9> a narad_sem:Quadrupole ;
+    narad_p:hasBinding <https://narad.example.org/binding/QF9_RB> ;
+    narad_p:ordinalInPlace 1 ;
+    narad_p:placePath "SR/SECT1" ;
+    narad_p:sPositionM 3.0 ;
+    narad_p:sectionCode "SECT1" ;
+    narad_p:sourceName "QF9" ;
+    narad_p:system "SR" .
+
+<https://narad.example.org/place/demo_SR_SECT1> narad_p:hasBinding <https://narad.example.org/binding/SECT1_TEMP> ;
+    narad_p:placePath "SR/SECT1" ;
+    narad_p:sectionCode "SECT1" .
+
+<https://narad.example.org/binding/QF8_RB> a narad_sem:ChannelBinding ;
+    narad_p:fullPv "SR:QF8:RB" ;
+    narad_p:readsSignal narad_sem:quad_current_rb .
+
+<https://narad.example.org/binding/QF9_RB> a narad_sem:ChannelBinding ;
+    narad_p:fullPv "SR:QF9:RB" ;
+    narad_p:readsSignal narad_sem:quad_current_rb .
+
+<https://narad.example.org/binding/SECT1_TEMP> a narad_sem:ChannelBinding ;
+    narad_p:fullPv "SR:SECT1:TEMP" .
 """
 )
 

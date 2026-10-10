@@ -1,40 +1,46 @@
 """A harvested facility tree, served by a real container, over Channel Access.
 
 The container half of success criterion 1: a facility export goes through the
-whole install -- ``init``, ``mml import``, the reviewed mapping, ``mml emit``,
-``osprey set``, ``validate``, ``osprey build`` -- and what the build published
-is handed to the virtual accelerator image, which serves that facility's own
-channels with that facility's own ring behind them. Every earlier task in this
+whole install -- ``init``, ``facility import mml`` under the tree's reviewed
+mapping, ``osprey set``, ``validate``, ``osprey build`` -- and the simulator
+view the build rendered is
+handed to the virtual accelerator image, whose composite serves that
+facility's own channels with that facility's own lattice behind them. Every earlier task in this
 feature proves a step of that chain against files; this module is the only one
 that proves the chain ends in a machine a control system can talk to.
 
 What each lane asserts, and why it is not vacuous:
 
-* **Every coupled channel is served.** The bindings document says which
-  addresses the model drives -- each binding's setpoint and the readback it
-  serves where it serves one -- and every one of them answers a Channel Access
-  read from the host. A tree whose manifest and bindings disagree serves a
-  coupled channel nothing binds, which the entrypoint refuses; a tree the mount
-  got wrong serves the channels with no physics behind them. Reading the whole
-  claimed set is what separates those from a machine.
-* **A write comes back the way the binding says it does.** The three readback
-  rules are three different answers to one client's ``caput`` --
-  ``same_as_setpoint`` serves the written value on the address it was written
-  to, ``identity`` repeats it on a second address, and ``inverse`` serves it
-  mapped through the facility's own ``monitor_inverse``. The expected value for
-  an inverse is computed here through the product's own calibration functions
-  over the served document, never by restating a number: a lane that pasted one
-  would pass against a calibration nobody exported.
-* **The ring is really behind the channels.** A corrector write moves the
+* **Every wired channel is served.** The simulator view's wiring says which
+  addresses the physics models drive -- every setpoint they take and every
+  reading they answer -- and every one of them answers a Channel Access read
+  from the host. A mount the container could not resolve a model over serves
+  none of them with physics behind it. Reading the whole wired set is what
+  separates those from a machine.
+* **A write comes back the way the served model says it does.** A driven
+  channel either answers on the address it was written to or pairs with a
+  readback of its own, which the model computes from the element field the
+  write set, through that readback's own calibration. The expected value is
+  read off an in-process composite over the same simulator view, driven
+  through the same writes, never by restating a number: a lane that pasted
+  one would pass against a calibration nobody exported.
+* **The model is really behind the channels.** A corrector write moves the
   monitors. Nothing else in this file could distinguish a served model from a
   well-formed echo.
+* **The harvest passed the stops its tree plants.** The imported limits hold
+  each band as the export states it, so the build stops ``seed-invalid`` while
+  a setpoint starts outside its band. A tree's import plants the stops its
+  seed module names, possibly none; the harvest widens exactly the records
+  ``facility validate`` names, and the lane holds the first build to exactly
+  that set.
 
-The trees. Naming a facility in ``CRITERION_TREES`` is the claim that its
-export reaches a served machine, so a tree named there that commits no 2.0
+The trees. ``CRITERION_TREES`` is read from the supported-tree registry
+(``tests/fixtures/mml/_trees.py``): a tree the registry claims boots is a tree
+whose export is claimed to reach a served machine, so one that commits no 2.0
 export fails rather than stands aside. Whether it carries one is still
 DISCOVERED -- a directory holding a ``*.va.json`` sibling is a 2.0 tree -- so
 the claim is checked against the tree on disk rather than restated here. The
-facilities are named in one tuple because what pytest parametrises over is read
+registry is a module of literals because what pytest parametrises over is read
 at collection time, and a directory scan there would fail this whole directory
 rather than one lane.
 
@@ -73,6 +79,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -131,17 +138,13 @@ import pytest  # noqa: E402
 import yaml  # noqa: E402
 from click.testing import CliRunner  # noqa: E402
 
-from osprey.services.virtual_accelerator.bindings import (  # noqa: E402
+from osprey_connectors.simulation.view import (  # noqa: E402
+    VIEW_RELPATH,
     Binding,
-    BindingsDocument,
-    load_bindings,
+    Channel,
+    SimulatorView,
 )
-from osprey.services.virtual_accelerator.lattice.calibration import (  # noqa: E402
-    to_hardware,
-    to_physics,
-)
-from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths  # noqa: E402
-from tests.e2e._orm_stack import claimed_addresses  # noqa: E402
+from tests.fixtures.mml._trees import names  # noqa: E402
 from tests.va.e2e import conftest as e2e_conftest  # noqa: E402
 
 pytestmark = [
@@ -155,9 +158,9 @@ pytestmark = [
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
-# Seven lanes over three trees; the guard test itself is the twenty-second
-# item, so a floor of 21 reds on the loss of a single lane.
-MIN_COLLECTED_TESTS = 21
+# Eight lanes over three trees; the guard test itself is the twenty-fifth
+# item, so a floor of 24 reds on the loss of a single lane.
+MIN_COLLECTED_TESTS = 24
 
 #: The image under test -- the same one the rest of this directory serves from.
 IMAGE = e2e_conftest.IMAGE
@@ -175,12 +178,13 @@ BOOT_TIMEOUT_S = 240.0
 PROBE_TIMEOUT_S = 45.0
 
 #: The facilities success criterion 1 names, and the trees this module opens a
-#: lane for. A literal tuple, because parametrisation is read at COLLECTION: a
-#: directory scan here fails the whole ``tests/va/e2e`` directory rather than
-#: one lane. Every tree named here is CLAIMED to reach a served machine, and
-#: ``served`` fails one that commits no ``*.va.json``; a facility not named
-#: here joins by being added to this tuple.
-CRITERION_TREES = ("nsls2", "spear3", "synthetic")
+#: lane for: the supported trees the registry claims boot. Read from a module
+#: of literals, because parametrisation is read at COLLECTION: a directory
+#: scan here fails the whole ``tests/va/e2e`` directory rather than one lane.
+#: Every tree named there is CLAIMED to reach a served machine, and ``served``
+#: fails one that commits no ``*.va.json``; a facility joins by gaining a
+#: registry row.
+CRITERION_TREES = names("boots")
 
 
 def _recipes():
@@ -221,21 +225,53 @@ WRITE_FRACTION = 1e-3
 #: thousand, and the tighter of them refuses two.
 RF_WRITE_FRACTION = 1e-6
 
-#: Tolerance for a readback that came back through a calibration. Generous
+#: Tolerance for a served value against the in-process composite's. Generous
 #: against the wire (Channel Access serves a double, and the IOC's display
 #: precision does not enter a ``caget``), tight against the thing being tested:
 #: a readback served through the wrong curve, or through no curve at all, is
 #: wrong by orders of magnitude, not by parts in a billion.
 READBACK_RTOL = 1e-9
 
-#: The three answers a served binding can give the client that writes to it.
-#: A document naming anything else describes a machine the model cannot serve.
-READBACK_RULES = ("same_as_setpoint", "identity", "inverse")
+#: The kind of a wiring record that reads one plane of the orbit: its role and
+#: its kind alike.
+MONITOR = "monitor"
+
+
+@cache
+def _describer(engine: str | None) -> Any:
+    """The ``describe`` of the engine plug-in named ``engine``, through its entry point.
+
+    The engine says what kind of device a wiring record drives or reads --
+    ``kick``, ``strength``, ``rf``, ``energy`` or ``monitor`` -- so a served
+    record and a mapping family are classified by one authority, never by
+    reading engine words here.
+    """
+    from importlib import metadata
+
+    from osprey.simulation.engines import ENTRY_POINT_GROUP
+
+    return metadata.entry_points(group=ENTRY_POINT_GROUP)[str(engine)].load().describe
 
 
 # ===================================================================
 # The harvest
 # ===================================================================
+
+
+@dataclass(frozen=True)
+class Device:
+    """One driven channel of the served view.
+
+    Attributes:
+        kind: What the record drives or reads, as its engine describes it.
+        setpoint: The address a client writes.
+        readback: The address the written field is read back on; the setpoint
+            itself for a channel that pairs with no readback of its own.
+    """
+
+    kind: str
+    setpoint: str
+    readback: str
 
 
 @dataclass(frozen=True)
@@ -245,50 +281,111 @@ class BuiltTree:
     Attributes:
         name: The fixture the export came from.
         repo: The deployment repo the recipe built.
-        env: The deployment ``.env`` the build appended its derived keys to.
-        document: The bindings the build published into the served directory.
-        limits: The write bands of that same directory.
+        view: The simulator view the build rendered.
         declared_kinds: The coupling kinds the reviewed mapping declares.
+        stopped: What the first build printed to stderr before any remedy.
+        remedied: The setpoints whose limits records the harvest widened, in
+            the order the build's stops named them.
     """
 
     name: str
     repo: Path
-    env: dict[str, str]
-    document: BindingsDocument
-    limits: dict[str, Any]
+    view: SimulatorView
     declared_kinds: frozenset[str]
+    stopped: str
+    remedied: tuple[str, ...]
 
     @property
-    def served_dir(self) -> Path:
-        """The directory the container is pointed at."""
-        return ManifestPaths(data_root=self.repo / "build" / "data").machine_json.parent
+    def data_root(self) -> Path:
+        """The data root the container mounts: the simulator view sits under it."""
+        return self.repo / "build" / "data"
+
+    @property
+    def simulator_dir(self) -> Path:
+        """The simulator view the container's composite serves."""
+        return self.data_root / VIEW_RELPATH.name
+
+    def channel(self, address: str) -> Channel:
+        """The view's record of ``address``."""
+        try:
+            return self.view.channel(address)
+        except KeyError:
+            raise AssertionError(
+                f"{self.name}: the served view lists no channel {address}"
+            ) from None
+
+    def bindings(self) -> tuple[Binding, ...]:
+        """Every wiring record of the view's physics models, model by name, then in wiring order."""
+        return self.view.bindings(served_only=False)
+
+    def wired(self) -> list[str]:
+        """Every address a physics model of the view wires, in wiring order."""
+        return list(dict.fromkeys(binding.address for binding in self.bindings()))
+
+    def kind(self, binding: Binding) -> str | None:
+        """The kind of device ``binding`` drives or reads, as its model's engine describes it."""
+        engine = self.view.model(binding.model).engine
+        kind: str | None = _describer(engine)(binding.record)["kind"]
+        return kind
+
+    def devices(self, kind: str) -> tuple[Device, ...]:
+        """The view's driven channels of one kind, in wiring order.
+
+        Wiring order is the facility file's record order, so a lane naming a
+        slot names one device on every run against a given tree -- which is
+        how two lanes driving the same tree are kept off each other's device.
+        A monitor is a reading rather than a write, so it is its own readback;
+        every other kind is a setpoint, whose readback is its channel's pair.
+        """
+        devices: list[Device] = []
+        for binding in self.bindings():
+            if self.kind(binding) != kind:
+                continue
+            address = binding.address
+            if binding.role == MONITOR:
+                devices.append(Device(kind=MONITOR, setpoint=address, readback=address))
+            elif binding.direction == "write":
+                pair = self.channel(address).pair or address
+                devices.append(Device(kind=kind, setpoint=address, readback=str(pair)))
+        return tuple(devices)
 
     def band(self, address: str) -> tuple[float, float]:
-        """The drive band the served tree gives ``address``."""
-        entry = self.limits.get(address)
-        assert isinstance(entry, dict), f"{address} carries no write band in the served tree"
-        return float(entry["min_value"]), float(entry["max_value"])
+        """The drive band the served view gives ``address``."""
+        bounds = self.channel(address).value_range
+        assert bounds is not None and None not in bounds, (
+            f"{address} carries no write band in the served view"
+        )
+        low, high = bounds
+        return float(low), float(high)
 
-    def target(self, binding: Binding) -> float:
-        """A hardware value inside ``binding``'s band and away from its nominal.
+    def oracle(self) -> Any:
+        """A fresh in-process composite over the view the container serves.
 
-        Derived from the tree's own band and the device's own nominal rather
-        than chosen here, because a value outside the band is clamped by the
-        IOC: the readback would then be about the limit and not about the write.
+        No state directory and no model log: it starts at the view's baseline,
+        as the container does, and writes nothing outside this process.
+        """
+        from osprey_connectors.simulation.composite import Composite
+
+        return Composite(self.simulator_dir, state_dir=None, model_log=False)
+
+    def target(self, device: Device, booted: float) -> float:
+        """A hardware value inside ``device``'s band and away from ``booted``.
+
+        Derived from the view's own band and the value the device serves
+        rather than chosen here, because a value outside the band is clamped:
+        the readback would then be about the limit and not about the write.
         The step is taken in whichever direction the band has room for, and
-        it is the RF fraction for a cavity, whose step the ring bounds more
+        it is the RF fraction for a cavity, whose step the lattice bounds more
         tightly than the band does (see ``RF_WRITE_FRACTION``).
         """
-        low, high = self.band(binding.setpoint_address)
-        nominal = binding.nominal
-        assert nominal is not None, f"{binding.setpoint_address} carries no nominal"
-        fraction = RF_WRITE_FRACTION if binding.kind == "rf" else WRITE_FRACTION
-        step = abs(nominal) * fraction or (high - low) * fraction
-        for candidate in (nominal + step, nominal - step):
+        low, high = self.band(device.setpoint)
+        fraction = RF_WRITE_FRACTION if device.kind == "rf" else WRITE_FRACTION
+        step = abs(booted) * fraction or (high - low) * fraction
+        for candidate in (booted + step, booted - step):
             if low < candidate < high:
                 return candidate
         raise AssertionError(
-            f"{binding.setpoint_address}: neither {nominal + step} nor {nominal - step} "
+            f"{device.setpoint}: neither {booted + step} nor {booted - step} "
             f"fits inside its band [{low}, {high}], so no write can be made that the "
             f"drive limits would not clamp"
         )
@@ -302,7 +399,19 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
     that is the preset a facility harvest lands on, every refusal is obeyed as
     printed, and the build is the ordinary one -- no flag here tells it to
     treat a served tree differently.
+
+    The exports enter the facility description through ``facility import
+    mml``: the stop it makes over the preset's authored sources is obeyed line
+    by line, the tree's reviewed ``imported/mml/mapping.yaml`` is
+    installed, and every export goes in one call. The import lists the demo
+    scenarios it leaves stale, and exactly those are removed. The first build
+    then stops on a setpoint that starts outside its seeded band; ``facility
+    validate`` names every such setpoint, the limits records those lines name
+    are widened in the deployment, never in the fixture, and the set is held
+    against the tree's own.
     """
+    from osprey.facility.layers.mml.mapping import MAPPING_FILE
+
     recipes = _recipes()
     fixture = recipes.FIXTURES / name
     exports = sorted(str(path) for path in fixture.glob("*.ao.json"))
@@ -311,50 +420,75 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
     runner = CliRunner()
     repo = destination / "deployment"
     recipes.invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
-    recipes.invoke(runner, "mml", "import", *exports, "--repo", str(repo))
-    shutil.copy(fixture / "mapping.yaml", repo / "data" / "mml" / "mapping.yaml")
-    recipes.drive_emit(runner, repo)
+    recipes.clear_authored(runner, repo, exports)
+    imported = recipes.import_facility(runner, repo, exports, recipes.facility_mapping(fixture))
     recipes.invoke(
         runner,
         "set",
         "--repo",
         str(repo),
-        *recipes.served_settings(recipes.facility_prefix(fixture)),
+        "config.control_system.connector.virtual_accelerator.probe_channel="
+        + recipes.imported_probe(repo),
+    )
+    recipes.remove_stale_scenarios(repo, imported)
+    recipes.invoke(
+        runner,
+        "set",
+        "--repo",
+        str(repo),
+        *recipes.MIDDLE_LAYER_SETTINGS,
     )
     recipes.invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
-    recipes.invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
+    stopped, remedied, _ = recipes.build_past_the_seed_stops(
+        runner, repo, responses=recipes.expected_response_lines(name)
+    )
+    expected = recipes.expected_seed_stops(name)
+    assert len(remedied) == len(expected) and set(remedied) == expected, (
+        f"{name}: the build stopped on {sorted(remedied)}, and the tree plants {sorted(expected)}"
+    )
 
-    paths = ManifestPaths(data_root=repo / "build" / "data")
+    view = SimulatorView.of_project(repo)
     return BuiltTree(
         name=name,
         repo=repo,
-        env=recipes.env_values(repo),
-        document=load_bindings(paths.va_bindings),
-        limits=json.loads(
-            (paths.machine_json.parent / "channel_limits.json").read_text(encoding="utf-8")
-        ),
-        declared_kinds=_declared_kinds(repo / "data" / "mml" / "mapping.yaml"),
+        view=view,
+        declared_kinds=_declared_kinds(repo / recipes.FACILITY_DIR / MAPPING_FILE, view),
+        stopped=stopped.stderr,
+        remedied=remedied,
     )
 
 
-def _declared_kinds(mapping: Path) -> frozenset[str]:
-    """The coupling kinds the reviewed mapping declares for the served system.
+def _declared_kinds(mapping: Path, view: SimulatorView) -> frozenset[str]:
+    """The kinds the reviewed mapping wires, over every model it names.
 
     Read from the copy the install left in the deployment rather than from the
-    fixture beside the export, so this is the same document ``mml emit`` bound
-    from.
+    fixture beside the export, so this is the same document ``facility import
+    mml`` wired from.
 
-    Only a family whose verdict is ``couple`` contributes its ``kind``. A
-    latched family carries a ``slot.kind`` too, but that names the QUESTION
-    that was asked about the family -- an unknown ATType, an escape hatch --
-    and a question binds nothing.
+    A wired family states what it is to the engine in the engine's own block,
+    and the field it wires carries the direction the mapping reviewed. Each
+    family is described as one record of it -- its engine block, that
+    direction, one of its elements -- by the ``describe`` of the engine its
+    model names in the served view, the same authority the served records are
+    classified by, so the two are held against each other kind by kind. A
+    family whose engine block is ``null`` is a slot nobody has decided, and a
+    slot binds nothing.
     """
-    block = yaml.safe_load(mapping.read_text(encoding="utf-8"))["virtual_accelerator"]
-    return frozenset(
-        str(family["kind"])
-        for family in block["families"].values()
-        if isinstance(family, dict) and family.get("verdict") == "couple" and "kind" in family
-    )
+    document = yaml.safe_load(mapping.read_text(encoding="utf-8"))
+    directions = document.get("directions") or {}
+    kinds: set[str] = set()
+    for model in document["models"].values():
+        describe = _describer(view.model(str(model["name"])).engine)
+        for name, family in (model.get("wiring") or {}).items():
+            engine = family.get("engine")
+            if not engine:
+                continue
+            direction = directions[f"{name}.{family['element_field']}"]["direction"]
+            record = {"address": name, "direction": direction, "element": name, "engine": engine}
+            kind = describe(record)["kind"]
+            if kind is not None:
+                kinds.add(kind)
+    return frozenset(kinds)
 
 
 # ===================================================================
@@ -368,10 +502,16 @@ def _docker(*arguments: str, timeout: float = 120.0) -> subprocess.CompletedProc
 
 @dataclass(frozen=True)
 class ServedTree:
-    """A built tree with a container serving it, and the port it answers on."""
+    """A built tree with a container serving it, the port it answers on, and its oracle.
+
+    ``oracle`` is an in-process composite over the same view, given every
+    write the container is given, in the same order: what it holds is what
+    the served machine owes.
+    """
 
     tree: BuiltTree
     port: int
+    oracle: Any
 
     def call(self, request: dict, *, timeout: float = 600.0) -> dict:
         """Run one Channel Access exchange against this container.
@@ -409,26 +549,31 @@ class ServedTree:
     def write_then_read(
         self, writes: list[tuple[str, float]], addresses: list[str]
     ) -> dict[str, Any]:
+        """Write over Channel Access, then read; the oracle is given the same writes first."""
+        for address, value in writes:
+            self.oracle.set({address: value})
         answer = self.call(
             {"op": "write_read", "writes": [list(pair) for pair in writes], "addresses": addresses}
         )
         assert not answer["failed"], f"unreadable after the write: {answer['failed']}"
         return answer["values"]
 
+    def owed(self, *addresses: str) -> dict[str, float]:
+        """What the served machine owes at ``addresses``, by the oracle."""
+        values = self.oracle.get(list(addresses))
+        return {address: float(values[address]) for address in addresses}
+
 
 @contextmanager
 def _serving(tree: BuiltTree):
     """Boot one container over ``tree``'s published data root and wait for it.
 
-    The mount is the ROOT the build published, with ``VA_DATA_DIR`` naming the
-    served directory inside it, because the model is resolved against the whole
-    tree: the lattice and the bindings under the served directory, the write
-    bands its variables are built from beside it at the root.
-
-    The namespace and the ring are taken from the deployment's own ``.env``,
-    which is where ``osprey build`` recorded what it derived from this tree.
-    Naming them here instead would test this file's idea of the harvest rather
-    than the harvest.
+    The container reads the instance and the simulator view from the env and
+    data root the directory conftest's composite boot uses: the instance
+    named, and the build's ``data`` root mounted as ``/data``, whose
+    ``simulator/`` is the view the composite serves. Nothing here restates
+    what the build derived from this tree, so the boot tests the harvest
+    rather than this file's idea of it.
     """
 
     def container(port: int) -> tuple[str, list[str]]:
@@ -444,11 +589,8 @@ def _serving(tree: BuiltTree):
             name,
             "-e",
             f"EPICS_CA_SERVER_PORT={port}",
-            "-e",
-            f"VA_CHANNELS_FILE={tree.env['VA_CHANNELS_FILE']}",
-            "-e",
-            f"VA_LATTICE={tree.env['VA_LATTICE']}",
-            *e2e_conftest.data_root_run_args(tree.served_dir),
+            *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
+            *e2e_conftest.data_root_run_args(tree.data_root),
             "-p",
             f"127.0.0.1:{port}:{port}/tcp",
             IMAGE,
@@ -456,7 +598,7 @@ def _serving(tree: BuiltTree):
 
     port, name = e2e_conftest.run_on_free_port(container)
 
-    served = ServedTree(tree=tree, port=port)
+    served = ServedTree(tree=tree, port=port, oracle=tree.oracle())
     try:
         _wait_until_ready(name, served)
         yield served
@@ -470,9 +612,9 @@ def _wait_until_ready(container: str, served: ServedTree) -> None:
     Readiness is a served ANSWER, not a log line: the readiness marker is
     printed before the first client has ever reached the server, and a
     container whose port never became reachable from the host would sail past
-    a log check. The address probed is one the served tree itself names.
+    a log check. The address probed is one the served view itself wires.
     """
-    probe = served.tree.document.bindings[0].setpoint_address
+    probe = served.tree.wired()[0]
     deadline = time.monotonic() + BOOT_TIMEOUT_S
     # Kept so a boot that never answers says what the client last saw.
     last_attempt = "no read completed"
@@ -513,91 +655,64 @@ def served(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFact
     ``xdist_group`` mark that keeps every lane on one of them, so no two boots
     of this module run at once.
 
-    Whether a tree carries a machine is read off the CLI recipe's own
-    discovery, so the boot lane and the recipe lane can never disagree about
-    it -- and a tree named here that carries none FAILS. Naming a facility in
-    ``CRITERION_TREES`` is the claim that its export reaches a served machine;
-    a tree that stops meeting that claim has lost something this suite exists
-    to notice.
+    Whether a tree carries a machine is read off the tree on disk -- and a
+    tree named here that carries none FAILS. A registry row that claims a boot
+    is the claim that the tree's export reaches a served machine; a tree that
+    stops meeting that claim has lost something this suite exists to notice.
     """
     name = str(request.param)
-    assert name in _recipes().TWO_ZERO_TREES, (
+    assert any((_recipes().FIXTURES / name).glob("*.va.json")), (
         f"{name} commits no 2.0 export (no *.va.json beside its Accelerator Objects), so it "
-        f"carries no machine to serve; re-export it with mml_export 2.0, or drop it from "
-        f"CRITERION_TREES if this facility is no longer claimed to boot"
+        f"carries no machine to serve; re-export it with mml_export 2.0, or drop its boot "
+        f"claim from the registry if this facility is no longer claimed to boot"
     )
     tree = harvest_and_build(name, tmp_path_factory.mktemp(f"mml-tree-{name}"))
     with _serving(tree) as running:
         yield running
 
 
-def _of_kind(tree: BuiltTree, kind: str, readback: str | None = None) -> tuple[Binding, ...]:
-    """The tree's bindings of one kind, in document order.
-
-    Document order is the order the facility exported its devices in, so a lane
-    naming a slot names one device on every run against a given tree -- which
-    is how two lanes driving the same tree are kept off each other's device.
-    """
-    return tuple(
-        binding
-        for binding in tree.document.bindings
-        if binding.kind == kind and (readback is None or binding.readback == readback)
-    )
-
-
 def _agrees_with_the_mapping(tree: BuiltTree, kinds: tuple[str, ...]) -> None:
-    """The served tree binds each of ``kinds`` exactly when its mapping declares it.
+    """The served view wires each of ``kinds`` exactly when its mapping declares it.
 
     What every absence below rests on. Which families couple, and as what, is
-    the reviewed mapping's answer; ``mml emit`` turns exactly those answers
-    into bindings. So a facility that exports no energy knob is a FACT about
+    the reviewed mapping's answer, and the harvest turns exactly those answers
+    into wiring. So a facility that exports no energy knob is a FACT about
     that facility, provable against its own mapping, rather than a lane that
     stops measuring -- and the reverse, a mapping that couples a family whose
-    bindings never reached the served tree, fails here rather than reading as
+    wiring never reached the served view, fails here rather than reading as
     a facility that simply has no such knob.
     """
     for kind in kinds:
-        bound = bool(_of_kind(tree, kind))
+        bound = bool(tree.devices(kind))
         declared = kind in tree.declared_kinds
         assert bound == declared, (
-            f"{tree.name}: the served tree binds {'a' if bound else 'no'} {kind} while its "
+            f"{tree.name}: the served view wires {'a' if bound else 'no'} {kind} while its "
             f"reviewed mapping declares {'one' if declared else 'none'}; the mapping decides "
             f"what couples, so the two cannot disagree about a whole kind"
         )
 
 
-def _rules_are_coherent(tree: BuiltTree, kinds: tuple[str, ...]) -> None:
-    """Every binding of ``kinds`` serves a known rule, on the address it names.
+def _pairs_are_coherent(tree: BuiltTree, kinds: tuple[str, ...]) -> None:
+    """Every driven channel of ``kinds`` reads back where a model answers.
 
-    Two facts in one walk. A rule outside the three is a document no model
-    could serve. And ``same_as_setpoint`` is the one rule that answers on the
-    address it was written to, so it is also the one rule that owes no second
-    address: a binding that carries one anyway serves its readback where no
-    rule reaches, and one that carries none under another rule names nowhere
-    to read.
-
-    Written for the driven kinds only. A monitor reads a physics quantity and
-    is served through its inverse on the address it was written to, so it is
-    the one kind for which the second half does not hold.
+    A channel that pairs with itself answers on the address it was written
+    to. One that names a readback of its own names a channel a physics model
+    of the view wires as a reading: a readback the texture answered would
+    echo the demand rather than report the field the model took.
     """
-    for binding in tree.document.bindings:
-        if binding.kind not in kinds:
-            continue
-        assert binding.readback in READBACK_RULES, (
-            f"{tree.name}: {binding.setpoint_address} serves {binding.readback!r}, which is "
-            f"none of the three rules a client can be written against ({READBACK_RULES})"
-        )
-        owes_an_address = binding.readback != "same_as_setpoint"
-        assert (binding.readback_address is not None) == owes_an_address, (
-            f"{tree.name}: {binding.setpoint_address} serves {binding.readback!r} and "
-            f"{'names no' if owes_an_address else 'also names a'} readback address"
-        )
+    reads = {binding.address for binding in tree.bindings() if binding.direction == "read"}
+    for kind in kinds:
+        for device in tree.devices(kind):
+            assert device.readback == device.setpoint or device.readback in reads, (
+                f"{tree.name}: {device.setpoint} reads back on {device.readback}, which no "
+                f"physics model of the served view wires as a reading"
+            )
 
 
 def _bound_or_absent(
-    bindings: tuple[Binding, ...], tree: BuiltTree, kinds: tuple[str, ...]
-) -> Binding | None:
-    """The first of ``bindings``, or ``None`` once the absence is accounted for.
+    devices: tuple[Device, ...], tree: BuiltTree, kinds: tuple[str, ...]
+) -> Device | None:
+    """The first of ``devices``, or ``None`` once the absence is accounted for.
 
     Either way the tree is first held to its mapping over ``kinds``, so a lane
     that ends in ``None`` ends having proved something about the facility. The
@@ -606,21 +721,35 @@ def _bound_or_absent(
     suite must never be ambiguous about.
     """
     _agrees_with_the_mapping(tree, kinds)
-    return bindings[0] if bindings else None
+    return devices[0] if devices else None
 
 
-def _expected_inverse(binding: Binding, written: float) -> float:
-    """What an ``inverse`` readback owes for ``written``, through the real curves.
+def _echoing(devices: tuple[Device, ...], *, echoes: bool) -> tuple[Device, ...]:
+    """The devices that pair with themselves (``echoes``), or the ones that do not."""
+    return tuple(device for device in devices if (device.readback == device.setpoint) == echoes)
 
-    ``monitor_inverse(calibration(written))``, evaluated by the product's own
-    conversions over the served document. The two curves are independent
-    exported data -- the inverse is not the calibration read backwards -- so the
-    only way to state this expectation without restating the facility's
-    numbers is to run the same two conversions the model runs.
+
+def _write_and_hold(served: ServedTree, device: Device) -> None:
+    """Write ``device`` once and hold both addresses to what the oracle owes.
+
+    The setpoint must hold the value written; the readback must hold what the
+    in-process composite computes for it after the same write -- the written
+    value for a channel that pairs with itself, the model's reading of the
+    field otherwise.
     """
-    assert binding.calibration is not None and binding.monitor_inverse is not None
-    physics = to_physics(binding.calibration, written)
-    return float(to_hardware(binding.monitor_inverse, physics))
+    booted = float(served.read(device.setpoint)[device.setpoint])
+    target = served.tree.target(device, booted)
+    addresses = list(dict.fromkeys((device.setpoint, device.readback)))
+
+    values = served.write_then_read([(device.setpoint, target)], addresses)
+
+    assert values[device.setpoint] == pytest.approx(target, rel=READBACK_RTOL)
+    owed = served.owed(*addresses)
+    assert values[device.readback] == pytest.approx(owed[device.readback], rel=READBACK_RTOL), (
+        f"{served.tree.name}: {device.readback} serves {values[device.readback]} after "
+        f"{device.setpoint} took {target}, and the composite over the same view holds "
+        f"{owed[device.readback]}"
+    )
 
 
 # ===================================================================
@@ -629,62 +758,110 @@ def _expected_inverse(binding: Binding, written: float) -> float:
 
 
 class TestTheServedTree:
-    def test_every_coupled_channel_the_bindings_claim_is_served(self, served: ServedTree) -> None:
-        """Every address the model drives answers a read from the host.
+    def test_the_harvest_passed_the_seed_stops_its_tree_plants(self, served: ServedTree) -> None:
+        """The first build stopped on exactly the stops the tree plants, possibly none.
 
-        The claimed set is the document's own: each binding's setpoint plus the
-        readback it serves where it serves one. A channel in it that does not
-        answer is a tree whose manifest and bindings came from different runs,
-        or a mount the container could not resolve a model over.
+        A tree's import plants the stops its seed module names. The build
+        names the first stop and ``facility validate`` names them all; the
+        harvest widened the record of each, and that set is the tree's. A tree
+        that plants none is held to a first build that stopped on none.
+
+        The synthetic tree plants one: the corrector its export starts outside
+        its own ``Range``. That stop is the only line the first build printed
+        about the facility, and the machine served here is the one built after
+        its limits record was widened to hold the nominal.
         """
-        claimed = sorted(claimed_addresses(served.tree.document))
-        assert claimed, f"{served.tree.name} claims no channel at all"
+        recipes = _recipes()
+        tree = served.tree
+        expected = recipes.expected_seed_stops(tree.name)
+        stops = recipes.seed_stops(tree.stopped)
 
-        answer = served.call({"op": "read", "addresses": claimed})
+        if not expected:
+            message = (
+                f"{tree.name}: the first build stopped on {sorted(stops)}, and the tree plants none"
+            )
+            assert not stops, message
+            assert not tree.remedied, message
+        else:
+            assert stops and set(stops) <= expected
+            assert set(tree.remedied) == expected
+        if tree.name == "synthetic":
+            (address,) = expected
+            facility_lines = [
+                line for line in tree.stopped.splitlines() if line.startswith("facility: ")
+            ]
+            assert len(facility_lines) == 1, facility_lines
+            assert facility_lines[0].startswith(f"facility: seed-invalid: channel {address} — ")
+            assert stops[address] == ("max_value", 1.5)
+
+    def test_every_wired_channel_is_served(self, served: ServedTree) -> None:
+        """Every address the models drive answers a read from the host.
+
+        The wired set is the view's own: every setpoint a physics model takes
+        and every reading it answers. A channel in it that does not answer is
+        a mount the container could not resolve a model over. Each setpoint
+        serves exactly what the oracle holds for it: setpoints carry no
+        declared motion and no write has reached the machine yet. A server
+        that answers with values it never computed is not a served machine.
+        """
+        wired = sorted(served.tree.wired())
+        assert wired, f"{served.tree.name} wires no channel at all"
+
+        answer = served.call({"op": "read", "addresses": wired})
 
         assert not answer["failed"], (
-            f"{served.tree.name}: {len(answer['failed'])} of {len(claimed)} coupled channels "
+            f"{served.tree.name}: {len(answer['failed'])} of {len(wired)} wired channels "
             f"are not served: {answer['failed']}"
         )
         missing = [address for address, value in answer["values"].items() if value is None]
         assert not missing, f"{served.tree.name}: served with no value: {missing}"
 
+        setpoints = [
+            address for address in wired if served.tree.channel(address).role == "setpoint"
+        ]
+        owed = served.owed(*setpoints)
+        for address in setpoints:
+            value = answer["values"][address]
+            assert value == pytest.approx(owed[address], rel=READBACK_RTOL), (
+                f"{served.tree.name}: {address} serves {value}, and the model owes {owed[address]}"
+            )
+
     def test_a_setpoint_carrying_its_own_readback_serves_what_was_written(
         self, served: ServedTree
     ) -> None:
-        """``same_as_setpoint``: one address, and it holds the accepted value.
+        """A channel that pairs with itself holds the accepted value.
 
-        The rule a read-modify-write client depends on -- a setpoint that
+        The answer a read-modify-write client depends on -- a setpoint that
         answered with anything but the value it took would drift such a client
         one write at a time.
 
-        Which rule a device serves is not the mapping's to state: it follows
-        from the export's own channels and curves, so the emitted document is
-        the source of truth for it. A tree serving this rule nowhere therefore
-        ends on what can be held against something independent -- its driven
-        kinds against the mapping, and its rules against the three a client can
-        be written for.
+        Which channels pair with themselves is not the mapping's to state: it
+        follows from the export's own channels, so the served view is the
+        source of truth for it. A tree with no such channel therefore ends on
+        what can be held against something independent -- its driven kinds
+        against the mapping, and its readbacks against the models that answer
+        them.
 
         The device is looked for among strengths, then correctors, then the RF
-        frequency, which is the one device of this rule a tree may have. That
+        frequency, which is the one device of this kind a tree may have. That
         device can be the only one of its kind, so a later lane may drive it
         too: the write is held to moving it, and the value it booted with is
-        written back once the rule has been measured.
+        written back once the answer has been measured.
         """
         kinds = ("strength", "kick", "rf")
-        _rules_are_coherent(served.tree, kinds)
-        binding = _bound_or_absent(
-            _of_kind(served.tree, "strength", "same_as_setpoint")
-            or _of_kind(served.tree, "kick", "same_as_setpoint")
-            or _of_kind(served.tree, "rf", "same_as_setpoint"),
+        _pairs_are_coherent(served.tree, kinds)
+        device = _bound_or_absent(
+            _echoing(served.tree.devices("strength"), echoes=True)
+            or _echoing(served.tree.devices("kick"), echoes=True)
+            or _echoing(served.tree.devices("rf"), echoes=True),
             served.tree,
             kinds,
         )
-        if binding is None:
+        if device is None:
             return
-        target = served.tree.target(binding)
-        address = binding.setpoint_address
-        booted = served.read(address)[address]
+        address = device.setpoint
+        booted = float(served.read(address)[address])
+        target = served.tree.target(device, booted)
         assert booted != pytest.approx(target, rel=READBACK_RTOL), (
             f"{served.tree.name}: {address} already serves {target} before the write"
         )
@@ -695,113 +872,82 @@ class TestTheServedTree:
         restored = served.write_then_read([(address, booted)], [address])
         assert restored[address] == pytest.approx(booted, rel=READBACK_RTOL)
 
-    def test_a_strength_write_reads_back_through_the_exported_inverse(
-        self, served: ServedTree
-    ) -> None:
-        """``inverse``: the readback is the written value through both curves.
+    def test_a_strength_write_reads_back_through_the_model(self, served: ServedTree) -> None:
+        """A strength's own readback is the model's reading of the field it set.
 
         This is the lane that would catch a readback served as a plain echo:
-        the expected value is computed through the facility's own calibration
-        and its own ``monitor_inverse``, which for a real export land nowhere
+        the expected value is what the in-process composite computes through
+        the readback's own calibration, which for a real export need not land
         near the number that was written.
 
-        A tree whose strengths all collapse to another rule ends at the same
-        two checks as the lane above, for the same reason.
+        A tree whose strengths all pair with themselves ends at the same two
+        checks as the lane above, for the same reason.
         """
-        _rules_are_coherent(served.tree, ("strength",))
-        binding = _bound_or_absent(
-            _of_kind(served.tree, "strength", "inverse"), served.tree, ("strength",)
+        _pairs_are_coherent(served.tree, ("strength",))
+        device = _bound_or_absent(
+            _echoing(served.tree.devices("strength"), echoes=False), served.tree, ("strength",)
         )
-        if binding is None:
+        if device is None:
             return
-        assert binding.readback_address is not None
-        target = served.tree.target(binding)
+        _write_and_hold(served, device)
 
-        values = served.write_then_read(
-            [(binding.setpoint_address, target)],
-            [binding.setpoint_address, binding.readback_address],
-        )
-
-        assert values[binding.setpoint_address] == pytest.approx(target, rel=READBACK_RTOL)
-        assert values[binding.readback_address] == pytest.approx(
-            _expected_inverse(binding, target), rel=READBACK_RTOL
-        )
-
-    def test_a_kick_write_reads_back_on_the_address_the_document_names(
+    def test_a_kick_write_reads_back_on_the_address_the_view_pairs(
         self, served: ServedTree
     ) -> None:
-        """A corrector, written and read back per its own rule.
+        """A corrector, written and read back where its channel pairs.
 
-        The kick is asserted through the same three-rule branch as everything
-        else rather than assumed to be an echo: which rule a facility's
-        correctors use is the export's answer, not this file's.
+        The readback is held to the composite rather than assumed to be an
+        echo: what a facility's correctors read back is the export's answer,
+        not this file's.
         """
-        binding = _bound_or_absent(_of_kind(served.tree, "kick"), served.tree, ("kick",))
-        if binding is None:
+        device = _bound_or_absent(served.tree.devices("kick"), served.tree, ("kick",))
+        if device is None:
             return
-        target = served.tree.target(binding)
-        addresses = [binding.setpoint_address]
-        if binding.readback_address is not None:
-            addresses.append(binding.readback_address)
-
-        values = served.write_then_read([(binding.setpoint_address, target)], addresses)
-
-        assert values[binding.setpoint_address] == pytest.approx(target, rel=READBACK_RTOL)
-        expected = _expected_inverse(binding, target) if binding.readback == "inverse" else target
-        served_at = binding.readback_address or binding.setpoint_address
-        assert values[served_at] == pytest.approx(expected, rel=READBACK_RTOL)
+        _write_and_hold(served, device)
 
     def test_a_corrector_write_moves_the_monitors(self, served: ServedTree) -> None:
-        """The ring is behind the channels.
+        """The model is behind the channels.
 
         A corrector is written and the monitors are read before and after. A
         served echo -- or a container that resolved no model over its mount --
         leaves every monitor exactly where it was, which is the one thing no
         other lane in this file can tell apart from a machine.
         """
-        _agrees_with_the_mapping(served.tree, ("monitor", "kick"))
-        monitors = _of_kind(served.tree, "monitor")
-        correctors = _of_kind(served.tree, "kick")
+        _agrees_with_the_mapping(served.tree, (MONITOR, "kick"))
+        monitors = served.tree.devices(MONITOR)
+        correctors = served.tree.devices("kick")
         if not monitors or not correctors:
             return
         # The second corrector where the tree has one, so this lane and the
         # kick-readback lane above drive different devices. A tree with a
         # single corrector has none to spare, and measuring its orbit against
         # that one device is worth more than not measuring it at all.
-        binding = correctors[1] if len(correctors) > 1 else correctors[0]
-        addresses = [monitor.setpoint_address for monitor in monitors]
+        device = correctors[1] if len(correctors) > 1 else correctors[0]
+        addresses = [monitor.setpoint for monitor in monitors]
 
         before = served.read(*addresses)
+        booted = float(served.read(device.setpoint)[device.setpoint])
         after = served.write_then_read(
-            [(binding.setpoint_address, served.tree.target(binding))], addresses
+            [(device.setpoint, served.tree.target(device, booted))], addresses
         )
 
         moved = [address for address in addresses if before[address] != after[address]]
         assert moved, (
-            f"{served.tree.name}: writing {binding.setpoint_address} moved none of "
-            f"{len(addresses)} monitors, so nothing behind those channels is a ring"
+            f"{served.tree.name}: writing {device.setpoint} moved none of "
+            f"{len(addresses)} monitors, so no model is behind those channels"
         )
 
     def test_the_rf_frequency_is_written_and_read_back(self, served: ServedTree) -> None:
         """The cavity knob, where the facility exports one.
 
-        A tree binding no ``rf`` ends at the mapping check: which knobs a
+        A tree wiring no ``rf`` ends at the mapping check: which knobs a
         facility has is its export's answer, and a lane that demanded one
         everywhere would fail a facility for a machine it does not run.
         """
-        binding = _bound_or_absent(_of_kind(served.tree, "rf"), served.tree, ("rf",))
-        if binding is None:
+        device = _bound_or_absent(served.tree.devices("rf"), served.tree, ("rf",))
+        if device is None:
             return
-        target = served.tree.target(binding)
-        served_at = binding.readback_address or binding.setpoint_address
-
-        values = served.write_then_read(
-            [(binding.setpoint_address, target)], [binding.setpoint_address, served_at]
-        )
-
-        expected = _expected_inverse(binding, target) if binding.readback == "inverse" else target
-        assert values[binding.setpoint_address] == pytest.approx(target, rel=READBACK_RTOL)
-        assert values[served_at] == pytest.approx(expected, rel=READBACK_RTOL)
+        _write_and_hold(served, device)
 
     def test_the_energy_knob_is_written_and_read_back(self, served: ServedTree) -> None:
         """The dipole, which is the ring's energy rather than an element's field.
@@ -812,19 +958,10 @@ class TestTheServedTree:
         a written hardware value and would survive it, but the ordering keeps
         the machine each of them ran against the one it booted in.
         """
-        binding = _bound_or_absent(_of_kind(served.tree, "energy"), served.tree, ("energy",))
-        if binding is None:
+        device = _bound_or_absent(served.tree.devices("energy"), served.tree, ("energy",))
+        if device is None:
             return
-        target = served.tree.target(binding)
-        served_at = binding.readback_address or binding.setpoint_address
-
-        values = served.write_then_read(
-            [(binding.setpoint_address, target)], [binding.setpoint_address, served_at]
-        )
-
-        expected = _expected_inverse(binding, target) if binding.readback == "inverse" else target
-        assert values[binding.setpoint_address] == pytest.approx(target, rel=READBACK_RTOL)
-        assert values[served_at] == pytest.approx(expected, rel=READBACK_RTOL)
+        _write_and_hold(served, device)
 
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:

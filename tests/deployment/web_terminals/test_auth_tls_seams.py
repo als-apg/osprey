@@ -59,7 +59,6 @@ def _config(users: list[str]) -> dict:
     """Minimal-but-complete facility config that exercises render_web_terminals()."""
     return {
         "facility": {
-            "name": "Demo Light Source",
             "prefix": "dls",
         },
         "system": {"timezone": "America/Los_Angeles"},
@@ -74,6 +73,8 @@ def _config(users: list[str]) -> dict:
                 "ariel_base_port": _BASE_PORTS["ariel"],
                 "lattice_base_port": _BASE_PORTS["lattice"],
                 "users": users,
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": "demo-assistant"}},
             }
         },
     }

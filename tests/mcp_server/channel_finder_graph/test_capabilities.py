@@ -18,6 +18,7 @@ paradigm expects of it.
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -180,45 +181,46 @@ class TestGraphVocabulary:
         assert addresses["property"] == "fullPv"
         assert addresses["node_label"] == "ChannelBinding"
 
-    def test_addresses_report_the_generated_six_token_grammar(self, payload):
-        grammar = payload["addresses"]["generated_grammar"]
+    def test_addresses_carry_no_grammar(self, payload):
+        """An address is the facility's own spelling, never a token list to fill in."""
+        addresses = payload["addresses"]
 
-        assert grammar["tokens"] == [
-            "ring",
-            "system",
-            "family",
-            "device",
-            "field",
-            "subfield",
-        ]
-        assert grammar["example"].count(":") == 5
+        assert "generated_grammar" not in addresses
+        assert set(addresses) == {"property", "node_label", "form", "notes"}
+        assert any("Take fullPv verbatim" in note for note in addresses["notes"])
 
-    def test_addresses_warn_that_the_grammar_is_the_corpus_own(self, payload):
-        """A facility corpus records its own address shape; the grammar is the demo's."""
+    def test_addresses_warn_that_the_shape_is_the_corpus_own(self, payload):
+        """A corpus records its own address shape; the rows say what it is."""
         notes = " ".join(payload["addresses"]["notes"])
 
-        assert "real facility" in notes
+        assert "read the shape off the rows" in notes
         assert "fullPv" in notes
+
+    def test_no_middle_layer_word_in_the_manifest(self, payload):
+        text = json.dumps(payload)
+
+        hit = re.search(r"(?i)\b(famil(y|ies)|field|subfield)\b", text)
+        assert hit is None, f"the manifest names {hit.group(0)!r}"
 
     def test_description_predicates_are_reported_per_node_type(self, payload):
         predicates = payload["description_predicates"]
 
         assert {kind: entry["properties"] for kind, entry in predicates.items()} == {
-            "binding": ["description", "fieldDescription", "subfieldDescription"],
-            "device": ["familyDescription", "systemDescription", "ringDescription"],
+            "binding": ["description"],
+            "device": ["familyDescription", "systemDescription"],
             "signal": [],
         }
 
-    def test_advertised_prose_properties_are_the_generators(self, payload):
-        """Pin the manifest to the emitter so the two cannot drift apart.
+    def test_advertised_prose_properties_are_the_graph_views(self, payload):
+        """Pin the manifest to the graph view so the two cannot drift apart.
 
-        The manifest spells the six description predicates as literals rather
-        than importing them, which keeps the server off the TTL generator's
-        import path. This is the seam that would otherwise let a renamed or
-        newly added predicate ship in generated corpora while the manifest kept
+        The manifest spells the description predicates as literals rather than
+        importing them, which keeps the server off the graph view's import
+        path. This is the seam that would otherwise let a renamed or newly
+        added predicate ship in the generated graph while the manifest kept
         advertising the old vocabulary.
         """
-        from osprey.services.facility_knowledge.ttl_generator.emitter import PROPERTY_NAMES
+        from osprey.facility.views.graph import PROPERTY_NAMES
 
         advertised = {
             prop
@@ -230,9 +232,9 @@ class TestGraphVocabulary:
         }
 
         assert advertised == generated, (
-            "the manifest's prose vocabulary drifted from the TTL emitter's "
+            "the manifest's prose vocabulary drifted from the graph view's "
             f"(manifest only: {sorted(advertised - generated)}; "
-            f"emitter only: {sorted(generated - advertised)})"
+            f"view only: {sorted(generated - advertised)})"
         )
 
     def test_every_node_type_says_how_it_is_matched(self, payload):
@@ -306,9 +308,9 @@ class TestLimits:
         assert "narrow" in notes.lower()
 
     def test_notes_name_the_seed_command_for_an_empty_graph(self, payload):
-        from osprey.deployment.graphdb_service import GRAPHDB_SEED_COMMAND
+        from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 
-        assert GRAPHDB_SEED_COMMAND in " ".join(payload["notes"])
+        assert GRAPHDB_REBUILD_HINT in " ".join(payload["notes"])
 
     def test_notes_state_that_this_is_not_a_health_check(self, payload):
         notes = " ".join(payload["notes"]).lower()

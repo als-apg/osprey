@@ -160,8 +160,8 @@ def starter_read_channel(config: Mapping[str, Any]) -> str | None:
 
     The starter notebook shows a real read only where the deployment has
     already named a channel it can serve. Nothing is guessed and no facility
-    name is baked in: a mock-only deployment such as the hello-world preset
-    declares no channel, and gets no read line.
+    name is baked in: a deployment on the simulator in process alone, such as
+    the hello-world preset, declares no channel, and gets no read line.
 
     Two declarations qualify, in this order:
 

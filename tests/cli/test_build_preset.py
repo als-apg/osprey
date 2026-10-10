@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import logging
 import pathlib
-import shutil
 from pathlib import Path
 from unittest.mock import patch
 
@@ -33,6 +32,7 @@ from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.init_cmd import init
 from osprey.errors import BuildProfileError
+from tests._preset_data import copy_bundle_data
 
 
 @pytest.fixture
@@ -49,22 +49,15 @@ def _facility_data(root: Path, bundle: str = "hello_world") -> Path:
     directory, and a preset that reads a channel-limits database or a knowledge
     zone out of it needs the packaged content, not an empty directory.
     """
-    from osprey.cli.templates.manager import TemplateManager
-
-    destination = root / "data"
-    shutil.copytree(
-        TemplateManager().template_root / "apps" / bundle / "data",
-        destination,
-        dirs_exist_ok=True,
-    )
-    return destination
+    return copy_bundle_data(root / "data", bundle)
 
 
 #: The keys every deployment must state, for fixtures that build a profile of
 #: their own rather than inheriting a preset. The posture floor refuses a build
 #: whose profile leaves any of them to a reader's fallback.
 _POSTURE_FLOOR = (
-    "  control_system.type: mock\n"
+    "  control_system.type: virtual_accelerator\n"
+    "  control_system.connector.virtual_accelerator.serving: in_process\n"
     "  archiver.type: mock_archiver\n"
     "  approval.enabled: true\n"
     "  approval.default_policy: always\n"
@@ -198,30 +191,23 @@ def test_preset_ariel_standalone_renders_logbook_persona(runner: CliRunner, tmp_
     assert manifest["creation"]["claude_md_template"] == "CLAUDE.ariel.md.j2"
 
 
-def test_ariel_standalone_narrates_every_control_assistant_scenario(
+def test_ariel_standalone_narrates_every_scenario_of_its_facility(
     runner: CliRunner, tmp_path: Path
 ) -> None:
-    """The standalone logbook is the control-assistant scenarios' narrative, by construction.
+    """The standalone logbook is every scenario story of the facility it shows.
 
-    The packaged ariel_standalone template ships no logbook and no machine
-    corpus of its own (its data/ holds only a README); its ``shared_data.yml`` takes both from the
-    control-assistant template. So what a standalone deploy seeds is read off
-    the same files the control-assistant scenarios carry, and this pins that
-    it is ALL of them: every scenario's entries, in nominal-first order, each
-    with the very picture bytes the scenario attaches.
+    ``ariel.demo_narrative: all`` reads the built simulator view, so what a
+    standalone deploy seeds is ALL of the example facility's scenario entries,
+    in nominal-first order, each with the very picture bytes the scenario
+    attaches.
     """
     import osprey
+    from osprey.facility.scenarios import scenario_logbook
     from osprey.simulation.apply import demo_narrative_logbook
-    from osprey.simulation.machine import parse_machine, read_machine_json
+    from tests._simulator_view import facility_scenarios
 
-    templates = pathlib.Path(osprey.__file__).parent / "templates" / "apps"
-    own = sorted(
-        p.relative_to(templates / "ariel_standalone" / "data").as_posix()
-        for p in (templates / "ariel_standalone" / "data").rglob("*")
-    )
-    assert own == ["README.md"], (
-        "ariel_standalone ships data of its own again -- one copy of each file lives "
-        "in control_assistant and is taken through shared_data.yml"
+    facility_scenarios_dir = (
+        pathlib.Path(osprey.__file__).parent / "templates" / "facilities" / "example" / "scenarios"
     )
 
     result = _materialize(runner, str(tmp_path), "smoke", "ariel-standalone")
@@ -229,12 +215,18 @@ def test_ariel_standalone_narrates_every_control_assistant_scenario(
     render = _project(tmp_path, "smoke")
     ariel = _config_yaml(render)["ariel"]
     assert "ingestion" not in ariel, "the demo narrative replaces the demo ingest"
+    assert ariel["demo_narrative"] == "all"
     seeded = demo_narrative_logbook(ariel, render)
 
-    machine_path = templates / "control_assistant" / "data" / "simulation" / "machine.json"
-    scenarios = parse_machine(read_machine_json(machine_path), machine_path).scenarios
+    scenarios = facility_scenarios(facility_scenarios_dir)
     order = sorted(scenarios, key=lambda name: (name != "nominal", name))
-    expected = [entry for name in order for entry in scenarios[name].logbook]
+    expected = [
+        entry
+        for name in order
+        for entry in scenario_logbook(
+            {"name": name, **scenarios[name]}, facility_scenarios_dir / name
+        )
+    ]
 
     assert [e.entry_id for e in seeded] == [e.entry_id for e in expected]
     assert [(e.title, e.text, e.when) for e in seeded] == [
@@ -248,9 +240,6 @@ def test_ariel_standalone_narrates_every_control_assistant_scenario(
     for got, want in zip(seeded, expected, strict=True):
         assert _pictures(got.attachments) == _pictures(want.attachments), got.entry_id
     assert sum(len(e.attachments) for e in seeded) == 3
-
-    corpus = templates / "control_assistant" / "data" / "demo_machine.ttl"
-    assert (render / "data" / "demo_machine.ttl").read_bytes() == corpus.read_bytes()
 
 
 def test_preset_control_assistant_ships_live_openobserve_telemetry(
@@ -946,56 +935,33 @@ def test_attached_profile_built_alone_may_name_its_host_by_hand(
     assert _config_yaml(_project(tmp_path, "alone"))["services"]["qmd"]["port"] == 9180
 
 
-def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_path: Path) -> None:
-    """The control-assistant preset bundles the simulation machine model.
+def test_control_assistant_preset_wires_its_simulation(runner: CliRunner, tmp_path: Path) -> None:
+    """The control-assistant preset wires its simulation from the build alone.
 
-    Pins the wiring: the data bundle ships ``data/simulation/machine.json``
-    (shared channels) plus a ``scenarios/`` tree of self-contained bundles, and
-    the rendered ``config.yml`` names the machine file exactly once, under the
-    key path the connector factory scopes
-    (``control_system.connector.mock``). The mock archiver derives its own copy
-    from there, so a second declaration would be a divergence waiting to
-    happen. No ``active_scenarios`` state file ships in ``data/``: the active
-    set is runtime state under ``_agent_data/simulation/``, and the first deploy
-    writes it from the machine's ``default_scenarios`` (``rf-thermal``, the
+    Pins the wiring: no scenario bundle tree ships under ``data/simulation/``,
+    and the rendered ``config.yml`` names no model file for any connector or
+    for the mock archiver — each serves the simulator view the build writes.
+    No ``active_scenarios`` state file ships in ``data/``: the active set is
+    runtime state under ``_agent_data/simulation/``, and the first deploy
+    writes it from ``simulation.default_scenarios`` (``rf-thermal``, the
     incident the getting-started tutorial walks through).
     """
-    import json
-
     result = _materialize(runner, str(tmp_path), "smoke", "control-assistant")
     assert result.exit_code == 0, result.output
     project_dir = _project(tmp_path, "smoke")
     sim_dir = project_dir / "data" / "simulation"
 
-    machine_path = sim_dir / "machine.json"
-    assert machine_path.exists(), "machine.json missing from built project"
-    machine = json.loads(machine_path.read_text(encoding="utf-8"))
-    assert "channels" in machine
-    assert "scenarios" not in machine, "scenarios moved to bundle tree, not the machine file"
-    assert machine["default_scenarios"] == ["rf-thermal"]
-
-    # Self-contained scenario bundles (telemetry + optional logbook).
-    for name in ("nominal", "vacuum-burst", "rf-thermal"):
-        assert (sim_dir / "scenarios" / name / "scenario.json").exists(), f"{name} bundle missing"
-    assert (sim_dir / "scenarios" / "nominal" / "logbook.json").exists()
-    assert (sim_dir / "scenarios" / "rf-thermal" / "logbook.json").exists()
-    # The pictures and plot specs logbook entries attach ship with their bundles.
-    assert (sim_dir / "scenarios" / "rf-thermal" / "plots" / "cavity_temperatures.json").exists()
-    # vacuum-burst is telemetry-only by design (no logbook narrative).
-    assert not (sim_dir / "scenarios" / "vacuum-burst" / "logbook.json").exists()
+    assert not (sim_dir / "scenarios").exists(), "the scenarios ship as facility scenario files"
 
     assert not (sim_dir / "active_scenarios").exists(), (
         "active_scenarios is runtime state — it must not ship in the build-owned data/ tree"
     )
 
     config = _config_yaml(project_dir)
-    assert (
-        config["control_system"]["connector"]["mock"]["simulation_file"]
-        == "data/simulation/machine.json"
-    )
-    assert "simulation_file" not in config["archiver"].get("mock_archiver", {}), (
-        "the archiver repeats the machine path; it derives it now"
-    )
+    for block in config["control_system"]["connector"].values():
+        assert "simulation_file" not in block
+    assert "simulation_file" not in config["archiver"].get("mock_archiver", {})
+    assert config["simulation"]["default_scenarios"] == ["rf-thermal"]
 
 
 def test_preset_yaml_must_be_mapping(
@@ -1049,7 +1015,7 @@ class TestBuildProfileChannelFinderModeValidation:
         Read from :data:`VALID_CHANNEL_FINDER_MODES` rather than a literal list so
         registering a paradigm cannot leave this test asserting a stale set.
         """
-        from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+        from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
         from osprey.cli.build_profile import BuildProfile
 
         (tmp_path / "data").mkdir(exist_ok=True)
@@ -1158,7 +1124,7 @@ class TestDeployServicesKnob:
         # profile and the deploy binds into every entitled container. A bare
         # profile without it is refused by the Reach Contract (the bind source
         # would be an empty directory), and this class is about the knob.
-        (profile.parent / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+        (profile.parent / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
         result = _render_from(runner, str(profile))
         assert result.exit_code == 0, result.output
         return _project(tmp_path, "smoke")
@@ -1296,15 +1262,9 @@ def test_persona_delta_build_resolves_from_the_profile_root(
 ) -> None:
     """FR-10 anchoring: a delta under `personas/` inherits the root profile and
     everything it names anchors at the ROOT, not at the delta's own parent."""
-    from osprey.cli.templates.manager import TemplateManager
-
     root = tmp_path / "prof"
     (root / "personas").mkdir(parents=True)
-    import shutil
-
-    shutil.copytree(
-        TemplateManager().template_root / "apps" / "hello_world" / "data", root / "data"
-    )
+    copy_bundle_data(root / "data", "hello_world")
     (root / "data" / "FACILITY_MARKER.txt").write_text("from the root\n")
     (root / "profile.yml").write_text(
         "name: RootProfile\nproject_name: prof\nextends: hello-world\nprovider: anthropic\n"
@@ -1350,15 +1310,11 @@ def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
     (`commands/osprey/scan`, not `commands/scan`): a basename rule would pass
     the flat case and silently miss the namespaced one.
     """
-    from osprey.cli.templates.manager import TemplateManager
-
     root = tmp_path / "prof"
     (root / "personas").mkdir(parents=True)
     (root / "agents").mkdir()
     (root / "commands" / "osprey").mkdir(parents=True)
-    shutil.copytree(
-        TemplateManager().template_root / "apps" / "hello_world" / "data", root / "data"
-    )
+    copy_bundle_data(root / "data", "hello_world")
     (root / "agents" / "orbit-writer.md").write_text(
         "---\nname: orbit-writer\ndescription: profile-shipped agent\n---\n\nBody.\n"
     )
@@ -1423,7 +1379,7 @@ def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
     root = tmp_path / "prof"
     (root / "personas").mkdir(parents=True)
     _facility_data(root, "control_assistant")
-    (root / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+    (root / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
         "name: RootProfile\n"
         "project_name: prof\n"
@@ -1481,7 +1437,7 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(
     root = tmp_path / "prof"
     (root / "personas").mkdir(parents=True)
     _facility_data(root, "control_assistant")
-    (root / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+    (root / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
         "name: RootProfile\n"
         "project_name: prof\n"

@@ -29,6 +29,7 @@ from osprey.cli.build_profile import (
     _parse_profile,
     load_profile,
 )
+from osprey.cli.build_profile_presets import PRESET_ONLY_KEYS
 from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
 
@@ -243,9 +244,11 @@ def test_control_assistant_profile_validates() -> None:
     """
     presets_dir = bp._presets_dir()
     raw = yaml.safe_load((presets_dir / "control-assistant.yml").read_text(encoding="utf-8"))
-    # `app_template:` is preset-side and consumed at the single read point in
-    # `_load_preset_raw`; reading the file straight off disk has to pop it too.
-    raw.pop("app_template", None)
+    # `app_template:` and `facility:` are preset-side and consumed at the single
+    # read point in `_load_preset_raw`; reading the file straight off disk has to
+    # pop them too.
+    for key in PRESET_ONLY_KEYS:
+        raw.pop(key, None)
     profile = _parse_profile(raw)
 
     profile.validate(presets_dir)  # raises BuildProfileError on any issue
@@ -345,7 +348,7 @@ class TestControlAssistantTurnkeyPlanControlSystem:
     turn-key plan stack, together with the live stand-in derived from it, and
     control_system.type is pinned to "virtual_accelerator" so a fresh session
     opens on the sandbox simulator, the one machine here where a write is
-    harmless -- flipping the one config line to "mock" is the documented
+    harmless -- serving the simulator in process is the documented
     fallback for environments with no containers to depend on
     (covered by tests/cli/test_va_default_config.py).
     """
@@ -373,9 +376,11 @@ def test_control_assistant_turnkey_plan_preset_validates() -> None:
     the preset's own bluesky_web block is present."""
     presets_dir = bp._presets_dir()
     raw = yaml.safe_load((presets_dir / "control-assistant.yml").read_text(encoding="utf-8"))
-    # `app_template:` is preset-side and consumed at the single read point in
-    # `_load_preset_raw`; reading the file straight off disk has to pop it too.
-    raw.pop("app_template", None)
+    # `app_template:` and `facility:` are preset-side and consumed at the single
+    # read point in `_load_preset_raw`; reading the file straight off disk has to
+    # pop them too.
+    for key in PRESET_ONLY_KEYS:
+        raw.pop(key, None)
     profile = _parse_profile(raw)
     profile.validate(presets_dir)  # raises BuildProfileError on any issue
 

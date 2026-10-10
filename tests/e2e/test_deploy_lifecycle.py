@@ -7,8 +7,8 @@ never reach the roster verbs (``osprey users remove``/``prune``/``seed``),
 ``osprey reset``, or the idempotent web-terminal ``up`` reconcile. This test
 drives all of them against a REAL Docker daemon, using
 ``tests/e2e/fixtures/multi_user_config.yml`` — a facility config whose
-``project_name``/``facility.prefix`` make every resource it produces exact-named
-and obviously throwaway.
+``project_name`` makes every resource it produces exact-named and obviously
+throwaway.
 
 Each fixture below is a three-zone deployment repo: ``profile.yml`` at the root
 marks it, ``.env`` beside it is its secret store, ``var/`` holds durable state,
@@ -33,7 +33,7 @@ registry that doesn't exist.
 CONTAINER-OPS SAFETY (every runtime-mutating call in this file honors this)
 ----------------------------------------------------------------------------
 Every container/volume this test creates is exact-named off the fixture's
-``project_name: osprey-e2e-mus-p3`` / ``facility.prefix: e2e``:
+``project_name: osprey-e2e-mus-p3``:
 
   * containers: ``osprey-e2e-mus-p3-web-<alice|bob|carol|dave|erin>``,
     ``osprey-e2e-mus-p3-nginx``,
@@ -80,6 +80,7 @@ import yaml
 from osprey.deployment.compose_generator import (
     QMD_CORPUS_ROOT,
     QMD_OKF_COLLECTION,
+    resolve_project_name,
     resolve_user_volume_names,
 )
 from osprey.deployment.qmd_service import QMDServiceConfig
@@ -109,7 +110,8 @@ if RUNTIME not in _SUPPORTED_RUNTIMES:
 # exact-naming rationale.
 # ---------------------------------------------------------------------------
 PROJECT_NAME = "osprey-e2e-mus-p3"
-FACILITY_PREFIX = "e2e"
+#: The compose project name every container of the fixture is named by.
+PROJECT = resolve_project_name({"project_name": PROJECT_NAME})
 
 # Users beyond the fixture's own committed [alice, bob] — extended onto the
 # roster at test setup (via config_writer.config_replace_list, the same
@@ -137,11 +139,11 @@ REGISTRY_READY_TIMEOUT_SEC = 30.0
 
 
 def _web_container(user: str) -> str:
-    return f"{PROJECT_NAME}-web-{user}"
+    return f"{PROJECT}-web-{user}"
 
 
 def _nginx_container() -> str:
-    return f"{PROJECT_NAME}-nginx"
+    return f"{PROJECT}-nginx"
 
 
 def _volume_names(user: str) -> tuple[str, str]:
@@ -517,7 +519,7 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
         assert claude_md.returncode == 0, _fmt("cat alice's CLAUDE.md", claude_md)
         assert _BASE_MD_MARKER in claude_md.stdout
 
-        skill_dir = f"/app/{FACILITY_PREFIX}-assistant/.claude/skills/user-installed"
+        skill_dir = f"/app/{PROJECT}-assistant/.claude/skills/user-installed"
         make_skill = _runtime_cli(
             "exec",
             "-u",
@@ -709,8 +711,8 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
 
 PROJECT_NAME_A = "osprey-e2e-two-proj-a"
 PROJECT_NAME_B = "osprey-e2e-two-proj-b"
-PREFIX_A = "e2ea"
-PREFIX_B = "e2eb"
+PROJECT_A = resolve_project_name({"project_name": PROJECT_NAME_A})
+PROJECT_B = resolve_project_name({"project_name": PROJECT_NAME_B})
 USERS_A = ("keeper", "keeper2", "second", "orphan")
 USERS_B = ("main", "orphan")
 
@@ -756,13 +758,12 @@ def _make_isolation_repo(
     dest: Path,
     *,
     project_name: str,
-    prefix: str,
     ports: dict[str, int],
     users: tuple[str, ...],
 ) -> Path:
     """A throwaway deployment repo like the ``repo`` fixture, parametrized.
 
-    Distinct ``project_name``/``facility.prefix``/ports/roster so that two
+    Distinct ``project_name``/ports/roster so that two
     instances (A, B) can be deployed and run concurrently on the same host
     without colliding — the two-project-isolation test needs both fixtures at
     once, which a single scoped pytest fixture can't provide. Two DIRECTORIES
@@ -775,7 +776,6 @@ def _make_isolation_repo(
         config_path,
         {
             "project_name": project_name,
-            "facility.prefix": prefix,
             "modules.web_terminals.nginx_port": ports["nginx"],
             "modules.web_terminals.web_base_port": ports["web"],
             "modules.web_terminals.artifact_base_port": ports["artifact"],
@@ -813,14 +813,12 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
     repo_a = _make_isolation_repo(
         tmp_path / "project-a",
         project_name=PROJECT_NAME_A,
-        prefix=PREFIX_A,
         ports=PORTS_A,
         users=USERS_A,
     )
     repo_b = _make_isolation_repo(
         tmp_path / "project-b",
         project_name=PROJECT_NAME_B,
-        prefix=PREFIX_B,
         ports=PORTS_B,
         users=USERS_B,
     )
@@ -839,11 +837,11 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
         assert up_b.returncode == 0, _fmt("osprey up (project B)", up_b)
 
         for user in USERS_A:
-            assert _container_id(f"{PROJECT_NAME_A}-web-{user}") is not None, (
+            assert _container_id(f"{PROJECT_A}-web-{user}") is not None, (
                 f"project A user {user!r} container not created by 'osprey up'"
             )
         for user in USERS_B:
-            assert _container_id(f"{PROJECT_NAME_B}-web-{user}") is not None, (
+            assert _container_id(f"{PROJECT_B}-web-{user}") is not None, (
                 f"project B user {user!r} container not created by 'osprey up'"
             )
 
@@ -868,7 +866,7 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
         plan = prune_dry.stdout
         assert "orphan" in plan, f"A's own orphan not mentioned in the dry-run plan:\n{plan}"
         assert PROJECT_NAME_B not in plan, f"A's users prune --dry-run named B's project:\n{plan}"
-        assert f"{PROJECT_NAME_B}-web-orphan" not in plan, (
+        assert f"{PROJECT_B}-web-orphan" not in plan, (
             f"A's users prune --dry-run named B's orphan container:\n{plan}"
         )
         b_orphan_volumes = resolve_user_volume_names({"project_name": PROJECT_NAME_B}, "orphan")
@@ -876,8 +874,8 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
             f"A's users prune --dry-run named one of B's volumes:\n{plan}"
         )
         # Dry-run is a true no-op: both sides' orphans are untouched.
-        assert _container_id(f"{PROJECT_NAME_A}-web-orphan") is not None
-        assert _container_id(f"{PROJECT_NAME_B}-web-orphan") is not None
+        assert _container_id(f"{PROJECT_A}-web-orphan") is not None
+        assert _container_id(f"{PROJECT_B}-web-orphan") is not None
 
         # --------------------------------------------------------------
         # Isolation 2 — A's users remove must never name B's resources.
@@ -887,10 +885,10 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
         assert PROJECT_NAME_B not in decomm.stdout, (
             f"A's users remove named B's project:\n{decomm.stdout}"
         )
-        assert f"{PROJECT_NAME_B}-web-" not in decomm.stdout, (
+        assert f"{PROJECT_B}-web-" not in decomm.stdout, (
             f"A's users remove named a B container:\n{decomm.stdout}"
         )
-        assert _container_id(f"{PROJECT_NAME_A}-web-second") is None
+        assert _container_id(f"{PROJECT_A}-web-second") is None
 
         # --------------------------------------------------------------
         # Isolation 3 — A's reset removes exactly A's own label-verified
@@ -965,13 +963,13 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
             "project — the com.osprey.project label verification did not hold"
         )
 
-        assert _container_id(f"{PROJECT_NAME_A}-web-keeper") is None
-        assert _container_id(f"{PROJECT_NAME_A}-nginx") is None
+        assert _container_id(f"{PROJECT_A}-web-keeper") is None
+        assert _container_id(f"{PROJECT_A}-nginx") is None
 
-        assert _container_id(f"{PROJECT_NAME_B}-web-main") is not None, (
+        assert _container_id(f"{PROJECT_B}-web-main") is not None, (
             "A's reset tore down a container belonging to project B"
         )
-        assert _container_id(f"{PROJECT_NAME_B}-nginx") is not None, (
+        assert _container_id(f"{PROJECT_B}-nginx") is not None, (
             "A's reset tore down project B's nginx container"
         )
         b_main_volumes = resolve_user_volume_names({"project_name": PROJECT_NAME_B}, "main")
@@ -983,7 +981,7 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
         # Exact-named sweep of every resource either project could have
         # created — mirrors _teardown_all_project_resources's shape, just
         # over two rosters/projects/image tags instead of one.
-        for project, users in ((PROJECT_NAME_A, USERS_A), (PROJECT_NAME_B, USERS_B)):
+        for project, users in ((PROJECT_A, USERS_A), (PROJECT_B, USERS_B)):
             for user in users:
                 _runtime_cli("rm", "-f", f"{project}-web-{user}")
             _runtime_cli("rm", "-f", f"{project}-nginx")
@@ -1034,7 +1032,7 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
 # prune/wildcard/glob).
 
 HETERO_PROJECT_NAME = "osprey-e2e-mus-p4-hetero"
-HETERO_PREFIX = "e2ehet"
+HETERO_PROJECT = resolve_project_name({"project_name": HETERO_PROJECT_NAME})
 HETERO_USERS = ("alice", "bob", "carol")
 
 # Disjoint from every other range in this file, including the two-project
@@ -1052,13 +1050,11 @@ HETERO_PORTS = {
 
 HETERO_DEFAULT_PERSONA = "assistant"
 HETERO_ALT_PERSONA = "alt"
-# The default persona's catalog `project` is deliberately chosen to equal
-# `<prefix>-assistant` -- the same string resolve_personas() PINS
-# container_project_dir to for the default persona regardless of the catalog
-# entry's own `project` field, so this fixture's Dockerfile-created directory
-# and resolve_personas()'s resolved mount path agree by construction.
-HETERO_DEFAULT_PROJECT = f"{HETERO_PREFIX}-assistant"
-HETERO_ALT_PROJECT = f"{HETERO_PREFIX}-alt"
+# The persona catalog `project` values are names this test picks: each names its
+# persona's image tag and its `/app/<project>` directory, which the persona's
+# Dockerfile creates and resolve_personas() resolves the mounts under.
+HETERO_DEFAULT_PROJECT = "e2ehet-assistant"
+HETERO_ALT_PROJECT = "e2ehet-alt"
 HETERO_DEFAULT_TAG = f"{HETERO_DEFAULT_PROJECT}:local"
 HETERO_ALT_TAG = f"{HETERO_ALT_PROJECT}:local"
 
@@ -1137,7 +1133,6 @@ def _hetero_config_dict(default_persona_path: Path, alt_persona_path: Path) -> d
         "container_runtime": "docker",
         "facility": {
             "name": "E2E Heterogeneous Persona Fixture",
-            "prefix": HETERO_PREFIX,
         },
         "system": {"timezone": "UTC"},
         "llm": {"api_key_env_var": "ANTHROPIC_API_KEY"},
@@ -1302,10 +1297,10 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path) -> None:
     repo = _make_hetero_repo(tmp_path)
     users_env_path = repo / ".env.users"
 
-    alice_c = f"{HETERO_PROJECT_NAME}-web-alice"
-    bob_c = f"{HETERO_PROJECT_NAME}-web-bob"
-    carol_c = f"{HETERO_PROJECT_NAME}-web-carol"
-    nginx_c = f"{HETERO_PROJECT_NAME}-nginx"
+    alice_c = f"{HETERO_PROJECT}-web-alice"
+    bob_c = f"{HETERO_PROJECT}-web-bob"
+    carol_c = f"{HETERO_PROJECT}-web-carol"
+    nginx_c = f"{HETERO_PROJECT}-nginx"
 
     try:
         # Precondition: exactly the "checkout with only a .env" shape.
@@ -1367,7 +1362,7 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path) -> None:
 
         # --------------------------------------------------------------
         # carol's (non-default persona) agent-data volume mounts at HER OWN
-        # project dir, not the default persona's /app/<prefix>-assistant.
+        # project dir, not the default persona's /app/<project>-assistant.
         # --------------------------------------------------------------
         carol_agent_volume = f"{HETERO_PROJECT_NAME}_carol-agent-data"
         assert (
@@ -1451,16 +1446,14 @@ def test_deploy_lifecycle_heterogeneous_registry_mode_up(repo: Path, stub_image:
         {
             "modules.web_terminals.image_source": "registry",
             "modules.web_terminals.default_persona": "assistant",
-            "modules.web_terminals.personas": {
-                "assistant": {"project": f"{FACILITY_PREFIX}-assistant"}
-            },
+            "modules.web_terminals.personas": {"assistant": {"project": f"{PROJECT}-assistant"}},
         },
     )
 
     # The tag a LOCAL build would have produced for this persona (it has its
     # own catalog `project`, so the tag names the render alone) -- must
     # never exist, since registry mode builds nothing.
-    never_built_tag = f"{FACILITY_PREFIX}-assistant:local"
+    never_built_tag = f"{PROJECT}-assistant:local"
 
     try:
         up = _run_osprey(osprey_bin, ["up"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
@@ -1567,14 +1560,19 @@ QMD_IMAGE = os.environ.get("OSPREY_QMD_IMAGE") or "osprey-qmd:local-validate"
 
 #: `facility_knowledge.bundle_path` for this scenario, relative to the repo
 #: root exactly as a facility config spells it.
-BUNDLE_REL = "data/facility_knowledge"
+BUNDLE_REL = "data/facility/knowledge"
+
+#: The project the fixture catalog's default persona names, and where the
+#: scenario renders that persona's config.yml (relative to the repo root).
+DEFAULT_PERSONA_PROJECT = f"{PROJECT}-assistant"
+DEFAULT_PERSONA_RENDER = f"{BUILD_DIRNAME}/{DEFAULT_PERSONA_PROJECT}"
 
 #: Where that same directory lands inside a web-terminal container. Derived by
 #: render._container_bundle_dir as `<container_project_dir>/<bundle_path>`, and
-#: `container_project_dir` for this fixture's persona-less roster is
-#: `/app/<facility_prefix>-assistant` (resolve_personas' zero-migration path) --
-#: the directory Dockerfile.web_terminal_stub already creates.
-CONTAINER_BUNDLE_DIR = f"/app/{FACILITY_PREFIX}-assistant/{BUNDLE_REL}"
+#: `container_project_dir` for this fixture's default persona is
+#: `/app/<its project>` -- the directory Dockerfile.web_terminal_stub already
+#: creates.
+CONTAINER_BUNDLE_DIR = f"/app/{DEFAULT_PERSONA_PROJECT}/{BUNDLE_REL}"
 
 #: Where the sidecar mounts it, and the collection it is indexed under. Both
 #: come from the framework's own constants rather than being re-spelled, since
@@ -1831,14 +1829,20 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
     )
     _retarget_bundle_group_if_vacuous(bundle_dir, dispatch_primary_gid)
 
+    # The entitlement: both users run the default persona, whose rendered
+    # config.yml names the bundle path (personas.personas_needing_facility_bundle).
+    persona_render = repo / DEFAULT_PERSONA_RENDER
+    persona_render.mkdir(parents=True, exist_ok=True)
+    (persona_render / "config.yml").write_text(
+        yaml.safe_dump({"facility_knowledge": {"bundle_path": BUNDLE_REL}}), encoding="utf-8"
+    )
+
     config_writer.config_update_fields(
         config_path,
         {
-            # The entitlement AND the location, in one key: a project that
-            # names a bundle path gets the mount
-            # (personas.config_needs_facility_bundle), and this fixture's
-            # roster carries no persona references, so both users resolve
-            # their entitlement from here.
+            "modules.web_terminals.personas.assistant.project_path": DEFAULT_PERSONA_RENDER,
+            # The location: the deploy config names the one shared directory
+            # every entitled container binds.
             "facility_knowledge.bundle_path": BUNDLE_REL,
             # `path` is what find_service_config resolves the rendered compose
             # fragment under build/ from; `port` is what the client and the

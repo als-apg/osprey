@@ -178,7 +178,7 @@ dependencies = [
     # same reasoning as PyAT above.
     "lume-base==0.5.0",
     # pyAT physics backend implementing the LUMEModel contract above
-    # (osprey.services.virtual_accelerator.model). Exact-pinned for the same
+    # (osprey.simulation.engines.pyat_model). Exact-pinned for the same
     # reason as lume-base: a young package whose surface is still settling, and
     # the facility adapter is written against the 0.2.0 contract specifically —
     # the persistent-lattice simulator, the multi-element writable variable a
@@ -211,6 +211,9 @@ dependencies = [
     "tenacity>=9.1.4",
     # Cross-version TypedDict/NotRequired — pydantic v2.12 rejects typing.TypedDict on py<3.12.
     "typing_extensions>=4.16.0",
+    # The facility file validates through a pydantic model generated from its
+    # LinkML schema (src/osprey/facility/schema/_generated/core.py).
+    "pydantic>=2.11,<3",
     # `osprey up --dev` builds a wheel from the local checkout. A shipped
     # CLI flag must not depend on an optional extra: an editable install without
     # `--extra dev` would otherwise satisfy every other --dev precondition and
@@ -281,7 +284,10 @@ dev = [
     "psycopg[binary,pool]>=3.3.4,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.3.1,<4.0.0",  # ARIEL search integration tests
     "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
-    "linkml-runtime>=1.11.1,<2",  # Ontology compiler + its tests; runtime use stays in the knowledge extra
+    # Generates the facility file's pydantic model and vocabulary table. Exact:
+    # the committed output is byte-compared against a regeneration, and
+    # gen-pydantic's output changes between releases.
+    "linkml==1.11.1",
     "PyJWT[crypto]>=2.8",  # Teams relay token validation; its tests import jwt plainly, so a missing install must fail
     # The HTTP client starlette's TestClient is built on. Without it the test
     # client falls back to httpx, which starlette deprecates.
@@ -299,11 +305,6 @@ ariel = [
 # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
 ariel-proxy = [
     "aiohttp-socks>=0.8.0",
-]
-
-# Google Sheets database backend for channel finder
-sheets = [
-    "gspread>=6.2.1",
 ]
 
 # Google Chat bridge (osprey.bridges.google_chat): Pub/Sub event ingestion,
@@ -328,13 +329,6 @@ gchat = [
 teams = [
     "azure-servicebus>=7.11",
     "pillow>=10",
-]
-
-# Facility knowledge / ontology support (LinkML schema loading for the ontology compiler)
-knowledge = [
-    # LinkML schema loading for the ontology compiler. Known transitive baggage:
-    # prefixcommons -> pytest-logging (2015) -> pytest lands in this extra; inert, accepted.
-    "linkml-runtime>=1.11.1,<2",
 ]
 
 # Screen capture on Linux (X11) — not needed on macOS
@@ -370,7 +364,7 @@ screen-capture-linux = [
 # only through `pva`: the base package does not depend on it. Exact-pinned for
 # the same reason as lume-base and lume-pyat above -- a young package whose
 # surface is still settling, and the runner subclass is written against the
-# 0.1.4 contract specifically (the extension seams it overrides are not yet a
+# 0.1.5 contract specifically (the extension seams it overrides are not yet a
 # stable API).
 #
 # Both VA images install through the `virtual-accelerator` extra rather than
@@ -384,44 +378,36 @@ screen-capture-linux = [
 # adds no requirement.)
 #
 # pcaspy is the portable Channel Access server. The serving layer hosts one,
-# and tests/va/test_record_factory.py and tests/va/test_apply_fault.py stand
-# one up in-process to assert the write contract from the far side of the wire;
-# without pcaspy installed both suites skip, and a skipped live suite proves
-# nothing.
-#
-# `>=0.8.1` is a hard floor, not a preference. 0.8.0's `SimplePV.writeNotify`
-# hands `startAsyncWrite` the wrong object and aborts the server process on any
-# asynchronous write, and the client is not told: `caput -w` returns success in
-# tens of milliseconds for a value that never landed. The fix needs
-# `casClientInfo.ctx`, a binding that only exists in the 0.8.1 extension.
+# and tests/va/test_apply_fault.py stands one up to assert the scenario faults
+# from the far side of the wire; without pcaspy installed that suite skips, and
+# a skipped live suite proves nothing. It arrives through lume-pva-apg's `ca`
+# extra, which carries the `>=0.8.1` floor itself, so this extra names it
+# nowhere. That floor is hard: 0.8.0's `SimplePV.writeNotify` aborts the server
+# on any asynchronous write while `caput -w` still reports success.
 #
 # The environment marker is load-bearing. pcaspy publishes manylinux x86_64
 # wheels at every interpreter, but nothing else that loads: cp313/cp314 are
 # x86_64-only, there is no linux aarch64 wheel at any interpreter, and the
 # macosx_11_0_arm64 wheels are broken as shipped (they link
-# @rpath/libc++.1.dylib with no surviving LC_RPATH entry). Unmarked, this
-# requirement would send a developer's Mac into a source build that needs EPICS
-# Base plus the separate PCAS module, and fail. Marked, those hosts get the
-# honest `importorskip` skip and run the live suites in the container venue
-# under scripts/va/live_ca/ instead.
-#
-# THE SAME MARKER RIDES ON lume-pva-apg, and for the same reason rather than
-# for symmetry: its `ca` extra requires pcaspy with no marker of its own, so an
-# unmarked entry here would pull pcaspy onto every host through the back door
-# and defeat the marker above. Verified, not assumed -- resolving
-# `lume-pva-apg[ca,pva]==0.1.4` for macOS at 3.13 selects pcaspy 0.8.1, whose
-# only artifact at that interpreter and platform is the sdist. The two lines
-# must therefore stay marked together; marking one alone does nothing.
+# @rpath/libc++.1.dylib with no surviving LC_RPATH entry). The marker rides on
+# the lume-pva-apg entry alone, because its `ca` extra requires pcaspy with no
+# marker of its own: unmarked, this entry would send a developer's Mac into a
+# pcaspy source build that needs EPICS Base plus the separate PCAS module, and
+# fail. Verified, not assumed -- resolving `lume-pva-apg[ca,pva]==0.1.5` for
+# macOS at 3.13 selects pcaspy 0.8.1, whose only artifact at that interpreter
+# and platform is the sdist. Marked, those hosts get the honest `importorskip`
+# skip and run the live suites in the container venue under scripts/va/live_ca/
+# instead.
 #
 # The cost of the marker is that `import lume_pva_apg` is unavailable on a Mac
-# too. That costs nothing real: `serving/runner.py` imports pcaspy first, so it
-# is unimportable on those hosts regardless of what else is installed, and the
-# suites that reach it already treat all three server roots the same way.
+# too. That costs nothing real: `serving/runner.py` imports `lume_pva_apg.runner`,
+# which imports pcaspy, so it is unimportable on those hosts regardless of what
+# else is installed, and the suites that reach it already treat all three server
+# roots the same way.
 virtual-accelerator = [
-    "pcaspy>=0.8.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "lume-pva-apg[ca,pva]==0.1.4; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    # Recorder-side (see the note above); deliberately UNMARKED, unlike the two
-    # serving entries. That marker is not a house style to copy — it exists
+    "lume-pva-apg[ca,pva]==0.1.5; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    # Recorder-side (see the note above); deliberately UNMARKED, unlike the
+    # serving entry. That marker is not a house style to copy — it exists
     # because pcaspy publishes no usable wheel off linux/x86_64. These two do,
     # everywhere, so marking them would only make the recorder's dependencies
     # silently absent on a developer's machine.
@@ -430,7 +416,7 @@ virtual-accelerator = [
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,knowledge,gchat,teams]"
+    "osprey-framework[docs,dev,ariel,screen-capture-linux,gchat,teams]"
 ]
 
 [tool.uv.workspace]
@@ -462,6 +448,11 @@ webhook = "osprey.dispatch.sources.webhook:WebhookSource"
 cron = "osprey.dispatch.sources.cron:CronSource"
 epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 
+# Simulation engine plug-ins, each entry naming the module that implements the
+# plug-in contract; a facility build reaches an engine only through this group.
+[project.entry-points."osprey.simulation.engines"]
+pyat = "osprey.simulation.engines.pyat"
+
 # Resolver exemptions for two packages published more recently than the
 # ambient `exclude-newer` window some developer machines set (a rolling
 # "nothing newer than N days" policy). Both are exact pins this project needs
@@ -484,7 +475,7 @@ epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 # package's upload date; neither is load-bearing beyond making the resolve
 # reproducible.
 [tool.uv]
-exclude-newer-package = { lume-pyat = "2026-09-18T00:00:00Z", lume-pva-apg = "2026-09-13T00:00:00Z" }
+exclude-newer-package = { lume-pyat = "2026-09-18T00:00:00Z", lume-pva-apg = "2026-09-30T00:00:00Z" }
 
 # Hatchling build configuration
 # The version comes from the git tag, not a literal — a release is cut by tagging.
@@ -547,6 +538,7 @@ exclude = [
     "^venv/",
     "_agent_data/",
     "__pycache__/",
+    "^src/osprey/facility/schema/_generated/",
 ]
 
 # Specific modules to ignore due to optional dependencies
@@ -592,6 +584,14 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["sphinx.*"]
 follow_imports = "skip"
+
+# The facility schema's generated pydantic model is gen-pydantic output, byte
+# for byte; its root class's `schema` field overrides `BaseModel.schema`. The
+# `exclude` entry above only stops discovery, and importers still reach the
+# module, so `silent` keeps its types visible to them and its own errors quiet.
+[[tool.mypy.overrides]]
+module = ["osprey.facility.schema._generated.*"]
+follow_imports = "silent"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
@@ -659,6 +659,9 @@ extend-include = ["tests/pty/stub_runtime/docker"]
 extend-exclude = [
     "*/src/osprey/_version.py",
     "*/src/osprey_connectors/_version.py",
+    # Generated from the facility schema by gen-pydantic; compared byte for byte
+    # with a regeneration, so it is never reformatted.
+    "src/osprey/facility/schema/_generated/",
 ]
 
 [tool.ruff.format]

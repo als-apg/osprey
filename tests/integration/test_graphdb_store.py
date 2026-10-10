@@ -5,12 +5,12 @@ This is the only place the seeding primitives in
 n10s plugin.  Every other graphdb test mocks the driver, which can prove the
 call shapes but not the two things that decide whether the feature works: that
 ``n10s.graphconfig.init`` with :data:`~...graph_seeder.N10S_GRAPH_CONFIG`
-produces a graph the operator queries can traverse, and that the shipped
-``demo_machine.ttl`` imports into exactly the corpus those queries were verified
-against.  So the assertions here are the four counts verified on the generated
-demo machine (512 devices / 2908 bindings / 396 write-only + 2512 read-only /
-382 magnets rolled up through the class hierarchy), plus n10s's own
-``terminationStatus`` and its 36624 triples.
+produces a graph the operator queries can traverse, and that the graph view the
+control-assistant build writes imports into exactly the corpus those queries
+were verified against.  So the assertions here are the four counts verified on
+that view (533 binding owners / 2952 bindings / 412 write-only + 2536 read-only
+/ 398 magnets rolled up through the class hierarchy), plus n10s's own
+``terminationStatus`` and its 25000 triples.
 
 Counts only, never wall clock: seeding time depends on the host's disk and on
 whether the image was cold, and a timing assertion here would fail on a loaded
@@ -29,11 +29,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from importlib.resources import files
 from pathlib import Path
 
 import pytest
 
+from tests._builds import BuiltProject
 from tests._graphdb_container import (
     GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,
@@ -52,24 +52,25 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 
 
 # ---------------------------------------------------------------------------
-# Verified counts for the shipped demo_machine.ttl
+# Verified counts for the control-assistant build's graph view
 # ---------------------------------------------------------------------------
-# The device, binding and direction counts are the Turtle census pinned in
+# The binding and direction counts are the Turtle census pinned in
 # tests/templates/test_control_assistant_demo_ttl.py; the magnet rollup and the
 # triple count were verified against a live n10s import of the same file.
 
-#: Triples n10s reports loading from the shipped TTL.
-EXPECTED_TRIPLES_LOADED = 36624
-#: Distinct devices, i.e. resources carrying at least one channel binding.
-EXPECTED_DEVICES = 512
+#: Triples n10s reports loading from the view.
+EXPECTED_TRIPLES_LOADED = 25000
+#: Distinct resources carrying at least one channel binding: the 532 devices
+#: and the top place ``SR``, which carries the tune and chromaticity channels.
+EXPECTED_DEVICES = 533
 #: ``(:ChannelBinding)`` nodes.
-EXPECTED_BINDINGS = 2908
-EXPECTED_WRITE_ONLY = 396
-EXPECTED_READ_ONLY = 2512
+EXPECTED_BINDINGS = 2952
+EXPECTED_WRITE_ONLY = 412
+EXPECTED_READ_ONLY = 2536
 #: Devices whose type rolls up to ``Magnet`` through ``rdfs:subClassOf`` —
 #: Dipole + Quadrupole + Sextupole + HCorrector + VCorrector.
 #: This is the count that proves the *hierarchy* imported, not just the nodes.
-EXPECTED_MAGNETS = 382
+EXPECTED_MAGNETS = 398
 
 #: Ontology root the magnet rollup walks up to.  A driver parameter here, where
 #: the prototype's Browser-oriented file inlines it as a literal.
@@ -138,21 +139,10 @@ def seeder_store(graphdb_plugin_dir: Path) -> Iterator[WatchedStore]:
 
 
 @pytest.fixture(scope="session")
-def demo_ttl() -> str:
-    """The shipped demo corpus, read the way installed code reads it.
-
-    ``importlib.resources``, not a path into ``src/``: the TTL ships inside the
-    package, and a filesystem path would pass here while proving nothing about
-    the installed layout the seeding verb actually goes through.
-    """
-    resource = (
-        files("osprey.templates")
-        .joinpath("apps")
-        .joinpath("control_assistant")
-        .joinpath("data")
-        .joinpath("demo_machine.ttl")
-    )
-    return resource.read_text(encoding="utf-8")
+def demo_ttl(built_control_assistant: BuiltProject) -> str:
+    """The graph view the control-assistant build writes, as the seeder reads it."""
+    view = built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+    return view.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -209,36 +199,15 @@ def test_bootstrap_seed_and_force_reseed(seeder_store: WatchedStore, demo_ttl: s
         )
         assert graph_seeder.read_marker(session) is None
 
-        # --- 2. Seed the shipped TTL ----------------------------------------
+        # --- 2. Seed the graph view -----------------------------------------
         result = graph_seeder.import_ttl(session, demo_ttl)
         assert result.termination_status == graph_seeder.TERMINATION_OK, (
-            f"n10s refused the shipped TTL: {result.extra_info}"
+            f"n10s refused the graph view: {result.extra_info}"
         )
         assert result.ok
         assert result.triples_loaded == EXPECTED_TRIPLES_LOADED
-        graph_seeder.write_marker(
-            session, expected_sha, graph_seeder.parse_direction_source(demo_ttl)
-        )
+        graph_seeder.write_marker(session, expected_sha)
         assert graph_seeder.read_marker(session) == expected_sha
-        assert graph_seeder.read_direction_source(session) == "limits", (
-            "the shipped corpus declares its direction source in its first line, "
-            "and the marker is what carries that to the baked agent prompt"
-        )
-
-        # --- 2b. A corpus declaring nothing clears the stored claim ----------
-        # The properties share one MERGE, so a re-seed cannot leave the previous
-        # corpus's provenance standing beside the new corpus's digest.
-        graph_seeder.write_marker(
-            session,
-            expected_sha,
-            graph_seeder.parse_direction_source("@prefix ex: <http://x/> .\n"),
-        )
-        assert graph_seeder.read_direction_source(session) is None
-        assert graph_seeder.read_marker(session) == expected_sha
-
-        graph_seeder.write_marker(
-            session, expected_sha, graph_seeder.parse_direction_source(demo_ttl)
-        )
 
         # --- 3. The verified counts -----------------------------------------
         _assert_verified_counts(watched)
@@ -269,12 +238,9 @@ def test_bootstrap_seed_and_force_reseed(seeder_store: WatchedStore, demo_ttl: s
         reimport = graph_seeder.import_ttl(session, demo_ttl)
         assert reimport.termination_status == graph_seeder.TERMINATION_OK, reimport.extra_info
         assert reimport.triples_loaded == EXPECTED_TRIPLES_LOADED
-        graph_seeder.write_marker(
-            session, expected_sha, graph_seeder.parse_direction_source(demo_ttl)
-        )
+        graph_seeder.write_marker(session, expected_sha)
 
         assert graph_seeder.read_marker(session) == expected_sha
-        assert graph_seeder.read_direction_source(session) == "limits"
         _assert_verified_counts(watched)
 
 

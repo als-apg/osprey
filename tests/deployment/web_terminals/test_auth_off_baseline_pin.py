@@ -18,7 +18,7 @@ describes ``none``; its render is pinned by ``test_nginx_auth_surface.py``.
 
 So: a facility whose ``modules.web_terminals`` declares ``auth.method: token``
 (or no ``auth:`` block at all) and no ``authorization:`` block must render
-byte-for-byte what it rendered before this feature, with exactly six
+byte-for-byte what it rendered before this feature, with exactly nine
 exceptions:
 
   1. **the audit emitters and mounts** — ``OSPREY_AUDIT_IDENTITY``,
@@ -77,6 +77,18 @@ exceptions:
      every write. It is a perimeter rule that renders the same under every
      method, carries no account, role or claim, and names only the host
      ``deploy.fqdn`` already sets.
+  7. **the simulator log emitter and bind** — ``OSPREY_SIMULATOR_LOG_DIR`` and
+     the ``./var/simulator`` bind on every per-user container whenever a
+     simulated target is configured. The composite running in the terminal
+     appends its model logs there; nothing about it depends on a login.
+  8. **the guarded-run emitter and bind** — ``OSPREY_GUARDED_RUN_DIR`` and
+     the ``./var/guarded_run`` bind on every per-user container. A guarded run keeps its per-target lock and journal
+     there, shared with every other container that runs the agent; nothing
+     about it depends on a login.
+  9. **the persona badge** — every user card names the persona it runs, here
+     the default persona every roster states. It names the image's project
+     tier, carries no account, role or claim, and renders the same under
+     every method.
 
 Everything else — every volume, header, ``location`` block, comment and blank
 line, and every port *site* (see the mask below) — must be untouched, with one
@@ -191,7 +203,7 @@ from osprey.port_layout import default_port, resolve_port_base
 from osprey.services.auth_sidecar.app import ENV_ROSTER_ACCESS_PREFIX
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX
 
-from .test_golden_render import EXAMPLE_CONFIG, _rendered_repo_id
+from .test_golden_render import EXAMPLE_CONFIG, FACILITY_NAME, _rendered_repo_id
 
 _BASELINE_DIR = Path(__file__).parent / "golden" / "pre_audit_roles"
 
@@ -419,11 +431,11 @@ _LAYOUT_PORTS = frozenset(
 _ALLOWED_COMPOSE_LINES = Counter(
     {
         "      - OSPREY_AUDIT_IDENTITY=alice": 1,
-        "      - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/alice": 1,
-        "      - ./var/audit/alice:/app/dls-assistant/var/audit/alice": 1,
+        "      - OSPREY_AUDIT_DIR=/app/dls_controls-assistant/var/audit/alice": 1,
+        "      - ./var/audit/alice:/app/dls_controls-assistant/var/audit/alice": 1,
         "      - OSPREY_AUDIT_IDENTITY=bob": 1,
-        "      - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/bob": 1,
-        "      - ./var/audit/bob:/app/dls-assistant/var/audit/bob": 1,
+        "      - OSPREY_AUDIT_DIR=/app/dls_controls-assistant/var/audit/bob": 1,
+        "      - ./var/audit/bob:/app/dls_controls-assistant/var/audit/bob": 1,
         # The cookie-lifecycle feature — the deliberate THIRD exception to SC6,
         # stated in its PROPOSAL. The terminal's own session-cookie lifetime now
         # travels to every per-user container, under `token` as under every
@@ -445,10 +457,24 @@ _ALLOWED_COMPOSE_LINES = Counter(
         # exactly where nothing else is watching either. The identity in the
         # path is the roster name, the same one OSPREY_AUDIT_IDENTITY above
         # already spells, so no account, role or claim reaches this render.
-        "      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls-assistant/var/agent_data/control_target/alice": 1,
-        "      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls-assistant/var/agent_data/control_target/bob": 1,
-        "      - ./var/agent_data/control_target/alice:/app/dls-assistant/var/agent_data/control_target/alice": 1,
-        "      - ./var/agent_data/control_target/bob:/app/dls-assistant/var/agent_data/control_target/bob": 1,
+        "      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls_controls-assistant/var/agent_data/control_target/alice": 1,
+        "      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls_controls-assistant/var/agent_data/control_target/bob": 1,
+        "      - ./var/agent_data/control_target/alice:/app/dls_controls-assistant/var/agent_data/control_target/alice": 1,
+        "      - ./var/agent_data/control_target/bob:/app/dls_controls-assistant/var/agent_data/control_target/bob": 1,
+        # The simulator's model logs — the SEVENTH exception to SC6. The
+        # reference roster's deployment runs the mock, so every terminal runs
+        # the composite in process and appends its model logs to the one host
+        # directory `osprey sim status` names. Like the audit pair it carries
+        # no account, role or claim. Count 2 = alice + bob.
+        "      - OSPREY_SIMULATOR_LOG_DIR=/app/dls_controls-assistant/var/simulator": 2,
+        "      - ./var/simulator:/app/dls_controls-assistant/var/simulator": 2,
+        # The guarded-run directory — the EIGHTH exception to SC6. Every
+        # terminal runs the agent, and a guarded run started in any of them
+        # takes the one per-target lock and journal the deployment shares, so
+        # the bind is unconditional. It carries no account, role or claim.
+        # Count 2 = alice + bob.
+        "      - OSPREY_GUARDED_RUN_DIR=/app/dls_controls-assistant/var/guarded_run": 2,
+        "      - ./var/guarded_run:/app/dls_controls-assistant/var/guarded_run": 2,
     }
 )
 
@@ -460,8 +486,8 @@ _REPLACED_COMPOSE_LINES = frozenset(
     {
         "      # This user's refusal audit log (`var/audit/<user>/` on the host), bound",
         "      # so the record survives a recreate and is readable from the host.",
-        "      - ./var/audit/alice:/app/dls-assistant/var/audit",
-        "      - ./var/audit/bob:/app/dls-assistant/var/audit",
+        "      - ./var/audit/alice:/app/dls_controls-assistant/var/audit",
+        "      - ./var/audit/bob:/app/dls_controls-assistant/var/audit",
     }
 )
 
@@ -573,6 +599,9 @@ _ALLOWED_LANDING_LINES: Counter[str] = Counter(
             '            <span class="landing-card-token-hint">entered via a login link'
             " — <code>osprey users login-url bob</code></span>"
         ): 1,
+        # The persona badge — exception 9: one per user card, naming the
+        # default persona EXAMPLE_CONFIG's roster runs.
+        '            <span class="landing-card-sublabel">assistant</span>': 2,
     }
 )
 
@@ -595,14 +624,14 @@ def _token_render() -> dict[str, str]:
     `_auth_tls_context` supplies. The explicit spelling is
     :func:`_explicit_token_render`, and the two are pinned equal below.
     """
-    return render_web_terminals(EXAMPLE_CONFIG)
+    return render_web_terminals(EXAMPLE_CONFIG, facility_name=FACILITY_NAME)
 
 
 def _explicit_token_render() -> dict[str, str]:
     """The same posture written out: ``auth: {method: token}``, roles off."""
     explicit = copy.deepcopy(EXAMPLE_CONFIG)
     explicit["modules"]["web_terminals"]["auth"] = {"method": "token"}
-    return render_web_terminals(explicit)
+    return render_web_terminals(explicit, facility_name=FACILITY_NAME)
 
 
 def _is_comment(line: str) -> bool:
@@ -684,8 +713,8 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
     # The identity-addressed target is the feature's marker; the baseline may
     # carry the interim root-of-`var/audit` bind it replaces (see the module
     # docstring), so the bare `/var/audit/` substring is not the test.
-    assert "/app/dls-assistant/var/audit/alice" not in compose
-    assert "/app/dls-assistant/var/audit/bob" not in compose
+    assert "/app/dls_controls-assistant/var/audit/alice" not in compose
+    assert "/app/dls_controls-assistant/var/audit/bob" not in compose
     assert "OSPREY_CONTROL_CONTEXT_DIR" not in compose
     assert "/var/agent_data/control_target/alice" not in compose
     for line in _REPLACED_COMPOSE_LINES:
@@ -870,7 +899,8 @@ def test_landing_page_adds_exactly_the_token_login_badge() -> None:
 
     What the pin becomes is the same guarantee one step weaker and stated
     exactly: today's `token` landing page is the frozen one PLUS the badge's
-    style rules and the two spans per user card, and nothing at all besides.
+    style rules and the two spans per user card, and the persona badge
+    (exception 9), and nothing at all besides.
     Anything else that appears on this page — a role, a login form, a claim —
     still fails here, which is what SC6 was ever protecting.
     """

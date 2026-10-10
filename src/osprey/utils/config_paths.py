@@ -29,10 +29,9 @@ relative path the runtime resolves.
 
 One key is the deliberate exception, through :func:`resolve_render_relative_path`:
 ``services.graphdb.ttl_path``. The corpus it names is an artifact OF the
-render: its documented default, ``./data/demo_machine.ttl``, is read from the
-``data/`` tree the build assembled for exactly this project — the app
-template's data, or the profile's own ``data:`` tree in its place — so a corpus regenerated
-into the profile's data tree reaches the store on the next build, like every
+render: its documented default, ``./data/graph/facility.ttl``, is the graph
+view the build writes into the render from the project's ``data/facility/``
+sources, so a facility edit reaches the store on the next build, like every
 other rendered artifact. It therefore resolves against the ``config.yml``
 directory. The store is seeded from it once, by the deploy; nothing writes it
 back and nothing mounts it, which is why the argument above does not apply.

@@ -320,7 +320,11 @@ def test_switch_aware_rule_is_absent_without_the_switch():
             "enabled_servers": {"controls"},
             "target_switch_enabled": False,
         },
-        {"control_system_type": "mock", "enabled_servers": {"controls"}},
+        {
+            "control_system_type": "virtual_accelerator",
+            "control_system_transport": "in_process",
+            "enabled_servers": {"controls"},
+        },
     ):
         content = _render_rule(**context)
         for marker in SWITCH_RULE_MARKERS:
@@ -361,14 +365,12 @@ def test_switch_section_does_not_disturb_the_existing_rule_shape():
 # connector-host child — a frozen rule promising a switch the runtime refuses to
 # perform is worse than a rule that never mentions one. The cases below are
 # chosen for the two ways a locally-restated predicate gets it wrong: a doocs
-# deployment (switchable, but named by no epics literal) and a mock deployment
-# carrying a live block (NOT switchable — its baseline never resolves back to
-# its own declared type, so a session on "live" would reach a real machine the
-# config never selected).
+# deployment (switchable, but named by no epics literal) and a simulator
+# deployment carrying a live block (switchable — two configured targets).
 _EPICS_BLOCK = {"gateways": {"read_only": {"address": "gw.example.org"}}}
 _DOOCS_BLOCK = {"facility": "XFEL"}
 _VA_BLOCK = {"gateways": {"read_only": {"address": "localhost"}}}
-_MOCK_BLOCK = {"noise_level": 0.0}
+_IN_PROCESS_BLOCK = {"serving": "in_process", "response_delay_ms": 0}
 
 #: (label, control_system section, switch-capable?) — shared by the gate test,
 #: the end-to-end render test and the runtime-agreement test, so the three
@@ -398,18 +400,21 @@ GATE_CASES = [
         {"type": "virtual_accelerator", "connector": {"virtual_accelerator": _VA_BLOCK}},
         False,
     ),
-    ("mock only", {"type": "mock", "connector": {"mock": _MOCK_BLOCK}}, False),
     (
-        "mock baseline carrying a live block",
+        "in-process only",
+        {"type": "virtual_accelerator", "connector": {"virtual_accelerator": _IN_PROCESS_BLOCK}},
+        False,
+    ),
+    (
+        "in-process baseline carrying a live block",
         {
-            "type": "mock",
+            "type": "virtual_accelerator",
             "connector": {
-                "mock": _MOCK_BLOCK,
+                "virtual_accelerator": {**_VA_BLOCK, **_IN_PROCESS_BLOCK},
                 "epics": _EPICS_BLOCK,
-                "virtual_accelerator": _VA_BLOCK,
             },
         },
-        False,
+        True,
     ),
     (
         # The baseline is a configured target whether or not its block carries

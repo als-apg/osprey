@@ -168,7 +168,7 @@ _ISSUES
 # Git worktrees
 .worktrees/
 
-# Generated benchmark databases (regenerate: uv run python scripts/generate_benchmark_suite.py)
+# Generated benchmark databases
 data/benchmarks/cross_paradigm/tier*/
 
 # OSPREY workspace (runtime data, not tracked — now covered by _agent_data/* above)

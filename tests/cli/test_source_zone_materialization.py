@@ -664,27 +664,21 @@ def test_data_tree_is_byte_identical_to_the_bundle(
 
     The sole exception is build exhaust the wheel does not ship either
     (``_EXCLUDED_DATA_SUBTREES``), so that a source checkout which has run the
-    benchmarks materializes the same tree a wheel install does. The files a
-    bundle takes from another one (``shared_data.yml``) arrive unchanged too,
-    where it declares them.
+    benchmarks materializes the same tree a wheel install does. The facility the
+    preset names arrives unchanged too, where it lands.
     """
     from pathlib import PurePath
 
-    from osprey.cli.build_cmd import _profile_data_bundle
-    from osprey.cli.profile_cmd import _EXCLUDED_DATA_SUBTREES
+    from osprey.cli.profile_cmd import _EXCLUDED_DATA_SUBTREES, _preset_data
     from osprey.cli.templates.manager import TemplateManager
-    from osprey.cli.templates.shared_data import shared_data_files
 
     target = tmp_path / "p-facility"
     assert _new(runner, target, preset).exit_code == 0
 
-    resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
-    # The bundle is read back from the preset the profile records, the way the
-    # build reads it — the profile itself carries no such key.
-    bundle = _profile_data_bundle(resolved)
-    source = TemplateManager().template_root / "apps" / bundle / "data"
+    composed = _preset_data(TemplateManager(), preset)
+    source = composed.app_data
 
-    shared = {Path(rel): src for rel, src in shared_data_files(source.parent).items()}
+    shared = {Path(rel): src for rel, src in composed.placed_files().items()}
 
     copied = sorted(p.relative_to(target / "data") for p in (target / "data").rglob("*"))
     own = {
@@ -712,6 +706,7 @@ def test_stray_j2_in_bundle_data_is_not_rendered(
     real_root = manager_mod.TemplateManager().template_root
     shutil.copytree(real_root, fake_root)
     stray = fake_root / "apps" / "hello_world" / "data" / "stray.txt.j2"
+    stray.parent.mkdir(parents=True, exist_ok=True)
     stray.write_text("{{ never_rendered }}\n", encoding="utf-8")
     monkeypatch.setattr(manager_mod.TemplateManager, "_get_template_root", lambda self: fake_root)
 
@@ -956,10 +951,12 @@ def test_force_with_a_rejected_layer_leaves_the_whole_zone_untouched(
     edited.write_text("# ours\n", encoding="utf-8")
     before = _zone_snapshot(target, MATERIALIZED_SOURCE_ENTRIES)
 
-    result = _new(runner, target, "hello-world", "--force", "--set", "tier=2")
+    result = _new(
+        runner, target, "hello-world", "--force", "--set", "channel_finder_mode=in-context"
+    )
 
     assert result.exit_code == 2
-    assert "tier" in result.output
+    assert "channel_finder_mode" in result.output
     assert _zone_snapshot(target, MATERIALIZED_SOURCE_ENTRIES) == before
     assert edited.read_text(encoding="utf-8") == "# ours\n"
 
@@ -1153,10 +1150,10 @@ def test_an_invalid_edit_leaves_no_partial_directory(runner: CliRunner, tmp_path
     """The atomicity guarantee: a bad edit fails and materializes nothing."""
     target = tmp_path / "p-facility"
 
-    result = _new(runner, target, "hello-world", "--set", "tier=2")
+    result = _new(runner, target, "hello-world", "--set", "channel_finder_mode=in-context")
 
     assert result.exit_code == 2
-    assert "tier" in result.output
+    assert "channel_finder_mode" in result.output
     assert not target.exists()
 
 

@@ -132,10 +132,10 @@ restating ``osprey_connectors.types.session_posture`` — the deployment's
 CONFIGURED targets where it renders the target switch, and otherwise the single
 type ``control_system.type`` builds, read by TYPE under the baseline target that
 names it. Iterating the target vocabulary instead would answer for a machine no
-session here ever reaches: a mock deployment carrying one ``epics`` block
-resolves ``live`` to that block, while the connector the runtime built is the
-mock, and a deployment with no ``live_standin`` block would grow a ``standin``
-slot for a soft IOC nobody stood up.
+session here ever reaches: without the switch, ``live`` names a block the
+connector the runtime built never serves, and a deployment with no
+``live_standin`` block would grow a ``standin`` slot for a soft IOC nobody
+stood up.
 
 What this module adds on top of the framework's booleans is a THIRD state:
 ``None``, for a section that expresses no posture at all — no deployment-wide
@@ -252,14 +252,14 @@ TARGET_STANDIN = "standin"
 #: deployment a slot for every machine anybody could run.
 CONTROL_TARGETS = [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
 
-#: Connector types that serve a machine nobody has to be careful around, and the
-#: type ``resolve_control_system_type`` falls back to when a section names none.
-#: They are why ``live`` cannot simply be "whatever the config selects": a
-#: deployment whose baseline is one of these has not said what its real machine
-#: is. Literals rather than an import, like everything else in this module.
-MOCK_TYPE = "mock"
+#: Connector types that serve a machine nobody has to be careful around; the
+#: simulator is also the type ``resolve_control_system_type`` falls back to when
+#: a section names none. They are why ``live`` cannot simply be "whatever the
+#: config selects": a deployment whose baseline is one of these has not said
+#: what its real machine is. Literals rather than an import, like everything
+#: else in this module.
 VIRTUAL_ACCELERATOR_TYPE = "virtual_accelerator"
-SIMULATED_TYPES = (MOCK_TYPE, VIRTUAL_ACCELERATOR_TYPE)
+SIMULATED_TYPES = (VIRTUAL_ACCELERATOR_TYPE,)
 
 #: The live stand-in's own connector type, and the tuple of types that serve it.
 #: Served by the EPICS connector but keyed apart from ``epics``, so that the
@@ -334,7 +334,6 @@ __all__ = [
     "FALLBACK_BASELINE",
     "IDENTITY_ENV_LADDER",
     "LIVE_STANDIN_TYPE",
-    "MOCK_TYPE",
     "POSTURE_SANDBOX",
     "POSTURE_SESSION_ENV_VAR",
     "POSTURE_WRITES",
@@ -842,14 +841,15 @@ def target_metadata(record, target):
 
 
 def _resolved_type(section):
-    """The connector type ``control_system.type`` selects — the mock when absent.
+    """The connector type ``control_system.type`` selects — the simulator when absent.
 
     The factory's documented fail-closed default, restated: a missing section, a
     section that is not a mapping, and a bare ``type:`` (which YAML gives as
-    ``None``) all name no type, and a deployment that named none gets the mock.
+    ``None``) all name no type, and a deployment that named none gets the
+    simulator, served in process.
     """
     declared = section.get("type") if isinstance(section, dict) else None
-    return str(declared) if declared else MOCK_TYPE
+    return str(declared) if declared else VIRTUAL_ACCELERATOR_TYPE
 
 
 def _live_type(section):
@@ -859,7 +859,7 @@ def _live_type(section):
     declared type cannot be the real machine, and whose connector table holds no
     single block that can be, has never said what ``live`` means here, and there
     is nothing to infer it from. A section that is not a mapping resolves to the
-    mock, which is the factory's documented fail-closed default.
+    simulator, which is the factory's documented fail-closed default.
 
     Neither a simulated type nor a stand-in one can be that machine, and the
     exclusion holds on BOTH sides of the derivation — the baseline it starts
@@ -902,10 +902,8 @@ def target_type(section, target):
 def _baseline_target(section):
     """The target *section* describes when nobody has switched.
 
-    ``va`` for a virtual accelerator, ``standin`` for the live stand-in, and
-    ``live`` for everything else — including a mock deployment, whose ``live``
-    may well be underivable, because ``live`` is still the target its section
-    describes.
+    ``va`` for the simulator in either venue, ``standin`` for the live
+    stand-in, and ``live`` for everything else.
     """
     return _BASELINE_TARGETS.get(_resolved_type(section), TARGET_LIVE)
 
@@ -913,10 +911,7 @@ def _baseline_target(section):
 def _switch_capable(section):
     """Whether this deployment gives a session more than one target to point at.
 
-    The stdlib restatement of ``osprey_connectors.types.switch_capable``, whose
-    two conditions are mirrored here in order: the deployment's OWN type is
-    what its baseline target resolves back to, which is what keeps a mock that
-    happens to carry an ``epics`` block out of the multi-target world; and at
+    The stdlib restatement of ``osprey_connectors.types.switch_capable``: at
     least two targets are configured (:func:`_configured_targets`, the same
     enumeration every roster walks).
 
@@ -925,8 +920,6 @@ def _switch_capable(section):
     switching world, and demanding the ``live``/``va`` pair would deny it.
     """
     if not isinstance(section, dict):
-        return False
-    if target_type(section, _baseline_target(section)) != _resolved_type(section):
         return False
     return len(_configured_targets(section)) >= 2
 
@@ -977,7 +970,7 @@ def session_types(section):
     the switch it can name a machine the built connector is not.
 
     Never raises: every section is at minimum one baseline target holding the
-    mock, which is what the factory would build from it.
+    simulator, which is what the factory would build from it.
     """
     if _switch_capable(section):
         return {target: target_type(section, target) for target in _configured_targets(section)}

@@ -15,10 +15,9 @@ itself against the bridge; this proves the hop in front of it.
 
 Reuses ``tests/e2e/_orm_stack.py`` (the single source for FR11's VA-backed
 turn-key deploy config): ``init_args``/``find_osprey_console_script`` materialize
-the real deployment repo and ``select_correctors``/``select_bpms``/
-``write_devices_file`` author the worker's plan devices from the repo's own
-``data/channel_limits.json`` -- the limits database the build copies into the
-build zone for the deployed containers, never a hardcoded preset channel.
+the real deployment repo and ``select_correctors``/``select_bpms`` choose the
+plan devices from the device file the build staged for the worker, never a
+hardcoded preset channel.
 ``profile_edits()`` still pins ``control_system.type: virtual_accelerator``
 explicitly even though the preset now defaults to it (a connector-mediated
 plan only runs against a setpoint-tracking control system; the shipped
@@ -161,17 +160,6 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
         timeout=timeout,
         env={**os.environ, "CLAUDECODE": ""},
     )
-
-
-def _channel_limits(repo: Path) -> dict[str, Any]:
-    """The deployment repo's own limits database.
-
-    ``osprey build`` copies ``<repo>/data`` into the build zone verbatim, so
-    this file and the ``build/data/`` copy the containers read are the same
-    bytes and name the same channels -- but only this one exists before the
-    build, which is when the plan devices have to be chosen and authored.
-    """
-    return json.loads((repo / "data" / "channel_limits.json").read_text(encoding="utf-8"))
 
 
 def _bounds(limits: dict[str, Any], address: str) -> tuple[float, float]:
@@ -461,22 +449,6 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
         )
 
-    # STRICTLY between the two verbs: the build copies <repo>/data into the
-    # build zone and stages the device file it finds there for the queueserver
-    # worker, so a set written after the build would never reach a container
-    # (and one written before `init` would break init's own copy of the preset's
-    # data/). launch_token left unset: `osprey up` mints BLUESKY_LAUNCH_TOKEN
-    # for every deployed service that declares it, so there is nothing to supply
-    # ourselves here.
-    records = _orm_stack.roster_records(repo)
-    correctors = _orm_stack.select_correctors(records, count=1)
-    bpms = _orm_stack.select_bpms(records, count=2)
-    # The limits are a separate question from which channels exist: this lane
-    # goes on to build plan args INSIDE a device's configured band, which is
-    # what channel_limits.json is for.
-    limits = _channel_limits(repo)
-    _orm_stack.write_devices_file(repo, correctors=correctors, bpms=bpms)
-
     build = _run(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
@@ -487,6 +459,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"osprey build failed (rc={build.returncode}):\n"
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
+    correctors = _orm_stack.select_correctors(repo, count=1)
+    bpms = _orm_stack.select_bpms(repo, count=2)
+    # The limits are a separate question from which channels exist: this lane
+    # goes on to build plan args INSIDE a device's limits record.
+    limits = _orm_stack.channel_limits(repo)
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.

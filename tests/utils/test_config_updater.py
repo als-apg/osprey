@@ -25,7 +25,7 @@ project_name: test  # inline comment
 
 # Section comment
 control_system:
-  type: mock  # type comment
+  type: virtual_accelerator  # type comment
   port: 5064
 """
         config_file.write_text(original_content)
@@ -46,7 +46,7 @@ control_system:
 
         # Value updated
         assert "type: epics" in updated_content
-        assert "type: mock" not in updated_content
+        assert "type: virtual_accelerator" not in updated_content
 
     def test_update_preserves_blank_lines(self, tmp_path):
         """Test that blank lines are preserved when updating YAML."""
@@ -54,7 +54,10 @@ control_system:
         original_content = """project_name: test
 
 control_system:
-  type: mock
+  type: virtual_accelerator
+  connector:
+    virtual_accelerator:
+      serving: in_process
 
 models:
   name: test
@@ -278,7 +281,7 @@ models:
         config_file = tmp_path / "config.yml"
         config_file.write_text(
             """control_system:
-  type: mock
+  type: virtual_accelerator
   connector:
     epics:
       timeout: 30
@@ -306,7 +309,10 @@ models:
         config_file.write_text(
             """project_name: test
 control_system:
-  type: mock
+  type: virtual_accelerator
+  connector:
+    virtual_accelerator:
+      serving: in_process
 """
         )
 

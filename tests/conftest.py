@@ -19,6 +19,7 @@ from rich.logging import RichHandler
 from osprey.services.bluesky_bridge import session_dir as _session_plan_dir
 from osprey.utils.logger import QUIET_THIRD_PARTY_LOGGERS
 from tests import _env_scope_guard, _live_threads, _repo_cleanliness, ci_diagnostics
+from tests._builds import built_control_assistant  # noqa: F401 - the session's shared build
 from tests._env_scope_guard import restore_module_environment
 
 #: Repo root — the fallback when a test leaves the process in a deleted cwd.
@@ -1283,8 +1284,7 @@ def _has_anthropic_api_key() -> bool:
 def _has_any_provider_api_key() -> bool:
     """True if any supported LLM provider key is set.
 
-    Mirrors the inline detection in tests/e2e/test_llm_channel_namer.py:
-    als-apg, cborg, amsc-i2, anthropic.
+    Checks ALS_APG_API_KEY, CBORG_API_KEY, AMSC_I2_API_KEY and ANTHROPIC_API_KEY.
     """
     import os as _os
 
@@ -1483,10 +1483,10 @@ def pytest_configure(config):
     # run at all, so the marker and its reason are read together.
     config.addinivalue_line(
         "markers",
-        "requires_als_profiles: the full install chain over a real facility's "
-        "MML export, which never enters the repo — needs that facility's "
-        "profiles checkout and the MATLAB its 2.0 export is produced on, and "
-        "skips with a named reason anywhere else.",
+        "requires_als_profiles: the install over a real facility's MML export, "
+        "which never enters the repo — import, build and boot; needs that "
+        "facility's profiles checkout, a named export and mapping, or a "
+        "stand-in tree, and skips naming the unset variables anywhere else.",
     )
 
     global _CI_DIAGNOSTICS
@@ -1706,7 +1706,8 @@ class TestRegistryProvider(RegistryConfigProvider):
             "default_policy": "selective",
         },
         "control_system": {
-            "type": "mock",  # Use mock for tests - default patterns include write_channel/read_channel
+            "type": "virtual_accelerator",  # Use mock for tests - default patterns include write_channel/read_channel
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
         },
         "execution": {
             "execution_method": "subprocess",
@@ -1762,7 +1763,8 @@ class TestRegistryProvider(RegistryConfigProvider):
             "default_policy": "selective",
         },
         "control_system": {
-            "type": "mock",  # Use mock for tests - default patterns include write_channel/read_channel
+            "type": "virtual_accelerator",  # Use mock for tests - default patterns include write_channel/read_channel
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
         },
         "execution": {
             "execution_method": "subprocess",

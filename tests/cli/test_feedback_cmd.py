@@ -59,7 +59,14 @@ def _config(users: list[str]) -> dict[str, Any]:
         "project_name": _PROJECT,
         "facility": {"prefix": "dls"},
         "registry": {"url": "registry.example.org/physics"},
-        "modules": {"web_terminals": {"enabled": True, "users": list(users)}},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "users": list(users),
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": f"{_PROJECT}-assistant"}},
+            }
+        },
     }
 
 

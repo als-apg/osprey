@@ -92,7 +92,11 @@ def test_a_disagreeing_policy_refuses_to_start(
 def test_a_policy_key_refuses_when_no_provider_is_configured(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project = _project(tmp_path, "control_system:\n  type: mock\n", monkeypatch)
+    project = _project(
+        tmp_path,
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
+        monkeypatch,
+    )
     _pin_policy(monkeypatch, ANTHROPIC_MODEL="anything")
 
     with pytest.raises(RuntimeError, match="Refusing to start the Web Terminal"):

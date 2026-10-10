@@ -40,7 +40,7 @@ names another one explicitly.
    osprey health             # Check system health
    osprey channel-finder     # Channel finder CLI
    osprey knowledge          # Facility knowledge bundles and graph corpus
-   osprey mml                # Install a facility from its MATLAB Middle Layer
+   osprey facility           # Check and show the facility description under data/facility/
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey archive            # Copy the agent record into var/archive
@@ -153,7 +153,7 @@ that edits configuration for you — the rendered ``build/config.yml`` is
 generated from it and is never hand-edited. Run ``osprey build`` to carry a
 setting through to ``build/``, then ``osprey up`` to deploy it.
 
-``KEY`` is a top-level profile key (``provider``, ``model``, ``tier``,
+``KEY`` is a top-level profile key (``provider``, ``model``,
 ``channel_finder_mode``, ``connector``) or a dotted path. Keys under ``config.``
 address the rendered config: ``config.control_system.type=epics`` writes that
 literal dotted entry into the profile's ``config:`` block. ``VALUE`` is read as
@@ -166,8 +166,12 @@ search a channel database file; ``graph`` searches the graph store named by
 a database file.
 
 One shorthand stands in for a longer key path: ``connector=`` writes
-``config.control_system.type``. (Control systems beyond the bundled ones are
-reachable through custom connector packages — see
+``config.control_system.type``. It takes the built-in types ``epics``,
+``virtual_accelerator``, ``doocs``, ``tango`` and ``live_standin``; whether the
+simulator runs in process is set by
+``config.control_system.connector.virtual_accelerator.serving``. (Control
+systems beyond the bundled ones are reachable through custom connector
+packages — see
 :doc:`/how-to/control-systems/use-connectors`.) An EPICS gateway is written by
 its own dotted keys, which is the only spelling: OSPREY ships no table of
 facilities' gateway addresses.
@@ -176,8 +180,8 @@ facilities' gateway addresses.
 
    osprey set model=claude-sonnet-5
    osprey set connector=epics
-   osprey set tier=1 channel_finder_mode=in_context
-   osprey set config.facility.name='Storage Ring'
+   osprey set channel_finder_mode=in_context
+   osprey set config.system.timezone=America/Los_Angeles
    osprey set config.control_system.connector.epics.gateways.read_only.address=gw.example.org
    osprey set --repo ~/my-assistant config.control_system.writes_enabled=true
    osprey set config.control_system.connector.virtual_accelerator.writes_enabled=true
@@ -297,6 +301,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
    osprey profile expand
    osprey profile presets
    osprey profile artifacts
+   osprey profile card
 
 ``osprey profile validate TARGET``
    Check a profile without building anything. ``TARGET`` is a directory holding
@@ -355,6 +360,14 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
    List every artifact the six profile lists can name — hooks, rules, skills,
    agents, output styles, and web panels — with a one-line description of
    each. The same menu appears as commented entries in an emitted profile.
+
+``osprey profile card [--json] [--repo DIRECTORY]``
+   Print the composition card ``osprey init`` prints, for a repo that already
+   exists: who can sign in and with what rights, what the agent runs on, what
+   machine it talks to, and what runs beside it. It reads ``profile.yml`` and
+   the persona files beside it; nothing is built, started or probed.
+   ``--json`` prints the rows as one JSON array of ``{group, label, value}``
+   objects on stdout and every warning on stderr.
 
 .. code-block:: bash
 
@@ -876,25 +889,10 @@ Copy framework services to your project for customization.
 osprey channel-finder
 =====================
 
-Tools for building, validating, previewing, and serving control system
+Tools for validating, previewing, serving and benchmarking control system
 channel databases.
 
 Options: ``--project PATH``, ``-v, --verbose``
-
-``osprey channel-finder build-database``
-   Build a channel database from a CSV file.
-
-   The CSV's ``address`` column *is* each family's address pattern: write the
-   address the way your machine spells it, with ``{instance:02d}`` where the
-   device number goes and ``{sub_channel}`` where the row's sub-channel goes,
-   and it is used as written --- separators, prefixes and level order are
-   yours. All rows of one family must give the same address, and it may name
-   only ``{instance}``, ``{sub_channel}``, ``{base}`` and ``{axis}``; a family
-   that breaks either rule stops the build by name. A family whose rows carry a
-   literal address instead gets ``<family>{instance:02d}{suffix}`` synthesised
-   from its name, as before. The ``instances`` column is a count
-   (``10`` means 1--10) or an explicit range (``4-11``) for a machine whose
-   device numbering does not start at one.
 
 ``osprey channel-finder validate [--database PATH] [--pipeline hierarchical|in_context|middle_layer] [-v]``
    Validate a channel database JSON file. ``--pipeline`` names the paradigm: the
@@ -905,14 +903,6 @@ Options: ``--project PATH``, ``-v, --verbose``
 
 ``osprey channel-finder preview``
    Preview a channel database with flexible display options.
-
-``osprey channel-finder generate (--source PATH | --demo) [--output-dir DIR] [--force] [--format in_context|hierarchical|middle_layer|all] [--tier 1|3|none] [--validate]``
-   Generate channel databases from a hierarchical template. Produces one
-   or more pipeline formats (default: all three) with optional tier filtering.
-   Name the source: ``--source`` for your own hierarchical database, ``--demo``
-   for the packaged demo one. Files already in the output directory are left
-   alone unless you pass ``--force`` --- the default output directory,
-   ``data/channel_databases/``, is the one the pipelines read.
 
 ``osprey channel-finder benchmark --model PROVIDER/WIRE_ID [--queries SPEC] [--runs-per-query N] [--concurrency N] [--output-dir DIR] [--queries-path PATH] [-v]``
    Run the benchmark harness against a channel-finder pipeline using a
@@ -925,15 +915,13 @@ Options: ``--project PATH``, ``-v, --verbose``
    Finder port); ``--host`` and ``--port`` override them.
 
 A graph-mode project has no channel database file: ``validate`` and ``preview``
-say so and point at ``osprey knowledge seed-graph`` and the ``read_cypher`` tool,
+say so and point at ``osprey build && osprey up`` and the ``read_cypher`` tool,
 and ``--pipeline`` does not offer ``graph`` for the same reason.
 
 .. code-block:: bash
 
-   osprey channel-finder build-database
    osprey channel-finder validate
    osprey channel-finder preview
-   osprey channel-finder generate --source my_channels.json --format hierarchical
    osprey channel-finder benchmark --model anthropic/claude-haiku-4-5
    osprey channel-finder web
 
@@ -942,10 +930,12 @@ and ``--pipeline`` does not offer ``graph`` for the same reason.
 osprey knowledge
 ================
 
-Build and load the facility's knowledge material: the OKF bundle of concept
-documents, and the NARAD-convention corpus the graph store holds. An omitted
-``BUNDLE`` comes from ``facility_knowledge.bundle_path`` and an omitted ``TTL``
-from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bundle` and
+Maintain the facility's OKF bundle of concept documents. An omitted ``BUNDLE``
+comes from ``facility_knowledge.bundle_path``. The graph store and the channel
+search index have no verb of their own: ``osprey build`` writes the graph view
+``data/graph/facility.ttl`` and the index from the facility file, and ``osprey
+up`` seeds the store from that view. See
+:doc:`/how-to/facility-knowledge/okf-bundle` and
 :doc:`/how-to/facility-knowledge/use-facility-graph`.
 
 ``osprey knowledge regen-index [BUNDLE]``
@@ -956,405 +946,268 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
    Check every document in a bundle against the OKF format, including each
    ``index.md`` against its directory.
 
-``osprey knowledge seed-from-ttl TTL BUNDLE [--force]``
-   Write stub concept documents into a bundle from a TTL corpus, one per class,
-   for a person to fill in.
-
-``osprey knowledge compile-ontology SOURCE OUTPUT [--check]``
-   Compile an authored LinkML schema into the ontology table ``build-ttl``
-   reads. ``SOURCE`` is the schema, and ``OUTPUT`` the JSON table to write; an
-   existing file is overwritten. The output is deterministic, so compiling an
-   unchanged schema twice leaves ``git diff`` silent.
-
-   ``--check`` writes nothing. It compares ``OUTPUT`` against a fresh compile of
-   ``SOURCE`` and exits non-zero when the two disagree, naming the classes,
-   synonyms and families that differ --- which is what a CI job or a pre-commit
-   hook runs to prove a committed table still matches its schema.
-
-``osprey knowledge build-ttl OUTPUT [--channel-db PATH] [--descriptions PATH] [--limits PATH] [--ontology PATH] [--section-order A,B,...] [--facility TOKEN]``
-   Derive a NARAD-convention TTL corpus — the file ``seed-graph`` loads — from
-   the project's own channel databases, so the graph store and the channel
-   finder describe the same machine. The corpus carries one device node per
-   device, one binding per address, one class per device family, a read or write
-   direction on every signal, and the prose from both databases on the nodes it
-   describes, which is what lets the corpus be searched by meaning rather than
-   by address alone.
-
-   Two inputs describe the machine:
-
-   ``--channel-db``
-      The **hierarchical**-paradigm database, the one whose addresses are
-      ``RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD``. Its addresses become the
-      devices, bindings and classes, and the text it carries per level becomes
-      ``ringDescription`` / ``systemDescription`` / ``familyDescription`` on
-      devices and ``fieldDescription`` / ``subfieldDescription`` on bindings.
-      Unnamed, it comes from
-      ``channel_finder.pipelines.hierarchical.database.path``, resolved against
-      the ``config.yml`` directory.
-
-      That grammar is the whole of what this verb reads: six levels, in that
-      order, with the device level generated. A hierarchical database built on
-      any other level list --- the shipped
-      ``data/channel_databases/examples/hierarchical_jlab_style.json``, whose
-      levels are ``system, family, sector, device, pv``, is one --- is refused
-      in one line naming the grammar, before a single address is parsed.
-
-   ``--descriptions``
-      The in-context database for the same machine: a flat list of addresses,
-      each with a sentence about that one channel. Those sentences become
-      ``ChannelBinding.description``. Unnamed, it is looked for as
-      ``in_context.json`` beside the file ``--channel-db`` named — which is how
-      the OSPREY source tree keeps the two, side by side under ``tiers/tier3/``.
-      With no such neighbour the command asks for the flag.
-
-   Four more inputs decide details:
-
-   ``--limits``
-      ``control_system.limits_checking.database_path``. This file is what tells
-      a readback from a setpoint, so the corpus and the write-safety layer agree
-      on which channels are written. With no limits file configured the address
-      grammar decides instead — a ``:SP`` subfield writes, everything else
-      reads. Every run reports which of the two it used.
-
-   ``--ontology``
-      The FAMILY-to-class table, as compiled JSON. Defaults to the demo-machine
-      table shipped with OSPREY; name your own when your device families are not
-      the demo machine's. The table is compiled from an authored LinkML schema
-      (``compile-ontology`` above) rather than written by hand, though a
-      hand-written JSON table is still accepted, so an existing one keeps
-      working untouched.
-
-   ``--section-order``
-      The order the corpus lists the machine's top-level sections in, which
-      decides every device's ordinal and the order the file reads in. Unnamed,
-      it is the order the ``--channel-db`` file's own ``tree`` block lists its
-      top-level tokens in --- a hierarchical database is written in the
-      machine's layout order, and JSON keeps that order. Name your own
-      (``--section-order LINAC,TL,RING``) for a database whose key order
-      carries no meaning; a section neither source names sorts after the ones
-      they do, alphabetically.
-
-   ``--facility``
-      The facility token. Every IRI and identifier the corpus mints embeds it,
-      and each device carries it as ``narad_p:facility``. Unnamed, it is the
-      project's own ``facility.prefix`` --- the key the rest of the deployment
-      already reads --- and ``demo`` only when no config names one, which is
-      what the shipped demo corpus carries. The token has to be usable inside
-      an identifier: a letter or underscore, then letters, digits and
-      underscores. Every run reports the token it minted with and the ontology
-      table it emitted against, and a run that falls back to ``demo`` against a
-      database that is not the packaged demo one says so.
-
-   The neighbour rule for ``--descriptions`` is a convenience of the OSPREY
-   source tree. A rendered project keeps only the paradigm it runs, as a flat
-   ``data/channel_databases/<paradigm>.json``, and prunes the tier tree — so
-   there is no neighbour to find and ``--descriptions`` has to be named there,
-   and ``--channel-db`` too unless the project runs the hierarchical paradigm
-   and its config already names the database. A graph-mode project ships no
-   channel database at all, so the command refuses there and says to name the
-   sources with ``--channel-db`` and ``--descriptions``.
-
-   ``OUTPUT`` deliberately does **not** default to
-   ``services.graphdb.ttl_path``: that key usually names a hand-curated corpus,
-   and a bare run of the verb would overwrite it. Point that key at the file you
-   wrote to have every deployment seed it.
-   :doc:`/how-to/facility-knowledge/use-facility-graph` runs the command in a
-   rendered project and in the source tree, and shows what it prints.
-
-``osprey knowledge build-index [--ttl PATH] [--output PATH]``
-   Build the graph channel finder's search index from a TTL corpus. The index
-   is a DuckDB file holding the corpus's channel bindings, its device classes
-   and its channel roster, so a search reads a table instead of parsing Turtle
-   — which is what lets the channel explorer, the channel roster and the
-   agent's keyword tool answer in milliseconds at any corpus size. ``osprey
-   build`` writes it into a graph-mode project; run the verb by hand whenever
-   the corpus changes, and seed the store from the same file so the two
-   describe one machine.
-
-   Unnamed, ``--ttl`` is ``services.graphdb.ttl_path`` — the file
-   ``seed-graph`` loads — and ``--output`` is ``services.graphdb.index_path``,
-   ``data/channel_databases/graph.duckdb`` in a rendered project. Both resolve
-   against the ``config.yml`` directory, so run the command inside the render,
-   or with ``OSPREY_CONFIG`` naming that config. With no corpus configured the
-   command refuses in one sentence and names the key to set. Missing parent
-   directories are created, and an existing index is replaced only once the new
-   one is complete.
-
-   A channel finder already running on the host keeps the index it opened, so
-   restart it to read a rebuilt one. A deployed stack needs nothing: its build
-   writes the index into the image it starts from.
-
-``osprey knowledge seed-graph [TTL] [--force]``
-   Load a TTL corpus into the deployed graph store. ``--force`` wipes the store
-   and imports from scratch, which is what a changed store configuration needs.
+``osprey knowledge seed-from-ttl BUNDLE [--ttl PATH] [--force] [--repo DIRECTORY]``
+   Write stub concept documents into a bundle from the build's graph view,
+   one per device, for a person to fill in. The view read is
+   ``build/data/graph/facility.ttl`` in the deployment repo you stand in or
+   ``--repo`` names; ``--ttl`` names another Turtle file. Each stub's ``device_id`` is the facility file's device
+   id, so the build links the page to its device.
 
 .. code-block:: bash
 
-   osprey knowledge build-ttl data/demo_machine.ttl
-   osprey knowledge build-index --ttl data/demo_machine.ttl
-   osprey knowledge seed-graph data/demo_machine.ttl
+   osprey knowledge seed-from-ttl data/facility/knowledge
    osprey knowledge validate
 
-.. _cli-osprey-mml:
+.. _cli-osprey-facility:
 
-osprey mml
+osprey facility
+===============
+
+Check and show the facility description under ``data/facility/`` and import
+an export into it. See :doc:`/how-to/import-mml-export` for the import end to end.
+
+``osprey facility validate [--repo DIRECTORY]``
+   Run every check ``osprey build`` makes of ``data/facility/`` and render the
+   facility views against the repo's main profile in a temporary directory.
+   Nothing is written into the repo. A clean tree exits 0, and each model with
+   a kept ``imported/mml/<model>.response.json`` prints one
+   ``response check <model>: …`` line on stderr, pass or fail; a failing check
+   exits 1 before the render. When the check left rows out of the comparison,
+   a second line for that model follows on stderr, giving the number of rows
+   left out and the count per reason (unwired, no width, unsolved, table
+   calibration); it does not change the verdict or the exit code:
+   ``response check <model>: left out <n> rows (<k> unwired, <j> no width, <u> unsolved, <t> table calibration)``.
+   A device whose stated ``s`` lies outside its periodic model's deck is placed
+   modulo the deck's length, and both ``osprey build`` and this command print
+   one ``facility: place-wrapped: device <id> — …; fix: …`` warning per device
+   on stderr; the exit code is unchanged.
+   The check converts a monitor reading to position with one slope, taken at
+   the centred beam; that is exact for a straight-line (gain and offset)
+   calibration, and a table-calibrated monitor is left out of the check and
+   counted on the left-out line. If you need a more elaborate BPM calibration
+   in the check, open an issue. A tree that is not clean prints every error of
+   the first failing stage on stderr, one line each and sorted, and the command
+   exits 1. A stale
+   fix's line carries the block to paste in its place. A settle-tolerance
+   warning the build would print is printed on stderr and does not change the
+   exit code. ``--repo`` names the
+   deployment repo; without it, the nearest ``profile.yml`` at or above the
+   current directory is used.
+
+``osprey facility show [--json] [ID] [--repo DIRECTORY]``
+   Build the facility in memory as ``osprey facility validate`` does, and exit
+   1 like it, with its lines on stderr, when the build stops. Without ``ID`` it
+   prints the identity, the record count per kind (places, devices, channels,
+   groups) and the wiring record count per model, each model with its engine,
+   whether the main render serves it and its solve setting, and each view with
+   its path under the render and whether it is written. The views are those of
+   the main render, ``build/config.yml``; a persona's selection does not change
+   them. A view that is not written names the config key or model fact that
+   left it out. With ``ID`` it prints the place, device, channel, group or
+   model of that id with its provenance (the layer and file each field came
+   from, the fields the build filled) and the fixes applied to it. An id that
+   names no record prints ``facility show: no record <id>``, and an id that
+   names records of more than one kind prints
+   ``facility show: <id> names a <kind> and a <kind>``; both go to stderr and
+   exit 1. ``--json`` prints one JSON document on stdout and every other line,
+   view notes included, on stderr; on an error stdout is empty. The facility
+   document's keys are ``identity``, ``counts`` (``places``, ``devices``,
+   ``channels``, ``groups``, and ``wiring`` keyed by model), ``models``
+   (``name``, ``engine``, ``served``, ``solve``) and ``views`` (``name``,
+   ``path``, ``written``, and ``reason`` only on a view that is not written);
+   a record's are ``record``, ``kind``, ``provenance`` and ``fixes_applied``.
+
+``osprey facility import``
+   Group for the importers that write an export as sources under
+   ``data/facility/imported/``; the importers are ``mml`` and ``list``.
+
+``osprey facility import mml EXPORT... [--repo DIRECTORY]``
+   Write MML exports as the mml layer's sources under
+   ``data/facility/imported/mml/`` and seed each authored file that does not
+   exist yet. ``EXPORT`` is an export's ``<stem>.ao.json``; give every export
+   the mapping names. Each export's deck is held to the lattice fingerprint
+   the export states: a deck with another element count, family-name digest
+   or parameter-element indices prints
+   ``import mml: export-invalid: <system>: the deck <file> holds <fact>
+   <value> and the export states <value>; import the lattice the export was
+   sampled from, or export again over this one``, writes nothing and exits 1.
+   An energy that differs alone prints the same sentence after
+   ``import mml: deck energy:`` and the import goes on, and an export that
+   states no fingerprint prints one ``import mml: deck unchecked:`` line.
+   The mapping is then checked against the exports: a
+   problem prints one ``<key>: <message>`` line per problem, then
+   ``<n> problems in data/facility/imported/mml/mapping.yaml; fix each and
+   check again.`` (``1 problem`` for one), writes nothing and exits 1. A system
+   the mapping names and no given export carries is one such line,
+   ``models.<system>: <system> is no exported system``. A mapping with the
+   wrong structure, or a profile that does not resolve, prints a one-line
+   failure with its cause and exits 1. An authored record source that would
+   merge against the layer prints ``import mml: authored-present: <n> files``
+   (``1 file`` for one) and one ``rm <path>`` line per file and exits 1;
+   ``fixes.yaml``, ``classes.yaml``, ``scenarios/`` and ``knowledge/`` are
+   never named. After the import, each scenario file that names a channel or
+   model the facility no longer has is printed as one ``rm <path>`` line under
+   ``these scenario files name channels that no longer exist:``, followed by
+   an ``rm -r <folder>/`` line for the scenario's folder of attached files
+   when it has one; the import
+   deletes nothing, and ``osprey build`` stops while one is left.
+
+``osprey facility import mml --print-exporter``
+   Print the MATLAB exporter the mml layer ships. Needs neither a repo nor an
+   export.
+
+``osprey facility import list FILE [--repo DIRECTORY]``
+   Write a CSV channel list as the list layer's sources,
+   ``data/facility/imported/list/channels.yaml``, one channel record per row;
+   no authored file is seeded. ``FILE`` is UTF-8 CSV whose header row names
+   ``address``, required, and any of the optional columns ``role`` (empty
+   means readback), ``pair``, ``device``, ``place``, ``unit``,
+   ``description``, ``tags`` (``;``-separated), ``s`` (metres, a number) and
+   ``model`` (the model whose deck ``s`` is measured in), in any order. A file
+   whose first row names no ``address`` column holds one address per line.
+   ``s`` and ``model`` are the position of the row's device: for each device a
+   row states ``s`` for, the import writes ``{id, s}``, plus ``model`` when
+   stated, to ``data/facility/imported/list/devices.yaml``, and no other
+   device field, so the device merges with one another source declares, or is
+   created holding only its position. ``osprey build`` places it by the span
+   of its model containing ``s``. A row that names both a device and a place,
+   states a role other than ``setpoint``, ``readback`` or ``none``, has no
+   address or repeats one, states ``s`` or ``model`` with no device, or
+   states an ``s`` that is not a finite number, a row with more cells than
+   the header, two rows stating different ``s`` or ``model`` for one device, a
+   ``model`` for a device no row states ``s`` for, and an unknown or repeated
+   column each print one ``facility: source-invalid:`` line; the import
+   writes nothing and exits 1.
+
+.. _cli-osprey-sim:
+
+osprey sim
 ==========
 
-Install a facility from its MATLAB Middle Layer (MML) export: read the export,
-record what it means, and write the deployment's channel database, ontology,
-knowledge pages, graph corpus and virtual accelerator from that one review. The
-four verbs run in order and each reads what the one before it wrote, in the
-fixed directory ``data/mml/`` of the deployment repository. All four take
-``--repo DIRECTORY``; without it the repository is found by walking up from
-where you are standing. See :doc:`/how-to/use-channel-finder` for the flow end
-to end.
+List, inspect and apply the scenarios of a simulated deployment. The scenarios
+are authored under ``data/facility/scenarios/`` and served from the simulator
+view the build writes under ``build/data/simulator/``; a repo with no build, or
+a build with no simulator view, exits 1 with ``run 'osprey build' first``.
+``osprey sim`` alone prints its help, naming the three verbs. All three verbs
+take ``--repo DIRECTORY``; without it, the nearest ``profile.yml`` at or above
+the current directory is used.
 
-``osprey mml import INPUTS... [--system TOKEN | PATH=TOKEN]``
-   Read one or more MML exports (``.json`` from the packaged exporter, or
-   ``.mat``) into ``data/mml/ao.json``, ``data/mml/ad.json`` and a
-   ``PROFILE.md`` census of what arrived. Several exports merge into one set of
-   documents, each under its own system name. An export that records its own
-   sub-machine names itself; a flat one needs ``--system``, as a bare token
-   with a single input or as ``PATH=TOKEN`` once per flat input when there are
-   several.
+``osprey sim list [--repo DIRECTORY]``
+   Print one line per scenario of the view, sorted by name:
+   ``<marker> <name>  (logbook: yes|no)``, where the marker is ``*`` for a
+   scenario in the active set and a space otherwise, and ``logbook`` says
+   whether the scenario narrates logbook entries. The scenario's description
+   follows on its own indented line when it has one. ``nominal`` is always in
+   the active set.
 
-   A 2.0 export carries three more files beside its ``ao.json``: the lattice
-   deck it was sampled over, the per-family calibrations and nominals, and the
-   measured orbit response. They are optional inputs --- naming the ``ao.json``
-   is enough when they sit beside it under the same name --- and they become
-   ``data/mml/lattice/<system>.mat``, ``data/mml/va.json`` and
-   ``data/mml/response.json``, the last two keyed by system. A 1.0 export
-   imports as it always did and leaves none of the three behind.
+``osprey sim status [--target <live|va|standin>] [--repo DIRECTORY]``
+   Print one ``<model>: <status>`` line per served physics model, sorted by
+   name, where the status is ``ok`` or the model's error text. One
+   ``log: <absolute path>`` line per model follows, naming the log the
+   simulator appends to under ``var/simulator/``, each followed by any
+   scenario-overlap records from that log. ``--target`` selects the control
+   target to report on and defaults to the deployment's own; a target the
+   deployment does not configure exits 1. With the simulator served in process
+   the status comes from the composite this process holds; on any other target it
+   is read from the model's status channel, ``<code>:SIM:<model>:STATUS``,
+   through that target's connector.
 
-   Two rules hold over those files. A deck is filed only when it is the ring
-   the export states it was sampled over: the export records the ring's energy,
-   how many elements it has, a digest of their names and where its ring
-   parameters sit, and a deck that disagrees is refused, naming the fact that
-   disagreed. And an import replaces the last one whole --- it removes the
-   ``va.json``, ``response.json`` and decks left by the import it replaces, and
-   names each of them in its report --- so ``data/mml/`` always means the last
-   import and nothing else.
-
-``osprey mml map (--init [--force] [--force-va] | --check [--no-derived])``
-   Write or check ``data/mml/mapping.yaml``, the record of what the export
-   means: the deployment name, device class and machine section of every
-   family, and the direction --- read or written --- of every signal. Where the
-   export leaves a family's shape ambiguous --- rows beyond its devices, a
-   device bound by no channel, a PV shared across devices --- it also carries a
-   ``judgments:`` block, one null slot per question, listed per family in
-   ``PROFILE.md``.
-   A tree that carries a 2.0 export gets a ``virtual_accelerator:`` block as
-   well: the system the model is built for, and one verdict per family ---
-   ``couple``, naming what the model drives and how hardware converts to
-   physics, or ``latch``, naming why it drives nothing. Where a rule cannot
-   decide, the family carries one ``slot:`` with a written-out question, a null
-   ``answer``, and the words that answer it:
-
-   ``attype``
-      The lattice type the export names is not one the table knows. Answer
-      ``latch``, ``strength:<PolynomB|PolynomA>[<i>]``, ``kick:<0|1>``,
-      ``energy``, ``rf`` or ``monitor:<x|y>``.
-
-   ``shared_field``
-      Two families drive the same field of the same element. Answer
-      ``owner:<family>`` to give it to one of them, or ``latch``.
-
-   ``escape_hatch``
-      The Middle Layer reaches the family through a function or a parameter
-      group of its own, so what it does is not readable from the export.
-      Answer ``latch``, or ``ignore_hook`` to bind it anyway.
-
-   A family the model drives may also carry a ``values:`` block, which is a
-   question of a different shape: a quantity the model needs to build the
-   family and no part of the export states, written out with its units and a
-   null ``answer`` for you to fill in. There is one today --- the voltage of a
-   cavity built into a deck that carries none --- and ``--check`` refuses the
-   mapping while the answer is null, missing, or not a positive number, the
-   same way it refuses a null slot. Latch the family instead and the question
-   goes with it: a family the model does not drive needs nothing answered
-   for it.
-
-   ``--init`` writes the skeleton, refusing to overwrite an existing file
-   unless ``--force`` says to, because that file holds reviewed decisions. It
-   appends the virtual-accelerator block to a mapping that already exists and
-   has none; a block that is already there makes the command refuse, naming the
-   file and ``--force-va``, which replaces the block. A tree with no 2.0
-   export, or one whose deck was never imported, is told so in one line and
-   gets no block.
-   ``--check`` reports every problem and exits non-zero while any remain ---
-   among them every judgment slot and every virtual-accelerator slot left null,
-   and every answer the export cannot carry --- and says how many slots the
-   skeleton guessed are still unreviewed;
-   ``--no-derived`` turns each of those into a problem of its own, which is the
-   run to pass before going live.
-
-``osprey mml emit [--duckdb [PATH]]``
-   Write the deployment's files under ``data/`` from the export and the checked
-   mapping: the middle-layer channel database, the facility ontology as schema
-   and compiled table, the knowledge pages under ``data/facility_knowledge/``,
-   and the Turtle corpus named for the facility token. ``--duckdb`` also
-   imports the database into DuckDB, at ``PATH`` or
-   ``data/channel_databases/middle_layer.duckdb``; that copy holds one row per
-   process variable, and emit lists every shared or broadcast PV whose other
-   bindings it therefore holds no row of. Before writing anything it
-   refuses while a judgment is unanswered or impossible, reporting the same
-   keys ``--check`` does and pointing back at it, and while the project still
-   carries the demo facility's tier databases or untouched demo knowledge
-   pages, naming them in one ``rm`` line. Scenario bundles under
-   ``data/simulation/scenarios/`` are refused on the same terms, each held
-   against the ``machine.json`` this deployment serves --- the machine the run
-   is about to write where it writes one, the machine already on the tree where
-   it does not. Emit names each bundle asking for a channel that machine does
-   not carry, and the channels it asks for, and each bundle the simulation
-   could not read at all, in one ``rm`` line of its own. A bundle that machine
-   can resolve is kept whoever wrote it, an empty directory is kept, and a
-   deployment with no machine is told nothing about its scenarios: it stops at
-   boot for want of the machine, whatever they say. Run
-   ``osprey build`` afterwards to copy the result into the deployment.
-
-   When the mapping decides a virtual accelerator, emit writes five more files:
-   ``data/simulation/lattice.json``, the deck the model runs;
-   ``data/simulation/va_bindings.json``, which channel drives which element and
-   how; ``data/simulation/machine.json``, the machine the model stands for;
-   ``data/machine_state_channels.json``, the channels that carry its state; and
-   the write bands of every coupled setpoint in ``data/channel_limits.json``.
-   Where the export describes a radio-frequency family and the deck carries no
-   cavity of its own, emit builds one onto the end of that deck --- at the
-   frequency a whole number of waves fits around it, and at the voltage the
-   mapping answers --- so the served model solves through the bucket instead
-   of at a fixed energy, and it prints that frequency beside the one the
-   export states.
-   The lanes run channel database, DuckDB copy, ontology, knowledge pages,
-   virtual accelerator, then corpus. A tree whose export is 1.0 is not refused:
-   emit reports ``VA lane skipped: data/mml/va.json is not in the tree;
-   re-export with mml_export 2.0 to enable it``, or ``carries no virtual
-   accelerator for an imported system`` in place of that middle clause when the
-   file is there but keys no imported system, and writes the other lanes as
-   before. Such a harvest also removes ``data/simulation/lattice.json`` and
-   ``data/simulation/va_bindings.json`` if the tree carries them, naming what
-   it removed: an export describing no machine leaves the deployment none to
-   serve, and a ring left behind would be served over the harvested channel
-   names. ``osprey build`` then derives ``VA_LATTICE=none``. A deployment
-   nobody harvested onto keeps the ring it shipped with.
-
-   The virtual-accelerator lane has refusals of its own, all of them before any
-   of its five files is written: a mapping that decides a virtual accelerator
-   the export does not carry, a block naming a system the export does not, a
-   deck that was never imported, and virtual-accelerator files already on the
-   tree that this command did not write. One refusal comes later than the
-   others. ``data/channel_limits.json`` is shared, so emit stamps each band it
-   writes, keeps every other entry byte-for-byte, and refuses an address the
-   file already bands differently without that stamp; that collision is only
-   knowable once all five documents have been rendered, by which point the
-   channel database, ontology, knowledge pages and, where ``--duckdb`` was
-   given, the DuckDB copy of the same run are already on the tree --- the
-   corpus, which emit writes last, is not. The five virtual-accelerator files
-   are the ones withheld. Fix the entries the command named, or remove them,
-   and run emit again.
-   A coupled setpoint the export does not band finitely on both edges --- its
-   family states no ``Setpoint`` ``Range``, an infinite edge, or a non-finite
-   row for its device --- is refused at that same point, by family, device and
-   the row the export states, and the five files are withheld the same way.
-   Emit writes no band of its own for it and does not stop driving the family:
-   state a band in the export, or latch the family in the mapping.
-
-``osprey mml verify``
-   Check the emitted virtual accelerator against the exported response matrix,
-   and write ``data/mml/VA-REPORT.md``. Verify steers the model's correctors
-   the way the facility steered its own, reads the orbit the model gives back,
-   and compares it entry by entry with the matrix the export carries. An entry
-   agrees when ``|R_model - R_file| <= 0.05 * max(|R_file|, 0.1 * rms(matrix))``
-   --- five per cent of the exported value, or of a tenth of the whole matrix's
-   own scale, whichever is larger, so a near-zero entry is held to size alone.
-   Above that floor the sign has to agree too, because a corrector that pushes
-   the beam the wrong way is wrong however small the number.
-
-   The verdict is pooled over the blocks whose monitors read the plane their
-   correctors kick, which the emitted bindings state. A block pairing one
-   plane's monitors with the other plane's correctors is compared and printed
-   the same way and marked as reported rather than judged: what sits there is
-   whatever couples the two planes on that deck, not an answer about the
-   bindings this command checks. One corrector whose column the file has
-   running the opposite way to the model over more than half of its compared
-   entries --- counting only the entries big enough for a sign to mean
-   anything --- is a polarity outlier: the report names the channel and leaves
-   the column out of the counts, because no deck reproduces a reversed device
-   and no tolerance should hide one.
-
-   Where emit built a cavity into the served deck, the report says so and
-   states what it was built at, its harmonic number and its voltage, beside
-   the frequency the export states for it.
-
-   Monitor rows are matched to the export's device list by sector and device,
-   never by position, and a row with no match is reported rather than compared.
-   A row the export marks down is dropped and named. The report says whether
-   the deck agrees, where it was measured and at what energy, the worst
-   disagreements per block, the rows that were not compared, the write bands
-   the model needed widened, and the nominals the model does not hold. The
-   report is written either way, and the command exits non-zero when not one
-   entry was compared, because a run that held nothing against the file is no
-   evidence about the model. Read it before ``osprey build``.
+``osprey sim apply NAMES... [--no-seed] [--no-seed-logbook] [--no-seed-archiver] [--yes] [--now ISO8601] [--repo DIRECTORY]``
+   Make ``NAMES`` the active scenario set, with ``nominal`` always included,
+   and seed their stored data: the ARIEL logbook is purged and reseeded from
+   the set's logbook entries, and the affected windows of the stored archive
+   are rewritten from the set's archiver events. The set is judged on the
+   simulator view before anything is written: two scenarios that write one
+   target are refused, naming that target, and the command exits 1.
+   ``--no-seed-logbook`` leaves the logbook untouched, ``--no-seed-archiver``
+   the stored archive, and ``--no-seed`` both. ``--yes`` (``-y``) skips the
+   confirmation prompts before the purge and the archive rewrite. ``--now``
+   freezes the apply-time anchor to an ISO-8601 instant so seeded logbook
+   dates are reproducible; a naive value takes the facility timezone, and the
+   ``OSPREY_SIM_NOW`` environment variable is read when the option is absent.
 
 .. code-block:: bash
 
-   osprey mml import mymachine.storagering.ao.json mymachine.booster.ao.json
-   osprey mml map --init
-   osprey mml map --check --no-derived
-   osprey mml emit --duckdb
-   osprey mml verify
+   osprey sim list
+   osprey sim apply rf-thermal
+   osprey sim status
 
 osprey ariel
 ============
 
 Manage the ARIEL logbook search service.
 
-``quickstart [--source PATH]`` -- Full setup: migrate, then ingest
-``--source`` or the configured ingestion source; with neither, seed
-``ariel.demo_narrative`` into an empty logbook and run the enhancement modules
-over it.
+``osprey ariel quickstart [--source PATH]``
+   Full setup: migrate, then ingest ``--source`` or the configured ingestion
+   source; with neither, seed ``ariel.demo_narrative`` into an empty logbook
+   and run the enhancement modules over it.
 
-``status [--json]`` -- Show service status.
+``osprey ariel status [--json]``
+   Show the database connection, embedding tables and enhancement counts.
 
-``migrate`` -- Create or update database tables.
+``osprey ariel migrate``
+   Create or update the database tables the enabled modules need.
 
-``sync [--limit N]`` -- Idempotent migrate + incremental ingest + enhance.
-Safe to run on every build; on a fresh database, runs a full ingest.
+``osprey ariel sync [--limit N] [--watch]``
+   Idempotent migrate + incremental ingest + enhance. Safe to run on every
+   build; on a fresh database, runs a full ingest. ``--watch`` keeps polling
+   the source after the sync.
 
-``ingest --source PATH [--adapter TYPE] [--since DATE] [--limit N] [--dry-run]``
+``osprey ariel ingest --source PATH [--adapter TYPE] [--since DATE] [--limit N] [--dry-run]``
    Ingest logbook entries from file or URL.
 
-``watch [--source] [--once] [--interval N] [--dry-run]`` -- Poll for new entries.
+``osprey ariel watch [--source PATH] [--adapter TYPE] [--once] [--interval N] [--dry-run]``
+   Poll the source for new entries and ingest them. ``--once`` runs a single
+   poll cycle. Nothing is ingested until one earlier ``ingest`` has run,
+   unless ``ingestion.watch.require_initial_ingest`` is false.
 
-``enhance [--module NAME] [--force] [--limit N]`` -- Run enhancement modules.
+``osprey ariel enhance [--module NAME] [--force] [--limit N] [--retry-failed]``
+   Run the enhancement modules over entries not yet enhanced. ``--force``
+   re-runs the text modules; ``--retry-failed`` retries what ``--module``
+   gave up on.
 
-``qmd-resync [--rebuild]``
+``osprey ariel qmd-resync [--rebuild]``
    Re-export entries the qmd markdown mirror never saw --- entries created in
    the web interface, attachment uploads, and entries written through the
    logbook write service. ``--rebuild`` wipes the mirror and re-exports
    everything, which is what to run after ``purge``.
    ``ingest`` and ``watch`` already do this pass on their own.
 
-``models`` -- List embedding models and tables.
+``osprey ariel models``
+   List the embedding models and their tables.
 
-``search QUERY [--mode keyword|semantic|hybrid] [--limit N] [--json]``
+``osprey ariel search QUERY [--mode keyword|semantic|hybrid] [--limit N] [--json]``
    Execute a search query. Without ``--mode``, the deployment's
    ``ariel.default_search_mode`` decides.
 
-``vocab-check [PATH] [--json]``
+``osprey ariel vocab-check [PATH] [--json]``
    Validate a facility vocabulary file --- the shorthand-to-prose mapping that
    query expansion uses. Checks ``PATH``, or the file named by
    ``ariel.vocabulary.path`` when no path is given. Needs no database. Exits 1
    and lists every error when the file is broken; warnings never fail it.
 
-``reembed --model NAME --dimension N [--batch-size N] [--force]``
+``osprey ariel reembed --model NAME --dimension N [--batch-size N] [--dry-run] [--force]``
    Re-embed entries with a different model.
 
-``web [--port N] [--host ADDR] [--reload]``
+``osprey ariel web [--port N] [--host ADDR] [--reload]``
    Launch the web interface on the host and port ``ariel.web`` names (default
    ``127.0.0.1`` and the layout's ARIEL port); ``--host`` and ``--port`` override
    them.
 
-``purge [--yes] [--embeddings-only]`` -- Delete all ARIEL data.
+``osprey ariel purge [--yes] [--embeddings-only]``
+   Delete all ARIEL data. ``--embeddings-only`` keeps the entries and clears
+   the embedding tables.
+
+``osprey ariel attachments``
+   Group for the attachment copy commands.
+
+``osprey ariel attachments backfill [--limit N] [--dry-run] [--probe N] [--wait] [--retry-decoder-failed]``
+   Record and copy the pictures of every stored entry, newest first, and
+   render stored originals that have no rendition. ``--dry-run`` counts what
+   would be fetched; ``--probe N`` also requests N sampled pictures and prints
+   an estimate. ``--wait`` waits for a copy running in another process.
+   ``--retry-decoder-failed`` renders again the pictures the decoder could not
+   read.
 
 .. code-block:: bash
 
@@ -1369,7 +1222,8 @@ osprey artifacts
 Manage the OSPREY Artifact Gallery -- a local web gallery that displays
 interactive plots, tables, and other outputs produced by the OSPREY agent during
 analysis sessions. Artifacts are written by the OSPREY agent via ``save_artifact()`` in
-``osprey execute`` or the ``artifact_register`` MCP tool.
+code run by the ``python_executor`` MCP server's ``execute`` tool, or by the
+``artifact_register`` MCP tool.
 
 ``osprey artifacts web [OPTIONS]``
    Launch the Artifact Gallery web interface. Starts a FastAPI server on
@@ -1410,7 +1264,7 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 
    ``--shell TEXT`` — Shell command to run (default: ``claude``).
 
-   ``--repo PATH`` — Deployment repo to act on (default: nearest ``profile.yml`` at or above cwd).
+   ``--repo DIRECTORY`` — Deployment repo to act on (default: nearest ``profile.yml`` at or above cwd).
 
    ``--detach`` — Run in background (PID written to ``var/osprey-web.pid``). The
    login token is held only in memory; if the printed URL is lost, stop and
@@ -1420,6 +1274,9 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 
 ``osprey web stop``
    Stop a background web terminal server.
+
+``osprey web sessions``
+   Group for the commands that manage the sessions kept on disk.
 
 ``osprey web sessions clear``
    Forget the sessions this project has kept on disk, so everyone has to open
@@ -1545,6 +1402,25 @@ All subcommands accept a common flag:
    boot hook at boot — the route for a daemon-managed autofs home, and the
    no-root fallback elsewhere.
 
+``osprey scaffold personas [--from PRESET] [--force] [--repo DIRECTORY]``
+   Write ``personas/<name>.yml`` for every entry in the profile's
+   ``modules.web_terminals.personas`` catalog, then point each entry at its
+   file, so the catalog no longer resolves to the preset it was copied from.
+   Each file holds only what the persona changes. ``--from`` names the preset
+   whose catalog to emit (default: the preset this repo was created from). A
+   file that already exists is reported and left alone unless ``--force`` is
+   given.
+
+``osprey scaffold pull PRESET[:PATH] [--list] [--force] [--with-content] [--repo DIRECTORY]``
+   Copy a preset's packaged content into this repo, each file at the same path,
+   for you to edit and commit: ``control-assistant`` copies the whole app
+   template, ``control-assistant:data/facility/knowledge`` one subtree of it.
+   ``--list`` prints every path the preset offers and copies nothing. The
+   knowledge base arrives as its ``index.md`` files alone, rebuilt from what
+   landed; ``--with-content`` brings its documents too. A file that is already
+   here stops the pull before anything is written unless ``--force`` is given;
+   a symlink on the way to a target is always refused.
+
 ``osprey scaffold list``
    List all build artifacts and their ownership status (framework vs.
    user-owned).
@@ -1576,13 +1452,17 @@ All subcommands accept a common flag:
    give the artifact up for good by deleting it from the profile's convention
    directory.
 
-``osprey scaffold web-terminals lint [--repo PATH]``
+``osprey scaffold web-terminals``
+   Group for the two verbs that check and render the deployment's
+   ``modules.web_terminals`` stanza.
+
+``osprey scaffold web-terminals lint [--repo DIRECTORY]``
    Validate the deployment's ``modules.web_terminals`` stanza (port-family
    allocation, reserved service names, duplicate users, persona references).
    Exits non-zero on error-severity findings; warnings do not fail the check,
    so it is safe to wire into a CI gate.
 
-``osprey scaffold web-terminals render [--repo PATH] -o DIRECTORY``
+``osprey scaffold web-terminals render [--repo DIRECTORY] -o DIRECTORY``
    Render the multi-user deployment artifacts (docker-compose overlay, nginx
    routing fragment, static landing page) into ``-o/--output``. Lints first by
    default and aborts on errors; ``--no-lint`` skips the pre-check.
@@ -1593,6 +1473,8 @@ All subcommands accept a common flag:
 
    osprey scaffold ci                             # Re-emit the CI files
    osprey scaffold systemd                        # Write the boot unit
+   osprey scaffold personas                       # Emit the persona files
+   osprey scaffold pull control-assistant --list  # Show what a preset offers
    osprey scaffold list                           # Show all artifacts
    osprey scaffold claim agents/channel-finder    # Claim for editing
    osprey scaffold claim services/postgresql      # Freeze a service template

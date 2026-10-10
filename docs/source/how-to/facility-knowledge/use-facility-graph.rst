@@ -38,13 +38,13 @@ which devices share a PV.
 
    - Why the server can only read, and what it refuses before dialing
    - What each degraded state means and the remedy it names
-   - How to generate a graph corpus from your own channel databases
-   - Why the corpus is the deployment's channel list, not only a graph
-   - What the build derives from the corpus, and when to rebuild it
+   - Where the graph comes from: the graph view the build writes
+   - What reads the search index the build writes from that view
+   - When to rebuild, and what a rebuild changes
    - How to point the tools at a store the facility already runs
 
    **Prerequisites:** a project with a ``services.graphdb`` block — the
-   ``control-assistant`` preset ships one, already seeded.
+   ``control-assistant`` preset ships one, which ``osprey up`` seeds.
 
 
 What the graph holds, how its names are spelled, and what each of the four
@@ -55,7 +55,7 @@ tools returns are in :doc:`/reference/contracts/facility-graph`.
    **The store's first start needs egress.** Its image ships the APOC plugin
    inside and moves it into place, but not ``n10s`` — the entrypoint downloads
    that jar from GitHub the first time the store comes up, and it is the
-   plugin that imports the Turtle corpus. There is no configuration key for
+   plugin that imports the graph view. There is no configuration key for
    this: a disconnected site brings the store up once on a host that can reach
    GitHub, or copies the jar into the plugins volume by hand, after which the
    volume carries it and later starts need nothing.
@@ -79,8 +79,8 @@ Nothing the agent passes can change the graph. Two independent layers say so:
 
 The gate exists because the store's single account is write-capable and can
 reach the network: an extension procedure or a CSV import would be a way around
-both facts. The graph is rebuilt from its Turtle corpus, so a change to the
-graph belongs in that file followed by ``osprey knowledge seed-graph``.
+both facts. The graph is rebuilt from the facility file, so a change to the
+graph belongs in that file followed by ``osprey build && osprey up``.
 
 
 When the Graph Cannot Answer
@@ -116,7 +116,7 @@ answer that says it was cut short.
        anywhere.
    * - **Empty**
      - The store is running but holds no corpus, so no query can match. Load it
-       with ``osprey knowledge seed-graph``.
+       with ``osprey build && osprey up``.
    * - **Timed out**
      - The query outlived ``services.graphdb.query_timeout_s`` and the store
        cancelled it. Narrow the query first; raise the key only for a query
@@ -159,170 +159,39 @@ their static content — which is why a reply from either says nothing about
 whether a store exists. Useful for testing the wiring, not for anything else.
 
 
-Generating a Corpus
-===================
+Where the Graph Comes From
+==========================
 
-Two routes write a corpus, and both end at the same file and the same seeding
-command. A facility that runs a MATLAB Middle Layer gets one without a separate
-step: ``osprey mml emit`` writes ``data/<facility token>.ttl`` beside the
-middle-layer channel database, from the same reviewed mapping, so the graph and
-the database describe the same machine by construction. That route is the
-install flow in :doc:`/how-to/use-channel-finder`; point
-``services.graphdb.ttl_path`` at the file it names and skip to the
-``seed-graph`` step at the end of this section. Everyone else derives a corpus
-from the project's channel databases, which is the rest of it.
-
-``osprey knowledge build-ttl`` derives a NARAD-convention Turtle corpus from a
-project's own channel databases, so the graph describes the same machine the
-channel finder does. Inside a rendered project:
+``osprey build`` writes the corpus: the graph view ``data/graph/facility.ttl``
+under the render, written from the facility file (``data/facility/``), so the
+graph describes the same machine the channel finder does. Nobody edits the
+view: its first line names the hash of the facility file it was written from,
+and a change belongs in the facility file. The build points every rendered
+``services.graphdb`` block's ``ttl_path`` at it unless the profile names a
+corpus of its own, and ``osprey up`` seeds the store from it whenever the
+store's seed marker differs from the view's digest. A change to the facility
+file reaches the graph with:
 
 .. code-block:: console
 
-   $ osprey knowledge build-ttl data/demo_machine.ttl \
-       --channel-db data/channel_databases/hierarchical.json \
-       --descriptions <your in-context database>
-   Wrote data/demo_machine.ttl.
-     512 devices, 2908 channel bindings, 113 signals.
-     direction from channel limits: data/channel_limits.json
-     Facility token: ca (from facility.prefix); ontology: the packaged demo table
-     Load it with: osprey knowledge seed-graph data/demo_machine.ttl
-
-The shipped demo corpus is regenerated from
-``src/osprey/templates/apps/control_assistant/`` in the OSPREY source tree
-instead, where the two databases sit side by side, so ``--descriptions`` can be
-left to its default — a rendered project ships no such neighbour, which is why
-the first example names both:
-
-.. code-block:: console
-
-   $ osprey knowledge build-ttl data/demo_machine.ttl \
-       --channel-db data/channel_databases/tiers/tier3/hierarchical.json
-
-A corpus that is not the demo machine's wants its own facility token as well.
-The token every IRI, every identifier and every ``narad_p:facility`` value in
-the file carries is the project's own ``facility.prefix``, so a project that
-already names its facility does not name it twice; ``--facility <token>``
-overrides that for one run, and with neither in scope the token is ``demo``.
-The closing report names the token it minted with, and a run that falls back to
-``demo`` against a database that is not the packaged demo one says so, because
-a corpus labelled for the wrong machine is not visible from the file itself.
-
-A facility whose device database carries attributes the convention has no slot
-for — engineering units on a channel, a crate or serial identity on a device —
-can attach them as first-class properties through the generator's library API
-(``build_model(..., device_properties=..., binding_properties=...)``), rather
-than folding them into description prose where only a substring match reaches
-them; ``get_schema()`` then lists them to the agent like any other property.
-
-Every flag, what it decides and what it falls back to — the two databases the
-corpus is built from, the file that tells a readback from a setpoint, the
-device-family table, the facility token, and the key to point at the corpus you
-wrote — is in :ref:`osprey knowledge <cli-osprey-knowledge>`.
-
-Then load it (see :doc:`okf-bundle` for the seeding verb in full):
-
-.. code-block:: console
-
-   $ osprey knowledge seed-graph data/demo_machine.ttl
-
-
-Authoring the Ontology
-----------------------
-
-The FAMILY-to-class table ``--ontology`` reads is compiled, not written by
-hand. What you author is a **LinkML schema** — a YAML file that names each kind
-of device on the machine, says which broader kind it belongs to, and lists the
-words somebody might use for it when asking. OSPREY's own is
-``src/osprey/services/facility_knowledge/ttl_generator/demo_ontology.yaml``;
-a facility's looks the same. Two excerpts from it, a class and two families:
-
-.. code-block:: yaml
-
-   classes:
-
-     AcceleratingCavity:
-       class_uri: narad_sem:AcceleratingCavity
-       is_a: RadioFrequency
-       aliases:
-         - accelerating cavity
-         - cavity
-         - rf cavity
-
-   enums:
-
-     DeviceFamily:
-       permissible_values:
-
-         BPM:
-           meaning: narad_sem:BeamPositionMonitor
-
-         CAVITY:
-           meaning: narad_sem:AcceleratingCavity
-
-The class block declares one kind of device: ``is_a`` names its parent, and
-``aliases`` are the synonyms it should also answer to — they are emitted as
-``skos:altLabel``, which is how the OSPREY agent finds cavities when an
-operator writes *rf cavity*. The ``DeviceFamily`` enum is the family map: one
-entry per FAMILY token of the channel database, spelled exactly as the database
-spells it (hyphens and all, so ``ION-PUMP`` is a valid entry name), with
-``meaning`` naming the class devices of that family are typed as.
-
-Compile the schema into the table (this verb needs the ``knowledge`` extra,
-``pip install "osprey-framework[knowledge]"``):
-
-.. code-block:: console
-
-   $ osprey knowledge compile-ontology demo_ontology.yaml demo_ontology.json
-
-Then emit the corpus against it with ``build-ttl --ontology
-demo_ontology.json``. ``compile-ontology`` also has a ``--check`` form, which
-compares an existing table against a fresh compile and fails when the two
-have drifted apart:
-
-.. code-block:: console
-
-   $ osprey knowledge compile-ontology demo_ontology.yaml demo_ontology.json --check
-
-``--check`` writes nothing at all — it is the form for CI and for a pre-commit
-hook, where the job is to prove a committed table still matches the schema it
-came from.
-
-The table can hold less than LinkML can express, so the compiler accepts a
-deliberately narrow shape:
-
-* **One root class, named ``AcceleratorDevice``.** Exactly one class leaves
-  ``is_a`` unset, and it must be ``AcceleratorDevice`` — the class the NARAD
-  vocabulary is rooted at, which is what lets a rollup query written for one
-  machine's graph work on another. Every other class descends from it.
-* **One parent each.** ``is_a`` names a single parent; there is no multiple
-  inheritance.
-* **Names in one namespace.** Every class declares
-  ``class_uri: narad_sem:<ClassName>``, matching its own name.
-* **The enum is the family map.** A schema without a ``DeviceFamily`` enum, or
-  with a value that has no ``meaning``, has nothing to compile.
-
-Anything outside that shape is refused when you compile, rather than producing
-a table that breaks later, and the message names the element at fault — a class
-using ``mixins``, for instance, is reported as *class 'X' uses 'mixins', which
-the ontology table cannot represent*.
+   $ osprey build && osprey up
 
 
 What the Presets Seed
 =====================
 
-Both presets seed ``./data/demo_machine.ttl`` — the demo machine, generated
-from the control-assistant preset's own channel databases with the command
-above and regenerable the same way. The ARIEL standalone preset ships the same
-corpus so that every OSPREY demo describes one facility. Point ``ttl_path`` at
-a corpus of your own to seed that instead.
+Both presets seed the graph view ``osprey build`` writes from their facility
+file, ``data/graph/facility.ttl`` under the render. No hand-written corpus
+ships. The ARIEL standalone preset's facility file describes the same machine
+as the control-assistant preset's, so every OSPREY demo describes one
+facility. Point ``ttl_path`` at a corpus of your own to seed that instead.
 
 .. note::
 
    A build profile that ships its own ``data:`` tree replaces the bundle's
-   ``data/`` directory wholesale, which takes ``demo_machine.ttl`` with it.
-   Such a profile has to set ``services.graphdb.ttl_path`` in its ``config:``
-   overlay, at its own corpus. Otherwise the deploy warns, the store comes up
-   empty, and every query reports the empty state above.
+   ``data/`` directory wholesale, which takes ``data/facility/`` with it. Such
+   a profile ships a facility file of its own, and the build writes the graph
+   view from that.
 
 
 .. _graph-external-store:
@@ -367,10 +236,29 @@ opened against, so both halves reach the same corpus.
 
 Put that account's password in the project ``.env`` as ``GRAPHDB_PASSWORD``.
 Nothing mints one here — the store belongs to somebody else, so OSPREY starts
-nothing and bootstraps nothing, and it seeds nothing on its own: the corpus is
-whatever the facility loaded, unless you run ``osprey knowledge build-ttl`` and
-``osprey knowledge seed-graph`` against it deliberately. An external store that
-holds no corpus answers every query with zero rows. ``username`` is read only
+nothing and bootstraps nothing, and it never writes to a store it does not run:
+the corpus is whatever the facility loaded. An external store that holds no
+corpus answers every query with zero rows.
+
+To give that store the same graph a deployment of its own would seed, load the
+build's graph view, ``build/data/graph/facility.ttl``, through the store's
+neosemantics plugin. On a store that has never held an import, initialise the
+plugin with the settings OSPREY's queries are written against first:
+
+.. code-block:: cypher
+
+   CREATE CONSTRAINT n10s_unique_uri IF NOT EXISTS
+     FOR (r:Resource) REQUIRE r.uri IS UNIQUE;
+   CALL n10s.graphconfig.init({
+     handleVocabUris: 'MAP', handleMultival: 'ARRAY',
+     multivalPropList: ['http://www.w3.org/2004/02/skos/core#altLabel'],
+     keepLangTag: false, handleRDFTypes: 'LABELS_AND_NODES',
+     applyNeo4jNaming: true
+   });
+   CALL n10s.rdf.import.fetch('file:///path/to/build/data/graph/facility.ttl', 'Turtle');
+
+The ``file://`` path is read by the store's host, so copy the file there first.
+Load the view again after every ``osprey build`` that changes it. ``username`` is read only
 on this path; a store this deployment does run authenticates as ``neo4j``, the
 account its container is created with.
 
@@ -395,47 +283,42 @@ where a view is smaller, it is a strict subset rather than a different machine:
    * - View
      - Addresses
      - Relationship to the graph
-   * - Graph corpus (``demo_machine.ttl``)
+   * - Graph corpus (``data/graph/facility.ttl``)
      - 2,908
-     - 512 devices; 396 of the bindings are write-direction, and they are
-       exactly the ``:SP`` addresses.
+     - Build output, written from the facility file: 512 devices, and one
+       binding per channel; the 396 setpoint channels are the write-direction
+       bindings.
    * - Channel finder — hierarchical, middle-layer and graph builds
      - 2,908
      - The same set, address for address. A graph-mode build keeps no database
-       of its own: it answers out of this corpus.
-   * - Channel finder, in-context (tier-1) builds
+       of its own: it answers out of the graph view.
+   * - Channel finder, in-context index
      - 569
-     - A strict subset — the tier-1 database is a smaller selection of the same
-       machine, every address of which is in the graph.
+     - A strict subset — the channels the facility file tags ``in_context``,
+       every one of which is in the graph.
    * - Virtual accelerator simulation
      - 1,036
      - A strict subset — the channels the simulated machine actually serves.
 
-So on a tier-1 build the agent can find a device in the graph that the
+So on an in-context build the agent can find a device in the graph that the
 in-context channel finder does not list, and on any build it can find an
 address the virtual accelerator does not serve. Both are the documented shapes
-of those smaller views, not a mismatch. A build with a channel database of your
-own restores the correspondence by regenerating the corpus from it.
+of those smaller views, not a mismatch: every view is written from the one
+facility file, so a change to that file reaches all of them on the next
+``osprey build``.
 
-The corpus is the channel list, not only a graph
-------------------------------------------------
+The search index
+----------------
 
-On a graph-mode build the corpus is what the deployment answers "which channels
-does this facility have" with. It answers through a search index: ``osprey
-build`` reads the corpus once and writes
-``data/channel_databases/graph.duckdb``, a flat table of the same bindings, and
-that file is what the running deployment reads. No process parses the corpus
-while the deployment is up, so a click answers in milliseconds however large
-the machine is.
+On a graph-mode build the channel finder answers "which channels does this
+facility have" through a search index: ``osprey build`` reads the graph view
+once and writes ``data/channel_databases/graph.duckdb``, a flat table of the
+same bindings, and that file is what the running deployment reads. No process
+parses the corpus while the deployment is up, so a click answers in
+milliseconds however large the machine is.
 
-Four places read the index and get the same list:
+Two places read the index and get the same list:
 
-* **The queue server's devices.** With no device file of your own, ``osprey
-  build`` derives the plan device set from this list: every write-direction
-  binding becomes a settable, every read-direction one a readable. A settable
-  takes the ``:RB`` sibling of its ``:SP`` address as its readback where the
-  corpus enumerates that address as a read binding, and otherwise carries none.
-  See :doc:`../bluesky/write-plans`.
 * **The channel finder in graph mode.** It keeps no database of its own and
   turns phrases into addresses out of this same list. The OSPREY agent's
   ``search_channels`` tool looks addresses up here by keyword and facet; its
@@ -444,48 +327,43 @@ Four places read the index and get the same list:
 * **The channel finder's web view.** Its search results, its ontology and
   statistics panels and its channel list all come from the index. The device
   card is the exception: it reads the store, a single keyed lookup.
-* **The virtual accelerator.** Its channel manifest is derived from the same
-  list, so a simulated machine serves addresses the deployment knows.
 
-Because the direction of a binding is a property of the graph rather than a
-guess from the address, a graph-mode build reads the settable/readable split
-straight out of the corpus. A build on one of the file-backed paradigms has to
-derive that split instead — from the write-limits file, or failing that from
-the ``:SP`` address grammar — because no paradigm database records a
-direction.
+The virtual accelerator does not read the index either: its channel manifest
+is built from the facility file's channels, the same source as the queue
+server's device file. ``osprey build`` writes the worker's device file from the
+facility file — one settable per setpoint channel, reading back through its
+``pair``, one readable per readback channel — see :doc:`../bluesky/write-plans`.
 
-Where there is no corpus to build from — the store belongs to the facility and
-this deployment holds no ``.ttl`` file, or ``services.graphdb.ttl_path`` points
-at nothing — the web view says it has nothing to enumerate from and names that
-key, rather than reporting a facility with no channels. The rest of the app
-starts as usual, and the graph tools keep answering from the store.
+The settable/readable split comes from the facility file's channel records in
+every channel-finder mode: a channel whose ``role`` is ``setpoint`` is settable
+and reads back through its ``pair``, settling within its ``tolerance`` when it
+states one, and a readback channel is readable. No
+build derives a direction from the limits file or from an ``:SP`` address
+grammar.
+
+The web view lists channels from the facility file the build writes into the
+render (``facility.json``), never from the corpus or the store. A render without
+that file says so and names ``osprey build``, rather than reporting a facility
+with no channels. The rest of the app starts as usual, and the graph tools keep
+answering from the store.
+
+Search needs the index the build writes from the corpus. A profile whose
+``services.graphdb.ttl_path`` names no corpus is told to set that key.
 
 
 Rebuilding the Search Index
 ===========================
 
-``osprey build`` writes the index for you, from the corpus the render carries.
-Rebuild it by hand after editing or regenerating the corpus:
+``osprey build`` writes the index for you, from the corpus the render carries:
+the project's ``services.graphdb.ttl_path``, indexed into
+``./data/channel_databases/graph.duckdb`` beside the ``config.yml``. ``osprey
+up`` seeds the store from the same file. The two are independent derivations of
+one corpus, and only that keeps them describing one machine, so rebuild both
+together:
 
 .. code-block:: bash
 
-   osprey knowledge build-index
-
-Both paths come from the project's config: the corpus from
-``services.graphdb.ttl_path``, the index from ``services.graphdb.index_path``,
-which defaults to ``./data/channel_databases/graph.duckdb``. Name either with
-``--ttl`` or ``--output`` to override it. With no corpus configured the command
-refuses in one sentence and says which key to set. Run it inside the render, or
-with ``OSPREY_CONFIG`` pointing at the project's ``config.yml``, so both keys
-resolve against the same project.
-
-Seed the store from the same file you indexed. The two are independent
-derivations of one corpus, and only that keeps them describing one machine:
-
-.. code-block:: bash
-
-   osprey knowledge build-index
-   osprey knowledge seed-graph
+   osprey build && osprey up
 
 A channel finder already running on the host keeps the index it opened, so
 restart it to pick up a rebuilt one. A deployed stack needs nothing: its build
@@ -517,9 +395,9 @@ store is published on. Per-user web terminal containers run with
 ``network_mode: host``, so a container's ``localhost`` *is* the deployment
 host, and the build copies the bolt port from the hosting deployment's own
 render into each persona. The corpus is the one thing about the store a
-persona is *not* told: ``services.graphdb.ttl_path`` names a file in the
-``data/`` tree every render stages for itself, so each persona keeps the key
-as its own and the build derives that persona's search index from it.
+persona is *not* told: ``services.graphdb.ttl_path`` names the graph view
+every render writes for itself, so each persona keeps the key as its own and
+the build derives that persona's search index from it.
 
 Two consequences worth knowing before you move anything:
 
@@ -559,8 +437,8 @@ machine put together" questions.
       Every verb in the command group, with its flags and defaults.
 
    :doc:`okf-bundle`
-      The bundle of concept documents ``seed-from-ttl`` writes, and what
-      ``seed-graph`` does to a store that already holds a corpus.
+      The bundle of concept documents ``seed-from-ttl`` writes from the build's
+      graph view.
 
    :doc:`../use-channel-finder`
       The other way into the same machine — phrases to addresses.

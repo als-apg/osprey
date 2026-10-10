@@ -1,7 +1,7 @@
 """Four contracts that decide whether a deployment has one archive or two.
 
 A project that serves simulated channels has a live half and a stored half, and
-the whole point of seeding the store from the same generators the live half uses
+the whole point of seeding the store from the same composite the live half serves
 is that the two are one world. That claim is easy to state and easy to lose: a
 second epoch conversion, a grid anchored on the seed instant, a scenario rewrite
 that forgets a stretch of history — each of them leaves a store that is merely
@@ -9,12 +9,9 @@ that forgets a stretch of history — each of them leaves a store that is merely
 surface for the claim, checked end to end against a real MongoDB through the
 same connectors a deployed agent uses.
 
-* **Equivalence.** A value read out of the store equals, bit for bit, the value
-  the mock archiver synthesizes for the same instant — on engine-served channels
-  and on procedural ones, and across the hot/tail boundary where the seed grid
-  changes density. Once a scenario is applied, no sample inside its event window
-  still reads clean: a gap there would be a stretch of calm history sitting
-  inside a fault the agent is being asked to diagnose.
+* **Event windows.** Once a scenario is applied, no sample inside its event
+  window still reads clean: a gap there would be a stretch of calm history
+  sitting inside a fault the agent is being asked to diagnose.
 
 * **Retention.** History ages like history. A forced pass of mongod's own TTL
   sweeper takes the aged samples of *both* tiers and leaves the event windows a
@@ -50,7 +47,6 @@ those stores out from under their assertions.
 
 from __future__ import annotations
 
-import json
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -67,12 +63,13 @@ from osprey.simulation.apply import (
     event_subwindows,
     event_window,
 )
-from osprey.simulation.archiver_seed import (
+from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     EXPIRE_FIELD,
     MANIFEST_ID,
     SeedKnobs,
     SeedState,
+    build,
     compare_fingerprint,
     oldest_sample,
     seed_base,
@@ -80,10 +77,10 @@ from osprey.simulation.archiver_seed import (
     synthesize_documents,
     tier_expiry,
 )
-from osprey.simulation.procedural import DEFAULT_NOISE_LEVEL
-from osprey.simulation.series import epoch_seconds_array
+from osprey_connectors.simulation.series import epoch_seconds_array
 from tests._container_support import is_docker_available
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
+from tests._simulator_view import write_scenarios_view, write_texture_view
 
 # ---------------------------------------------------------------------------
 # The world under test
@@ -103,41 +100,26 @@ KNOBS = SeedKnobs(retention_days=1, hot_span_hours=1, hot_cadence_sec=10, tail_c
 #: the build renders into ``services.mongodb.compression``.
 COMPRESSION = "zstd"
 
-#: One noise level for both halves of the world. A deployment renders a single
-#: value into the live connector and the seeder alike; stating it once here is
-#: what makes the equivalence assertion about the *generators* rather than about
-#: two differently-tuned copies of them.
-NOISE = DEFAULT_NOISE_LEVEL
-
-# Channels the machine model describes: both halves synthesize these through the
-# engine.
 CAVITY_TEMP = "SR:RF:CAVITY:01:TEMPERATURE:RB"
 CAVITY_POWER = "SR:RF:CAVITY:01:POWER:REV"
 CAVITY_VALID = "SR:RF:CAVITY:01:STATUS:VALID"
-
-# Channels it does not: both halves fall back to the procedural generator on the
-# taxonomy baseline. Neither ends in ``:SP``/``:RB``, so the seeder's
-# boot-value lookup and the mock's baseline-free call resolve to the same
-# number — which is the condition under which the two are comparable at all.
 BPM_X = "SR:DIAG:BPM:12:POSITION:X"
 VAC_PRESSURE = "SR:VAC:IP07:PRESSURE"
 READY = "SR:STATUS:READY"
 
-ENGINE_ANALOG = (CAVITY_TEMP, CAVITY_POWER)
-PROCEDURAL_ANALOG = (BPM_X, VAC_PRESSURE)
-ANALOG = ENGINE_ANALOG + PROCEDURAL_ANALOG
+ANALOG = (CAVITY_TEMP, CAVITY_POWER, BPM_X, VAC_PRESSURE)
 DISCRETE = (CAVITY_VALID, READY)
 
-#: The build-generated channel manifest, in the shape the seeder reads.
-CHANNELS: list[dict[str, Any]] = [
-    {"address": CAVITY_TEMP, "record_type": "ai"},
-    {"address": CAVITY_POWER, "record_type": "ai"},
-    {"address": CAVITY_VALID, "record_type": "bi"},
-    {"address": BPM_X, "record_type": "ai"},
-    {"address": VAC_PRESSURE, "record_type": "ai"},
-    {"address": READY, "record_type": "bi"},
-]
-ADDRESSES = [str(channel["address"]) for channel in CHANNELS]
+#: The simulator view's channels: moving floats and two flags.
+CHANNELS: dict[str, dict[str, Any]] = {
+    CAVITY_TEMP: {"nominal": 23.0, "noise": {"absolute": 0.01}},
+    CAVITY_POWER: {"nominal": 12.0, "noise": {"absolute": 0.02}},
+    CAVITY_VALID: {"value_type": "bool", "nominal": "TRUE"},
+    BPM_X: {"nominal": 0.0, "noise": {"absolute": 0.001}},
+    VAC_PRESSURE: {"nominal": 1e-9, "noise": {"absolute": 1e-11}},
+    READY: {"value_type": "bool", "nominal": "TRUE"},
+}
+ADDRESSES = sorted(CHANNELS)
 
 # The excursions, positioned to make three geometries testable at once. The
 # temperature spike sits on the hot/tail boundary, so its window has a coarse
@@ -153,42 +135,13 @@ POWER_OFFSET_S = SPIKE_OFFSET_S + 300
 TRIP_OFFSET_S = SPIKE_OFFSET_S + 2400
 
 
-def _machine() -> dict:
-    """A machine model whose channels are the engine-served half of the world."""
-    return {
-        "name": "Archiver world rig",
-        "description": "Three modelled channels; everything else is procedural",
-        "channels": {
-            CAVITY_TEMP: {
-                "value": 23.0,
-                "units": "degC",
-                "noise": 0.01,
-                "description": "Cavity 1 body temperature",
-            },
-            CAVITY_POWER: {
-                "value": 12.0,
-                "units": "kW",
-                "noise": 0.02,
-                "description": "Cavity 1 reflected power",
-            },
-            CAVITY_VALID: {
-                "value": 1.0,
-                "units": "",
-                "noise": 0.0,
-                "description": "Cavity 1 interlock valid",
-            },
-        },
-    }
-
-
 def _rf_thermal() -> dict:
     """A cavity thermal excursion, in the shape the shipped bundle uses.
 
     Anchor-relative (``at_offset``) spikes on the cavity's temperature and
     reflected power, sized for a container test rather than for a 30-day
-    archive. The shipped ``rf-thermal`` bundle's own composition is pinned by
-    ``tests/simulation/test_control_assistant_scenarios.py``; what matters here
-    is the mechanism it exercises, not its amplitudes.
+    archive. What matters here is the mechanism the shipped ``rf-thermal``
+    bundle exercises, not its amplitudes.
     """
     return {
         "description": "A cavity-1 thermal excursion.",
@@ -337,10 +290,6 @@ class World:
 
     # -- the project on disk -------------------------------------------------
 
-    @property
-    def machine_path(self) -> Path:
-        return self.root / "data" / "simulation" / "machine.json"
-
     def config(self) -> dict:
         """The rendered config, read off disk every time.
 
@@ -362,48 +311,17 @@ class World:
         config["va_archiver"]["retention_days"] = days
         (self.root / "config.yml").write_text(yaml.safe_dump(config))
 
-    # -- the engines ---------------------------------------------------------
-
-    def _engine(self, state_dir: Path):
-        from osprey.simulation.engine import SimulationEngine
-
-        return SimulationEngine.from_file(self.machine_path, state_dir=state_dir)
-
-    def seed_engine(self):
-        """The engine a deploy seeds with: the project's own scenario state."""
-        from osprey.simulation.engine import resolve_state_dir
-
-        return self._engine(resolve_state_dir(self.config(), self.root))
-
-    def boot_values(self) -> dict[str, float]:
-        """The map the Virtual Accelerator boots its records from.
-
-        Read through the loader ``osprey up`` uses, so the seeded
-        procedural baselines are anchored by the same rule the live half applies
-        rather than by this test's reading of the machine file.
-        """
-        from osprey.services.virtual_accelerator.manifest.loaders import (
-            load_machine_json_channels,
-        )
-
-        return {
-            address: entry["value"]
-            for address, entry in load_machine_json_channels(self.machine_path).items()
-            if "value" in entry
-        }
-
     # -- writing the store ---------------------------------------------------
 
     def seed(self, t0: datetime, knobs: SeedKnobs | None = None):
         """Build the base archive, exactly as the deploy step builds it."""
+        from osprey.deployment.container_lifecycle import _archiver_seed_inputs
+
         return seed_base(
             self.collection,
-            CHANNELS,
+            _archiver_seed_inputs(self.config(), self.root),
             knobs or self.knobs(),
             t0=t0,
-            engine=self.seed_engine(),
-            boot_values=self.boot_values(),
-            noise_level=NOISE,
             compression=COMPRESSION,
             chunk_size=512,
         )
@@ -449,49 +367,18 @@ class World:
         finally:
             await connector.disconnect()
 
-    async def mocked(
-        self, channels, start: datetime, end: datetime, precision_ms: int
-    ) -> pd.DataFrame:
-        """Synthesize the same window through the mock archiver.
-
-        The connector is handed no ``simulation_file``: deriving it from the
-        control-system config is the shipped behaviour, and a test that named
-        the file explicitly would not be reading the same machine model the
-        store was seeded from for the same reason a deployment does.
-        """
-        from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
-
-        connector = MockArchiverConnector()
-        await connector.connect({"noise_level": NOISE, "sample_rate_hz": 1.0})
-        try:
-            return await connector.get_data(
-                channels=list(channels),
-                start_date=start,
-                end_date=end,
-                precision_ms=precision_ms,
-            )
-        finally:
-            await connector.disconnect()
-
     def base_values(self, channels, stamps: list[datetime]) -> dict[str, list]:
         """What the archive holds at these instants with no scenario active.
 
         Computed through :func:`synthesize_documents`, the single definition of
-        an archived value at time T, on an engine that has never had a scenario
-        activated — so "clean" here means what the base seed wrote, not what
-        this test thinks it wrote.
+        an archived value at time T, on the archive composite of ``nominal``
+        alone — so "clean" here means what the base seed wrote, not what this
+        test thinks it wrote.
         """
-        nominal_state = self.root / "_nominal_state"
-        nominal_state.mkdir(exist_ok=True)
         epochs = epoch_seconds_array(stamps)
         assert epochs is not None
-        documents = synthesize_documents(
-            CHANNELS,
-            epochs,
-            engine=self._engine(nominal_state),
-            boot_values=self.boot_values(),
-            noise_level=NOISE,
-        )
+        archive = build(self.root / "data" / "simulator", [], anchor_s=T0.timestamp())
+        documents = synthesize_documents(archive, epochs)
         return {pv: [document[pv] for document in documents] for pv in channels}
 
 
@@ -501,23 +388,18 @@ def world(tmp_path, mongo, mongo_client, monkeypatch):
 
     Function-scoped on purpose: the scenario state file lives in the project,
     so a shared project would let one test's active set decide what the next
-    test's mock archiver synthesizes.
+    test's seeder writes.
     """
     root = tmp_path / "world"
-    scenarios = root / "data" / "simulation" / "scenarios"
-    scenarios.mkdir(parents=True)
-    (root / "data" / "simulation" / "machine.json").write_text(json.dumps(_machine()))
-    for name, bundle in (("rf-thermal", _rf_thermal()), ("cavity-trip", _cavity_trip())):
-        (scenarios / name).mkdir()
-        (scenarios / name / "scenario.json").write_text(json.dumps(bundle))
+    write_texture_view(root, CHANNELS, {"rf-thermal": _rf_thermal(), "cavity-trip": _cavity_trip()})
 
     password_env = "ARCHIVER_WORLD_MONGO_PASSWORD"
     config = {
         "project_name": "archiver-world-contracts",
         "project_root": str(root),
         "control_system": {
-            "type": "mock",
-            "connector": {"mock": {"simulation_file": "data/simulation/machine.json"}},
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
         },
         "archiver": {
             "type": "mongodb_archiver",
@@ -545,9 +427,9 @@ def world(tmp_path, mongo, mongo_client, monkeypatch):
     (root / "config.yml").write_text(yaml.safe_dump(config))
     (root / ".env").write_text(f"{password_env}={mongo['password']}\n")
 
-    # The mock archiver resolves its machine model, and its scenario state, out
-    # of the ambient project config; the MongoDB connector reads its password
-    # from the environment by name. Both are set the way a deployment sets them.
+    # Applying a scenario resolves the machine model, and its scenario state, out
+    # of the ambient project config; the MongoDB connector reads its password from the
+    # environment by name. Both are set the way a deployment sets them.
     monkeypatch.setenv("CONFIG_FILE", str(root / "config.yml"))
     monkeypatch.setenv(password_env, mongo["password"])
 
@@ -583,31 +465,6 @@ def ttl_sweeper(mongo_client):
 # ---------------------------------------------------------------------------
 
 
-def _aligned(moment: datetime, cadence_s: int) -> datetime:
-    """The seeded timestamp at or before ``moment``."""
-    epoch = moment.timestamp() // cadence_s * cadence_s
-    return datetime.fromtimestamp(epoch, UTC)
-
-
-def _probe(start: datetime, cadence_s: int, intervals: int) -> tuple[datetime, datetime, int]:
-    """A mock query whose own grid lands on seeded timestamps.
-
-    ``MockArchiverConnector`` takes ``int(duration / precision)`` points and
-    spreads them evenly from the window's start to its end, so asking for
-    exactly ``intervals + 1`` points across ``intervals`` cadences puts every
-    one of them on a timestamp the seed grid already holds. The comparison
-    asserts the returned stamps really are that grid, so a change to the mock's
-    arithmetic fails loudly here instead of quietly comparing nothing.
-
-    Returns ``(start, end, precision_ms)``.
-    """
-    duration = intervals * cadence_s
-    precision_ms, remainder = divmod(1000 * duration, intervals + 1)
-    assert remainder == 0, "choose an (intervals, cadence) pair with a whole-ms precision"
-    assert intervals + 1 >= 10, "the mock floors a window at ten points"
-    return start, start + timedelta(seconds=duration), precision_ms
-
-
 def _documents_between(collection, start_s: float, end_s: float) -> list[dict]:
     """Stored samples in a span, ascending, read off the collection directly.
 
@@ -633,92 +490,13 @@ def _series(frame: pd.DataFrame, channel: str) -> pd.Series:
     return pd.Series(rows["value"].to_numpy(), index=pd.DatetimeIndex(rows["timestamp"]))
 
 
-async def _assert_bit_equal(world: World, channels, start, end, precision_ms) -> int:
-    """Every timestamp the mock reports must be in the store, holding its value.
-
-    Returns the number of samples compared, so a caller can refuse a vacuous
-    pass.
-    """
-    stored = await world.stored(channels, start, end)
-    mocked = await world.mocked(channels, start, end, precision_ms)
-
-    compared = 0
-    for channel in channels:
-        stored_series = _series(stored, channel)
-        mocked_series = _series(mocked, channel)
-        assert not mocked_series.empty, f"the mock synthesized nothing for {channel}"
-
-        missing = mocked_series.index.difference(stored_series.index)
-        assert missing.empty, (
-            f"{channel}: the probe grid left the seeded grid at {list(missing)[:3]} — "
-            "the two halves are being compared at instants only one of them has"
-        )
-        np.testing.assert_array_equal(
-            stored_series.loc[mocked_series.index].to_numpy(dtype=float),
-            mocked_series.to_numpy(dtype=float),
-            err_msg=f"{channel}: stored history and synthesized history disagree",
-        )
-        compared += len(mocked_series)
-    return compared
-
-
 # ---------------------------------------------------------------------------
-# 1. Equivalence: the store holds what a query would compute
+# 1. Event windows: an applied scenario reaches every sample it covers
 # ---------------------------------------------------------------------------
 
 
-class TestSeederMockEquivalence:
+class TestEventWindowRewrite:
     """Analog channels only — see :class:`TestServedTypes` for the rest."""
-
-    @pytest.mark.asyncio
-    async def test_the_dense_tier_equals_what_the_mock_synthesizes(self, world):
-        """Inside the hot span, where the store holds a sample every cadence."""
-        world.seed(T0)
-        start = _aligned(T0 - timedelta(minutes=30), KNOBS.hot_cadence_sec)
-
-        compared = await _assert_bit_equal(world, ANALOG, *_probe(start, KNOBS.hot_cadence_sec, 9))
-
-        assert compared == len(ANALOG) * 10
-
-    @pytest.mark.asyncio
-    async def test_the_coarse_tier_equals_what_the_mock_synthesizes(self, world):
-        """Outside the hot span the grid is sparser, and nothing else changes.
-
-        The values are a function of the timestamp alone; a generator that had
-        picked up the sample *rate* anywhere would agree in one tier and not the
-        other.
-        """
-        world.seed(T0)
-        start = _aligned(T0 - timedelta(hours=6), KNOBS.tail_cadence_sec)
-
-        compared = await _assert_bit_equal(world, ANALOG, *_probe(start, KNOBS.tail_cadence_sec, 9))
-
-        assert compared == len(ANALOG) * 10
-
-    @pytest.mark.asyncio
-    async def test_a_window_straddling_the_hot_boundary_equals_it_throughout(self, world):
-        """The seam between the two tiers, checked on the cadence they share.
-
-        The coarse cadence is a whole multiple of the dense one, so coarse
-        timestamps exist on both sides of the boundary and one probe grid spans
-        it. What must not happen is the values changing character where the
-        density does.
-        """
-        world.seed(T0)
-        boundary = T0 - timedelta(seconds=KNOBS.hot_span_s)
-        start = _aligned(boundary - timedelta(seconds=270), KNOBS.tail_cadence_sec)
-        window = _probe(start, KNOBS.tail_cadence_sec, 9)
-
-        compared = await _assert_bit_equal(world, ANALOG, *window)
-
-        assert compared == len(ANALOG) * 10
-        # And the window really did straddle it: the seeded store is denser on
-        # the recent side, which is the whole reason this window is interesting.
-        stored = await world.stored([CAVITY_TEMP], window[0], window[1])
-        stamps = _series(stored, CAVITY_TEMP).index
-        older = stamps[stamps < boundary]
-        newer = stamps[stamps >= boundary]
-        assert len(newer) > len(older) > 0, "the probe did not cross the hot/tail boundary"
 
     @pytest.mark.asyncio
     async def test_no_clean_sample_survives_inside_an_applied_event_window(self, world):
@@ -763,28 +541,10 @@ class TestSeederMockEquivalence:
             f"clean, first at {untouched[0]}"
         )
 
-    @pytest.mark.asyncio
-    async def test_history_outside_the_event_window_is_untouched(self, world):
-        """The other half of the same contract: an event reaches its window and
-        no further, so the store still equals the mock everywhere else."""
-        world.seed(T0)
-        world.apply(["rf-thermal"])
-        start = _aligned(T0 - timedelta(hours=12), KNOBS.tail_cadence_sec)
-
-        compared = await _assert_bit_equal(world, ANALOG, *_probe(start, KNOBS.tail_cadence_sec, 9))
-
-        assert compared == len(ANALOG) * 10
-
 
 class TestServedTypes:
-    """Discrete channels, which are outside the equivalence contract above.
-
-    A ``bi`` record is served — and therefore stored — as a boolean, and the
-    manifest is what says so. The mock archiver has no manifest: it synthesizes
-    from a channel name and a clock, so it cannot know a record type and returns
-    a number for these. That is an accepted divergence, not a defect to assert
-    around, so what gets pinned is the store's side of it.
-    """
+    """Discrete channels: a flag is served, and therefore stored, as its option
+    index, and the simulator view is what says so."""
 
     @pytest.mark.asyncio
     async def test_discrete_channels_are_stored_as_the_type_they_are_served_as(self, world):
@@ -793,23 +553,26 @@ class TestServedTypes:
         document = world.collection.find_one({DATE_FIELD: {"$exists": True}})
 
         for channel in DISCRETE:
-            assert isinstance(document[channel], bool), (
-                f"{channel} is served as a flag; a float here is a value no client "
-                f"could ever have read back"
+            assert type(document[channel]) is int, (
+                f"{channel} is served as an option index; a float here is a value no "
+                f"client could ever have read back"
             )
+            assert document[channel] == 1
 
-    @pytest.mark.asyncio
-    async def test_the_mock_cannot_know_a_record_type_and_says_so_in_numbers(self, world):
-        """Documents the divergence rather than papering over it."""
+
+class TestSeededStore:
+    """The seed: every stored sample is what the archive composite holds."""
+
+    def test_the_seeded_store_equals_the_archive_composite(self, world):
         world.seed(T0)
-        start = _aligned(T0 - timedelta(minutes=30), KNOBS.hot_cadence_sec)
-        window_start, window_end, precision_ms = _probe(start, KNOBS.hot_cadence_sec, 9)
 
-        frame = await world.mocked([READY], window_start, window_end, precision_ms)
+        documents = list(world.collection.find({DATE_FIELD: {"$exists": True}}).sort(DATE_FIELD))
+        stamps = [document[DATE_FIELD].replace(tzinfo=UTC) for document in documents]
+        base = world.base_values(ADDRESSES, stamps)
 
-        values = _series(frame, READY)
-        assert not values.empty
-        assert not any(isinstance(value, bool) for value in values)
+        assert documents
+        for channel in ADDRESSES:
+            assert [document[channel] for document in documents] == base[channel], channel
 
 
 # ---------------------------------------------------------------------------
@@ -843,9 +606,8 @@ class TestRetention:
         # past its expiry, so the protection it writes is the only thing
         # standing between those documents and the sweeper.
         expired_offset = -(KNOBS.retention_s - self.AGE_S // 2)
-        world.root.joinpath("data/simulation/scenarios/rf-thermal/scenario.json").write_text(
-            json.dumps(_aged_rf_thermal(expired_offset))
-        )
+        aged = _aged_rf_thermal(expired_offset)
+        write_scenarios_view(world.root, {"rf-thermal": aged, "cavity-trip": _cavity_trip()})
         result = world.apply(["rf-thermal"], at=anchor)
         assert result.archiver.skipped is None
         assert result.archiver.updated > 0

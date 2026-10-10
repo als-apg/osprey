@@ -39,9 +39,8 @@
  * the facet. A row carries `fullPv`, `description`, `device`, `device_uri`,
  * `section`, `system`, `edges` and `signals: [{uri, name}]`. A device card
  * carries `device`, `section`, `system`, `class`, `rawType`, `sPositionM`,
- * `ordinalInSection`, `systemDescription`, `familyDescription` and `signals`,
- * each `{uri, name, bindings}` with a binding `{fullPv, edges,
- * subfieldDescription, fieldDescription, description}`. The card draws the
+ * `ordinalInPlace`, `systemDescription`, `familyDescription` and `signals`,
+ * each `{uri, name, bindings}` with a binding `{fullPv, edges, description}`. The card draws the
  * groups as the endpoint sends them, so nothing regroups what the store
  * already grouped.
  *
@@ -372,10 +371,6 @@ function closeButton() {
 /**
  * Render one row of the device card's signal table.
  *
- * The description falls back from the subfield to the field to the binding's
- * own text, so the column says the most specific thing the store holds rather
- * than nothing at all.
- *
  * @param {any} binding - One binding of a signal group.
  * @param {string} signal - The signal name, empty on all but a group's first row.
  * @returns {string}
@@ -383,7 +378,7 @@ function closeButton() {
 function signalRow(binding, signal) {
   const b = binding || {};
   const pv = String(b.fullPv ?? '');
-  const sub = b.subfieldDescription || b.fieldDescription || b.description || '';
+  const sub = b.description || '';
   return '<tr>'
     + `<td class="sig">${esc(signal)}</td>`
     + `<td>${dirPill(directionOf(b))}</td>`
@@ -416,8 +411,8 @@ export function deviceCardHtml(device) {
   if (Number.isFinite(Number(d.sPositionM)) && d.sPositionM != null) {
     meta.push(`s = ${Number(d.sPositionM)} m`);
   }
-  if (Number.isFinite(Number(d.ordinalInSection)) && d.ordinalInSection != null) {
-    meta.push(`#${Number(d.ordinalInSection)} in section`);
+  if (Number.isFinite(Number(d.ordinalInPlace)) && d.ordinalInPlace != null) {
+    meta.push(`#${Number(d.ordinalInPlace)} in section`);
   }
 
   const descriptions = [d.familyDescription, d.systemDescription]

@@ -1,23 +1,13 @@
-"""The control-assistant preset seeds its graph store from the demo machine.
+"""The graph view the control-assistant build writes.
 
-Two files have to agree for a fresh `osprey up` to bring up a graph the agent
-can actually search: the `services.graphdb.ttl_path` in the preset's `config:`
-block, and the corpus that path names. Nothing else checks that pair — the
-deploy reads the corpus at seed time and only warns when it is missing, so a
-preset pointing at a file the render does not ship would deploy an empty store
-and say nothing about it. That is the first test here: read the key off the
-preset's resolved config the way the deploy resolves it, copy the bundle's data
-tree the way the renderer does, and require the file to be on disk.
-
-The rest pins what is *in* that corpus. It is generated — `osprey knowledge
-build-ttl` derives it from the channel database in the same `data/` tree — and
-a generated file that nobody counts can drift silently: a change to the channel
-database, the direction pass, or the emitter would quietly ship a different
-graph. The census below (512 devices, 2908 bindings, 396 written and 2512 read
-signals) is the demo machine as of the corpus committed beside this test, and
-the 396 writes are exactly its `:SP` addresses. The prose census sits beside it:
-three description predicates on every binding, three more plus the SYSTEM token
-on every device, and none of the six on a semantic signal.
+A corpus that nobody counts can drift silently: a change to the facility or to
+the view's writer would quietly seed a different graph. The census below (532
+devices, 2952 bindings, 412 written and 2536 read signals) is the demo facility
+as the build renders it, and the 412 writes are exactly its `:SP` addresses.
+The prose census sits beside it: a description on every binding, a system
+description plus the SYSTEM token on every device, a family description on
+every device a described group names, and none of the three descriptions on a
+semantic signal.
 
 The uppercase check guards the other half of the pipeline. neosemantics imports
 a predicate IRI under the local name it finds, so `narad_p:hasBinding` becomes
@@ -25,87 +15,12 @@ the relationship type `hasBinding` — but n10s also has a `LABELS_AND_NODES`
 handling that would uppercase it to `HASBINDING`, and the example queries the
 agent is given all spell the camelCase form. A corpus carrying uppercase names
 would import into a graph where every shipped query returns nothing.
-
-Finally, ariel_standalone is asserted to seed the same corpus: its template
-ships no copy of its own and takes the file from the control-assistant data
-tree through its `shared_data.yml`, so there is one generated file and the two
-demos cannot describe different machines.
 """
 
-import hashlib
-import json
 from pathlib import Path
 
 import pytest
-
-from osprey.cli.build_profile_archiver import _expand_dotted
-from osprey.cli.build_profile_resolve import resolve_build_profile
-from osprey.cli.templates.manager import TemplateManager
-from osprey.cli.templates.shared_data import shared_data_files
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
-
-#: Where the demo corpus lands in a rendered project, relative to the rendered
-#: ``config.yml``. Spelled here rather than read from the config so the test
-#: states the expected value instead of agreeing with whatever is configured.
-EXPECTED_TTL_PATH = "./data/demo_machine.ttl"
-
-#: The control-assistant preset's data tree — the corpus and every input it is
-#: generated from ship side by side in here.
-DEMO_DATA = Path(__file__).resolve().parents[2] / "src/osprey/templates/apps/control_assistant/data"
-
-#: The corpus as it ships in the preset's data tree.
-TEMPLATE_TTL = DEMO_DATA / "demo_machine.ttl"
-
-#: The three inputs ``osprey knowledge build-ttl`` reads: the tier-3 tree that
-#: supplies the addresses and the per-level prose, the in-context database that
-#: supplies each channel's own sentence, and the limits file that decides which
-#: bindings are written.
-CHANNEL_DB_PATH = DEMO_DATA / "channel_databases/tiers/tier3/hierarchical.json"
-DESCRIPTIONS_PATH = DEMO_DATA / "channel_databases/tiers/tier3/in_context.json"
-LIMITS_PATH = DEMO_DATA / "channel_limits.json"
+from tests._builds import BuiltProject
 
 #: NARAD property namespace — the one the emitter binds as ``narad_p:``.
 NARAD_PROPERTY = "https://narad.example.org/property/"
@@ -117,121 +32,50 @@ NARAD_SEMANTICS = "https://narad.example.org/schema/shared_semantics/"
 #: Classes in ``narad_sem:`` that type something other than a device.
 NON_DEVICE_CLASSES = {"ChannelBinding", "SemanticSignal"}
 
-#: The demo machine's census, as generated from the tier-3 channel database and
-#: the shipped channel limits.
-EXPECTED_DEVICES = 512
-EXPECTED_BINDINGS = 2908
-EXPECTED_WRITES = 396
-EXPECTED_READS = 2512
+#: The demo facility's census, as the build renders it: the tier-3 channel
+#: database's 2908 device channels, the four tune and chromaticity channels
+#: the top place carries itself, and the transfer line's 40 channels.
+EXPECTED_DEVICES = 532
+EXPECTED_BINDINGS = 2952
+EXPECTED_WRITES = 412
+EXPECTED_READS = 2536
+
+#: Devices a described group names, each carrying its family's description;
+#: the transfer line's eight quadrupoles are in no group.
+EXPECTED_FAMILY_DESCRIBED = 524
 
 #: Prose predicates carried once by every ``narad_sem:ChannelBinding``: the
-#: channel's own sentence and the text of the two address tokens it ends in.
-BINDING_DESCRIPTION_PREDICATES = ("description", "fieldDescription", "subfieldDescription")
+#: channel's own sentence.
+BINDING_DESCRIPTION_PREDICATES = ("description",)
 
-#: Prose predicates carried once by every device node, from the tree levels
-#: above it, plus the SYSTEM token itself — the one address token the device
-#: IRI does not spell, so it ships as data a query can filter on.
-DEVICE_DESCRIPTION_PREDICATES = ("familyDescription", "systemDescription", "ringDescription")
+#: Prose predicates carried once by every device node, from its system, plus
+#: the SYSTEM token itself — the one token the device IRI does not spell, so it
+#: ships as data a query can filter on.
+DEVICE_DESCRIPTION_PREDICATES = ("systemDescription",)
 DEVICE_TOKEN_PREDICATES = ("system",)
+
+#: Prose predicates carried once by every device a described group names.
+FAMILY_DESCRIPTION_PREDICATES = ("familyDescription",)
 
 #: n10s' uppercase spellings of the three relationship types the shipped
 #: example queries use. Any of these in the corpus means the queries miss.
 UPPERCASE_N10S_NAMES = ("HASBINDING", "READSSIGNAL", "WRITESSIGNAL")
 
 
-def _render_project(name: str, bundle: str, tmp_path: Path) -> Path:
-    """Render a project from a data bundle, the way ``osprey build`` does.
-
-    ``TemplateManager.create_project`` is the renderer the CLI calls; going
-    through it rather than through ``osprey build`` skips the venv and the
-    lifecycle without skipping the data copy, which is what this file is about.
-    The ``services.graphdb`` block itself is not in this render: it comes from
-    the preset's ``config:``, read by :func:`_graphdb_block`.
-    """
-    return _create_project(
-        TemplateManager(),
-        project_name=name,
-        output_dir=tmp_path,
-        data_bundle=bundle,
-        context={"channel_finder_mode": "hierarchical"},
-    )
-
-
-def _graphdb_block(preset: str) -> dict:
-    """The preset's ``services.graphdb`` block, through the deploy's resolver."""
-    from osprey.deployment.graphdb_service import resolve_graphdb_service_config
-
-    profile, _profile_dir = resolve_build_profile(None, preset)
-    config = _expand_dotted(profile.config)
-    # Raises on a malformed block, so this also asserts the preset spells the
-    # block in a shape the deploy preflight accepts.
-    resolve_graphdb_service_config(config)
-    return config["services"]["graphdb"]
+@pytest.fixture(scope="module")
+def view_path(built_control_assistant: BuiltProject) -> Path:
+    """The graph view the control-assistant build writes."""
+    return built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
 
 
 @pytest.fixture(scope="module")
-def control_assistant_project(tmp_path_factory) -> Path:
-    return _render_project(
-        "demo-ttl-ca", "control_assistant", tmp_path_factory.mktemp("demo_ttl_ca")
-    )
-
-
-@pytest.fixture(scope="module")
-def graph() -> object:
-    """The committed corpus, parsed once."""
+def graph(view_path: Path) -> object:
+    """The graph view, parsed once."""
     from rdflib import Graph
 
     parsed = Graph()
-    parsed.parse(TEMPLATE_TTL, format="turtle")
+    parsed.parse(view_path, format="turtle")
     return parsed
-
-
-# ---------------------------------------------------------------------------
-# The preset points at a corpus the render actually ships
-# ---------------------------------------------------------------------------
-
-
-def test_rendered_ttl_path_is_the_demo_corpus() -> None:
-    assert _graphdb_block("control-assistant")["ttl_path"] == EXPECTED_TTL_PATH
-
-
-def test_configured_corpus_is_on_disk_in_a_rendered_project(
-    control_assistant_project: Path,
-) -> None:
-    """Resolve ``ttl_path`` exactly as the deploy's seeding step does.
-
-    ``_graphdb_config_dir`` is the deploy's rule for *what* a relative value is
-    relative to (the render one zone down when there is one, the project root
-    otherwise); ``resolve_bundle_path`` is the shared rule for resolving it.
-    """
-    from osprey.deployment.container_lifecycle import _graphdb_config_dir
-    from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
-
-    ttl_path = _graphdb_block("control-assistant")["ttl_path"]
-    resolved = resolve_bundle_path(ttl_path, _graphdb_config_dir(control_assistant_project))
-
-    assert resolved.is_file(), (
-        f"services.graphdb.ttl_path names {resolved}, which the rendered project "
-        "does not ship — the graph store would deploy empty."
-    )
-    assert resolved.read_bytes() == TEMPLATE_TTL.read_bytes()
-
-
-def test_ariel_standalone_seeds_the_same_demo_corpus() -> None:
-    """The standalone preset's corpus is the control-assistant file, not a copy.
-
-    ``osprey init`` and ``osprey scaffold pull`` materialize a template's data
-    tree through :func:`shared_data_files`, so the file the standalone
-    declaration resolves to is the one a standalone deployment seeds from.
-    """
-    standalone_root = _bundle_data_root("ariel_standalone").parent
-
-    assert _graphdb_block("ariel-standalone")["ttl_path"] == EXPECTED_TTL_PATH
-    assert not (standalone_root / "data" / "demo_machine.ttl").exists(), (
-        "ariel_standalone ships its own copy of the demo corpus again; the source "
-        "keeps one copy, which shared_data.yml takes from control_assistant"
-    )
-    assert shared_data_files(standalone_root)["demo_machine.ttl"] == TEMPLATE_TTL
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +98,7 @@ def test_prose_census(graph) -> None:
     """Every binding and every device carries its prose, exactly once.
 
     The subject counts are what make this a census rather than a spot check: a
-    predicate appearing 2,908 times spread over 40 bindings would satisfy a
+    predicate appearing 2,952 times spread over 40 bindings would satisfy a
     triple count and import into a graph where most channels have no text at
     all. neosemantics keeps one value per property unless told otherwise, so a
     doubled predicate is also silent data loss at seed time.
@@ -279,21 +123,31 @@ def test_prose_census(graph) -> None:
         )
         assert len(subjects(predicate)) == EXPECTED_DEVICES
 
+    for predicate in FAMILY_DESCRIPTION_PREDICATES:
+        assert triples(predicate) == EXPECTED_FAMILY_DESCRIBED, (
+            f"narad_p:{predicate} appears {triples(predicate)} times, "
+            f"not {EXPECTED_FAMILY_DESCRIBED}."
+        )
+        assert len(subjects(predicate)) == EXPECTED_FAMILY_DESCRIBED
+
 
 def test_semantic_signals_carry_no_description(graph) -> None:
     """No prose predicate lands on a ``narad_sem:SemanticSignal``.
 
-    A signal is keyed without a ring, and the tree's field and subfield prose is
-    written per ring — so text on a signal could only be one ring's wording
-    standing in for every ring's. The corpus puts that text on bindings, whose
-    address carries all six tokens.
+    A signal is shared by every channel that reads or writes it, so text on a
+    signal could only be one channel's wording standing in for all of them. The
+    view puts that text on bindings and devices.
     """
     from rdflib import RDF, URIRef
 
     signals = set(graph.subjects(RDF.type, URIRef(NARAD_SEMANTICS + "SemanticSignal")))
     assert signals, "The corpus declares no semantic signals at all"
 
-    for predicate in BINDING_DESCRIPTION_PREDICATES + DEVICE_DESCRIPTION_PREDICATES:
+    for predicate in (
+        BINDING_DESCRIPTION_PREDICATES
+        + DEVICE_DESCRIPTION_PREDICATES
+        + FAMILY_DESCRIPTION_PREDICATES
+    ):
         described = signals & set(graph.subjects(URIRef(NARAD_PROPERTY + predicate), None))
         assert not described, f"narad_p:{predicate} is on {len(described)} semantic signals."
 
@@ -328,126 +182,7 @@ def test_only_setpoints_are_written(graph) -> None:
     assert not any(pv.endswith(":SP") for pv in pvs("readsSignal"))
 
 
-def test_no_uppercase_n10s_names() -> None:
-    text = TEMPLATE_TTL.read_text(encoding="utf-8")
+def test_no_uppercase_n10s_names(view_path: Path) -> None:
+    text = view_path.read_text(encoding="utf-8")
     for name in UPPERCASE_N10S_NAMES:
         assert name not in text
-
-
-# ---------------------------------------------------------------------------
-# The committed corpus is byte-for-byte what regenerating it produces
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="module")
-def control_assistant_ttl() -> Path:
-    """The corpus as the control-assistant preset ships it."""
-    return TEMPLATE_TTL
-
-
-@pytest.fixture(scope="module")
-def regenerated_ttl_text() -> str:
-    """Rebuild the corpus from the three inputs committed beside it.
-
-    This is the chain ``osprey knowledge build-ttl`` runs: expand the tier-3
-    tree through the channel finder's own loader, read both prose sources
-    through the verb's own helpers, derive the device and signal layers, resolve
-    directions from the limits file, then serialize against the demo ontology
-    carrying the direction source the resolution reported — the verb passes the
-    same report through, so a fixture that dropped it would regenerate a corpus
-    one line short of the committed one.
-
-    ``tests/services/facility_knowledge/test_demo_ttl_consistency.py`` builds
-    the same model for its semantic comparison. The inputs are spelled out again
-    here rather than imported from it: a test module is not an API, and a
-    cross-import would make one suite fail for the other's reasons.
-    """
-    from osprey.cli.knowledge_cmd import (
-        _load_binding_descriptions,
-        _resolve_hierarchy_descriptions,
-    )
-    from osprey.services.channel_finder.databases.hierarchical import (
-        HierarchicalChannelDatabase,
-    )
-    from osprey.services.facility_knowledge.ttl_generator import (
-        direction,
-        emitter,
-        model,
-        ontology_map,
-    )
-
-    raw = json.loads(CHANNEL_DB_PATH.read_text(encoding="utf-8"))
-    built = model.build_model(
-        HierarchicalChannelDatabase(str(CHANNEL_DB_PATH)).channel_map,
-        section_order=[token for token in raw["tree"] if not token.startswith("_")],
-        hierarchy_descriptions=_resolve_hierarchy_descriptions(raw, CHANNEL_DB_PATH),
-        binding_descriptions=dict(_load_binding_descriptions(DESCRIPTIONS_PATH)),
-    )
-    directed, report = direction.resolve_and_assign(built, LIMITS_PATH)
-    return emitter.serialize_turtle(
-        directed,
-        ontology_map.load_demo_ontology(),
-        direction_source=report.source,
-    )
-
-
-def _first_difference(left: bytes, right: bytes) -> str:
-    """Locate the first differing byte and name the line it falls on.
-
-    A 2.7 MB corpus reported as "bytes differ" is not actionable; the line
-    number and the two spellings of it are what say whether the drift is a
-    reordering, a changed literal, or the serializer emitting different
-    whitespace.
-    """
-    limit = min(len(left), len(right))
-    offset = next((i for i in range(limit) if left[i] != right[i]), limit)
-    if offset == limit and len(left) == len(right):
-        return "identical"
-    line = left[:offset].count(b"\n") + 1
-
-    def spelling(data: bytes) -> str:
-        lines = data.split(b"\n")
-        text = lines[line - 1].decode("utf-8", "replace") if line <= len(lines) else "<past EOF>"
-        return text if len(text) <= 200 else text[:200] + "…"
-
-    return (
-        f"first difference at byte {offset}, line {line}\n"
-        f"  regenerated: {spelling(left)}\n"
-        f"  committed:   {spelling(right)}"
-    )
-
-
-def test_regenerated_corpus_is_byte_identical_to_the_committed_copy(
-    regenerated_ttl_text: str,
-    control_assistant_ttl: Path,
-) -> None:
-    """Regenerating the corpus reproduces the committed copy byte for byte.
-
-    The sibling guard in ``tests/services/facility_knowledge`` compares the
-    regeneration to the committed file *semantically*, which is the right test
-    of whether the corpus still means what its inputs say. It is not enough for
-    the deploy, though: the seed marker is a sha256 over the TTL text (see
-    ``osprey.services.facility_knowledge.seeder.graph_seeder.ttl_sha256``), so
-    two files with identical triples and different whitespace are two different
-    corpora as far as seeding is concerned. A store already holding the corpus
-    would be re-seeded, and a store holding the *other* spelling would be
-    reported as current.
-
-    Byte equality is therefore a real property of this pipeline and not an
-    incidental one — the emitter's output is deterministic today — so it is
-    asserted here, where the deploy-facing guards live, rather than left to the
-    consistency suite.
-    """
-    regenerated = regenerated_ttl_text.encode("utf-8")
-    committed = control_assistant_ttl.read_bytes()
-
-    assert regenerated == committed, (
-        "The committed corpus is not byte-identical to regenerating it from "
-        "today's inputs, so the deploy's sha256 seed marker names a corpus "
-        "nobody can reproduce. Re-run `osprey knowledge build-ttl` and commit "
-        "the result to the control-assistant data tree.\n"
-        f"regenerated sha256 {hashlib.sha256(regenerated).hexdigest()} "
-        f"({len(regenerated)} bytes)\n"
-        f"committed   sha256 {hashlib.sha256(committed).hexdigest()} "
-        f"({len(committed)} bytes)\n" + _first_difference(regenerated, committed)
-    )

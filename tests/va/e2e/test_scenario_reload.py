@@ -1,32 +1,19 @@
-"""SC8 acceptance: ``osprey sim apply`` reaches the live container and the
-IOC's poll-driven reload picks up the new scenario within its documented
-bound.
+"""``osprey sim apply`` reaches the live container, which serves the new scenarios.
 
-A note on scope, established by reading the actual container wiring (not
-assumed): the literal task language describes writing a VAC/RF channel via
-``channel_write`` and then observing that write "reset" by a scenario switch.
-That specific mechanism doesn't exist for VAC telemetry as built --
-``osprey.services.virtual_accelerator.manifest.classify`` puts read-only VAC/RF
-telemetry (gauges, temperatures, ion-pump current) in the ``static-noisy``
-partition, which ``ioc/records.py`` builds as plain CA *In*-type records --
-there is no Out record to ``channel_write`` in the first place, so nothing
-written there can be "reset" by a later apply. The only VAC/RF fields that
-are genuinely writable over CA (``ion-pump VOLTAGE``, RF ``VOLTAGE``/
-``FREQUENCY``/``TUNER``) are classified ``sp-echo`` -- wired to their
-readback by a plain value copy in ``ioc/records.py``, with no tie to
-``SimulationEngine`` at all, so they are *not* reset by a scenario switch
-either (confirmed below, as a real regression check, not an assumption).
+The container serves the simulator view through one composite, which re-reads
+the ``active_scenarios`` file ``osprey sim apply`` writes whenever that file
+changes -- on the runner's next pass after it sees the change -- and
+rebuilds at the newly active set: each scenario's ``overrides`` become the
+start state, and every session write is dropped. A texture setpoint written
+over Channel Access therefore returns to its seed on a switch, and its echoed
+readback with it.
 
-What the built system actually does, and what this test verifies instead:
-``ioc/engine_source.py`` polls ``active_scenarios`` (1s interval) and drives
-every *static-noisy* channel from ``SimulationEngine.read()``, which composes
-whichever scenario's ``overrides`` are currently active. None of the shipped
-example scenarios (nominal/rf-thermal/vacuum-burst) carry an ``overrides``
-block -- only archiver history events -- so this test's ``conftest.py`` adds
-a synthetic ``va-e2e-burst`` scenario with a real override to exercise the
-reload path end-to-end: apply it, observe the override live over CA within
-the poll bound, apply ``nominal`` again, and observe the value reset back to
-baseline.
+None of the shipped scenarios carries a live ``overrides`` entry for a
+texture reading, so this suite's ``conftest.py`` adds the synthetic
+``va-e2e-burst`` scenario, which overrides one vacuum gauge to a value far from
+its seed. The test applies it, sees the override over Channel Access, applies
+``nominal`` again, and sees the gauge back at its seed, with a session write to
+an ion-pump voltage setpoint dropped by each switch.
 """
 
 from __future__ import annotations
@@ -38,17 +25,28 @@ import pytest
 
 from tests.va.e2e import conftest as e2e_conftest
 
-# A genuinely writable VAC channel (sp-echo -- ion-pump voltage setpoint),
-# used to demonstrate that a plain channel_write's value is NOT touched by a
-# scenario switch (sp-echo has no tie to SimulationEngine at all).
-VAC_WRITABLE_SP = "SR:VAC:ION-PUMP:01:VOLTAGE:SP"
-VAC_WRITABLE_RB = "SR:VAC:ION-PUMP:01:VOLTAGE:RB"
-SESSION_WRITE_VALUE = 437.5
+#: A writable texture setpoint and the readback its writes echo into. Its seed
+#: is :data:`VAC_SEED_V`; the readback carries the seed's noise.
+VAC_WRITABLE_SP = "SR:VAC:ION-PUMP:02:VOLTAGE:SP"
+VAC_WRITABLE_RB = "SR:VAC:ION-PUMP:02:VOLTAGE:RB"
+VAC_SEED_V = 5000.0
+#: The readback's seed noise, one standard deviation.
+VAC_RB_NOISE_V = 50.0
+#: Forty standard deviations of readback noise below the seed, so a readback
+#: that kept the session write cannot pass for one back at its seed.
+SESSION_WRITE_VALUE = 3000.0
+#: A readback within this many standard deviations of the seed is at its seed.
+NOISE_BOUND_SIGMA = 6.0
 
-POLL_INTERVAL_S = 1.0
-RELOAD_WAIT_BOUND_S = 3.0  # generous margin over the documented ~1-2s poll bound
-BASELINE_TORR = 5e-8
-BURST_THRESHOLD_TORR = 1e-6  # well above baseline+noise, well below the burst override
+#: How long an apply may take to reach the container. The composite sees the
+#: new state on the runner pass after the file changes, a tick at most; a
+#: desktop container runtime's file sharing can report the changed file to the
+#: container seconds after the host wrote it.
+RELOAD_WAIT_BOUND_S = 10.0
+#: The burst gauge's seed and a threshold far above its seed noise and far
+#: below the burst override.
+BASELINE_PRESSURE = 5e-8
+BURST_THRESHOLD = 1e-6
 
 #: Floor for this module's own test count -- a guard against a refactor that
 #: leaves the file importable but empty, which would otherwise pass silently.
@@ -71,26 +69,43 @@ async def _wait_until(connector, address: str, predicate, *, bound_s: float) -> 
     return value
 
 
+async def _write_session_value(connector) -> None:
+    """Write :data:`SESSION_WRITE_VALUE` and see it echoed into the readback."""
+    # No `confirm` kwarg: the fleet default confirms by re-reading the setpoint.
+    result = await connector.write_channel(VAC_WRITABLE_SP, SESSION_WRITE_VALUE)
+    assert result.outcome == "confirmed", (
+        f"setup write was {result.outcome}: {result.error_message or result.notes}"
+    )
+    echoed = (await connector.read_channel(VAC_WRITABLE_RB)).value
+    assert abs(echoed - SESSION_WRITE_VALUE) <= NOISE_BOUND_SIGMA * VAC_RB_NOISE_V
+
+
+async def _assert_session_write_dropped(connector, switch: str) -> None:
+    """The switch returned the written setpoint, and its readback, to the seed."""
+    setpoint = await _wait_until(
+        connector,
+        VAC_WRITABLE_SP,
+        lambda v: v == VAC_SEED_V,
+        bound_s=RELOAD_WAIT_BOUND_S,
+    )
+    assert setpoint == VAC_SEED_V, (
+        f"{VAC_WRITABLE_SP} read {setpoint} after applying {switch!r}; a scenario switch "
+        f"drops session writes, so it reads its seed {VAC_SEED_V}"
+    )
+    readback = (await connector.read_channel(VAC_WRITABLE_RB)).value
+    assert abs(readback - VAC_SEED_V) <= NOISE_BOUND_SIGMA * VAC_RB_NOISE_V, (
+        f"{VAC_WRITABLE_RB} read {readback} after applying {switch!r}, not its seed "
+        f"{VAC_SEED_V} within its noise"
+    )
+
+
 class TestScenarioReload:
     @pytest.mark.asyncio
-    async def test_scenario_switch_reloads_static_noisy_channel(self, va_container):
+    async def test_scenario_switch_reloads_overrides_and_drops_session_writes(self, va_container):
         project = va_container
 
         with e2e_conftest.patched_config(**{"control_system.writes_enabled": True}):
             connector = await e2e_conftest.connect_va()
-
-            # Establish a genuine channel_write to a writable VAC channel
-            # BEFORE the scenario dance below, so its persistence across the
-            # switch is a real regression check, not a hope.
-            # No `confirm` kwarg: the fleet default confirms by re-reading the
-            # setpoint, so a latched SESSION_WRITE_VALUE is established before
-            # the scenario dance rather than merely sent.
-            result = await connector.write_channel(VAC_WRITABLE_SP, SESSION_WRITE_VALUE)
-            assert result.outcome == "confirmed", (
-                f"setup write was {result.outcome}: {result.error_message or result.notes}"
-            )
-            written_rb = (await connector.read_channel(VAC_WRITABLE_RB)).value
-            assert written_rb == pytest.approx(SESSION_WRITE_VALUE)
 
             # Baseline: nominal is already active (conftest seeds active_scenarios
             # with it), but re-assert explicitly so this test doesn't depend on
@@ -100,55 +115,49 @@ class TestScenarioReload:
             baseline = await _wait_until(
                 connector,
                 e2e_conftest.BURST_CHANNEL,
-                lambda v: v < BURST_THRESHOLD_TORR,
+                lambda v: v < BURST_THRESHOLD,
                 bound_s=RELOAD_WAIT_BOUND_S,
             )
-            assert baseline < BURST_THRESHOLD_TORR, (
+            assert baseline < BURST_THRESHOLD, (
                 f"{e2e_conftest.BURST_CHANNEL} baseline read {baseline}, expected near "
-                f"{BASELINE_TORR} Torr"
+                f"{BASELINE_PRESSURE}"
             )
+            await _assert_session_write_dropped(connector, "nominal")
 
-            # Apply the synthetic burst scenario: its override should become
-            # visible over CA within the documented poll bound.
+            # A session write, then the synthetic burst scenario: its override
+            # is served within two ticks, and the write is gone.
+            await _write_session_value(connector)
             applied = project.sim_apply(e2e_conftest.BURST_SCENARIO_NAME)
             assert applied.returncode == 0, applied.stdout + applied.stderr
             burst_value = await _wait_until(
                 connector,
                 e2e_conftest.BURST_CHANNEL,
-                lambda v: v > BURST_THRESHOLD_TORR,
+                lambda v: v > BURST_THRESHOLD,
                 bound_s=RELOAD_WAIT_BOUND_S,
             )
-            assert burst_value > BURST_THRESHOLD_TORR, (
+            assert burst_value > BURST_THRESHOLD, (
                 f"{e2e_conftest.BURST_CHANNEL} never reflected the "
                 f"'{e2e_conftest.BURST_SCENARIO_NAME}' override "
                 f"(last read {burst_value}) within {RELOAD_WAIT_BOUND_S}s"
             )
+            await _assert_session_write_dropped(connector, e2e_conftest.BURST_SCENARIO_NAME)
 
-            # The channel_write from setup must be completely unaffected by
-            # the scenario switch: sp-echo has no tie to SimulationEngine.
-            unaffected_rb = (await connector.read_channel(VAC_WRITABLE_RB)).value
-            assert unaffected_rb == pytest.approx(SESSION_WRITE_VALUE), (
-                f"{VAC_WRITABLE_RB} changed from {SESSION_WRITE_VALUE} to {unaffected_rb} "
-                "after a scenario switch -- sp-echo channels are not scenario-tied"
-            )
-
-            # Apply nominal again: the override must reset back to baseline.
+            # Another session write, then nominal again: the override is gone
+            # and so is the write.
+            await _write_session_value(connector)
             applied = project.sim_apply("nominal")
             assert applied.returncode == 0, applied.stdout + applied.stderr
             reset_value = await _wait_until(
                 connector,
                 e2e_conftest.BURST_CHANNEL,
-                lambda v: v < BURST_THRESHOLD_TORR,
+                lambda v: v < BURST_THRESHOLD,
                 bound_s=RELOAD_WAIT_BOUND_S,
             )
-            assert reset_value < BURST_THRESHOLD_TORR, (
+            assert reset_value < BURST_THRESHOLD, (
                 f"{e2e_conftest.BURST_CHANNEL} never reset to baseline after re-applying "
                 f"'nominal' (last read {reset_value}) within {RELOAD_WAIT_BOUND_S}s"
             )
-
-            # And the sp-echo write is STILL untouched by this second switch.
-            still_unaffected_rb = (await connector.read_channel(VAC_WRITABLE_RB)).value
-            assert still_unaffected_rb == pytest.approx(SESSION_WRITE_VALUE)
+            await _assert_session_write_dropped(connector, "nominal")
 
 
 # ---------------------------------------------------------------------------

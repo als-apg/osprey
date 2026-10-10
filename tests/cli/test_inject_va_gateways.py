@@ -52,11 +52,11 @@ deployed_services:
 # ============================================================
 
 control_system:
-  type: "mock"
+  type: "epics"
   writes_enabled: false
   connector:
-    mock:
-      response_delay_ms: 0
+    tango:
+      timeout_s: 2.0
     epics:
       timeout_s: 5.0
       gateways:
@@ -89,7 +89,7 @@ deployed_services:
   - postgresql
 
 control_system:
-  type: "mock"
+  type: "epics"
   connector:
     virtual_accelerator:
       timeout_s: 5.0
@@ -113,7 +113,7 @@ deployed_services:
   - postgresql
 
 control_system:
-  type: "mock"
+  type: "epics"
   connector:
     virtual_accelerator:
       timeout_s: 5.0
@@ -187,7 +187,7 @@ def test_absent_block_write_keeps_section_comments_anchored(tmp_path):
 
     # The blocks it sits beside are untouched.
     connector = pyyaml.safe_load(text)["control_system"]["connector"]
-    assert connector["mock"] == {"response_delay_ms": 0}
+    assert connector["tango"] == {"timeout_s": 2.0}
     assert connector["epics"]["gateways"]["read_only"]["port"] == 5064
 
 
@@ -333,12 +333,12 @@ def test_the_only_thing_missing_after_injection_is_the_probe_channel(tmp_path):
 # * ``deployed_services`` — the compose template reads its instance list from
 #   there, so a block that is not deployed conjures no container.
 #
-# The third write this injector used to make is now the thing it must NOT make:
+# One key this injector never writes:
 # ``control_system.target_switch.live_gateway_acknowledged``. ``live`` means the
 # machine the facility authored under ``epics:`` — on a stand-in deployment
 # exactly as on one without — so reaching it is ``control_target_set live``,
-# which asks the profile for its own acknowledgment and strict limits. The
-# stand-in is reached as ``control_target_set standin`` and needs neither. A
+# which asks the profile for its own acknowledgment. The
+# stand-in is reached as ``control_target_set standin`` and needs none. A
 # build that wrote the acknowledgment would be answering, on the operator's
 # behalf, a question about a machine it never addressed.
 #
@@ -374,7 +374,7 @@ deployed_services:
   - virtual_accelerator
 
 control_system:
-  type: "mock"
+  type: "epics"
   connector:
     virtual_accelerator:
       timeout_s: 5.0

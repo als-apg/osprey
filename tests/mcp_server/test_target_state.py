@@ -15,7 +15,6 @@ Covers:
 """
 
 import json
-import logging
 import os
 
 import pytest
@@ -425,20 +424,19 @@ class TestSweep:
 
         return fake_kill
 
-    def test_deletes_dead_owner_file_and_returns_its_children(self, state_root, monkeypatch):
+    def test_deletes_dead_owner_file(self, state_root, monkeypatch):
         dead = _write_foreign(state_root, 4321, children=[5001, 5002])
         monkeypatch.setattr(os, "kill", self._kill_with_dead({4321}))
 
-        orphans = target_state.sweep_stale(server_pid=1234)
+        target_state.sweep_stale(server_pid=1234)
 
-        assert orphans == [5001, 5002]
         assert not dead.exists()
 
     def test_leaves_live_foreign_files_alone(self, state_root, monkeypatch):
         alive = _write_foreign(state_root, 4321, children=[5001])
         monkeypatch.setattr(os, "kill", self._kill_with_dead(set()))
 
-        assert target_state.sweep_stale(server_pid=1234) == []
+        target_state.sweep_stale(server_pid=1234)
         assert alive.exists()
 
     def test_leaves_own_file_alone_without_probing_it(self, monkeypatch):
@@ -446,25 +444,24 @@ class TestSweep:
         # Even claiming our own PID is dead must not delete our file.
         monkeypatch.setattr(os, "kill", self._kill_with_dead({1234}))
 
-        assert target_state.sweep_stale(server_pid=1234) == []
+        target_state.sweep_stale(server_pid=1234)
         assert target_state.read(1234) is not None
 
-    def test_write_server_record_returns_the_orphans_it_swept(self, state_root, monkeypatch):
+    def test_write_server_record_sweeps_dead_reports(self, state_root, monkeypatch):
         dead = _write_foreign(state_root, 4321, children=[5001])
         monkeypatch.setattr(os, "kill", self._kill_with_dead({4321}))
 
-        orphans = target_state.write_server_record(TARGETS_META, server_pid=1234)
+        target_state.write_server_record(TARGETS_META, server_pid=1234)
 
-        assert orphans == [5001]
         assert not dead.exists()
         assert target_state.read(1234)["server_pid"] == 1234
 
-    def test_corrupt_dead_file_is_removed_without_orphans(self, state_root, monkeypatch):
+    def test_corrupt_dead_file_is_removed(self, state_root, monkeypatch):
         dead = _write_foreign(state_root, 4321, children=[5001])
         dead.write_text("{not json", encoding="utf-8")
         monkeypatch.setattr(os, "kill", self._kill_with_dead({4321}))
 
-        assert target_state.sweep_stale(server_pid=1234) == []
+        target_state.sweep_stale(server_pid=1234)
         assert not dead.exists()
 
     def test_file_with_unparseable_pid_is_swept(self, state_root):
@@ -473,18 +470,11 @@ class TestSweep:
         junk = directory / "server_notapid.json"
         junk.write_text("{}", encoding="utf-8")
 
-        assert target_state.sweep_stale(server_pid=1234) == []
+        target_state.sweep_stale(server_pid=1234)
         assert not junk.exists()
 
-    def test_orphans_are_deduplicated_across_files(self, state_root, monkeypatch):
-        _write_foreign(state_root, 4321, children=[5001, 5002])
-        _write_foreign(state_root, 4322, children=[5002, 5003])
-        monkeypatch.setattr(os, "kill", self._kill_with_dead({4321, 4322}))
-
-        assert target_state.sweep_stale(server_pid=1234) == [5001, 5002, 5003]
-
     def test_missing_state_dir_sweeps_to_empty(self):
-        assert target_state.sweep_stale(server_pid=1234) == []
+        target_state.sweep_stale(server_pid=1234)
 
 
 class TestIsProcessAlive:
@@ -683,6 +673,32 @@ class TestServerStartClaimsTheRecord:
         assert claimed is not None
         assert claimed.posture == {"va": "sandbox"}
 
+    def test_claim_moves_generation_zero_live_record_to_va(
+        self, control_context_root, write_control_context
+    ):
+        """An unswitched record follows a deployment baselined on the simulator in process."""
+        from osprey_connectors.types import baseline_target
+
+        section = {"connector": {"epics": {"gateways": {"read_only": {"address": "gw"}}}}}
+        write_control_context(control_context_root, target="live", generation=0, owned_by=None)
+
+        claimed = server_context.claim_control_context(baseline=baseline_target(section))
+
+        assert claimed is not None
+        assert (claimed.target, claimed.generation) == ("va", 0)
+        assert claimed.owner is not None
+        assert claimed.owner.kind == control_context.OWNER_CONTROLS_SERVER
+        assert control_context.read_record().target == "va"
+
+    def test_claim_keeps_a_switched_live_record(self, control_context_root, write_control_context):
+        """A record somebody switched keeps the target they chose."""
+        write_control_context(control_context_root, target="live", generation=3, owned_by=None)
+
+        claimed = server_context.claim_control_context(baseline="va")
+
+        assert claimed is not None
+        assert (claimed.target, claimed.generation) == ("live", 3)
+
     def test_server_start_claims_over_a_dead_owner(
         self, control_context_root, write_control_context
     ):
@@ -868,26 +884,26 @@ class TestServerStartLaunchTarget:
 
 
 class TestServerStartStep:
-    """What ``create_server`` runs: the report, the reaping, and the claim."""
+    """What ``create_server`` runs: the report, then the claim."""
 
-    def test_server_start_step_claims_the_record_and_reaps_orphans(
-        self, control_context_root, write_control_context, monkeypatch, caplog
+    def test_server_start_step_writes_the_report_and_claims_the_record(
+        self, control_context_root, write_control_context, monkeypatch
     ):
         write_control_context(control_context_root, target="va", generation=7, owned_by=None)
         manager = _FakeManager()
-        manager.reset_state = lambda: [4321]
+        reports: list[None] = []
+        manager.reset_state = lambda: reports.append(None)
         context = _switching_context(manager)
         monkeypatch.setattr(server_context, "get_server_context", lambda: context)
 
-        with caplog.at_level(logging.WARNING):
-            server._start_from_record()
+        server._start_from_record()
 
+        assert reports == [None]
         record = control_context.read_record()
         assert record is not None
         assert record.owner is not None
         assert record.owner.kind == control_context.OWNER_CONTROLS_SERVER
         assert (record.target, record.generation) == ("va", 7)
-        assert "orphaned connector-host" in caplog.text
 
     def test_server_start_step_claims_even_when_the_report_cannot_be_written(
         self, control_context_root, write_control_context, monkeypatch

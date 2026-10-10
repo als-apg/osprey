@@ -167,7 +167,10 @@ def test_a_consumer_switched_off_is_told_nothing():
             "servers": {"graph": {"enabled": False}, "bluesky": {"enabled": False}},
             "telemetry": {"enabled": False},
         },
-        "control_system": {"type": "mock"},
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        },
     }
     projected = project_attached_overrides(HOST, off)
     assert set(projected) == {

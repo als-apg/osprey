@@ -1,0 +1,576 @@
+"""The texture model over a synthetic simulator view."""
+
+from __future__ import annotations
+
+import math
+from typing import Any
+
+import numpy as np
+import pytest
+from lume.exceptions import ReadOnlyError
+from lume.variables import (
+    EnumVariable,
+    IntVariable,
+    NDVariable,
+    ScalarVariable,
+    StrVariable,
+)
+
+from osprey_connectors.simulation import series
+from osprey_connectors.simulation.texture import TextureModel
+
+T0 = 1_760_000_000.0
+
+
+def _channel(address: str, **fields: Any) -> dict[str, Any]:
+    role = fields.pop("role", "readback")
+    return {
+        "address": address,
+        "role": role,
+        "pair": fields.pop("pair", address if role == "setpoint" else None),
+        "value_type": fields.pop("value_type", "float"),
+        "unit": fields.pop("unit", None),
+        "description": None,
+        "writable": fields.pop("writable", False),
+        "value_range": fields.pop("value_range", None),
+        "owner": fields.pop("owner", "texture"),
+        **fields,
+    }
+
+
+def _view() -> tuple[dict[str, Any], dict[str, Any]]:
+    channels = [
+        _channel(
+            "T:HEAT:SP", role="setpoint", pair="T:HEAT:RB", writable=True, value_range=[0, 50]
+        ),
+        _channel("T:HEAT:RB", unit="degC"),
+        _channel("T:NOISY", unit="A"),
+        _channel("T:CLAMPED"),
+        _channel("T:SUM"),
+        _channel("T:LONE:SP", role="setpoint", writable=True, value_range=[-5, 5]),
+        _channel("T:FREE:SP", role="setpoint", writable=True, value_range=None),
+        _channel("T:LOCKED:SP", role="setpoint", writable=False, value_range=[0, 1]),
+        _channel("T:VALVE", role="setpoint", value_type="bool", writable=True),
+        _channel("T:MODE", value_type="enum", options=["OFF", "STANDBY", "ON"]),
+        _channel("T:COUNT", value_type="int"),
+        _channel("T:NAME", value_type="string"),
+        _channel("T:TRACE", value_type="waveform", shape=[2, 3]),
+        _channel("T:ZERO"),
+        _channel("P:SERVED:RB", owner="served"),
+        _channel("P:IDLE:SP", role="setpoint", writable=True, owner="idle"),
+    ]
+    variables = {
+        "schema": "simulator-variables",
+        "code": "T",
+        "models": [
+            {
+                "name": "idle",
+                "engine": "x",
+                "served": False,
+                "settings": {},
+                "deck": None,
+                "wiring": [{"id": "w1", "address": "P:IDLE:SP", "default": 2.5}],
+            },
+            {
+                "name": "served",
+                "engine": "x",
+                "served": True,
+                "settings": {},
+                "deck": None,
+                "wiring": [{"id": "w2", "address": "P:SERVED:RB", "default": 9.0}],
+            },
+        ],
+        "channels": channels,
+    }
+    seeds = {
+        "schema": "simulator-seeds",
+        "seeds": {
+            "T:HEAT:SP": {"nominal": 20.0},
+            "T:NOISY": {
+                "nominal": 10.0,
+                "noise": {"absolute": 0.5},
+                "drift": {"amplitude": 1.0, "period_s": 600},
+            },
+            "T:CLAMPED": {"nominal": 3.0, "noise": {"absolute": 5.0}, "clamp": [0.0, None]},
+            "T:SUM": {"linear": {"T:HEAT:SP": 2.0, "T:NOISY": {"coefficient": -1.0}}},
+            "T:VALVE": {"nominal": "TRUE"},
+            "T:MODE": {"nominal": "STANDBY"},
+            "T:COUNT": {"nominal": 7},
+            "T:NAME": {"nominal": "alpha"},
+            "T:TRACE": {"nominal": [[1, 2, 3], [4, 5, 6]]},
+            "P:SERVED:RB": {"noise": {"absolute": 0.25}},
+        },
+    }
+    return variables, seeds
+
+
+def _model(t_s: float = T0) -> TextureModel:
+    variables, seeds = _view()
+    return TextureModel(variables, seeds, clock=lambda: t_s)
+
+
+def test_noise_is_keyed_on_address_and_epoch_ms():
+    expected = (
+        0.5
+        * series.keyed_normals(series.channel_key_bytes("T:NOISY"), np.array([round(T0 * 1000)]))[0]
+        + series.wander(series.channel_key_bytes("T:NOISY"), np.array([T0]), 1.0, 600)[0]
+    )
+
+    first = _model().get("T:NOISY")
+    again = _model().get("T:NOISY")
+
+    assert first == again
+    assert first == pytest.approx(10.0 + expected)
+    assert _model(T0 + 0.001).get("T:NOISY") != first
+
+
+def test_motion_at_an_instant_matches_a_live_read_at_that_instant():
+    model = _model()
+    window = np.array([T0 - 1.0, T0, T0 + 1.0])
+
+    archived = 10.0 + model.motion("T:NOISY", window)
+
+    assert archived[1] == pytest.approx(model.get("T:NOISY"))
+
+
+def test_a_channel_with_no_seed_is_a_static_zero():
+    assert _model().get("T:ZERO") == 0.0
+    assert _model(T0 + 5).get("T:ZERO") == 0.0
+
+
+def test_clamp_holds_the_stated_side_and_leaves_the_null_side_open():
+    model = _model()
+    reads = [_model(T0 + k * 0.137).get("T:CLAMPED") for k in range(200)]
+
+    assert min(reads) == 0.0
+    assert max(reads) > 3.0
+    assert model.clamp("T:CLAMPED", 1e9) == 1e9
+
+
+def test_an_int_clamp_side_reads_as_a_float():
+    variables, seeds = _view()
+    variables["channels"].append(_channel("T:INT:CLAMPED"))
+    seeds["seeds"]["T:INT:CLAMPED"] = {"nominal": 3.0, "noise": {"absolute": 5.0}, "clamp": [0, 1]}
+    reads = [
+        TextureModel(variables, seeds, clock=lambda t=T0 + k * 0.137: t).get("T:INT:CLAMPED")
+        for k in range(50)
+    ]
+
+    assert {0.0, 1.0} <= set(reads)
+    assert all(type(read) is float and 0.0 <= read <= 1.0 for read in reads)
+
+
+def test_writing_a_setpoint_echoes_into_its_readback():
+    model = _model()
+
+    model.set({"T:HEAT:SP": 31.5})
+
+    assert model.get(["T:HEAT:SP", "T:HEAT:RB"]) == {"T:HEAT:SP": 31.5, "T:HEAT:RB": 31.5}
+
+
+def test_a_paired_readback_starts_at_its_setpoints_nominal():
+    model = _model()
+
+    assert model.get("T:HEAT:RB") == 20.0
+    assert model.supported_variables["T:HEAT:RB"].default_value == 20.0
+
+
+def test_a_refused_echo_leaves_the_setpoint_unchanged():
+    variables, seeds = _view()
+    variables["channels"] += [
+        _channel("T:STEP:SP", role="setpoint", pair="T:STEP:RB", writable=True),
+        _channel("T:STEP:RB", value_type="int"),
+    ]
+    seeds["seeds"]["T:STEP:SP"] = {"nominal": 3.0}
+    model = TextureModel(variables, seeds, clock=lambda: T0)
+
+    with pytest.raises(ValueError):
+        model.set({"T:STEP:SP": 3.5})
+
+    assert model.get(["T:STEP:SP", "T:STEP:RB"]) == {"T:STEP:SP": 3.0, "T:STEP:RB": 3}
+
+
+def test_a_setpoint_paired_with_itself_changes_no_other_channel():
+    model = _model()
+    before = model.held([name for name in model.supported_variables if name != "T:LONE:SP"])
+
+    model.set({"T:LONE:SP": 4.0})
+
+    assert model.get("T:LONE:SP") == 4.0
+    assert model.held(list(before)) == before
+
+
+def test_a_linear_channel_follows_its_inputs_held_values():
+    model = _model()
+
+    assert model.get("T:SUM") == pytest.approx(2.0 * 20.0 - 10.0)
+    model.set({"T:HEAT:SP": 25.0})
+    assert model.get("T:SUM") == pytest.approx(2.0 * 25.0 - 10.0)
+
+
+def test_a_linear_channel_reads_a_linear_input_as_its_weighted_sum():
+    variables, seeds = _view()
+    variables["channels"].append(_channel("T:CHAIN"))
+    seeds["seeds"]["T:CHAIN"] = {"linear": {"T:SUM": 0.5}}
+    model = TextureModel(variables, seeds, clock=lambda: T0)
+
+    assert model.get("T:CHAIN") == pytest.approx(0.5 * (2.0 * 20.0 - 10.0))
+    assert model.supported_variables["T:CHAIN"].default_value == pytest.approx(15.0)
+
+
+def test_a_linear_channels_default_is_its_start_value():
+    assert _model().supported_variables["T:SUM"].default_value == pytest.approx(30.0)
+
+
+def test_bool_and_enum_hold_labels():
+    model = _model()
+    valve = model.supported_variables["T:VALVE"]
+    mode = model.supported_variables["T:MODE"]
+
+    assert isinstance(valve, EnumVariable)
+    assert valve.options == ["FALSE", "TRUE"]
+    assert valve.default_value == "TRUE"
+    assert isinstance(mode, EnumVariable)
+    assert mode.default_value == "STANDBY"
+    model.set({"T:VALVE": "FALSE"})
+    assert model.get("T:VALVE") == "FALSE"
+
+
+def test_value_type_picks_the_variable_class():
+    variables = _model().supported_variables
+
+    assert type(variables["T:NOISY"]) is ScalarVariable
+    assert type(variables["T:COUNT"]) is IntVariable
+    assert type(variables["T:NAME"]) is StrVariable
+    assert type(variables["T:TRACE"]) is NDVariable
+    assert variables["T:TRACE"].shape == (2, 3)
+    assert variables["T:HEAT:RB"].unit == "degC"
+    assert _model().get("T:TRACE").tolist() == [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+
+
+def test_only_a_setpoint_the_view_marks_writable_is_settable():
+    variables = _model().supported_variables
+
+    assert variables["T:HEAT:SP"].read_only is False
+    assert variables["T:HEAT:SP"].value_range == (0.0, 50.0)
+    assert variables["T:LOCKED:SP"].read_only is True
+    assert variables["T:HEAT:RB"].read_only is True
+    with pytest.raises(ReadOnlyError):
+        _model().set({"T:LOCKED:SP": 0.5})
+
+
+def test_a_writable_setpoint_without_limits_has_no_range():
+    variable = _model().supported_variables["T:FREE:SP"]
+
+    assert variable.read_only is False
+    assert variable.value_range is None
+
+
+def test_a_one_sided_range_leaves_the_other_side_unbounded():
+    variables, seeds = _view()
+    variables["channels"].append(
+        _channel("T:HALF:SP", role="setpoint", writable=True, value_range=[None, 3.0])
+    )
+
+    variable = TextureModel(variables, seeds).supported_variables["T:HALF:SP"]
+
+    assert variable.value_range == (-math.inf, 3.0)
+
+
+def test_a_served_model_keeps_its_channels_and_texture_still_moves_them():
+    model = _model()
+
+    assert "P:SERVED:RB" not in model.supported_variables
+    assert model.motion("P:SERVED:RB", np.array([T0]))[0] != 0.0
+
+
+def test_an_unserved_model_falls_to_texture_with_its_wiring_default():
+    model = _model()
+
+    assert model.get("P:IDLE:SP") == 2.5
+    assert model.supported_variables["P:IDLE:SP"].default_value == 2.5
+
+
+def test_reset_returns_every_channel_to_its_nominal():
+    model = _model()
+    model.set({"T:HEAT:SP": 40.0})
+
+    model.reset()
+
+    assert model.get(["T:HEAT:SP", "T:HEAT:RB"]) == {"T:HEAT:SP": 20.0, "T:HEAT:RB": 20.0}
+
+
+def _coupled_model(couple: dict[str, Any], noise: dict[str, Any] | None = None) -> TextureModel:
+    variables, seeds = _view()
+    variables["channels"] += [_channel("T:A"), _channel("T:B")]
+    seeds["seeds"]["T:A"] = {"nominal": 1.0}
+    seeds["seeds"]["T:B"] = {"nominal": 2.0}
+    model = TextureModel(variables, seeds, clock=lambda: T0)
+    model.set_motion(couple, noise or {})
+    return model
+
+
+_DRIVE = {"kind": "wander", "amplitude": 1.0, "period_s": 300.0}
+
+
+def _driver_at(t_s: float) -> float:
+    return float(series.wander(series.driver_key_bytes("d1"), np.array([t_s]), 1.0, 300.0)[0])
+
+
+def test_channels_coupled_to_one_driver_move_by_their_gains():
+    model = _coupled_model(
+        {
+            "T:A": [{"driver": "d1", "gain": 0.5, "drive": _DRIVE}],
+            "T:B": [{"driver": "d1", "gain": 2.5, "drive": _DRIVE}],
+        }
+    )
+
+    reads = model.get(["T:A", "T:B"])
+
+    assert reads["T:A"] == pytest.approx(1.0 + 0.5 * _driver_at(T0))
+    assert reads["T:B"] == pytest.approx(2.0 + 2.5 * _driver_at(T0))
+    assert _driver_at(T0) != 0.0
+
+
+def test_a_gain_wander_coupling_differs_from_the_plain_one():
+    wander = {"amplitude": 0.8, "period_s": 900.0}
+    plain = _coupled_model({"T:A": [{"driver": "d1", "gain": 0.5, "drive": _DRIVE}]})
+    waxing = _coupled_model(
+        {"T:A": [{"driver": "d1", "gain": 0.5, "gain_wander": wander, "drive": _DRIVE}]}
+    )
+    envelope = series.wander(
+        series.channel_key_bytes("T:A") + b":gain_wander:d1", np.array([T0]), 0.8, 900.0
+    )[0]
+
+    assert waxing.get("T:A") != plain.get("T:A")
+    assert waxing.get("T:A") == pytest.approx(1.0 + 0.5 * (1.0 + envelope) * _driver_at(T0))
+
+
+def test_a_zero_noise_replacement_silences_a_seeded_channel():
+    model = _coupled_model({}, {"T:NOISY": {"absolute": 0.0}})
+    drift = series.wander(series.channel_key_bytes("T:NOISY"), np.array([T0]), 1.0, 600)[0]
+
+    assert model.get("T:NOISY") == pytest.approx(10.0 + drift)
+
+
+def test_an_absolute_record_serves_todays_samples():
+    model = _coupled_model({})
+    times = T0 + np.arange(0.0, 5.0, 0.25)
+    key = series.channel_key_bytes("P:SERVED:RB")
+    counters = np.rint(times * 1000).astype(np.int64)
+
+    moved = model.motion("P:SERVED:RB", times, base=9.0)
+
+    assert np.array_equal(moved, 0.25 * series.keyed_normals(key, counters))
+
+
+def test_a_scenario_absolute_keeps_the_noise_abs_stream():
+    model = _coupled_model({}, {"T:A": {"absolute": 0.2}})
+    key = series.channel_key_bytes("T:A")
+    counter = np.array([round(T0 * 1000)])
+    absolute = series.keyed_normals(key + b":noise_abs", counter)[0]
+
+    assert model.get("T:A") == 1.0 + 0.2 * absolute
+
+
+def test_a_scenario_relative_scales_the_value_on_the_noise_stream():
+    model = _coupled_model({}, {"T:A": {"relative": 0.1}})
+    key = series.channel_key_bytes("T:A")
+    counter = np.array([round(T0 * 1000)])
+    relative = series.keyed_normals(key + b":noise", counter)[0]
+
+    assert model.get("T:A") == pytest.approx(1.0 * (1.0 + 0.1 * relative))
+
+
+def test_a_relative_seed_scales_the_reading():
+    variables, seeds = _view()
+    variables["channels"].append(_channel("T:REL"))
+    seeds["seeds"]["T:REL"] = {"nominal": 200.0, "noise": {"relative": 1e-3}}
+    model = TextureModel(variables, seeds, clock=lambda: T0)
+    key = series.channel_key_bytes("T:REL")
+    counter = np.array([round(T0 * 1000)])
+    draw = series.keyed_normals(key, counter)[0]
+
+    assert model.get("T:REL") == pytest.approx(200.0 * (1.0 + 1e-3 * draw))
+    assert model.motion("T:REL", np.array([T0]), base=400.0)[0] == pytest.approx(
+        400.0 * 1e-3 * draw
+    )
+
+
+def test_an_empty_motion_restores_the_seed_motion():
+    model = _coupled_model(
+        {"T:NOISY": [{"driver": "d1", "gain": 3.0, "drive": _DRIVE}]},
+        {"T:NOISY": {"absolute": 0.0}},
+    )
+    moved = model.get("T:NOISY")
+
+    model.set_motion({}, {})
+
+    assert model.get("T:NOISY") == pytest.approx(_model().get("T:NOISY"))
+    assert moved != model.get("T:NOISY")
+
+
+def test_a_coupled_served_channel_moves_by_its_coupling():
+    model = _coupled_model({"P:SERVED:RB": [{"driver": "d1", "gain": 1.5, "drive": _DRIVE}]})
+    seed_only = _model().motion("P:SERVED:RB", np.array([T0]))[0]
+
+    moved = model.motion("P:SERVED:RB", np.array([T0]), base=9.0)[0]
+
+    assert moved == pytest.approx(seed_only + 1.5 * _driver_at(T0))
+
+
+_COUPLING = [{"driver": "d1", "gain": 0.5, "drive": _DRIVE}]
+
+
+@pytest.mark.parametrize(
+    ("value_type", "seed", "couple", "noise", "stilled", "expected"),
+    [
+        ("int", {"nominal": 1, "noise": {"absolute": 0.5}}, _COUPLING, {}, False, False),
+        ("float", {"nominal": 1.0}, None, {}, False, False),
+        (
+            "float",
+            {"nominal": 1.0, "drift": {"amplitude": 1.0, "period_s": 600}},
+            None,
+            {},
+            False,
+            True,
+        ),
+        ("float", {"nominal": 1.0}, _COUPLING, {}, False, True),
+        ("float", {"nominal": 1.0, "noise": {"absolute": 0.5}}, None, {}, False, True),
+        (
+            "float",
+            {"nominal": 1.0, "noise": {"absolute": 0.5}},
+            None,
+            {"absolute": 0.0},
+            False,
+            False,
+        ),
+        (
+            "float",
+            {"nominal": 1.0, "noise": {"absolute": 0.5}},
+            None,
+            {"relative": 0.0},
+            False,
+            False,
+        ),
+        ("float", {"nominal": 1.0, "noise": {"absolute": 0.0}}, None, {}, False, False),
+        ("float", {"nominal": 1.0, "noise": {"relative": 0.5}}, None, {}, False, True),
+        ("float", {"nominal": 1.0}, None, {"absolute": 0.2}, False, True),
+        (
+            "float",
+            {"nominal": 1.0, "noise": {"absolute": 0.5}, "drift": {"amplitude": 1, "period_s": 6}},
+            _COUPLING,
+            {"absolute": 0.2},
+            True,
+            False,
+        ),
+    ],
+    ids=[
+        "non-float",
+        "still",
+        "drift-only",
+        "coupling-only",
+        "seed-noise-only",
+        "zero-absolute-replacement-over-noisy-seed",
+        "zero-relative-replacement-over-noisy-seed",
+        "zero-absolute-seed",
+        "relative-seed",
+        "replacement-noise",
+        "stilled",
+    ],
+)
+def test_has_motion_mirrors_motion(value_type, seed, couple, noise, stilled, expected):
+    variables, seeds = _view()
+    variables["channels"].append(_channel("T:X", value_type=value_type))
+    seeds["seeds"]["T:X"] = seed
+    model = TextureModel(variables, seeds, clock=lambda: T0)
+    model.set_motion(
+        {"T:X": couple} if couple else {},
+        {"T:X": noise} if noise else {},
+        still=frozenset({"T:X"}) if stilled else frozenset(),
+    )
+    times = T0 + np.arange(0.0, 50.0, 0.37)
+
+    moved = bool(np.any(model.motion("T:X", times, base=1.0) != 0.0))
+
+    assert model.has_motion("T:X") is expected
+    assert moved is expected
+
+
+def test_has_motion_follows_set_motion():
+    model = _coupled_model({})
+    assert model.has_motion("T:A") is False
+    assert model.has_motion("T:NOISY") is True
+
+    model.set_motion({"T:A": _COUPLING}, {"T:NOISY": {"absolute": 0.0}})
+    assert model.has_motion("T:A") is True
+    assert model.has_motion("T:NOISY") is True  # its seed drift still moves it
+
+    model.set_motion({}, {"T:CLAMPED": {"relative": 0.0}})
+    assert model.has_motion("T:A") is False
+    assert model.has_motion("T:CLAMPED") is False
+
+
+def _reads(model: TextureModel, clock: list[float], address: str) -> list[float]:
+    values = []
+    for step in range(32):
+        clock[0] = T0 + 0.25 * step
+        values.append(model.get(address))
+    return values
+
+
+def _clocked() -> tuple[TextureModel, list[float]]:
+    variables, seeds = _view()
+    clock = [T0]
+    return TextureModel(variables, seeds, clock=lambda: clock[0]), clock
+
+
+def test_a_stilled_reading_serves_its_held_value():
+    model, clock = _clocked()
+    model.set_motion({}, {}, still=frozenset({"T:NOISY", "T:CLAMPED"}))
+
+    assert set(_reads(model, clock, "T:NOISY")) == {10.0}
+    assert set(_reads(model, clock, "T:CLAMPED")) == {3.0}
+    assert not np.any(model.motion("T:NOISY", T0 + np.arange(8.0)))
+    assert model.has_motion("T:NOISY") is False
+
+
+def test_still_all_stills_every_float_reading():
+    model, clock = _clocked()
+    model.set_motion(
+        {"T:ZERO": [{"driver": "d1", "gain": 0.5, "drive": _DRIVE}]},
+        {"T:HEAT:RB": {"absolute": 1.0}},
+        still_all=True,
+    )
+
+    for address in ("T:NOISY", "T:CLAMPED", "T:ZERO", "T:HEAT:RB", "P:SERVED:RB"):
+        assert model.has_motion(address) is False
+        assert not np.any(model.motion(address, T0 + np.arange(8.0), base=1.0))
+    assert set(_reads(model, clock, "T:NOISY")) == {10.0}
+
+
+def test_an_unstilled_reading_keeps_its_samples():
+    plain, plain_clock = _clocked()
+    stilled, stilled_clock = _clocked()
+    stilled.set_motion({}, {}, still=frozenset({"T:CLAMPED"}))
+
+    assert _reads(stilled, stilled_clock, "T:NOISY") == _reads(plain, plain_clock, "T:NOISY")
+
+
+def test_active_writes_are_the_start_state_a_reset_returns_to():
+    model = _model()
+    model.set({"T:LONE:SP": 4.0})
+
+    model.set_active({"T:HEAT:SP": 33.0, "T:LOCKED:SP": 0.5})
+
+    assert model.get(["T:HEAT:SP", "T:HEAT:RB", "T:LOCKED:SP", "T:LONE:SP"]) == {
+        "T:HEAT:SP": 33.0,
+        "T:HEAT:RB": 33.0,
+        "T:LOCKED:SP": 0.5,
+        "T:LONE:SP": 0.0,
+    }
+    model.set({"T:HEAT:SP": 12.0})
+    model.reset()
+    assert model.get("T:HEAT:SP") == 33.0
+    model.set_active({})
+    assert model.get("T:HEAT:SP") == 20.0

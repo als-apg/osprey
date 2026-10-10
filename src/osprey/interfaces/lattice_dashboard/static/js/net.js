@@ -11,8 +11,44 @@
 
 const API_BASE = '';  // Same origin (served by dashboard server)
 
+/** A non-OK dashboard API response: its status and its body text. */
+export class ApiError extends Error {
+  /**
+   * @param {string} path
+   * @param {number} status
+   * @param {string} body
+   */
+  constructor(path, status, body) {
+    super(`API ${path}: ${status} ${body}`);
+    this.status = status;
+    this.body = body;
+  }
+}
+
+/** The status a figure route answers while there is no figure for the inputs on screen. */
+const NOT_CURRENT_STATUS = 404;
+
+/** The status a figure route answers for a figure the selected model cannot draw. */
+const UNAVAILABLE_STATUS = 409;
+
+/** How long to wait before re-reading a state whose selection is loading. */
+const LOADING_POLL_MS = 500;
+
 /**
- * Fetch JSON from the dashboard API, throwing on a non-OK response.
+ * Parse an error body as JSON, or null when it is not.
+ * @param {string} text
+ * @returns {any}
+ */
+function parseBody(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch JSON from the dashboard API, throwing an ApiError on a non-OK response.
  * @param {string} path - API path (e.g. '/api/state')
  * @param {RequestInit} [options] - Extra fetch options
  * @returns {Promise<any>}
@@ -23,8 +59,7 @@ export async function apiFetch(path, options = {}) {
     ...options,
   });
   if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`API ${path}: ${resp.status} ${text}`);
+    throw new ApiError(path, resp.status, await resp.text());
   }
   return resp.json();
 }
@@ -99,9 +134,11 @@ export function handleSSEEvent(data, handlers) {
 /**
  * @typedef {object} NetCallbacks
  * @property {(state: any) => void} onState - fired after /api/state resolves (initial load, re-fetch, or a 'state_updated' SSE signal)
+ * @property {(models: import('./models.js').ModelEntry[]) => void} onModels - fired after /api/models resolves
  * @property {(result: any) => void} onParamSet - fired with the updated state after a slider change is applied
- * @property {(name: string, figData: any) => void} onFigureData - fired with figure JSON once fetched (initial ready figures and 'figure_ready' events)
- * @property {(name: string, status: string) => void} onFigureStatus - fired on a 'figure_status' SSE event
+ * @property {(name: string, figData: any) => void} onFigureData - fired with the Plotly figure once fetched (initial ready figures and 'figure_ready' events)
+ * @property {(name: string, detail: string) => void} onFigureUnavailable - fired with the refusal's detail when the selected model cannot draw the figure
+ * @property {(name: string, status: string) => void} onFigureStatus - fired on a 'figure_status' SSE event, and with the status a figure route's 404 names
  * @property {(name: string) => void} onFigureReady - fired on a 'figure_ready' SSE event, before the figure itself is fetched
  * @property {(name: string, error: string) => void} onFigureError - fired on a 'figure_error' SSE event
  * @property {(settings: object) => void} onSettingsUpdated - fired on a 'settings_updated' SSE event
@@ -119,13 +156,70 @@ export function createNetClient(callbacks) {
   /** @type {EventSource | null} */
   let eventSource = null;
 
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let loadingPoll = null;
+
+  /**
+   * Read the state. A changed selection re-reads the model list too, and a
+   * selection still loading is read again shortly.
+   */
   async function fetchState() {
     try {
+      const previous = state?.selection;
       state = await apiFetch('/api/state');
       callbacks.onState(state);
+      const selection = state.selection;
+      if (previous?.model !== selection?.model || previous?.status !== selection?.status) {
+        fetchModels();
+      }
+      if (selection?.status === 'loading' && loadingPoll === null) {
+        loadingPoll = setTimeout(() => {
+          loadingPoll = null;
+          fetchState();
+        }, LOADING_POLL_MS);
+      }
     } catch (err) {
       console.warn('Failed to fetch state:', err);
     }
+  }
+
+  async function fetchModels() {
+    try {
+      callbacks.onModels(await apiFetch('/api/models'));
+    } catch (err) {
+      console.warn('Failed to fetch models:', err);
+    }
+  }
+
+  /**
+   * Load the named model, then re-read the state and the model list so both
+   * renderings of the choice follow the server. A refused pick re-reads the
+   * list only, which puts the selectors back on the model still loaded.
+   * @param {string} name
+   */
+  async function selectModel(name) {
+    try {
+      await apiFetch('/api/models/select', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      await fetchState();
+    } catch (err) {
+      console.error('Select model failed:', err);
+    }
+    await fetchModels();
+  }
+
+  /**
+   * Recompute the selected model's fast figures — the capabilities'
+   * `fast_figures` of the last state read — marking each computing before
+   * the server reports it.
+   */
+  async function refresh() {
+    for (const name of state?.selection?.capabilities?.fast_figures ?? []) {
+      callbacks.onFigureStatus(name, 'computing');
+    }
+    await refreshFast();
   }
 
   async function setBaseline() {
@@ -155,12 +249,28 @@ export function createNetClient(callbacks) {
     }
   }
 
-  /** @param {string} name */
+  /**
+   * Fetch a figure of the inputs on screen and render it. A 404 that says
+   * why there is none sets the figure's LED to that status; a 409 shows the
+   * reason the selected model cannot draw it.
+   * @param {string} name
+   */
   async function fetchAndRenderFigure(name) {
     try {
-      const figData = await apiFetch(`/api/figures/${name}`);
-      callbacks.onFigureData(name, figData);
+      const body = await apiFetch(`/api/figures/${name}`);
+      callbacks.onFigureData(name, body.figure);
     } catch (err) {
+      if (err instanceof ApiError && err.status === UNAVAILABLE_STATUS) {
+        callbacks.onFigureUnavailable(name, JSON.parse(err.body).reason);
+        return;
+      }
+      if (err instanceof ApiError && err.status === NOT_CURRENT_STATUS) {
+        const body = parseBody(err.body);
+        if (body?.status) {
+          callbacks.onFigureStatus(name, body.status);
+          return;
+        }
+      }
       console.warn(`Failed to fetch figure ${name}:`, err);
     }
   }
@@ -213,6 +323,9 @@ export function createNetClient(callbacks) {
 
   return {
     fetchState,
+    fetchModels,
+    selectModel,
+    refresh,
     setBaseline,
     setParam,
     fetchAndRenderFigure,

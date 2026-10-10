@@ -33,13 +33,15 @@ from osprey.port_layout import DEFAULT_PORT_BASE, default_port
 #: A deployment that spells no port at all: the module is on, there is a roster,
 #: and every port in it — nginx's included — comes from the layout.
 _NO_PORTS_CONFIG: dict[str, Any] = {
-    "facility": {"name": "Demo Light Source", "prefix": "dls"},
+    "facility": {"prefix": "dls"},
     "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
     "registry": {"url": "registry.example.org/demo"},
     "modules": {
         "web_terminals": {
             "enabled": True,
             "users": ["alice", "bob"],
+            "default_persona": "assistant",
+            "personas": {"assistant": {"project": "demo-assistant"}},
         }
     },
 }

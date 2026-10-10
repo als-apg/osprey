@@ -15,6 +15,7 @@ import sys
 
 import pytest
 
+from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
 from osprey.health.core.graphdb import SEED_DIGEST_DETAIL_PREFIX, graphdb, seed_digest
 from osprey.health.models import CheckResult, Status
 from osprey.port_layout import default_port
@@ -52,7 +53,6 @@ class _FakeDriver:
         *,
         count: int = 7,
         sha256: str | None = DIGEST,
-        direction_source: str | None = "grammar",
         null_marker: bool = False,
         connect_error: Exception | None = None,
         count_error: Exception | None = None,
@@ -60,7 +60,6 @@ class _FakeDriver:
     ) -> None:
         self.count = count
         self.sha256 = sha256
-        self.direction_source = direction_source
         self.null_marker = null_marker
         self.connect_error = connect_error
         self.count_error = count_error
@@ -78,12 +77,10 @@ class _FakeDriver:
             if self.marker_error is not None:
                 raise self.marker_error
             if self.null_marker:
-                return _FakeEagerResult([_FakeRecord(sha256=None, direction_source=None)])
+                return _FakeEagerResult([_FakeRecord(sha256=None)])
             if self.sha256 is None:
                 return _FakeEagerResult([])
-            return _FakeEagerResult(
-                [_FakeRecord(sha256=self.sha256, direction_source=self.direction_source)]
-            )
+            return _FakeEagerResult([_FakeRecord(sha256=self.sha256)])
         if self.count_error is not None:
             raise self.count_error
         return _FakeEagerResult([_FakeRecord(count=self.count)])
@@ -224,17 +221,15 @@ async def test_driver_is_closed(monkeypatch: pytest.MonkeyPatch) -> None:
 # --------------------------------------------------------------------------- #
 
 
-async def test_seed_row_reports_the_marker_digest_and_direction_source(
+async def test_seed_row_reports_the_marker_digest_alone(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A marked store is ``ok``, showing the digest prefix and where directions came from."""
+    """A marked store is ``ok``, its value the digest prefix and nothing else."""
     driver = _FakeDriver()
     _install_driver(monkeypatch, driver)
     row = (await _run(_cfg()))["graphdb_seed"]
     assert row.status is Status.OK
-    assert row.value.startswith(DIGEST[:12])
-    assert DIGEST[:13] not in row.value, "the row must abbreviate, not print the whole digest"
-    assert "grammar" in row.value
+    assert row.value == DIGEST[:12]
     # The marker is read off the SAME driver the other two rows used, matched on
     # the label and the kind the seeder MERGEs it under.
     assert len(driver.marker_queries) == 1
@@ -252,16 +247,6 @@ async def test_seed_row_carries_the_full_digest_for_a_later_comparison(
     assert seed_digest(row) == DIGEST
 
 
-async def test_seed_row_omits_a_direction_source_the_corpus_did_not_declare(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A corpus with no direction header leaves the value as the digest prefix alone."""
-    _install_driver(monkeypatch, _FakeDriver(direction_source=None))
-    row = (await _run(_cfg()))["graphdb_seed"]
-    assert row.status is Status.OK
-    assert row.value == DIGEST[:12]
-
-
 async def test_corpus_without_a_marker_warns_that_it_cannot_be_identified(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -271,7 +256,7 @@ async def test_corpus_without_a_marker_warns_that_it_cannot_be_identified(
     assert row.status is Status.WARNING
     assert "no seed marker" in row.message
     assert "unseeded" not in row.message, "a store holding a corpus is not unseeded"
-    assert "osprey knowledge seed-graph" in row.details
+    assert GRAPHDB_REBUILD_HINT in row.details
     assert seed_digest(row) == ""
 
 
@@ -283,7 +268,7 @@ async def test_empty_store_without_a_marker_warns_unseeded(
     row = (await _run(_cfg()))["graphdb_seed"]
     assert row.status is Status.WARNING
     assert "unseeded" in row.message
-    assert "osprey knowledge seed-graph" in row.details
+    assert GRAPHDB_REBUILD_HINT in row.details
 
 
 async def test_marker_without_a_digest_reads_as_no_marker(
@@ -402,7 +387,7 @@ async def test_empty_graph_warns_and_names_the_seed_verb(
     assert by_name["graphdb_connection"].status is Status.OK
     row = by_name["graphdb_resources"]
     assert row.status is Status.WARNING
-    assert "osprey knowledge seed-graph" in f"{row.message} {row.details}"
+    assert GRAPHDB_REBUILD_HINT in f"{row.message} {row.details}"
 
 
 async def test_count_failure_warns_but_keeps_the_connection_row(

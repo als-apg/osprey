@@ -1,8 +1,7 @@
-"""MCP tools: lattice dashboard — init, state, params, figures, baseline, settings.
+"""MCP tools: lattice dashboard — state, params, figures, baseline, settings.
 
-Ten tools wrapping the lattice dashboard HTTP surface:
-  - ``lattice_init``: Load a lattice file into the dashboard.
-  - ``lattice_state``: Get the current lattice state.
+Nine tools wrapping the lattice dashboard HTTP surface:
+  - ``lattice_state``: Get the selection, the what-if inputs and each figure's status.
   - ``lattice_set_param``: Set a magnet family parameter.
   - ``lattice_refresh``: Trigger figure recomputation.
   - ``lattice_get_figure``: Fetch rendered Plotly figure JSON.
@@ -11,6 +10,12 @@ Ten tools wrapping the lattice dashboard HTTP surface:
   - ``lattice_clear_baseline``: Remove the baseline snapshot.
   - ``lattice_get_settings``: Fetch computation/display settings.
   - ``lattice_update_settings``: Deep-merge new settings (partial update).
+
+A figure is served only for the inputs on screen and carries their ``key``.
+While there is none, ``lattice_get_figure`` and ``lattice_get_data`` answer
+``figure_not_current`` naming the figure's status (``stale``,
+``not_computed``, ``failed`` or ``computing``), and ``figure_unavailable`` for
+a figure the selected model cannot draw.
 """
 
 import json
@@ -88,66 +93,15 @@ async def _notify_lattice(tool: str, detail: str) -> None:
 
 
 @mcp.tool()
-async def lattice_init(lattice_path: str) -> str:
-    """Load a lattice file into the dashboard.
-
-    Initializes the dashboard with the given .m lattice file path.
-    Computes optics summary, discovers magnet families, auto-sets baseline,
-    and triggers computation of the 4 fast figures (optics, resonance,
-    chromaticity, tune footprint).
-
-    Args:
-        lattice_path: Path to a MATLAB .m lattice file, resolved by the
-            dashboard process (e.g. "data/lattice/<your-lattice>.m").
-
-    Returns:
-        JSON with lattice summary including energy, tunes, chromaticity,
-        magnet families, and figure computation status.
-    """
-    try:
-        result = await _dashboard_request(
-            "POST",
-            "/api/state/init",
-            json_body={"lattice_path": lattice_path},
-            timeout=60.0,
-        )
-        await _notify_lattice("lattice_init", lattice_path)
-        return json.dumps(
-            {
-                "status": "ok",
-                "summary": result.get("summary", {}),
-                "families": list(result.get("families", {}).keys()),
-                "message": "Lattice loaded. Fast figures are computing.",
-            },
-            default=str,
-        )
-    except httpx.ConnectError:
-        return make_error(
-            "service_unavailable",
-            "Lattice dashboard server is not running.",
-            ["The dashboard starts automatically with 'osprey web'."],
-        )
-    except httpx.HTTPStatusError as exc:
-        return make_error(
-            "lattice_error",
-            f"Failed to load lattice: {exc.response.text}",
-            ["Check that the lattice file path is correct and readable."],
-        )
-    except ToolError:
-        raise
-    except Exception as exc:
-        logger.exception("lattice_init failed")
-        return make_error("lattice_error", str(exc))
-
-
-@mcp.tool()
 async def lattice_state() -> str:
-    """Get the current lattice state including summary, families, figure status, and baseline.
+    """Get the current lattice state including selection, summary, families, figure status, and baseline.
 
     Returns:
-        JSON with full lattice state: base_lattice path, parameter overrides,
-        optics summary (energy, tunes, chromaticity), magnet families,
-        figure computation status, and baseline comparison data.
+        JSON with the selection (model, status, capabilities: the figures it
+        draws and whether verification applies), parameter overrides, the
+        summary (energy, and tunes and chromaticity once the optics figure
+        of the current inputs exists), magnet families, each figure's status
+        and key, and the baseline comparison data.
     """
     try:
         result = await _dashboard_request("GET", "/api/state")
@@ -217,13 +171,14 @@ async def lattice_set_param(family: str, value: float) -> str:
 async def lattice_refresh(figure: str | None = None) -> str:
     """Trigger recomputation of lattice figures.
 
-    With no arguments, refreshes all 4 fast figures (optics, resonance,
-    chromaticity, footprint). Pass "da" or "fma" to run verification
-    figures, or any figure name to refresh just that one.
+    With no arguments, refreshes the selected model's fast figures (optics,
+    resonance, chromaticity, footprint for a periodic model; optics alone for
+    a single-pass one). Pass "verify" to run both verification figures, or
+    any figure name ("da" and "lma" included) to refresh just that one.
 
     Args:
-        figure: Optional figure name. None = all fast figures.
-            "da" or "fma" for verification. Or any specific figure name.
+        figure: Optional figure name. None = the fast figures.
+            "verify" = da and lma. Or any specific figure name.
 
     Returns:
         JSON confirming which figures were launched for computation.
@@ -231,7 +186,7 @@ async def lattice_refresh(figure: str | None = None) -> str:
     try:
         if figure is None:
             result = await _dashboard_request("POST", "/api/refresh")
-        elif figure in ("da", "fma"):
+        elif figure == "verify":
             result = await _dashboard_request("POST", "/api/verify")
         else:
             result = await _dashboard_request("POST", f"/api/refresh/{figure}")
@@ -283,32 +238,60 @@ async def lattice_set_baseline() -> str:
         return make_error("lattice_error", str(exc))
 
 
+def _figure_refusal(name: str, exc: httpx.HTTPStatusError) -> None:
+    """Raise the envelope for a figure route's 404 or 409 body; return for any other."""
+    try:
+        body = exc.response.json()
+    except ValueError:
+        return
+    if not isinstance(body, dict):
+        return
+    if exc.response.status_code == 409 and body.get("status") == "unavailable":
+        make_error("figure_unavailable", str(body.get("reason")))
+    status = body.get("status")
+    if exc.response.status_code == 404 and status in _NOT_CURRENT:
+        message = f"{name} is {status}"
+        if body.get("error"):
+            message += f": {body['error']}"
+        hint = (
+            "wait for figure_ready" if status == "computing" else f'call lattice_refresh("{name}")'
+        )
+        make_error("figure_not_current", message, [hint])
+
+
+#: The statuses a figure route's 404 names.
+_NOT_CURRENT = ("stale", "not_computed", "failed", "computing")
+
+
 @mcp.tool()
 async def lattice_get_figure(name: str) -> str:
-    """Fetch the rendered Plotly figure JSON for a named figure.
+    """Fetch the rendered Plotly figure for a named figure.
 
     Valid figure names: ``optics``, ``resonance``, ``chromaticity``,
-    ``footprint``, ``da``, ``lma``. Returns a ``lattice_error`` if the
-    figure hasn't been computed yet (call ``lattice_refresh`` first) or
-    the name is unknown.
+    ``footprint``, ``da``, ``lma``. A figure is served only for the inputs
+    on screen: otherwise the error is ``figure_not_current`` and names its
+    status (``stale``, ``not_computed`` or ``failed``: call
+    ``lattice_refresh``; ``computing``: wait for it). A figure the selected
+    model cannot draw is ``figure_unavailable``.
 
     Args:
         name: Figure name.
 
     Returns:
-        JSON-serialized Plotly figure dict (data + layout), suitable
-        for rendering or inspection.
+        JSON ``{status: "ready", key, figure}``: the figure's key and its
+        Plotly figure dict (data + layout).
     """
     try:
         result = await _dashboard_request("GET", f"/api/figures/{name}")
         return json.dumps(result, default=str)
     except httpx.HTTPStatusError as exc:
+        _figure_refusal(name, exc)
         return make_error(
             "lattice_error",
             f"Failed to fetch figure '{name}': {exc.response.text}",
             [
                 "Valid names: optics, resonance, chromaticity, footprint, da, lma.",
-                "If the figure status is 'idle' or 'stale', call lattice_refresh first.",
+                "If the figure status is 'not_computed' or 'stale', call lattice_refresh first.",
             ],
         )
     except httpx.ConnectError:
@@ -329,25 +312,27 @@ async def lattice_get_data(name: str) -> str:
 
     Returns the unprocessed JSON the figure builder consumes — useful
     when you need the underlying arrays (e.g. s-positions, beta values,
-    survival mask) rather than the Plotly rendering. Valid names match
-    ``lattice_get_figure``.
+    survival mask) rather than the Plotly rendering. Valid names and the
+    errors match ``lattice_get_figure``.
 
     Args:
         name: Figure name.
 
     Returns:
-        JSON-serialized raw data dict.
+        JSON ``{status: "ready", key, data}``: the figure's key and its raw
+        data dict.
     """
     try:
         result = await _dashboard_request("GET", f"/api/data/{name}")
         return json.dumps(result, default=str)
     except httpx.HTTPStatusError as exc:
+        _figure_refusal(name, exc)
         return make_error(
             "lattice_error",
             f"Failed to fetch data for '{name}': {exc.response.text}",
             [
                 "Valid names: optics, resonance, chromaticity, footprint, da, lma.",
-                "If the figure status is 'idle' or 'stale', call lattice_refresh first.",
+                "If the figure status is 'not_computed' or 'stale', call lattice_refresh first.",
             ],
         )
     except httpx.ConnectError:

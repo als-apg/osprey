@@ -65,15 +65,6 @@ def test_archiver_metadata_identifies_a_channel():
     assert "pv_name" not in fields
 
 
-def test_simulation_engine_and_taxonomy_speak_channels():
-    """The simulation helpers are wrapped by channel-named callers one line deep."""
-    from osprey.connectors.channel_taxonomy import classify_channel
-    from osprey.simulation.engine import SimulationEngine
-
-    assert _params(SimulationEngine, "has_channel") == ["self", "channel"]
-    assert list(inspect.signature(classify_channel).parameters) == ["channel"]
-
-
 def test_write_failure_reasons_are_protocol_neutral():
     """A DOOCS write failure must not be reported as a Channel Access failure."""
     assert ChannelWriteFailedError._VALID_REASONS == ("FAILED", "MISMATCH", "UNCONFIRMED")

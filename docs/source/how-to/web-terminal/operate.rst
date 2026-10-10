@@ -166,9 +166,8 @@ The first part names the machine this deployment stands on, by what it **is**:
 - **Real machine** --- the facility's own. Writes move hardware.
 - **Rehearsal** --- a copy of the real machine's controls, same channel names,
   no hardware behind it. Nothing moves.
-- **Simulator** --- the virtual accelerator: a physics model with beam in it.
-  Nothing moves.
-- **Demo** --- mock data. Nothing moves.
+- **Simulator** --- the virtual accelerator: a physics model with beam in it,
+  served from its container or in process. Nothing moves.
 
 A deployment can put its own names on its machines
 (``control_system.target_display_names`` in ``config.yml`` --- *Example

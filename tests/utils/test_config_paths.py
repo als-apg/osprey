@@ -56,10 +56,10 @@ def test_relative_value_resolves_against_config_dir(foreign_cwd, tmp_path):
     config_dir = tmp_path / "project"
     config_dir.mkdir()
 
-    resolved = resolve_config_relative_path("data/facility_knowledge", config_dir)
+    resolved = resolve_config_relative_path("data/facility/knowledge", config_dir)
 
-    assert resolved == (config_dir / "data/facility_knowledge").resolve()
-    assert resolved != (foreign_cwd / "data/facility_knowledge").resolve()
+    assert resolved == (config_dir / "data/facility/knowledge").resolve()
+    assert resolved != (foreign_cwd / "data/facility/knowledge").resolve()
 
 
 @pytest.mark.usefixtures("foreign_cwd")

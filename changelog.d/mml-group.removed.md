@@ -1,0 +1,1 @@
+The `osprey mml` command group (`import`, `map`, `emit`, `verify`) and the `osprey.services.mml` package are removed. `osprey facility import mml` reads a MATLAB Middle Layer export into `data/facility/imported/mml/`, and `osprey build` writes the channel database, the graph and the simulator view from the facility description.

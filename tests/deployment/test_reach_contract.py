@@ -33,7 +33,6 @@ from osprey.bluesky_bridge_connection import (
     SECOND_LANE_KEYS,
     lane_env_prefix,
 )
-from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.host_binding import BUNDLED_HOST_BINDINGS
 from osprey.deployment.reach import (
     REACH_CONTRACTS,
@@ -455,6 +454,27 @@ def test_the_va_consumer_is_off_without_a_va_block():
     assert not consumer.is_on({})
 
 
+def test_the_va_consumer_is_off_when_the_simulator_runs_in_process():
+    """An in-process ``va`` lives inside the process that asks: there is no
+    container port for a session to dial, so none is projected."""
+    (consumer,) = _va_contract().consumers
+    config = {
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process", "timeout_s": 5.0}},
+        }
+    }
+
+    assert not consumer.is_on(config)
+    served = {
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"timeout_s": 5.0}},
+        }
+    }
+    assert consumer.is_on(served)
+
+
 def test_the_va_port_is_projected_onto_a_standin_baseline_persona():
     """SC-9: a persona render from the stand-in baseline is told the VA port
     its host publishes, so a session switched to ``va`` dials the host's
@@ -481,17 +501,23 @@ def test_a_target_that_does_not_resolve_carries_no_consumer():
     """The refusing half of :func:`resolve_target`, read as a switch.
 
     ``va`` and ``standin`` name one connector type on every deployment, so the
-    branch is reached through ``live``: a mock deployment with no real
+    branch is reached through ``live``: an in-process deployment with no real
     connector block has no live machine this config ever described, and a
     consumer of one is not switched on by a guess.
     """
     from osprey.deployment.reach import _target_configured
 
-    underivable = {"control_system": {"type": "mock", "connector": {"mock": {"x": 1}}}}
+    in_process = {"virtual_accelerator": {"serving": "in_process", "x": 1}}
+    underivable = {"control_system": {"type": "virtual_accelerator", "connector": in_process}}
     assert not _target_configured(underivable, "live")
     assert not _target_configured(underivable, "not-a-target")
 
-    named = {"control_system": {"type": "mock", "connector": {"epics": {"timeout_s": 5.0}}}}
+    named = {
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {**in_process, "epics": {"timeout_s": 5.0}},
+        }
+    }
     assert _target_configured(named, "live")
 
 
@@ -515,8 +541,6 @@ def entries(host_config: dict) -> list[dict]:
     return resolve_personas(
         host_config["modules"]["web_terminals"],
         host_config.get("registry") or {},
-        (host_config.get("facility") or {}).get("prefix") or "",
-        project_name=resolve_project_name(host_config),
         strict=True,
     )
 
@@ -720,10 +744,10 @@ def test_a_degrading_consumer_is_not_refused(tmp_path):
     a sidecar, by design — its contract says ``refuse=False``, so the same
     unresolved state that refuses hybrid search builds cleanly here (the
     ``reach`` health category still reports it)."""
-    (tmp_path / "data" / "facility_knowledge").mkdir(parents=True)
+    (tmp_path / "data" / "facility" / "knowledge").mkdir(parents=True)
     config = {
         "web": {"panels": {"okf": {"enabled": True}}},
-        "facility_knowledge": {"bundle_path": "data/facility_knowledge"},
+        "facility_knowledge": {"bundle_path": "data/facility/knowledge"},
     }
 
     live = [consumer.name for _, consumer in live_consumers(config)]
@@ -769,16 +793,16 @@ def test_a_bundle_that_is_not_on_the_host_is_refused(tmp_path):
     """Authored content: nothing in the deploy fills it, so a key naming a
     directory that is not there is a typo or a bundle that was never put in
     place — refused at build time, naming the key, rather than bound empty."""
-    (error,) = reach_errors(_entitled_to_bundle("data/facility_knowledge"), repo_root=tmp_path)
+    (error,) = reach_errors(_entitled_to_bundle("data/facility/knowledge"), repo_root=tmp_path)
 
     assert "facility_knowledge.bundle_path" in error
-    assert str(tmp_path / "data" / "facility_knowledge") in error
+    assert str(tmp_path / "data" / "facility" / "knowledge") in error
 
 
 def test_a_bundle_on_the_host_is_not_refused(tmp_path):
-    (tmp_path / "data" / "facility_knowledge").mkdir(parents=True)
+    (tmp_path / "data" / "facility" / "knowledge").mkdir(parents=True)
 
-    assert reach_errors(_entitled_to_bundle("data/facility_knowledge"), repo_root=tmp_path) == []
+    assert reach_errors(_entitled_to_bundle("data/facility/knowledge"), repo_root=tmp_path) == []
 
 
 def test_a_bundle_path_naming_a_file_is_refused(tmp_path):
@@ -904,7 +928,7 @@ def test_every_render_local_key_names_its_own_services_file_and_is_not_projected
             assert key not in projected, f"{key} is both render-local and projected"
             declared.add(key)
     assert render_local_keys() == frozenset(declared)
-    assert {"services.graphdb.ttl_path", "services.graphdb.index_path"} <= declared
+    assert {"services.graphdb.ttl_path"} <= declared
 
 
 def test_an_attached_render_is_told_its_hosts_service_and_is_not_refused():
@@ -981,10 +1005,10 @@ def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():
 
 
 def test_bluesky_panel_secret_vars_follow_each_users_own_project(tmp_path):
-    """The roster grant is per USER: a persona user by their persona's rendered
-    config, a persona-less user by the deploy config they run (the same rule
-    the web-terminal render grants every other credential by), in roster
-    order."""
+    """The roster grant is per USER, by the rendered config of the persona that
+    user runs (their own, else the default), in roster order — the same rule the
+    web-terminal render grants every other credential by. The deploy config's
+    own panels grant nobody."""
     from osprey.deployment.web_terminals.personas import bluesky_panel_secret_env_vars
     from osprey.deployment.web_terminals.render import terminal_secret_env_var
 
@@ -999,27 +1023,33 @@ def test_bluesky_panel_secret_vars_follow_each_users_own_project(tmp_path):
         "web": {"panels": {"bluesky": {"url": "http://localhost:10071"}}},
         "modules": {
             "web_terminals": {
+                "default_persona": "viewer",
                 "personas": {
-                    "viewer": {"project_path": "build/demo-viewer"},
-                    "operator": {"project_path": "build/demo-operator"},
+                    "viewer": {"project": "demo-viewer", "project_path": "build/demo-viewer"},
+                    "operator": {"project": "demo-operator", "project_path": "build/demo-operator"},
                 },
                 # Object entries carry the frozen `index` every materialized
                 # roster has; a bare string is the legacy spelling.
                 "users": [
                     {"name": "alice", "index": 0, "persona": "operator"},
                     {"name": "bob", "index": 1, "persona": "viewer"},
-                    "carol",  # no persona: runs the deploy config, which shows the tab
+                    "carol",  # the default persona, which hides the tab
                 ],
             }
         },
     }
 
+    assert bluesky_panel_secret_env_vars(config, tmp_path) == [terminal_secret_env_var("alice")]
+
+    config["modules"]["web_terminals"]["default_persona"] = "operator"
     assert bluesky_panel_secret_env_vars(config, tmp_path) == [
         terminal_secret_env_var("alice"),
         terminal_secret_env_var("carol"),
     ]
 
-    config["web"]["panels"] = {}
+    # A user with no persona at all (a roster the render refuses) is entitled
+    # to nothing, whatever the deploy config shows.
+    del config["modules"]["web_terminals"]["default_persona"]
     assert bluesky_panel_secret_env_vars(config, tmp_path) == [terminal_secret_env_var("alice")]
 
 

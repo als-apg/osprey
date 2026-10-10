@@ -1,0 +1,322 @@
+{
+  "_reproduce": "written by hand, in the change that adds the address",
+  "_description": "Addresses the demo serves beyond demo_fingerprint.json: one row per added address in the fingerprint's row shape (address, role, value_type, names, description), sorted by address.",
+  "rows": [
+    {
+      "address": "LINE:DIAG:BPM:01:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE BPM 01 position x readback (m)"
+    },
+    {
+      "address": "LINE:DIAG:BPM:01:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE BPM 01 position y readback (m)"
+    },
+    {
+      "address": "LINE:DIAG:BPM:02:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE BPM 02 position x readback (m)"
+    },
+    {
+      "address": "LINE:DIAG:BPM:02:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE BPM 02 position y readback (m)"
+    },
+    {
+      "address": "LINE:DIAG:BPM:03:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE BPM 03 position x readback (m)"
+    },
+    {
+      "address": "LINE:DIAG:BPM:03:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE BPM 03 position y readback (m)"
+    },
+    {
+      "address": "LINE:DIAG:BPM:04:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE BPM 04 position x readback (m)"
+    },
+    {
+      "address": "LINE:DIAG:BPM:04:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE BPM 04 position y readback (m)"
+    },
+    {
+      "address": "LINE:MAG:HCM:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE HCM 01 current readback (A)"
+    },
+    {
+      "address": "LINE:MAG:HCM:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE HCM 01 current setpoint (A)"
+    },
+    {
+      "address": "LINE:MAG:HCM:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE HCM 02 current readback (A)"
+    },
+    {
+      "address": "LINE:MAG:HCM:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE HCM 02 current setpoint (A)"
+    },
+    {
+      "address": "LINE:MAG:HCM:03:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE HCM 03 current readback (A)"
+    },
+    {
+      "address": "LINE:MAG:HCM:03:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE HCM 03 current setpoint (A)"
+    },
+    {
+      "address": "LINE:MAG:HCM:04:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE HCM 04 current readback (A)"
+    },
+    {
+      "address": "LINE:MAG:HCM:04:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE HCM 04 current setpoint (A)"
+    },
+    {
+      "address": "LINE:MAG:QD:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE QD 01 current readback (A)"
+    },
+    {
+      "address": "LINE:MAG:QD:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE QD 01 current setpoint (A)"
+    },
+    {
+      "address": "LINE:MAG:QD:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE QD 02 current readback (A)"
+    },
+    {
+      "address": "LINE:MAG:QD:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE QD 02 current setpoint (A)"
+    },
+    {
+      "address": "LINE:MAG:QD:03:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE QD 03 current readback (A)"
+    },
+    {
+      "address": "LINE:MAG:QD:03:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE QD 03 current setpoint (A)"
+    },
+    {
+      "address": "LINE:MAG:QD:04:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE QD 04 current readback (A)"
+    },
+    {
+      "address": "LINE:MAG:QD:04:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE QD 04 current setpoint (A)"
+    },
+    {
+      "address": "LINE:MAG:QF:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE QF 01 current readback (A)"
+    },
+    {
+      "address": "LINE:MAG:QF:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE QF 01 current setpoint (A)"
+    },
+    {
+      "address": "LINE:MAG:QF:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE QF 02 current readback (A)"
+    },
+    {
+      "address": "LINE:MAG:QF:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE QF 02 current setpoint (A)"
+    },
+    {
+      "address": "LINE:MAG:QF:03:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE QF 03 current readback (A)"
+    },
+    {
+      "address": "LINE:MAG:QF:03:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE QF 03 current setpoint (A)"
+    },
+    {
+      "address": "LINE:MAG:QF:04:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE QF 04 current readback (A)"
+    },
+    {
+      "address": "LINE:MAG:QF:04:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE QF 04 current setpoint (A)"
+    },
+    {
+      "address": "LINE:MAG:VCM:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE VCM 01 current readback (A)"
+    },
+    {
+      "address": "LINE:MAG:VCM:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE VCM 01 current setpoint (A)"
+    },
+    {
+      "address": "LINE:MAG:VCM:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE VCM 02 current readback (A)"
+    },
+    {
+      "address": "LINE:MAG:VCM:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE VCM 02 current setpoint (A)"
+    },
+    {
+      "address": "LINE:MAG:VCM:03:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE VCM 03 current readback (A)"
+    },
+    {
+      "address": "LINE:MAG:VCM:03:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE VCM 03 current setpoint (A)"
+    },
+    {
+      "address": "LINE:MAG:VCM:04:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE VCM 04 current readback (A)"
+    },
+    {
+      "address": "LINE:MAG:VCM:04:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "LINE VCM 04 current setpoint (A)"
+    },
+    {
+      "address": "SR:DIAG:CHROM:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [
+        "StorageRing_Chromaticity_X"
+      ],
+      "description": "Storage ring chromaticity horizontal"
+    },
+    {
+      "address": "SR:DIAG:CHROM:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [
+        "StorageRing_Chromaticity_Y"
+      ],
+      "description": "Storage ring chromaticity vertical"
+    },
+    {
+      "address": "SR:DIAG:TUNE:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [
+        "StorageRing_Tune_X"
+      ],
+      "description": "Storage ring betatron tune horizontal"
+    },
+    {
+      "address": "SR:DIAG:TUNE:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [
+        "StorageRing_Tune_Y"
+      ],
+      "description": "Storage ring betatron tune vertical"
+    }
+  ]
+}

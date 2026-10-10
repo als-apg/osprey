@@ -2355,15 +2355,13 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
 SHORT_LIVE = "LIVE"
 SHORT_STANDIN = "STAND-IN"
 SHORT_VIRTUAL = "VIRTUAL"
-SHORT_SIMULATED = "SIMULATED"
 
-#: The same four in plain language, for the popover's simple density: one word
+#: The same three in plain language, for the popover's simple density: one word
 #: per row, chosen so an operator who has never met the word "target" can still
 #: tell the facility's machine from a simulation of it.
 KIND_LIVE = "live machine"
 KIND_STANDIN = "stand-in"
 KIND_VIRTUAL = "virtual accelerator"
-KIND_SIMULATED = "simulated"
 
 #: The two reachability states the prober never publishes, because both are
 #: read-time verdicts: ``unknown`` is the absence of a row (no live server has
@@ -2426,15 +2424,14 @@ def _short_label_and_kind(label: Any, real_machine: bool) -> tuple[str, str]:
     ``real_machine`` decides the loud half — it is true for the facility's own
     machine AND for a stand-in, both of which get every strict limit and
     approval prompt hardware gets — and the label's shape then separates those
-    two. An unrecognised label falls back to its half's louder answer, which is
-    the direction this stack must fail in.
+    two. An unrecognised real-machine label falls back to the louder answer,
+    which is the direction this stack must fail in. A row that is not a real
+    machine is the simulator.
     """
-    text = str(label or "").strip().lower()
-    if real_machine:
-        return (SHORT_STANDIN, KIND_STANDIN) if "(stand-in)" in text else (SHORT_LIVE, KIND_LIVE)
-    if text.startswith("virtual accelerator"):
+    if not real_machine:
         return SHORT_VIRTUAL, KIND_VIRTUAL
-    return SHORT_SIMULATED, KIND_SIMULATED
+    text = str(label or "").strip().lower()
+    return (SHORT_STANDIN, KIND_STANDIN) if "(stand-in)" in text else (SHORT_LIVE, KIND_LIVE)
 
 
 def _probe_staleness_threshold_s(config: Any) -> float | None:

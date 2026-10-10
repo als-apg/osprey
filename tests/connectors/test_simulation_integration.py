@@ -1,61 +1,35 @@
-"""Tests for simulation-engine integration in the mock connectors.
+"""The mock connectors over a served tree's simulator view.
 
-Covers both directions of the backward-compatibility contract: without
-``simulation_file`` behavior is unchanged, and with it PVs unknown to the
-engine fall back to the legacy procedural paths.
+A setpoint reads its seeded nominal, a write is echoed into the readback its
+pair names, unit and description come from the channel record, and a string
+channel passes through; the mock archiver serves the same values as history and
+refuses an address the view does not hold.
 """
 
-import json
 from datetime import datetime
 from unittest.mock import patch
 
-import numpy as np
 import pytest
 
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
+from tests.facility.served_tree import in_process_config, served_tree
 
-TEST_MACHINE = {
-    "name": "TestRig",
-    "description": "Tiny inline test machine",
-    "channels": {
-        "T:Q1:CUR:SP": {
-            "value": 42.0,
-            "units": "A",
-            "noise": 0.0,
-            "description": "Test quad current setpoint (nominal 42.0 A)",
-        },
-        "T:Q1:CUR:RB": {
-            "expr": "ch('T:Q1:CUR:SP')",
-            "units": "A",
-            "noise": 0.0,
-            "description": "Test quad current readback",
-        },
-        "T:TRANS": {
-            "expr": "max(0.0, 98.5 - 0.85 * abs(ch('T:Q1:CUR:SP') - 42.0))",
-            "units": "%",
-            "noise": 0.0,
-            "description": "Beam transmission",
-        },
-        "T:MODE": {"value": "CW", "description": "Operating mode"},
+#: The test rig's channels, in the facility schema's own spelling.
+RIG = {
+    "T:Q1:CUR:SP": {
+        "unit": "A",
+        "description": "Test quad current setpoint (nominal 42.0 A)",
+        "simulation": {"nominal": 42.0},
     },
-    "scenarios": {
-        "nominal": {"description": "All systems nominal."},
-        "quad-drift": {
-            "description": "Q1 left at a stale setpoint.",
-            "overrides": {"T:Q1:CUR:SP": 28.4},
-            "archiver": [
-                {
-                    "channel": "T:Q1:CUR:SP",
-                    "events": [{"shape": "step", "at": 0.35, "to": 28.4}],
-                }
-            ],
-        },
+    "T:Q1:CUR:RB": {"unit": "A", "description": "Test quad current readback"},
+    "T:TRANS": {"unit": "%", "description": "Beam transmission", "simulation": {"nominal": 98.5}},
+    "T:MODE": {
+        "value_type": "string",
+        "description": "Operating mode",
+        "simulation": {"nominal": "CW"},
     },
 }
-
-QUAD_DRIFT_TRANS = 98.5 - 0.85 * abs(28.4 - 42.0)  # 86.94
 
 
 def _config_with_writes_enabled(key, default=None):
@@ -66,52 +40,24 @@ def _config_with_writes_enabled(key, default=None):
 
 
 @pytest.fixture
-def machine_file(tmp_path):
-    path = tmp_path / "machine.json"
-    path.write_text(json.dumps(TEST_MACHINE))
-    return path
+def view(tmp_path):
+    """A served tree holding every address the cases read or write."""
+    return served_tree(
+        tmp_path / "served",
+        {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB", "T:Q1:CUR:SP": "T:Q1:CUR:RB"},
+        ["BEAM:CURRENT", "T:MODE", "T:TRANS"],
+        channels=RIG,
+    )
 
 
-@pytest.fixture(autouse=True)
-def state_dir(tmp_path, monkeypatch):
-    """Per-test scenario-state directory, standing in for ``var/agent_data/simulation/``.
-
-    Autouse: without it the engine resolves ``default_state_dir()`` from the
-    current directory, so every engine-backed test here would read (and a
-    scenario test would write) the checkout's scenario state. Pointing it at
-    ``tmp_path`` keeps a developer's active ``osprey sim`` scenario out of the
-    results and the working tree untouched.
-    """
-    from osprey.simulation import engine as engine_module
-
-    path = tmp_path / "_agent_data" / "simulation"
-    path.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(engine_module, "default_state_dir", lambda: path)
-    return path
-
-
-class TestMockConnectorSimulation:
-    """MockConnector with a simulation_file configured."""
+class TestVAInProcessConnectorSimulation:
+    """VAInProcessConnector over the rig's simulator view."""
 
     @pytest.mark.asyncio
-    async def test_no_simulation_file_means_no_engine(self):
-        """Backward compat: without simulation_file the engine is never loaded."""
+    async def test_read_engine_channel(self, view):
         with patch("osprey.utils.config.get_config_value", return_value=False):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0})
-
-            assert connector._sim_engine is None
-            result = await connector.read_channel("T:Q1:CUR:SP")
-            # Legacy path: synthetic value, generic mock description
-            assert "Mock channel" in result.metadata.description
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_read_engine_channel(self, machine_file):
-        with patch("osprey.utils.config.get_config_value", return_value=False):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             result = await connector.read_channel("T:Q1:CUR:SP")
             assert result.value == 42.0
@@ -124,10 +70,10 @@ class TestMockConnectorSimulation:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_string_channel_passes_through(self, machine_file):
+    async def test_string_channel_passes_through(self, view):
         with patch("osprey.utils.config.get_config_value", return_value=False):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             result = await connector.read_channel("T:MODE")
             assert result.value == "CW"
@@ -135,101 +81,25 @@ class TestMockConnectorSimulation:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_unknown_pv_falls_back_to_legacy(self, machine_file):
-        with patch("osprey.utils.config.get_config_value", return_value=False):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
-
-            result = await connector.read_channel("BEAM:CURRENT")
-            assert isinstance(result.value, float)
-            assert "Mock channel" in result.metadata.description
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_write_engine_channel_readback_via_expr(self, machine_file):
-        """Engine readbacks come from machine-file exprs, not legacy mirroring."""
-        connector = MockConnector()
+    async def test_write_is_echoed_into_the_paired_readback(self, view):
+        connector = VAInProcessConnector()
         with patch(
             "osprey.utils.config.get_config_value",
             side_effect=_config_with_writes_enabled,
         ):
-            await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
-
-            result = await connector.write_channel("T:Q1:CUR:SP", 30.0, confirm=True)
-            assert result.outcome is WriteOutcome.CONFIRMED
-
-            rb = await connector.read_channel("T:Q1:CUR:RB")
-            assert rb.value == 30.0  # exact: expr readback, no legacy offset
-
-            derived = await connector.read_channel("T:TRANS")
-            assert derived.value == pytest.approx(98.5 - 0.85 * 12.0)
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_write_unknown_pv_uses_legacy_mirroring(self, machine_file):
-        connector = MockConnector()
-        with patch(
-            "osprey.utils.config.get_config_value",
-            side_effect=_config_with_writes_enabled,
-        ):
-            await connector.connect(
-                {
-                    "response_delay_ms": 0,
-                    "noise_level": 0.0,
-                    "simulation_file": str(machine_file),
-                }
-            )
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             await connector.write_channel("MAGNET:CURRENT:SP", 100.0)
             rb = await connector.read_channel("MAGNET:CURRENT:RB")
-            assert abs(rb.value - 100.0) < 1.0  # legacy :SP -> :RB mirroring
+            assert abs(rb.value - 100.0) < 1.0
 
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_scenario_override_visible_through_connector(self, machine_file, state_dir):
-        (state_dir / "active_scenarios").write_text("quad-drift\n")
+    async def test_get_metadata_from_the_channel_record(self, view):
         with patch("osprey.utils.config.get_config_value", return_value=False):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
-
-            result = await connector.read_channel("T:Q1:CUR:SP")
-            assert result.value == 28.4
-            derived = await connector.read_channel("T:TRANS")
-            assert derived.value == pytest.approx(QUAD_DRIFT_TRANS)
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_relative_path_resolved_against_project_root(self, tmp_path):
-        sim_dir = tmp_path / "data" / "simulation"
-        sim_dir.mkdir(parents=True)
-        (sim_dir / "machine.json").write_text(json.dumps(TEST_MACHINE))
-
-        def config_side_effect(key, default=None):
-            if key == "project_root":
-                return str(tmp_path)
-            return default
-
-        with patch("osprey.utils.config.get_config_value", side_effect=config_side_effect):
-            connector = MockConnector()
-            await connector.connect(
-                {"response_delay_ms": 0, "simulation_file": "data/simulation/machine.json"}
-            )
-
-            assert connector._sim_engine is not None
-            result = await connector.read_channel("T:Q1:CUR:SP")
-            assert result.value == 42.0
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_get_metadata_from_engine(self, machine_file):
-        with patch("osprey.utils.config.get_config_value", return_value=False):
-            connector = MockConnector()
-            await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
 
             metadata = await connector.get_metadata("T:Q1:CUR:SP")
             assert metadata.units == "A"
@@ -239,29 +109,12 @@ class TestMockConnectorSimulation:
 
 
 class TestMockArchiverSimulation:
-    """MockArchiverConnector with a simulation_file configured."""
+    """MockArchiverConnector over the rig's simulator view."""
 
     @pytest.mark.asyncio
-    async def test_no_simulation_file_means_no_engine(self):
-        """Backward compat: legacy procedural series without simulation_file."""
+    async def test_engine_baseline_series(self, view):
         connector = MockArchiverConnector()
-        await connector.connect({"noise_level": 0.01})
-
-        assert connector._sim_engine is None
-        df = await connector.get_data(
-            channels=["BEAM:CURRENT"],
-            start_date=datetime(2024, 1, 1, 0, 0, 0),
-            end_date=datetime(2024, 1, 1, 1, 0, 0),
-        )
-        current = df.loc[df["channel"] == "BEAM:CURRENT", "value"]
-        assert current.mean() == pytest.approx(500.0, rel=0.1)
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_engine_baseline_series(self, machine_file):
-        connector = MockArchiverConnector()
-        await connector.connect({"simulation_file": str(machine_file)})
+        await connector.connect(in_process_config(view))
 
         df = await connector.get_data(
             channels=["T:Q1:CUR:SP"],
@@ -276,39 +129,12 @@ class TestMockArchiverSimulation:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_scenario_step_and_pointwise_expr(self, machine_file, state_dir):
-        (state_dir / "active_scenarios").write_text("quad-drift\n")
+    async def test_an_address_outside_the_view_is_refused(self, view):
         connector = MockArchiverConnector()
-        await connector.connect({"simulation_file": str(machine_file)})
+        await connector.connect(in_process_config(view))
 
         df = await connector.get_data(
-            channels=["T:Q1:CUR:SP", "T:TRANS"],
-            start_date=datetime(2024, 1, 1, 0, 0, 0),
-            end_date=datetime(2024, 1, 1, 1, 0, 0),
-        )
-
-        sp_rows = df.loc[df["channel"] == "T:Q1:CUR:SP"].sort_values("timestamp")
-        trans_rows = df.loc[df["channel"] == "T:TRANS"].sort_values("timestamp")
-        sp = sp_rows["value"].to_numpy()
-        trans = trans_rows["value"].to_numpy()
-        t = np.linspace(0, 1, len(sp))
-
-        # Step at t=0.35 to the override-consistent value
-        assert (sp[t < 0.35] == 42.0).all()
-        assert (sp[t >= 0.35] == 28.4).all()
-        # Derived channel shows correlated history (pointwise expr)
-        assert trans[t < 0.35].max() == pytest.approx(98.5)
-        assert trans[t >= 0.35].max() == pytest.approx(QUAD_DRIFT_TRANS)
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_unknown_pv_falls_back_to_legacy(self, machine_file):
-        connector = MockArchiverConnector()
-        await connector.connect({"noise_level": 0.01, "simulation_file": str(machine_file)})
-
-        df = await connector.get_data(
-            channels=["T:Q1:CUR:SP", "BEAM:CURRENT"],
+            channels=["T:Q1:CUR:SP"],
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
@@ -316,17 +142,22 @@ class TestMockArchiverSimulation:
         # Guard against an empty selection making .all() vacuously True.
         assert len(sp) > 0
         assert (sp == 42.0).all()
-        current = df.loc[df["channel"] == "BEAM:CURRENT", "value"]
-        assert current.mean() == pytest.approx(500.0, rel=0.1)
+
+        with pytest.raises(ValueError, match="UNSERVED:PV is not in build/facility.json"):
+            await connector.get_data(
+                channels=["T:Q1:CUR:SP", "UNSERVED:PV"],
+                start_date=datetime(2024, 1, 1, 0, 0, 0),
+                end_date=datetime(2024, 1, 1, 1, 0, 0),
+            )
 
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_mixed_numeric_and_string_channels_both_present(self, machine_file):
+    async def test_mixed_numeric_and_string_channels_both_present(self, view):
         """A single request mixing a numeric channel and a string (enum/status)
         channel returns rows for both — neither is dropped or coerced."""
         connector = MockArchiverConnector()
-        await connector.connect({"simulation_file": str(machine_file)})
+        await connector.connect(in_process_config(view))
 
         df = await connector.get_data(
             channels=["T:Q1:CUR:SP", "T:MODE"],

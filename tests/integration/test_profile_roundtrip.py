@@ -267,12 +267,14 @@ def _apply_profile_edits(profile_dir: Path) -> None:
     config = raw.setdefault("config", {})
     config["modules.web_terminals.enabled"] = True
     config["modules.web_terminals.users"] = [ROSTER_USER]
+    # Every terminal runs a persona's project; this one's image is built
+    # elsewhere, so the catalog states the project it was built from.
+    config["modules.web_terminals.default_persona"] = "main"
+    config["modules.web_terminals.personas"] = {"main": {"project": "facility-assistant"}}
     # The values a roster cannot be deployed without, and which `osprey build`
-    # therefore refuses a profile for: the container-name prefix
-    # (`<prefix>-web-<user>`), the per-user web port family's base, which has
-    # no registry default because it is facility-chosen, and the registry every
-    # terminal image is named under in registry mode.
-    config["facility.prefix"] = "fac"
+    # therefore refuses a profile for: the per-user web port family's base,
+    # which has no registry default because it is facility-chosen, and the
+    # registry every terminal image is named under in registry mode.
     config["modules.web_terminals.web_base_port"] = 20100
     config["registry.url"] = "registry.example.org/demo"
     (profile_dir / "profile.yml").write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
@@ -768,7 +770,8 @@ model: claude-haiku-4-5
 data: data
 channel_finder_mode: hierarchical
 config:
-  control_system.type: mock
+  control_system.type: virtual_accelerator
+  control_system.connector.virtual_accelerator.serving: in_process
   archiver.type: mock_archiver
   claude_code.telemetry.enabled: false
   hooks.debug: false

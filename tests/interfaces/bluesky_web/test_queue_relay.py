@@ -854,15 +854,16 @@ def test_enqueue_browse_only_capability_409_passes_through_with_its_capability()
         "detail": {
             "code": "browse_only_connector",
             "detail": (
-                "This deployment uses the mock connector, which cannot move hardware, so "
-                "plans can be composed and validated but not executed. To execute "
-                "plans, run `osprey set connector=virtual_accelerator` and "
-                "redeploy."
+                "This deployment serves the simulator in process, which speaks no "
+                "Channel Access, so plans can be composed and validated but not "
+                "executed. To execute plans, serve it from its container "
+                "(`osprey set config.control_system.connector.virtual_accelerator.serving=served`) "
+                "and redeploy."
             ),
             "capability": {
                 "can_execute": False,
                 "reason": "browse_only_connector",
-                "detail": "This deployment uses the mock connector...",
+                "detail": "This deployment serves the simulator in process...",
             },
         }
     }

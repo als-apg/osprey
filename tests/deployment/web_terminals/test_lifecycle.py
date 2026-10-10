@@ -37,11 +37,14 @@ _FORBIDDEN_ARGV_TOKENS = {"prune", "-a", "--all", "system", "network"}
 _GLOB_METACHARACTERS = set("*?[")
 
 
+#: The persona every roster built by :func:`_config` runs unless told otherwise.
+DEFAULT_PERSONA = "assistant"
+
+
 def _config(
     users,
     *,
     project_name="demo-project",
-    facility_prefix="dls",
     personas=None,
     default_persona=None,
     image_source=None,
@@ -49,23 +52,29 @@ def _config(
     """Minimal-but-complete facility config exercising every field decommission_user reads.
 
     ``personas``/``default_persona``/``image_source`` are only exercised by the
-    nuke persona-image tests; omitted, ``resolve_personas`` resolves every
-    entry to the zero-migration (non-persona) path, exactly as it does for a
-    config predating persona catalogs.
+    nuke persona-image tests; omitted, every entry runs the one default persona
+    :data:`DEFAULT_PERSONA`, whose rendered project :func:`_write_config` lays
+    down.
     """
     web_terminals = {
         "enabled": True,
         "users": users,
     }
-    if personas is not None:
-        web_terminals["personas"] = personas
+    if personas is None:
+        personas = {
+            DEFAULT_PERSONA: {
+                "project": f"{project_name}-assistant",
+                "project_path": f"build/{project_name}-assistant",
+            }
+        }
+        default_persona = default_persona or DEFAULT_PERSONA
+    web_terminals["personas"] = personas
     if default_persona is not None:
         web_terminals["default_persona"] = default_persona
     if image_source is not None:
         web_terminals["image_source"] = image_source
     return {
         "project_name": project_name,
-        "facility": {"name": "Demo Light Source", "prefix": facility_prefix},
         "system": {"timezone": "UTC"},
         "registry": {"url": "registry.example.org"},
         "deploy": {"fqdn": "deploy.example.org"},
@@ -76,15 +85,18 @@ def _config(
 def _write_config(tmp_path, config):
     path = tmp_path / "config.yml"
     path.write_text(yaml.safe_dump(config), encoding="utf-8")
-    # The deploy project's own settings artifact, which a scaffolded root always
-    # ships. A bare-string roster entry runs the deploy project itself, so this is
-    # the file the open-mode gate reads for it — and that gate fails closed on an
-    # absent one, which would refuse every `auth.method: none` verb below for a
-    # reason none of them is about.
-    (tmp_path / ".claude").mkdir(parents=True, exist_ok=True)
-    (tmp_path / ".claude" / "settings.json").write_text(
-        json.dumps({"permissions": {"deny": list(DENY_DEFAULTS)}}), encoding="utf-8"
-    )
+    # The default persona's rendered settings artifact, which every build
+    # ships. The open-mode gate reads it and fails closed on an absent one,
+    # which would refuse every `auth.method: none` verb below for a reason none
+    # of them is about.
+    web_terminals = config["modules"]["web_terminals"]
+    entry = (web_terminals.get("personas") or {}).get(DEFAULT_PERSONA)
+    if isinstance(entry, dict) and isinstance(entry.get("project_path"), str):
+        settings = tmp_path / entry["project_path"] / ".claude" / "settings.json"
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        settings.write_text(
+            json.dumps({"permissions": {"deny": list(DENY_DEFAULTS)}}), encoding="utf-8"
+        )
     return path
 
 
@@ -1195,17 +1207,16 @@ def test_nuke_tolerates_absent_image_silently(tmp_path, monkeypatch, capsys, fak
     assert "SKIPPED" not in capsys.readouterr().out
 
 
-def test_nuke_zero_migration_config_performs_no_image_operations(
-    tmp_path, monkeypatch, fake_runtime_nuke
-):
-    """A config with no persona catalog at all (today's zero-migration roster)
-    must never touch images: every entry resolves off the non-":local" default
-    image, so there are no candidates to inspect or remove — pinned explicitly
-    since this is the common case for every facility that hasn't adopted
-    personas yet."""
+def test_nuke_on_an_unresolved_roster_plans_no_image(tmp_path, monkeypatch, fake_runtime_nuke):
+    """A roster that does not resolve (here: no persona catalog at all) still
+    tears down: the lenient resolution names no image for its entries, so there
+    is no candidate to inspect or remove."""
     calls, listing, _down_result, _image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
-    config = _config(["alice", "bob"], project_name="demo-project")  # no personas configured
+    config = _config(["alice", "bob"], project_name="demo-project")
+    web_terminals = config["modules"]["web_terminals"]
+    del web_terminals["personas"]
+    del web_terminals["default_persona"]
     config_path = _write_config(tmp_path, config)
     _assert_no_input_prompt(monkeypatch)
 
@@ -2240,13 +2251,7 @@ def _resolved_by_name(config_path):
     with open(config_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     web_terminals = data["modules"]["web_terminals"]
-    resolved = resolve_personas(
-        web_terminals,
-        data.get("registry", {}),
-        "dls",
-        project_name=data["project_name"],
-        strict=True,
-    )
+    resolved = resolve_personas(web_terminals, data.get("registry", {}), strict=True)
     return {entry["name"]: entry for entry in resolved}
 
 
@@ -2545,7 +2550,10 @@ def _conflicted_persona_config(tmp_path, users, *, personas):
             encoding="utf-8",
         )
         catalog[name] = {"project": name, "project_path": f"profiles/{name}"}
-    return _config(users, personas=catalog)
+    # The default is a persona with no conflict, so removing the last user of a
+    # conflicted one drops it from the referenced set.
+    default = next(name for name, (writes, denies) in personas.items() if denies or not writes)
+    return _config(users, personas=catalog, default_persona=default)
 
 
 _TIERED_PERSONAS = {"armed": (True, False), "safe": (False, True)}
@@ -2595,7 +2603,10 @@ def _open_mode_roster_config(tmp_path, users, *, personas):
             encoding="utf-8",
         )
         catalog[name] = {"project": name, "project_path": f"profiles/{name}"}
-    config = _config(users, personas=catalog)
+    # The default is a persona that reaches nothing, so removing the last user of
+    # an offending one drops it from the referenced set.
+    default = next(name for name, lifted in personas.items() if not lifted)
+    config = _config(users, personas=catalog, default_persona=default)
     config["modules"]["web_terminals"]["auth"] = {"method": "none"}
     return config
 
@@ -2742,7 +2753,7 @@ def test_up_reconcile_finds_an_off_roster_terminal_under_an_earlier_name(
     users, whatever they are called."""
     calls, listing = fake_runtime_prune
     monkeypatch.chdir(tmp_path)
-    config = _config(["alice"], facility_prefix="dls")
+    config = _config(["alice"])
     listing["containers"] = ["dls-web-alice", "dls-web-eve", "dls-nginx", "dls-auth"]
 
     removed = lifecycle.remove_orphan_terminals(config)

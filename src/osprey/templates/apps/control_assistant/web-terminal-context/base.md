@@ -10,8 +10,8 @@ seeded into every web-terminal user's session; per-user additions live in
   write is pre-approved, and never work around the approval flow.
 - If a capability is not available in your session (for example plan
   tooling), say so plainly rather than improvising an alternative path.
-- When the control system is the mock backend, channel values are
-  synthesized: fine for browsing and demos, but say so if a user asks
+- When the control system is the simulator served in process, channel values
+  are synthesized: fine for browsing and demos, but say so if a user asks
   whether readings are real.
 
 ## Personas

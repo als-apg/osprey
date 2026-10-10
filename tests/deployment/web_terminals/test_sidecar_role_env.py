@@ -85,6 +85,8 @@ def _config(
     web_terminals: dict = {
         "enabled": True,
         "users": users if users is not None else ["alice", "bob"],
+        "default_persona": "assistant",
+        "personas": {"assistant": {"project": "demo-assistant"}},
         # `allow_insecure_http` because the render refuses any auth method over
         # cleartext otherwise — a gate with its own coverage, not this file's subject.
         "auth": {"method": method, "allow_insecure_http": True},
@@ -99,7 +101,6 @@ def _config(
         web_terminals["default_persona"] = default_persona
     return {
         "facility": {
-            "name": "Demo Light Source",
             "prefix": "dls",
         },
         "system": {"timezone": "America/Los_Angeles"},

@@ -66,7 +66,8 @@ def _write_config(tmp_path, overrides=None):
     """Write a config.yml with execution infrastructure settings."""
     config = {
         "control_system": {
-            "type": "mock",
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
             "limits_checking": {"enabled": False},
         },
         "execution": {
@@ -272,7 +273,7 @@ def test_limits_validator_loaded_and_passed(tmp_path, monkeypatch):
                 "limits_checking": {
                     "enabled": True,
                     "database_path": str(limits_db),
-                    "allow_unlisted_channels": False,
+                    "mode": "exclusive",
                     "on_violation": "error",
                 }
             }
@@ -322,7 +323,7 @@ def test_wrapper_injects_validator_when_present(tmp_path, monkeypatch):
                 "limits_checking": {
                     "enabled": True,
                     "database_path": str(limits_db),
-                    "allow_unlisted_channels": False,
+                    "mode": "exclusive",
                     "on_violation": "error",
                 }
             }

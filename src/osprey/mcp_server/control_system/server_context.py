@@ -26,16 +26,16 @@ Where a tool's connector comes from
 There are two serving paths, and which one a deployment gets is decided once,
 by :func:`~osprey.mcp_server.control_system.connector_host_manager.switch_capable`:
 
-* **Switch-capable** (at least two targets configured, and the deployment's own
-  control system is one of them): ``control_system()`` returns the proxy onto the
-  connector-host child. The in-process connector is never built — this server
-  holds no control-system client library at all, which is the only way a target
-  switch can actually move where tool calls land. A child that has died is not
+* **Switch-capable** (at least two targets configured): ``control_system()``
+  returns the proxy onto the connector-host child. The in-process connector is
+  never built — this server holds no control-system client library at all, which
+  is the only way a target switch can actually move where tool calls land. A child that has died is not
   papered over: the accessor raises
   :class:`~osprey.mcp_server.control_system.connector_host_manager.NoConnectorHostError`
   and every control-system-routed operation refuses with that reason until one
   is running again.
-* **Everything else** — a mock deployment, a single-target EPICS deployment,
+* **Everything else** — a deployment on the simulator in process alone, a
+  single-target EPICS deployment,
   any config that never named a second target — keeps the in-process cached
   connector, unchanged and untouched by any of this.
 
@@ -121,9 +121,12 @@ def claim_control_context(
 
     **A claim is a merge.** The target, generation and posture in the record are
     what this deployment is pointed at, and they outlive every process that
-    reads them; taking the file over changes who may write it, not what it
-    says. Only a record that is absent or too degraded to read at all starts
-    one, at *baseline*, generation 0, narrowing nothing.
+    reads them; taking the file over changes who may write it, and nothing else
+    of a record somebody has switched. A record nobody has switched follows the
+    deployment's baseline; every applied switch mints ``generation + 1``, so
+    generation 0 is a claim and never a switch (:func:`control_context.claimed`).
+    A record that is absent or too degraded to read at all starts one, at
+    *baseline*, generation 0, narrowing nothing.
 
     The write is read-verified: two servers starting together can both find the
     record ownerless, and the one that lost the race has to find that out
@@ -134,8 +137,8 @@ def claim_control_context(
     tool instead.
 
     Args:
-        baseline: The deployment's own configured target, used only when there
-            is no readable record to merge into.
+        baseline: The deployment's own configured target. It starts an absent
+            record, and it is what an unswitched (generation 0) record follows.
         server_pid: The PID to claim as. Defaults to this process, which is the
             only value production uses.
 
@@ -164,7 +167,7 @@ def claim_control_context(
         claimed = (
             control_context.ControlContext(target=baseline, generation=0, owner=owner)
             if record is None
-            else replace(record, owner=owner)
+            else replace(control_context.claimed(record, baseline), owner=owner)
         )
         control_context.write_record(claimed)
 
@@ -587,7 +590,7 @@ class ControlSystemContext:
         ``control_system:`` section does not name.
         """
         from osprey.connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
-        from osprey.connectors.types import MOCK, MONGODB_ARCHIVER, resolve_control_system_type
+        from osprey.connectors.types import MONGODB_ARCHIVER, resolve_control_system_type
 
         pairing = pairing_in_rendered_config(self.config.raw)
         if not pairing.is_invented_history:
@@ -605,9 +608,9 @@ class ControlSystemContext:
             f"reads a store this deployment actually writes (a project built from the "
             f"control-assistant preset deploys one, and its type reads "
             f"{MONGODB_ARCHIVER!r}); or, if this deployment is meant to be a "
-            f"simulation nothing is real in, set the `type:` under `control_system:` "
-            f"to {MOCK!r} — a mock machine with a mock archive claims nothing it "
-            f"cannot back up."
+            f"simulation nothing is real in, serve the simulator in process "
+            f"(`control_system.connector.virtual_accelerator.serving: in_process`), "
+            f"whose synthesized archive claims nothing it cannot back up."
         )
 
     async def shutdown(self) -> None:

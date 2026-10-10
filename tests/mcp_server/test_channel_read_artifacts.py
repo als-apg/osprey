@@ -44,7 +44,7 @@ def _channel_value(value, color_mode=None):
     )
 
 
-class _MockConnector:
+class _FakeConnector:
     """Connector stub feeding synthetic frames through the real tool body."""
 
     def __init__(self, values: dict, color_modes: dict | None = None):
@@ -75,13 +75,15 @@ def _config_patch(overrides: dict):
 async def _read(tmp_path, monkeypatch, values, *, color_modes=None, overrides=None, **kwargs):
     """Run the real channel_read tool body against a mock connector."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
     initialize_artifact_store(workspace_root=tmp_path / "agent_data")
 
     from osprey.mcp_server.control_system.tools.channel_read import channel_read
 
-    connector = _MockConnector(values, color_modes)
+    connector = _FakeConnector(values, color_modes)
     with (
         patch(
             "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
@@ -451,13 +453,15 @@ async def test_retention_fires_after_an_image_save(tmp_path, monkeypatch):
 async def test_retention_keeps_only_the_configured_window(tmp_path, monkeypatch):
     """Repeated frames of one channel do not grow the gallery without bound."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     initialize_server_context()
     initialize_artifact_store(workspace_root=tmp_path / "agent_data")
 
     from osprey.mcp_server.control_system.tools.channel_read import channel_read
 
-    connector = _MockConnector({ADDRESS: _gaussian_spot()})
+    connector = _FakeConnector({ADDRESS: _gaussian_spot()})
     with (
         patch(
             "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",

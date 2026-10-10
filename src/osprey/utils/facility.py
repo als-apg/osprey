@@ -1,23 +1,31 @@
-"""Facility identity resolved from a project config.
+"""Facility identity and facility zone, resolved in one place.
 
-One resolution order, shared by every reader that needs the facility display
-name: the build path that renders the agent prompts and the interface apps that
-label their UI. Keeping it in one place is the point — the two spellings drifted
-precisely because each reader picked its own.
+Every reader that needs the facility's name asks here, so the build path that
+renders the agent prompts and the servers and apps that label their answers
+cannot each pick their own spelling.
 """
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from difflib import get_close_matches
-from typing import Any
+from pathlib import Path
+from typing import Any, TypedDict
 from zoneinfo import available_timezones
+
+from osprey.facility import FACILITY_FILE, fold_code
 
 __all__ = [
     "DEFAULT_FACILITY_ZONE",
     "SET_FACILITY_ZONE",
+    "FacilityFileError",
+    "FacilityIdentity",
     "closest_zone_name",
+    "facility_identity",
+    "facility_name",
+    "identity_record",
     "is_zone_name",
-    "resolve_facility_name",
 ]
 
 #: The zone every reader falls back to and every preset pins.
@@ -30,29 +38,138 @@ SET_FACILITY_ZONE = (
 )
 
 
-def resolve_facility_name(config: dict[str, Any], default: str) -> str:
-    """Resolve the facility display name from a parsed project config.
+class FacilityFileError(ValueError):
+    """A render's facility file is present but names no usable identity.
 
-    ``facility.name`` is the canonical spelling — the same ``facility:`` block
-    that carries ``prefix``. Top-level ``facility_name`` is the older spelling;
-    it is honored as a fallback so a config written before the consolidation
-    keeps working unchanged. An empty value at either level falls through, since
-    a blank facility name reaches prompts and UI labels as a hole in the
-    sentence.
+    Only an absent file falls back to the project name: a file that is there
+    and cannot be read, is not JSON, or names no identity code is a broken
+    render, and a reader that labelled it with the project name would hide
+    that.
+    """
+
+
+class FacilityIdentity(TypedDict):
+    """Who a render's facility is.
+
+    Attributes:
+        code: The ``PN_LOCAL`` token that names the facility in identifiers.
+        name: The display name.
+        description: One free-form sentence, or ``None`` when none is authored.
+    """
+
+    code: str
+    name: str
+    description: str | None
+
+
+def facility_identity(
+    render_root: Path, project_name: str | None = None
+) -> FacilityIdentity | None:
+    """Read the facility identity of a render.
+
+    The facility file at the root of the render is the source. A render without
+    one answers with the identity the build would write for a project that
+    authors none: the project name as the display name and its fold as the
+    code.
 
     Args:
-        config: Parsed ``config.yml`` dictionary.
-        default: Value to use when neither key carries a name. Callers differ:
-            the build path passes the project name, an interface app passes the
-            empty string it would otherwise have shown.
+        render_root: The directory that holds the rendered ``config.yml``.
+        project_name: The project's name, used where the facility file names no
+            display name and as the whole identity where there is no file.
 
     Returns:
-        str: Facility display name.
+        FacilityIdentity | None: The identity, or ``None`` when there is neither
+        a facility file nor a project name.
+
+    Raises:
+        FacilityFileError: The facility file is present but cannot be read, is
+            not JSON, or names no identity code.
     """
-    facility = config.get("facility")
-    if isinstance(facility, dict) and facility.get("name"):
-        return str(facility["name"])
-    return str(config.get("facility_name") or default)
+    recorded = _recorded_identity(render_root)
+    if recorded is not None:
+        return identity_record(recorded, project_name)
+    if not project_name:
+        return None
+
+    return {"code": fold_code(project_name), "name": project_name, "description": None}
+
+
+def identity_record(recorded: Mapping[str, Any], project_name: str | None) -> FacilityIdentity:
+    """The identity a recorded ``identity`` block gives its facility.
+
+    The display name is the recorded ``name``, else the project name, else the
+    ``code``: the one precedence every reader of a facility's identity applies.
+
+    Args:
+        recorded: The facility document's ``identity`` record; it carries a
+            ``code``.
+        project_name: The project's name, used where the record names no
+            display name.
+
+    Returns:
+        FacilityIdentity: The identity, its ``description`` a ``str`` or
+        ``None`` when none is authored.
+    """
+    code = str(recorded["code"])
+    description = recorded.get("description")
+    return {
+        "code": code,
+        "name": str(recorded.get("name") or project_name or code),
+        "description": str(description) if description else None,
+    }
+
+
+def facility_name(render_root: Path, project_name: Any) -> str:
+    """The display name of a render's facility.
+
+    The ``name`` :func:`facility_identity` gives the render: the name its
+    facility file records, else the project name, else the identity code.
+
+    Args:
+        render_root: The directory that holds the rendered ``config.yml``.
+        project_name: The project's name as the config spells it; a falsy value
+            names no project.
+
+    Returns:
+        str: The name, or ``""`` when there is neither a facility file nor a
+        project name.
+
+    Raises:
+        FacilityFileError: The facility file is present but cannot be read, is
+            not JSON, or names no identity code.
+    """
+    identity = facility_identity(render_root, str(project_name) if project_name else None)
+    return identity["name"] if identity is not None else ""
+
+
+def _recorded_identity(render_root: Path) -> dict[str, Any] | None:
+    """Return the ``identity`` record of the render's facility file, if it has one.
+
+    Args:
+        render_root: The directory that holds the rendered ``config.yml``.
+
+    Returns:
+        dict[str, Any] | None: The record, or ``None`` when the file is absent.
+
+    Raises:
+        FacilityFileError: The file is present but cannot be read, is not
+            JSON, or names no identity code.
+    """
+    path = Path(render_root) / FACILITY_FILE
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise FacilityFileError(f"The facility file {path} cannot be read: {exc}") from exc
+    try:
+        document = json.loads(text)
+    except ValueError as exc:
+        raise FacilityFileError(f"The facility file {path} is not JSON: {exc}") from exc
+    identity = document.get("identity") if isinstance(document, dict) else None
+    if not isinstance(identity, dict) or not identity.get("code"):
+        raise FacilityFileError(f"The facility file {path} names no identity code")
+    return identity
 
 
 def is_zone_name(name: str) -> bool:

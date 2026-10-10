@@ -72,18 +72,7 @@ from osprey.port_layout import (
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.utils.config_writer import config_update_fields
 from osprey_connectors.types import CONTROL_TARGETS, configured_targets, target_writes_enabled
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+from tests._preset_data import bundle_data_root
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -104,7 +93,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
@@ -330,12 +319,10 @@ class TestControlAssistantWebTier:
 
     def test_hosts_its_own_web_tier(self) -> None:
         """The preset carries the web-terminals block plus the web-tier
-        companion keys (``facility.prefix`` for container names,
-        ``deploy.fqdn`` for the landing URL) — the hosting posture the persona
-        family below attaches to."""
+        companion key ``deploy.fqdn`` for the landing URL — the hosting posture
+        the persona family below attaches to."""
         base = resolve_preset("control-assistant")
         assert WEB_TERMINALS_KEY in base.config
-        assert "facility.prefix" in base.config
         assert "deploy.fqdn" in base.config
 
     def test_rendered_config_keeps_sibling_modules(self, tmp_path: Path) -> None:
@@ -1198,7 +1185,7 @@ class TestControlAssistantPersonas:
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
         graphdb = (config.get("services") or {}).get("graphdb") or {}
         assert not {"port_host", "http_port_host", "uri", "username"} & set(graphdb), graphdb
-        assert set(graphdb) <= {"ttl_path", "index_path"}, graphdb
+        assert set(graphdb) <= {"ttl_path"}, graphdb
         preset = resolve_preset("control-assistant-logbook").config
         assert preset.get("claude_code.servers.graph.enabled") is False
 
@@ -1667,7 +1654,14 @@ class TestWebTerminalContextShipped:
                 "project_name": "ctx-seed-hello",
                 "facility": {"name": "Demo", "prefix": "dls"},
                 "system": {"timezone": "UTC"},
-                "modules": {"web_terminals": {"enabled": True, "users": ["alice"]}},
+                "modules": {
+                    "web_terminals": {
+                        "enabled": True,
+                        "users": ["alice"],
+                        "default_persona": "assistant",
+                        "personas": {"assistant": {"project": "ctx-seed-hello-assistant"}},
+                    }
+                },
             }
         )
 

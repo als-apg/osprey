@@ -5,14 +5,14 @@
 
 # Full Virtual Accelerator image: PyAT physics + the LUME serving stack +
 # osprey (the VA service ships as osprey.services.virtual_accelerator, part of
-# the osprey package itself). entrypoint.py assembles it in dependency order --
-# manifest -> serving database -> physics bridge -> runner -> engine source --
-# and one runner then serves the facility's whole channel namespace on Channel
-# Access with the physics model's own variables on PVAccess.
+# the osprey package itself). entrypoint.py reads the simulator view under the
+# data mount, builds one composite over it and hands that to ModelRunner, which
+# serves every address of the view's addresses.json on Channel Access and the
+# model RPC on PVAccess.
 #
 # Build context MUST be a staging directory containing exactly:
-#   pyproject.toml, README.md, src/, docker/virtual-accelerator/Containerfile
-# (see scripts/va/run_va.sh / build_and_boot_check.sh, which stage it) --
+#   pyproject.toml, README.md, src/, packages/, docker/virtual-accelerator/Containerfile
+# (see scripts/va/build_and_boot_check.sh, which stages it) --
 # NOT the repo root, which also contains .venv/.git/worktrees and would
 # make every build re-tar gigabytes of unrelated content.
 #
@@ -29,23 +29,23 @@ FROM --platform=linux/amd64 python:3.11-slim
 # unreachable, but a `--platform` override on the command line, or someone
 # lifting this recipe into another file, would otherwise produce an image that
 # BUILDS CLEANLY AND CANNOT SERVE: there is no pcaspy wheel for linux/aarch64
-# at any interpreter, and osprey's `virtual-accelerator` extra marks pcaspy
+# at any interpreter, and osprey's `virtual-accelerator` extra marks
+# lume-pva-apg, whose `ca` extra brings pcaspy,
 # `sys_platform == 'linux' and platform_machine == 'x86_64'` -- so on aarch64
 # the Channel Access server is simply not installed, silently, because an
-# unmatched environment marker is not an error. The first sign would be a
-# runtime ImportError on `import pcaspy` in serving/runner.py, long after the
-# build reported success. Fail here instead, where the message can say why.
+# unmatched environment marker is not an error. The first sign would be an
+# ImportError when serving/runner.py imports the serving package
+# (lume_pva_apg), whose Channel Access server is pcaspy, long after the build
+# reported success. Fail here instead, where the message can say why.
 RUN arch="$(dpkg --print-architecture)"; [ "$arch" = "amd64" ] \
     || { echo "ERROR: the virtual accelerator image is linux/amd64 only (this build is $arch). No pcaspy wheel exists for linux/aarch64 at any interpreter, so an aarch64 image would carry no Channel Access server." >&2; exit 1; }
 
-# osprey itself -- manifest/lattice/ioc/serving/entrypoint live under
+# osprey itself -- manifest/lattice/serving/entrypoint live under
 # src/osprey/services/virtual_accelerator/ and install as part of the
 # package, so no separate COPY of a docker/virtual-accelerator source tree
 # is needed. Built from the source copied in below -- never from PyPI -- so
 # the image always matches whatever checkout produced it (this feature may
-# not be released yet). manifest/paths.py locates the channel-finder DB JSON
-# files via the installed ``osprey.templates`` package location, so this
-# works with this plain (non-editable) install.
+# not be released yet).
 WORKDIR /opt/osprey
 COPY pyproject.toml README.md /opt/osprey/
 COPY src/ /opt/osprey/src/
@@ -92,7 +92,7 @@ ARG OSPREY_VERSION=0.0.0.dev0+unknown
 # something is wrong and the build should say so rather than stall.
 #
 # PyAT is the exception, and the pin is not redundant. pyproject.toml declares
-# `accelerator-toolbox[plot]>=0.7.1` and uv.lock resolves that to 0.7.1 --
+# `accelerator-toolbox[plot]>=0.8.0` and uv.lock resolves that to 0.8.0 --
 # which is what the dev venv and every unit test run against -- but this image
 # installs with pip, and pip does not read uv.lock. Without the pin the image
 # silently takes the newest release satisfying the floor, so the physics
@@ -104,7 +104,7 @@ ARG OSPREY_VERSION=0.0.0.dev0+unknown
 #
 # Everything here installs from prebuilt manylinux_x86_64 wheels, so the image
 # carries no C toolchain at all.
-RUN pip install --no-cache-dir "accelerator-toolbox[plot]==0.7.1" \
+RUN pip install --no-cache-dir "accelerator-toolbox[plot]==0.8.0" \
     && SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
        pip install --no-cache-dir ./packages/osprey-connectors \
     && SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
@@ -125,16 +125,13 @@ RUN pip install --no-cache-dir "accelerator-toolbox[plot]==0.7.1" \
 EXPOSE 5064/tcp
 ENV EPICS_CA_SERVER_PORT=5064
 
-# The entrypoint module is configuration, not a bake-time constant: a facility
-# may supply its own entrypoint module (e.g. one serving a file-backed
-# manifest with no lattice) without rebuilding the image. `exec` replaces the
+# The image runs the shipped entrypoint module by name. `exec` replaces the
 # shell so SIGTERM reaches python directly and entrypoint.py's shutdown
-# handlers still run on `docker stop`. `:-` treats the compose passthrough's
-# empty string the same as unset.
+# handlers still run on `docker stop`.
 #
 # EPICS_CAS_SERVER_PORT is derived here rather than baked as an ENV, because
 # it has to track EPICS_CA_SERVER_PORT: the CA *server* library reads the CAS
 # variable and does not fall back to the client-side one, so an image whose
 # CAS port were frozen at build time would keep binding 5064 while a
 # `-e EPICS_CA_SERVER_PORT=...` run told its clients some other port.
-CMD ["/bin/sh", "-c", "export EPICS_CAS_SERVER_PORT=\"${EPICS_CAS_SERVER_PORT:-${EPICS_CA_SERVER_PORT:-5064}}\"; exec python -u -m ${VA_ENTRYPOINT_MODULE:-osprey.services.virtual_accelerator.entrypoint}"]
+CMD ["/bin/sh", "-c", "export EPICS_CAS_SERVER_PORT=\"${EPICS_CAS_SERVER_PORT:-${EPICS_CA_SERVER_PORT:-5064}}\"; exec python -u -m osprey.services.virtual_accelerator.entrypoint"]

@@ -34,7 +34,7 @@ import yaml
 from tests._config_render_context import CONFIG_TEMPLATE, MINIMAL_CONFIG_CONTEXT
 
 import osprey.profiles
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.build_cmd import _ariel_server_enabled
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_model import BuildProfile

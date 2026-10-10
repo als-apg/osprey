@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli import profile_conventions as conventions
+from osprey.cli.build_profile import BuildProfile, McpServerDef
 from osprey.cli.profile_conventions import (
     BUILD_OUTPUT_DIR,
     CONTEXT_BASELINE_FILENAME,
@@ -31,6 +32,7 @@ from osprey.cli.profile_conventions import (
     PROTECTED_KEY_EXEMPTIONS,
     REPO_CLAUDE_CODE_ENTRIES,
     RESERVED_EXACT_PATHS,
+    RESERVED_MIRROR_PATTERNS,
     RESERVED_PATH_CHANNELS,
     RESERVED_PATH_PATTERNS,
     RESERVED_PROJECT_PATHS,
@@ -42,8 +44,10 @@ from osprey.cli.profile_conventions import (
     convention_for,
     convention_slot_for,
     destination_for,
+    facility_mirror_violation,
     flatten_dotted,
     flatten_key_paths,
+    handwritten_limits_violation,
     is_protected_key,
     is_protected_key_path,
     is_reserved_write,
@@ -170,8 +174,6 @@ def test_destination_for_rejects_a_non_convention_root():
         (".env", "`env:`"),
         (".env.example", "`env:`"),
         ("CLAUDE.md", "claude_md_template"),
-        ("data/simulation/channel_manifest.json", "`data/`"),
-        ("data/simulation/channel_limits.json", "`data/`"),
         ("docker/web-terminal-context/base.md", "`web-terminal-context/base.md`"),
     ],
 )
@@ -179,6 +181,15 @@ def test_reserved_path_names_its_channel(reserved: str, channel_hint: str):
     channel = reserved_path_channel(reserved)
     assert channel is not None
     assert channel_hint in channel
+
+
+@pytest.mark.parametrize(
+    "path", ["data/simulation/channel_manifest.json", "data/simulation/channel_limits.json"]
+)
+def test_simulation_data_paths_are_not_reserved(path: str):
+    """Neither path is a reserved project path; a hand-written limits file there
+    is refused by the build's limits stop instead."""
+    assert reserved_path_channel(path) is None
 
 
 def test_every_reserved_entry_is_reported():
@@ -315,6 +326,145 @@ def test_convention_slot_for_inverts_destination_for():
 
 def test_validate_project_mirror_tolerates_a_missing_mirror(profile_dir: Path):
     validate_project_mirror(profile_dir / "project")
+
+
+# ── Facility mirror patterns ─────────────────────────────────────────
+
+
+def test_the_facility_mirror_patterns_are_the_facility_file_and_its_tree():
+    assert RESERVED_MIRROR_PATTERNS == (
+        "facility.json",
+        "data/facility/**",
+        "data/simulator/**",
+        "data/facility_facts.json",
+        "data/facility_facts.md",
+        "data/channel_finder/**",
+        "data/graph/**",
+        "data/channel_databases/graph.duckdb",
+    )
+
+
+@pytest.mark.parametrize(
+    ("mirrored", "line"),
+    [
+        (
+            "facility.json",
+            "facility: profile-invalid: path project/facility.json — the project/ mirror "
+            "writes facility.json, which the build writes from data/facility/; fix: remove "
+            "project/facility.json and author the facility in data/facility/",
+        ),
+        (
+            "data/facility/records/devices.yaml",
+            "facility: profile-invalid: path project/data/facility/records/devices.yaml — the "
+            "project/ mirror writes data/facility/records/devices.yaml, which the build writes "
+            "from data/facility/; fix: remove project/data/facility/records/devices.yaml and "
+            "author the facility in data/facility/",
+        ),
+        (
+            "data/simulator/x.json",
+            "facility: profile-invalid: path project/data/simulator/x.json — the project/ "
+            "mirror writes data/simulator/x.json, which the build writes from data/facility/; "
+            "fix: remove project/data/simulator/x.json and author the facility in data/facility/",
+        ),
+        (
+            "data/facility_facts.json",
+            "facility: profile-invalid: path project/data/facility_facts.json — the project/ "
+            "mirror writes data/facility_facts.json, which the build writes from data/facility/; "
+            "fix: remove project/data/facility_facts.json and author the facility in "
+            "data/facility/",
+        ),
+        (
+            "data/facility_facts.md",
+            "facility: profile-invalid: path project/data/facility_facts.md — the project/ "
+            "mirror writes data/facility_facts.md, which the build writes from data/facility/; "
+            "fix: remove project/data/facility_facts.md and author the facility in "
+            "data/facility/",
+        ),
+        (
+            "data/channel_finder/in_context.json",
+            "facility: profile-invalid: path project/data/channel_finder/in_context.json — the "
+            "project/ mirror writes data/channel_finder/in_context.json, which the build writes "
+            "from data/facility/; fix: remove project/data/channel_finder/in_context.json and "
+            "author the facility in data/facility/",
+        ),
+        (
+            "data/graph/facility.ttl",
+            "facility: profile-invalid: path project/data/graph/facility.ttl — the "
+            "project/ mirror writes data/graph/facility.ttl, which the build writes "
+            "from data/facility/; fix: remove project/data/graph/facility.ttl and "
+            "author the facility in data/facility/",
+        ),
+        (
+            "data/channel_databases/graph.duckdb",
+            "facility: profile-invalid: path project/data/channel_databases/graph.duckdb — the "
+            "project/ mirror writes data/channel_databases/graph.duckdb, which the build writes "
+            "from data/facility/; fix: remove project/data/channel_databases/graph.duckdb and "
+            "author the facility in data/facility/",
+        ),
+    ],
+)
+def test_a_mirrored_facility_path_is_one_profile_invalid_line(
+    profile_dir: Path, mirrored: str, line: str
+):
+    _write(profile_dir / "project" / mirrored)
+
+    error = facility_mirror_violation(profile_dir / "project")
+
+    assert error is not None
+    assert error.kind == "profile-invalid"
+    assert error.format_message() == line
+
+
+def test_the_facility_mirror_check_returns_the_first_hit(profile_dir: Path):
+    mirror = profile_dir / "project"
+    _write(mirror / "facility.json")
+    _write(mirror / "data" / "facility" / "identity.yaml")
+
+    error = facility_mirror_violation(mirror)
+
+    assert error is not None
+    assert error.record_id == "project/data/facility/identity.yaml"
+
+
+@pytest.mark.parametrize(
+    "allowed", ["docs/facility.json", "data/facility.json", "data/facility_notes.md"]
+)
+def test_the_facility_mirror_check_passes_near_misses(profile_dir: Path, allowed: str):
+    _write(profile_dir / "project" / allowed)
+    assert facility_mirror_violation(profile_dir / "project") is None
+
+
+def test_the_facility_mirror_check_tolerates_a_missing_mirror(profile_dir: Path):
+    assert facility_mirror_violation(profile_dir / "project") is None
+
+
+def test_the_generic_mirror_check_skips_the_facility_patterns(profile_dir: Path):
+    """The facility stop is its own line; the gather neither repeats nor raises it."""
+    mirror = profile_dir / "project"
+    _write(mirror / "facility.json")
+    _write(mirror / "data" / "facility" / "identity.yaml")
+    _write(mirror / "data" / "simulator" / "x.json")
+    _write(mirror / "data" / "facility_facts.json")
+    _write(mirror / "data" / "facility_facts.md")
+    _write(mirror / "data" / "channel_finder" / "middle_layer.duckdb")
+    _write(mirror / ".mcp.json")
+
+    violations = conventions._mirror_violations(mirror)
+
+    assert violations == [(".mcp.json", RESERVED_PATH_CHANNELS[".mcp.json"])]
+
+
+def test_profile_validation_still_gathers_past_a_facility_mirror_hit(profile_dir: Path):
+    _write(profile_dir / "project" / "facility.json")
+    (profile_dir / "data").mkdir()
+    profile = BuildProfile(name="x", data="data", mcp_servers={"empty": McpServerDef()})
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        profile.validate(profile_dir)
+
+    message = str(excinfo.value)
+    assert "MCP server 'empty' missing 'command' or 'url'" in message
+    assert "facility.json" not in message
 
 
 # ── Source validation ────────────────────────────────────────────────
@@ -887,7 +1037,7 @@ def test_reserved_exact_table_is_unchanged_by_the_pattern_table():
     """
     assert RESERVED_EXACT_PATHS == frozenset(r.path for r in RESERVED_PROJECT_PATHS)
     assert RESERVED_PATH_CHANNELS == {r.path: r.channel for r in RESERVED_PROJECT_PATHS}
-    assert len(RESERVED_PROJECT_PATHS) == 11
+    assert len(RESERVED_PROJECT_PATHS) == 9
 
 
 @pytest.mark.parametrize(
@@ -900,8 +1050,21 @@ def test_reserved_exact_table_is_unchanged_by_the_pattern_table():
         (".claude/rules/facility.md", "`rules/`"),
         (".claude/rules/nested/deep.md", "`rules/`"),
         (".claude/settings.local.json", "claude_code.permissions"),
-        ("data/channel_limits.json", "`data/`"),
+        ("data/channel_limits.json", "limits.yaml"),
         ("data/bluesky_devices.yml", "`data/`"),
+        ("facility.json", "`data/facility/`"),
+        ("data/facility/records/devices.yaml", "`data/facility/`"),
+        ("data/facility/decks/SR.json", "`data/facility/`"),
+        ("data/simulator/served_models.json", "`data/facility/`"),
+        ("data/simulator/decks/SR.json", "`data/facility/`"),
+        ("data/facility_facts.json", "`data/facility/`"),
+        ("data/facility_facts.md", "`data/facility/`"),
+        ("data/channel_finder/in_context.json", "`data/facility/`"),
+        ("data/channel_finder/hierarchical.json", "`data/facility/`"),
+        ("data/channel_finder/middle_layer.json", "`data/facility/`"),
+        ("data/channel_finder/middle_layer.duckdb", "`data/facility/`"),
+        ("data/graph/facility.ttl", "`data/facility/`"),
+        ("data/channel_databases/graph.duckdb", "`data/facility/`"),
     ],
 )
 def test_pattern_reserved_write_names_its_channel(target: str, channel_hint: str):
@@ -920,7 +1083,8 @@ def test_pattern_reserved_write_names_its_channel(target: str, channel_hint: str
         ".claude/hooks/facility_guard.py",
         "docs/runbook.md",
         "data/facility.json",
-        "data/simulation/channel_manifest.json.bak",
+        "data/simulator_notes.md",
+        "data/channel_finder.json",
         "notebooks/analysis.ipynb",
     ],
 )
@@ -935,9 +1099,59 @@ def test_unreserved_writes_stay_writable(allowed: str):
     assert is_reserved_write(allowed) is None
 
 
+@pytest.mark.parametrize("target", ["FACILITY.json", "Data/Facility/identity.yaml"])
+def test_case_variants_of_a_facility_path_are_refused(target: str):
+    channel = is_reserved_write(target)
+    assert channel is not None and "`data/facility/`" in channel
+
+
 def test_every_exact_reservation_is_a_reserved_write():
     for entry in RESERVED_PROJECT_PATHS:
         assert is_reserved_write(entry.path) == entry.channel
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        "data/facility/knowledge/x.md",
+        "data/facility/knowledge/devices/bpm.md",
+        "data/facility/knowledge/index.md",
+        "Data/Facility/Knowledge/x.md",
+        "./data/facility//knowledge/x.md",
+    ],
+)
+def test_knowledge_pages_stay_agent_writable(page: str):
+    """The knowledge bundle sits in the facility tree and is the agent's to draft into."""
+    assert is_reserved_write(page) is None
+
+
+@pytest.mark.parametrize(
+    "authored",
+    [
+        "data/facility/limits.yaml",
+        "data/facility/knowledge.yaml",
+        "data/facility/knowledgebase/x.md",
+        "data/facility/knowledge/../limits.yaml",
+        "data/facility/imported/mml/knowledge/x.md",
+    ],
+)
+def test_the_rest_of_the_facility_tree_stays_reserved(authored: str):
+    """Only the knowledge directory is open; its neighbours name the facility tree."""
+    channel = is_reserved_write(authored)
+    assert channel is not None and "`data/facility/`" in channel
+
+
+def test_the_mirror_still_owns_the_knowledge_directory(tmp_path: Path):
+    """The agent-side opening does not reach the ``project/`` mirror."""
+    mirror = tmp_path / "project"
+    page = mirror / "data" / "facility" / "knowledge" / "x.md"
+    page.parent.mkdir(parents=True)
+    page.write_text("# x\n", encoding="utf-8")
+
+    error = facility_mirror_violation(mirror)
+
+    assert error is not None
+    assert error.record_id == "project/data/facility/knowledge/x.md"
 
 
 def test_exact_reservation_beats_the_pattern_table(monkeypatch: pytest.MonkeyPatch):
@@ -970,12 +1184,13 @@ def test_skill_files_stay_ownable_while_being_reserved_writes():
     assert is_reserved_write(".claude/skills/foo/SKILL.md") is not None
 
 
-def test_channel_limits_overlay_still_validates_in_the_mirror(profile_dir: Path):
-    """``project/data/channel_limits.json`` is a legitimate profile overlay.
+def test_a_mirrored_limits_file_is_refused_by_the_limits_stop(profile_dir: Path):
+    """``project/data/channel_limits.json`` is the limits stop's to refuse.
 
-    The protected set stops a *running agent* from rewriting the limits table;
-    it must not stop the profile that authored it from shipping one, or the
-    build breaks for every deployment carrying facility limits in the mirror.
+    The mirror validation leaves it alone, so the one stop that names every
+    hand-written limits file is the one that answers: the build writes that
+    file from ``data/facility/limits.yaml``. A running agent still may not
+    rewrite the limits table.
     """
     mirror = profile_dir / "project" / "data"
     _write(mirror / "channel_limits.json", "{}\n")
@@ -983,6 +1198,64 @@ def test_channel_limits_overlay_still_validates_in_the_mirror(profile_dir: Path)
     validate_project_mirror(profile_dir)  # does not raise
     assert reserved_path_channel("data/channel_limits.json") is None
     assert is_reserved_write("data/channel_limits.json") is not None
+    stop = handwritten_limits_violation(profile_dir / "data", profile_dir)
+    assert stop is not None
+    assert str(stop) == (
+        "facility: profile-invalid: path project/data/channel_limits.json — the build "
+        "writes data/channel_limits.json from data/facility/limits.yaml; fix: move its "
+        "limits into data/facility/limits.yaml and remove project/data/channel_limits.json"
+    )
+
+
+def test_a_tree_shipping_no_limits_file_passes_the_limits_stop(profile_dir: Path):
+    _write(profile_dir / "data" / "facility" / "limits.yaml", "records: []\n")
+
+    assert handwritten_limits_violation(profile_dir / "data", profile_dir) is None
+
+
+def test_the_limits_stop_names_the_first_file_in_its_fixed_order(profile_dir: Path):
+    data = profile_dir / "data"
+    _write(profile_dir / "project" / "data" / "channel_limits.json", "{}\n")
+    _write(data / "simulation" / "channel_limits.json", "{}\n")
+    _write(data / "channel_limits.json", "{}\n")
+
+    found = []
+    for path in (
+        data / "channel_limits.json",
+        data / "simulation" / "channel_limits.json",
+        profile_dir / "project" / "data" / "channel_limits.json",
+    ):
+        stop = handwritten_limits_violation(data, profile_dir)
+        assert stop is not None
+        found.append(stop.record_id)
+        path.unlink()
+
+    assert found == [
+        "data/channel_limits.json",
+        "data/simulation/channel_limits.json",
+        "project/data/channel_limits.json",
+    ]
+    assert handwritten_limits_violation(data, profile_dir) is None
+
+
+def test_the_limits_stop_never_reads_a_render(profile_dir: Path):
+    _write(profile_dir / "build" / "data" / "channel_limits.json", "{}\n")
+    _write(profile_dir / "build" / "data" / "simulation" / "channel_limits.json", "{}\n")
+
+    assert handwritten_limits_violation(profile_dir / "data", profile_dir) is None
+
+
+def test_the_limits_stop_names_a_data_tree_outside_the_repo_absolutely(
+    profile_dir: Path, tmp_path: Path
+):
+    data = tmp_path / "elsewhere" / "data"
+    _write(data / "channel_limits.json", "{}\n")
+
+    stop = handwritten_limits_violation(data, profile_dir)
+
+    assert stop is not None
+    assert stop.record_id == str(data / "channel_limits.json")
+    assert f"move its limits into {data}/facility/limits.yaml" in str(stop)
 
 
 def test_reserved_write_normalizes_its_input():
@@ -1005,7 +1278,7 @@ def test_reserved_write_normalizes_its_input():
         (".claude/settings.LOCAL.json", "claude_code.permissions"),
         (".claude/Settings.Local.Json", "claude_code.permissions"),
         (".claude/hooks/OSPREY_limits.py", "`hooks/`"),
-        ("DATA/Channel_Limits.json", "`data/`"),
+        ("DATA/Channel_Limits.json", "limits.yaml"),
     ],
 )
 def test_case_variants_of_a_pattern_are_refused(target: str, channel_hint: str):
@@ -1131,12 +1404,6 @@ PROTECTED_KEY_FAMILIES = [
     ("config.yml", "agent_data.base_dir", "agent_datax.base_dir", "services.agent_data.base_dir"),
     ("config.yml", "file_paths.x", "file_path.x", "services.file_paths.x"),
     ("config.yml", "artifacts.x", "artifact.x", "services.artifacts.x"),
-    (
-        "config.yml",
-        "services.bluesky.devices_file",
-        "service.bluesky.devices_file",
-        "services.bluesky.devices",
-    ),
     (
         "config.yml",
         "services.graphdb.ttl_path",

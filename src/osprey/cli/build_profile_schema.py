@@ -531,12 +531,6 @@ class DispatchConfig:
     single-shot summaries lowers it. A trigger may still name its own
     ``max_turns``; this is what a trigger that names none is given."""
 
-    facility_name: str = ""
-    """Display name the dispatcher dashboard shows.
-
-    Empty means the deployment's ``facility.name``; set it only when the
-    dashboard should say something else."""
-
     channel_strip_prefix: str = ""
     """Leading prefix trimmed off a channel address before the dashboard shows it.
 
@@ -547,8 +541,8 @@ class DispatchConfig:
     name has nothing to trim and is unaffected.
 
     Spelled without a protocol noun deliberately: the key sits on the
-    protocol-neutral dispatch block beside :attr:`facility_name`, and any later
-    source that carries a channel uses this same trim."""
+    protocol-neutral dispatch block, and any later source that carries a
+    channel uses this same trim."""
 
     network: NetworkMode = DEFAULT_NETWORK_MODE
     """Network attachment for the dispatcher and its workers, one of
@@ -764,20 +758,6 @@ class BlueskyConfig:
     enabled (dev/local convenience). Production uses the
     ``BLUESKY_EXCLUDED_PLANS`` env var instead.
     """
-    devices_file: str = "data/bluesky_devices.yml"
-    """Where the plan device file is AUTHORED — the YAML/JSON document naming
-    the devices Bluesky plans may address.
-
-    A RELATIVE path (the default) is resolved against the RENDERED CONFIG's own
-    directory, so it names a file that lives inside the built project and
-    travels with it. An ABSOLUTE path is operator-owned: the build reads it
-    as-is and never rewrites, relocates or copies it.
-
-    Unlike :attr:`plan_dir` and :attr:`excluded_plans`, this key is written to
-    every lane's service block on every deploy — a deployment always addresses
-    devices, so the only question is which file names them, and an unwritten
-    key would leave the staging step re-deriving this default for itself.
-    """
     device_page_size: int = 500
     """How many devices one page of the bridge's device listing carries.
 
@@ -817,12 +797,13 @@ class BlueskyConfig:
     """
 
     settle_tolerance: float = 1e-9
-    """How close the readback must come to the demand to count as settled.
+    """The floor on how close the readback must come to the demand to count as settled.
 
-    An ABSOLUTE bound on ``abs(readback - demand)``. The default is a
-    float-noise bound: the right value for a setpoint/readback pair the IOC
-    keeps in exact software sync, and far too strict for a device that
-    physically moves, which is exactly why a facility authors it.
+    An ABSOLUTE bound on ``abs(readback - demand)``, the same for every device.
+    The default is a float-noise bound: the floor for a setpoint/readback pair
+    kept in exact software sync. A device whose readback declares motion in
+    the facility settles within that motion's band where the band is wider;
+    this value is the floor under it.
 
     At the default value this key renders NOTHING into the compose file, and
     the bridge falls back to the same default when the env var is absent.

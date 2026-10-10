@@ -10,9 +10,9 @@ queue API (``PATCH /draft`` -> ``POST /queue/items`` -> armed
 
   (a) the measured response matrix -- built via the SAME
       ``orm_analysis.build_response_matrix`` an MCP-side analysis step would
-      use -- agrees with the independent ``lattice/response.py`` model oracle
-      (mirrors task 5.1's in-process cross-check, but over the deployed
-      HTTP+container stack rather than a direct ``PhysicsBridge`` call).
+      use -- agrees with an in-process composite over the simulator view the
+      build rendered, driven through the same addresses over the same sweep
+      as the deployed HTTP+container stack.
   (b) the run reaches a terminal "completed" status within a bounded
       timeout -- i.e. no corrector step ever hangs the bridge's
       ``ConnectorSettable.set()`` settle-wait (``devices/connector.py`` --
@@ -32,22 +32,21 @@ queue API (``PATCH /draft`` -> ``POST /queue/items`` -> armed
       row buffer is gone, the route can only answer from the Tiled catalog,
       and the figure it draws from there matches the one it drew live.
 
-No physics fault is seeded on this stack (no ``VA_BPM_ERRORS``/
-``VA_CORR_GAIN`` in the written ``.env``),
-so every BPM/corrector carries the identity error state
-(``PhysicsBridge.__init__``'s default). The measured/model
-agreement is therefore bounded only by AT numerical-solve reproducibility and
-the JSON/HTTP round trip, not a physical noise floor -- see ``MATCH_ATOL``.
+No physics fault is seeded on this stack and the stack starts in the ``still``
+scenario, so every reading it serves -- monitors and corrector readbacks alike
+-- serves without motion and every BPM and corrector carries the identity
+error state. No seed is edited.
+The measured/model agreement is therefore bounded only by AT numerical-solve
+reproducibility and the JSON/HTTP round trip, not a physical noise floor --
+see ``MATCH_ATOL``.
 
 No preset channel names are hardcoded: correctors and BPMs are selected from
-the deployment repo's own channel ROSTER -- the channel-finder database the
-build copies verbatim into the build zone, where the deployed containers read
-it -- via ``_orm_stack.roster_records`` +
-``_orm_stack.select_correctors``/``select_bpms`` (restricted to the channels
-the tree's own bindings document couples to the lattice, exactly the class of
-device the ``orm`` plan and the model oracle both operate on). They reach the queueserver worker as the
-device file this fixture authors before the build stages it, so the names a
-plan here may address are exactly the names the worker registered.
+the device file the build staged for the queueserver worker -- the build's
+Bluesky view of the facility file -- via
+``_orm_stack.select_correctors``/``select_bpms`` (restricted to the correctors
+and monitors the tree's own simulator view wires to the lattice, exactly the
+class of device the ``orm`` plan and the model oracle both operate on), so the
+names a plan here may address are exactly the names the worker registered.
 
 Container safety: every docker invocation below names an exact
 container/image -- never a wildcard, never ``system prune``/``--volumes``.
@@ -79,16 +78,15 @@ from typing import Any
 
 import numpy as np
 import pytest
+import yaml
 
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix
-from osprey.services.virtual_accelerator.manifest import build_manifest
-from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
-from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
+from osprey_connectors.simulation.state import STILL_SCENARIO, read_active_state
+from osprey_connectors.workspace import rendered_config_path, resolve_simulation_state_dir
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
-from tests.e2e._monitor_motion import still_monitor_motion
 from tests.e2e._volumes import remove_project_volumes
 
 pytestmark = [
@@ -175,18 +173,46 @@ TILED_FIGURE_TIMEOUT_SEC = 60.0
 PARITY_RTOL = 1e-9
 PARITY_ATOL = 1e-12
 
-# No VA_BPM_ERRORS/VA_CORR_GAIN are seeded on this stack (see module
-# docstring) -- every device carries PhysicsBridge's identity error
-# state, so there is no physical noise floor to size this against. The bound
-# below is float round-trip/AT numerical-solve reproducibility margin, kept
-# generous relative to task 5.1's probed in-process figure (4.9e-15 relative)
-# to absorb the extra JSON/HTTP/container hop.
+# No physics fault is seeded on this stack and it starts in the `still`
+# scenario (see module docstring), so there is no physical noise floor
+# to size this against. The bound below is float round-trip/AT numerical-solve
+# reproducibility margin, kept generous relative to the in-process figure
+# (4.9e-15 relative) to absorb the extra JSON/HTTP/container hop.
 MATCH_RTOL = 1e-6
 MATCH_ATOL = 1e-9  # meters
 
 
 def _get(path: str) -> tuple[int, Any]:
     return _queue_drive.request(BRIDGE_URL, path, "GET")
+
+
+def _assert_selected_readings_still(
+    repo: Path, correctors: dict[str, tuple[str, str]], bpms: dict[str, str]
+) -> None:
+    """Fail before deploying if a reading this test compares moves under the `still` scenario."""
+    view = _orm_stack.repo_view(repo)
+    assert STILL_SCENARIO in {str(scenario["name"]) for scenario in view.scenarios()}, (
+        f"the staged view lists no {STILL_SCENARIO!r} scenario: rebuild the render"
+    )
+    readings = sorted({rb for _, rb in correctors.values()} | set(bpms.values()))
+    moving = {
+        address: band
+        for address in readings
+        if (band := view.motion_envelope(address, active=(STILL_SCENARIO,))) != 0.0
+    }
+    assert not moving, (
+        f"selected readings still move under {STILL_SCENARIO!r}: {moving} -- the oracle "
+        "comparison and the corrector settle wait would both be measuring motion, not the model"
+    )
+
+
+def _assert_deployment_starts_still(repo: Path) -> None:
+    """Fail when the deployed stack's active set does not name the `still` scenario."""
+    config = yaml.safe_load(rendered_config_path(repo).read_text(encoding="utf-8")) or {}
+    names, _anchor = read_active_state(resolve_simulation_state_dir(config, repo))
+    assert STILL_SCENARIO in names, (
+        f"the deployment's active scenarios are {names}, not the {STILL_SCENARIO!r} start set"
+    )
 
 
 class DeployedOrmStack:
@@ -207,40 +233,25 @@ class DeployedOrmStack:
 def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedOrmStack]:
     base = tmp_path_factory.mktemp("orm_roundtrip_build")
 
-    # The plan devices are authored BETWEEN `init` and `build`: the build copies
-    # <repo>/data into the build zone and stages the device file it finds there
-    # for the queueserver worker, so a set written after the build would never
-    # reach a container. Selected from the repo's own channel roster — the same
-    # channel database the build materializes for the deployed channel finder,
-    # read here from the tier the profile pins because that is the only copy
-    # that exists this early.
-    correctors: dict[str, tuple[str, str]] = {}
-    bpms: dict[str, str] = {}
-
-    def author_devices(repo: Path) -> None:
-        nonlocal correctors, bpms
-        # The oracle is the noiseless model (see MATCH_RTOL), so the monitors
-        # serve the solved orbit without the drift and noise the machine file
-        # gives them.
-        still_monitor_motion(repo / "data")
-        records = _orm_stack.roster_records(repo)
-        correctors = _orm_stack.select_correctors(records, CORRECTOR_COUNT)
-        bpms = _orm_stack.select_bpms(records)
-        _orm_stack.write_devices_file(repo, correctors=correctors, bpms=bpms)
-
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
     repo = _orm_stack.build_project_subprocess(
         PROJECT_NAME,
         output_dir=base,
         timeout=BUILD_TIMEOUT_SEC,
-        pre_build=author_devices,
+        # The oracle is the noiseless model (see MATCH_RTOL), and the plan
+        # settles on the corrector readbacks and fits against their setpoints,
+        # so the stack starts in the `still` scenario: every reading serves
+        # without motion.
+        extra_config={"config": {"simulation.default_scenarios": [STILL_SCENARIO]}},
         # This module's own thousand-port block (see test_dispatch_deploy.py's
         # 20700 note): everything not pinned explicitly follows it instead of
         # landing on a real deployment's default 10000 block.
         port_base=21200,
     )
-    _orm_stack.assert_devices_authored(correctors, bpms)
+    correctors = _orm_stack.select_correctors(repo, CORRECTOR_COUNT)
+    bpms = _orm_stack.select_bpms(repo)
+    _assert_selected_readings_still(repo, correctors, bpms)
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.
@@ -281,6 +292,7 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
             _queue_drive.wait_for_worker_environment(BRIDGE_URL)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
+        _assert_deployment_starts_still(repo)
         yield DeployedOrmStack(repo=repo, correctors=correctors, bpms=bpms)
     finally:
         down = subprocess.run(
@@ -300,7 +312,7 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
 
 
 # ---------------------------------------------------------------------------
-# Model oracle -- a second, in-process model of the served tree, driven the
+# Model oracle -- a second, in-process composite of the served view, driven the
 # same way the deployed orm plan sweeps (mirrors build_response_matrix's own
 # degree-1-polyfit-over-the-sweep method, not a two-point finite difference,
 # so a mismatch can only mean the two code paths disagree -- never an
@@ -308,17 +320,20 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
 # ---------------------------------------------------------------------------
 
 
-def _oracle_model(repo: Path) -> PyATRingModel:
-    """A second, independent model of the ring the deployed stack is serving.
+def _oracle_model(repo: Path) -> Any:
+    """A second, independent composite of the machine the deployed stack is serving.
 
-    Built here in-process from the deployment repo's OWN data tree -- the same
-    lattice and the same ``va_bindings.json`` the containers mount -- so the
-    oracle and the stack agree about which elements exist and what each address
-    does to them, while the two arrive at a response matrix by entirely
-    separate paths.
+    Built here in-process over the deployment repo's OWN simulator view -- the
+    same deck, wiring and seeds the container mounts -- so the oracle and the
+    stack agree about which elements exist and what each address does to them,
+    while the two arrive at a response matrix by entirely separate paths. No
+    state directory and no model log: the oracle reads the view at its
+    baseline and writes nothing outside this process.
     """
-    paths = ManifestPaths(repo / "data")
-    return PyATRingModel(paths.data_root, build_manifest(paths)["channels"])
+    from osprey_connectors.simulation.composite import Composite
+    from osprey_connectors.simulation.view import SimulatorView
+
+    return Composite(SimulatorView.of_project(repo), state_dir=None, model_log=False)
 
 
 def _model_response_matrix(
@@ -333,7 +348,7 @@ def _model_response_matrix(
     because that is what the deployed plan wrote and read, and the two matrices
     are compared entry by entry. The model is driven through the same addresses
     the plan drove, so the calibration each write and each reading passes
-    through is the binding's own on both sides.
+    through is the wiring's own on both sides.
 
     Each corrector is returned to the working point it was found at before the
     next one is swept, so the columns are independent of the order they are
@@ -381,6 +396,29 @@ def _figure_summary(figure: dict[str, Any]) -> str:
     return (
         f"source={figure.get('source')!r} partial={figure.get('partial')!r} "
         f"reason={figure.get('reason')!r} panels={titles}"
+    )
+
+
+def _settled_before_midflight(run_id: str, expected_rows: int) -> str:
+    """Why a run whose figure settled before any in-flight poll saw it is a failure.
+
+    The run record's ``progress.rows_seen`` tells a run that stopped short --
+    aborted or failed, so it never filled in -- from one that recorded every row
+    between two polls.
+    """
+    record_status, record = _queue_drive.run_record(BRIDGE_URL, run_id)
+    progress = record.get("progress") if isinstance(record, dict) else None
+    rows_seen = progress.get("rows_seen") if isinstance(progress, dict) else None
+    if not isinstance(rows_seen, int) or rows_seen < expected_rows:
+        return (
+            f"the run stopped after {rows_seen} of {expected_rows} rows without completing "
+            "(aborted or failed; the queueserver log names why) -- an in-flight figure could "
+            "not be observed because the run never filled in\n"
+            f"--- GET /runs/{run_id} (HTTP {record_status}) ---\n{record}"
+        )
+    return (
+        f"the whole {expected_rows}-row run settled between two in-flight polls "
+        f"{MIDFLIGHT_POLL_SEC}s apart"
     )
 
 
@@ -581,14 +619,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
             timeout=MIDFLIGHT_TIMEOUT_SEC,
             poll=MIDFLIGHT_POLL_SEC,
             give_up=lambda figure: (
-                None
-                if figure["partial"]
-                else (
-                    f"the {expected_rows}-row run settled before any in-flight figure was "
-                    f"observed (polled every {MIDFLIGHT_POLL_SEC}s) -- there is nothing wrong "
-                    "with the route here, but this assertion is no longer testing what it "
-                    "claims to; the run needs to be longer or the poll faster"
-                )
+                None if figure["partial"] else _settled_before_midflight(run_id, expected_rows)
             ),
         )
     except AssertionError as exc:
@@ -600,9 +631,9 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
         record_status, record = _queue_drive.run_record(BRIDGE_URL, run_id)
         raise AssertionError(
             f"{exc}\n--- GET /runs/{run_id} (HTTP {record_status}) ---\n{record}\n"
-            "If that record shows a run that never got going, this is the corrector "
-            "settle-wait hang the completion assertion below names, not a figure-route "
-            "failure."
+            "A record with `rows_seen` 0 and `complete` true is a run that aborted at its "
+            "first move, the corrector settle-wait failure the completion assertion below "
+            "names, not a figure-route failure."
         ) from exc
     assert midflight["source"] == "live", (
         f"an in-flight run must be served from the live row buffer: {_figure_summary(midflight)}"
@@ -746,9 +777,10 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     # (a) matches the model oracle: the same symmetric-sweep currents the
     # deployed orm plan itself computes (plans_core/orm.py's build_plan), so
     # the model is driven identically to how the plan drove the real stack.
-    # The plan kicks each corrector about its own pre-run working point; the
-    # VA's correctors idle at 0 A, so here those kicks ARE these absolute
-    # currents and the model needs no offset of its own.
+    # The plan kicks each corrector about its own pre-run working point; every
+    # reading this stack serves is still, so the VA's correctors idle at 0 A,
+    # here those kicks ARE these absolute currents and the model needs no
+    # offset of its own.
     step = (2 * SPAN_A) / (NUM_POINTS - 1)
     currents = [-SPAN_A + i * step for i in range(NUM_POINTS)]
     model = _model_response_matrix(deployed_orm_stack.repo, correctors, bpms, currents)

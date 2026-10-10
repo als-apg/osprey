@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 
 import pytest
 import yaml
@@ -11,7 +12,6 @@ import yaml
 from osprey.agent_runner.tool_names import DENY_DEFAULTS, OPEN_MODE_EGRESS_TOOLS
 from osprey.deployment.web_terminals.artifacts import (
     UNRENDERED_SETTINGS,
-    ZERO_MIGRATION_OFFENDER,
     BashLaunchTokenConflictError,
     DangerouslyAllowBashValueError,
     OpenModeEgressError,
@@ -26,18 +26,22 @@ from osprey.deployment.web_terminals.artifacts import (
     write_web_terminal_artifacts,
 )
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
+from osprey.deployment.web_terminals.personas import PERSONA_CATALOG_REQUIRED
 from osprey.deployment.web_terminals.render import AUTH_ENV_DIGEST_LABEL, PROXY_ENV_NAMES
+from osprey.facility.validate import FACILITY_HEADER
 
 
 def _config(users):
     return {
-        "facility": {"prefix": "als", "name": "ERF"},
+        "facility": {"prefix": "als"},
         "registry": {"url": "registry.example.org"},
         "deploy": {"fqdn": "deploy.example.org"},
         "modules": {
             "web_terminals": {
                 "enabled": True,
                 "users": users,
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": "als-assistant"}},
             }
         },
     }
@@ -77,6 +81,22 @@ def test_write_web_terminal_artifacts_defaults_to_the_repos_build_zone(tmp_path,
     assert not (tmp_path / "docker-compose.web.yml").exists()
     assert not (tmp_path / "nginx").exists()
     assert {p.parent for p in written} <= {tmp_path / "build", tmp_path / "build" / "nginx"}
+
+
+def test_the_written_landing_page_is_titled_with_the_builds_facility_name(tmp_path):
+    """The config's own `facility.name` names nothing; the build's identity does."""
+    build = tmp_path / "build"
+    build.mkdir()
+    document = {"schema": FACILITY_HEADER, "identity": {"code": "erf", "name": "ERF"}}
+    (build / "facility.json").write_text(json.dumps(document), encoding="utf-8")
+    config = _config(["alice"])
+    config["facility"]["name"] = "Config Name"
+
+    write_web_terminal_artifacts(config, tmp_path)
+
+    landing = (build / "nginx" / "landing.html").read_text(encoding="utf-8")
+    assert "<title>ERF Web Terminals</title>" in landing
+    assert "Config Name" not in landing
 
 
 def test_write_web_terminal_artifacts_reflects_object_form_users(tmp_path):
@@ -333,6 +353,7 @@ def _tiered_roster_config(tmp_path, *, rw_denies_bash: bool = True, ro_denies_ba
             {"name": "bob", "index": 1, "persona": "readonly"},
         ]
     )
+    config["modules"]["web_terminals"]["default_persona"] = "readwrite"
     config["modules"]["web_terminals"]["personas"] = {
         "readwrite": {
             "project": "rw",
@@ -453,6 +474,7 @@ def _graphdb_roster_config(tmp_path):
             {"name": "dave", "index": 3, "persona": "malformed"},
         ]
     )
+    config["modules"]["web_terminals"]["default_persona"] = "readonly_graph"
     config["modules"]["web_terminals"]["personas"] = {
         "readonly_graph": {
             "project": "ro-graph",
@@ -625,80 +647,12 @@ def test_a_correctly_configured_deployment_renders_without_the_guard_firing(tmp_
     assert _LAUNCH_TOKEN_LINE in _rendered_services(tmp_path / "build")["web-alice"]["environment"]
 
 
-def _zero_migration_config(tmp_path, *, writes_enabled: bool = True, denies_bash: bool = True):
-    """A persona-less roster: the web image IS the deploy project.
-
-    No persona catalog and no default_persona, so every entry runs the deploy
-    project itself; entitlement is answered by ``config_needs_launch_token_for``
-    on the deploy config, and the shipped settings artifact is
-    ``<project_root>/.claude/settings.json``. The deploy config spells out
-    ``claude_code.servers.bluesky.enabled`` for the same reason every persona
-    fixture here does: the server is opt-in in the registry, so a config that
-    omits the key runs no server and would sit outside the predicate for the
-    wrong reason.
-    """
-    config = _config(["alice"])
-    config["claude_code"] = {"servers": {"bluesky": {"enabled": True}}}
-    if writes_enabled:
-        config["control_system"] = {"writes_enabled": True}
-    if denies_bash:
-        (tmp_path / ".claude").mkdir()
-        (tmp_path / ".claude" / "settings.json").write_text(
-            json.dumps({"permissions": {"allow": [], "deny": list(_SHIPPED_DENY), "ask": []}}),
-            encoding="utf-8",
-        )
-    return config
-
-
-def test_an_entitled_personaless_roster_without_the_bash_deny_refuses(tmp_path):
-    """The zero-migration half of the same conflict: no persona is in effect, the
-    deploy config itself entitles every entry to the token, and the deploy
-    project ships no shell deny (here: no settings.json at all, which counts the
-    same — absence is not evidence of a deny). The guard must refuse rather than
-    leaving the persona-less path silently unbound."""
-    config = _zero_migration_config(tmp_path, denies_bash=False)
-
-    with pytest.raises(BashLaunchTokenConflictError) as excinfo:
-        write_web_terminal_artifacts(config, tmp_path)
-
-    assert excinfo.value.personas == [ZERO_MIGRATION_OFFENDER]
-    assert "no persona" in str(excinfo.value)
-    assert not (tmp_path / "build").exists()
-
-
-def test_an_entitled_personaless_roster_shipping_the_bash_deny_deploys(tmp_path):
-    """The negative control: the deploy project ships the shell deny every OSPREY
-    build produces, so the entitled persona-less entry keeps its token."""
-    written = write_web_terminal_artifacts(_zero_migration_config(tmp_path), tmp_path)
-
-    assert written
-    assert _LAUNCH_TOKEN_LINE in _rendered_services(tmp_path / "build")["web-alice"]["environment"]
-
-
-def test_an_unentitled_personaless_roster_is_not_a_conflict(tmp_path):
-    """No entitlement, nothing for a shell to read — a bare zero-migration deploy
-    with no write grant must keep deploying exactly as before."""
-    config = _zero_migration_config(tmp_path, writes_enabled=False, denies_bash=False)
-
-    written = write_web_terminal_artifacts(config, tmp_path)
-
-    assert written
-    env = _rendered_services(tmp_path / "build")["web-alice"]["environment"]
-    assert not any("BLUESKY_LAUNCH_TOKEN" in value for value in env)
-
-
-def test_a_default_persona_roster_is_covered_by_the_persona_check_not_the_sentinel(tmp_path):
-    """Entries with no explicit persona but a default_persona resolve to the
-    default, so the persona-keyed intersection already binds them — the
-    persona-less check must not double-report (or misattribute) them."""
+def test_a_default_persona_roster_is_covered_by_the_persona_check(tmp_path):
+    """Entries with no explicit persona resolve to the default_persona, so the
+    persona-keyed intersection binds them."""
     config = _tiered_roster_config(tmp_path, rw_denies_bash=False)
     config["modules"]["web_terminals"]["default_persona"] = "readwrite"
     config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
-    # Entitle the deploy root too — writes AND the bluesky server, or the
-    # entitlement would not be real — and the sentinel must still not appear,
-    # because no entry actually runs the deploy project.
-    config["control_system"] = {"writes_enabled": True}
-    config["claude_code"] = {"servers": {"bluesky": {"enabled": True}}}
 
     with pytest.raises(BashLaunchTokenConflictError) as excinfo:
         write_web_terminal_artifacts(config, tmp_path)
@@ -706,12 +660,10 @@ def test_a_default_persona_roster_is_covered_by_the_persona_check_not_the_sentin
     assert excinfo.value.personas == ["readwrite"]
 
 
-def test_a_role_only_roster_is_covered_by_the_persona_check_not_the_sentinel(tmp_path):
+def test_a_role_only_roster_is_covered_by_the_persona_check(tmp_path):
     """An entry that names a ``role:`` and no ``persona:`` still runs a persona —
     the one the ``authorization`` block binds the role to — so the persona-keyed
-    intersection binds it and the persona-less sentinel must not fire. A guard
-    that read the raw ``persona`` key would call this roster persona-less and
-    judge the deploy project's own settings instead of the persona's."""
+    intersection binds it."""
     config = _tiered_roster_config(tmp_path, rw_denies_bash=False)
     config["modules"]["web_terminals"]["authorization"] = {
         "roles": {"operator": {"persona": "readwrite"}}
@@ -817,6 +769,7 @@ _VA_ARMED_PROJECT: dict = {
 def _va_lane_roster_config(tmp_path, *, denies_bash: bool = True):
     """A one-user roster whose persona is entitled on the VA lane only."""
     config = _config([{"name": "alice", "index": 0, "persona": "va_operator"}])
+    config["modules"]["web_terminals"]["default_persona"] = "va_operator"
     config["modules"]["web_terminals"]["personas"] = {
         "va_operator": {
             "project": "va",
@@ -893,42 +846,6 @@ def test_the_va_lane_grant_reaches_no_lane_one_token(tmp_path):
 
     alice_env = _rendered_services(tmp_path / "build")["web-alice"]["environment"]
     assert not any("BLUESKY_LAUNCH_TOKEN" in value for value in alice_env)
-
-
-def test_a_personaless_roster_armed_on_the_va_lane_alone_is_refused_by_lane(tmp_path):
-    """The two halves together: no persona is in effect, and the deploy config
-    arms the virtual accelerator alone while its baseline live machine stays
-    read-only. The persona-less entry therefore holds the VA lane's token and
-    nothing else — and with no shell deny shipped, the refusal must name that
-    lane and the per-connector key that disarms it, not lane 1 and not the
-    deployment-wide key (which is already false here and would read as no
-    remedy at all)."""
-    config = _config(["alice"])
-    config.update(
-        {
-            "control_system": {
-                "type": "epics",
-                "writes_enabled": False,
-                "connector": {"epics": {}, "virtual_accelerator": {"writes_enabled": True}},
-            },
-            "services": {"bluesky_va": {"target": "va", "port": 10081}},
-            "claude_code": {"servers": {"bluesky": {"enabled": True}}},
-        }
-    )
-
-    with pytest.raises(BashLaunchTokenConflictError) as excinfo:
-        write_web_terminal_artifacts(config, tmp_path)
-
-    assert excinfo.value.personas == [ZERO_MIGRATION_OFFENDER]
-    assert excinfo.value.personas_by_lane == {"bluesky_va": [ZERO_MIGRATION_OFFENDER]}
-    message = str(excinfo.value)
-    assert "BLUESKY_VA_LAUNCH_TOKEN" in message
-    assert "control_system.connector.virtual_accelerator.writes_enabled" in message
-    assert "no persona" in message
-    assert not (tmp_path / "build").exists()
-    # The ask-only reader binds the same entry: one shared predicate, so the
-    # collect-all preflight cannot clear what the raising guard refuses.
-    assert bash_launch_token_offenders(config, tmp_path) == {ZERO_MIGRATION_OFFENDER}
 
 
 # ---------------------------------------------------------------------------
@@ -1014,6 +931,7 @@ def _open_roster_config(tmp_path, *, method: str = "none", deny: list[str] | Non
     """A one-user roster on *method*, whose persona ships exactly *deny*."""
     config = _config([{"name": "alice", "index": 0, "persona": "operator"}])
     config["modules"]["web_terminals"]["auth"] = {"method": method}
+    config["modules"]["web_terminals"]["default_persona"] = "operator"
     config["modules"]["web_terminals"]["personas"] = {
         "operator": {
             "project": "op",
@@ -1199,24 +1117,19 @@ def test_open_mode_refuses_a_persona_that_denies_only_the_playwright_plugin(tmp_
     assert f"via {wildcard!r}." in str(excinfo.value)
 
 
-def test_open_mode_binds_the_roster_entries_that_run_no_persona(tmp_path):
-    """The zero-migration path: a bare-string roster entry runs the deploy project
-    itself, so it appears in no persona set and would otherwise walk through the
-    gate untouched. Its artifact is the deploy project's own settings.json — absent
-    here, which fails closed under the sentinel name."""
+def test_an_open_roster_with_no_persona_catalog_is_refused_before_writing(tmp_path):
+    """A roster with no persona catalog names no project for its terminals, so
+    the render refuses it before the first artifact lands, open mode or not."""
     config = _config(["alice"])
-    config["modules"]["web_terminals"]["auth"] = {"method": "none"}
+    web = config["modules"]["web_terminals"]
+    web["auth"] = {"method": "none"}
+    del web["personas"]
+    del web["default_persona"]
 
-    with pytest.raises(OpenModeEgressError) as excinfo:
+    with pytest.raises(ValueError, match=re.escape(PERSONA_CATALOG_REQUIRED)):
         write_web_terminal_artifacts(config, tmp_path)
 
-    assert excinfo.value.personas == [ZERO_MIGRATION_OFFENDER]
-    assert "no persona" in str(excinfo.value)
-    # Refused BEFORE the render, so a rejected deploy leaves nothing half-written.
     assert not (tmp_path / "build").exists()
-    # The ask-only reader binds the same entry: one shared predicate, so the
-    # collect-all preflight cannot clear what the raising gate refuses.
-    assert open_mode_offenders(config, tmp_path) == {ZERO_MIGRATION_OFFENDER}
 
 
 def test_the_render_seam_refuses_an_open_deployment_before_writing_anything(tmp_path):

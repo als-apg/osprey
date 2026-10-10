@@ -1,0 +1,1 @@
+The pyat engine gains its LUME model class in `osprey.simulation.engines.pyat_model`, built from the variables of a model's wiring, with per-address readout and calibration faults and optics read once per solve.

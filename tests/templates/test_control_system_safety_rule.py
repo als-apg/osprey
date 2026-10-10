@@ -24,21 +24,12 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests._control_system import IN_PROCESS, section_for
+from tests._preset_data import bundle_data_root
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+from osprey_connectors.types import connector_transport
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -59,7 +50,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
@@ -115,7 +106,12 @@ def _render_template_directly(control_system_type: str, enabled_servers: set[str
     template = manager.jinja_env.get_template(
         "claude_code/claude/rules/control-system-safety.md.j2"
     )
-    return template.render(control_system_type=control_system_type, enabled_servers=enabled_servers)
+    section = section_for(control_system_type)
+    return template.render(
+        control_system_type=section["type"],
+        control_system_transport=connector_transport(section),
+        enabled_servers=enabled_servers,
+    )
 
 
 def _render_safety_rule(
@@ -137,7 +133,11 @@ def _render_safety_rule(
 
     config = yaml.safe_load((project_dir / "config.yml").read_text())
     if control_system_type is not None:
-        config.setdefault("control_system", {})["type"] = control_system_type
+        section = config.setdefault("control_system", {})
+        named = section_for(control_system_type)
+        section["type"] = named["type"]
+        for key, block in named.get("connector", {}).items():
+            section.setdefault("connector", {}).setdefault(key, {}).update(block)
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
     ctx = claude_code.build_claude_code_context(
@@ -218,7 +218,7 @@ def test_epics_and_virtual_accelerator_prohibited_sections_still_match(tmp_path)
 def test_non_epics_branches_have_no_p4p_lines(tmp_path):
     """Tango, OPC-UA, LabVIEW and the generic branch are unchanged -- p4p is an
     EPICS-family library and naming it elsewhere would be noise."""
-    for cs_type in ("tango", "opcua", "labview", "mock"):
+    for cs_type in ("tango", "opcua", "labview", IN_PROCESS):
         content = _render_safety_rule(tmp_path / cs_type, f"p4p-{cs_type}", cs_type)
 
         assert "p4p" not in content, f"{cs_type}: p4p leaked outside the EPICS branch"
@@ -302,7 +302,7 @@ def test_the_pva_put_is_named_as_the_one_exception(cs_type):
     assert "a Channel Access channel goes through `write_channel`" in prose
 
 
-@pytest.mark.parametrize("cs_type", ["opcua", "labview", "mock"])
+@pytest.mark.parametrize("cs_type", ["opcua", "labview", IN_PROCESS])
 def test_non_refusing_branches_make_no_runtime_refusal_claim(cs_type):
     """The raw-put refusal covers the EPICS, DOOCS and Tango client libraries;
     naming it for any other branch would claim a guard that is not there."""
@@ -337,7 +337,7 @@ def test_rule_heading_contract_intact(tmp_path):
 
 def test_routing_section_renders_for_every_control_system_type(tmp_path):
     """The routing cases are about tools, not protocols, so every render gets
-    them -- a mock deployment routes requests the same way an EPICS one does."""
+    them -- an in-process deployment routes requests the same way an EPICS one does."""
     for cs_type in (
         "epics",
         "virtual_accelerator",
@@ -347,7 +347,7 @@ def test_routing_section_renders_for_every_control_system_type(tmp_path):
         "labview",
         None,
     ):
-        label = cs_type or "mock"
+        label = cs_type or "preset"
         content = _render_safety_rule(tmp_path / label, f"route-{label}", cs_type)
 
         assert ROUTING_HEADING in content, f"{label}: routing section missing"
@@ -370,7 +370,7 @@ def test_routing_section_is_protocol_neutral(tmp_path):
         "labview",
         None,
     ):
-        label = cs_type or "mock"
+        label = cs_type or "preset"
         content = _render_safety_rule(tmp_path / label, f"neutral-{label}", cs_type)
 
         start = content.index(ROUTING_HEADING)
@@ -448,7 +448,7 @@ def test_execution_mode_write_never_renders(tmp_path):
     assert "write" not in VALID_EXECUTION_MODES
 
     for cs_type in ("epics", "tango", None):
-        label = cs_type or "mock"
+        label = cs_type or "preset"
         content = _render_safety_rule(tmp_path / label, f"mode-{label}", cs_type)
 
         assert 'execution_mode: "write"' not in content, f"{label}: rendered an invalid mode"
@@ -498,7 +498,7 @@ def test_the_pvaccess_block_splits_on_the_provider(cs_type):
     assert len([line for line in content.splitlines() if line.startswith("ctxt.put(")]) == 1
 
 
-@pytest.mark.parametrize("cs_type", ["doocs", "tango", "opcua", "labview", "mock"])
+@pytest.mark.parametrize("cs_type", ["doocs", "tango", "opcua", "labview", IN_PROCESS])
 def test_non_epics_branches_have_no_pvaccess_lines(cs_type):
     """pvaPy is an EPICS client; naming it elsewhere would describe a guard
     the branch's deployment has no use for."""
@@ -506,3 +506,12 @@ def test_non_epics_branches_have_no_pvaccess_lines(cs_type):
 
     assert "pvaccess" not in content
     assert "RpcClient" not in content
+
+
+def test_the_simulator_in_process_renders_no_epics_prohibition(tmp_path):
+    """The simulator in process speaks no Channel Access, so the rule names no
+    EPICS client to keep away from — there is no wire for one to reach."""
+    content = _render_safety_rule(tmp_path, "safety-in-process", IN_PROCESS)
+
+    assert "epics.caput" not in content
+    assert "p4p" not in content

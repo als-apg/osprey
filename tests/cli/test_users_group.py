@@ -51,10 +51,9 @@ VERB_OPTIONS = {
 #: Roster config the engines read. Mirrors the shape a rendered
 #: ``build/config.yml`` has for a multi-user deployment: every field
 #: ``decommission_user``/``prune_users`` touch, and nothing else.
-def _config(users_list, *, project_name="demo-project", facility_prefix="dls"):
+def _config(users_list, *, project_name="demo-project"):
     return {
         "project_name": project_name,
-        "facility": {"name": "Demo Light Source", "prefix": facility_prefix},
         "system": {"timezone": "UTC"},
         "registry": {"url": "registry.example.org"},
         "deploy": {"fqdn": "deploy.example.org"},
@@ -62,6 +61,8 @@ def _config(users_list, *, project_name="demo-project", facility_prefix="dls"):
             "web_terminals": {
                 "enabled": True,
                 "users": users_list,
+                "default_persona": "assistant",
+                "personas": {"assistant": {"project": f"{project_name}-assistant"}},
             }
         },
     }
@@ -73,7 +74,6 @@ USERS_ENV_CONFIG = textwrap.dedent(
     """
     project_name: demo-project
     facility:
-      name: Demo Light Source
       prefix: dls
     system:
       timezone: UTC
@@ -103,7 +103,6 @@ PROFILE_WITH_ROSTER = textwrap.dedent(
     """
     preset: control-assistant
     config:
-      facility.prefix: dls
       modules.web_terminals:
         enabled: true
         default_persona: readonly

@@ -249,9 +249,9 @@ quirks worth knowing:
       no launch token is configured at all — hand the start to the operator.
 
    ``browse_only_connector``
-      This deployment cannot execute plans at all — it is pointed at the
-      ``mock`` control system. Composing still works; the refusal names the
-      command that switches to an executing connector.
+      This deployment cannot execute plans at all — it is a deployment
+      serving the simulator in process. Composing still works; the refusal
+      names the command that serves the simulator from its container.
 
    ``session_plan_unvalidated``
       An agent-written plan must pass validation, byte for byte, before it
@@ -330,15 +330,16 @@ quirks worth knowing:
    Whether a deployment can execute plans at all is decided by its control
    system. The queue worker builds its devices over Channel Access, so the
    connectors that speak it execute plans — ``epics``, ``virtual_accelerator``
-   and the live stand-in — and every other one browses. ``mock`` browses
-   because it moves nothing; a connector for another protocol browses because
-   no device layer for it exists yet, which is a gap in the plan stack rather
-   than a property of the facility. The panels and the agent both surface this
-   as a capability banner; on the ``mock`` connector it names the flip:
+   and the live stand-in — and every other one browses. A deployment serving
+   the simulator in process browses because it speaks no Channel Access; a
+   connector for another protocol browses because no device layer for it
+   exists yet, which is a gap in the plan stack rather than a property of the
+   facility. The panels and the agent both surface this as a capability
+   banner; on a deployment serving the simulator in process it names the flip:
 
    .. code-block:: bash
 
-      osprey set connector=virtual_accelerator
+      osprey set config.control_system.connector.virtual_accelerator.serving=served
 
    Run ``osprey build`` and ``osprey up`` afterwards to carry the change into
    the running stack. That switch needs a real archive behind it: a deployment
@@ -348,9 +349,9 @@ quirks worth knowing:
    :doc:`../control-systems/use-virtual-accelerator`.
 
    One timing detail worth knowing: the channel limits a plan's writes are
-   checked against come from the file
-   ``control_system.limits_checking.database_path`` names, and ``osprey build``
-   stages its **own copy** of that file for the plan lane. So widening or
+   checked against come from the records in ``data/facility/limits.yaml``,
+   which ``osprey build`` renders into the limits database it stages for the
+   plan lane. So widening or
    tightening a limit in your deployment repository reaches the queue server at
    the next ``osprey build`` (and ``osprey up``) — not the moment you save the
    file.

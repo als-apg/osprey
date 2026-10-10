@@ -12,6 +12,10 @@ name: ARIEL Standalone
 # ARIEL config, no channel/benchmark databases).
 app_template: ariel_standalone
 
+# Which bundled facility this shows. Its files are copied into data/facility/,
+# and that copy is what the build reads from then on.
+facility: example
+
 # Which model answers. `osprey set provider=...` / `osprey set model=...` edit
 # these in place, keeping your comments.
 provider: anthropic
@@ -89,19 +93,6 @@ default_panel: ariel
 # `provider:` / `model:` above), the panel selection (from `web_panels:` /
 # `default_panel:`), and every host port.
 config:
-  # ── Facility ───────────────────────────────────────────────────────────────
-  # Display name woven into the agent prompts and the web landing page. Keep it
-  # in sync with .claude/rules/facility.md.
-  facility.name: Example Research Facility
-  # Short facility token. It keys the facility graph's identifiers and names
-  # the web-terminal directory `/app/<prefix>-assistant`. Container names come
-  # from the top-level `project_name:` instead.
-  # facility.prefix: ex
-  # This facility's compiled ontology table feeds the channel-finder subagent's
-  # vocabulary. No channel finder here: the graph agent reads the vocabulary
-  # out of the seeded store instead, so the key stays an example.
-  # facility.ontology: data/facility_ontology.json
-
   # ── Services ───────────────────────────────────────────────────────────────
   # Containerized companion services. Declare one as `services.<name>.*` and
   # add its name to `deployed_services` below to launch it with `osprey up`.
@@ -142,8 +133,8 @@ config:
   # exists and is non-empty, so until then it is legitimately unhealthy. Scale
   # it with the corpus: too short reports a working container as failed.
   # services.qmd.first_index_grace: 3600
-  # Neo4j graph store holding a DISPOSABLE mirror of an RDF/Turtle corpus. The
-  # TTL on disk stays the source of truth and `osprey knowledge seed-graph`
+  # Neo4j graph store holding a DISPOSABLE mirror of the build's graph view.
+  # The facility file stays the source of truth and `osprey build && osprey up`
   # rebuilds the graph from it. It answers the multi-hop questions keyword and
   # semantic search cannot: what a channel belongs to, what a subsystem
   # contains. No password key: the container reads GRAPHDB_PASSWORD from this
@@ -153,17 +144,6 @@ config:
   # the RDF, has no manifest entry for anything newer. Repoint it at a mirror
   # or a pre-baked image on an air-gapped host.
   services.graphdb.image: neo4j:5.26-community
-  # Corpus to seed the store from, relative to the build directory. This is
-  # the demo machine every OSPREY demo describes. Point it at your own TTL, or
-  # remove the key to bring the store up bootstrapped but empty.
-  services.graphdb.ttl_path: ./data/demo_machine.ttl
-  # Search index derived from the corpus above at build time, and the default —
-  # uncomment only to move it. The channel explorer's search, the channel roster
-  # and the agent's keyword tool read this file rather than querying the store,
-  # so it answers in milliseconds at any corpus size. Resolved against the
-  # render like `ttl_path`; rebuild it by hand after regenerating the TTL with
-  # `osprey knowledge build-index`.
-  # services.graphdb.index_path: ./data/channel_databases/graph.duckdb
   # JVM memory. Neo4j sizes nothing automatically inside a container, so all
   # three are spelled out. Budget roughly heap_max_size + pagecache_size +
   # ~0.5G overhead; a substantially larger graph wants more.
@@ -233,11 +213,11 @@ config:
   # ariel.web.host: 127.0.0.1
   # ariel.web.port: <a port outside this deployment's block>
   # ariel.web.auto_launch: true
-  # The demo narrative: the logbook entries of every control-assistant scenario,
-  # with the pictures they attach. `osprey up` seeds it into an empty logbook and
-  # `osprey ariel quickstart` adds embeddings and captions. Remove the key to
-  # start from an empty logbook.
-  ariel.demo_narrative: data/logbook_seed
+  # The demo narrative: the logbook entries of the facility's scenarios, `all`
+  # or a list of scenario names, with the pictures they attach. `osprey up`
+  # seeds it into an empty logbook and `osprey ariel quickstart` adds embeddings
+  # and captions. Remove the key to start from an empty logbook.
+  ariel.demo_narrative: all
   # Where your own entries come from: point an adapter and source_url at your
   # logbook system and run `osprey ariel ingest` (see the data-ingestion guide).
   # ariel.ingestion.adapter: generic_json
@@ -578,3 +558,8 @@ config:
   # Container runtime `osprey up` uses: auto (Docker first, then Podman),
   # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
   container_runtime: auto
+  # Models the simulator serves, named from data/facility/models.yaml. null
+  # serves every model; [texture] serves no physics.
+  simulation.models: null
+  # Seconds between the simulator's ticks; must be greater than 0.
+  simulation.tick_s: 1.0

@@ -158,8 +158,8 @@ def effective_persona(
       persona every entry carrying it runs as.
     * Else the entry's own ``persona:`` pin.
     * Else *default_persona*.
-    * Else ``None`` — no persona system in effect for this entry, which is how
-      every roster written before persona catalogs resolves.
+    * Else ``None`` — no persona: only a roster with no ``default_persona``,
+      which strict resolution refuses.
 
     An entry carrying no ``role:`` therefore resolves exactly as it did before
     roles existed, which is what keeps every pre-roles deployment rendering
@@ -266,10 +266,10 @@ BLUESKY_PANEL_ID = "bluesky"
 def config_declares_panel(config: Any, panel_id: str) -> bool:
     """True if ``config`` declares ``web.panels.<panel_id>`` and hasn't disabled it.
 
-    The one definition of "this project shows that panel", shared by the render
-    (for persona-less roster entries) and by :func:`personas_needing_dispatcher_token`
-    (for catalog personas), so the two cannot answer differently for the same
-    config — and read through the same predicate the web terminal and the
+    The one definition of "this project shows that panel", shared by the
+    persona-set predicates (:func:`personas_needing_dispatcher_token` and its
+    siblings) and the reach contract, so they cannot answer differently for the
+    same config — and read through the same predicate the web terminal and the
     health probe read a block with (:func:`panel_spec_enabled`). ``enabled:
     false`` counts as *not* declared: a panel switched off is one whose
     credential is not needed, and the build switches off every block a render
@@ -571,7 +571,7 @@ def config_needs_graphdb_password(config: Any) -> bool:
     a queue start.
 
     The blast radius bounds the decision: the store holds a disposable mirror of
-    a Turtle corpus, re-seedable from it with ``osprey knowledge seed-graph``, so
+    a Turtle corpus, re-seeded from it by ``osprey build && osprey up``, so
     the worst case is corpus integrity rather than facility data or hardware.
     This predicate is consequently **never** gated on write posture — doing so
     would leave the read-only operator terminal, the very tier the graph search
@@ -916,9 +916,7 @@ def _bluesky_panel_roster_grants(
     Entitlement is decided the way the web-terminal render decides every
     per-user grant: a user with a persona (their own, else
     ``default_persona``) by that persona's rendered ``config.yml``
-    (:func:`personas_declaring_bluesky_panel`); a persona-less user runs the
-    deployment's own project, so the deploy config answers for them. Roster
-    order, so the rendered compose is stable across runs.
+    (:func:`personas_declaring_bluesky_panel`). Roster order, so the rendered compose is stable across runs.
 
     Read off the personas' rendered ``config.yml`` files, like every other
     per-persona grant. The render that carries it is ``osprey build``'s — the
@@ -953,13 +951,11 @@ def _bluesky_panel_roster_grants(
     if not isinstance(default_persona, str) or not default_persona:
         default_persona = None
     entitled_personas = personas_declaring_bluesky_panel(config, project_root, persona_root)
-    deploy_declares = config_declares_bluesky_panel(config)
 
     grants: list[tuple[str, str]] = []
     for entry in normalize_users(raw_users):
         persona = refs.get(entry["name"]) or default_persona
-        entitled = persona in entitled_personas if persona else deploy_declares
-        if entitled:
+        if persona in entitled_personas:
             grants.append((entry["name"], terminal_secret_var(entry["name"])))
     return grants
 
@@ -2192,8 +2188,7 @@ def _privileged_entries(
     A persona missing from ``privileges_by_persona`` contributes nothing, on the
     same terms as :func:`_persona_configs`: a config that could not be read is
     not evidence of a privilege, and every way of failing to read one is already
-    reported by the check that owns it. Neither is an entry with no persona in
-    effect — the zero-migration path has no tier to be privileged.
+    reported by the check that owns it.
     """
     entries: list[tuple[Mapping[str, Any], str, Sequence[str]]] = []
     for entry in resolved_entries:
@@ -2719,6 +2714,14 @@ REGISTRY_MODE_MISSING_URL: str = (
     "registry.url in its config: block"
 )
 
+#: The refusal the render, the deploy preflight, the persona image build and
+#: the lint (``web_terminals.requires_catalog``) all raise for web terminals
+#: with no persona catalog or no ``default_persona``.
+PERSONA_CATALOG_REQUIRED: str = (
+    "web terminals need a modules.web_terminals.personas catalog and a default_persona "
+    "naming one of its entries; each terminal runs its persona's project at /app/<project>"
+)
+
 
 def configured_registry_url(registry_cfg: Any) -> str:
     """Return the top-level ``registry.url`` every registry-mode image is named under.
@@ -2740,9 +2743,7 @@ def configured_registry_url(registry_cfg: Any) -> str:
 def resolve_personas(
     web_terminals: dict[str, Any],
     registry_cfg: dict[str, Any],
-    facility_prefix: str,
     *,
-    project_name: str,
     strict: bool = True,
 ) -> list[dict[str, Any]]:
     """Resolve each roster entry's persona reference into its image/project identity.
@@ -2754,9 +2755,9 @@ def resolve_personas(
 
     A ``persona`` reference resolves through :func:`effective_persona`: the
     entry's ``role:`` binding, else its own ``persona:`` key, else
-    ``modules.web_terminals.default_persona``, else ``None`` (no persona system
-    in effect for this entry at all — every config predating persona catalogs
-    resolves this way for every entry). Under ``strict`` an unresolvable
+    ``modules.web_terminals.default_persona``, else ``None``, which only a
+    lenient caller sees: the strict path refuses a roster with no
+    ``default_persona``. Under ``strict`` an unresolvable
     binding — a role naming no declared role, or an entry carrying both a role
     and a persona — raises :class:`UnresolvedRoleError`; the lenient path
     degrades it to the pre-roles answer, which lint pairs with its own ERROR. Resolving against the catalog
@@ -2766,39 +2767,18 @@ def resolve_personas(
     ``modules.web_terminals.image_tag`` (``<tag>`` below, default ``latest``);
     local ``:local`` images are unaffected by that field:
 
-    * **No persona in effect** (``persona`` is ``None``): the facility defaults —
-      ``image`` is ``<registry_url>/web-terminal:<tag>`` (unsuffixed, the same
-      string the compose template names directly whenever ``<tag>`` is its
-      ``latest`` default),
-      ``project`` is ``<project_name>-assistant`` and ``container_project_dir``
-      is ``/app/<facility_prefix>-assistant``. This is the zero-migration path: a
-      config with no ``personas`` catalog at all resolves every entry here. The
-      directory keeps the facility prefix because the persisted Claude Code
-      state in each user's config volume is keyed by the working directory, so
-      moving it would hide every existing session.
     * **Default persona** (resolved ``persona`` equals ``default_persona``, and
-      a catalog entry exists for it): registry mode keeps the same un-suffixed
-      ``<registry_url>/web-terminal:<tag>`` image (so the default persona's
-      *image* never changes when a catalog is introduced); local mode still
-      builds ``<persona.project>:local`` like every other persona.
+      a catalog entry exists for it): registry mode uses the un-suffixed
+      ``<registry_url>/web-terminal:<tag>`` image; local mode builds
+      ``<persona.project>:local`` like every other persona.
       ``container_project_dir`` is ``/app/<project>`` from the catalog entry,
-      exactly as for any other persona: the image is built FROM that project, so
-      pinning the directory to the facility default would name a path that
-      image does not have. A catalog that gives the default persona a project
-      of its own therefore moves where its
-      users' agent-data volume mounts — the volume itself is unchanged and
-      keeps its contents, but they are no longer at the path the container
-      reads.
+      exactly as for any other persona: the image is built FROM that project.
     * **Non-default persona**: registry mode uses
       ``<registry_url>/web-terminal-<persona>:<tag>``; local mode uses
       ``<persona.project>:local`` (same rule as the default persona) — the
       persona image is tagged by its render alone, since the persona name
-      contributes nothing to the image beyond the tag; a catalog entry with
-      no ``project`` of its own falls back to the legacy
-      ``<project_name>-assistant-<persona>:local``, whose suffix keeps it
-      clear of the dispatch worker's ``<project_name>:local`` tag, and to the
-      zero-migration ``container_project_dir``;
-      otherwise ``container_project_dir`` is derived from the persona's own
+      contributes nothing to the image beyond the tag;
+      ``container_project_dir`` is derived from the persona's own
       ``/app/<project>``.
 
     The resolution stays total: an empty ``registry_url`` still yields a
@@ -2810,33 +2790,26 @@ def resolve_personas(
             (``users``, ``personas``, ``default_persona``, ``image_source``).
         registry_cfg: The already-dict-coerced top-level ``registry`` section
             (only ``url`` is read).
-        facility_prefix: ``facility.prefix``, used only for the zero-migration
-            in-container project dir (``/app/<prefix>-assistant``).
-        project_name: The deployment's compose project
-            (:func:`~osprey.deployment.compose_generator.resolve_project_name`
-            of the facility config), which names the zero-migration project and
-            every image tag derived from it (``<project_name>-assistant``).
-        strict: When ``True`` (render/build/seed callers), an unresolvable
-            persona reference — an explicit or inherited ``persona:`` naming a
-            catalog entry that doesn't exist, or ``image_source: local`` with no
-            catalog/``default_persona`` configured at all — raises
-            ``ValueError``. When ``False`` (lifecycle verbs), the same
-            conditions degrade gracefully: an unresolved entry falls back to the
-            zero-migration values (so a stale/bad persona reference never blocks
-            ``decommission``/``prune``/``nuke``) instead of raising.
+        strict: When ``True`` (render/build/seed callers), a config with no
+            ``personas`` catalog or no ``default_persona`` (in any image
+            source), a persona reference naming a catalog entry that doesn't
+            exist, or an in-effect catalog entry with no ``project`` raises
+            ``ValueError``. When ``False`` (lifecycle verbs, lint, reports), the
+            same conditions yield the unresolved entry — ``image``,
+            ``project`` and ``container_project_dir`` ``None`` — so a
+            stale/bad persona reference never blocks
+            ``decommission``/``prune``/``nuke``.
 
     Returns:
         One ``{"name", "index", "persona", "image", "project",
         "container_project_dir", "extra_mounts", "seed_base"}`` dict per
         surviving :func:`normalize_users` entry, in the same order. ``persona``
-        is the resolved catalog key, or ``None`` when no persona is in effect for
-        that entry. ``extra_mounts`` is the persona's ``extra_mounts`` list
+        is the resolved catalog key; it is ``None`` only on the lenient path.
+        ``extra_mounts`` is the persona's ``extra_mounts`` list
         (compose volume strings applied to every user of that persona),
-        defaulting to ``[]`` — both when no persona is in effect and when the
-        catalog entry sets none. ``seed_base`` is the catalog entry's
+        defaulting to ``[]``. ``seed_base`` is the catalog entry's
         ``seed_base`` (a bool; anything else is defensively coerced to
-        ``True``), and always ``True`` for the zero-migration / lenient-degrade
-        paths — it controls whether the shared base context is prepended when
+        ``True``), and ``True`` for an unresolved lenient entry — it controls whether the shared base context is prepended when
         seeding this entry's ``CLAUDE.md``. Optional ``"display_name"``,
         ``"theme"`` and ``"tour"`` keys are added — carried through from
         :func:`normalize_users` — only when the entry declared a non-empty string
@@ -2891,20 +2864,10 @@ def resolve_personas(
         web_terminals.get("users"), authorization_roles, strict=strict
     )
 
-    if (
-        strict
-        and image_source == "local"
-        and (not personas_catalog or default_persona_name is None)
-    ):
-        raise ValueError(
-            "modules.web_terminals.image_source: local requires both a "
-            "modules.web_terminals.personas catalog and default_persona to be "
-            "configured"
-        )
+    if strict and (not personas_catalog or default_persona_name is None):
+        raise ValueError(PERSONA_CATALOG_REQUIRED)
 
-    default_project = f"{project_name}-assistant"
-    default_container_dir = f"/app/{facility_prefix}-assistant"
-    default_image = f"{registry_url}/web-terminal:{image_tag}"
+    default_persona_image = f"{registry_url}/web-terminal:{image_tag}"
 
     def _with_optional_fields(entry: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
         """Attach the optional per-user fields to a resolved entry, mirroring
@@ -2926,25 +2889,23 @@ def resolve_personas(
             entry["access"] = access
         return entry
 
-    def _zero_migration_entry(
+    def _unresolved_entry(
         name: str, index: int, persona: str | None, source: dict[str, Any]
     ) -> dict[str, Any]:
-        """The zero-migration resolution: the pre-persona values, with
-        ``persona`` carried through for logging (``None`` when no persona is in
-        effect, or the unresolvable reference on the lenient degrade path) and the
-        optional per-user fields passed through unchanged. ``extra_mounts`` is
-        empty here — the zero-migration path has no catalog entry to read
-        persona-level host mounts from. ``seed_base`` is ``True`` — the shared
-        base-context prepend is mandatory for a no-persona/zero-migration entry,
-        and opting out is only expressible through a catalog entry."""
+        """The lenient answer for an entry that does not resolve.
+
+        A lenient caller (lifecycle verbs, lint, reports) gets every roster
+        name back, with ``persona`` carried for logging. What the entry runs is
+        unknown, so ``image``, ``project`` and ``container_project_dir`` are
+        ``None`` instead of naming a directory no image has."""
         return _with_optional_fields(
             {
                 "name": name,
                 "index": index,
                 "persona": persona,
-                "image": default_image,
-                "project": default_project,
-                "container_project_dir": default_container_dir,
+                "image": None,
+                "project": None,
+                "container_project_dir": None,
                 "extra_mounts": [],
                 "seed_base": True,
             },
@@ -2957,28 +2918,28 @@ def resolve_personas(
         index = entry["index"]
         persona_ref = persona_ref_by_name.get(name) or default_persona_name
 
-        if persona_ref is None:
-            # No persona system in effect for this entry — zero-migration path.
-            resolved.append(_zero_migration_entry(name, index, None, entry))
-            continue
-
-        catalog_entry = personas_catalog.get(persona_ref)
+        catalog_entry = personas_catalog.get(persona_ref) if persona_ref is not None else None
         if not isinstance(catalog_entry, dict):
             if strict:
                 raise ValueError(
                     f"user {name!r} references persona {persona_ref!r}, which has "
                     "no entry in modules.web_terminals.personas"
                 )
-            # Lenient degrade (lifecycle verbs): keep the requested persona name
-            # visible for logging, but fall back to the zero-migration values so
-            # a stale/bad reference never blocks a lifecycle verb.
-            resolved.append(_zero_migration_entry(name, index, persona_ref, entry))
+            # Lenient: a stale or bad reference never blocks a lifecycle verb.
+            resolved.append(_unresolved_entry(name, index, persona_ref, entry))
             continue
 
         project = catalog_entry.get("project")
-        has_own_project = isinstance(project, str) and bool(project)
-        if not has_own_project:
-            project = default_project
+        if not isinstance(project, str) or not project:
+            if strict:
+                raise ValueError(
+                    f"modules.web_terminals.personas[{persona_ref!r}] has no project; "
+                    "osprey build writes it for a persona with a build_profile, and a "
+                    "persona whose image is built elsewhere states the project its "
+                    "image was built from"
+                )
+            resolved.append(_unresolved_entry(name, index, persona_ref, entry))
+            continue
 
         # Persona-level host mounts, applied to every user of this persona. A
         # non-list drops to []; individual non-string/empty entries are dropped
@@ -3014,27 +2975,19 @@ def resolve_personas(
 
         if image_source == "local":
             # A persona image IS its render — the persona name never reaches
-            # the build beyond the tag — so a catalog entry with its own
-            # `project` tags the image by that render alone. Lint enforces the
-            # distinctness this relies on (`persona_project_collision` /
-            # `persona_project_shadows_worker_image`): no two personas may
-            # share a `project` across different renders, and none may take
-            # the deployment's own name, which the dispatch worker's
-            # `<project>:local` tag occupies. Only the legacy entry WITHOUT
-            # its own `project` (resolved to the facility default above)
-            # keeps the `-<persona>` suffix: it has no render name of its own
-            # to be distinct by, so the suffix is what keeps it clear of the
-            # worker tag.
-            if has_own_project:
-                image = f"{project}:local"
-            else:
-                image = f"{project}-{persona_ref}:local"
+            # the build beyond the tag — so the image is tagged by its project
+            # alone. Lint enforces the distinctness this relies on
+            # (`persona_project_collision` / `persona_project_shadows_worker_image`):
+            # no two personas may share a `project` across different renders,
+            # and none may take the deployment's own name, which the dispatch
+            # worker's `<project>:local` tag occupies.
+            image = f"{project}:local"
         elif is_default:
-            image = default_image
+            image = default_persona_image
         else:
             image = f"{registry_url}/web-terminal-{persona_ref}:{image_tag}"
 
-        container_project_dir = f"/app/{project}" if has_own_project else default_container_dir
+        container_project_dir = f"/app/{project}"
 
         entry_resolved = _with_optional_fields(
             {
@@ -3181,28 +3134,6 @@ def settings_json_is_rendered(project_dir: Any) -> bool:
     return settings_json_path(project_dir).is_file()
 
 
-def settings_json_denies_bash(project_dir: Any) -> bool:
-    """True if ``<project_dir>/.claude/settings.json`` denies ``Bash`` outright.
-
-    The one-tool case of :func:`settings_json_denies`, kept under its own name
-    because the Bash/launch-token guard asks exactly this question in four
-    places and reads better for saying so. Only the exact ``"Bash"`` entry
-    counts (see :data:`~osprey.agent_runner.tool_names.BASH_DENY_ENTRY`); every other property — reading the
-    shipped artifact rather than the config, and failing closed on one it
-    cannot parse — belongs to :func:`settings_json_denies` and is described
-    there.
-
-    Args:
-        project_dir: The rendered persona project directory (the one holding
-            ``config.yml`` and ``.claude/``).
-
-    Returns:
-        ``True`` only when the artifact was read, parsed, and lists ``"Bash"``
-        in ``permissions.deny``; ``False`` in every other case.
-    """
-    return settings_json_denies(project_dir, (BASH_DENY_ENTRY,))
-
-
 def personas_not_denying(config: Any, project_root: Any, tools: Iterable[str]) -> set[str]:
     """Names of referenced personas whose shipped settings do **not** deny *tools*.
 
@@ -3273,7 +3204,7 @@ def referenced_persona_project_dirs(config: Any, project_root: Any) -> dict[str,
 def personas_not_denying_bash(config: Any, project_root: Any) -> set[str]:
     """Names of referenced personas whose shipped settings do **not** deny ``Bash``.
 
-    The roster-shaped form of :func:`settings_json_denies_bash`, phrased as the
+    The roster-shaped form of :func:`settings_json_denies` for ``Bash``, phrased as the
     *unsafe* set so its caller can name every offending persona in one error
     rather than re-deriving them. A persona granted ``BLUESKY_LAUNCH_TOKEN``
     while its agent may also run a shell can read that token out of its own

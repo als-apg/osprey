@@ -15,9 +15,9 @@ import plotly.graph_objects as go
 from osprey.interfaces.lattice_dashboard.workers._base import (
     add_resonance_overlay,
     load_baseline_ring,
+    load_job,
     load_ring,
     load_settings,
-    load_state,
     parse_args,
     save_data,
     unpack_tracking,
@@ -213,11 +213,11 @@ def main() -> None:
     # surfaces it when a computation fails, so records need a handler here.
     configure_logging()
 
-    state_path, output_path = parse_args()
-    state = load_state(state_path)
+    job_path, output_path = parse_args()
+    job = load_job(job_path)
 
-    ring = load_ring(state)
-    settings = load_settings(state, "footprint")
+    ring = load_ring(job)
+    settings = load_settings(job, "footprint")
     n_amp = settings["n_amp"]
     x_max = settings["x_max_mm"] / 1000.0
     y_max = settings["y_max_mm"] / 1000.0
@@ -241,7 +241,7 @@ def main() -> None:
         "baseline_tune": None,
     }
 
-    baseline_ring = load_baseline_ring(state_path, state)
+    baseline_ring = load_baseline_ring(job)
     if baseline_ring is not None:
         bnux, bnuy, bamps, _ = compute_footprint(
             baseline_ring, n_amp=n_amp, x_max=x_max, y_max=y_max, n_half=n_half
@@ -254,7 +254,7 @@ def main() -> None:
         bt = at.get_tune(baseline_ring)
         raw["baseline_tune"] = [float(bt[0]), float(bt[1])]
 
-    save_data(raw, output_path)
+    save_data(job, raw, output_path)
 
 
 if __name__ == "__main__":

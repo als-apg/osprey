@@ -12,6 +12,8 @@ outcome the result reports are one vocabulary.
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from osprey_connectors.control_system.base import WriteOutcome
 
 
@@ -188,6 +190,43 @@ class ChannelWriteFailedError(Exception):
                 f"sent {self.value_written}, channel holds {self.observed_value}"
             )
         return f"Write to '{self.channel_address}' failed ({self.reason})"
+
+
+class ChannelReadFailedError(Exception):
+    """Raised when a batch read could not produce a value for every channel asked.
+
+    A channel counts as failed when the connector's result leaves it out (a
+    connector drops a channel whose read raised) or reports it with the value
+    ``None`` (the EPICS-family connectors' answer to a read timeout).
+
+    ``addresses`` names every failed channel, each once, in the order the
+    caller asked for them, so a caller can report or retry all of them rather
+    than only the first.
+
+    ``causes`` maps a failed channel to the exception its own read raised, so a
+    timeout, a refused connection and a missing channel stay distinguishable.
+    A failed channel whose read reported no value without raising has no
+    entry.
+    """
+
+    def __init__(
+        self,
+        addresses: "Sequence[str]",
+        message: str | None = None,
+        *,
+        causes: "Mapping[str, BaseException] | None" = None,
+    ):
+        self.addresses = list(addresses)
+        self.causes: dict[str, BaseException] = dict(causes or {})
+        if not message:
+            named = [
+                f"{address} ({type(self.causes[address]).__name__}: {self.causes[address]})"
+                if address in self.causes
+                else address
+                for address in self.addresses
+            ]
+            message = f"Read failed for {len(self.addresses)} channel(s): {', '.join(named)}"
+        super().__init__(message)
 
 
 class RegistryError(Exception):

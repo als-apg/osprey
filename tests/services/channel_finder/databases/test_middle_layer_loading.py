@@ -50,6 +50,13 @@ def test_the_flat_paradigms_list_of_channels_is_refused_rather_than_read_as_empt
         MiddleLayerDatabase(_write(tmp_path, body))
 
 
+def test_the_document_keys_are_not_systems(tmp_path: Path) -> None:
+    body = {"schema": "x", "count": 1, "SR": {"BPM": {"X": {"ChannelNames": ["A"]}}}}
+    db = MiddleLayerDatabase(_write(tmp_path, body))
+    assert sorted(db.channel_map) == ["A"]
+    assert [system["name"] for system in db.list_systems()] == ["SR"]
+
+
 def test_metadata_keys_are_tolerated_at_every_level(tmp_path: Path) -> None:
     body = {
         "_meta": {"tier": 3, "generated": "today"},
@@ -58,3 +65,81 @@ def test_metadata_keys_are_tolerated_at_every_level(tmp_path: Path) -> None:
     }
     db = MiddleLayerDatabase(_write(tmp_path, body))
     assert set(db.channel_map) == {"SR01:BPM:X"}
+
+
+def test_a_channel_listed_under_two_families_keeps_both_memberships(tmp_path: Path) -> None:
+    body = {
+        "SR": {
+            "BPM": {"Monitor": {"ChannelNames": ["SR01:BPM:X"]}},
+            "DIAG": {"SR01:BPM:X": {"ChannelNames": ["SR01:BPM:X"]}},
+        },
+        "BR": {"DIAG": {"Monitor": {"ChannelNames": ["SR01:BPM:X"]}}},
+    }
+    db = MiddleLayerDatabase(_write(tmp_path, body))
+
+    entry = db.get_channel("SR01:BPM:X")
+    assert entry is not None
+    assert [(m["system"], m["family"], m["field"]) for m in entry["memberships"]] == [
+        ("SR", "BPM", "Monitor"),
+        ("SR", "DIAG", "SR01:BPM:X"),
+        ("BR", "DIAG", "Monitor"),
+    ]
+    assert entry["memberships"][0] == {
+        "system": "SR",
+        "family": "BPM",
+        "field": "Monitor",
+        "subfield": None,
+        "description": "SR:BPM:Monitor",
+        "protocol": "ca",
+    }
+    assert db.validate_channel("SR01:BPM:X")
+    assert db.get_statistics()["total_channels"] == 1
+
+
+#: One channel listed under Fields X and Y of Family BPM, under X twice with
+#: different Subfields, and twice at the exact path X:Raw.
+_PER_FIELD = {
+    "SR": {
+        "BPM": {
+            "X": {
+                "Raw": {"ChannelNames": ["SR01:BPM:A", "SR01:BPM:A"]},
+                "Cal": {"ChannelNames": ["SR01:BPM:A"]},
+            },
+            "Y": {"ChannelNames": ["SR01:BPM:A"]},
+        }
+    }
+}
+
+
+def test_a_channel_listed_under_several_fields_of_one_family_keeps_every_listing(
+    tmp_path: Path,
+) -> None:
+    db = MiddleLayerDatabase(_write(tmp_path, _PER_FIELD))
+
+    entry = db.get_channel("SR01:BPM:A")
+    assert entry is not None
+    assert [(m["family"], m["field"], m["subfield"]) for m in entry["memberships"]] == [
+        ("BPM", "X", ["Raw"]),
+        ("BPM", "X", ["Cal"]),
+        ("BPM", "Y", None),
+    ]
+    assert [family["name"] for family in db.list_families("SR")] == ["BPM"]
+    assert db.validate_channel("SR01:BPM:A")
+    assert db.get_statistics()["total_channels"] == 1
+
+
+def test_a_subfield_path_and_its_colon_joined_spelling_are_one_listing(tmp_path: Path) -> None:
+    body = {
+        "SR": {
+            "RF": {
+                "Setpoint": {
+                    "A:B": {"ChannelNames": ["SR:RF:F"]},
+                    "A": {"B": {"ChannelNames": ["SR:RF:F"]}},
+                }
+            }
+        }
+    }
+    db = MiddleLayerDatabase(_write(tmp_path, body))
+
+    (membership,) = db.channel_map["SR:RF:F"]["memberships"]
+    assert (membership["field"], membership["subfield"]) == ("Setpoint", ["A", "B"])

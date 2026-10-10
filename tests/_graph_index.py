@@ -1,9 +1,9 @@
 """Build the channel search index that a staged Turtle corpus implies.
 
-The graph paradigm's channel roster reads a DuckDB search index, not the Turtle
-corpus it was derived from. A build writes that index; a test that stages a
-corpus by hand and then expects channels has to write one too, or the roster
-answers with the absence that says the index is not there.
+The graph paradigm's explorer and keyword tool read a DuckDB search index, not
+the Turtle corpus it was derived from. A build writes that index; a test that
+stages a corpus by hand and then expects search answers has to write one too,
+or the reader answers with the absence that says the index is not there.
 
 ``osprey build`` is covered already -- ``tests/conftest.py`` stubs the build's
 own derivation step so the suite's many renders share one parse per corpus.
@@ -14,14 +14,14 @@ Two rules keep the helper honest about where the index goes:
 
 * with a project config, the path comes from
   :func:`~osprey.deployment.graphdb_service.resolve_graph_index_path` -- the one
-  resolver the build, the roster, the app and the health row all use, so a test
+  resolver the build, the app and the health row all use, so a test
   cannot accidentally pin a path rule of its own;
 * without one, it is the default ``index_path`` under the render holding the
   corpus, which is the same answer that resolver gives a config with no
   ``index_path`` key.
 
 Parsing a corpus is the expensive half of a build (about a second and a half
-for the corpus the control-assistant preset ships), so each distinct corpus is
+for the graph view the control-assistant build writes), so each distinct corpus is
 built once per process and copied into place afterwards, keyed on its bytes and
 its filename -- the two things the index records about the corpus it came from.
 
@@ -38,9 +38,12 @@ import tempfile
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-#: ``services.graphdb.index_path``'s default, relative to the render that holds
+if TYPE_CHECKING:
+    from tests._builds import BuiltProject
+
+#: Where a build writes the index, relative to the render that holds
 #: ``config.yml`` -- split so a test can join it to a render root rather than
 #: spell the string a second time.
 DEFAULT_INDEX_RELPATH = Path("data") / "channel_databases" / "graph.duckdb"
@@ -68,9 +71,9 @@ def build_index_from_ttl(
 
     Args:
         ttl_path: The staged Turtle corpus to derive the index from.
-        config: The project config the roster will be asked about, when there is
-            one. Its ``services.graphdb.index_path`` decides where the index
-            goes, resolved against the config's own ``config_dir``.
+        config: The project config the index belongs to, when there is one.
+            The index goes to the fixed path under the config's own
+            ``config_dir``.
         config_dir: The directory holding ``config.yml``, for a config that does
             not record one. Ignored when *config* is omitted.
         index_path: An explicit destination, for a test that names the index
@@ -87,33 +90,28 @@ def build_index_from_ttl(
 
 
 @contextmanager
-def demo_corpus_path() -> Iterator[Path]:
-    """Yield the path of the Turtle corpus OSPREY ships with its demo preset.
+def demo_corpus_path(built: BuiltProject) -> Iterator[Path]:
+    """Yield the path of the graph view the control-assistant build writes.
 
-    A packaged resource, so it is reached through
-    :func:`importlib.resources.as_file` and is only guaranteed to exist for the
-    duration of the ``with`` block.
+    Args:
+        built: The session's control-assistant build
+            (the ``built_control_assistant`` fixture).
     """
-    from importlib.resources import as_file, files
-
-    resource = (
-        files("osprey.templates")
-        .joinpath("apps")
-        .joinpath("control_assistant")
-        .joinpath("data")
-        .joinpath("demo_machine.ttl")
-    )
-    with as_file(resource) as path:
-        yield path
+    yield built.build_dir / "data" / "graph" / "facility.ttl"
 
 
-def build_demo_index(index_path: Path | str) -> Path:
-    """Build the shipped demo corpus's index at *index_path* and return it.
+def build_demo_index(index_path: Path | str, built: BuiltProject) -> Path:
+    """Build the demo graph view's index at *index_path* and return it.
 
-    The oracle behind every "what the corpus OSPREY ships holds" assertion:
-    2908 channels, 396 of them settable.
+    The oracle behind every "what the demo facility holds" assertion:
+    2952 channels, 412 of them settable.
+
+    Args:
+        index_path: Where the index goes.
+        built: The session's control-assistant build
+            (the ``built_control_assistant`` fixture).
     """
-    with demo_corpus_path() as corpus:
+    with demo_corpus_path(built) as corpus:
         return build_index_from_ttl(corpus, index_path=index_path)
 
 

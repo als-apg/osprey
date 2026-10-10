@@ -95,11 +95,10 @@ about a point the machine is not at, and one that "restores" to `0.0` does
 not restore anything — it drives the machine to zero, which on a stored beam
 is the orbit gone.
 
-The idiom, per device, is three lines (`orm`'s `build_plan` is the worked
-version):
+The idiom, per device (`orm`'s `build_plan` is the worked version):
 
 ```python
-working_point = float((yield from bps.rd(device)))   # before the try
+working_point = float((yield from bps.locate(device))["setpoint"])   # before the try
 try:
     for step in steps:                               # steps are OFFSETS
         yield from bps.mv(device, working_point + step)
@@ -108,12 +107,18 @@ finally:
     yield from bps.mv(device, working_point)         # never a literal
 ```
 
+`bps.locate` answers `{setpoint, readback}`: where the device was told to go
+and where it is. The working point is the setpoint, because the restore is a
+setpoint write: it restores what was demanded, not a noisy sample.
+
 Read **before** the `try`, not inside it, so a device whose read fails is
 never entered and the `finally` can never run without a target. Your range
 parameters are then *excursions*, not absolute setpoints — say so in their
 descriptions, and do not give them a magnitude ceiling of your own: what a
-device tolerates is the deployment's `channel_limits.json`, which the
-connector's reference monitor enforces on every write.
+device tolerates is the records of `data/facility/limits.yaml`, which
+`osprey build` renders into `build/data/channel_limits.json`, the file the
+connector's reference monitor and the runtime's limits check enforce on every
+write.
 
 `grid_scan` is the deliberate exception: a grid's whole purpose is to visit
 declared absolute coordinates, so it neither reads nor restores. If your

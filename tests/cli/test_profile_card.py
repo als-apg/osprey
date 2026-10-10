@@ -142,9 +142,18 @@ def test_a_single_target_render_keeps_one_unqualified_write_right() -> None:
     from osprey.cli.profile_card import _write_rights
 
     armed = SimpleNamespace(
-        config={"control_system.type": "mock", "control_system.writes_enabled": True}
+        config={
+            "control_system.type": "virtual_accelerator",
+            "control_system.connector.virtual_accelerator.serving": "in_process",
+            "control_system.writes_enabled": True,
+        }
     )
-    cold = SimpleNamespace(config={"control_system.type": "mock"})
+    cold = SimpleNamespace(
+        config={
+            "control_system.type": "virtual_accelerator",
+            "control_system.connector.virtual_accelerator.serving": "in_process",
+        }
+    )
     assert _write_rights(armed, {}, "readwrite") == ["rights approval-gated"]
     assert _write_rights(cold, {}, "readonly") == []
 
@@ -271,7 +280,7 @@ def test_the_panels_row_is_the_union_across_personas(exemplar_lines: list[str]) 
     # the order it lists them, then whatever the persona deltas add. JUPYTER
     # follows SYSTEM because the profile lists `jupyter` after `system-health`.
     panels = line_with(exemplar_lines, "panels")
-    assert "ARIEL · CHANNELS · KNOWLEDGE · SYSTEM · JUPYTER · EVENTS · BLUESKY" in panels
+    assert "ARIEL · CHANNELS · LATTICE · KNOWLEDGE · SYSTEM · JUPYTER · EVENTS · BLUESKY" in panels
 
 
 def test_the_agent_group_names_servers_and_counts_its_toolkit(
@@ -318,7 +327,8 @@ def test_the_machine_group_reads_connector_archiver_and_channels(
     archiver = line_with(exemplar_lines, "archiver")
     assert "mongodb · 30 d retention" in archiver
     channels = line_with(exemplar_lines, "channels")
-    assert "graph finder · tier 3" in channels
+    assert "graph finder" in channels
+    assert "tier" not in channels
 
 
 def test_the_services_group_names_the_injected_stack(exemplar_lines: list[str]) -> None:

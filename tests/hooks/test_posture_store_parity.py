@@ -45,7 +45,7 @@ import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.types import session_posture
+from osprey_connectors.types import session_posture, switch_capable
 from tests._control_context_fixtures import (
     pin_identity,
     state_dir_under,
@@ -388,7 +388,9 @@ def test_the_unstamped_record_path_is_one_path(tmp_path, monkeypatch):
     from osprey_connectors.workspace import reset_config_cache
 
     config = tmp_path / "config.yml"
-    config.write_text(f"project_root: {tmp_path}\ncontrol_system:\n  type: mock\n")
+    config.write_text(
+        f"project_root: {tmp_path}\ncontrol_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
@@ -428,7 +430,7 @@ def test_a_staged_configs_foreign_root_moves_neither_reader(tmp_path, monkeypatc
     render.mkdir()
     config = render / "config.yml"
     config.write_text(
-        "project_root: /home/runner/work/osprey/osprey/stack\ncontrol_system:\n  type: mock\n"
+        "project_root: /home/runner/work/osprey/osprey/stack\ncontrol_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
     )
     monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
@@ -730,7 +732,9 @@ def test_an_unstamped_process_with_no_record_is_fail_closed(tmp_path, monkeypatc
     from osprey_connectors.workspace import reset_config_cache
 
     config = tmp_path / "config.yml"
-    config.write_text(f"project_root: {tmp_path}\ncontrol_system:\n  type: mock\n")
+    config.write_text(
+        f"project_root: {tmp_path}\ncontrol_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
@@ -782,7 +786,9 @@ def test_an_unstamped_process_with_a_readable_record_is_answered_by_it(tmp_path,
     from osprey_connectors.workspace import reset_config_cache
 
     config = tmp_path / "config.yml"
-    config.write_text(f"project_root: {tmp_path}\ncontrol_system:\n  type: mock\n")
+    config.write_text(
+        f"project_root: {tmp_path}\ncontrol_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
     monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
@@ -910,3 +916,65 @@ def test_the_degradation_hatch_writes_a_record_neither_side_honours(stamped_root
 
     assert reader.read_record({}) is None
     assert reader.recorded_posture({}) == posture_store.recorded_posture() == {}
+
+
+# ---------------------------------------------------------------------------
+# the switch predicate
+# ---------------------------------------------------------------------------
+
+_GW = {"gateways": {"read_only": {"address": "gw"}}}
+
+
+@pytest.mark.parametrize(
+    "section",
+    [
+        pytest.param({"type": "epics", "connector": {"epics": {"gateways": {}}}}, id="live-only"),
+        pytest.param(
+            {"type": "virtual_accelerator", "connector": {"virtual_accelerator": {"port": 5064}}},
+            id="va-only",
+        ),
+        pytest.param(
+            {"type": "live_standin", "connector": {"live_standin": {"port": 5074}}},
+            id="standin-only",
+        ),
+        pytest.param({}, id="no-type"),
+        pytest.param(
+            {"type": "epics", "connector": {"epics": _GW, "virtual_accelerator": {"port": 5064}}},
+            id="live-and-va",
+        ),
+        pytest.param(
+            {
+                "type": "virtual_accelerator",
+                "connector": {
+                    "virtual_accelerator": {"writes_enabled": True},
+                    "live_standin": {"port": 5074},
+                },
+            },
+            id="va-and-standin",
+        ),
+        pytest.param(
+            {
+                "type": "live_standin",
+                "connector": {
+                    "epics": _GW,
+                    "virtual_accelerator": {"writes_enabled": True},
+                    "live_standin": {"port": 5074},
+                },
+            },
+            id="standin-baseline-three-blocks",
+        ),
+        pytest.param(
+            {
+                "type": "virtual_accelerator",
+                "connector": {"epics": _GW, "virtual_accelerator": {"serving": "in_process"}},
+            },
+            id="in-process-va-and-epics",
+        ),
+        pytest.param(None, id="none"),
+        pytest.param([], id="list"),
+        pytest.param("epics", id="string"),
+    ],
+)
+def test_the_hook_decides_switch_capability_as_the_connector_module_does(section):
+    """The stdlib mirror and the framework predicate answer every shape alike."""
+    assert reader._switch_capable(section) == switch_capable(section)

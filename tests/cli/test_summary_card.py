@@ -37,6 +37,7 @@ from osprey.cli.phase_reporter import (
 )
 from osprey.cli.styles import osprey_theme
 from osprey.cli.summary_card import format_summary_card, owns_summary_card, print_summary_card
+from tests._simulator_view import write_scenarios_view
 
 
 def recording_console(*, terminal: bool = False) -> tuple[Console, io.StringIO]:
@@ -163,6 +164,25 @@ def empty_ledger():
     output.clear_ledger()
     yield
     output.clear_ledger()
+
+
+#: A scenario carrying a logbook narrative, as the simulator view writes it.
+LOGBOOK_SCENARIO = {
+    "name": "nominal",
+    "logbook": [{"entry_id": "DEMO-001", "title": "Shift start"}],
+}
+
+#: A scenario with no logbook block: the view omits a block the scenario does
+#: not state.
+PLAIN_SCENARIO = {"name": "drift", "description": "A slow drift."}
+
+
+def write_scenarios(repo: Path, scenarios: list[dict]) -> None:
+    """Write ``scenarios`` into the build's simulator view, as the build does."""
+    write_scenarios_view(
+        repo / "build",
+        {s["name"]: {k: v for k, v in s.items() if k != "name"} for s in scenarios},
+    )
 
 
 @pytest.fixture
@@ -384,10 +404,11 @@ class TestCardContent:
         assert expected in format_summary_card(repo, state)[-1]
 
     def test_a_build_that_rendered_scenarios_offers_the_demo_seed(self, repo: Path) -> None:
-        """The seed hint has no line of its own any more, so the one next-step
-        surface has to carry it -- and it is a next step: an operator who just
-        built a project with demo scenarios can put data behind them."""
-        (repo / "build" / "data" / "simulation" / "scenarios").mkdir(parents=True)
+        """The seed hint has no line of its own, so the one next-step surface has
+        to carry it -- and it is a next step: an operator who just built a
+        project whose scenarios carry a logbook narrative can put data behind
+        them."""
+        write_scenarios(repo, [LOGBOOK_SCENARIO, PLAIN_SCENARIO])
 
         card = "\n".join(format_summary_card(repo, "built"))
 
@@ -397,11 +418,19 @@ class TestCardContent:
         """A command with nothing to apply is worse advice than no advice."""
         assert "osprey sim apply" not in "\n".join(format_summary_card(repo, "built"))
 
+    def test_a_build_whose_scenarios_carry_no_logbook_is_not_told_to_seed_one(
+        self, repo: Path
+    ) -> None:
+        """Scenarios without a logbook block leave the logbook nothing to seed."""
+        write_scenarios(repo, [PLAIN_SCENARIO, {"name": "quiet"}])
+
+        assert "osprey sim apply" not in "\n".join(format_summary_card(repo, "built"))
+
     @pytest.mark.parametrize("state", ["created", "running", "stopped"])
     def test_the_seed_hint_belongs_to_the_built_card_alone(self, repo: Path, state: str) -> None:
-        """`built` is the state the deleted hint was printed in. A running
-        deployment's next step is reading it, not reseeding it."""
-        (repo / "build" / "data" / "simulation" / "scenarios").mkdir(parents=True)
+        """`built` is the state the hint is printed in. A running deployment's
+        next step is reading it, not reseeding it."""
+        write_scenarios(repo, [LOGBOOK_SCENARIO])
 
         assert "osprey sim apply" not in "\n".join(format_summary_card(repo, state))
 

@@ -52,7 +52,7 @@ from osprey.deployment.errors import (
     NoRenderedBuildError,
 )
 from osprey.deployment.graphdb_service import (
-    GRAPHDB_SEED_COMMAND,
+    GRAPHDB_REBUILD_HINT,
     GRAPHDB_SERVICE_NAME,
     preflight_graphdb_config,
 )
@@ -1404,8 +1404,9 @@ def _refuse_invented_history(config: dict) -> None:
         f"This deployment's control_system.type is {control_system_type!r} and its "
         f"archiver.type is {pairing.archiver_phrase} — {VA_MOCK_ARCHIVER_WHY}\n"
         f"Fix config.yml before deploying: under its `archiver:` section set `type:` "
-        f"to a connector reading a store this stack writes, or set the `type:` under "
-        f"`control_system:` to 'mock' for an honestly storeless deployment. To have "
+        f"to a connector reading a store this stack writes, or serve the simulator in "
+        f"process (`control_system.connector.virtual_accelerator.serving: in_process`), "
+        f"whose synthesized archive claims nothing it cannot back up. To have "
         f"the stack deploy its own store, rebuild from a profile carrying a "
         f"`va_archiver:` block — the control-assistant preset ships one, and "
         f"`osprey up` then brings up the store and its recorder beside the "
@@ -3876,167 +3877,6 @@ def _preflight_env_chain_drift(compose_files: list[str], repo_root: Path | str) 
     )
 
 
-def _preflight_build_derived_env(
-    compose_files: list[str],
-    repo_root: Path | str,
-    *,
-    environ: Mapping[str, str] | None = None,
-) -> None:
-    """Refuse the deploy when the build's own env keys are gone from the chain.
-
-    ``osprey build`` writes BOTH :data:`~osprey.utils.dotenv.BUILD_DERIVED_KEYS`
-    (``VA_CHANNELS_FILE``, ``VA_LATTICE``) into ``.env`` whenever it generates
-    ``build/data/simulation/channel_manifest.json``, and nothing else ever
-    writes them. So a manifest on disk beside a chain that carries only one of
-    them, or neither, is a key that was LOST — a line deleted by hand, a
-    ``.env`` restored from an older copy — and not a choice anybody made.
-
-    Left alone, the loss surfaces in the worst place: the compose templates
-    hand the container ``${VA_CHANNELS_FILE:-}``, the entrypoint refuses an
-    empty pointer rather than serving the framework's bundled demo namespace,
-    and the operator gets an unhealthy container whose compose log says only
-    that it exited. Named here instead, ahead of anything that costs time.
-
-    A refusal rather than a warning, for the reason
-    :func:`_preflight_env_chain_drift` gives: a stack started without the key
-    has no outcome anybody asked for.
-
-    Keyed on the names the rendered compose files actually interpolate, so a
-    stack that deploys no reader of the key (no virtual accelerator, no
-    recorder) is not refused over a manifest nothing reads. Existence is the
-    union of the chain and the process environment, as
-    :func:`_preflight_declared_env_unset` takes it, and an empty value counts
-    as no value: ``KEY=`` puts the same empty string in the container as no
-    line at all — and it is the shape that survives a rebuild, because the
-    build appends and never rewrites a key already on file.
-
-    :param compose_files: The compose files this deploy will start, in ``-f``
-        order. Relative entries resolve against *repo_root*.
-    :param repo_root: The deployment repo root, holding the chain and the
-        render.
-    :param environ: The environment to check against. ``None`` reads the live
-        one overlaid with the shell values the CLI's entry-time ``.env`` load
-        replaced, matching what the stack is actually started with.
-    A value that is present but names no file in the render is refused on the
-    same reasoning. ``VA_LATTICE`` is a file's name inside the tree the
-    container mounts, looked up verbatim, and the entrypoint exits FATAL on a
-    name it cannot find — after every image in the stack has been built. The
-    name is checked here against that same tree instead.
-
-    :raises RuntimeError: The manifest exists, some compose file interpolates
-        a build-derived key, and neither the chain nor the environment gives
-        it a value -- or gives it the name of a file the render does not carry.
-    """
-    from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
-    from osprey.utils.dotenv import BUILD_DERIVED_KEYS
-
-    root = Path(repo_root).expanduser().absolute()
-    manifest = Path(BUILD_DIRNAME) / "data" / "simulation" / MANIFEST_FILENAME
-    if not (root / manifest).is_file():
-        return
-
-    wanted = sorted(BUILD_DERIVED_KEYS & _interpolated_vars_across(compose_files, root))
-    if not wanted:
-        return
-
-    if environ is None:
-        from osprey.utils.config import dotenv_shell_overrides
-
-        process_env: Mapping[str, str] = {**os.environ, **dotenv_shell_overrides()}
-    else:
-        process_env = environ
-
-    chain = merge_chain(root)
-    missing = [
-        name
-        for name in wanted
-        if not (chain.get(name) or "").strip() and not (process_env.get(name) or "").strip()
-    ]
-    if not missing:
-        _preflight_served_lattice(wanted, root, chain, process_env)
-        return
-
-    names = ", ".join(missing)
-    logger.error(
-        "Build-derived env lost: %s is on disk, but %s is unset in the env chain and the "
-        "environment.\n"
-        "  `osprey build` writes %s into %s whenever it generates that manifest, and the "
-        "container it points at refuses to start on an empty value rather than serve the "
-        "framework's bundled demo namespace. A manifest on disk beside a chain missing the "
-        "key is a key that was lost, not a choice.\n"
-        "  Run `osprey build` to write it back, then `osprey up`. Delete an empty `%s=` line "
-        "first: the build appends and never rewrites a key already on file.",
-        manifest,
-        names,
-        " and ".join(sorted(BUILD_DERIVED_KEYS)),
-        ENV_LOCAL_FILENAME,
-        names,
-    )
-    raise RuntimeError(
-        f"build-derived env preflight failed: {names} is unset while {manifest} exists "
-        "(see report above). Run `osprey build`, then `osprey up`."
-    )
-
-
-def _preflight_served_lattice(
-    wanted: Sequence[str],
-    root: Path,
-    chain: Mapping[str, str],
-    process_env: Mapping[str, str],
-) -> None:
-    """Refuse the deploy when ``VA_LATTICE`` names no file in the render.
-
-    The value is a lattice file's name relative to the virtual accelerator's
-    data directory, which is the ``build/data/simulation`` the compose service
-    mounts, and the container's entrypoint resolves it there verbatim — case
-    included — exiting FATAL on a name that is not in the tree it was handed.
-    :data:`~osprey.utils.dotenv.VA_LATTICE_DEFAULT` is the one value naming no
-    file, and an absolute value names a path in the container's filesystem that
-    this host cannot speak for; neither is a name to look up.
-
-    The refusal names the path it checked, because the fix depends on what the
-    operator meant by the value and only they can say which.
-
-    :param wanted: The build-derived keys the rendered compose files
-        interpolate. A stack no reader of the lattice deploys is not refused.
-    :param root: The deployment repo root, holding the render.
-    :param chain: The merged env chain, as the caller read it.
-    :param process_env: The environment the stack is started with.
-    :raises RuntimeError: The value names a file the render does not carry.
-    """
-    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, VA_LATTICE_KEY
-
-    if VA_LATTICE_KEY not in wanted:
-        return
-    name = (chain.get(VA_LATTICE_KEY) or process_env.get(VA_LATTICE_KEY) or "").strip()
-    if not name or name == VA_LATTICE_DEFAULT or Path(name).is_absolute():
-        return
-
-    served = Path(BUILD_DIRNAME) / "data" / "simulation" / name
-    if (root / served).is_file():
-        return
-
-    logger.error(
-        "Build-derived env stale: %s=%s names no file in the render (%s is not there).\n"
-        "  The accelerator looks the name up verbatim in the directory it mounts and refuses "
-        "to start when it misses, so the stack would be built and then fail to boot.\n"
-        "  Delete the %s line from %s and run `osprey build`, which re-derives the lattice "
-        "this project's tree serves; or set %s=%s to serve the manifest's channels without "
-        "physics.",
-        VA_LATTICE_KEY,
-        name,
-        served,
-        VA_LATTICE_KEY,
-        ENV_LOCAL_FILENAME,
-        VA_LATTICE_KEY,
-        VA_LATTICE_DEFAULT,
-    )
-    raise RuntimeError(
-        f"build-derived env preflight failed: {VA_LATTICE_KEY}={name} names no file in "
-        f"{served} (see report above)."
-    )
-
-
 def _preflight_env_shadowing(
     compose_files: list[str],
     repo_root: Path | str,
@@ -4905,436 +4745,58 @@ def _preflight_archiver_pymongo(config: dict) -> None:
         ) from exc
 
 
-#: The BPM readout fields the seed can reproduce, and the monitor axis each one
-#: displaces, in the spelling a bindings document gives that axis
-#: (``virtual_accelerator.bindings.ATTRIBUTES_BY_KIND``). Offsets only, and that
-#: is the whole design: with the rest of the readout chain at identity, a
-#: reading is exactly ``truth - offset``, so the seed reproduces the stand-in's
-#: systematic error by arithmetic on the value it already synthesized rather
-#: than by running a second copy of the readout. The same two fields are the
-#: only ones the shipped default may carry
-#: (``osprey.cli.build_profile_va_faults.STANDIN_BPM_ERROR_FIELDS``).
-_STANDIN_OFFSET_AXES = {"offset_x": "x", "offset_y": "y"}
-
-#: How the fingerprint names this transform. One kind today; the field exists so
-#: a later transform is a different value here rather than a silent MATCH.
-_STANDIN_TRANSFORM_KIND = "bpm_offsets"
-
-#: How the fingerprint names a seed whose lattice-served monitor readings are
-#: centred on the orbit the served model solves (see
-#: :func:`_solved_monitor_baselines`).
-_SOLVED_BASELINES_KIND = "solved_monitor_baselines"
-
-
-def _solved_monitor_baselines(project_dir: Path, channels: Sequence[dict]) -> dict[str, float]:
-    """The reading each lattice-served monitor serves at boot, by address.
-
-    A monitor the served tree binds to the lattice does not read the level its
-    ``machine.json`` entry declares: it reads the closed orbit the model solves,
-    and the virtual accelerator adds the machine file's motion on top of that.
-    Its seeded history has to sit on the same orbit, or every trend across the
-    boundary between the seeded past and the recorded present steps by the
-    difference. So the orbit is solved here the way the virtual accelerator
-    solves it at boot -- the same model, built from the same served tree and
-    channel set, read through the same bridge -- and the truth that bridge
-    publishes, before any motion or readout fault, is the answer.
-
-    :param project_dir: The deployment repo root.
-    :param channels: The manifest channel set being seeded.
-    :returns: ``{address: solved reading}`` for every seeded address the tree
-        serves as a monitor reading. Empty for a deployment whose chain serves
-        no lattice, whose served tree carries no lattice or no bindings, or
-        whose model cannot be built -- the last with a warning, because the
-        seed then describes the machine file's declared levels rather than the
-        orbit the live half will serve.
-    """
-    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import served_data_root
-    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, resolved_va_lattice
-
-    build_dir = project_dir / BUILD_DIRNAME
-    if resolved_va_lattice(project_dir, build_dir) == VA_LATTICE_DEFAULT:
-        return {}
-    data_root = served_data_root(project_dir, build_dir)
-    if data_root is None:
-        return {}
-    paths = ManifestPaths(data_root=data_root)
-    if not (paths.lattice_json.is_file() and paths.va_bindings.is_file()):
-        return {}
-
-    from osprey.services.virtual_accelerator.bindings import BindingsError
-    from osprey.services.virtual_accelerator.ioc.physics_bridge import (
-        OrbitSolveError,
-        PhysicsBridge,
-        UnknownDeviceError,
-    )
-    from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
-
-    try:
-        truth = PhysicsBridge(PyATRingModel(data_root, list(channels))).bpm_positions()
-    except (BindingsError, OrbitSolveError, UnknownDeviceError, OSError, ValueError) as exc:
-        logger.warning(
-            "  The served lattice under %s could not be solved (%s), so the archive seed "
-            "centres its monitor readings on the levels machine.json declares rather than "
-            "on the orbit the virtual accelerator will serve.",
-            data_root,
-            exc,
-        )
-        return {}
-    served = {str(channel["address"]) for channel in channels}
-    return {address: value for address, value in truth.items() if address in served}
-
-
-def _baselines_fingerprint(
-    baselines: Mapping[str, float], readout: Mapping[str, Any] | None
-) -> dict[str, Any]:
-    """The seed's value description when its monitor readings are rebased.
-
-    The solved levels are digested rather than listed: the fingerprint only has
-    to change when any of them does, and a digest keeps the stored manifest and
-    a mismatch report readable. The stand-in's readout description, when there
-    is one, rides along unchanged under ``readout``, because the offsets are
-    still subtracted from the rebased values exactly as before.
-    """
-    canonical = json.dumps(sorted(baselines.items()), separators=(",", ":"))
-    return {
-        "kind": _SOLVED_BASELINES_KIND,
-        "count": len(baselines),
-        "sha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
-        "readout": None if readout is None else dict(readout),
-    }
-
-
-def _served_monitor_readings(project_dir: Path):
-    """Where the served tree publishes each monitor reading, and at which element.
-
-    The seed displaces addresses, and the ``VA_BPM_ERRORS`` grammar names
-    devices, so something has to say which address carries which device's
-    reading on which transverse axis. Only the tree being served can: the
-    address grammar is the facility's, the element names are its lattice's, and
-    a deployment that models neither the way a demo ring does would otherwise
-    have a past seeded onto addresses it never serves.
-
-    :param project_dir: The deployment repo root, whose published render is
-        preferred over its source tree — the containers mount the render.
-    :returns: ``(monitors, readings)``, where *monitors* maps every published
-        monitor address to the element it sits at (the lookup
-        ``lattice.errors.resolve_device_seeds`` performs inside the container)
-        and *readings* maps ``(element, axis)`` to the address the reading is
-        published on. ``(None, None)`` when the served tree carries no bindings
-        document, or one that cannot be read — in which case nothing here can
-        place an offset, and saying so is the honest answer.
-    """
-    from osprey.services.virtual_accelerator.bindings import BindingsError, load_bindings
-    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import served_data_root
-
-    data_root = served_data_root(project_dir, project_dir / BUILD_DIRNAME)
-    if data_root is None:
-        return None, None
-    path = ManifestPaths(data_root=data_root).va_bindings
-    if not path.is_file():
-        return None, None
-    try:
-        document = load_bindings(path)
-    except (BindingsError, OSError) as exc:
-        logger.warning(
-            "  The served bindings document %s could not be read (%s), so the archive "
-            "seed cannot tell which address carries which monitor's reading. The seeded "
-            "history is the unperturbed machine's.",
-            path,
-            exc,
-        )
-        return None, None
-
-    monitors: dict[str, str] = {}
-    readings: dict[tuple[str, str], str] = {}
-    for binding in document.bindings:
-        if binding.kind != "monitor" or binding.element is None:
-            continue
-        # A monitor serves its reading on its own address and the loader
-        # refuses it a second one, so ``setpoint_address`` is the only spelling
-        # a monitor has -- and it is the one the entrypoint keys its monitor
-        # table on, which is the agreement that lets an offset land where the
-        # container publishes it.
-        address = binding.setpoint_address
-        monitors[address] = binding.element
-        if binding.attribute is not None:
-            readings[binding.element, binding.attribute] = address
-    return monitors, readings
-
-
-def _standin_bpm_error_spec(project_dir: Path) -> str:
-    """The ``VA_BPM_ERRORS`` value the stand-in container will actually run.
-
-    The compose template renders the stand-in's variable as
-    ``"${VA_STANDIN_BPM_ERRORS-<default>}"``, so this mirrors that
-    interpolation exactly, in both of its halves.
-
-    **Presence, not truthiness.** ``-`` substitutes only for an UNSET variable,
-    so a chain that names the key with an EMPTY value gets the empty fault set
-    — an unperturbed stand-in, which is the documented way to run one. Rounding
-    that back up to the shipped default (as ``x or default`` did, mirroring the
-    older ``:-``) would seed a displaced past under a machine the live half is
-    serving clean.
-
-    **The fallback is lattice-conditional**, and the seed reaches it through
-    :func:`~osprey.cli.build_profile_va_faults.effective_standin_bpm_errors`,
-    which resolves the env chain and then asks the rule's one owner,
-    :func:`~osprey.services.virtual_accelerator.manifest.standin_defaults.default_bpm_errors_for_lattice`
-    — the same function the render writes the compose interpolation from. The
-    shipped offsets displace a lattice's model, so a deployment whose chain
-    serves no lattice is handed the empty set by the render and must be seeded
-    as the unperturbed machine it is.
-
-    The project's own ``.env`` is consulted first and the ambient environment
-    second, the same order and for the same reason
-    :func:`_archiver_seed_inputs` resolves ``VA_CHANNELS_FILE``: the build wrote
-    the project's value there, and an exported one is the fallback for a deploy
-    whose environment carries it instead. Only then does the rest of the env
-    chain and the lattice-conditional default get a say.
-    """
-    from osprey.cli.build_profile_va_faults import (
-        STANDIN_BPM_ERRORS_ENV,
-        effective_standin_bpm_errors,
-    )
-
-    env = parse_dotenv_file(project_dir / ".env") if (project_dir / ".env").is_file() else {}
-    for source in (env, os.environ):
-        if STANDIN_BPM_ERRORS_ENV in source:
-            return source[STANDIN_BPM_ERRORS_ENV].strip()
-    return effective_standin_bpm_errors(project_dir, project_dir / BUILD_DIRNAME)
-
-
-def _standin_seed_transform(config: dict, project_dir: Path, addresses: Sequence[str]):
-    """The transform that makes the seeded past belong to the *stand-in*.
-
-    The archive belongs to the machine it records, and a model has no past. A
-    deployment that records its own store beside a stand-in records the
-    stand-in — the ``standin`` target, dialled through its own
-    ``control_system.connector.live_standin`` block, never the facility's
-    authored ``epics`` block — so the deploy-time seed has to carry the
-    stand-in's systematic BPM offsets too, or the store would hold a clean
-    machine's history under a displaced machine's present and every trend
-    across the seam would show a step no operator caused.
-
-    **Applied last, to the synthesized value.** The stand-in reads the beam
-    through its offsets, and the seed subtracts the same offsets from the value
-    it synthesized for that instant. For a monitor the served lattice computes,
-    that value is centred on the solved orbit and carries the machine file's
-    motion (see :func:`_solved_monitor_baselines`), which is what the stand-in
-    reads before its offsets too, so a seeded sample and a recorded one at the
-    same instant agree while no write has moved the orbit.
-
-    Offsets are the only reproducible field, which is why the shipped default
-    carries nothing else: with unit gain and calibration, positive polarity,
-    zero roll and no noise, ``lattice.errors.bpm_read`` reduces to
-    ``reading = truth - offset``. An operator override naming any other field
-    is applied by the container and skipped here, with a warning that names it.
-
-    **Which address a device's offset lands on comes from the served tree**, by
-    way of :func:`_served_monitor_readings`: the bindings say where each
-    monitor publishes its reading and which element it sits at, so the seed
-    displaces the addresses this deployment actually serves rather than a
-    grammar assumed of them. A deployment whose tree binds no monitors seeds
-    the unperturbed machine, which is what it serves.
-
-    :param config: The rendered deploy config, read only through
-        :func:`~osprey_connectors.standin.archive_belongs_to_standin` — the one
-        predicate the recorder's compose entry and its enablement gate bind to,
-        so the seeded half and the recorded half of one collection cannot answer
-        "whose past is this" differently. Its two conjuncts are both needed
-        here: a deployment that stood a stand-in up but runs no recorder never
-        samples it, and seeding that store with a displaced machine's past would
-        describe a machine nothing in this deployment records.
-    :param addresses: The channel set being seeded. Offsets are kept only for
-        addresses in it, so the recorded fingerprint describes what the store
-        actually holds rather than what the spec asked for.
-    :returns: ``(value_transform, transform_fingerprint)`` for
-        :func:`~osprey_connectors.simulation.archiver_seed.seed_base`, both
-        ``None`` when the archive is not the stand-in's or the stand-in perturbs
-        none of the seeded channels — in which case the seed and its fingerprint
-        are byte-identical to a deployment without one.
-    """
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
-        parse_bpm_error_spec,
-    )
-    from osprey_connectors.standin import archive_belongs_to_standin
-
-    if not archive_belongs_to_standin(config):
-        return None, None
-
-    spec = parse_bpm_error_spec(_standin_bpm_error_spec(project_dir))
-    if not spec:
-        return None, None
-
-    monitors, readings = _served_monitor_readings(project_dir)
-    if monitors is None:
-        return None, None
-    elements = frozenset(monitors.values())
-
-    served = set(addresses)
-    offsets: dict[str, float] = {}
-    unreproducible: set[str] = set()
-    unplaceable: set[str] = set()
-    for token, fields in spec.items():
-        # Both spellings the document carries, as the container accepts them:
-        # a published monitor address, or the element a monitor sits at.
-        element = monitors.get(token) or (token if token in elements else None)
-        if element is None:
-            unplaceable.add(token)
-            continue
-        for field, value in fields.items():
-            axis = _STANDIN_OFFSET_AXES.get(field)
-            if axis is None:
-                unreproducible.add(field)
-                continue
-            address = readings.get((element, axis))
-            if address is not None and address in served:
-                offsets[address] = value
-
-    if unplaceable:
-        logger.warning(
-            "  The live stand-in's readout perturbation names %s, which the served "
-            "bindings publish no monitor reading for. The seeded history carries no "
-            "offset for those devices, so the recorded present and the seeded past "
-            "will differ by them.",
-            ", ".join(sorted(unplaceable)),
-        )
-
-    if unreproducible:
-        logger.warning(
-            "The live stand-in's readout perturbation sets "
-            f"{', '.join(sorted(unreproducible))}, which the archive seed cannot reproduce: "
-            "only offsets are a pure subtraction of the synthesized value. The seeded "
-            "history carries the stand-in's offsets and none of those fields, so the "
-            "recorded present and the seeded past will differ by them."
-        )
-
-    if not offsets:
-        return None, None
-
-    def subtract_offsets(address: str, values: Sequence[Any]) -> Sequence[Any]:
-        """``reading = truth - offset`` for a perturbed BPM, others untouched."""
-        offset = offsets.get(address)
-        if offset is None:
-            return values
-        return [float(value) - offset for value in values]
-
-    return subtract_offsets, {"kind": _STANDIN_TRANSFORM_KIND, "offsets": dict(offsets)}
-
-
 def _archiver_seed_inputs(config: dict, project_dir: Path):
-    """The channel set, engine and boot values one base seed is built from.
+    """The archive composite one base seed is built from.
 
     Every import here is function-local. The seeder pulls in numpy and the
     simulation package, and hoisting either into this module's import path would
     put a scientific-stack import on every deploy-verb invocation, archiver
     or not.
 
-    The channel set is the build-generated manifest the Virtual Accelerator and
-    the recorder both read, resolved exactly as they resolve it
-    (``VA_CHANNELS_FILE``, relative names against ``data/simulation/``), so the
-    seeded history covers precisely the channels the live half serves. It is read
-    from the project's own ``.env`` first, because that is where the build wrote
-    it; the ambient value is the fallback for a deploy whose environment carries
-    it instead. Neither naming a manifest is a refusal, never the framework's
-    bundled channel set: a seed of another facility's namespace under this
-    deployment's name is indistinguishable, in the archive, from history.
+    The channel set and every value come from the render's simulator view, the
+    same view the Virtual Accelerator serves, so the seeded history covers
+    precisely the channels the live half serves and holds what it serves at
+    each instant. The composite is built at the active set and anchor the
+    scenario state file records. A render with no simulator view is a refusal:
+    a seed of a namespace the deployment does not serve is indistinguishable,
+    in the archive, from history.
 
-    The value transform rides along because it is decided from the same two
-    things this already has in hand — the config and the project's env chain —
-    and because a seed built without it would describe a different machine than
-    the recorder is sampling (see :func:`_standin_seed_transform`).
+    The archive is the same whichever machine it belongs to: a stand-in serves
+    the shared active set exactly as the sandbox does.
 
-    A monitor reading the served lattice computes is centred on the orbit that
-    lattice solves (:func:`_solved_monitor_baselines`) rather than on the level
-    ``machine.json`` declares for it: the engine is built with those levels as
-    its baselines, and the boot values carry them for a reading the machine
-    file does not describe. The file itself is never rewritten. Because the
-    rebased values are different stored values, the fingerprint says so.
-
-    :returns: ``(channels, engine, boot_values, value_transform,
-        transform_fingerprint)``. ``engine`` is ``None`` and ``boot_values``
-        empty for a project with no machine model — every channel is then
-        procedural, which is a valid configuration, not a fault. The transform
-        is ``None`` unless this deployment's archive is its stand-in's; the
-        fingerprint is ``None`` unless it is, or the seed is rebased on a
-        solved orbit.
-    :raises RuntimeError: Nothing names a manifest to seed from.
+    :returns: The archive composite
+        (:class:`~osprey_connectors.simulation.archive.ArchiveComposite`).
+    :raises RuntimeError: The render carries no simulator view.
+    :raises ViewSchemaError: The render's view is from an older build.
     """
-    from osprey.services.virtual_accelerator.manifest.loaders import (
-        load_machine_json_channels,
-        load_manifest_file,
-    )
-    from osprey.simulation.engine import SimulationEngine, resolve_state_dir
-    from osprey.simulation.machine import read_machine_json
-    from osprey_connectors.simulation.engine import resolve_simulation_file
+    from osprey.simulation.apply import persisted_scenario_anchor
+    from osprey_connectors.simulation.archive import build
+    from osprey_connectors.simulation.state import read_active_state
+    from osprey_connectors.simulation.view import SimulatorView
+    from osprey_connectors.workspace import resolve_simulation_state_dir
 
-    env = parse_dotenv_file(project_dir / ".env") if (project_dir / ".env").is_file() else {}
-    named = (env.get("VA_CHANNELS_FILE") or os.environ.get("VA_CHANNELS_FILE") or "").strip()
-    if named:
-        manifest_path = Path(named)
-        if not manifest_path.is_absolute():
-            # The render's data dir, not the source zone: the build generates
-            # the manifest into `build/data/simulation` only, and that is the
-            # directory the VA and recorder containers mount as /data/simulation
-            # — so it is the one place a relative VA_CHANNELS_FILE can name the
-            # same channel set the live half serves.
-            manifest_path = project_dir / BUILD_DIRNAME / "data" / "simulation" / manifest_path
-        channels = load_manifest_file(manifest_path)
-    else:
+    view = SimulatorView.find(project_dir)
+    if view is None:
         raise RuntimeError(
-            "The archiver seed has no channel set to build from: VA_CHANNELS_FILE is unset "
-            f"in {project_dir / '.env'} and in the environment. `osprey build` writes it "
-            "whenever it generates the channel manifest; the seed never falls back to the "
-            "framework's bundled channel set."
+            "The archiver seed has no channel set to build from: no simulator view in "
+            f"{SimulatorView.path_for_project(project_dir)}. "
+            "Run `osprey build`; the seed never invents a namespace."
         )
-
-    transform, transform_fingerprint = _standin_seed_transform(
-        config, project_dir, [str(channel["address"]) for channel in channels]
-    )
-
-    machine_path, _, _, _ = resolve_simulation_file(config, project_dir)
-    if machine_path is None or not machine_path.is_file():
-        return channels, None, {}, transform, transform_fingerprint
-
-    state_dir = resolve_state_dir(config, project_dir)
-    baselines = _solved_monitor_baselines(project_dir, channels)
-    if baselines:
-        # Built directly rather than through the engine cache: this engine's
-        # machine is not the file's as written, and a cached one would hand
-        # the rebased levels to every other reader of the same file.
-        resolved = machine_path.expanduser().resolve()
-        engine = SimulationEngine(
-            read_machine_json(resolved),
-            resolved,
-            state_dir=Path(state_dir).expanduser().resolve(),
-            baselines=baselines,
-        )
-        transform_fingerprint = _baselines_fingerprint(baselines, transform_fingerprint)
-    else:
-        engine = SimulationEngine.from_file(machine_path, state_dir=state_dir)
-    # The same map the Virtual Accelerator boots its records from: machine.json's
-    # static channel values, skipping the handful of derived channels that carry
-    # an expression instead. Anchoring the procedural generator on it is what
-    # makes a seeded sample and a recorded one describe the same machine.
-    boot_values = {
-        address: entry["value"]
-        for address, entry in load_machine_json_channels(machine_path).items()
-        if "value" in entry
-    }
-    boot_values.update(baselines)
-    return channels, engine, boot_values, transform, transform_fingerprint
+    names, _ = read_active_state(resolve_simulation_state_dir(config, project_dir))
+    anchor = persisted_scenario_anchor(config, project_dir)
+    return build(view, names, anchor_s=None if anchor is None else anchor.timestamp())
 
 
-def _reapply_active_scenarios(config: dict, project_dir: Path, engine) -> None:
+def _reapply_active_scenarios(config: dict, project_dir: Path) -> None:
     """Re-apply the active scenario set onto a freshly rebuilt base.
 
     A reseed rewrites the whole base series, which erases the event windows the
     active scenarios had written into it. Without this the deployment would come
     back up claiming a fault is active while its history showed a clean machine —
     precisely the divergence the stored archiver exists to remove.
+
+    The set is the one the scenario state file records, re-applied at the anchor
+    it records. A render with no simulator view has no scenarios to re-apply.
 
     The logbook is deliberately left alone: a knob change rebuilds the archive,
     not the narrative, and purging ARIEL's entries here would destroy history
@@ -5350,14 +4812,21 @@ def _reapply_active_scenarios(config: dict, project_dir: Path, engine) -> None:
 
     :raises RuntimeError: if the re-apply fails, naming the command that fixes it.
     """
-    from osprey.simulation.apply import apply_scenarios, persisted_scenario_anchor
-    from osprey.simulation.engine import DEFAULT_SCENARIO
+    from osprey.simulation.apply import (
+        apply_scenarios,
+        persisted_scenario_anchor,
+        view_scenarios,
+    )
+    from osprey_connectors.simulation.state import read_active_state, resolve_active_scenarios
+    from osprey_connectors.workspace import resolve_simulation_state_dir
 
-    if engine is None:
-        logger.debug("No machine model in this project; no scenarios to re-apply after the reseed")
+    if view_scenarios(project_dir) is None:
+        logger.debug("No simulator view in this project; no scenarios to re-apply after the reseed")
         return
 
-    names = engine.active_scenarios()
+    names = resolve_active_scenarios(
+        read_active_state(resolve_simulation_state_dir(config, project_dir))[0]
+    )
     # The anchor the running world is already on: re-anchoring here would slide
     # the live VA's events, the logbook and the archive's windows to a T0 nobody
     # asked for, as a side effect of a deploy meant to rebuild only the store.
@@ -5365,9 +4834,11 @@ def _reapply_active_scenarios(config: dict, project_dir: Path, engine) -> None:
     try:
         result = apply_scenarios(project_dir, names, seed_logbook=False, now=anchor)
     except Exception as exc:
-        # `nominal` is implicit, so the recovery command names the faults — which
-        # is what the operator activated and what `sim apply` expects back.
-        faults = [name for name in names if name != DEFAULT_SCENARIO] or [DEFAULT_SCENARIO]
+        # `nominal` leads the set and is implicit, so the recovery command names
+        # the faults — which is what the operator activated and what `sim apply`
+        # expects back.
+        nominal, *faults = names
+        faults = faults or [nominal]
         raise RuntimeError(
             "The base series was rebuilt but the active scenarios could not be "
             "re-applied, so the archive currently shows a clean machine while the "
@@ -5463,7 +4934,7 @@ def _wait_for_archiver_store(
 
 
 def _seed_progress_reporter():
-    """A :func:`~osprey.simulation.archiver_seed.seed_base` progress callback.
+    """A :func:`~osprey_connectors.simulation.archive.seed_base` progress callback.
 
     Each firing becomes a step line under the verb's open phase, so a first
     deploy's multi-minute seed reports as it goes instead of stalling silently.
@@ -5545,7 +5016,7 @@ def _stage_archiver_store(
 
     Whatever the base, the active scenarios' event windows are re-applied onto a
     rebuilt one, and onto a matching one when this deploy has just activated the
-    machine's default scenarios (which that base has never seen).
+    default scenarios (which that base has never seen).
 
     Both rebuild paths quiesce the recorder first. It is one operation — stop the
     writer, drop the collection, rebuild it, re-apply the active scenarios — and
@@ -5562,12 +5033,12 @@ def _stage_archiver_store(
     :param provider: The compose provider this deploy resolved, so the staging
         invocation is shaped like the ``up`` that follows it. ``None`` is the
         docker shape.
-    :param scenarios_activated: Whether this deploy just activated the machine's
-        default scenarios (see :func:`_activate_default_scenarios`).
+    :param scenarios_activated: Whether this deploy just activated the
+        ``simulation.default_scenarios`` set (see :func:`_activate_default_scenarios`).
     :raises RuntimeError: if the store cannot be reached or authenticated.
     """
     from osprey.simulation.apply import archiver_collection
-    from osprey.simulation.archiver_seed import (
+    from osprey_connectors.simulation.archive import (
         SeedKnobs,
         SeedState,
         compare_fingerprint,
@@ -5616,18 +5087,11 @@ def _stage_archiver_store(
     _report_step("archiver store started")
 
     # Assembled while the store boots, and before the health budget starts: this
-    # reads a manifest and a machine model off disk, and charging that time
-    # against the store's start-up allowance would make a slow disk look like an
-    # unreachable server.
-    channels, engine, boot_values, value_transform, transform_fingerprint = _archiver_seed_inputs(
-        config, project_dir
-    )
-    fingerprint = seed_fingerprint(
-        knobs,
-        (str(channel["address"]) for channel in channels),
-        compression=compression,
-        transform_fingerprint=transform_fingerprint,
-    )
+    # builds the archive composite, one solve per physics model, and charging
+    # that time against the store's start-up allowance would make a slow solve
+    # look like an unreachable server.
+    archive = _archiver_seed_inputs(config, project_dir)
+    fingerprint = seed_fingerprint(knobs, archive.addresses, compression=compression)
 
     store_hint = f"{store['username']}@{store['host']}:{store['port']}"
     with archiver_collection(store) as collection:
@@ -5641,7 +5105,7 @@ def _stage_archiver_store(
             if scenarios_activated:
                 # Rare enough (once per deployment) that holding this idle
                 # client across the rewrite costs nothing worth restructuring for.
-                _reapply_active_scenarios(config, project_dir, engine)
+                _reapply_active_scenarios(config, project_dir)
             return
 
         if comparison.state is SeedState.MISMATCH:
@@ -5686,26 +5150,22 @@ def _stage_archiver_store(
         # Before the work, not after it: this is the only warning an operator
         # gets that the next thing to happen is measured in minutes.
         _report_step(
-            f"seeding the archive base: {len(channels):,} channels over "
+            f"seeding the archive base: {len(archive.addresses):,} channels over "
             f"{knobs.retention_days} days (minutes on a first deploy)"
         )
         report = seed_base(
             collection,
-            channels,
+            archive,
             knobs,
             t0=datetime.now(UTC),
-            engine=engine,
-            boot_values=boot_values,
             compression=compression,
             progress=_seed_progress_reporter(),
-            value_transform=value_transform,
-            transform_fingerprint=transform_fingerprint,
         )
         _report_step(f"archive base: {report.describe()}")
 
     # Outside the store connection: re-applying opens its own, and holding this
     # one across it would keep an idle client alive for the whole rewrite.
-    _reapply_active_scenarios(config, project_dir, engine)
+    _reapply_active_scenarios(config, project_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -5849,7 +5309,7 @@ def _stage_ariel_store(
         invocation is shaped like the ``up`` that follows it. ``None`` is the
         docker shape.
     :param scenarios_activated: The scenario set this deploy just activated as
-        the machine's default, empty when it activated none. A logbook that
+        ``simulation.default_scenarios``, empty when it activated none. A logbook that
         already holds entries keeps them, and the warning names the command that
         brings in that set's narrative.
     """
@@ -5902,7 +5362,7 @@ def _stage_ariel_store(
     if seeded:
         _report_step(f"logbook seeded: {seeded} entries")
     elif scenarios_activated:
-        from osprey.simulation.engine import DEFAULT_SCENARIO
+        from osprey_connectors.simulation.state import DEFAULT_SCENARIO
 
         faults = " ".join(name for name in scenarios_activated if name != DEFAULT_SCENARIO)
         logger.warning(
@@ -5913,7 +5373,7 @@ def _stage_ariel_store(
 
 
 def _activate_default_scenarios(config: dict, project_dir: Path) -> tuple[str, ...]:
-    """Activate the machine's default scenarios when the deployment never chose a set.
+    """Activate ``simulation.default_scenarios`` when the deployment never chose a set.
 
     Run before the archiver and ARIEL stages, which then seed the history and the
     narrative of the set written here. Never fatal: a deployment whose defaults
@@ -5930,9 +5390,9 @@ def _activate_default_scenarios(config: dict, project_dir: Path) -> tuple[str, .
         active = activate_default_scenarios(config, project_dir)
     except Exception as exc:  # reported, never fatal (see docstring)
         logger.warning(
-            f"The machine's default scenarios could not be activated, so this deployment "
-            f"runs `nominal` only. Run `osprey sim apply <names>` from {project_dir} to "
-            f"choose a set. Cause: {exc}"
+            f"The default scenarios (simulation.default_scenarios) could not be activated, "
+            f"so this deployment runs `nominal` only. Run `osprey sim apply <names>` from "
+            f"{project_dir} to choose a set. Cause: {exc}"
         )
         return ()
     if active:
@@ -5963,13 +5423,6 @@ _GRAPHDB_HEALTH_POLL_S = 2.0
 # Cypher. Deliberately not a count of anything: the wait is about reachability,
 # and a query whose cost grows with the graph would make a big store look down.
 _GRAPHDB_PING_CYPHER = "RETURN 1 AS ok"
-
-# The one command that finishes the job by hand, named in every warning below
-# and by the graphdb health category's remedy text, so an operator reading
-# either is pointed at the same verb. Imported from the module both sides
-# already share their vocabulary through, rather than spelled here a second
-# time: two copies would agree only until one of them was edited.
-_GRAPHDB_RECOVERY_HINT = GRAPHDB_SEED_COMMAND
 
 
 def _graphdb_store_deployed(config: dict) -> bool:
@@ -6039,13 +5492,12 @@ def _graphdb_ttl_text(ttl_path: str, project_dir: Path) -> tuple[Path, str]:
     written, a relative one resolved against the ``config.yml`` directory
     (:func:`osprey.utils.config_paths.resolve_render_relative_path`) — the
     one config-relative key that is, because the corpus it names is an
-    artifact of the render: the documented default,
-    ``./data/demo_machine.ttl``, is read from the ``data/`` tree the build
-    assembled for this project, so a corpus regenerated into the profile's
-    data tree reaches the store on the next build like every other rendered
-    artifact. ``osprey knowledge seed-graph`` reads the same key by the same
-    rule; two resolutions of one key would mean the deploy and the verb could
-    seed a store from different files while both reporting success.
+    artifact of the render: the derived value, ``./data/graph/facility.ttl``,
+    is the graph view the build wrote from the facility file, so a facility
+    file changed in the profile's data tree reaches the store on the next build
+    like every other rendered artifact. The build derives the channel search
+    index from the same key by the same rule; two resolutions of one key would
+    mean the store and the index could come from different files.
 
     :param ttl_path: The configured ``services.graphdb.ttl_path`` value.
     :param project_dir: Root of the built project.
@@ -6095,33 +5547,46 @@ def _wait_for_graphdb_store(connection, deadline: float) -> None:
 
 
 def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> None:
-    """Bootstrap the staged store and, on a first bring-up only, import its corpus.
+    """Bootstrap the staged store and make it hold exactly the configured corpus.
 
     One session for the whole sequence, and each step gated on the one before:
 
     * **bootstrap** — always, and idempotent. A store whose graph config is not
       osprey's (:attr:`~osprey.services.facility_knowledge.seeder.graph_seeder.BootstrapStatus.DIFFERS`)
-      is reported and left alone: n10s refuses to re-initialize a configured
-      store, so importing into it would load a corpus under assumptions about the
-      graph's shape that do not hold. Only ``--force`` can resolve that, and only
-      by wiping — which a deploy does not get to do to data it did not write.
-    * **seed** — only into an EMPTY graph (zero ``(:Resource)`` nodes, n10s's own
-      bookkeeping not counted), and only when a corpus is configured. A deploy may
-      fill a blank; it may not overwrite a graph somebody seeded.
+      does not hold this corpus whatever its marker says: n10s refuses to
+      re-initialize a configured store, so it is replaced like a stamp mismatch.
+    * **stamp** — the store's ``(:_OspreySeed)`` marker is compared with
+      ``ttl_sha256`` of the configured corpus. Equal means the store holds this
+      corpus: its data is left as it is and only the prompt snapshot is re-baked.
+      Any other value, a missing marker included, means it does not: the store is
+      wiped, bootstrapped again (the wipe removes n10s's config with the data),
+      and the corpus imported.
     * **marker** — only after the import reports success. n10s commits in batches,
-      so a failed import leaves triples behind; a marker written regardless would
-      label that half-graph a good seed and every later run would report it
-      unchanged and skip it forever.
+      so a failed import leaves triples behind; a store left without a marker
+      reads as a mismatch, so the next deploy replaces it again.
+
+    ``osprey build`` names a corpus in every rendered ``services.graphdb``
+    block, so a block without one is a render defect, refused before the store
+    is touched.
 
     :param config: Raw deploy config.
     :param project_dir: Root of the built project.
     :param connection: The resolved graph-store connection.
+    :raises ValueError: If the rendered block names no corpus.
     """
-    from osprey.deployment.graphdb_service import resolve_graphdb_service_config
+    from osprey.deployment.graphdb_service import (
+        GRAPHDB_TTL_PATH_CONFIG_KEY,
+        resolve_graphdb_service_config,
+    )
     from osprey.services.facility_knowledge.seeder import graph_seeder
 
     settings = resolve_graphdb_service_config(config)
     ttl_path = settings.ttl_path if settings is not None else None
+    if ttl_path is None:
+        raise ValueError(
+            f"the rendered config names no {GRAPHDB_TTL_PATH_CONFIG_KEY}. "
+            "Run `osprey build` to render it."
+        )
 
     with graph_seeder.open_session(
         connection.uri,
@@ -6130,52 +5595,39 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
         database=connection.database,
     ) as session:
         bootstrapped = graph_seeder.bootstrap(session)
-        if not bootstrapped.ok:
-            logger.warning(
-                f"The graph store came up, but its {bootstrapped.message}. Nothing was "
-                f"imported, so its contents are whatever was already there. Run "
-                f"`{_GRAPHDB_RECOVERY_HINT} --force` from {project_dir} to wipe it and "
-                f"re-seed under osprey's settings."
-            )
-            return
-        _report_step("graph store bootstrapped")
+        if bootstrapped.ok:
+            _report_step("graph store bootstrapped")
 
-        if graph_seeder.resource_count(session) > 0:
-            # The normal second-deploy path: a graph that already carries a
-            # corpus is left exactly as it is, and silently — this is not a
-            # problem, and a warning here would cry wolf on every redeploy.
-            # The rendered agent prompt is NOT left as it is: this deploy's
-            # build reset it to the placeholder, so it is re-baked from the
-            # live store on every up — which is what keeps prompt and store in
-            # sync by construction rather than by convention.
+        resolved, text = _graphdb_ttl_text(ttl_path, project_dir)
+        digest = graph_seeder.ttl_sha256(text)
+        if bootstrapped.ok and graph_seeder.read_marker(session) == digest:
+            # The normal redeploy path, and silent: the store already holds this
+            # corpus. The rendered agent prompt is re-baked regardless, because
+            # this deploy's build reset it to the placeholder.
             _bake_graph_prompt_snapshot(session, project_dir)
             return
 
-        if ttl_path is None:
-            _report_fact(
-                "graph store bootstrapped but not seeded: no services.graphdb.ttl_path "
-                f"is configured. Set one and run `{_GRAPHDB_RECOVERY_HINT}` to import a "
-                "corpus."
+        graph_seeder.wipe(session)
+        rebootstrapped = graph_seeder.bootstrap(session)
+        if not rebootstrapped.ok:
+            logger.warning(
+                f"The graph store was wiped, but its {rebootstrapped.message}. Nothing "
+                f"was imported. Run `{GRAPHDB_REBUILD_HINT}` from {project_dir}."
             )
             return
 
-        resolved, text = _graphdb_ttl_text(ttl_path, project_dir)
         imported = graph_seeder.import_ttl(session, text)
         if not imported.ok:
             logger.warning(
                 f"The graph store came up but importing {resolved} failed "
                 f"({imported.termination_status}: {imported.extra_info}), so graph queries "
                 f"will return little or nothing. Everything else in this deploy is "
-                f"unaffected. Fix the corpus and run `{_GRAPHDB_RECOVERY_HINT} --force` "
+                f"unaffected. Fix the corpus and run `{GRAPHDB_REBUILD_HINT}` "
                 f"from {project_dir}."
             )
             return
 
-        graph_seeder.write_marker(
-            session,
-            graph_seeder.ttl_sha256(text),
-            graph_seeder.parse_direction_source(text),
-        )
+        graph_seeder.write_marker(session, digest)
         _report_step(f"graph seeded: {imported.triples_loaded} triples")
         _bake_graph_prompt_snapshot(session, project_dir)
 
@@ -6207,7 +5659,7 @@ def _bake_graph_prompt_snapshot(session, project_dir: Path) -> None:
 
 
 def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=None) -> None:
-    """Start the graph store, bootstrap it, and seed it on a first bring-up.
+    """Start the graph store, bootstrap it, and seed it whenever its marker differs.
 
     The knowledge-graph counterpart of :func:`_stage_ariel_store`, and staged
     ahead of the full bring-up for the same kind of reason: a store that comes up
@@ -6220,8 +5672,8 @@ def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=No
     one search surface among many, and a control room whose channels, plan runs
     and archive are all up should not be denied them because its graph could not
     be provisioned — but every warning names
-    ``osprey knowledge seed-graph`` (see :data:`_GRAPHDB_RECOVERY_HINT`), so the
-    gap is never silent.
+    :data:`~osprey.deployment.graphdb_service.GRAPHDB_REBUILD_HINT`, so the gap
+    is never silent.
 
     :param config: Raw deploy config.
     :param compose_files: Rendered compose file paths for this deploy.
@@ -6260,7 +5712,7 @@ def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=No
         logger.warning(
             f"The graph store could not be bootstrapped or seeded, so graph queries will "
             f"return nothing. Everything else in this deploy is unaffected. Run "
-            f"`{_GRAPHDB_RECOVERY_HINT}` from {project_dir} once the store is reachable. "
+            f"`{GRAPHDB_REBUILD_HINT}` from {project_dir} once the store is reachable. "
             f"Cause: {exc}"
         )
         return
@@ -6829,13 +6281,6 @@ def _start_stack(
     # because there is no point reporting on a chain the render does not match.
     _preflight_env_chain_drift(compose_files, repo_root)
 
-    # Refuse a chain the build's own keys have gone missing from: the build
-    # writes VA_CHANNELS_FILE and VA_LATTICE together whenever it generates a
-    # channel manifest, so a manifest on disk beside a chain without them is a
-    # lost key, and the container would exit on the empty value. Reads only
-    # this deployment's own files, so it sits with the other refusals that do.
-    _preflight_build_derived_env(compose_files, repo_root)
-
     # Which compose implementation is behind the resolved runtime, answered once
     # for every invocation this start makes: the env-file fragment, the argv,
     # the subprocess environment and the precedence the warning below states are
@@ -6948,8 +6393,8 @@ def _start_stack(
     # No-op unless this project deploys the store itself. Anchored on the repo
     # root: the single root `.env` is the secret store the seeder authenticates
     # from, and every compose invocation on this path reads it with --env-file.
-    # A deployment that never chose a scenario set starts in the one its machine
-    # model names, activated before the two stages below so the archive and the
+    # A deployment that never chose a scenario set starts in the one its profile
+    # names, activated before the two stages below so the archive and the
     # logbook are seeded with that set's history and narrative.
     activated = _activate_default_scenarios(config, Path(repo_root))
 

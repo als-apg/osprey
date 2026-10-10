@@ -84,7 +84,10 @@ def _rendered(**overrides: Any) -> dict[str, Any]:
         A fresh mapping in the shape ``yaml.safe_load`` produces.
     """
     document: dict[str, Any] = {
-        "control_system": {"type": "mock"},
+        "control_system": {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"serving": "in_process"}},
+        },
         "archiver": {"type": "mock_archiver"},
         "approval": {"enabled": True, "default_policy": "always"},
         "claude_code": {"telemetry": {"enabled": True}},

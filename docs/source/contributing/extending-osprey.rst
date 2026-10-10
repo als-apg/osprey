@@ -256,62 +256,75 @@ side. Deployer view: :doc:`/how-to/web-terminal/multi-user/login`.
 LUME model
 ----------
 
-The virtual accelerator serves one ``lume.model.LUMEModel``, chosen by the
-module the container runs. The shipped
-``osprey.services.virtual_accelerator.entrypoint`` builds
-``osprey.services.virtual_accelerator.model.pyat.PyATRingModel`` over the
-served tree's lattice, or the floor,
-``osprey.services.virtual_accelerator.serving.model_stub.NullModel``, which
-serves a channel list and no physics. A different pyAT deck needs no code (see
-"Bringing your own model" on :doc:`/architecture/virtual-accelerator`). A
-different backend is a replacement entrypoint module named in
-``VA_ENTRYPOINT_MODULE``. For a shipped model wrapped so that setpoint writes
-carry a calibration and push recomputed readings back onto their channels, see
-``osprey.services.virtual_accelerator.serving.write_path.SetpointRoutedModel``.
+The virtual accelerator serves one composite, and each physics model under it
+is a ``lume.model.LUMEModel`` built by an *engine plug-in*. The container
+always runs the shipped ``osprey.services.virtual_accelerator.entrypoint``; a
+different physics backend is a different plug-in, never a different
+entrypoint. A different pyAT deck needs no code at all (see "Bringing your own
+model" on :doc:`/architecture/virtual-accelerator`). The shipped pyat plug-in,
+``osprey.simulation.engines.pyat``, is the reference implementation.
 
-A replacement entrypoint honours the same contract as the shipped one, which
-is its reference implementation:
+What a plug-in is given and asked for:
 
-- **Runnable and importable.** The container runs it as
-  ``python -u -m <module>``, so it is importable in the image and has a
-  ``__main__`` guard, or is a package with a ``__main__.py``. Its image is one
-  the facility builds on top of OSPREY's, because the stock image installs
-  OSPREY and nothing else.
-- **The same inputs.** The data directory is ``VA_DATA_DIR``, default
-  ``/data/simulation``. The channel manifest ``VA_CHANNELS_FILE`` is required
-  and resolved against that directory, and the manifest is the served
-  namespace. ``VA_LATTICE`` and ``VA_STATE_DIR`` are set too. Channel Access is
-  served on ``EPICS_CAS_SERVER_PORT``, which the image's command exports from
-  ``EPICS_CA_SERVER_PORT``, and pvAccess on ``EPICS_PVAS_SERVER_PORT``. The
-  deployment's health check is a TCP connect to the Channel Access port and
-  nothing more.
-- **Clamp writes to the drive bands.** The shipped entrypoint reads
-  ``channel_limits.json`` from the data directory and hands the bands to the
-  runner, which clamps every written value into its band before anything else
-  happens to it (the clamp is
-  ``osprey.services.virtual_accelerator.serving.write_path.clamp_into``). A
-  replacement that builds its own server without them serves setpoints with no
-  band on the IOC side. The connector's own ``limits_checking`` is separate and
-  unchanged.
-- **Announce readiness.** Once every boot value is on the wire, print one line
-  starting with ``osprey.services.virtual_accelerator.entrypoint.READY_MARKER``
+- **Registration.** A plug-in is a module registered under the
+  ``osprey.simulation.engines`` entry-point group in its package's own
+  ``pyproject.toml``, under the name a model record's ``engine`` gives. The
+  composite looks it up with ``metadata.entry_points(group=ENGINE_GROUP,
+  name=...)``; an engine no package registers fails that model.
+- **Build-time contract.** ``osprey build`` calls four pure functions of the
+  module, none of which builds a model: ``locate`` gives an element's place
+  along the deck, ``prepare`` checks the deck against the model's settings,
+  ``start_values`` derives each wired channel's operating point from the deck,
+  and ``describe(record)`` says what one wiring record is. ``describe``
+  returns ``{role, plane, refresh}``: ``role`` is ``setpoint``, ``readback``,
+  ``monitor`` or ``output``; ``plane`` is ``x`` or ``y`` for a record that
+  steers or reads one transverse plane, else ``None``; ``refresh`` is
+  ``pass`` for a value each write's solve updates, or ``periodic`` for one
+  only the periodic solve publishes. The build stamps the description into each wiring record
+  of the simulator view, so no reader re-derives it from engine attributes.
+- **Build.** The composite calls the module's
+  ``build(model, wiring, deck, settings, active=...)`` once per served model.
+  ``wiring`` is the model's wiring records from the simulator view's
+  ``variables.json``, ``deck`` is the path of the model's deck,
+  ``decks/<model>.<its suffix>``, or ``None`` for a model that names none,
+  ``settings`` is the model record's settings, and ``active`` holds the active
+  scenarios' setpoint values and fault seeds. It returns the ``LUMEModel``.
+- **Set and get.** The composite reaches the model only through its ``set()``
+  and ``get()``. Each variable is named for the channel address its wiring
+  record claims, so a plug-in parses no channel names.
+- **Report a failed build.** A ``build`` that raises leaves the model failed:
+  its ``<code>:SIM:<model>:STATUS`` channel carries the text the module's
+  optional ``error_text(exc)`` gives, else the exception's own text, and the
+  rest of the namespace is still served.
+
+What the container keeps the same for every engine:
+
+- **The environment.** ``VA_INSTANCE`` is required; ``VA_DATA_DIR`` (default
+  ``/data``) is the data root the simulator view sits under; ``VA_STATE_DIR``,
+  ``VA_POLL_INTERVAL_S`` and ``VA_MODEL_WRITE_TOKEN`` are read as the
+  entrypoint describes them. Channel Access is served on
+  ``EPICS_CAS_SERVER_PORT``, which the image's command exports from
+  ``EPICS_CA_SERVER_PORT``.
+- **Clamping.** The runner clamps every written setpoint into the
+  ``value_range`` the view's limits records give it before anything else
+  happens to the value. The connector's own ``limits_checking`` is separate
+  and unchanged.
+- **The ready line.** Once the first publishing pass has published, the
+  entrypoint prints one line starting with
+  ``osprey.services.virtual_accelerator.entrypoint.READY_MARKER``
   (``virtual accelerator IOC serving PVs``), followed by ``: <N> channels``.
   The image boot check and the container test fixtures wait on that line and
-  read the count out of it.
-- **Leave on SIGTERM.** The image's command ``exec``\ s Python, so the module
-  is the container's first process and receives ``docker stop``'s SIGTERM
-  itself. A first process with no handler for it ignores it and is killed when
-  the stop timeout runs out. The shipped entrypoint installs handlers for
-  SIGINT and SIGTERM once its servers are up, and they leave through the
+  read the count out of it. A first pass that fails exits non-zero without
+  it.
+- **SIGTERM.** The image's command ``exec``\ s Python, so the entrypoint is
+  the container's first process and receives ``docker stop``'s SIGTERM
+  itself; it handles SIGTERM as it handles SIGINT and leaves through the
   runner's own exit.
-- **One module for every instance.** With a live stand-in, both containers
-  run the same image and the same ``VA_ENTRYPOINT_MODULE``.
+- **One image for every instance.** With a live stand-in, both containers run
+  the same image and the same entrypoint; ``VA_INSTANCE`` tells them apart.
 
-The seam is guarded in both directions: ``tests/va/test_facility_seam.py``
-pins that a facility without a lattice boots with no accelerator-physics
-imports on the path at all, and ``tests/va/test_pyat_ring_model.py`` covers
-the shipped ring model. How to deploy a replacement is in
-:ref:`va-serving-your-own-model`.
+``tests/va/test_entrypoint.py`` pins what the shipped entrypoint reads and
+refuses. How to deploy a plug-in is in :ref:`va-serving-your-own-model`.
 
 .. _extending-agent-harness:
 

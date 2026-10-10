@@ -9,18 +9,6 @@
  */
 
 /**
- * Whether a hierarchy level is a tree-type (editable) level.
- * Unknown/unconfigured levels default to tree.
- * @param {any} levelsConfig - `hierInfo.hierarchy_config.levels` (map keyed by level name).
- * @param {string} levelName
- * @returns {boolean}
- */
-export function isTreeLevel(levelsConfig, levelName) {
-  if (!levelsConfig || !levelsConfig[levelName]) return true;  // default to tree
-  return levelsConfig[levelName].type === 'tree';
-}
-
-/**
  * @typedef {object} SelectionResult
  * @property {string[]} selectedValues - New selected values for the target column.
  * @property {string|string[]|null} selectionValue - What to store in selections[level]

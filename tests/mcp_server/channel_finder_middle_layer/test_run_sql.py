@@ -61,6 +61,32 @@ def test_query_returns_columns_rows_and_count(tmp_path):
     assert data["rows"][0] == {"channel_name": "SR:BPM1:X", "description": "horizontal position"}
 
 
+def test_an_umbrella_family_and_its_member_family_share_a_channel(tmp_path):
+    """A served index files a channel under every family it belongs to."""
+    from osprey.services.channel_finder.databases.duckdb_import import import_to_duckdb
+
+    index = tmp_path / "middle_layer.json"
+    index.write_text(
+        json.dumps(
+            {
+                "SR": {
+                    "BPM": {"X": {"ChannelNames": ["SR:BPM1:X"]}},
+                    "DIAG": {"X": {"ChannelNames": ["SR:BPM1:X", "SR:DCCT:I"]}},
+                }
+            }
+        )
+    )
+    db = tmp_path / "middle_layer.duckdb"
+    import_to_duckdb(str(index), str(db))
+
+    def family(name: str) -> list[str]:
+        sql = f"SELECT channel_name FROM channels WHERE family = '{name}' ORDER BY channel_name"
+        return [row["channel_name"] for row in json.loads(_run(sql, str(db)))["rows"]]
+
+    assert family("BPM") == ["SR:BPM1:X"]
+    assert family("DIAG") == ["SR:BPM1:X", "SR:DCCT:I"]
+
+
 def test_query_caps_and_flags_truncation(tmp_path):
     """More rows than the cap are capped at it and flagged truncated.
 

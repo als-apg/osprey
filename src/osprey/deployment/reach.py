@@ -73,7 +73,6 @@ from osprey.bluesky_bridge_connection import (
     lane_env_prefix,
 )
 from osprey.deployment.graphdb_service import (
-    GRAPHDB_INDEX_PATH_CONFIG_KEY,
     GRAPHDB_PASSWORD_ENV,
     GRAPHDB_PORT_CONFIG_KEY,
     GRAPHDB_SERVICE_NAME,
@@ -511,10 +510,20 @@ def _va_connector_on(config: Mapping[str, Any]) -> bool:
     session that switches to it, and its persona renders still have to be told
     the port that session would dial; gating on the baseline withheld the
     projection from exactly those renders.
-    """
-    from osprey_connectors.types import TARGET_VA
 
-    return _target_configured(config, TARGET_VA)
+    And the ``va`` it resolves to talks to a network: the simulator served in
+    process lives inside the process that asks, so there is no container port
+    for a session to dial and none is projected.
+    """
+    from osprey_connectors.types import TARGET_VA, resolve_target, talks_to_network
+
+    if not _target_configured(config, TARGET_VA):
+        return False
+    section = as_dict(config).get("control_system")
+    try:
+        return talks_to_network(section, resolve_target(section, TARGET_VA))
+    except ValueError:
+        return False
 
 
 def _live_standin_on(config: Mapping[str, Any]) -> bool:
@@ -929,12 +938,12 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         ),
         credentials=(CredentialGrant(GRAPHDB_PASSWORD_ENV, config_needs_graphdb_password),),
         names_external=_graphdb_named,
-        # The corpus and the search index derived from it are files in the
-        # render's own data/ tree, which every attached render stages: the
-        # build derives the persona's index from the persona's own corpus key,
-        # and inside the container the roster, the explorer and the keyword
-        # tool resolve both files against the render they sit in.
-        render_local=(GRAPHDB_TTL_PATH_CONFIG_KEY, GRAPHDB_INDEX_PATH_CONFIG_KEY),
+        # The corpus is a file in the render's own data/ tree, which every
+        # attached render stages: the build derives the persona's index from
+        # the persona's own corpus key, and inside the container the explorer
+        # and the keyword tool resolve the corpus and the index beside it
+        # against the render they sit in.
+        render_local=(GRAPHDB_TTL_PATH_CONFIG_KEY,),
         note="the graph MCP server and the graph channel finder dial bolt on loopback",
     ),
     "postgresql": ReachContract(

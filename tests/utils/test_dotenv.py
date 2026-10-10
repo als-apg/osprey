@@ -1,4 +1,4 @@
-"""Tests for the dependency-free ``.env`` parser and preserving merge.
+"""Tests for the dependency-free ``.env`` parser.
 
 ``parse_dotenv_file`` is the read side of the build lifecycle env injection: the
 build subprocess environment is ``{**os.environ, **parse_dotenv_file(env)}``
@@ -7,10 +7,6 @@ file must land, not just auth-looking ones, because generated ``.mcp.json``
 files reference arbitrary ``${VAR}`` names that Claude Code expands at MCP
 server launch. Narrowing the parser to "known" keys would silently break those
 references, so the full-passthrough contract is tested explicitly here.
-
-``merge_env_preserving_existing`` is the write side of ``osprey build``
-and template ``.env`` shipping: rendered structure, existing values win — with
-one exception, ``BUILD_DERIVED_KEYS``, which the build owns outright.
 """
 
 from __future__ import annotations
@@ -19,15 +15,9 @@ from pathlib import Path
 
 import pytest
 
-import osprey_connectors.dotenv
 from osprey.utils.dotenv import (
-    BUILD_DERIVED_KEYS,
-    VA_LATTICE_DEFAULT,
-    _dotenv_raw_lines,
     env_lock_path,
-    merge_env_preserving_existing,
     parse_dotenv_file,
-    resolved_va_lattice,
 )
 
 
@@ -136,214 +126,6 @@ class TestParseDotenvFile:
 
     def test_empty_file_yields_empty_dict(self, tmp_path):
         assert parse_dotenv_file(self._write(tmp_path, "")) == {}
-
-
-class TestDotenvRawLines:
-    """``_dotenv_raw_lines`` maps KEY -> its raw line with quoting intact."""
-
-    def test_maps_key_to_raw_line(self):
-        raw = _dotenv_raw_lines('KEY="quoted"\nOTHER=plain\n')
-        assert raw == {"KEY": 'KEY="quoted"', "OTHER": "OTHER=plain"}
-
-    def test_export_key_extracted_but_line_preserved(self):
-        """The key drops the export prefix; the stored line keeps it verbatim."""
-        raw = _dotenv_raw_lines("export KEY=value\n")
-        assert raw == {"KEY": "export KEY=value"}
-
-    def test_comments_and_blanks_ignored(self):
-        raw = _dotenv_raw_lines("# comment\n\nKEY=value\n")
-        assert raw == {"KEY": "KEY=value"}
-
-    def test_last_duplicate_line_wins(self):
-        raw = _dotenv_raw_lines("KEY=first\nKEY=second\n")
-        assert raw == {"KEY": "KEY=second"}
-
-
-class TestMergeEnvPreservingExisting:
-    """``merge_env_preserving_existing`` — rendered structure, existing values win."""
-
-    def test_existing_value_overrides_rendered(self):
-        rendered = "API_KEY=RENDERED_PLACEHOLDER\n"
-        existing = "API_KEY=user-secret\n"
-        merged = merge_env_preserving_existing(rendered, existing)
-        assert "API_KEY=user-secret" in merged
-        assert "RENDERED_PLACEHOLDER" not in merged
-
-    def test_new_rendered_key_is_added(self):
-        rendered = "OLD=keep\nNEW_VAR=introduced\n"
-        existing = "OLD=user\n"
-        merged = merge_env_preserving_existing(rendered, existing)
-        assert "OLD=user" in merged
-        assert "NEW_VAR=introduced" in merged
-
-    def test_existing_only_keys_appended_with_banner(self):
-        rendered = "SHARED=rendered\n"
-        existing = "SHARED=user\nEXTRA_SECRET=custom\n"
-        merged = merge_env_preserving_existing(rendered, existing)
-        assert "# Preserved from existing .env" in merged
-        assert "EXTRA_SECRET=custom" in merged
-        # The preserved leftover comes after the rendered body.
-        assert merged.index("SHARED=user") < merged.index("EXTRA_SECRET=custom")
-
-    def test_no_leftovers_means_no_banner(self):
-        rendered = "A=rendered\nB=rendered\n"
-        existing = "A=user\n"
-        merged = merge_env_preserving_existing(rendered, existing)
-        assert "# Preserved from existing .env" not in merged
-
-    def test_rendered_comments_and_structure_preserved(self):
-        rendered = "# header comment\n\n# section\nKEY=rendered\n"
-        existing = "KEY=user\n"
-        merged = merge_env_preserving_existing(rendered, existing)
-        assert "# header comment" in merged
-        assert "# section" in merged
-        assert "KEY=user" in merged
-
-    def test_existing_quoting_preserved_verbatim(self):
-        rendered = "TOKEN=PLACEHOLDER\n"
-        existing = 'TOKEN="quoted with spaces"\n'
-        merged = merge_env_preserving_existing(rendered, existing)
-        assert 'TOKEN="quoted with spaces"' in merged
-
-    def test_export_prefixed_keys_match_across_render_and_existing(self):
-        """A rendered ``export KEY=`` matches an existing ``KEY=`` by key name."""
-        rendered = "export KEY=rendered\n"
-        existing = "KEY=user\n"
-        merged = merge_env_preserving_existing(rendered, existing)
-        assert "KEY=user" in merged
-        assert "rendered" not in merged
-        assert "# Preserved from existing .env" not in merged
-
-    def test_output_ends_with_single_newline(self):
-        merged = merge_env_preserving_existing("A=x\n", "A=y\n")
-        assert merged.endswith("\n")
-        assert not merged.endswith("\n\n")
-
-    def test_empty_existing_returns_rendered_body(self):
-        rendered = "# header\nKEY=rendered\n"
-        merged = merge_env_preserving_existing(rendered, "")
-        assert "KEY=rendered" in merged
-        assert "# Preserved from existing .env" not in merged
-
-    def test_roundtrip_values_parse_back(self, tmp_path):
-        """The merged text parses back to existing-wins values."""
-        rendered = "A=r\nB=r\nC=r\n"
-        existing = "A=user_a\nD=user_d\n"
-        merged = merge_env_preserving_existing(rendered, existing)
-        out = tmp_path / ".env"
-        out.write_text(merged, encoding="utf-8")
-        parsed = parse_dotenv_file(out)
-        assert parsed == {"A": "user_a", "B": "r", "C": "r", "D": "user_d"}
-
-
-class TestBuildDerivedKeys:
-    """The exemption: keys the build derives from project content, not the user.
-
-    ``VA_CHANNELS_FILE`` names a manifest ``osprey build`` generates from the
-    project's own channel databases. Preserving it like a user secret would
-    latch it on: a rebuild that can no longer generate the manifest (the data
-    tree changed, the databases now disagree) would leave the virtual
-    accelerator pointed at a file with no drive limits beside it.
-    """
-
-    def test_the_keys_are_the_va_wiring(self):
-        assert BUILD_DERIVED_KEYS == {"VA_CHANNELS_FILE", "VA_LATTICE"}
-
-    def test_rendered_value_wins_over_existing(self):
-        rendered = "VA_CHANNELS_FILE=channel_manifest.json\n"
-        existing = "VA_CHANNELS_FILE=stale_manifest.json\n"
-        merged = merge_env_preserving_existing(rendered, existing)
-        assert "VA_CHANNELS_FILE=channel_manifest.json" in merged
-        assert "stale_manifest.json" not in merged
-
-    def test_key_absent_from_render_is_dropped_not_preserved(self):
-        """The un-write: a build that skipped generation clears the wiring."""
-        rendered = "API_KEY=k\n"
-        existing = "API_KEY=k\nVA_CHANNELS_FILE=channel_manifest.json\nVA_LATTICE=ring.mat\n"
-        merged = merge_env_preserving_existing(rendered, existing)
-        assert "VA_CHANNELS_FILE" not in merged
-        assert "VA_LATTICE" not in merged
-        assert "# Preserved from existing .env" not in merged
-
-    def test_user_keys_are_still_preserved_alongside(self):
-        rendered = "VA_LATTICE=ring.mat\n"
-        existing = "VA_LATTICE=none\nMY_SECRET=keep-me\n"
-        merged = merge_env_preserving_existing(rendered, existing)
-        assert "VA_LATTICE=ring.mat" in merged
-        assert "MY_SECRET=keep-me" in merged
-
-    def test_empty_exemption_restores_preserving_behavior(self):
-        """For a merge whose rendered side is a fragment, not the full render."""
-        rendered = "API_KEY=k\n"
-        existing = "VA_CHANNELS_FILE=channel_manifest.json\n"
-        merged = merge_env_preserving_existing(rendered, existing, build_derived_keys=frozenset())
-        assert "VA_CHANNELS_FILE=channel_manifest.json" in merged
-
-
-class TestResolvedVaLattice:
-    """``resolved_va_lattice`` — the one answer to "which lattice will it boot with".
-
-    Read by the build's stand-in refusal
-    (``osprey.cli.build_profile_va_faults.live_standin_lattice_errors``) and by
-    the deployment layer that renders and probes the same containers, which is
-    the whole reason it is one function: a build that refuses on one reading of
-    these files and renders on another is worse than either reading alone.
-    """
-
-    def test_an_empty_chain_serves_no_lattice(self, tmp_path):
-        """A chain naming no lattice file names no lattice to serve."""
-        assert resolved_va_lattice(tmp_path) == VA_LATTICE_DEFAULT == "none"
-
-    def test_a_pinned_file_name_wins_over_the_default(self, tmp_path):
-        (tmp_path / ".env").write_text("VA_LATTICE=ring.mat\n")
-        assert resolved_va_lattice(tmp_path) == "ring.mat"
-
-    def test_the_local_file_wins_over_the_shared_defaults(self, tmp_path):
-        """The chain's own precedence, not a second ordering invented here."""
-        (tmp_path / ".env.shared").write_text("VA_LATTICE=none\n")
-        (tmp_path / ".env").write_text("VA_LATTICE=ring.mat\n")
-        assert resolved_va_lattice(tmp_path) == "ring.mat"
-
-    def test_the_shared_defaults_answer_alone_when_local_is_silent(self, tmp_path):
-        (tmp_path / ".env.shared").write_text("VA_LATTICE=ring.mat\n")
-        (tmp_path / ".env").write_text("OTHER=1\n")
-        assert resolved_va_lattice(tmp_path) == "ring.mat"
-
-    def test_a_quoted_value_is_read_as_written(self, tmp_path):
-        """A file name keeps its case: the served tree is searched for it verbatim."""
-        (tmp_path / ".env").write_text('VA_LATTICE="  SR_Ring.mat  "\n')
-        assert resolved_va_lattice(tmp_path) == "SR_Ring.mat"
-
-    def test_an_empty_pin_falls_back_to_the_default(self, tmp_path):
-        """``VA_LATTICE=`` names no file, so it is the unset case."""
-        (tmp_path / ".env").write_text("VA_LATTICE=\n")
-        assert resolved_va_lattice(tmp_path) == VA_LATTICE_DEFAULT
-
-    def test_a_build_dir_chain_wins_over_the_repo_s(self, tmp_path):
-        """The published render is the tree the containers are handed."""
-        repo = tmp_path / "repo"
-        build = tmp_path / "repo" / "build"
-        build.mkdir(parents=True)
-        (repo / ".env").write_text("VA_LATTICE=none\n")
-        (build / ".env").write_text("VA_LATTICE=ring.mat\n")
-        assert resolved_va_lattice(repo, build) == "ring.mat"
-
-    def test_a_build_dir_that_says_nothing_leaves_the_repo_s_answer(self, tmp_path):
-        repo = tmp_path / "repo"
-        build = tmp_path / "repo" / "build"
-        build.mkdir(parents=True)
-        (repo / ".env").write_text("VA_LATTICE=ring.mat\n")
-        assert resolved_va_lattice(repo, build) == "ring.mat"
-
-    def test_the_module_knows_no_builtin_lattice(self):
-        """``VA_LATTICE`` names a file in the served tree, or ``none`` — nothing else.
-
-        A source-level pin rather than a value one: the spelling is what a
-        reader copies into a chain file, so a stray one in a comment or a
-        docstring is as misleading as one in the code.
-        """
-        source = Path(osprey_connectors.dotenv.__file__).read_text(encoding="utf-8")
-        assert "builtin" not in source
 
 
 class TestEnvLockPath:

@@ -68,18 +68,7 @@ from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.utils.identity import acting_identity
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+from tests._preset_data import bundle_data_root
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -100,7 +89,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
@@ -721,6 +710,37 @@ class TestTheGateIsDiscriminating:
         assert audit_records(audit_zone_path) == []
         assert recent_activity(client) == []
 
+    def test_a_knowledge_page_is_still_writable(self, project_dir):
+        """The knowledge bundle is the one directory of the facility tree left open."""
+        from osprey.interfaces.web_terminal.ownership import reserved_write_channel
+
+        assert reserved_write_channel(project_dir, "data/facility/knowledge/x.md") is None
+        assert reserved_write_channel(project_dir, "data/facility/knowledge") is None
+
+        for authored in ("data/facility/limits.yaml", "data/facility"):
+            channel = reserved_write_channel(project_dir, authored)
+            assert channel is not None and "`data/facility/`" in channel
+
+    def test_the_graph_views_are_refused(self, project_dir):
+        """The graph view and its index are build output, derived from the facility tree."""
+        from osprey.interfaces.web_terminal.ownership import reserved_write_channel
+
+        for view in ("data/graph/facility.ttl", "data/channel_databases/graph.duckdb"):
+            channel = reserved_write_channel(project_dir, view)
+            assert channel is not None and "`data/facility/`" in channel
+
+    def test_a_knowledge_page_linked_into_the_facility_tree_is_refused(self, project_dir):
+        """The opening is for the file the bytes land in, not the name spelled."""
+        from osprey.interfaces.web_terminal.ownership import reserved_write_channel
+
+        knowledge = project_dir / "data" / "facility" / "knowledge"
+        knowledge.mkdir(parents=True, exist_ok=True)
+        (knowledge / "alias.md").symlink_to("../limits.yaml")
+
+        channel = reserved_write_channel(project_dir, "data/facility/knowledge/alias.md")
+
+        assert channel is not None and "`data/facility/`" in channel
+
 
 # ── setup_patch: the one surface that publishes out-of-process ───────
 
@@ -734,7 +754,15 @@ def mcp_render(tmp_path, monkeypatch):
     ``resolve_config_path`` is the whole setup.
     """
     (tmp_path / "config.yml").write_text(
-        yaml.dump({"control_system": {"type": "mock", "writes_enabled": False}})
+        yaml.dump(
+            {
+                "control_system": {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"serving": "in_process"}},
+                    "writes_enabled": False,
+                }
+            }
+        )
     )
     (tmp_path / ".mcp.json").write_text(
         json.dumps({"mcpServers": {"demo": {"command": "python"}}}, indent=2) + "\n"

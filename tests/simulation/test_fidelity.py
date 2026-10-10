@@ -1,10 +1,8 @@
-"""Independent lattice-fidelity check for the hand-ported ALS-U AR ring (SC5).
+"""Independent lattice-fidelity check for the example facility's SR deck.
 
-This is the *independent* correctness oracle for the pyAT hand-port. The
-ring-vs-spec consistency test is circular (same author, same source assumptions);
-this one compares the built pyAT ring against optics computed **offline in
+This compares the committed pyAT deck against optics computed **offline in
 MATLAB AT** from the original source lattice (frozen in
-:mod:`tests.simulation.matlab_reference`), so it is not.
+:mod:`tests.simulation.matlab_reference`), an oracle independent of the deck.
 
 Apples-to-apples recipe (4D, radiation OFF, cavity OFF)
 -------------------------------------------------------
@@ -21,17 +19,23 @@ Tolerances
 * Fractional tune:  ``|Δν| < 1e-3`` (compare only the fractional part; the
   integer tune is not carried by the reference).
 * Chromaticity:     ``|Δξ| < 0.1`` absolute.
+
+The deck's own fractional tunes are also pinned at ``1e-9``, so any edit to the
+committed deck that moves the optics fails here rather than downstream.
 """
 
 import at
+import pytest
 
-from osprey.simulation.lattice import build_ring
 from tests.simulation import matlab_reference as ref
+from tests.simulation._sr_deck import load_sr_deck_4d
+
+#: The deck's fractional tunes (4D, ``dp=1e-6``), as it is committed.
+DECK_TUNES = (0.22072485145318438, 0.3281225019273429)
 
 
 def test_lattice_fidelity_against_matlab_reference():
-    r = build_ring().deepcopy()
-    r.disable_6d()  # radiation off + cavity off -> 4D (is_6d is False)
+    r = load_sr_deck_4d()
     assert r.is_6d is False
 
     res = at.get_optics(r, get_chrom=True, dp=1e-6)  # (elemdata0, ringdata, elemdata)
@@ -48,3 +52,11 @@ def test_lattice_fidelity_against_matlab_reference():
     assert dnu_y < 1e-3, f"nu_y delta {dnu_y} (got {nu[1] % 1.0}, ref {ref.NU_Y})"
     assert dxi_x < 0.1, f"xi_x delta {dxi_x} (got {xi[0]}, ref {ref.XI_X})"
     assert dxi_y < 0.1, f"xi_y delta {dxi_y} (got {xi[1]}, ref {ref.XI_Y})"
+
+
+def test_deck_tunes_are_pinned():
+    res = at.get_optics(load_sr_deck_4d(), get_chrom=True, dp=1e-6)
+    nu = res[1]["tune"]
+
+    assert nu[0] % 1.0 == pytest.approx(DECK_TUNES[0], abs=1e-9)
+    assert nu[1] % 1.0 == pytest.approx(DECK_TUNES[1], abs=1e-9)

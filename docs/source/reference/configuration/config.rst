@@ -8,9 +8,10 @@ build`` renders it from the build profile, so the profile is where you edit a
 setting and this file is where you look one up: :doc:`profile` describes the
 authoring side, and this page catalogues what the rendered result means.
 
-The parts of that file gathered here are the facility this deployment belongs
-to (``facility:``), the diagnostic suite (``health:``), the browser UI's
-documentation and feedback settings (``web:``), the artifact gallery's own
+The parts of that file gathered here are the models its simulator serves
+(``simulation:``), the
+diagnostic suite (``health:``), the browser UI's documentation and feedback
+settings (``web:``), the artifact gallery's own
 categories (``artifact_server:``), the Python sandbox's run ceiling
 (``python_executor:``), where screenshots are written (``screen_capture:``), the
 full tool-call record (``audit.tool_call:``), the links from an answer to a
@@ -25,13 +26,10 @@ ever arrive from the environment are in :doc:`environment-variables`. A closing
 note records the **protected set** — the files and keys no agent-side writer
 may touch.
 
-.. _config-facility:
+.. _config-simulation:
 
-``facility:`` — whose machine this is
---------------------------------------
-
-Three keys say which facility the deployment serves, and one of them decides
-what the agent thinks your devices are called.
+``simulation:`` — which models the simulator serves and how fast it ticks
+--------------------------------------------------------------------------
 
 .. list-table::
    :header-rows: 1
@@ -39,50 +37,38 @@ what the agent thinks your devices are called.
 
    * - Key
      - What it does
-   * - ``facility.name``
-     - Display name woven into the agent's prompts and the web-terminal landing
-       page. With no value set, the project name is used.
-   * - ``facility.prefix``
-     - The facility's short token. The facility graph embeds it in every
-       identifier it mints (``osprey knowledge build-ttl --facility``
-       defaults to it), and a multi-user deployment without a ``personas``
-       catalog runs its terminals from ``/app/<prefix>-assistant`` inside the
-       container. It names no container, volume or image; those come from the
-       profile's ``project_name:`` (:ref:`reference-profile`).
-   * - ``facility.ontology``
-     - Path — relative to the project root — to this facility's **compiled
-       ontology table**, the JSON that ``osprey knowledge compile-ontology``
-       writes.
+   * - ``simulation.models``
+     - The models the simulator serves, by name from the facility file's
+       ``models.yaml``. ``null`` or absent serves every model; ``[texture]``
+       and ``[]`` serve no physics. Every shipped preset sets ``null``.
+   * - ``simulation.tick_s``
+     - Seconds between the simulator's ticks. Absent means ``1.0``; every
+       shipped preset sets ``1.0``. A value at or below ``0`` stops the build
+       with a ``profile-invalid`` line naming the key.
+   * - ``simulation.default_scenarios``
+     - The scenarios a deployment that has never chosen a set starts in, by
+       name from the facility's scenarios. ``osprey up`` activates them
+       the way ``osprey sim apply`` would, before it seeds the archive and the
+       logbook, and only while no set has been chosen. Absent, ``null`` or
+       ``[]`` starts in ``nominal`` alone. The control-assistant preset sets
+       ``[rf-thermal]``; the other presets leave it out. A value that is not a
+       list of non-empty names stops the build with a ``profile-invalid`` line
+       naming the key.
 
-``facility.ontology`` is the deployment's device vocabulary: the class names
-your facility uses, the everyday words operators say for each one, and the
-FAMILY tokens that appear in channel names. The channel-finder subagent's
-terminology table is rendered from it, so a deployment that declares its own
-table gets a subagent that speaks its words instead of the demo machine's.
+``texture`` is always served, and always last. A name the facility file does
+not hold stops the build with a ``profile-invalid`` line that lists the valid
+names.
 
-Three behaviours are worth knowing before you set it:
-
-* **Leave the key out** and the terminology table renders without a vocabulary
-  section, and says so — the subagent is told to match on names and
-  descriptions and verify with a lookup rather than guess. That is the honest
-  outcome, and it is deliberately not filled in from the ontology OSPREY ships
-  with its demo machine.
-* **Point it at a file that is not there**, or at one that does not parse, and
-  ``osprey build`` stops and names the key and the path. A vocabulary that was
-  declared and then quietly dropped would be the worst of the three outcomes.
-* **Point it at your own table** and the rows follow it exactly. Regenerate the
-  table and rebuild whenever the ontology changes; the table and the channel
-  database should be generated from the same source.
+A persona's list applies when its simulator is served in process: each
+process holds its own composite. On a persona whose baseline target is a
+served ``va`` or ``standin`` the deployment's container serves the deployment's
+list, so a persona delta that sets the key there stops the build with
+``profile-invalid``.
 
 .. code-block:: yaml
 
-   facility:
-     name: "Example Research Facility"
-     ontology: data/facility_ontology.json
-
-The ``control_assistant`` and ``channel_finder_standalone`` templates ship a
-copy of the demo machine's compiled table at that path, so both render a
-working vocabulary out of the box.
+   config:
+     simulation.models: [SR]
 
 .. _config-health:
 
@@ -234,7 +220,7 @@ corresponding service is configured, so a minimal build shows no empty tiles.
   Bootstrapping a store creates neosemantics bookkeeping nodes whether or not a
   corpus was ever loaded, so counting ``(:Resource)`` specifically is what keeps
   an empty graph from reading as a populated one; a count of zero warns and
-  names ``osprey knowledge seed-graph`` as the remedy. The agent's own graph
+  names ``osprey build && osprey up`` as the remedy. The agent's own graph
   tools report the same degraded states from the inside — see
   :doc:`/how-to/facility-knowledge/use-facility-graph`.
 - ``reach`` — appears when this render has a client switched on for a shared
@@ -919,20 +905,18 @@ control system's own data. The fields are listed in
 
 .. _config-ariel-demo-narrative:
 
-``ariel.demo_narrative`` — a demo logbook for a deployment with no simulation
------------------------------------------------------------------------------
+``ariel.demo_narrative`` — a demo logbook from the facility's scenarios
+-----------------------------------------------------------------------
 
-``ariel.demo_narrative`` names a directory of scenario narratives: one
-subdirectory per scenario, each holding a ``logbook.json`` in the
-scenario-bundle format (:ref:`simulation-bundle-logbook`) and the pictures its
-entries attach. A relative path resolves against the project root. On a
-deployment with no simulation, ``osprey up`` seeds every narrative in it
-(``nominal`` first, then the rest by name) into an empty logbook, pictures
-included, and ``osprey ariel quickstart`` does the same and then runs the
-enhancement modules. A logbook that already holds entries is never touched.
-The ``ariel-standalone`` preset sets it to ``data/logbook_seed``, which
-``osprey init`` fills from the control-assistant scenario bundles. Unset, no
-demo logbook is seeded.
+``ariel.demo_narrative`` is ``all`` or a list of scenario names. The logbook
+entries of those scenarios are read from the built simulator view, with the
+pictures they attach. ``osprey up`` seeds them (``nominal`` first, then the
+rest by name) into an empty logbook in place of the active scenarios' entries,
+and ``osprey ariel quickstart`` does the same and then runs the enhancement
+modules. A logbook that already holds entries is never touched. A name the
+simulator view does not list is refused, and so is a directory. The
+``ariel-standalone`` preset sets it to ``all``. Unset, a deploy seeds the
+active scenarios' entries.
 
 .. _config-ariel-entry-url:
 

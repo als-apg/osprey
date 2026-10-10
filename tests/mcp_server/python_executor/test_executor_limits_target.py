@@ -34,7 +34,7 @@ def _validator_for(target: str | None) -> LimitsValidator:
     """A validator whose policy says out loud which target it was built for."""
     return LimitsValidator(
         {},
-        {"allow_unlisted_channels": True, "allow_unlisted_key": f"resolved-for:{target}"},
+        {"mode": "optional", "mode_key": f"resolved-for:{target}"},
     )
 
 

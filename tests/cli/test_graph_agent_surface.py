@@ -46,20 +46,8 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.cli.templates.manager import TemplateManager
 from osprey.registry.mcp import FRAMEWORK_SERVERS
-
-from ._vocabulary_guard import hardcoded_vocabulary_hits
-
-
-def _bundle_data_root(bundle: str = "control_assistant") -> Path:
-    """The tree these fixtures hand the render as the profile's ``data:``.
-
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages, which is the content the render used to reach
-    for on its own.
-    """
-    return Path(TemplateManager().template_root) / "apps" / bundle / "data"
+from tests._preset_data import bundle_data_root
+from tests._vocabulary import hardcoded_vocabulary_hits
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -80,7 +68,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "control_assistant")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", _bundle_data_root(bundle))
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
@@ -330,7 +318,11 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
                 # stages none. This repo ships the source zone only, and the
                 # accelerator is not what these tests are about.
                 "virtual_accelerator": None,
-                "config": {"control_system.type": "mock", **(config or {})},
+                "config": {
+                    "control_system.type": "virtual_accelerator",
+                    "control_system.connector.virtual_accelerator.serving": "in_process",
+                    **(config or {}),
+                },
             },
             default_flow_style=False,
         ),
@@ -340,16 +332,10 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
     # whole rather than stubbed: the Reach Contract refuses a render whose
     # source zone is not there, and the limits validator reads
     # `channel_limits.json` out of the same tree.
-    import shutil
+    from tests._preset_data import copy_bundle_data
 
-    from osprey.cli.templates.manager import TemplateManager
-
-    shutil.copytree(
-        TemplateManager().template_root / "apps" / "control_assistant" / "data",
-        repo / "data",
-        dirs_exist_ok=True,
-    )
-    (repo / "data" / "facility_knowledge").mkdir(parents=True, exist_ok=True)
+    copy_bundle_data(repo / "data")
+    (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     return repo
 
 

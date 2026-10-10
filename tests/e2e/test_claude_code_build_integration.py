@@ -133,7 +133,9 @@ def init_project(
         "--set",
         f"provider={provider}",
         "--set",
-        "connector=mock",
+        "connector=virtual_accelerator",
+        "--set",
+        "config.control_system.connector.virtual_accelerator.serving=in_process",
         "--set",
         "channel_finder_mode=hierarchical",
     ]
@@ -446,11 +448,11 @@ class TestBuildProjectClaudeCodeFilesSmoke:
             mode = os.stat(hook_path).st_mode
             assert mode & 0o111, f"Hook {hook_name} should be executable"
 
-        # -- config.yml uses mock connectors --
-        config_text = (render / "config.yml").read_text()
-        assert "mock" in config_text.lower(), (
-            "control_assistant template config should use mock connectors"
-        )
+        # -- config.yml serves the simulator in process --
+        config = yaml.safe_load((render / "config.yml").read_text())
+        assert config["control_system"]["connector"]["virtual_accelerator"]["serving"] == (
+            "in_process"
+        ), "the render should serve the simulator in process"
 
 
 # ===========================================================================

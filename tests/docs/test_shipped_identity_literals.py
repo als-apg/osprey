@@ -212,28 +212,9 @@ DENIED: tuple[Denied, ...] = (
         ),
         sample="# \u2500\u2500 The ALS-U Accumulator Ring instance \u2500\u2500",
         roots=REPO_ROOTS,
-        # The demo ring ships as the simulation and virtual-accelerator
-        # packages' own subject.
-        allow=frozenset(
-            {
-                "src/osprey/services/channel_finder/naming.py",
-                "src/osprey/services/virtual_accelerator/model/bindings.py",
-                "src/osprey/simulation/channel_schema.py",
-                "src/osprey/simulation/facility_spec.py",
-                "src/osprey/simulation/lattice/__init__.py",
-                "src/osprey/simulation/lattice/artifact.py",
-                "src/osprey/simulation/lattice/ring.py",
-                # The suites that exercise those packages: the ring is what they
-                # are a test of.
-                "tests/simulation/matlab_reference.py",
-                "tests/simulation/test_artifact.py",
-                "tests/simulation/test_facility_spec.py",
-                "tests/simulation/test_fidelity.py",
-                "tests/simulation/test_lattice.py",
-                "tests/simulation/test_orbit_closure.py",
-                "tests/va/e2e/test_orbit_response.py",
-            }
-        ),
+        # The suite that exercises the bundled demo lattice: the lattice is what
+        # it is a test of.
+        allow=frozenset({"tests/simulation/matlab_reference.py"}),
     ),
     Denied(
         # Case-sensitive on purpose: the acronym is always capitalised, while
@@ -247,18 +228,8 @@ DENIED: tuple[Denied, ...] = (
         ),
         sample="#   facility_name: ALS",
         roots=REPO_ROOTS,
-        # The bundled demo ring, whose own name this is, in the simulation and
-        # virtual-accelerator packages plus the two files that name the lattice
-        # they load.
         allow=frozenset(
             {
-                "src/osprey/services/channel_finder/naming.py",
-                "src/osprey/services/virtual_accelerator/model/bindings.py",
-                "src/osprey/simulation/channel_schema.py",
-                "src/osprey/simulation/facility_spec.py",
-                "src/osprey/simulation/lattice/__init__.py",
-                "src/osprey/simulation/lattice/artifact.py",
-                "src/osprey/simulation/lattice/ring.py",
                 # The shipped reference ingestion format, and the places that
                 # quote the ``source_system`` values its adapter returns —
                 # rewriting those would name a value no adapter produces.
@@ -275,15 +246,9 @@ DENIED: tuple[Denied, ...] = (
                 # The shipped plugin manifest, whose author field is the project's
                 # own packaging metadata.
                 "plugins/osprey/.claude-plugin/plugin.json",
-                # The suites that exercise the bundled demo ring, whose name carries
+                # The suite that exercises the bundled demo ring, whose name carries
                 # the abbreviation.
                 "tests/simulation/matlab_reference.py",
-                "tests/simulation/test_artifact.py",
-                "tests/simulation/test_facility_spec.py",
-                "tests/simulation/test_fidelity.py",
-                "tests/simulation/test_lattice.py",
-                "tests/simulation/test_orbit_closure.py",
-                "tests/va/e2e/test_orbit_response.py",
                 # The suites for the shipped reference ingestion adapter, which
                 # returns "ALS eLog": an expectation spelled any other way would
                 # assert a value no adapter produces.
@@ -301,10 +266,12 @@ DENIED: tuple[Denied, ...] = (
                 # pattern.
                 "tests/dispatch/test_dashboard_config_injection.py",
                 "tests/registry/test_pyat_specialist_agent.py",
-                "tests/services/mml/test_fixtures_wellformed.py",
+                "tests/facility/test_mml_fixtures_wellformed.py",
                 # A byte-faithful copy of the shipped plugin manifest, whose author
                 # field is the project's own.
                 "tests/scripts/test_plugin_version.py",
+                # A byte-for-byte vendored upstream seed schema whose digest is pinned.
+                "scripts/facility_schema/seeds/shared_semantics.yaml",
             }
         ),
     ),

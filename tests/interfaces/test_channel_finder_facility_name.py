@@ -1,14 +1,12 @@
-"""Every facility-name reader resolves through the same order.
+"""Every facility-name reader answers from one source.
 
 `app.state.facility_name` labels the review UI (it is the fallback consumed by
-``pending_review_api``). It used to read the legacy top-level ``facility_name``
-only, so a project that adopted canonical ``facility.name`` got an empty string.
+``pending_review_api``), and the pipeline server contexts feed the per-pipeline
+label. Both read the identity of the render their config sits in: the facility
+file's name, else the project name, else each site's own default.
 
-The pipeline server contexts and the web-terminal landing title had the mirror
-defect — canonical-only, no legacy fallback — so a bundle shipping top-level
-``facility_name`` (as ariel_standalone and channel_finder_standalone do) fell to
-the literal ``"control system"`` / an empty title. Both directions are pinned
-here so "both spellings work everywhere" stays true.
+The web-terminal landing title is handed the identity's name by its caller;
+``tests/deployment/web_terminals/test_render_facility_name.py`` pins it.
 """
 
 from __future__ import annotations
@@ -64,49 +62,50 @@ def _launch(config: dict):
             return app
 
 
-@pytest.mark.parametrize(
-    ("facility_block", "expected"),
-    [
-        ({"facility": {"name": "Canonical Light Source"}}, "Canonical Light Source"),
-        ({"facility_name": "Legacy Light Source"}, "Legacy Light Source"),
-        (
-            {
-                "facility": {"name": "Canonical Light Source"},
-                "facility_name": "Legacy Light Source",
-            },
-            "Canonical Light Source",
-        ),
-        ({}, ""),
-    ],
-    ids=[
-        "facility.name",
-        "legacy facility_name",
-        "canonical wins over legacy",
-        "neither -> empty",
-    ],
-)
-def test_app_state_facility_name_resolution(facility_block, expected):
-    config = {**_base_config(), **facility_block}
-    app = _launch(config)
-    assert app.state.facility_name == expected
+def _write_facility_file(render_root, name: str) -> None:
+    (render_root / "facility.json").write_text(
+        json.dumps({"identity": {"code": "demo", "name": name}}), encoding="utf-8"
+    )
 
 
-def test_facility_block_without_a_name_falls_back_to_the_legacy_key():
-    """A `facility:` block carrying only `prefix` must not shadow the legacy key."""
-    config = {**_base_config(), "facility": {"prefix": "ca"}, "facility_name": "Legacy LS"}
-    assert _launch(config).state.facility_name == "Legacy LS"
+# (config keys, the facility file's name or None for no file). Every reader
+# reports the same name for a case; the sites differ only in their default.
+_IDENTITY_CASES = [
+    pytest.param({"project_name": "demo-project"}, "Demo Light Source", id="facility file"),
+    pytest.param({"project_name": "demo-project"}, None, id="project name"),
+    pytest.param({}, None, id="neither"),
+    pytest.param({"facility": {"name": "Config Light Source"}}, None, id="config block unread"),
+]
 
 
-def test_config_derived_name_is_not_the_registry_reported_name():
-    """`facility_name` (singular) comes from config; `facility_names` from registries."""
-    config = {**_base_config(), "facility": {"name": "Canonical Light Source"}}
-    app = _launch(config)
-    assert app.state.facility_name == "Canonical Light Source"
+def _expected(config_keys: dict, file_name: str | None, default: str) -> str:
+    return file_name or config_keys.get("project_name") or default
+
+
+@pytest.mark.parametrize(("config_keys", "file_name"), _IDENTITY_CASES)
+def test_app_state_facility_name_resolution(tmp_path, monkeypatch, config_keys, file_name):
+    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
+    if file_name is not None:
+        _write_facility_file(tmp_path, file_name)
+
+    app = _launch({**_base_config(), **config_keys})
+
+    assert app.state.facility_name == _expected(config_keys, file_name, "")
+
+
+def test_identity_name_is_not_the_registry_reported_name(tmp_path, monkeypatch):
+    """`facility_name` (singular) is the identity's; `facility_names` the registries'."""
+    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
+    _write_facility_file(tmp_path, "Demo Light Source")
+
+    app = _launch(_base_config())
+
+    assert app.state.facility_name == "Demo Light Source"
     assert app.state.facility_names["in_context"] == _REGISTRY_FACILITY
 
 
 # ---------------------------------------------------------------------------
-# The canonical-name readers (task 3.5)
+# The pipeline server contexts
 # ---------------------------------------------------------------------------
 
 # (module, initializer, resetter) for the three pipeline server contexts. They
@@ -115,7 +114,7 @@ def test_config_derived_name_is_not_the_registry_reported_name():
 # The `graph` paradigm is deliberately absent: `facility_names` is read out of a
 # loaded channel *database* registry, and a graph project has none — its store
 # is seeded from the facility corpus TTL. A graph-mode app reports its facility
-# name from config alone (the `facility_name` reader above).
+# name from the identity alone (the `facility_name` reader above).
 _PIPELINE_CONTEXTS = [
     (
         "osprey.mcp_server.channel_finder_hierarchical.server_context",
@@ -134,7 +133,7 @@ _PIPELINE_CONTEXTS = [
     ),
 ]
 
-# The default each site keeps when neither spelling carries a name.
+# The default each context keeps when the render names no identity.
 _CONTEXT_DEFAULT = "control system"
 
 
@@ -157,97 +156,20 @@ def _write_config(tmp_path, config: dict, monkeypatch) -> None:
 
 
 @pytest.mark.parametrize(("module_name", "init_name", "reset_name"), _PIPELINE_CONTEXTS)
-@pytest.mark.parametrize(
-    ("facility_block", "expected"),
-    [
-        ({"facility": {"name": "Canonical Light Source"}}, "Canonical Light Source"),
-        ({"facility_name": "Legacy Light Source"}, "Legacy Light Source"),
-        (
-            {
-                "facility": {"name": "Canonical Light Source"},
-                "facility_name": "Legacy Light Source",
-            },
-            "Canonical Light Source",
-        ),
-        ({}, _CONTEXT_DEFAULT),
-    ],
-    ids=[
-        "facility.name",
-        "legacy facility_name",
-        "canonical wins over legacy",
-        "neither -> control system",
-    ],
-)
+@pytest.mark.parametrize(("config_keys", "file_name"), _IDENTITY_CASES)
 def test_pipeline_context_facility_name(
-    tmp_path, monkeypatch, module_name, init_name, reset_name, facility_block, expected
+    tmp_path, monkeypatch, module_name, init_name, reset_name, config_keys, file_name
 ):
-    """Each pipeline server context resolves both spellings, keeping its own default."""
-    _write_config(tmp_path, {**_base_config(), **facility_block}, monkeypatch)
+    """Each pipeline server context reads the render's identity, keeping its own default."""
+    _write_config(tmp_path, {**_base_config(), **config_keys}, monkeypatch)
+    if file_name is not None:
+        _write_facility_file(tmp_path, file_name)
 
     module = importlib.import_module(module_name)
     reset = getattr(module, reset_name)
     reset()
     try:
         registry = getattr(module, init_name)()
-        assert registry.facility_name == expected
+        assert registry.facility_name == _expected(config_keys, file_name, _CONTEXT_DEFAULT)
     finally:
         reset()
-
-
-# ---------------------------------------------------------------------------
-# Web-terminal landing title
-# ---------------------------------------------------------------------------
-
-
-def _web_terminals_config(facility_block: dict) -> dict:
-    """Minimal multi-user config the landing render accepts."""
-    return {
-        **facility_block,
-        "registry": {"url": "git.example.org:5050/physics/demo-profiles"},
-        "deploy": {"host": "demo-deploy", "fqdn": "demo-deploy.example.org"},
-        "modules": {
-            "web_terminals": {
-                "enabled": True,
-                "users": ["alice"],
-            }
-        },
-    }
-
-
-@pytest.mark.parametrize(
-    ("facility_block", "expected"),
-    [
-        (
-            {"facility": {"name": "Canonical Light Source", "prefix": "cls"}},
-            "Canonical Light Source",
-        ),
-        (
-            {"facility": {"prefix": "lls"}, "facility_name": "Legacy Light Source"},
-            "Legacy Light Source",
-        ),
-        (
-            {
-                "facility": {"name": "Canonical Light Source", "prefix": "cls"},
-                "facility_name": "Legacy Light Source",
-            },
-            "Canonical Light Source",
-        ),
-    ],
-    ids=["facility.name", "legacy facility_name", "canonical wins over legacy"],
-)
-def test_landing_title_facility_name(facility_block, expected):
-    """The landing page title resolves both spellings."""
-    from osprey.deployment.web_terminals.render import render_web_terminals
-
-    landing = render_web_terminals(_web_terminals_config(facility_block))["nginx/landing.html"]
-    assert f"<title>{expected} Web Terminals</title>" in landing
-
-
-def test_landing_title_without_any_facility_name_keeps_its_own_default():
-    """Neither spelling set: the template's own OSPREY fallback, not a blank title."""
-    from osprey.deployment.web_terminals.render import render_web_terminals
-
-    landing = render_web_terminals(_web_terminals_config({"facility": {"prefix": "dls"}}))[
-        "nginx/landing.html"
-    ]
-    assert "<title>OSPREY Web Terminals</title>" in landing

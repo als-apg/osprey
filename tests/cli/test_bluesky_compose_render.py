@@ -1141,7 +1141,6 @@ def _lane_config(config_dir: Path, *, writes_enabled: bool) -> dict:
             "bluesky": {
                 "path": "./services/bluesky",
                 "port": default_port("bluesky"),
-                "devices_file": _DEVICES_RELPATH,
             }
         },
         "control_system": {

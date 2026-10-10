@@ -101,7 +101,11 @@ def _get_channel_write():
     return get_tool_fn(channel_write)
 
 
-def _prepare(tmp_path, monkeypatch, config="control_system:\n  type: mock\n"):
+def _prepare(
+    tmp_path,
+    monkeypatch,
+    config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n",
+):
     """Minimal project + server context the tool needs to run."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(config)
@@ -188,7 +192,9 @@ async def test_channel_write_limits_violation(tmp_path, monkeypatch):
     from osprey.errors import ChannelLimitsViolationError
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
 
     from osprey.connectors.control_system.limits_validator import LimitsValidator
 
@@ -255,7 +261,7 @@ async def test_channel_write_leaves_max_step_to_the_connector(tmp_path, monkeypa
                 writable=True,
             )
         },
-        {"allow_unlisted_channels": False},
+        {"mode": "exclusive"},
     )
 
     data, connector = await _run_single(
@@ -287,7 +293,7 @@ async def test_channel_write_still_denies_a_bound_violation_on_a_max_step_channe
                 writable=True,
             )
         },
-        {"allow_unlisted_channels": False},
+        {"mode": "exclusive"},
     )
 
     connector = AsyncMock()
@@ -364,7 +370,9 @@ async def test_channel_write_empty_operations(tmp_path, monkeypatch):
 async def test_channel_write_missing_channel_key(tmp_path, monkeypatch):
     """Operation missing 'channel' key returns validation error."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
 
     with patch(
         "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
@@ -1060,7 +1068,7 @@ async def test_oversize_observed_value_is_summarised(tmp_path, monkeypatch):
     _prepare(
         tmp_path,
         monkeypatch,
-        config="control_system:\n  type: mock\n  read_inline_max_elements: 4\n",
+        config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  read_inline_max_elements: 4\n",
     )
 
     result = _make_write_result(
@@ -1086,7 +1094,7 @@ async def test_observed_value_within_the_budget_stays_inline(tmp_path, monkeypat
     _prepare(
         tmp_path,
         monkeypatch,
-        config="control_system:\n  type: mock\n  read_inline_max_elements: 4\n",
+        config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  read_inline_max_elements: 4\n",
     )
 
     result = _make_write_result(
@@ -1109,7 +1117,7 @@ async def test_long_string_observed_value_stays_inline(tmp_path, monkeypatch):
     _prepare(
         tmp_path,
         monkeypatch,
-        config="control_system:\n  type: mock\n  read_inline_max_elements: 4\n",
+        config="control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  read_inline_max_elements: 4\n",
     )
 
     reading = "OPEN" * 50
@@ -1161,13 +1169,13 @@ control_system:
   type: {cs_type}
   limits_checking:
     enabled: true
-    allow_unlisted_channels: false
+    mode: exclusive
     database_path: {db_path}
   connector:
     virtual_accelerator:
       limits_checking:
         enabled: true
-        allow_unlisted_channels: true
+        mode: optional
 """
 
 #: Display metadata as the server's single writer records it — irrelevant to
@@ -1270,9 +1278,9 @@ async def test_unlisted_write_is_refused_on_a_target_the_deployment_block_govern
 
     data = _exc_ctx["envelope"]
     assert data["details"][0]["violation_type"] == "UNLISTED_CHANNEL"
-    assert (
-        "control_system.limits_checking.allow_unlisted_channels" in data["details"][0]["reason"]
-    ), data["details"][0]["reason"]
+    assert "control_system.limits_checking.mode" in data["details"][0]["reason"], data["details"][
+        0
+    ]["reason"]
     assert connector.write_channel.await_count == 0
 
 

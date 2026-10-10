@@ -17,6 +17,7 @@ from osprey.deployment.web_terminals import render as render_module
 from osprey.deployment.web_terminals.artifacts import web_artifacts_dir
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.naming import web_container_name
+from osprey.deployment.web_terminals.personas import PERSONA_CATALOG_REQUIRED
 from osprey.deployment.web_terminals.ports import (
     PANEL_ENV_VARS,
     allocate_ports,
@@ -117,13 +118,14 @@ def _config(users: list[str], groups: list[dict] | None = None) -> dict:
         "ariel_base_port": _CONFIGURED_BASE_PORTS["ariel"],
         "lattice_base_port": _CONFIGURED_BASE_PORTS["lattice"],
         "users": users,
+        "default_persona": "assistant",
+        "personas": {"assistant": {"project": "dls_controls-assistant"}},
     }
     if groups is not None:
         web_terminals["landing"] = {"groups": groups}
     return {
         "project_name": "dls_controls",
         "facility": {
-            "name": "Demo Light Source",
             "prefix": "dls",
         },
         "system": {"timezone": "America/Los_Angeles"},
@@ -139,28 +141,37 @@ _MULTI_USER_CONFIG = _config(["alice", "bob", "carol"])
 _ABSENT = object()
 
 
-@pytest.mark.parametrize("with_catalog", [False, True], ids=["no-catalog", "catalog"])
 @pytest.mark.parametrize(
     "registry", [_ABSENT, {}, {"url": ""}], ids=["absent", "empty-section", "empty-url"]
 )
-def test_render_refuses_registry_mode_without_a_registry_url(
-    with_catalog: bool, registry: Any
-) -> None:
+def test_render_refuses_registry_mode_without_a_registry_url(registry: Any) -> None:
     """Registry mode names every terminal image under registry.url, so the
-    render refuses to run without one, persona catalog or not."""
+    render refuses to run without one."""
     # Arrange
     config = _config(["alice"])
     if registry is _ABSENT:
         del config["registry"]
     else:
         config["registry"] = registry
-    if with_catalog:
-        web_terminals = config["modules"]["web_terminals"]
-        web_terminals["personas"] = {"assistant": {"project": "dls-assistant"}}
-        web_terminals["default_persona"] = "assistant"
 
     # Act / Assert
     with pytest.raises(ValueError, match=r"registry\.url is not set"):
+        render_web_terminals(config)
+
+
+@pytest.mark.parametrize("image_source", ["registry", "local"])
+def test_render_refuses_a_roster_with_no_persona_catalog(image_source: str) -> None:
+    """Nothing but a persona's project names the directory a terminal runs in,
+    so the render refuses a roster with no catalog in either image source."""
+    # Arrange
+    config = _config(["alice"])
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["image_source"] = image_source
+    del web_terminals["personas"]
+    del web_terminals["default_persona"]
+
+    # Act / Assert
+    with pytest.raises(ValueError, match=re.escape(PERSONA_CATALOG_REQUIRED)):
         render_web_terminals(config)
 
 
@@ -171,14 +182,12 @@ def test_render_in_local_mode_needs_no_registry_url() -> None:
     del config["registry"]
     web_terminals = config["modules"]["web_terminals"]
     web_terminals["image_source"] = "local"
-    web_terminals["personas"] = {"assistant": {"project": "dls-assistant"}}
-    web_terminals["default_persona"] = "assistant"
 
     # Act
     artifacts = render_web_terminals(config)
 
     # Assert
-    assert "image: dls-assistant:local" in artifacts["docker-compose.web.yml"]
+    assert "image: dls_controls-assistant:local" in artifacts["docker-compose.web.yml"]
 
 
 def test_render_returns_exactly_three_artifacts() -> None:
@@ -610,6 +619,7 @@ def _roster_config(users: list[dict], personas: dict, groups: list[dict] | None 
     """
     config = copy.deepcopy(_config(users, groups=groups))
     config["modules"]["web_terminals"]["personas"] = personas
+    config["modules"]["web_terminals"]["default_persona"] = next(iter(personas))
     return config
 
 
@@ -1250,8 +1260,7 @@ def test_render_missing_web_base_port_uses_the_layout_default() -> None:
 
 def test_render_missing_companion_base_port_uses_layout_default() -> None:
     """A config omitting a companion family's base port (e.g. written before that
-    panel existed) must render with the layout default, not fail — the
-    zero-migration guarantee that keeps feature parity from breaking old configs."""
+    panel existed) must render with the layout default, not fail."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     del config["modules"]["web_terminals"]["lattice_base_port"]
@@ -1715,59 +1724,19 @@ def test_theme_value_is_yaml_quoted_and_round_trips() -> None:
     assert _service_env(compose, "web-alice")["OSPREY_WEB_THEME"] == tricky
 
 
-def test_catalog_present_all_users_on_default_persona_is_byte_identical_image_and_mount() -> None:
-    """A `personas` catalog can exist without moving any user off the default persona
-    (no roster entry sets `persona:`, so every entry falls back to `default_persona`).
-    resolve_personas()'s registry-mode default-persona branch must still produce the
-    SAME unsuffixed `<registry_url>/web-terminal:latest` image and the SAME
-    `/app/<facility_prefix>-assistant` agent-data mount root a no-catalog config
-    produces — introducing a catalog is zero-migration until a user is actually
-    reassigned to a non-default persona."""
-    # Arrange
-    baseline_config = copy.deepcopy(_MULTI_USER_CONFIG)
-    catalog_config = copy.deepcopy(_MULTI_USER_CONFIG)
-    catalog_config["modules"]["web_terminals"]["default_persona"] = "assistant"
-    catalog_config["modules"]["web_terminals"]["personas"] = {
-        "assistant": {
-            "project": "dls-assistant",
-            "project_path": "../dls-assistant",
-            "build_profile": "profiles/assistant.yml",
-        },
-    }
-    users = baseline_config["modules"]["web_terminals"]["users"]
-
-    # Act
-    baseline = render_web_terminals(baseline_config)
-    catalog = render_web_terminals(catalog_config)
-    baseline_compose = yaml.safe_load(baseline["docker-compose.web.yml"])
-    catalog_compose = yaml.safe_load(catalog["docker-compose.web.yml"])
-
-    # Assert
-    for user in users:
-        baseline_svc = baseline_compose["services"][f"web-{user}"]
-        catalog_svc = catalog_compose["services"][f"web-{user}"]
-        assert catalog_svc["image"] == baseline_svc["image"]
-        assert catalog_svc["volumes"] == baseline_svc["volumes"]
-        assert (
-            catalog_svc["image"]
-            == "git.dls.example.org:5050/physics/production/dls-profiles/web-terminal:latest"
-        )
-        assert f"{user}-agent-data:/app/dls-assistant/var/agent_data" in catalog_svc["volumes"]
-
-
 def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     """A persona's `extra_mounts` render as additional `volumes:` entries on every
-    user of that persona, after the four framework mounts (claude-config,
-    agent-data, this user's audit subdirectory and its control-context record
-    directory)."""
+    user of that persona, after the framework mounts (claude-config, agent-data,
+    this user's audit subdirectory, its control-context record directory, the
+    simulator logs and the guarded-run directory)."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
     web_terminals["default_persona"] = "assistant"
     web_terminals["personas"] = {
         "assistant": {
-            "project": "dls-assistant",
-            "project_path": "../dls-assistant",
+            "project": "dls_controls-assistant",
+            "project_path": "../dls_controls-assistant",
             "build_profile": "profiles/assistant.yml",
         },
         "gui": {
@@ -1786,34 +1755,39 @@ def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     artifacts = render_web_terminals(config)
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
-    # Assert — bob (gui) carries the four default mounts plus the persona's two
+    # Assert — bob (gui) carries the six default mounts plus the persona's two
     bob_volumes = compose["services"]["web-bob"]["volumes"]
     assert bob_volumes == [
         "bob-claude-config:/data/claude-config",
         "bob-agent-data:/app/dls-gui/var/agent_data",
         "./var/audit/bob:/app/dls-gui/var/audit/bob",
         "./var/agent_data/control_target/bob:/app/dls-gui/var/agent_data/control_target/bob",
+        "./var/simulator:/app/dls-gui/var/simulator",
+        "./var/guarded_run:/app/dls-gui/var/guarded_run",
         "/opt/site-data:/app/site-data:ro",
         "shared-cache:/app/cache",
     ]
     # alice (default persona, no extra_mounts) keeps exactly the framework's own
-    # four mounts — the persona's list adds to them, never reorders them.
+    # six mounts — the persona's list adds to them, never reorders them.
     assert compose["services"]["web-alice"]["volumes"] == [
         "alice-claude-config:/data/claude-config",
-        "alice-agent-data:/app/dls-assistant/var/agent_data",
-        "./var/audit/alice:/app/dls-assistant/var/audit/alice",
+        "alice-agent-data:/app/dls_controls-assistant/var/agent_data",
+        "./var/audit/alice:/app/dls_controls-assistant/var/audit/alice",
         (
             "./var/agent_data/control_target/alice"
-            ":/app/dls-assistant/var/agent_data/control_target/alice"
+            ":/app/dls_controls-assistant/var/agent_data/control_target/alice"
         ),
+        "./var/simulator:/app/dls_controls-assistant/var/simulator",
+        "./var/guarded_run:/app/dls_controls-assistant/var/guarded_run",
     ]
 
 
 def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
-    """A no-personas config (the zero-migration default) emits exactly the four
+    """A persona with no `extra_mounts` emits exactly the six
     framework per-user volume lines — claude-config, agent-data, this user's own
-    audit subdirectory and its own control-context record directory — and the
-    extra_mounts loop adds nothing."""
+    audit subdirectory, its own control-context record directory, the simulator
+    logs of its mock target and the guarded-run directory — and the extra_mounts
+    loop adds nothing."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
 
@@ -1825,12 +1799,14 @@ def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
     for user in config["modules"]["web_terminals"]["users"]:
         assert compose["services"][f"web-{user}"]["volumes"] == [
             f"{user}-claude-config:/data/claude-config",
-            f"{user}-agent-data:/app/dls-assistant/var/agent_data",
-            f"./var/audit/{user}:/app/dls-assistant/var/audit/{user}",
+            f"{user}-agent-data:/app/dls_controls-assistant/var/agent_data",
+            f"./var/audit/{user}:/app/dls_controls-assistant/var/audit/{user}",
             (
                 f"./var/agent_data/control_target/{user}"
-                f":/app/dls-assistant/var/agent_data/control_target/{user}"
+                f":/app/dls_controls-assistant/var/agent_data/control_target/{user}"
             ),
+            "./var/simulator:/app/dls_controls-assistant/var/simulator",
+            "./var/guarded_run:/app/dls_controls-assistant/var/guarded_run",
         ]
 
 
@@ -1855,7 +1831,7 @@ def test_agent_data_volume_mounts_where_the_container_resolves_its_agent_data_ro
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
     # Assert
-    expected = f"/app/dls-assistant/{agent_data_base_dir(config)}"
+    expected = f"/app/dls_controls-assistant/{agent_data_base_dir(config)}"
     for user in config["modules"]["web_terminals"]["users"]:
         assert f"{user}-agent-data:{expected}" in compose["services"][f"web-{user}"]["volumes"]
 
@@ -1879,7 +1855,7 @@ def test_a_relocated_agent_data_base_dir_moves_the_volume_mount_with_it() -> Non
     # Assert
     for user in config["modules"]["web_terminals"]["users"]:
         volumes = compose["services"][f"web-{user}"]["volumes"]
-        assert f"{user}-agent-data:/app/dls-assistant/state/agent" in volumes
+        assert f"{user}-agent-data:/app/dls_controls-assistant/state/agent" in volumes
         assert not any("var/agent_data" in mount for mount in volumes)
 
 
@@ -1902,7 +1878,7 @@ def test_an_absolute_agent_data_base_dir_is_not_re_anchored_under_the_project_di
     for user in config["modules"]["web_terminals"]["users"]:
         volumes = compose["services"][f"web-{user}"]["volumes"]
         assert f"{user}-agent-data:/srv/osprey-agent-data" in volumes
-        assert not any("/app/dls-assistant/srv" in mount for mount in volumes)
+        assert not any("/app/dls_controls-assistant/srv" in mount for mount in volumes)
 
 
 def test_nginx_mounts_resolve_into_the_repos_build_zone(tmp_path) -> None:
@@ -2501,7 +2477,7 @@ def test_nginx_seam_open_omits_auth_request_even_with_tls_enabled() -> None:
 
 def test_mcp_topology_omitted_renders_unchanged() -> None:
     """No `web_terminals.mcp` stanza at all -> today's behavior, byte-identical
-    to a config that has never heard of the topology key (zero migration)."""
+    to a config that has never heard of the topology key."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     assert "mcp" not in config["modules"]["web_terminals"]
@@ -3713,6 +3689,31 @@ def test_web_volumes_carry_no_checkout_label() -> None:
     assert "com.osprey.repo-id" in compose["services"]["web-alice"]["labels"]
 
 
+def test_containers_and_auth_image_are_named_by_the_project_not_the_facility() -> None:
+    """Every container the stack starts carries the project name, and the sidecar's
+    local image is exactly the tag the runtime build produces for that project —
+    the facility token names no container, even when it differs from the project."""
+    # Arrange
+    from osprey.deployment.web_terminals.provision import auth_sidecar_local_tag
+
+    config = _auth_config(["alice", "bob"])
+    config["project_name"] = "beamline-ops"
+    config["facility"]["prefix"] = "dls"
+
+    # Act
+    services = _compose(config)["services"]
+
+    # Assert
+    assert services["nginx"]["container_name"] == "beamline-ops-nginx"
+    assert services["auth"]["container_name"] == "beamline-ops-auth"
+    assert services["web-alice"]["container_name"] == "beamline-ops-web-alice"
+    assert services["web-bob"]["container_name"] == "beamline-ops-web-bob"
+    assert services["auth"]["image"] == "beamline-ops-auth:local"
+    assert services["auth"]["image"] == auth_sidecar_local_tag(config)
+    names = [service.get("container_name", "") for service in services.values()]
+    assert not [name for name in names if name.startswith("dls-")]
+
+
 def test_auth_sidecar_service_image_pins_a_configured_registry_image() -> None:
     """Registry mode: `auth.image` is used verbatim — publishing it is the facility
     CI's job, and nothing is built on the deploy host."""
@@ -3744,7 +3745,8 @@ def test_auth_sidecar_service_environment_is_exactly_the_non_secret_settings() -
     `scrypt$...` hash would be eaten by `$` expansion) and, unlike an env_file, the
     values land in the committed compose artifact."""
     # Act
-    auth = _compose(_auth_config())["services"]["auth"]
+    rendered = render_web_terminals(_auth_config(), facility_name="Demo Light Source")
+    auth = yaml.safe_load(rendered["docker-compose.web.yml"])["services"]["auth"]
 
     # Assert
     assert _env_names(auth) == [
@@ -4842,26 +4844,6 @@ def test_persona_without_phoebus_gets_no_require_handle_stamp() -> None:
     assert not any(line.startswith("PHOEBUS_REQUIRE_HANDLE") for line in bob_env)
 
 
-def test_personaless_roster_with_phoebus_is_stamped_from_the_deploy_config() -> None:
-    """A persona-less roster is answered from the deploy config, and an explicit
-    `phoebus.require_handle: false` there withholds the stamp for every user."""
-    # Arrange
-    config = _config(["alice", "bob"])
-    config["claude_code"] = {"servers": {"phoebus": {"enabled": True}}}
-    opted_out = copy.deepcopy(config)
-    opted_out["phoebus"] = {"require_handle": False}
-
-    # Act
-    stamped = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
-    unstamped = yaml.safe_load(render_web_terminals(opted_out)["docker-compose.web.yml"])
-
-    # Assert
-    for service in ("web-alice", "web-bob"):
-        assert _PHOEBUS_HANDLE_LINE in stamped["services"][service]["environment"]
-        env = unstamped["services"][service]["environment"]
-        assert not any(line.startswith("PHOEBUS_REQUIRE_HANDLE") for line in env)
-
-
 def test_render_without_phoebus_handle_personas_emits_no_stamp() -> None:
     """The no-project-root render path passes no persona set and so emits no
     stamp for persona entries, exactly as it does for every disk-derived grant."""
@@ -4969,45 +4951,6 @@ def test_render_without_archiver_personas_emits_no_password_line() -> None:
         assert not any("MONGO_ROOT_PASSWORD" in line for line in env)
 
 
-def test_persona_less_roster_entry_is_answered_from_the_deploy_config() -> None:
-    """The zero-migration path (no personas; the web image IS the deploy project)
-    reads the grant straight from the deploy config, as the other grants do."""
-    # Arrange
-    config = copy.deepcopy(_MULTI_USER_CONFIG)
-    config["archiver"] = {
-        "type": "mongodb_archiver",
-        "mongodb_archiver": {
-            "host": "localhost",
-            "auth": {"username": "root", "password_env": "MONGO_ROOT_PASSWORD", "source": "admin"},
-        },
-    }
-
-    # Act
-    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
-
-    # Assert
-    assert _ARCHIVER_PASSWORD_LINE in compose["services"]["web-alice"]["environment"]
-
-
-def test_persona_less_roster_entry_gets_the_bearer_token_variable() -> None:
-    """A deploy config whose archiver names a bearer token hands that variable to
-    every user of a roster without personas."""
-    # Arrange
-    config = copy.deepcopy(_MULTI_USER_CONFIG)
-    config["archiver"] = {
-        "type": "epics_archiver",
-        "epics_archiver": {"url": "https://a.example", "auth": {"token_env": "ARCHIVER_TOKEN"}},
-    }
-
-    # Act
-    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
-
-    # Assert
-    for name, service in compose["services"].items():
-        if name.startswith("web-"):
-            assert "ARCHIVER_TOKEN=${ARCHIVER_TOKEN:-}" in service["environment"]
-
-
 def test_archiver_grant_emits_one_line_per_named_variable() -> None:
     """Every variable the persona's archiver names reaches its container, in order."""
     # Act
@@ -5068,23 +5011,6 @@ def test_archiver_ca_bundle_is_mounted_read_only_at_the_same_path() -> None:
         {"type": "bind", "source": _SITE_CA, "target": _SITE_CA, "read_only": True}
     ]
     assert _ca_mounts(services["web-bob"]) == []
-
-
-def test_persona_less_roster_entry_mounts_the_deploy_ca_bundle() -> None:
-    # Act
-    compose = yaml.safe_load(
-        render_web_terminals(copy.deepcopy(_MULTI_USER_CONFIG), archiver_ca_bundles=(_SITE_CA,))[
-            "docker-compose.web.yml"
-        ]
-    )
-
-    # Assert
-    users = {n: s for n, s in compose["services"].items() if n.startswith("web-")}
-    assert users
-    for service in users.values():
-        assert _ca_mounts(service) == [
-            {"type": "bind", "source": _SITE_CA, "target": _SITE_CA, "read_only": True}
-        ]
 
 
 def test_render_without_ca_bundles_emits_no_mount() -> None:
@@ -5252,44 +5178,6 @@ def test_persona_armed_on_the_va_lane_alone_gets_only_that_lanes_token() -> None
     assert [line for line in alice_env if "LAUNCH_TOKEN" in line] == [_VA_LANE_TOKEN_LINE]
 
 
-def test_persona_less_roster_without_a_va_lane_gets_no_va_token() -> None:
-    """A deployment that renders no `services.bluesky_va` block has no VA bridge to
-    arm, so arming writes grants lane 1's token and nothing else. The render must
-    not mint a variable for a lane this deployment does not have."""
-    # Arrange
-    config = copy.deepcopy(_config(["alice"]))
-    config["control_system"] = {"writes_enabled": True}
-    config["claude_code"] = {"servers": {"bluesky": {"enabled": True}}}
-
-    # Act
-    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
-
-    # Assert
-    env = compose["services"]["web-alice"]["environment"]
-    assert [line for line in env if "LAUNCH_TOKEN" in line] == [_LAUNCH_TOKEN_LINE]
-
-
-def test_persona_less_roster_with_a_va_lane_gets_that_lanes_token() -> None:
-    """The contrast that makes the test above about the LANE and not about writes:
-    the same armed config that renders a `services.bluesky_va` block does get the
-    VA lane's own token, because there is a second bridge stack to arm."""
-    # Arrange
-    config = copy.deepcopy(_config(["alice"]))
-    config["control_system"] = {"writes_enabled": True}
-    config["claude_code"] = {"servers": {"bluesky": {"enabled": True}}}
-    config["services"] = {
-        "bluesky": {"port": 10080, "target": "live"},
-        "bluesky_va": {"port": default_port("bluesky_second_lane"), "target": "va"},
-    }
-
-    # Act
-    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
-
-    # Assert
-    env = compose["services"]["web-alice"]["environment"]
-    assert _VA_LANE_TOKEN_LINE in env
-
-
 def test_render_emits_no_launch_token_value_anywhere() -> None:
     """A launch token reaches a container as a compose interpolation from the deploy
     `.env` and never as a value in a rendered artifact: the render writes neither
@@ -5324,41 +5212,6 @@ def test_render_without_launch_token_personas_emits_no_token_line() -> None:
     for service in ("web-alice", "web-bob"):
         env = compose["services"][service]["environment"]
         assert not any("BLUESKY_LAUNCH_TOKEN" in line for line in env)
-
-
-def test_persona_less_roster_is_armed_from_the_config_itself() -> None:
-    """The zero-migration path -- roster entries that name no persona, where the web
-    image IS the deploy project -- has no persona to look up, so entitlement is read
-    from this same config with no disk read. That keeps the determinism contract
-    while still arming a deployment that never adopted personas.
-    """
-    # Arrange
-    config = copy.deepcopy(_config(["alice"]))
-    config["control_system"] = {"writes_enabled": True}
-    config["claude_code"] = {"servers": {"bluesky": {"enabled": True}}}
-
-    # Act
-    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
-
-    # Assert
-    assert _LAUNCH_TOKEN_LINE in compose["services"]["web-alice"]["environment"]
-
-
-def test_persona_less_roster_without_writes_is_not_armed() -> None:
-    """The same path, read-only: the bluesky server runs, so writes being ungranted
-    is the ONE thing standing between this roster and the token. Leaving the server
-    key out too would make the test pass for a second reason and stop pinning the
-    tier boundary it is named for."""
-    # Arrange
-    config = copy.deepcopy(_config(["alice"]))
-    config["claude_code"] = {"servers": {"bluesky": {"enabled": True}}}
-
-    # Act
-    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
-
-    # Assert
-    env = compose["services"]["web-alice"]["environment"]
-    assert not any("BLUESKY_LAUNCH_TOKEN" in line for line in env)
 
 
 # ---------------------------------------------------------------------------
@@ -5423,32 +5276,6 @@ def test_render_without_graphdb_personas_emits_no_store_password_line() -> None:
     for service in ("web-alice", "web-bob"):
         env = compose["services"][service]["environment"]
         assert not any("GRAPHDB_PASSWORD" in line for line in env)
-
-
-def test_persona_less_roster_gets_graphdb_password_from_the_config_itself() -> None:
-    """The zero-migration path -- roster entries that name no persona, where the web
-    image IS the deploy project -- has no persona to look up, so entitlement is read
-    from this same config with no disk read."""
-    # Arrange
-    config = copy.deepcopy(_config(["alice"]))
-    config["services"] = {"graphdb": {}}
-
-    # Act
-    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
-
-    # Assert
-    assert _GRAPHDB_PASSWORD_LINE in compose["services"]["web-alice"]["environment"]
-
-
-def test_persona_less_roster_without_graphdb_gets_no_password() -> None:
-    """The same path with no graph store configured: nothing to dial, so nothing to
-    authenticate with."""
-    # Act
-    compose = yaml.safe_load(render_web_terminals(_config(["alice"]))["docker-compose.web.yml"])
-
-    # Assert
-    env = compose["services"]["web-alice"]["environment"]
-    assert not any("GRAPHDB_PASSWORD" in line for line in env)
 
 
 # ---------------------------------------------------------------------------
@@ -5590,26 +5417,6 @@ def test_the_collector_variables_are_interpolated_never_written() -> None:
     # Assert
     assert "OTLP_TOKEN=${OTLP_TOKEN:-}" in rendered
     assert re.search(r"OTLP_TOKEN=[^$]", rendered) is None
-
-
-def test_a_persona_less_entry_is_answered_from_the_deploy_config() -> None:
-    """The zero-migration path reads the telemetry block of the deploy config itself."""
-    # Arrange
-    config = copy.deepcopy(_MULTI_USER_CONFIG)
-    config["claude_code"] = {
-        "telemetry": {
-            "enabled": True,
-            "backend": "generic",
-            "endpoint": "https://collector.example.org:4318",
-            "auth": {"token_env": "OTLP_TOKEN"},
-        }
-    }
-
-    # Act
-    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
-
-    # Assert
-    assert "OTLP_TOKEN=${OTLP_TOKEN:-}" in compose["services"]["web-alice"]["environment"]
 
 
 def test_an_openobserve_deployment_renders_no_extra_telemetry_line() -> None:

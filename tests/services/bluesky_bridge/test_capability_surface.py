@@ -33,6 +33,7 @@ from osprey.services.bluesky_bridge import app as bridge_app_module
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import app as bridge_app
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend
+from tests._control_system import IN_PROCESS, section_for
 
 _BRIDGE_URL = "http://bridge.test"
 
@@ -107,13 +108,16 @@ def connector(monkeypatch: pytest.MonkeyPatch):
         def fake_get_config_value(key: str, default: Any = None) -> Any:
             if isinstance(value, Exception):
                 raise value
-            # Only `control_system.type` is what this fixture is about. Every
+            # Only the control system is what this fixture is about. Every
             # other key falls through to its default, because the bridge reads
             # more than one (the lifespan's limits guard reads three) and
             # answering all of them with the connector type would stage a
-            # nonsense config — a `writes_enabled` of "mock" is truthy.
+            # nonsense config — a `writes_enabled` of "epics" is truthy.
+            section = section_for(value)
             if key == "control_system.type":
-                return value
+                return section["type"]
+            if key == "control_system":
+                return section
             return default
 
         monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
@@ -187,7 +191,7 @@ def test_health_publishes_capability_alongside_liveness(connector, bridge) -> No
 
 
 def test_health_on_mock_refuses_and_names_the_flip_command(connector, bridge) -> None:
-    connector("mock")
+    connector(IN_PROCESS)
 
     with bridge(_ScriptedManager()) as client:
         capability = _capability(client.get("/health"))
@@ -208,7 +212,7 @@ def test_health_stays_ok_when_the_deployment_cannot_execute(connector, bridge) -
     reads only the status code — flap on a deployment working exactly as
     configured.
     """
-    connector("mock")
+    connector(IN_PROCESS)
 
     with bridge(_ScriptedManager()) as client:
         response = client.get("/health")
@@ -302,7 +306,7 @@ def test_health_does_not_probe_the_manager_on_a_browse_only_deployment(connector
     Ordering matters for the operator: a mock deployment is told to flip the
     connector, not that some queue server it was never meant to have is down.
     """
-    connector("mock")
+    connector(IN_PROCESS)
     manager = _ScriptedManager()
 
     with bridge(manager) as client:
@@ -392,7 +396,7 @@ def test_flip_command_survives_the_sidecar_relay_to_the_real_bridge(connector) -
     Neither half is stubbed here: the sidecar forwards over ASGI into the
     actual bridge app, which derives the record from the actual `QueueBackend`.
     """
-    connector("mock")
+    connector(IN_PROCESS)
     bridge_app_module.set_queue_backend(QueueBackend(_ScriptedManager()))
 
     app = FastAPI()

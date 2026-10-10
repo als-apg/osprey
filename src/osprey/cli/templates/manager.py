@@ -9,18 +9,13 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, TemplateRuntimeError, select_autoescape
 
 from osprey.agent_runner.tool_names import DENY_DEFAULTS
-from osprey.build.build_tiers import (
-    VALID_CHANNEL_FINDER_MODES,
-    default_tier_for_mode,
-    tier_mode_conflict,
-)
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates import claude_code, manifest, scaffolding
 from osprey.cli.templates._rendering import render_template as _render_template
 from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey.utils.config import resolve_env_vars
-from osprey.utils.facility import resolve_facility_name
 from osprey.utils.workspace import repo_root_for_config
 from osprey_connectors import yaml_loader
 
@@ -31,7 +26,7 @@ def _enable_flags(channel_finder_mode: str) -> dict[str, bool]:
     """One ``enable_<paradigm>`` template flag per registered paradigm.
 
     Derived by iterating
-    :data:`osprey.build.build_tiers.VALID_CHANNEL_FINDER_MODES`, so a paradigm
+    :data:`osprey.build.modes.VALID_CHANNEL_FINDER_MODES`, so a paradigm
     added to the registry gets its render flag without an edit here. An
     unregistered mode leaves every flag off; callers reject it before this
     point.
@@ -165,7 +160,6 @@ class TemplateManager:
         context: dict[str, Any] | None = None,
         force: bool = False,
         artifacts: dict[str, list[str]] | None = None,
-        tier: int | None = None,
     ) -> Path:
         """Create complete project from template.
 
@@ -194,12 +188,6 @@ class TemplateManager:
             context: Additional template context variables
             force: If True, skip existence check (used when caller already handled deletion)
             artifacts: Profile-driven artifact selection (hooks, rules, skills, agents, etc.)
-            tier: Channel-database tier (1|3) to materialize. When ``None`` (the
-                default), the paradigm-aware rule derives it from
-                ``channel_finder_mode`` (in_context → 1, else → 3), matching
-                ``BuildProfile.resolved_tier``. An explicit tier is honored but
-                validated against the paradigm, so a tier/mode mismatch raises a
-                legible rule error instead of an opaque FileNotFoundError.
 
         Returns:
             Path to created project directory
@@ -268,8 +256,8 @@ class TemplateManager:
 
         # 6. Copy data files from template (no src/ package), or from the
         # profile's own data tree when one was resolved. Either way this lands
-        # before step 6b's tier materialization and the hierarchy probe in
-        # step 7, both of which read the project's flat data/ paths.
+        # before step 6b's benchmark queries and the Claude Code render in
+        # step 7, which reads the rendered config.yml.
         scaffolding.copy_template_data(
             self.template_root,
             project_dir,
@@ -298,33 +286,14 @@ class TemplateManager:
         shutil.copytree(context_src, context_dst, dirs_exist_ok=True)
         logger.debug("Installed web-terminal context to %s", context_dst)
 
-        # 6b. Flatten the preset's tier-routed channel DBs into the canonical
-        # data/channel_databases/<paradigm>.json locations. Must run before the
-        # Claude Code hierarchy probe below, which reads the flat path. Only
-        # relevant when channel-finder is selected — builds that skip the
-        # channel-finder agent have no use for the materialized DB. No-op for
-        # bundles without a tiers/ subtree (e.g. hello_world).
+        # 6b. Copy the mode's benchmark query set into place and drop the
+        # facility tree's channel-finder staging subtrees from the render. The
+        # data copy above lands before the Claude Code render below, which reads
+        # the rendered config.yml; the channel-finder indexes are the build's
+        # views, and the build's re-render embeds the hierarchical one.
         channel_finder_mode = ctx.get("channel_finder_mode")
         if channel_finder_mode is not None:
-            # Resolve the build-time tier with the same paradigm-aware rule the
-            # build-profile validator applies, so programmatic callers that omit
-            # `tier` (or pin a mismatched one) can't reach the materializer with a
-            # tier/paradigm mismatch — that would surface as an opaque
-            # FileNotFoundError instead of a legible rule error.
-            if tier is None:
-                effective_tier = default_tier_for_mode(channel_finder_mode)
-            else:
-                # Mirror BuildProfile.validate() at this boundary: range-check
-                # first (so tier=2 gets the legible {1,3} error, not a later
-                # FileNotFoundError), then the tier/paradigm conflict rule.
-                if tier not in (1, 3):
-                    raise BuildProfileError(f"tier must be 1 or 3 (got {tier!r})")
-                conflict = tier_mode_conflict(tier, channel_finder_mode)
-                if conflict:
-                    raise BuildProfileError(conflict)
-                effective_tier = tier
-            scaffolding.materialize_tier_artifacts(project_dir, effective_tier, channel_finder_mode)
-            scaffolding.prune_csv_build_artifacts(project_dir, channel_finder_mode)
+            scaffolding.materialize_benchmark_queries(project_dir, channel_finder_mode)
 
         # 7. Create Claude Code integration files
         # Load rendered config.yml so conditional sections (confluence, etc.)
@@ -360,23 +329,15 @@ class TemplateManager:
             system_config = rendered_config.get("system", {})
             ctx["system_timezone"] = system_config.get("timezone", "UTC")
 
-            # Facility identity: canonical `facility.name`, legacy top-level
-            # `facility_name` as fallback (see utils.facility.resolve_facility_name).
-            # setdefault so an explicit caller-supplied context value still wins.
-            ctx.setdefault("facility_name", resolve_facility_name(rendered_config, project_name))
-
-            cf_config = rendered_config.get("channel_finder", {})
-
-            # Embed hierarchy info for initial creation, through the same
-            # resolution every later re-render uses.
-            if cf_config.get("pipeline_mode") == "hierarchical":
-                hierarchy = claude_code.resolve_hierarchy_context(cf_config, project_dir)
-                if hierarchy is not None:
-                    ctx["channel_finder_hierarchy"] = hierarchy
+            # The hierarchical index is written by the build after this first
+            # render, and the build re-renders the agent files once it exists;
+            # that pass embeds its hierarchy.
             ctx.setdefault("channel_finder_hierarchy", None)
 
-        # A bundle that renders no config.yml still needs a facility name for the
-        # agent/CLAUDE.md prompts rendered below.
+        # The facility's display name is the caller's: the build hands it the
+        # name its facility identity gives, and a render with no caller-supplied
+        # name carries the project name, the identity a facility that authors
+        # none is given.
         ctx.setdefault("facility_name", project_name)
 
         # Everything the Claude Code templates read out of config.yml, through

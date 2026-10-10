@@ -754,8 +754,10 @@ def _plan_args(stack: LaneStack, lane: str) -> dict[str, Any]:
 
     The sweep band is the middle half of the corrector's OWN
     ``channel_limits.json`` entry, so nothing here hardcodes a facility channel
-    or asks for a value outside the band the deployment declares. Each call
-    shifts that band by a sub-percent, band-relative nudge (see
+    or asks for a value outside the band the deployment declares. The axis is
+    therefore the first settable whose setpoint ``limits.yaml`` bounds as
+    writable: a settable with no limits record has no band to sweep inside of.
+    Each call shifts that band by a sub-percent, band-relative nudge (see
     :data:`_STAGING`) -- enough to make the draft new, far too little to change
     what any test asserts about it, and bounded so the sweep never leaves the
     middle of the declared band however many times this is called.
@@ -764,9 +766,19 @@ def _plan_args(stack: LaneStack, lane: str) -> dict[str, Any]:
     bpms = stack.bpms[lane]
     assert correctors, f"the build staged no settable devices for lane {lane!r}"
     assert bpms, f"the build staged no readable devices for lane {lane!r}"
-    axis_name = next(iter(correctors))
-    setpoint_address, _readback = correctors[axis_name]
-    entry = stack.limits[setpoint_address]
+    bounded = [
+        (name, stack.limits[setpoint])
+        for name, (setpoint, _readback) in correctors.items()
+        if isinstance(stack.limits.get(setpoint), dict)
+        and stack.limits[setpoint].get("writable") is True
+        and "min_value" in stack.limits[setpoint]
+        and "max_value" in stack.limits[setpoint]
+    ]
+    assert bounded, (
+        f"no settable device on lane {lane!r} has a writable, bounded limits record, "
+        f"so there is no declared band to sweep"
+    )
+    axis_name, entry = bounded[0]
     low, high = float(entry["min_value"]), float(entry["max_value"])
     span = high - low
     nudge = (next(_STAGING) % 10) * 0.005 * span

@@ -2,19 +2,19 @@
 
 A deployment reads this file; it never writes one. ``osprey build`` derives the
 index from the Turtle corpus, and everything the explorer asks on a click —
-search, the ontology rail, the badge counts and the channel roster — is a scan
+search, the ontology rail and the badge counts — is a scan
 over the rows :mod:`.schema` declares.
 
 The index is a file, so its absence is ordinary and is answered rather than
 raised: :func:`open_graph_index` returns a :class:`GraphIndexAbsence` for a
 build that has not run, a file the driver cannot open, and an index written by
 a different schema version. Callers turn that into the sentence their surface
-shows — a 503 on the search routes, a roster absence, a health-check row —
+shows — a 503 on the search routes, a health-check row —
 without a ``try`` around the open.
 
-``duckdb`` is imported inside :func:`open_graph_index`. The roster and the
-health check import this package on paths where dragging the driver in would be
-a regression, and a subprocess test in this package's test module pins it.
+``duckdb`` is imported inside :func:`open_graph_index`. The health check
+imports this package on paths where dragging the driver in would be a
+regression, and a subprocess test in this package's test module pins it.
 """
 
 from __future__ import annotations
@@ -40,12 +40,12 @@ AbsenceReason = Literal["missing", "unreadable", "schema_mismatch"]
 #: The ``meta`` row, selected by name in :data:`~.schema.META_KEYS` order.
 _META_SELECT = f"SELECT {', '.join(META_KEYS)} FROM meta"
 
-#: Command that regenerates the Turtle corpus an index is built from, named in
-#: the suggestion an index that binds nothing carries. Spelled here rather than
-#: imported from :mod:`osprey.deployment.graphdb_service`: the roster and the
-#: health check import this module on paths where pulling the deployment
+#: Command that rebuilds the graph view an index is built from, and the index
+#: with it, named in the suggestion an index that binds nothing carries. Spelled
+#: here rather than imported from :mod:`osprey.deployment.graphdb_service`: the
+#: health check imports this module on paths where pulling the deployment
 #: package into the process would be the regression.
-BUILD_TTL_COMMAND = "osprey knowledge build-ttl"
+REBUILD_COMMAND = "osprey build && osprey up"
 
 #: The two edge types a binding reaches its signal through, as n10s imports the
 #: corpus's predicates and as the ``edges`` column spells them.
@@ -351,8 +351,7 @@ class GraphIndexAbsence:
 
     Attributes:
         reason: Which of the three absences this is, for callers that branch on
-            it (the roster maps ``missing`` and the other two to different
-            absence kinds).
+            it.
         path: Where the index was looked for, always the caller's path.
         detail: One sentence naming the path and, where there is one, the
             driver's own message or the two schema versions. Surfaces show it
@@ -420,14 +419,13 @@ class GraphIndex:
 
         An index with a ``meta`` row and no bindings is not a broken file: it
         is a corpus that describes an ontology and no devices, so the remedy is
-        to regenerate the corpus rather than to touch the deployment. The
+        to give the facility file channels and rebuild. The
         sentence names the file the index was built from, because a project
         with several corpora needs to know which one came back empty.
         """
         return [
             f"The index was built from {self.meta.corpus_filename}, which binds no "
-            f"channels. Regenerate the corpus with `{BUILD_TTL_COMMAND}` and build "
-            "the index again."
+            f"channels. Add channels to the facility file, then run `{REBUILD_COMMAND}`."
         ]
 
     def search(

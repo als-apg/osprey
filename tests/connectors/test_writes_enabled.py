@@ -18,6 +18,7 @@ from tests.connectors._write_fakes import (
     config_reader,
     writes_enabled_config,
 )
+from tests.facility.served_tree import in_process_config, served_tree
 
 
 class _StubConnector(ControlSystemConnector):
@@ -135,23 +136,24 @@ class TestWritesEnabledProperty:
 
 
 class TestMockWritesDisabledViaBaseClass:
-    """MockConnector write blocking comes from the base class: full write path."""
+    """VAInProcessConnector write blocking comes from the base class: full write path."""
 
     def test_mock_has_no_enable_writes_attr(self):
-        """MockConnector must not carry an _enable_writes attribute."""
-        from osprey.connectors.control_system.mock_connector import MockConnector
+        """VAInProcessConnector must not carry an _enable_writes attribute."""
+        from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
 
-        connector = MockConnector()
+        connector = VAInProcessConnector()
         assert not hasattr(connector, "_enable_writes")
 
     @pytest.mark.asyncio
-    async def test_write_blocked_full_path(self):
-        """Full path: MockConnector with writes_enabled=false blocks writes."""
-        from osprey.connectors.control_system.mock_connector import MockConnector
+    async def test_write_blocked_full_path(self, tmp_path):
+        """Full path: VAInProcessConnector with writes_enabled=false blocks writes."""
+        from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
 
-        connector = MockConnector()
+        view = served_tree(tmp_path, ["BEAM:CURRENT"])
+        connector = VAInProcessConnector()
         with patch("osprey.utils.config.get_config_value", return_value=False):
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(in_process_config(view, response_delay_ms=0))
             result = await connector.write_channel("BEAM:CURRENT", 500.0)
 
         assert isinstance(result, ChannelWriteResult)
@@ -161,20 +163,21 @@ class TestMockWritesDisabledViaBaseClass:
         assert "control_system.writes_enabled" in result.error_message
 
     @pytest.mark.asyncio
-    async def test_write_allowed_full_path(self):
-        """Full path: an armed MockConnector writes and confirms by readback.
+    async def test_write_allowed_full_path(self, tmp_path):
+        """Full path: an armed VAInProcessConnector writes and confirms by readback.
 
         No limits database and a noise-free confirming read, so the fleet
         default resolves to a confirmed write.
         """
-        from osprey.connectors.control_system.mock_connector import MockConnector
+        from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
 
-        connector = MockConnector()
+        view = served_tree(tmp_path, ["BEAM:CURRENT"])
+        connector = VAInProcessConnector()
         with patch(
             "osprey.utils.config.get_config_value",
             side_effect=writes_enabled_config,
         ):
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(in_process_config(view, response_delay_ms=0))
             result = await connector.write_channel("BEAM:CURRENT", 500.0)
 
         assert isinstance(result, ChannelWriteResult)

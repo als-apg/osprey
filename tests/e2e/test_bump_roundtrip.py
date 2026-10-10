@@ -4,9 +4,7 @@
 *solves* for what it writes: it measures each corrector's own response, then
 computes the corrector currents that displace the beam at the target BPMs while
 leaving the closure BPMs on the reference orbit. Every other proof of it runs
-in-process — the unit tests against fake devices, and ``tests/va/
-test_bump_crosscheck.py``'s cross-check of ``bump_analysis`` against the
-``lattice/response.py`` model oracle. This is the one that runs it on a
+in-process, in the unit tests against fake devices. This is the one that runs it on a
 deployed stack: the same plan file, loaded by the bridge's shipped-tier
 catalog, driving real correctors over Channel Access through the queueserver,
 with the orbit read back off a live soft IOC.
@@ -33,8 +31,8 @@ proving five things end to end:
   (c) the bump is a real, closed, local bump on the modelled machine: each
       recorded step sits inside ``±tolerance`` of what that step asked for at
       the target AND at every closure BPM; the full-amplitude step reaches the
-      requested displacement; the ring outside the corrector span moves by no
-      more than the dispersive share a ring solved with its cavity leaves
+      requested displacement; the lattice outside the corrector span moves by
+      no more than the dispersive share a lattice solved with its cavity leaves
       there, including at a monitor BPM the solve was never told to hold; and
       the terminal step brings the orbit and every corrector back to where the
       run found them.
@@ -55,21 +53,21 @@ partial figure exists is therefore a fraction of a short run — an assertion
 that would be racing the run rather than testing the route.
 
 No physics fault is seeded on this stack (no ``VA_BPM_ERRORS``/``VA_CORR_GAIN``
-in the written ``.env``), so the VA's read
-path is deterministic: the baseline reads return identical values and the
-measured per-BPM sigma is exactly zero. That is legal and is not a skip — see
+in the written ``.env``) and the stack starts in the ``still`` scenario, so
+every reading it serves -- monitors and corrector readbacks alike -- serves
+without motion and the VA's read path is deterministic: no seed is edited,
+the baseline reads return identical values and the measured per-BPM sigma is
+exactly zero. That is legal and is not a skip — see
 ``bump_analysis.noise_floor_violations`` on why a zero sigma is a fact about
 readback resolution rather than a fault — and it means the convergence band
 here is exactly ``±TOLERANCE_M``, with no noise term taking over.
 
 No preset channel names are hardcoded: correctors and BPMs are selected from
-the deployment repo's own channel ROSTER — the channel-finder database the
-build copies verbatim into the build zone, where the deployed containers read
-it — via ``_orm_stack.roster_records`` +
+the device file the build staged for the queueserver worker — the build's
+Bluesky view of the facility file — via
 ``_orm_stack.select_correctors``/``select_bpms``, and then chosen from those
 lists BY POSITION. See ``CORRECTOR_INDICES`` for why the positions are
-what they are. They reach the queueserver worker as the device file this
-fixture authors before the build stages it.
+what they are.
 
 Ports: every published port of this deployment is pinned to a value this module
 owns — see the constants block below for the value per service and the sibling
@@ -102,9 +100,9 @@ import shutil
 import statistics
 import subprocess
 import time
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 
@@ -112,11 +110,7 @@ from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
-from tests.e2e._monitor_motion import still_monitor_motion
 from tests.e2e._volumes import remove_project_volumes
-
-if TYPE_CHECKING:
-    from osprey.channel_roster import ChannelRecord
 
 pytestmark = [
     pytest.mark.e2e,
@@ -191,6 +185,11 @@ EXTRA_CONFIG: dict[str, Any] = {
         "services.postgresql.port_host": POSTGRES_PORT,
         "services.openobserve.port": OPENOBSERVE_PORT,
         "services.qmd.port": QMD_PORT,
+        # TOLERANCE_M sits below the seeds' BPM noise and rests on a stack whose
+        # monitors read the solved orbit exactly, and the plan settles on and the
+        # return check reads the corrector readbacks, so the stack starts in the
+        # `still` scenario: every reading serves without motion.
+        "simulation.default_scenarios": ["still"],
     },
     "bluesky": {"tiled_port": TILED_PORT},
     "bluesky_web": None,
@@ -211,24 +210,22 @@ HEALTH_TIMEOUT_SEC = 300.0
 # The bump's geometry
 # ---------------------------------------------------------------------------
 #
-# Positions within the roster-derived device lists, not device names -- the
-# deployed project's own channel roster owns which devices exist.
-# Both sides read the same population -- the bindings document's kick and
-# monitor bindings -- but they key it differently: the crosscheck in
-# `tests/va/test_bump_crosscheck.py` orders by ring position, and this lane
-# takes the selectors' address-ordered output. Position i therefore names the
-# same magnet in both only on a tree whose address order follows the ring, as
-# the demo tree's does. The positions are picked for CONDITIONING rather than
+# Positions within the staged view's device lists, not device names -- the
+# build's view of the facility file owns which devices exist.
+# The population is the simulator view's corrector and monitor wiring, in
+# the selectors' address-ordered output. Position i therefore follows lattice
+# order only on a tree whose address order follows the lattice, as the demo
+# tree's does. The positions are picked for CONDITIONING rather than
 # for aesthetics.
 #
-# The three correctors are clustered inside one sixth of the ring with enough
+# The three correctors are clustered inside one sixth of the lattice with enough
 # betatron phase between them to close a bump: the probed response comes back
 # well conditioned (condition number ~10) and the solve asks for single-digit
 # amps, comfortably inside the +-12 A the correctors' channel_limits band
 # allows. A tighter cluster is closer to a single combined kick and needs far
 # more current for the same displacement. BPMs and correctors are colocated in
 # this lattice, so the target BPM sits at the middle corrector -- the peak of
-# the bump -- and the closure BPMs are spread around the rest of the ring, each
+# the bump -- and the closure BPMs are spread around the rest of the lattice, each
 # well clear of the corrector span.
 CORRECTOR_INDICES = (11, 12, 17)
 TARGET_BPM_INDEX = 12
@@ -243,9 +240,7 @@ SPAN_MONITOR_BPM_INDEX = 14
 #: A monitor BPM OUTSIDE the corrector span that the solve was never told to
 #: hold. Closure at the six constrained BPMs is something the least-squares
 #: solve was asked for; closure here is not, so it is the honest test of
-#: whether the bump is local -- the same thing
-#: ``test_bump_crosscheck.test_bump_closes_outside_the_corrector_span`` asserts
-#: over every unconstrained BPM, applied here to one, because every device
+#: whether the bump is local. One such BPM is checked, because every device
 #: named in this test is one more Channel Access connection the deployed worker
 #: environment has to open before the queue can accept a plan.
 CLOSURE_MONITOR_BPM_INDEX = 65
@@ -262,17 +257,16 @@ CLOSURE_MONITOR_BPM_INDEX = 65
 PROBE_AMPLITUDE_A = 5.0
 
 #: The displacement asked for at the target BPM, in meters -- the units the
-#: deployed VA's BPM records carry (`serving/pvdb.py`'s analog channels serve
-#: the full double; the six-digit `prec` there is display metadata only).
+#: deployed VA's BPM records carry.
 #: Sized so the solve lands at single-digit amps: measured in-process against
 #: the same lattice, this corrector set needs at most 3.7 A for it.
 TARGET_BUMP_M = 20e-6
 
 #: The convergence band, in meters. 2.5% of the requested bump, and roughly 4x
-#: the worst step residual this corrector set actually produces on this ring
+#: the worst step residual this corrector set actually produces on this lattice
 #: at the constrained rows (1.3e-7 m at full amplitude, measured in-process
 #: through the same `fit_probe_response` -> `solve_offsets` path the plan
-#: runs). That residual is structural, not numerical: the ring solves its
+#: runs). That residual is structural, not numerical: the lattice solves its
 #: closed orbit with the cavity on, so a bump's path-length change shifts the
 #: energy and moves every dispersive BPM, and three correctors cannot hold
 #: seven rows against it -- see CLOSURE_BOUND for the same term at the monitor
@@ -320,31 +314,28 @@ EXPECTED_ROWS = BASELINE_READS + len(EXPECTED_SCALES)
 #: Agreement bound for the magnitude cross-checks -- the bump reaching and
 #: peaking at its target, the span monitor's excursion, a corrector's return
 #: to its working point -- as a fraction of the peak bump amplitude: the
-#: tolerable share of the bump that the ring's own non-idealities may account
+#: tolerable share of the bump that the lattice's own non-idealities may account
 #: for at these currents, the dispersive term ``CLOSURE_BOUND`` describes and
 #: sextupole feed-down under it; every consumer of this bound clears it by
-#: more than an order of magnitude. The same form
-#: ``tests/va/test_bump_crosscheck.py`` holds its oracle comparison to,
-#: tighter here because a deployed run compares the machine with itself
-#: rather than with a superposition of single-corrector predictions. The rows
+#: more than an order of magnitude. The rows
 #: the solve was asked for are held to ``TOLERANCE_M``, the band the run
 #: itself was given.
 RELATIVE_BOUND = 1e-2
 
 #: Closure bound at the monitor BPM the solve was never told to hold, as a
-#: fraction of the peak. Looser than the solved rows' bound because the served
-#: ring solves its closed orbit with the cavity on (``lattice/ring.py``): a
-#: bump changes the path length, the RF frequency holds, and the energy shifts
-#: to compensate, so every BPM with dispersion moves by a share of the bump
-#: that is linear in its amplitude to better than a percent. Three correctors
+#: fraction of the peak. Looser than the solved rows' bound because the pyat
+#: engine (``src/osprey/simulation/engines/pyat.py``) solves the served
+#: lattice's closed orbit with the cavity on: a bump changes the path length,
+#: the RF frequency holds, and the energy shifts to compensate, so every BPM
+#: with dispersion moves by a share of the bump that is linear in its
+#: amplitude to better than a percent. Three correctors
 #: cannot zero that term at six closure BPMs and one more, and the unsolved
-#: monitor shows it whole. Measured in-process on this ring through the same
+#: monitor shows it whole. Measured in-process on this lattice through the same
 #: ``fit_probe_response`` -> ``solve_offsets`` path the plan runs: 1.05 % of
 #: the peak at every probe amplitude, and 0.015 % with the cavity off.
-#: Roughly five times that dispersive share, half the outside-span bound the
-#: crosscheck holds -- a bump leaking this little is still a local bump, and a
-#: sign error or a wrong-row solve leaks a large fraction of the peak, not a
-#: few percent of it.
+#: Roughly five times that dispersive share -- a bump leaking this little is
+#: still a local bump, and a sign error or a wrong-row solve leaks a large
+#: fraction of the peak, not a few percent of it.
 CLOSURE_BOUND = 5e-2
 
 #: Noise multiplier the magnitude bounds floor at, so a BPM whose reading
@@ -473,9 +464,7 @@ class DeployedBumpStack:
         return [*self.constrained_bpms, *self.monitors]
 
 
-def _horizontal_devices(
-    records: Sequence[ChannelRecord],
-) -> tuple[list[str], list[str]]:
+def _horizontal_devices(repo: Path) -> tuple[list[str], list[str]]:
     """The horizontal corrector setpoints and horizontal BPM readbacks of the
     deployed project.
 
@@ -487,87 +476,24 @@ def _horizontal_devices(
     refuses, before any bump is solved.
 
     Which plane a device belongs to is read off the deployed tree's own
-    bindings: a corrector's kick binding names the ``KickAngle`` component it
-    writes, and a monitor's binding names the transverse axis it reads. Both
+    simulator view: a corrector's binding states its plane, and a monitor's
+    binding states the transverse plane it reads. Both
     lists come from ``select_correctors``/``select_bpms``, so they are the
-    deployed project's own roster entries in address order.
+    staged view's devices in address order.
     """
-    document = _orm_stack.served_bindings(records)
-    kicks = {
-        binding.setpoint_address
-        for binding in document.bindings
-        if binding.kind == "kick" and binding.index == _orm_stack.KICK_HORIZONTAL
-    }
-    monitors = {
-        binding.setpoint_address
-        for binding in document.bindings
-        if binding.kind == "monitor" and binding.attribute == _orm_stack.MONITOR_X
-    }
+    view = _orm_stack.repo_view(repo)
+    kicks = _orm_stack.corrector_addresses(view, plane="x")
+    monitors = _orm_stack.monitor_addresses(view, plane="x")
     correctors = [
-        address for address in _orm_stack.select_correctors(records, count=None) if address in kicks
+        address for address in _orm_stack.select_correctors(repo, count=None) if address in kicks
     ]
-    bpms = [
-        address for address in _orm_stack.select_bpms(records, count=None) if address in monitors
-    ]
+    bpms = [address for address in _orm_stack.select_bpms(repo, count=None) if address in monitors]
     return correctors, bpms
 
 
 @pytest.fixture(scope="module")
 def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedBumpStack]:
     base = tmp_path_factory.mktemp("bump_roundtrip_build")
-
-    # The plan devices are authored BETWEEN `init` and `build`: the build copies
-    # <repo>/data into the build zone and stages the device file it finds there
-    # for the queueserver worker, so a set written after the build would never
-    # reach a container. The bump's geometry is chosen here too, from the repo's
-    # own channel roster — the same channel database the build materializes for
-    # the deployed channel finder, read here from the tier the profile pins
-    # because that is the only copy that exists this early.
-    stack: DeployedBumpStack | None = None
-
-    def author_devices(repo: Path) -> None:
-        nonlocal stack
-        # TOLERANCE_M sits below the machine file's BPM noise and rests on a
-        # stack whose monitors read the solved orbit exactly, so they serve it
-        # without the drift and noise the machine file gives them.
-        still_monitor_motion(repo / "data")
-        records = _orm_stack.roster_records(repo)
-        available_correctors, available_bpms = _horizontal_devices(records)
-
-        bpm_indices = (
-            TARGET_BPM_INDEX,
-            *CLOSURE_BPM_INDICES,
-            SPAN_MONITOR_BPM_INDEX,
-            CLOSURE_MONITOR_BPM_INDEX,
-        )
-        assert len(available_correctors) > max(CORRECTOR_INDICES), (
-            f"the deployed project yields {len(available_correctors)} horizontal correctors, "
-            f"too few for this bump's geometry (needs position {max(CORRECTOR_INDICES)})"
-        )
-        assert len(available_bpms) > max(bpm_indices), (
-            f"the deployed project yields {len(available_bpms)} horizontal BPM readbacks, "
-            f"too few for this bump's geometry (needs position {max(bpm_indices)})"
-        )
-
-        stack = DeployedBumpStack(
-            repo=repo,
-            correctors=[available_correctors[index] for index in CORRECTOR_INDICES],
-            target_bpm=available_bpms[TARGET_BPM_INDEX],
-            closure_readbacks=[available_bpms[index] for index in CLOSURE_BPM_INDICES],
-            span_monitor=available_bpms[SPAN_MONITOR_BPM_INDEX],
-            closure_monitor=available_bpms[CLOSURE_MONITOR_BPM_INDEX],
-        )
-
-        # Only the devices this bump names reach the worker namespace: every one
-        # of them is a Channel Access connection the RE worker environment has to
-        # open before the queue will accept a plan, and the facility's whole
-        # corrector set would spend that on devices no assertion here reads.
-        all_correctors = _orm_stack.select_correctors(records, count=None)
-        _orm_stack.write_devices_file(
-            repo,
-            correctors={name: all_correctors[name] for name in stack.correctors},
-            bpms={name: name for name in stack.all_bpms},
-        )
 
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
@@ -582,9 +508,33 @@ def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         port_base=21900,
         timeout=BUILD_TIMEOUT_SEC,
         extra_config=EXTRA_CONFIG,
-        pre_build=author_devices,
     )
-    assert stack is not None, "the pre-build hook did not run -- no devices were authored"
+
+    # The bump's geometry is chosen from the device file the build staged, so
+    # every device it names is one the worker registered.
+    available_correctors, available_bpms = _horizontal_devices(repo)
+    bpm_indices = (
+        TARGET_BPM_INDEX,
+        *CLOSURE_BPM_INDICES,
+        SPAN_MONITOR_BPM_INDEX,
+        CLOSURE_MONITOR_BPM_INDEX,
+    )
+    assert len(available_correctors) > max(CORRECTOR_INDICES), (
+        f"the deployed project yields {len(available_correctors)} horizontal correctors, "
+        f"too few for this bump's geometry (needs position {max(CORRECTOR_INDICES)})"
+    )
+    assert len(available_bpms) > max(bpm_indices), (
+        f"the deployed project yields {len(available_bpms)} horizontal BPM readbacks, "
+        f"too few for this bump's geometry (needs position {max(bpm_indices)})"
+    )
+    stack = DeployedBumpStack(
+        repo=repo,
+        correctors=[available_correctors[index] for index in CORRECTOR_INDICES],
+        target_bpm=available_bpms[TARGET_BPM_INDEX],
+        closure_readbacks=[available_bpms[index] for index in CLOSURE_BPM_INDICES],
+        span_monitor=available_bpms[SPAN_MONITOR_BPM_INDEX],
+        closure_monitor=available_bpms[CLOSURE_MONITOR_BPM_INDEX],
+    )
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.
@@ -845,8 +795,7 @@ class _Measured:
         """The magnitude-agreement bound at *device*:
         ``max(fraction * peak, NOISE_SIGMAS * sigma)``.
 
-        The same form ``tests/va/test_bump_crosscheck.py`` uses: a share of the
-        bump the ring may account for on its own, floored at what the BPM can
+        A share of the bump the lattice may account for on its own, floored at what the BPM can
         actually be read to. *fraction* is ``RELATIVE_BOUND`` for the magnitude
         checks (the span monitor's excursion, a corrector's return to its
         working point) and ``CLOSURE_BOUND`` for the closure monitor's leak.
@@ -990,7 +939,7 @@ def test_orbit_bump_sweep_roundtrip_closes_a_local_bump(
     )
 
     # The closure monitor is outside the span and equally unsolved-for, so its
-    # staying put -- to within the dispersive share a ring solved with its
+    # staying put -- to within the dispersive share a lattice solved with its
     # cavity leaves there, see CLOSURE_BOUND -- is the honest statement that
     # the bump is LOCAL.
     for step, scale in enumerate(EXPECTED_SCALES):

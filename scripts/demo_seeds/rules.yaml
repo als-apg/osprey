@@ -1,0 +1,292 @@
+# The simulated motion of the example facility's float readbacks, one row per
+# signal class. `reseed.py` stamps each row's `noise` and `drift` into
+# src/osprey/templates/facilities/example/seeds.yaml.
+#
+# A row matches a channel by its device's `class` (records/devices.yaml) and the
+# channel's `signal` (records/channels.yaml). An optional `machine` (the first
+# segment of the device id) or `device` (the device id) narrows the row; when
+# several rows match, `device` wins over `machine`, and `machine` over neither.
+#
+# `noise` is the sigma of a read's Gaussian noise and `drift` a slow wander of
+# `amplitude` over `period_s`; each is `{value, unit}` or `none`, converted into
+# the channel's own unit. A setpoint row states `tolerance` instead, `{value,
+# unit}`: how close the setpoint's readback must come for a move to count as
+# done, stamped into records/channels.yaml and never below the readback's
+# motion envelope. `source` names the instrument behaviour the value stands for.
+
+- class: Dipole
+  signal: current_readback
+  noise: {value: 3, unit: mA}
+  source: DCCT-regulated bend supply, ~10 ppm of ~330 A
+
+- class: Quadrupole
+  signal: current_readback
+  noise: {value: 1, unit: mA}
+  source: quadrupole supply, 10-25 ppm of 40-170 A
+
+- class: Sextupole
+  signal: current_readback
+  noise: {value: 2, unit: mA}
+  source: sextupole supply, ~25 ppm of ~85 A
+
+- class: HCorrector
+  signal: current_readback
+  noise: {value: 1, unit: mA}
+  drift:
+    amplitude: {value: 5, unit: mA}
+    period_s: {value: 21600, unit: s}
+  source: bipolar corrector supply, ~100 ppm of 12 A full scale; thermal wander
+
+- class: VCorrector
+  signal: current_readback
+  noise: {value: 1, unit: mA}
+  drift:
+    amplitude: {value: 5, unit: mA}
+    period_s: {value: 21600, unit: s}
+  source: bipolar corrector supply, ~100 ppm of 12 A full scale; thermal wander
+
+- class: BeamPositionMonitor
+  signal: position_x_readback
+  machine: SR
+  noise: {value: 1, unit: µm}
+  drift:
+    amplitude: {value: 30, unit: µm}
+    period_s: {value: 43200, unit: s}
+  source: turn-averaged BPM resolution; diurnal orbit wander
+
+- class: BeamPositionMonitor
+  signal: position_y_readback
+  machine: SR
+  noise: {value: 1, unit: µm}
+  drift:
+    amplitude: {value: 30, unit: µm}
+    period_s: {value: 43200, unit: s}
+  source: turn-averaged BPM resolution; diurnal orbit wander
+
+- class: BeamPositionMonitor
+  signal: position_x_readback
+  machine: BR
+  noise: {value: 5, unit: µm}
+  source: single-pass BPM resolution
+
+- class: BeamPositionMonitor
+  signal: position_y_readback
+  machine: BR
+  noise: {value: 5, unit: µm}
+  source: single-pass BPM resolution
+
+- class: BeamPositionMonitor
+  signal: position_x_readback
+  machine: BTS
+  noise: {value: 5, unit: µm}
+  source: single-pass BPM resolution
+
+- class: BeamPositionMonitor
+  signal: position_y_readback
+  machine: BTS
+  noise: {value: 5, unit: µm}
+  source: single-pass BPM resolution
+
+- class: BeamPositionMonitor
+  signal: position_x_readback
+  machine: LINE
+  noise: none
+  source: model-computed trajectory, served without simulated motion
+
+- class: BeamPositionMonitor
+  signal: position_y_readback
+  machine: LINE
+  noise: none
+  source: model-computed trajectory, served without simulated motion
+
+- class: Quadrupole
+  signal: current_readback
+  machine: LINE
+  noise: none
+  source: model-served supply readback, served without simulated motion
+
+- class: HCorrector
+  signal: current_readback
+  machine: LINE
+  noise: none
+  source: model-served supply readback, served without simulated motion
+
+- class: VCorrector
+  signal: current_readback
+  machine: LINE
+  noise: none
+  source: model-served supply readback, served without simulated motion
+
+- class: BeamPositionMonitor
+  signal: position_offset
+  noise: none
+  source: stored reference, not a measurement
+
+- class: BeamPositionMonitor
+  signal: position_x_golden_readback
+  noise: none
+  source: stored reference, not a measurement
+
+- class: BeamPositionMonitor
+  signal: position_y_golden_readback
+  noise: none
+  source: stored reference, not a measurement
+
+- class: Dipole
+  signal: current_golden_readback
+  noise: none
+  source: stored reference, not a measurement
+
+- class: Quadrupole
+  signal: current_golden_readback
+  noise: none
+  source: stored reference, not a measurement
+
+- class: Sextupole
+  signal: current_golden_readback
+  noise: none
+  source: stored reference, not a measurement
+
+- class: HCorrector
+  signal: current_golden_readback
+  noise: none
+  source: stored reference, not a measurement
+
+- class: VCorrector
+  signal: current_golden_readback
+  noise: none
+  source: stored reference, not a measurement
+
+- class: BeamCurrentMonitor
+  signal: beam_intensity_readback
+  machine: SR
+  noise: {value: 0.05, unit: A}
+  source: DCCT resolution
+
+- class: BeamCurrentMonitor
+  signal: beam_intensity_readback
+  machine: BR
+  noise: {value: 5.0, unit: A}
+  source: shot-to-shot booster current
+
+- class: BeamLossMonitor
+  signal: dose_rate_readback
+  noise: {value: 1.0, unit: mrem/hr}
+  source: counting statistics at 100 mrem/hr
+
+- class: AcceleratingCavity
+  signal: frequency_readback
+  noise: {value: 1, unit: Hz}
+  source: frequency-counter resolution
+
+- class: AcceleratingCavity
+  signal: rf_forward_power_readback
+  noise: {value: 4.95, unit: W}
+  source: RF power meter, ~1 % of range
+
+- class: AcceleratingCavity
+  signal: rf_reflected_power_readback
+  noise: {value: 1.0, unit: W}
+  source: RF power meter, ~1 % of range
+
+- class: AcceleratingCavity
+  signal: temperature_readback
+  device: SR/CAVITY01
+  noise: {value: 0.189, unit: C}
+  source: water-temperature RTD readout
+
+- class: AcceleratingCavity
+  signal: temperature_readback
+  device: SR/CAVITY02
+  noise: {value: 0.1855, unit: C}
+  source: water-temperature RTD readout
+
+- class: AcceleratingCavity
+  signal: tuner_position_readback
+  noise: {value: 10, unit: µm}
+  source: tuner encoder
+
+- class: AcceleratingCavity
+  signal: voltage_readback
+  noise: {value: 0.0025, unit: V}
+  source: amplitude loop, 0.1 %
+
+- class: Modulator
+  signal: power_readback
+  noise: {value: 4.0, unit: W}
+  source: power meter, 1 %
+
+- class: Modulator
+  signal: rf_hv_readback
+  noise: {value: 0.08, unit: V}
+  source: HV regulation, 0.1 %
+
+- class: Gauge
+  signal: vacuum_readback
+  noise: {value: 1.5e-09, unit: Pa}
+  source: gauge reading scatter, 3 % of nominal
+
+- class: Pump
+  signal: vacuum_readback
+  noise: {value: 1e-11, unit: Pa}
+  source: gauge reading scatter, 1 % of nominal
+
+- class: Pump
+  signal: current_readback
+  noise: {value: 1.5, unit: A}
+  source: pump controller readout
+
+- class: Pump
+  signal: voltage_readback
+  noise: {value: 5, unit: V}
+  source: pump HV regulation, 0.1 %
+
+- class: Dipole
+  signal: current_setpoint
+  tolerance: {value: 0.05, unit: A}
+  source: bend supply settle band, as a middle-layer export states it
+
+- class: Quadrupole
+  signal: current_setpoint
+  tolerance: {value: 0.05, unit: A}
+  source: quadrupole supply settle band, as a middle-layer export states it
+
+- class: Sextupole
+  signal: current_setpoint
+  tolerance: {value: 0.05, unit: A}
+  source: sextupole supply settle band, as a middle-layer export states it
+
+- class: HCorrector
+  signal: current_setpoint
+  tolerance: {value: 0.02, unit: A}
+  source: corrector supply settle band, between the 0.01 A and 0.1 A export classes
+
+- class: VCorrector
+  signal: current_setpoint
+  tolerance: {value: 0.02, unit: A}
+  source: corrector supply settle band, between the 0.01 A and 0.1 A export classes
+
+- class: AcceleratingCavity
+  signal: frequency_setpoint
+  tolerance: {value: 10, unit: Hz}
+  source: frequency-counter resolution
+
+- class: AcceleratingCavity
+  signal: tuner_position_setpoint
+  tolerance: {value: 1100, unit: µm}
+  source: tuner encoder band plus the cooling-water thermal wander of the cavity body
+
+- class: AcceleratingCavity
+  signal: voltage_setpoint
+  tolerance: {value: 0.02, unit: V}
+  source: amplitude loop settle band
+
+- class: Modulator
+  signal: rf_hv_setpoint
+  tolerance: {value: 1.0, unit: V}
+  source: HV regulation settle band
+
+- class: Pump
+  signal: voltage_setpoint
+  tolerance: {value: 50, unit: V}
+  source: ion-pump controller settle band

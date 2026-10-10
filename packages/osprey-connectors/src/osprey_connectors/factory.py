@@ -40,7 +40,7 @@ class ConnectorFactory:
         >>> cs_connector = await ConnectorFactory.create_control_system_connector()
         >>>
         >>> # Using custom config
-        >>> config = {'type': 'mock', 'connector': {'mock': {...}}}
+        >>> config = {'type': 'epics', 'connector': {'epics': {...}}}
         >>> cs_connector = await ConnectorFactory.create_control_system_connector(config)
     """
 
@@ -55,7 +55,7 @@ class ConnectorFactory:
         Register a control system connector.
 
         Args:
-            name: Unique name for the connector (e.g., 'epics', 'tango', 'mock')
+            name: Unique name for the connector (e.g., 'epics', 'tango')
             connector_class: Connector class implementing ControlSystemConnector
         """
         cls._control_system_connectors[name] = connector_class
@@ -82,9 +82,10 @@ class ConnectorFactory:
 
         Args:
             config: Control system configuration dict with keys:
-                - type: Connector type (e.g., 'epics', 'mock'). Defaults to
-                  'mock' with a warning when unset, so an under-specified
-                  config never reaches live hardware.
+                - type: Connector type (e.g., 'epics', 'virtual_accelerator').
+                  Defaults to the simulator served in process, with a warning,
+                  when unset, so an under-specified config never reaches live
+                  hardware.
                 - connector: Dict with connector-specific configs
                 If None, loads from global config
             control_target: The control target this connector is being built
@@ -126,12 +127,21 @@ class ConnectorFactory:
         # three refusals above all — resolves it identically.
         connector_type = types.resolve_control_system_type(config)
         if not config.get("type"):
-            logger.warning(
-                f"control_system.type is not set; defaulting to '{types.MOCK}'. "
-                f"Set control_system.type explicitly to select a connector."
-            )
+            logger.warning(types.UNSET_TYPE_WARNING)
 
         connector_class = cls._control_system_connectors.get(connector_type)
+        # The venue is the factory's choice, made from the same function every
+        # check reads the connector's wire from: the simulator served in process
+        # is built here, and nowhere else decides it.
+        if (
+            connector_type == types.VIRTUAL_ACCELERATOR
+            and types.resolve_serving(config) == types.IN_PROCESS
+        ):
+            from osprey_connectors.control_system.va_in_process_connector import (
+                VAInProcessConnector,
+            )
+
+            connector_class = VAInProcessConnector
 
         if not connector_class:
             if "." in connector_type:
@@ -147,6 +157,8 @@ class ConnectorFactory:
                     raise ValueError(f"Module '{module_path}' has no class '{class_name}'") from e
                 cls._control_system_connectors[connector_type] = connector_class
             else:
+                if connector_type in types.RETIRED_CONTROL_SYSTEM_TYPES:
+                    raise ValueError(types.retired_type_message(connector_type))
                 available = list(cls._control_system_connectors.keys())
                 raise ValueError(
                     f"Unknown control system type: '{connector_type}'. "
@@ -160,6 +172,10 @@ class ConnectorFactory:
         # the limits posture are both per connector type, and connect() itself
         # already consults the stamp to load them.
         connector._connector_type = connector_type
+        # On the same seam, the wire this instance speaks: computed once from the
+        # type and the serving leaf, and echoed by a host child so its parent can
+        # refuse a child that built the other venue.
+        connector._transport = types.connector_transport(config, connector_type)
         # Beside it, and for the same reason: the session half of the posture is
         # per target, so the target has to be on the instance before connect()
         # reads it. The two stamps answer different questions — the type selects
@@ -399,7 +415,6 @@ def isolated_connector_registries(*, clear: bool = False) -> Iterator[ConnectorR
 
 
 _BUILTIN_CONTROL_SYSTEMS = (
-    types.MOCK,
     types.EPICS,
     types.VIRTUAL_ACCELERATOR,
     types.DOOCS,
@@ -450,12 +465,10 @@ def register_builtin_connectors() -> None:
     from osprey_connectors.archiver.mya_archiver_connector import MYAArchiverConnector
     from osprey_connectors.control_system.doocs_connector import DOOCSConnector
     from osprey_connectors.control_system.epics_connector import EPICSConnector
-    from osprey_connectors.control_system.mock_connector import MockConnector
     from osprey_connectors.control_system.tango_connector import TangoConnector
     from osprey_connectors.control_system.va_connector import VirtualAcceleratorConnector
 
     control_systems: list[tuple[str, type[ControlSystemConnector]]] = [
-        (types.MOCK, MockConnector),
         (types.EPICS, EPICSConnector),
         (types.VIRTUAL_ACCELERATOR, VirtualAcceleratorConnector),
         (types.DOOCS, DOOCSConnector),

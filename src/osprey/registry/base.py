@@ -89,7 +89,7 @@ class ConnectorRegistration:
     Connectors are registered with the ConnectorFactory during registry
     initialization, providing unified management of all framework components.
 
-    :param name: Unique connector name (e.g., 'epics', 'tango', 'mock')
+    :param name: Unique connector name (e.g., 'epics', 'tango')
     :type name: str
     :param connector_type: Type of connector ('control_system' or 'archiver')
     :type connector_type: str

@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 from click.testing import CliRunner, Result
 
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.build_profile import (
     BlueskyConfig,
     BlueskyExternalConfig,
@@ -36,6 +37,7 @@ from osprey.cli.build_profile import (
     ServiceDef,
     VAConfig,
     _parse_profile,
+    resolve_build_profile,
 )
 from osprey.errors import BuildProfileError
 
@@ -122,14 +124,14 @@ def test_validate_accumulates_every_failure_into_one_error(tmp_path: Path) -> No
     profile = _profile(
         name="",
         deploy_services="yes",  # type: ignore[arg-type]
-        tier=2,
+        channel_finder_mode="in-context",
         dependencies=["   "],
     )
     errors = _errors(profile, tmp_path)
     assert errors == [
         "Profile 'name' is required",
         "deploy_services must be a boolean (got str)",
-        "tier must be 1 or 3 (got 2)",
+        f"channel_finder_mode must be one of {VALID_CHANNEL_FINDER_MODES} (got 'in-context')",
         "Dependency must be a non-empty string: '   '",
     ]
 
@@ -150,7 +152,7 @@ def test_a_docker_url_probe_address_beside_web_terminals_is_refused(tmp_path: Pa
     assert errors[0].startswith("config: health.auto.mcp.url_key is 'docker_url'")
 
 
-# --- scalar fields: name, deploy_services, tier, channel_finder_mode -------
+# --- scalar fields: name, deploy_services, channel_finder_mode ------------
 
 
 def test_missing_name_is_rejected(tmp_path: Path) -> None:
@@ -164,38 +166,22 @@ def test_non_boolean_deploy_services_is_rejected(tmp_path: Path) -> None:
     assert _errors(profile, tmp_path) == ["deploy_services must be a boolean (got int)"]
 
 
-def test_tier_outside_one_or_three_is_rejected(tmp_path: Path) -> None:
-    """Only tiers 1 and 3 ship a channel database."""
-    assert _errors(_profile(name="x", tier=2), tmp_path) == ["tier must be 1 or 3 (got 2)"]
+def test_a_profile_tier_key_stops_naming_the_in_context_tag(tmp_path: Path) -> None:
+    """``tier`` is no profile key; the stop names what selects the subset."""
+    from osprey.facility.errors import FacilityBuildError
+
+    (tmp_path / "data").mkdir(exist_ok=True)
+    prof = tmp_path / "profile.yml"
+    prof.write_text("name: t\ndata: data\nchannel_finder_mode: in_context\ntier: 1\n")
+    with pytest.raises(FacilityBuildError) as stop:
+        resolve_build_profile(prof.resolve(), preset=None)
+    assert stop.value.kind == "profile-invalid"
+    assert stop.value.format_message().startswith("facility: profile-invalid: path tier — ")
+    assert "`in_context` tag" in stop.value.format_message()
 
 
-def test_tier_one_with_hierarchical_mode_is_rejected(tmp_path: Path) -> None:
-    """Tier 1 ships only the in_context DB, so a paradigm mismatch fails here."""
-    profile = _profile(name="x", tier=1, channel_finder_mode="hierarchical")
-    errors = _errors(profile, tmp_path)
-    assert errors == [
-        "tier 1 requires channel_finder_mode: in_context (got channel_finder_mode: 'hierarchical')"
-    ]
-
-
-def test_explicit_tier_with_graph_mode_is_rejected(tmp_path: Path) -> None:
-    """``graph``'s store is a seeded service, so no tier selects anything for it.
-
-    The rule is checked ahead of the tier-1/in_context rule, so a ``tier: 1``
-    graph profile reports the graph message rather than being told to switch to
-    in_context — the fix is to drop ``tier``, not to change the paradigm.
-    """
-    for tier in (1, 3):
-        profile = _profile(
-            name="x", tier=tier, channel_finder_mode="graph", config=dict(DEPLOYS_GRAPHDB)
-        )
-        assert _errors(profile, tmp_path) == [
-            f"channel_finder_mode: graph has no tiered artifacts; omit tier (got tier: {tier})"
-        ]
-
-
-def test_graph_mode_without_tier_validates(tmp_path: Path) -> None:
-    """Omitting ``tier`` is the supported way to build the graph paradigm."""
+def test_graph_mode_validates(tmp_path: Path) -> None:
+    """The graph paradigm validates beside the graph store it reads."""
     _profile(name="x", channel_finder_mode="graph", config=dict(DEPLOYS_GRAPHDB)).validate(tmp_path)
 
 
@@ -205,17 +191,6 @@ def test_unknown_channel_finder_mode_is_rejected(tmp_path: Path) -> None:
     (error,) = _errors(profile, tmp_path)
     assert "channel_finder_mode must be one of" in error
     assert "'in-context'" in error
-
-
-def test_resolved_tier_returns_explicit_tier() -> None:
-    """An explicit tier wins over the paradigm-aware default."""
-    assert _profile(name="x", tier=1, channel_finder_mode="in_context").resolved_tier() == 1
-
-
-def test_resolved_tier_defaults_from_paradigm() -> None:
-    """With no explicit tier, the paradigm picks the default (in_context -> 1)."""
-    assert _profile(name="x", channel_finder_mode="in_context").resolved_tier() == 1
-    assert _profile(name="x", channel_finder_mode="hierarchical").resolved_tier() == 3
 
 
 # --- convention directories -----------------------------------------------
@@ -1059,10 +1034,7 @@ def test_render_with_a_half_written_limits_block_is_unrunnable(tmp_path: Path) -
 
     (error,) = _render_limits_errors(render_dir)
 
-    assert (
-        "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels"
-        in error
-    )
+    assert "control_system.connector.virtual_accelerator.limits_checking.mode" in error
 
 
 def test_render_with_a_complete_limits_block_is_runnable(tmp_path: Path) -> None:
@@ -1071,9 +1043,7 @@ def test_render_with_a_complete_limits_block_is_runnable(tmp_path: Path) -> None
         tmp_path,
         {
             "connector": {
-                "virtual_accelerator": {
-                    "limits_checking": {"enabled": True, "allow_unlisted_channels": True}
-                }
+                "virtual_accelerator": {"limits_checking": {"enabled": True, "mode": "optional"}}
             }
         },
     )
@@ -1190,7 +1160,7 @@ def test_build_refuses_a_profile_writing_only_one_limits_leaf(tmp_path: Path) ->
 
     assert result.exit_code != 0, result.output
     assert "Profile validation failed" in result.output
-    assert "allow_unlisted_channels" in result.output
+    assert "mode" in result.output
     assert "virtual_accelerator" in result.output
 
 
@@ -1218,8 +1188,7 @@ def test_build_passes_a_complete_per_type_limits_block(tmp_path: Path) -> None:
         tmp_path,
         {
             "control_system.connector.virtual_accelerator.limits_checking.enabled": True,
-            "control_system.connector.virtual_accelerator.limits_checking."
-            "allow_unlisted_channels": True,
+            "control_system.connector.virtual_accelerator.limits_checking.mode": "optional",
         },
         "whole-block",
     )

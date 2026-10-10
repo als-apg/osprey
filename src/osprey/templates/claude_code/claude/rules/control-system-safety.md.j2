@@ -1,4 +1,5 @@
-{% set cs_type = control_system_type | default('mock') %}
+{% set cs_type = control_system_type | default('virtual_accelerator') %}
+{% set transport = control_system_transport | default('in_process') %}
 {% if cs_type == 'epics' %}
 {% set protocol_name = 'EPICS' %}
 {% set protocol_long = 'EPICS Channel Access' %}
@@ -43,7 +44,7 @@ write_channel("SR:MAG:QF:01:CURRENT:SP", 150.0)
 
 ### Prohibited
 
-{% if cs_type in ('epics', 'virtual_accelerator') %}
+{% if transport == 'ca' %}
 ```python
 # DO NOT use these — read and write through osprey.runtime instead
 import epics
@@ -150,7 +151,7 @@ labview.set_control("Current", 150)   # Bypasses limits + approval
 ### Why This Matters
 
 The `osprey.runtime` API enforces:
-1. **Channel limits** — prevents out-of-range writes (channel_limits.json)
+1. **Channel limits** — prevents out-of-range writes (the records of `data/facility/limits.yaml`, which `osprey build` renders into `build/data/channel_limits.json`, the file the connector's reference monitor and the runtime's limits check enforce on every write)
 2. **Write confirmation** — re-reads the channel to confirm it holds the value sent
 3. **Human approval** — routes writes through the approval workflow
 4. **Audit logging** — records all operations for traceability

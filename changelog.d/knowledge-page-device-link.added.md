@@ -1,0 +1,1 @@
+`osprey build` warns, once per page, when a knowledge page under `data/facility/knowledge` names a `device_id` in its frontmatter that is no device id in the facility file. The build goes on; a page without the key is not linked.

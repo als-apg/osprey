@@ -2,9 +2,10 @@
 
 The import reuses ``MiddleLayerDatabase`` flattening, then writes systems,
 families, channels and a device map into DuckDB. These tests pin the data
-transforms (list subfield / MemberOf joining, device-map extraction) and the
-idempotency contract: re-running replaces ``source='mml'`` rows while
-preserving ``source='runtime'`` rows.
+transforms (list subfield / MemberOf joining, device-map extraction), one
+``channels`` row per place a channel is listed, and the idempotency
+contract: re-running replaces ``source='mml'`` rows while preserving
+``source='runtime'`` rows.
 
 The FTS extension helpers are stubbed out so the import never touches the
 network or a bundled extension file.
@@ -13,6 +14,7 @@ network or a bundled extension file.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -20,6 +22,9 @@ import pytest
 duckdb = pytest.importorskip("duckdb")
 
 from osprey.services.channel_finder.databases import duckdb_import as dimp  # noqa: E402
+from osprey.services.channel_finder.databases.middle_layer import (  # noqa: E402
+    MiddleLayerDatabase,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -103,6 +108,126 @@ class TestImportedContent:
         assert units == "mm"
 
 
+class TestUpdatedAt:
+    def test_a_non_utc_session_reads_back_the_utc_instant(self, mml_json: str):
+        """``updated_at`` holds the import's instant whatever the session's TimeZone."""
+        con = duckdb.connect(":memory:")
+        try:
+            con.execute("SET TimeZone = 'America/Los_Angeles'")
+            dimp._create_schema(con)
+            before = time.time()
+            dimp._import_channels(con, MiddleLayerDatabase(mml_json))
+            after = time.time()
+            stamps = con.execute("SELECT DISTINCT epoch(updated_at) FROM channels").fetchall()
+        finally:
+            con.close()
+        assert len(stamps) == 1
+        assert before - 1 <= stamps[0][0] <= after + 1
+
+
+#: Member families and the umbrella families that repeat their channels.
+_UMBRELLA = {
+    "SR": {
+        "QF": {"Monitor": {"ChannelNames": ["SR:QF1:I", "SR:QF2:I"]}},
+        "HCM": {"Monitor": {"ChannelNames": ["SR:HCM1:I"]}},
+        "BPM": {"X": {"ChannelNames": ["SR:BPM1:X", "SR:BPM2:X"]}},
+        "MAG": {
+            "SR:QF1:I": {"ChannelNames": ["SR:QF1:I"]},
+            "SR:QF2:I": {"ChannelNames": ["SR:QF2:I"]},
+            "SR:HCM1:I": {"ChannelNames": ["SR:HCM1:I"]},
+        },
+        "DIAG": {"X": {"ChannelNames": ["SR:BPM1:X", "SR:BPM2:X"]}},
+    }
+}
+
+
+class TestEveryFamilyAChannelBelongsTo:
+    """A channel is one row per family it belongs to."""
+
+    @pytest.fixture()
+    def umbrella(self, tmp_path: Path):
+        src = tmp_path / "ml.json"
+        src.write_text(json.dumps(_UMBRELLA))
+        out = str(tmp_path / "out.duckdb")
+        dimp.import_to_duckdb(str(src), out)
+        con = duckdb.connect(out, read_only=True)
+        try:
+            yield con
+        finally:
+            con.close()
+
+    @staticmethod
+    def _family(con, family: str) -> list[str]:
+        rows = con.execute(
+            "SELECT channel_name FROM channels WHERE family = ? ORDER BY channel_name", [family]
+        ).fetchall()
+        return [name for (name,) in rows]
+
+    def test_a_member_family_and_its_umbrella_both_return_the_bpms(self, umbrella):
+        assert self._family(umbrella, "BPM") == ["SR:BPM1:X", "SR:BPM2:X"]
+        assert self._family(umbrella, "DIAG") == ["SR:BPM1:X", "SR:BPM2:X"]
+
+    def test_a_member_family_returns_its_magnets_and_the_umbrella_every_magnet(self, umbrella):
+        assert self._family(umbrella, "QF") == ["SR:QF1:I", "SR:QF2:I"]
+        assert self._family(umbrella, "MAG") == ["SR:HCM1:I", "SR:QF1:I", "SR:QF2:I"]
+
+    def test_rows_count_memberships_and_distinct_names_count_channels(self, umbrella):
+        assert umbrella.execute(
+            "SELECT COUNT(*), COUNT(DISTINCT channel_name) FROM channels"
+        ).fetchone() == (10, 5)
+
+
+#: One channel listed under Fields X and Y of Family BPM, under X twice with
+#: different Subfields, and twice at the exact path X:Raw.
+_PER_FIELD = {
+    "SR": {
+        "BPM": {
+            "X": {
+                "Raw": {"ChannelNames": ["SR01:BPM:A", "SR01:BPM:A"]},
+                "Cal": {"ChannelNames": ["SR01:BPM:A"]},
+            },
+            "Y": {"ChannelNames": ["SR01:BPM:A"]},
+        }
+    }
+}
+
+
+class TestEveryFieldAChannelIsListedUnder:
+    """A channel is one row per (System, Family, Field, Subfield) path that lists it."""
+
+    @pytest.fixture()
+    def per_field(self, tmp_path: Path):
+        src = tmp_path / "ml.json"
+        src.write_text(json.dumps(_PER_FIELD))
+        out = str(tmp_path / "out.duckdb")
+        dimp.import_to_duckdb(str(src), out)
+        con = duckdb.connect(out)
+        try:
+            yield con
+        finally:
+            con.close()
+
+    def test_each_listing_is_one_row_and_the_channel_counts_once(self, per_field):
+        rows = per_field.execute(
+            "SELECT family, field, subfield FROM channels ORDER BY row_id"
+        ).fetchall()
+        assert rows == [("BPM", "X", "Raw"), ("BPM", "X", "Cal"), ("BPM", "Y", "")]
+        assert per_field.execute(
+            "SELECT COUNT(DISTINCT channel_name), COUNT(DISTINCT (channel_name, family)) "
+            "FROM channels"
+        ).fetchone() == (1, 1)
+        assert per_field.execute(
+            "SELECT DISTINCT family FROM channels WHERE family = 'BPM'"
+        ).fetchall() == [("BPM",)]
+
+    def test_the_key_refuses_a_second_row_at_the_same_path(self, per_field):
+        with pytest.raises(duckdb.ConstraintException):
+            per_field.execute(
+                "INSERT INTO channels (channel_name, system, family, field, subfield) "
+                "VALUES ('SR01:BPM:A', 'SR', 'BPM', 'Y', '')"
+            )
+
+
 class TestEngineeringUnit:
     """``channels.units`` holds the unit a field is served in, never the MML mode word."""
 
@@ -159,15 +284,75 @@ class TestEngineeringUnit:
         con = duckdb.connect(out)
         try:
             rows = con.execute(
-                "SELECT device_index, sector, device, common_name "
+                "SELECT device_index, place, place_index, device, common_name "
                 "FROM device_map ORDER BY device_index"
             ).fetchall()
         finally:
             con.close()
-        assert rows == [(0, 1, 1, "BPM1"), (1, 1, 2, "BPM2")]
+        assert rows == [(0, None, 1, 1, "BPM1"), (1, None, 1, 2, "BPM2")]
+
+    def test_device_map_lists_each_device_s_place(self, mml_json: str, tmp_path: Path):
+        data = json.loads(Path(mml_json).read_text())
+        data["SR"]["BPM"]["setup"]["PlaceList"] = ["SR/A", None]
+        Path(mml_json).write_text(json.dumps(data))
+        out = str(tmp_path / "out.duckdb")
+        dimp.import_to_duckdb(mml_json, out)
+
+        con = duckdb.connect(out)
+        try:
+            rows = con.execute(
+                "SELECT place, place_index, device FROM device_map ORDER BY device_index"
+            ).fetchall()
+        finally:
+            con.close()
+        assert rows == [("SR/A", 1, 1), (None, 1, 2)]
 
 
 class TestIdempotency:
+    def test_reimport_replaces_a_device_map_of_another_column_set(
+        self, mml_json: str, tmp_path: Path
+    ):
+        out = str(tmp_path / "out.duckdb")
+        dimp.import_to_duckdb(mml_json, out)
+        con = duckdb.connect(out)
+        try:
+            con.execute("DROP TABLE device_map")
+            con.execute(
+                "CREATE TABLE device_map (system TEXT NOT NULL, family TEXT NOT NULL, "
+                "device_index INTEGER NOT NULL, sector INTEGER, device INTEGER, "
+                "common_name TEXT DEFAULT '', PRIMARY KEY (system, family, device_index))"
+            )
+            con.execute("INSERT INTO device_map VALUES ('SR', 'BPM', 0, 1, 1, 'BPM1')")
+            con.execute(
+                "INSERT INTO channels (channel_name, system, family, source) "
+                "VALUES ('SR01:RUNTIME:1', 'SR', 'BPM', 'runtime')"
+            )
+        finally:
+            con.close()
+
+        dimp.import_to_duckdb(mml_json, out)
+
+        con = duckdb.connect(out)
+        try:
+            columns = [row[0] for row in con.execute("DESCRIBE device_map").fetchall()]
+            rows = con.execute("SELECT count(*) FROM device_map").fetchone()
+            (runtime_count,) = con.execute(
+                "SELECT COUNT(*) FROM channels WHERE source = 'runtime'"
+            ).fetchone()
+        finally:
+            con.close()
+        assert columns == [
+            "system",
+            "family",
+            "device_index",
+            "place",
+            "place_index",
+            "device",
+            "common_name",
+        ]
+        assert rows == (2,)
+        assert runtime_count == 1
+
     def test_reimport_preserves_runtime_rows(self, mml_json: str, tmp_path: Path):
         out = str(tmp_path / "out.duckdb")
         dimp.import_to_duckdb(mml_json, out)

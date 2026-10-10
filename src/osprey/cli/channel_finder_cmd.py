@@ -1,7 +1,6 @@
 """Channel Finder CLI command.
 
 Provides the 'osprey channel-finder' command group with subcommands:
-- Build database (osprey channel-finder build-database)
 - Validate database (osprey channel-finder validate)
 - Preview database (osprey channel-finder preview)
 - Web interface (osprey channel-finder web)
@@ -12,21 +11,20 @@ import os
 
 import click
 
-from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli import output
 from osprey.cli.altitude import lift_gate
 from osprey.cli.styles import Messages, Styles, console
 
-#: The paradigms this command group can build and inspect: every registered
-#: paradigm whose store is a database file on disk.
+#: The paradigms ``validate --pipeline`` accepts: every registered paradigm
+#: whose store is a database file on disk.
 #:
 #: ``graph`` is the one deliberate exclusion. A graph store is a service
 #: reached over the network, so ``validate`` (which opens a file and checks it)
-#: and ``generate`` (which writes one) have no file to work on. Derived by
-#: subtraction from :data:`~osprey.build.build_tiers.VALID_CHANNEL_FINDER_MODES`
-#: so registering a file-backed paradigm opens it up on both commands without a
-#: second edit, and so the exclusion stays a stated rule rather than a list that
-#: silently falls behind.
+#: has no file to work on. Derived by subtraction from
+#: :data:`~osprey.build.modes.VALID_CHANNEL_FINDER_MODES` so registering a
+#: file-backed paradigm opens it up without a second edit, and so the exclusion
+#: stays a stated rule rather than a list that silently falls behind.
 FILE_DATABASE_PARADIGMS: list[str] = sorted(set(VALID_CHANNEL_FINDER_MODES) - {"graph"})
 
 
@@ -79,57 +77,6 @@ def _initialize_registry():
         initialize_registry(silent=True)
 
 
-# Where a generated channel database lands inside a data tree. The build copies
-# the profile's data tree onto the project's ``data/``, so one relative path
-# names the file in both places — writing it into the profile is enough for the
-# next build to deploy it.
-_GENERATED_DB_RELPATH = ("processed", "channel_database.json")
-
-
-def _profile_data_root(project_dir):
-    """The data tree of the profile a project was built from, if one resolves.
-
-    Resolves the profile the way the build does — ``extends`` chain followed,
-    persona delta merged over its root, everything anchored at the profile root
-    — rather than reading the one YAML file the manifest names. A generated
-    database has to land where the *build* will read it from, and a raw read
-    sees neither an inherited ``data:`` nor the root a delta belongs to.
-
-    Args:
-        project_dir: Project root whose manifest names the profile.
-
-    Returns:
-        The profile's data tree, or ``None`` when the project names no profile
-        (preset-built, or a manifest that is absent or names none), the profile
-        file is gone, it
-        cannot be read, or the resolved profile declares no ``data:`` tree at
-        all — every one of which is a normal state the caller falls back from
-        rather than an error to raise. Never a guessed ``<root>/data``: a
-        directory the build does not read is worse than an honest fallback,
-        because the caller would announce it as deployable.
-    """
-    from osprey.cli.build_profile_document import _read_profile_document
-    from osprey.cli.build_profile_merge import resolve_profile_document
-    from osprey.cli.build_profile_model import BuildProfile
-    from osprey.cli.templates.manifest import manifest_profile_path
-    from osprey.errors import BuildProfileError
-
-    profile_file = manifest_profile_path(project_dir)
-    if profile_file is None or not profile_file.is_file():
-        return None
-
-    try:
-        raw = _read_profile_document(profile_file)
-        if not isinstance(raw, dict):
-            return None
-        document = resolve_profile_document(raw, profile_file)
-    except (BuildProfileError, OSError):
-        return None
-
-    declared = document.raw.get("data")
-    return BuildProfile(name="", data=declared).resolved_data_root(document.root_dir)
-
-
 @click.group("channel-finder")
 @click.option(
     "--project",
@@ -141,13 +88,12 @@ def _profile_data_root(project_dir):
 def channel_finder(ctx, project: str | None, verbose: bool):
     """Channel Finder - channel database tools.
 
-    Tools for building, validating, previewing, and serving
+    Tools for validating, previewing, serving and benchmarking
     control system channel databases.
 
     Examples:
 
     \b
-      osprey channel-finder build-database
       osprey channel-finder validate
       osprey channel-finder preview
       osprey channel-finder web
@@ -160,122 +106,6 @@ def channel_finder(ctx, project: str | None, verbose: bool):
         # every subcommand under it renders its transcript rather than only
         # warnings and errors. Idempotent, and a no-op when nothing is gated.
         lift_gate()
-
-
-@channel_finder.command("build-database")
-@click.option(
-    "--csv",
-    type=click.Path(exists=True, dir_okay=False),
-    default="data/raw/address_list.csv",
-    help="Input CSV file (default: data/raw/address_list.csv)",
-)
-@click.option(
-    "--output",
-    type=click.Path(dir_okay=False),
-    default=None,
-    help=(
-        "Output JSON file (default: processed/channel_database.json inside the "
-        "profile's data tree, or the project's data/ tree when no profile resolves)"
-    ),
-)
-@click.option(
-    "--use-llm",
-    is_flag=True,
-    default=False,
-    help="Use LLM to generate descriptive names for standalone channels",
-)
-@click.option(
-    "--config",
-    "config_path",
-    type=click.Path(exists=True, dir_okay=False),
-    default=None,
-    help="Path to facility config file (optional, auto-detected if not provided)",
-)
-@click.option(
-    "--delimiter",
-    default=",",
-    help="CSV field delimiter (default: ',')",
-)
-@click.pass_context
-def build_database(
-    ctx, csv: str, output: str | None, use_llm: bool, config_path: str | None, delimiter: str
-):
-    """Build a channel database from a CSV file.
-
-    Reads a CSV with columns: address, description, family_name, instances, sub_channel.
-    Rows with family_name are grouped into templates; rows without are standalone channels.
-
-    The database is written into the profile the project was built from, not
-    into the project: the profile is the source of truth, so a generated
-    database belongs beside the inputs it came from and survives a rebuild.
-    That deliberately marks the built project stale, and the sequence is meant
-    to run to completion:
-
-    \b
-      build-database   -> writes the database into the profile
-      (project reports its build as stale)
-      osprey build     -> copies the profile's data tree into the project
-      (advisory clears)
-
-    The staleness advisory is the reminder that the new database has not been
-    deployed yet — it is not a problem to fix.
-
-    Examples:
-
-    \b
-      osprey channel-finder build-database
-      osprey channel-finder build-database --csv data/raw/channels.csv
-      osprey channel-finder build-database --delimiter "|"
-      osprey channel-finder build-database --use-llm --config config.yml
-      osprey channel-finder build-database --output data/processed/my_db.json
-    """
-    from pathlib import Path
-
-    from osprey.services.channel_finder.tools.build_database import (
-        build_database as do_build,
-    )
-
-    from .project_utils import resolve_project_path
-
-    csv_path = Path(csv)
-    project_dir = resolve_project_path(ctx.obj.get("project"))
-
-    wrote_to_profile = False
-    if output:
-        output_path = Path(output)
-    else:
-        data_root = _profile_data_root(project_dir)
-        wrote_to_profile = data_root is not None
-        if data_root is None:
-            console.print(
-                Messages.warning(
-                    "No profile data tree resolved for this project — writing into the "
-                    "project's data tree. The next 'osprey build' regenerates that "
-                    "tree and overwrites this database; pass --output to keep it elsewhere."
-                )
-            )
-            data_root = project_dir / "data"
-        output_path = data_root.joinpath(*_GENERATED_DB_RELPATH)
-
-    try:
-        do_build(
-            csv_path=csv_path,
-            output_path=output_path,
-            use_llm=use_llm,
-            config_path=Path(config_path) if config_path else None,
-            delimiter=delimiter,
-        )
-    except Exception as e:
-        console.print(f"\n{Messages.error(str(e))}")
-        raise click.Abort() from None
-
-    if wrote_to_profile:
-        console.print(
-            Messages.info(
-                "Next step: the project now reports its build as stale — run "
-                "'osprey build' to deploy the new database."
-            )
-        )
 
 
 @channel_finder.command("validate")
@@ -492,201 +322,6 @@ def web(ctx, host: str | None, port: int | None):
         output.report(f"Open: {login_url}")
     app = create_app()
     uvicorn.run(app, host=host, port=port, log_level="info")
-
-
-@channel_finder.command("generate")
-@click.option(
-    "--output-dir",
-    type=click.Path(file_okay=False),
-    default="data/channel_databases",
-    help="Output directory for generated databases (default: data/channel_databases/)",
-)
-@click.option(
-    "--source",
-    type=click.Path(exists=True, dir_okay=False),
-    default=None,
-    help="Source hierarchical database to generate from",
-)
-@click.option(
-    "--demo",
-    is_flag=True,
-    default=False,
-    help="Generate from the packaged demo template instead of a --source file",
-)
-@click.option(
-    "--force",
-    is_flag=True,
-    default=False,
-    help="Overwrite database files that already exist in the output directory",
-)
-@click.option(
-    "--format",
-    "fmt",
-    type=click.Choice([*FILE_DATABASE_PARADIGMS, "all"]),
-    default="all",
-    help="Format(s) to generate (default: all)",
-)
-@click.option(
-    "--tier",
-    type=click.Choice(["1", "3", "none"]),
-    default="none",
-    help="Tier filter: 1 (in_context only), 3, or none for all channels (default: none)",
-)
-@click.option(
-    "--validate",
-    "do_validate",
-    is_flag=True,
-    default=False,
-    help="Verify generated databases load correctly through pipeline database classes",
-)
-def generate(
-    output_dir: str,
-    source: str | None,
-    demo: bool,
-    force: bool,
-    fmt: str,
-    tier: str,
-    do_validate: bool,
-):
-    """Generate channel databases from a hierarchical template.
-
-    Produces database files from a hierarchical channel template.
-    By default, generates all three formats with all channels (no tier
-    filtering).
-
-    \b
-      - in_context.json    (flat format with aliases)
-      - hierarchical.json  (tree format)
-      - middle_layer.json  (MML-style with setup blocks)
-
-    Say where the channels come from: --source names your own hierarchical
-    database, --demo asks for the packaged demo one. Existing files in the
-    output directory are left alone unless you pass --force; the default
-    output directory is the one the pipelines read.
-
-    Examples:
-
-    \b
-      osprey channel-finder generate --source my_channels.json
-      osprey channel-finder generate --demo
-      osprey channel-finder generate --source my_channels.json --tier 1 --format in_context
-      osprey channel-finder generate --source my_channels.json --validate --force
-    """
-    import json
-    from pathlib import Path
-
-    from osprey.services.channel_finder.benchmarks.generator import (
-        TEMPLATE_DB_PATH,
-        TIER_1,
-        TIER_3,
-        TierSpec,
-        format_hierarchical,
-        format_in_context,
-        format_middle_layer,
-        load_template,
-    )
-
-    # Where the channels come from is stated, never assumed. The old default
-    # wrote the demo machine's channels into the very directory the pipelines
-    # read, so a bare `generate` in a real deployment replaced that facility's
-    # database with somebody else's.
-    if source and demo:
-        raise click.ClickException("--source and --demo name two different sources; pass one.")
-    if not source and not demo:
-        raise click.ClickException(
-            "Say where the channels come from: --source PATH for your own "
-            "hierarchical database, or --demo for the packaged demo one."
-        )
-
-    source_path = Path(source) if source else TEMPLATE_DB_PATH
-
-    out = Path(output_dir)
-    out.mkdir(parents=True, exist_ok=True)
-
-    tree_data, channels = load_template(source_path)
-
-    if tier == "none":
-        all_rings = frozenset(ch["ring"] for ch in channels)
-        tier_spec = TierSpec(
-            name="all",
-            rings=all_rings,
-            families=None,
-            allowed_subfields=None,
-        )
-    else:
-        tier_spec = {"1": TIER_1, "3": TIER_3}[tier]
-
-    # One writer per paradigm in FILE_DATABASE_PARADIGMS; Click has already
-    # rejected any other --format before this point.
-    format_map = {
-        "in_context.json": lambda: format_in_context(channels, tier_spec, source=source_path),
-        "hierarchical.json": lambda: format_hierarchical(tree_data, tier_spec),
-        "middle_layer.json": lambda: format_middle_layer(channels, tier_spec),
-    }
-
-    # Tier 1 is published as the flat in_context view only.
-    if tier == "1":
-        if fmt not in ("in_context", "all"):
-            raise click.ClickException(
-                f"tier 1 is published in the in_context format only; "
-                f"cannot generate --format {fmt}."
-            )
-        format_map = {"in_context.json": format_map["in_context.json"]}
-    elif fmt != "all":
-        filename = f"{fmt}.json"
-        format_map = {filename: format_map[filename]}
-
-    existing = [name for name in format_map if (out / name).exists()]
-    if existing and not force:
-        raise click.ClickException(
-            f"{', '.join(sorted(existing))} already exist in {out}/. "
-            "Pass --force to overwrite them, or --output-dir to write elsewhere."
-        )
-
-    for filename, builder in format_map.items():
-        path = out / filename
-        path.write_text(json.dumps(builder(), indent=2), encoding="utf-8")
-        console.print(f"  Generated {path}", style=Styles.SUCCESS)
-
-    console.print(f"\n{len(format_map)} database(s) generated in {out}/", style=Styles.SUCCESS)
-
-    if do_validate:
-        console.print("\nValidating generated databases...", style=Styles.INFO)
-
-        from osprey.services.channel_finder.core.base_database import BaseDatabase
-        from osprey.services.channel_finder.databases.flat import ChannelDatabase
-        from osprey.services.channel_finder.databases.hierarchical import (
-            HierarchicalChannelDatabase,
-        )
-        from osprey.services.channel_finder.databases.middle_layer import (
-            MiddleLayerDatabase,
-        )
-
-        validators: dict[str, type[BaseDatabase]] = {
-            "in_context.json": ChannelDatabase,
-            "hierarchical.json": HierarchicalChannelDatabase,
-            "middle_layer.json": MiddleLayerDatabase,
-        }
-
-        all_valid = True
-        for filename in format_map:
-            db_class = validators[filename]
-            path = out / filename
-            try:
-                db = db_class(str(path))
-                db.load_database()
-                stats = db.get_statistics()
-                console.print(
-                    f"  {filename}: OK ({stats.get('total_channels', '?')} channels)",
-                    style=Styles.SUCCESS,
-                )
-            except Exception as e:
-                console.print(f"  {filename}: FAILED - {e}", style="bold red")
-                all_valid = False
-
-        if not all_valid:
-            raise click.ClickException("Validation failed for one or more databases")
-        console.print("\nAll databases validated successfully!", style=Styles.SUCCESS)
 
 
 def _parse_query_indices(queries_spec: str, total: int) -> list[int]:

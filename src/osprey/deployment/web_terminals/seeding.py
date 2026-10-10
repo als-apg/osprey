@@ -216,9 +216,8 @@ def seed_user_containers(
 
     Each user's skills target directory is derived from their resolved
     persona's ``container_project_dir`` (via :func:`personas.resolve_personas`,
-    ``strict=True``) rather than a hardcoded ``<facility_prefix>-assistant``
-    path, so a user on a non-default persona gets skills seeded into their
-    own project's render zone (``<project>/build/.claude/skills``, the
+    ``strict=True``), so every user's skills land in their own persona's
+    project's render zone (``<project>/build/.claude/skills``, the
     ``.claude/`` the CLI actually reads at project scope). ``CLAUDE.md`` seeding is unaffected by
     persona — the ``base.md``/``extra.md`` overlay convention and its target
     path are the same for every user regardless of persona.
@@ -270,17 +269,13 @@ def seed_user_containers(
 
     runtime = get_runtime_command(config)[0]
     run_env = env if env is not None else runtime_env(config, ignore_orphans=True)
-    facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
-    project_name = resolve_project_name(config)
+    project = resolve_project_name(config)
     registry_cfg = as_dict(config.get("registry"))
     # strict=True: an unresolvable persona reference is a misconfiguration, not a
     # per-user issue, so it raises here — before any container is touched — same
     # as the base.md check below.
     resolved_by_name = {
-        entry["name"]: entry
-        for entry in resolve_personas(
-            web_terminals, registry_cfg, facility_prefix, project_name=project_name, strict=True
-        )
+        entry["name"]: entry for entry in resolve_personas(web_terminals, registry_cfg, strict=True)
     }
 
     # base.md is required only when at least one to-be-seeded user's persona
@@ -316,7 +311,7 @@ def seed_user_containers(
         outcome = _seed_one_user(
             runtime,
             entry["name"],
-            project_name,
+            project,
             base_content,
             project_skills_dir,
             context_dir,
@@ -354,7 +349,7 @@ def seed_user_containers(
 def _seed_one_user(
     runtime: str,
     user: str,
-    project_name: str,
+    project: str,
     base_content: str,
     project_skills_dir: str,
     context_dir: Path,
@@ -380,7 +375,7 @@ def _seed_one_user(
         the caller's systemic-failure check); ``True`` if the seed succeeded;
         ``False`` if the container was ready but the seed failed.
     """
-    container = web_container_name(project_name, user)
+    container = web_container_name(project, user)
     if not _container_exists(runtime, container, env=env):
         logger.debug(f"  (skipped {user}: container not ready)")
         return None

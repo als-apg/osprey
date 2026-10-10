@@ -66,11 +66,17 @@ def _is_python_script(path: str, mode: str) -> bool:
 
 
 def _hook_selection() -> set[str]:
-    """The tracked files the ruff pre-commit hook lints."""
+    """The tracked files the ruff pre-commit hook lints.
+
+    The hook runs ``ruff check --force-exclude``, so a file under
+    ``[tool.ruff] extend-exclude`` is skipped even when the hook hands it over.
+    """
+    excluded = _extend_exclude()
     return {
         path
         for path, mode in _tracked_modes().items()
-        if path.endswith(PYTHON_SUFFIXES) or _is_python_script(path, mode)
+        if (path.endswith(PYTHON_SUFFIXES) or _is_python_script(path, mode))
+        and not any(path == entry or path.startswith(entry.rstrip("/") + "/") for entry in excluded)
     }
 
 
@@ -89,6 +95,11 @@ def _ruff_selection() -> set[str]:
 def _extend_include() -> list[str]:
     config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     return config["tool"]["ruff"].get("extend-include", [])
+
+
+def _extend_exclude() -> list[str]:
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    return config["tool"]["ruff"].get("extend-exclude", [])
 
 
 def _paths_checked(text: str) -> list[tuple[int, list[str]]]:
@@ -126,6 +137,20 @@ def test_extend_include_names_only_extensionless_python_scripts() -> None:
         assert entry in modes, f"extend-include names an untracked path: {entry}"
         assert not entry.endswith(PYTHON_SUFFIXES), f"ruff already selects {entry} by suffix"
         assert _is_python_script(entry, modes[entry]), f"{entry} is not a Python script"
+
+
+def test_extend_exclude_hides_only_the_generated_schema_modules() -> None:
+    excluded = _extend_exclude()
+    hidden = {
+        path
+        for path in _tracked_modes()
+        if path.endswith(PYTHON_SUFFIXES)
+        and any(path == entry or path.startswith(entry.rstrip("/") + "/") for entry in excluded)
+    }
+    assert hidden == {
+        "src/osprey/facility/schema/_generated/__init__.py",
+        "src/osprey/facility/schema/_generated/core.py",
+    }, "extend-exclude hides tracked Python files ruff should lint, or the generated set moved"
 
 
 def test_every_ruff_invocation_checks_the_whole_repository() -> None:

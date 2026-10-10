@@ -15,14 +15,13 @@ logger = logging.getLogger(__name__)
 
 
 class _HierarchicalLoadingMixin(_HierarchicalNamingMixin):
-    """Loading, schema validation, and serialization for the hierarchical database."""
+    """Loading and schema validation for the hierarchical database."""
 
     def load_database(self):
         """Load and parse the hierarchical database JSON."""
         with open(self.db_path) as f:
             data = json.load(f)
 
-        self._raw_data = data
         self.tree = data["tree"]
 
         if "hierarchy" not in data:
@@ -449,7 +448,3 @@ class _HierarchicalLoadingMixin(_HierarchicalNamingMixin):
             separators[(current_level, next_level)] = separator
 
         return separators
-
-    def _serialize(self) -> dict:
-        """Serialize in-memory state back to JSON-compatible structure."""
-        return self._raw_data

@@ -162,8 +162,8 @@ def _render_sidecar_env(project: Path, roster: dict | None, monkeypatch) -> dict
             "bluesky": {"port": 10080},
         },
         "system": {"timezone": "UTC"},
-        # What a persona-less roster user's entitlement is answered by: the
-        # deployment's own project declares the BLUESKY tab.
+        # The deployment's own project declares the BLUESKY tab, which grants
+        # no roster user anything: each is entitled by its persona's render.
         "web": {"panels": {"bluesky": {"url": "http://localhost:10071"}}},
     }
     if roster is not None:
@@ -189,7 +189,7 @@ def _write_persona(project: Path, name: str, *, declares_panel: bool) -> dict:
     (persona_dir / "config.yml").write_text(
         yaml.safe_dump({"web": {"panels": panels}}), encoding="utf-8"
     )
-    return {"project_path": f"build/demo-{name}"}
+    return {"project": f"demo-{name}", "project_path": f"build/demo-{name}"}
 
 
 def test_the_rendered_sidecar_names_the_owner_of_every_granted_secret(tmp_path, monkeypatch):
@@ -201,6 +201,7 @@ def test_the_rendered_sidecar_names_the_owner_of_every_granted_secret(tmp_path, 
     panel action gets attributed to the wrong account.
     """
     roster = {
+        "default_persona": "viewer",
         "personas": {
             "operator": _write_persona(tmp_path, "operator", declares_panel=True),
             "viewer": _write_persona(tmp_path, "viewer", declares_panel=False),
@@ -208,7 +209,7 @@ def test_the_rendered_sidecar_names_the_owner_of_every_granted_secret(tmp_path, 
         "users": [
             {"name": "alice-b", "index": 0, "persona": "operator"},
             {"name": "bob", "index": 1, "persona": "viewer"},
-            # No persona: runs the deploy config, which shows the tab.
+            # No persona of its own: runs the default, which hides the tab.
             {"name": "carol", "index": 2},
         ],
     }
@@ -220,12 +221,12 @@ def test_the_rendered_sidecar_names_the_owner_of_every_granted_secret(tmp_path, 
         for name in environment
         if name.startswith(ROSTER_SECRET_ENV_PREFIX) and name != _OWNERS_ENV
     )
-    assert granted == ["OSPREY_TERMINAL_SECRET_ALICE_B", "OSPREY_TERMINAL_SECRET_CAROL"], (
+    assert granted == ["OSPREY_TERMINAL_SECRET_ALICE_B"], (
         "the grant must cover exactly the users whose project declares the BLUESKY tab"
     )
 
     owners = dict(pair.split("=", 1) for pair in environment[_OWNERS_ENV].split(",") if pair)
-    assert owners == {"ALICE_B": "alice-b", "CAROL": "carol"}, (
+    assert owners == {"ALICE_B": "alice-b"}, (
         "every granted secret needs its owner named, and nobody else's"
     )
     assert sorted(ROSTER_SECRET_ENV_PREFIX + suffix for suffix in owners) == granted, (

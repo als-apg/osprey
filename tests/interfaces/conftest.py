@@ -309,10 +309,10 @@ def write_graph_config(tmp_path: Path | str) -> Path:
     URI it names is the fixture corpus's ``DEMO_STORE_URI``, so the config on
     disk and the URI the fake store reports cannot drift apart.
 
-    The search index is built into the same directory and named absolutely. A
-    launched app opens what the config points at, so the alternative is an app
-    whose search, ontology and statistics all answer "no index" — the shell of
-    the graph UI rather than the graph UI.
+    The search index is built at the render-relative path a build writes it
+    to, beside the config. A launched app opens the index there, so the
+    alternative is an app whose search, ontology and statistics all answer "no
+    index" — the shell of the graph UI rather than the graph UI.
 
     Args:
         tmp_path: Directory to write the config into, and to build the search
@@ -321,12 +321,15 @@ def write_graph_config(tmp_path: Path | str) -> Path:
     Returns:
         Path to the written ``config.yml``.
     """
+    from osprey.deployment.graphdb_service import resolve_graph_index_path
     from tests.interfaces.channel_finder.graph_fixture import DEMO_STORE_URI, build_demo_index
 
-    index_path = build_demo_index(tmp_path)
+    index_dir = resolve_graph_index_path(None, Path(tmp_path)).parent
+    index_dir.mkdir(parents=True, exist_ok=True)
+    build_demo_index(index_dir)
     config = {
         "channel_finder": {"pipeline_mode": "graph", "pipelines": None},
-        "services": {"graphdb": {"uri": DEMO_STORE_URI, "index_path": str(index_path)}},
+        "services": {"graphdb": {"uri": DEMO_STORE_URI}},
     }
     config_path = Path(tmp_path) / "config.yml"
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
