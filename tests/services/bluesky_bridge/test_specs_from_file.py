@@ -291,7 +291,10 @@ def test_validate_reports_a_bad_settle_tolerance(bad: Any) -> None:
     problems = validate_device_document(
         {"settables": [{"name": "m", "setpoint": "A:SP", "settle_tolerance": bad}]}
     )
-    assert problems == ["settables[0]: 'settle_tolerance' must be a number >= 0 when present"]
+    assert problems == [
+        "settables[0]: 'settle_tolerance' must be a number >= 0 or {relative: <number >= 0>} "
+        "when present"
+    ]
 
 
 def test_validate_accepts_a_settle_tolerance() -> None:
@@ -299,6 +302,62 @@ def test_validate_accepts_a_settle_tolerance() -> None:
         "settables": [
             {"name": "m", "setpoint": "A:SP", "readback": "A:RB", "settle_tolerance": 3.91},
             {"name": "z", "setpoint": "B:SP", "settle_tolerance": 0},
+        ]
+    }
+    assert validate_device_document(doc) == []
+
+
+def test_a_settable_carries_a_relative_tolerance_and_a_motion_band(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path,
+        {
+            "settables": [
+                {"name": "r", "setpoint": "A:SP", "settle_tolerance": {"relative": 1e-4}},
+                {"name": "b", "setpoint": "B:SP", "readback": "B:RB", "motion_band": 0.011},
+            ]
+        },
+    )
+    settables, _ = specs_from_file(path)
+    assert [(s.name, s.settle_tolerance, s.settle_relative, s.motion_band) for s in settables] == [
+        ("r", None, 1e-4, None),
+        ("b", None, None, 0.011),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("key", "bad"),
+    [
+        ("settle_tolerance", {"relative": -1.0}),
+        ("settle_tolerance", {"absolute": 0.1}),
+        ("settle_tolerance", {"relative": 0.1, "absolute": 0.1}),
+        ("motion_band", -0.5),
+        ("motion_band", {"relative": 0.1}),
+    ],
+)
+def test_a_bad_relative_tolerance_or_motion_band_skips_the_entry(
+    tmp_path: Path, caplog, key: str, bad: Any
+) -> None:
+    path = _write(
+        tmp_path,
+        {
+            "settables": [
+                {"name": "bad", "setpoint": "A:SP", key: bad},
+                {"name": "ok", "setpoint": "B:SP"},
+            ]
+        },
+    )
+    with caplog.at_level("WARNING"):
+        settables, _ = specs_from_file(path)
+    assert [s.name for s in settables] == ["ok"]
+    assert key in caplog.text
+    assert validate_device_document({"settables": [{"name": "m", "setpoint": "A:SP", key: bad}]})
+
+
+def test_validate_accepts_a_relative_tolerance_and_a_motion_band() -> None:
+    doc = {
+        "settables": [
+            {"name": "r", "setpoint": "A:SP", "settle_tolerance": {"relative": 1e-4}},
+            {"name": "b", "setpoint": "B:SP", "readback": "B:RB", "motion_band": 0.011},
         ]
     }
     assert validate_device_document(doc) == []

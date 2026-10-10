@@ -86,7 +86,7 @@ def test_no_channel_is_an_empty_document() -> None:
     assert bluesky_document({"channels": []}) == {"settables": [], "readables": []}
 
 
-def test_a_seeded_readback_settles_its_settable_within_its_motion() -> None:
+def test_a_seeded_readback_writes_its_motion_band_for_its_settable() -> None:
     readback = {
         **_channel("A:RB", "readback"),
         "simulation": {
@@ -106,8 +106,28 @@ def test_a_seeded_readback_settles_its_settable_within_its_motion() -> None:
     )
 
     first, second = document["settables"]
-    assert first["settle_tolerance"] == pytest.approx(0.005 + 6.0 * 0.001)
-    assert "settle_tolerance" not in second
+    assert first["motion_band"] == pytest.approx(0.005 + 6.0 * 0.001)
+    assert "settle_tolerance" not in first
+    assert "motion_band" not in second
+
+
+def test_a_declared_tolerance_is_written_and_the_band_is_not() -> None:
+    noisy = {"noise": {"absolute": 0.001}, "drift": {"amplitude": 0.005, "period_s": 600.0}}
+    document = bluesky_document(
+        {
+            "channels": [
+                {**_channel("A:SP", "setpoint", "A:RB"), "tolerance": {"absolute": 0.05}},
+                {**_channel("A:RB", "readback"), "simulation": noisy},
+                {**_channel("B:SP", "setpoint", "B:RB"), "tolerance": {"relative": 1e-4}},
+                {**_channel("B:RB", "readback"), "simulation": noisy},
+            ]
+        }
+    )
+
+    first, second = document["settables"]
+    assert first["settle_tolerance"] == 0.05
+    assert second["settle_tolerance"] == {"relative": 1e-4}
+    assert "motion_band" not in first and "motion_band" not in second
 
 
 # --- the file ----------------------------------------------------------------------

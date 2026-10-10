@@ -100,7 +100,9 @@ from osprey.channel_roster import ChannelRecord, RosterSource
 # than restated so the host-side producer and the container-side consumer can
 # never drift on the schema.
 from osprey.services.bluesky_bridge.devices._specs_from_file import (
+    MOTION_BAND_KEY,
     READABLES_KEY,
+    RELATIVE_KEY,
     SCHEMA_KEY,
     SETTABLES_KEY,
     SETTLE_TOLERANCE_KEY,
@@ -109,7 +111,8 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
 
 def devices_document(
     records: Sequence[ChannelRecord],
-    settle_bands: Mapping[str, float] | None = None,
+    tolerances: Mapping[str, Mapping[str, float]] | None = None,
+    motion_bands: Mapping[str, float] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Build the worker's device document from the roster's ``records``.
 
@@ -127,10 +130,14 @@ def devices_document(
     restating the setpoint as its own readback would claim a pairing the roster
     did not make.
 
-    ``settle_bands`` maps a readback address to the band its declared motion
-    keeps it within. A settable whose readback (its pair, or its own setpoint
-    when unpaired) has a band above zero carries it as ``settle_tolerance``,
-    after ``readback``; with no mapping no settable carries the key.
+    ``tolerances`` maps a setpoint address to its declared tolerance record,
+    ``{absolute: <x>}`` or ``{relative: <f>}``: the settable carries it as
+    ``settle_tolerance``, a number for an absolute record and ``{relative:
+    <f>}`` for a relative one. ``motion_bands`` maps a readback address to the
+    band its simulated motion keeps it within: a settable without a declared
+    tolerance whose readback (its pair, or its own setpoint when unpaired)
+    has a band above zero carries it as ``motion_band``. Either key follows
+    ``readback``; with no mappings no settable carries one.
 
     A record whose direction the source could not say (``direction is None``)
     becomes no device. It is not silently demoted to a readable: the honest
@@ -140,7 +147,8 @@ def devices_document(
     Args:
         records: The roster's channel records, e.g.
             ``registered_channels(config).records``.
-        settle_bands: Each readback address's settle band, or None.
+        tolerances: Each setpoint address's tolerance record, or None.
+        motion_bands: Each readback address's motion band, or None.
 
     Returns:
         The device document, ready for :func:`write_devices_file` or the
@@ -148,7 +156,8 @@ def devices_document(
     """
     settables: list[dict[str, Any]] = []
     readables: list[dict[str, Any]] = []
-    bands = settle_bands or {}
+    declared = tolerances or {}
+    bands = motion_bands or {}
 
     for record in records:
         if record.direction == "write":
@@ -156,9 +165,14 @@ def devices_document(
             readback = record.address
             if record.readback is not None and record.readback != record.address:
                 entry["readback"] = readback = record.readback
+            tolerance = declared.get(record.address)
             band = bands.get(readback, 0.0)
-            if band > 0:
-                entry[SETTLE_TOLERANCE_KEY] = float(band)
+            if tolerance is not None and RELATIVE_KEY in tolerance:
+                entry[SETTLE_TOLERANCE_KEY] = {RELATIVE_KEY: float(tolerance[RELATIVE_KEY])}
+            elif tolerance is not None:
+                entry[SETTLE_TOLERANCE_KEY] = float(tolerance["absolute"])
+            elif band > 0:
+                entry[MOTION_BAND_KEY] = float(band)
             settables.append(entry)
         elif record.direction == "read":
             readables.append({"name": record.address, "pv": record.address})
@@ -188,9 +202,10 @@ def write_devices_file(
     *,
     source: RosterSource,
     schema: str,
-    settle_bands: Mapping[str, float] | None = None,
+    tolerances: Mapping[str, Mapping[str, float]] | None = None,
+    motion_bands: Mapping[str, float] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Write the document ``devices_document(records, settle_bands)`` builds to
+    """Write the document ``devices_document(records, tolerances, motion_bands)`` builds to
     ``path`` as YAML, and return it.
 
     ``source`` is the roster source the records came from; it is named in the
@@ -211,7 +226,7 @@ def write_devices_file(
     validate what it just wrote does not have to re-derive or re-read it.
     """
     path = Path(path)
-    document = devices_document(records, settle_bands)
+    document = devices_document(records, tolerances, motion_bands)
     body = yaml.safe_dump(document, sort_keys=False, default_flow_style=False, allow_unicode=True)
 
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")

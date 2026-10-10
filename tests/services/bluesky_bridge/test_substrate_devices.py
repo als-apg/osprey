@@ -143,42 +143,66 @@ class TestDevicesDocument:
         assert validate_device_document(devices_document(_RECORDS)) == []
 
 
-class TestSettleBands:
-    """A settable whose readback declares motion carries that motion's band."""
+_SP = "SR:MAG:COIL:01:CURRENT:SP"
+_RB = "SR:MAG:COIL:01:CURRENT:RB"
+_UNPAIRED = "SR:RF:CAV:01:VOLTAGE:SP"
 
-    def test_a_paired_settable_carries_its_readback_band_after_the_readback(self) -> None:
-        document = devices_document(_RECORDS, settle_bands={"SR:MAG:COIL:01:CURRENT:RB": 0.011})
+
+class TestTolerancesAndMotionBands:
+    """A settable carries its setpoint's declared tolerance, else its readback's motion band."""
+
+    def test_an_absolute_tolerance_is_a_number_after_the_readback(self) -> None:
+        document = devices_document(
+            _RECORDS, tolerances={_SP: {"absolute": 0.05}}, motion_bands={_RB: 0.011}
+        )
 
         entry = document["settables"][0]
         assert entry == {
-            "name": "SR:MAG:COIL:01:CURRENT:SP",
-            "setpoint": "SR:MAG:COIL:01:CURRENT:SP",
-            "readback": "SR:MAG:COIL:01:CURRENT:RB",
-            "settle_tolerance": 0.011,
+            "name": _SP,
+            "setpoint": _SP,
+            "readback": _RB,
+            "settle_tolerance": 0.05,
         }
         assert list(entry)[-2:] == ["readback", "settle_tolerance"]
 
-    def test_an_unpaired_settable_carries_its_own_setpoint_band(self) -> None:
-        document = devices_document(_RECORDS, settle_bands={"SR:RF:CAV:01:VOLTAGE:SP": 0.5})
+    def test_a_relative_tolerance_is_written_as_its_record(self) -> None:
+        document = devices_document(_RECORDS, tolerances={_SP: {"relative": 1e-4}})
 
-        assert document["settables"][1]["settle_tolerance"] == 0.5
+        assert document["settables"][0]["settle_tolerance"] == {"relative": 1e-4}
+
+    def test_without_a_tolerance_the_readback_band_is_written_after_the_readback(self) -> None:
+        document = devices_document(_RECORDS, motion_bands={_RB: 0.011})
+
+        entry = document["settables"][0]
+        assert list(entry)[-2:] == ["readback", "motion_band"]
+        assert entry["motion_band"] == 0.011
+        assert "settle_tolerance" not in entry
+
+    def test_an_unpaired_settable_carries_its_own_setpoint_band(self) -> None:
+        document = devices_document(_RECORDS, motion_bands={_UNPAIRED: 0.5})
+
+        assert document["settables"][1]["motion_band"] == 0.5
 
     def test_the_setpoint_band_does_not_stand_in_for_a_paired_readback(self) -> None:
-        document = devices_document(_RECORDS, settle_bands={"SR:MAG:COIL:01:CURRENT:SP": 0.5})
+        document = devices_document(_RECORDS, motion_bands={_SP: 0.5})
 
-        assert "settle_tolerance" not in document["settables"][0]
+        assert "motion_band" not in document["settables"][0]
 
     def test_a_zero_band_carries_no_key(self) -> None:
-        document = devices_document(_RECORDS, settle_bands={"SR:MAG:COIL:01:CURRENT:RB": 0.0})
+        document = devices_document(_RECORDS, motion_bands={_RB: 0.0})
 
-        assert all("settle_tolerance" not in entry for entry in document["settables"])
+        assert all("motion_band" not in entry for entry in document["settables"])
 
-    def test_the_validator_accepts_a_banded_document(self) -> None:
+    def test_the_validator_accepts_a_document_with_both_keys(self) -> None:
         from osprey.services.bluesky_bridge.devices._specs_from_file import (
             validate_device_document,
         )
 
-        document = devices_document(_RECORDS, settle_bands={"SR:MAG:COIL:01:CURRENT:RB": 3.9})
+        document = devices_document(
+            _RECORDS,
+            tolerances={_UNPAIRED: {"relative": 0.01}},
+            motion_bands={_RB: 3.9},
+        )
 
         assert validate_device_document(document) == []
 
@@ -188,21 +212,29 @@ class TestSettleBands:
         empty = tmp_path / "empty.yml"
 
         write_devices_file(plain, _RECORDS, source=_SOURCE, schema=_SCHEMA)
-        write_devices_file(empty, _RECORDS, source=_SOURCE, schema=_SCHEMA, settle_bands=None)
+        write_devices_file(
+            empty, _RECORDS, source=_SOURCE, schema=_SCHEMA, tolerances=None, motion_bands=None
+        )
 
         assert plain.read_bytes() == empty.read_bytes()
         assert b"settle_tolerance" not in plain.read_bytes()
+        assert b"motion_band" not in plain.read_bytes()
 
-    def test_a_banded_file_round_trips(self, tmp_path: Path) -> None:
+    def test_a_file_round_trips(self, tmp_path: Path) -> None:
         path = tmp_path / "bluesky_devices.yml"
-        bands = {"SR:MAG:COIL:01:CURRENT:RB": 0.011}
 
         document = write_devices_file(
-            path, _RECORDS, source=_SOURCE, schema=_SCHEMA, settle_bands=bands
+            path,
+            _RECORDS,
+            source=_SOURCE,
+            schema=_SCHEMA,
+            tolerances={_UNPAIRED: {"relative": 0.01}},
+            motion_bands={_RB: 0.011},
         )
 
         assert yaml.safe_load(path.read_text(encoding="utf-8")) == {"schema": _SCHEMA, **document}
-        assert document["settables"][0]["settle_tolerance"] == 0.011
+        assert document["settables"][0]["motion_band"] == 0.011
+        assert document["settables"][1]["settle_tolerance"] == {"relative": 0.01}
 
 
 class TestTheDerivationIsFilterFree:
