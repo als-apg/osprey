@@ -239,6 +239,14 @@ class _Journal:
         except ValueError:
             return None, text
 
+    def stamp(self) -> tuple[int, int, int] | None:
+        """The file's (inode, mtime_ns, size), ``None`` when there is none."""
+        try:
+            stat = self.path.stat()
+        except FileNotFoundError:
+            return None
+        return stat.st_ino, stat.st_mtime_ns, stat.st_size
+
     def write(self, document: Mapping[str, Any]) -> None:
         fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=f".{JOURNAL_FILE}.")
         try:
@@ -287,6 +295,8 @@ class VAInProcessConnector(ControlSystemConnector):
         self._journal: _Journal | None = None
         self._active_sha: str | None = None
         self._journal_mark: int | str | None = None
+        # The stamp of the journal _journal_mark was read from; None when no read gave the mark.
+        self._journal_seen: tuple[int, int, int] | None = None
         self._state_file: Path | None = None
         self._state_mark: int | None = None
         self._holds_writes = False
@@ -337,6 +347,7 @@ class VAInProcessConnector(ControlSystemConnector):
         self._state_mark = None
         self._active_sha = None
         self._journal_mark = None
+        self._journal_seen = None
         self._holds_writes = False
         self._sync()
         self._connected = True
@@ -381,6 +392,7 @@ class VAInProcessConnector(ControlSystemConnector):
             if changed:
                 self._holds_writes = False
                 self._journal_mark = None
+                self._journal_seen = None
                 if self._truncate(unless_current=True):
                     return
         if rebuilt:
@@ -388,8 +400,15 @@ class VAInProcessConnector(ControlSystemConnector):
             # the session writes; the journal still holds them.
             self._holds_writes = False
             self._journal_mark = None
+            self._journal_seen = None
+        stamp = self._journal.stamp()
+        # Every write replaces the journal file, so an unchanged stamp is an
+        # unchanged journal.
+        if stamp is not None and self._journal_mark is not None and stamp == self._journal_seen:
+            return
         document, text = self._journal.read()
         mark = _mark(document, text)
+        self._journal_seen = stamp
         if mark == self._journal_mark:
             return
         self._journal_mark = mark
@@ -495,6 +514,7 @@ class VAInProcessConnector(ControlSystemConnector):
         # A journal another process moved since the last look is replayed on
         # the next operation, this write with it.
         self._journal_mark = seq if synced else None
+        self._journal_seen = None
 
     def _truncate(self, *, unless_current: bool = False, unless_moved: bool = False) -> bool:
         """Empty the journal under its lock, recording the current active set; with
@@ -515,6 +535,7 @@ class VAInProcessConnector(ControlSystemConnector):
             seq = (_seq(document) or 0) + 1
             self._journal.write({"active_set_sha256": self._active_sha, "seq": seq, "writes": []})
         self._journal_mark = seq
+        self._journal_seen = None
         return True
 
     async def reset(self) -> None:

@@ -115,6 +115,53 @@ async def test_a_second_connector_reads_what_the_first_wrote(view):
     await second.disconnect()
 
 
+def _count_reads(monkeypatch) -> list:
+    """Every ``_Journal.read`` call from here on appends one item to the list."""
+    from osprey_connectors.control_system import va_in_process_connector
+
+    reads: list = []
+    read = va_in_process_connector._Journal.read
+
+    def counting_read(self):
+        reads.append(None)
+        return read(self)
+
+    monkeypatch.setattr(va_in_process_connector._Journal, "read", counting_read)
+    return reads
+
+
+async def test_reads_with_no_write_between_them_do_not_read_the_journal(view, monkeypatch):
+    reads = _count_reads(monkeypatch)
+    connector = await _connected(view)
+    await connector.write_channel("A:SP", 3.0)
+    await connector.read_channel("A:SP")
+    reads.clear()
+
+    for _ in range(50):
+        await connector.read_channel("A:SP")
+
+    assert reads == []
+    await connector.disconnect()
+
+
+async def test_a_write_by_another_connector_is_read_on_the_next_operation(view, monkeypatch):
+    reads = _count_reads(monkeypatch)
+    first = await _connected(view)
+    second = await _connected(view)
+    await first.write_channel("A:SP", 3.0)
+    await first.read_channel("A:SP")
+    reads.clear()
+    await second.write_channel("A:SP", 6.0)
+    reads.clear()
+
+    value = (await first.read_channel("A:SP")).value
+
+    assert value == 6.0
+    assert len(reads) == 1
+    await first.disconnect()
+    await second.disconnect()
+
+
 async def test_a_reset_in_one_is_seen_by_the_other(view):
     first = await _connected(view)
     second = await _connected(view)
