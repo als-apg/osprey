@@ -585,9 +585,11 @@ def _restore(journal: Journal, *, aborted: bool) -> RestoreReport:
     """Write every journaled address that moved back to its journaled value.
 
     One ``read_channels`` over the journaled addresses decides which ones still
-    hold their journaled value (compared with ``osprey.runtime.values_match``);
-    those are reported unchanged and not written. Each remaining address gets
-    its own writes, so a refused or failed channel does not block the rest.
+    hold exactly their journaled value
+    (:func:`osprey_connectors.control_system.base.readings_equal`); those are
+    reported unchanged and not written. Every other address, however small its
+    displacement, is written back, each with its own writes, so a refused or
+    failed channel does not block the rest.
 
     Args:
         journal: The journal of the run being restored (no longer active).
@@ -596,7 +598,7 @@ def _restore(journal: Journal, *, aborted: bool) -> RestoreReport:
     Returns:
         The report naming each journaled address exactly once.
     """
-    import osprey.runtime
+    from osprey_connectors.control_system.base import readings_equal
 
     report = RestoreReport(aborted=aborted)
     journaled = journal.values
@@ -607,7 +609,7 @@ def _restore(journal: Journal, *, aborted: bool) -> RestoreReport:
         if address not in current:
             continue
         now = current[address]
-        if osprey.runtime.values_match(target, now):
+        if readings_equal(target, now):
             report.unchanged.append(address)
             continue
         _restore_address(address, now, target, report)

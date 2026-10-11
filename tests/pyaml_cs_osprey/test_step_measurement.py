@@ -220,7 +220,7 @@ PATHS: dict[str, tuple[Callable[[Any], StepMeasurement], tuple[str, ...], list[l
     ),
     "dispersion": (
         lambda holder: StepMeasurement.dispersion(
-            holder, bpm_array="BPM", rf_plant="RF", delta=1000.0
+            holder, bpm_array="BPM", rf_plant="RF", delta=100.0
         ),
         ("RF:freq",),
         [[value] for value in DISPERSION],
