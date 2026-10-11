@@ -10,7 +10,8 @@ printed, and re-raise. The in-flight marker outlives the child.
 Every child here is a stub script run by the test interpreter in place of the
 wrapped one; it announces its phases by creating files in the execution folder
 and waits on files the test creates. Every test cancels through an anyio
-``CancelScope``, never ``task.cancel()``. No test asserts wall time: the
+``CancelScope``, never ``task.cancel()``, and a test that cancels a running
+child does so only once the spawn call has handed that child to the executor. No test asserts wall time: the
 ``fail_after`` bounds are hang guards, and "was not killed" is read off the
 child's exit status.
 """
@@ -123,6 +124,9 @@ class _Run:
         self.markers = markers
         self.spawned = spawned
         self.outcome: dict[str, Any] = {}
+        #: Set when the spawn call hands the child to the executor; made by
+        #: :meth:`cancel` inside its event loop.
+        self.handed_over: anyio.Event | None = None
 
     @property
     def proc(self) -> Any:
@@ -137,6 +141,18 @@ class _Run:
             while not (self.folder / name).exists():
                 await anyio.sleep(0.01)
 
+    async def wait_until_running(self) -> None:
+        """Return once the child is ready and the executor holds its process.
+
+        The child can announce ``ready`` while the spawn call that started it
+        has not yet returned in the executor; a cancel landing in that gap is
+        one before the spawn, which winds nothing down.
+        """
+        assert self.handed_over is not None
+        await self.wait_for("ready")
+        with anyio.fail_after(HANG_GUARD_S):
+            await self.handed_over.wait()
+
     def go(self, name: str) -> None:
         (self.folder / name).write_text("", encoding="utf-8")
 
@@ -150,6 +166,7 @@ class _Run:
         """Start the run, cancel its scope once the child is ready, return the outcome."""
 
         async def main() -> None:
+            self.handed_over = anyio.Event()
             scope = anyio.CancelScope()
 
             async def runner() -> None:
@@ -163,7 +180,7 @@ class _Run:
                 async with anyio.create_task_group() as tg:
                     tg.start_soon(runner)
                     if before_cancel is None:
-                        await self.wait_for("ready")
+                        await self.wait_until_running()
                     else:
                         await before_cancel(self)
                     scope.cancel()
@@ -208,14 +225,19 @@ def make_run(
             ExecutionWrapper, "create_wrapper", lambda self, code, execution_folder: script
         )
         real_exec = executor.asyncio.create_subprocess_exec
+        run = _Run(folder, markers, isolated, spawned)
 
         async def spy_exec(*args: Any, **kwargs: Any) -> Any:
             proc = await real_exec(*args, **kwargs)
             spawned.append(proc)
+            # Nothing awaits between here and the executor's own wait on the
+            # child, so a waiter woken by this event finds the executor there.
+            assert run.handed_over is not None
+            run.handed_over.set()
             return proc
 
         monkeypatch.setattr(executor.asyncio, "create_subprocess_exec", spy_exec)
-        return _Run(folder, markers, isolated, spawned)
+        return run
 
     yield _make
     for proc in spawned:
