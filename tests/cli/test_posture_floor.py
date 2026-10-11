@@ -44,6 +44,7 @@ from osprey.cli.build_posture_check import (
     REQUIRED_WITH_APPROVAL_HOOK,
     REQUIRED_WITH_CONTROLS,
     ask_capable,
+    check_approval_enabled,
     check_approval_hook_selected,
     check_guarded_tool_policies,
     effective_policy,
@@ -325,6 +326,33 @@ class TestAskCapable:
         """``approval.enabled`` is taken by truthiness, the expression the hook evaluates."""
         rendered = _rendered(approval={**_approval(), "enabled": enabled})
         assert ask_capable(rendered, "execute") is asks
+
+
+class TestApprovalEnabled:
+    """The approval switch is true, false or unstated; any other value stops the build."""
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_a_bool_passes(self, enabled: bool) -> None:
+        check_approval_enabled(_rendered(approval={**_approval(), "enabled": enabled}))
+
+    def test_an_unstated_switch_passes(self) -> None:
+        approval = _approval()
+        del approval["enabled"]
+        check_approval_enabled(_rendered(approval=approval))
+        rendered = _rendered()
+        del rendered["approval"]
+        check_approval_enabled(rendered)
+
+    @pytest.mark.parametrize("enabled", [None, "", "false", "true", 0, 1])
+    def test_any_other_value_stops_naming_the_key(self, enabled: Any) -> None:
+        rendered = _rendered(approval={**_approval(), "enabled": enabled})
+        with pytest.raises(FacilityBuildError) as stop:
+            check_approval_enabled(rendered)
+        assert stop.value.kind == "profile-invalid"
+        assert stop.value.record_id == "approval.enabled"
+        message = stop.value.format_message()
+        assert "profile.yml" in message
+        assert "set approval.enabled to true or false" in message
 
 
 class TestApprovalHookSelected:

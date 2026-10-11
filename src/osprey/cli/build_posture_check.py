@@ -68,6 +68,7 @@ __all__ = [
     "REQUIRED_WITH_APPROVAL_HOOK",
     "REQUIRED_WITH_CONTROLS",
     "ask_capable",
+    "check_approval_enabled",
     "check_approval_hook_selected",
     "check_guarded_tool_policies",
     "effective_policy",
@@ -294,6 +295,36 @@ def ask_capable(rendered: Mapping[str, Any], tool: str) -> bool:
     if not _approval_section(rendered).get("enabled", True):
         return False
     return effective_policy(rendered, tool) != SKIP_POLICY
+
+
+def check_approval_enabled(rendered: Mapping[str, Any]) -> None:
+    """Stop a render whose ``approval.enabled`` is stated and is not true or false.
+
+    The approval hook, :func:`ask_capable` and this build read the switch by
+    truthiness, so an empty line, a quoted ``"false"`` or a number would turn
+    every prompt off, or on, without a word. With this stop they see only a
+    bool or an unstated key, which reads as asking.
+
+    Args:
+        rendered: The rendered ``config.yml``, read after the injectors.
+
+    Raises:
+        FacilityBuildError: ``profile-invalid`` on ``approval.enabled``,
+            naming the value it states.
+    """
+    approval = _approval_section(rendered)
+    if "enabled" not in approval or isinstance(approval["enabled"], bool):
+        return
+    from osprey.facility.errors import FacilityBuildError
+
+    raise FacilityBuildError(
+        "profile-invalid",
+        "approval.enabled",
+        [PROFILE_FILENAME],
+        f"set approval.enabled to true or false in {PROFILE_FILENAME}",
+        record_kind="path",
+        detail=f"approval.enabled is {approval['enabled']!r}, not true or false",
+    )
 
 
 def check_approval_hook_selected(

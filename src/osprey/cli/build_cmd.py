@@ -1847,6 +1847,7 @@ def _render_project(
     from osprey.deployment.reach import reach_errors
 
     from .build_posture_check import (
+        check_approval_enabled,
         check_approval_hook_selected,
         check_guarded_tool_policies,
         missing_posture_errors,
@@ -2165,6 +2166,9 @@ def _render_project(
         # A guarded tool put to a human in a profile that does not select the
         # approval hook would never be asked; the render is held to "asks ⇒ hook
         # selected" so config.yml alone answers whether a call is asked.
+        # An approval switch that is not true or false would turn every prompt
+        # off, or on, by truthiness; the render states a bool or nothing.
+        check_approval_enabled(_rendered_config(render_dir))
         check_approval_hook_selected(_rendered_config(render_dir), build_profile.hooks)
         check_guarded_tool_policies(_rendered_config(render_dir))
         if unrunnable:
