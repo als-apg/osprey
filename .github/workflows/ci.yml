@@ -5500,15 +5500,13 @@ jobs:
     #     that module's own `BOOT_TIMEOUT_S` of 240 s;
     #   - the real-facility lane on the NSLS-II stand-in, one install of a two-model
     #     export — init, import, set, build — and one boot under that
-    #     module's own `BOOT_TIMEOUT_S` of 240 s, capped at 20 minutes.
-    # 80 is that with headroom, which is deliberate for a lane that has never
-    # run here: the first pull request must not be reddened by a cap tuned to
-    # a laptop. It is larger than va-substrate-equivalence-e2e and
-    # archiver-world-e2e, and than the switch lane's 30, because that lane
-    # runs five modules against containers two of its own images serve, while
-    # this one runs thirteen and boots ten. Tighten once there are observed
-    # green timings on a runner.
-    timeout-minutes: 80
+    #     module's own `BOOT_TIMEOUT_S` of 240 s, capped at 10 minutes.
+    # A green run takes about 18–23 minutes on an ubuntu-latest runner, of which
+    # the image build is 2–5; the cap is about twice that. It is larger than
+    # va-substrate-equivalence-e2e and archiver-world-e2e, and than the switch
+    # lane's 30, because that lane runs five modules against containers two of
+    # its own images serve, while this one runs thirteen and boots ten.
+    timeout-minutes: 50
 
     steps:
     - name: Checkout repository
@@ -5550,12 +5548,11 @@ jobs:
     - name: Run the live virtual accelerator E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
-      # that takes the container logs with it. 50 leaves the image build and
-      # the real-facility lane's step the rest of the job cap, and still bounds the
-      # realistic hang here — a read
-      # of a channel nobody serves, which the connector itself gives up on
-      # after 120 s.
-      timeout-minutes: 50
+      # that takes the container logs with it. A green run of this step takes
+      # about 11–15 minutes; the cap is about twice that, and still bounds the
+      # realistic hang here — a read of a channel nobody serves, which the
+      # connector itself gives up on after 120 s.
+      timeout-minutes: 30
       env:
         # Without it every test in tests/va/e2e/ skips by design (the directory
         # must collect and skip cleanly on a laptop with no runtime). The
@@ -5601,7 +5598,9 @@ jobs:
       # partition. Without the variable the module skips its lane by design,
       # so its report goes through the zero-skip gate below. Capped under the
       # job cap so a hang leaves the capture step room to run.
-      timeout-minutes: 20
+      # A green run takes about 2–3 minutes; the cap is several times that
+      # because one slow boot alone may take the module's 240 s boot bound.
+      timeout-minutes: 10
       env:
         OSPREY_ALS_LANE_STAND_IN: tests/fixtures/mml/nsls2
       run: |
