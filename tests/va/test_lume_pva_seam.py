@@ -95,7 +95,9 @@ pytest.importorskip("pcaspy", reason="the Channel Access server ships with lume-
 from p4p.client.thread import Context  # noqa: E402
 
 from osprey.services.virtual_accelerator.serving.model_rpc import (  # noqa: E402
+    ERR_TIMEOUT,
     RPC_PV,
+    RPC_TIMEOUT_S,
     ModelRpcError,
     build_request,
     parse_reply,
@@ -388,6 +390,14 @@ class _PassFault:
         self.after_set = False
 
 
+class _ReplyFault:
+    """A one-shot reply the server cannot send: the next model RPC reply is
+    handed to p4p as a plain dict."""
+
+    def __init__(self) -> None:
+        self.armed = False
+
+
 def _count_physics(observed: _Observed) -> None:
     """Count every closed-orbit solve and every chromatic solve in this process."""
     import at
@@ -428,6 +438,23 @@ def _inject_pass_fault(composite: Any, fault: _PassFault) -> None:
 
     composite.set = set_
     composite.get = get_
+
+
+def _inject_undeliverable_reply(fault: _ReplyFault) -> None:
+    """Make the next model RPC reply one p4p's done refuses, once; every later
+    reply is the real one."""
+    import osprey.services.virtual_accelerator.serving.model_rpc_handler as handler
+
+    real = handler.surface_reply
+
+    def reply(*args: Any, **kwargs: Any) -> Any:
+        value = real(*args, **kwargs)
+        if fault.armed:
+            fault.armed = False
+            return value.todict()
+        return value
+
+    handler.surface_reply = reply
 
 
 def _instrument(runner: Any, observed: _Observed) -> None:
@@ -516,6 +543,8 @@ def _serve(spec: dict[str, Any], conn: Any) -> None:
         composite = Composite(view, state_dir=spec["state"], model_log=False)
         fault = _PassFault()
         _inject_pass_fault(composite, fault)
+        reply_fault = _ReplyFault()
+        _inject_undeliverable_reply(reply_fault)
         fault.text = spec["first_pass_fault"]
 
         from osprey.services.virtual_accelerator.serving.runner import ModelRunner
@@ -574,6 +603,9 @@ def _serve(spec: dict[str, Any], conn: Any) -> None:
         fault.after_set = False
         fault.text = text
 
+    def undeliverable_next_reply(armed: bool) -> None:
+        reply_fault.armed = armed
+
     commands: dict[str, Callable[..., Any]] = {
         "config": lambda: json.loads(json.dumps(runner.config)),
         "tick": runner._tick,
@@ -582,6 +614,7 @@ def _serve(spec: dict[str, Any], conn: Any) -> None:
         "start_sampling": start_sampling,
         "stop_sampling": stop_sampling,
         "fail_next_pass": fail_next_pass,
+        "undeliverable_next_reply": undeliverable_next_reply,
     }
     while True:
         try:
@@ -647,9 +680,9 @@ class _Server:
             raise AssertionError(f"the server process failed {name!r}: {payload}")
         return payload
 
-    def rpc(self, verb: str, **fields: Any) -> Any:
+    def rpc(self, verb: str, *, timeout: float = CA_TIMEOUT_S, **fields: Any) -> Any:
         """One model RPC call; the result, or :class:`ModelRpcError` on a refusal."""
-        reply = self.pva.rpc(RPC_PV, build_request(verb, **fields), timeout=CA_TIMEOUT_S)
+        reply = self.pva.rpc(RPC_PV, build_request(verb, **fields), timeout=timeout)
         return parse_reply(reply)
 
     def pva_get(self, address: str) -> Any:
@@ -1138,6 +1171,25 @@ class TestStubComposite:
         assert stub_server.ask("held", [STUB_SETPOINT]) == {STUB_SETPOINT: held}
         assert _ca(STUB_SETPOINT)["value"] == held
         assert not math.isclose(_ca(STUB_SETPOINT)["value"], held + 3.0)
+
+    def test_a_reply_p4p_refuses_is_answered_by_the_server_timeout_before_the_clients_deadline(
+        self, stub_server: _Server
+    ) -> None:
+        """The first done raises, the call stays open, and the server's own timeout is
+        the answer the client receives -- not silence until the client gives up. The
+        server serves on afterwards."""
+        stub_server.ask("undeliverable_next_reply", True)
+        started = time.monotonic()
+        try:
+            with pytest.raises(ModelRpcError) as refused:
+                stub_server.rpc("info", timeout=RPC_TIMEOUT_S + CA_TIMEOUT_S)
+        finally:
+            stub_server.ask("undeliverable_next_reply", False)
+        elapsed = time.monotonic() - started
+
+        assert str(refused.value) == ERR_TIMEOUT
+        assert elapsed < RPC_TIMEOUT_S + CA_TIMEOUT_S
+        assert stub_server.rpc("info")
 
 
 def test_a_failing_start_up_pass_is_what_first_pass_returns(
