@@ -141,7 +141,7 @@ MATCH (cls:Class)-[:SUBCLASSOF*0..]->(:Class {uri: $class_uri})
 MATCH (d:Resource)-[:TYPE]->(cls)
 RETURN [l IN labels(d) WHERE l <> "Resource"][0] AS device_class,
        d.sectionCode AS section,
-       d.sourceName AS device
+       d.deviceId AS device
 ORDER BY device_class, section, device
 LIMIT 500
 """.strip(),
@@ -167,7 +167,7 @@ _Q2 = ExampleQuery(
 // The place itself carries the section code too; only a device carries rawType.
 MATCH (d:Resource)
 WHERE d.sectionCode = $section AND d.rawType IS NOT NULL
-RETURN d.sourceName AS device,
+RETURN d.deviceId AS device,
        [l IN labels(d) WHERE l <> "Resource"][0] AS device_class,
        d.sPositionM AS s_m,
        d.ordinalInPlace AS ordinal
@@ -295,7 +295,7 @@ MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding {fullPv: $pv})
 WHERE d.rawType IS NOT NULL
 RETURN b.fullPv AS pv,
        collect(DISTINCT d.sectionCode) AS sections,
-       collect(DISTINCT d.sourceName) AS devices,
+       collect(DISTINCT d.deviceId) AS devices,
        count(DISTINCT d) AS device_count
 LIMIT 5
 """.strip(),

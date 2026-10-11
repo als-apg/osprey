@@ -713,7 +713,7 @@ def test_example_q6_finds_one_owner_and_no_shared_endpoint() -> None:
     row = payload["rows"][0]
     assert row["pv"] == _example("q6").parameters["pv"]
     assert row["device_count"] == 1, row
-    assert row["devices"], row
+    assert row["devices"] == [_example("q3").parameters["device"]], row
 
 
 # ---------------------------------------------------------------------------

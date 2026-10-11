@@ -97,6 +97,14 @@ def test_cypher_is_row_capped(query: ExampleQuery) -> None:
 
 
 @pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
+def test_a_device_column_returns_the_device_id(query: ExampleQuery) -> None:
+    """A column named for the device carries its ``deviceId``, the id ``q3`` takes; a source name is not unique."""
+    for line in query.cypher.splitlines():
+        if re.search(r"\bAS devices?\b", line):
+            assert "d.deviceId" in line, (query.key, line)
+
+
+@pytest.mark.parametrize("query", EXAMPLE_QUERIES, ids=lambda q: q.key)
 def test_cypher_passes_the_client_side_gate(query: ExampleQuery) -> None:
     """A curated example the gate would refuse is a broken example."""
     vet_query(query.cypher)

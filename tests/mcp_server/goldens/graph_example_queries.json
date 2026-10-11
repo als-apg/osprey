@@ -18,7 +18,7 @@
       "title": "Device count rolled up to top-level branches"
     },
     {
-      "cypher": "MATCH (cls:Class)-[:SUBCLASSOF*0..]->(:Class {uri: $class_uri})\nMATCH (d:Resource)-[:TYPE]->(cls)\nRETURN [l IN labels(d) WHERE l <> \"Resource\"][0] AS device_class,\n       d.sectionCode AS section,\n       d.sourceName AS device\nORDER BY device_class, section, device\nLIMIT 500",
+      "cypher": "MATCH (cls:Class)-[:SUBCLASSOF*0..]->(:Class {uri: $class_uri})\nMATCH (d:Resource)-[:TYPE]->(cls)\nRETURN [l IN labels(d) WHERE l <> \"Resource\"][0] AS device_class,\n       d.sectionCode AS section,\n       d.deviceId AS device\nORDER BY device_class, section, device\nLIMIT 500",
       "description": "Answers 'give me every magnet' — or every instrument, every vacuum device — by walking the class hierarchy down from one class and listing the devices typed as it or any of its descendants. Each row is a device with its concrete class and the section it sits in. This is the payoff of having an ontology: the caller names one class and the graph supplies the subclasses.\n\n$class_uri — the class to roll up. Any class URI works; q4b lists the ones this corpus has.",
       "key": "q1c",
       "parameters": {
@@ -27,7 +27,7 @@
       "title": "Every device of a class, including its subclasses"
     },
     {
-      "cypher": "// The place itself carries the section code too; only a device carries rawType.\nMATCH (d:Resource)\nWHERE d.sectionCode = $section AND d.rawType IS NOT NULL\nRETURN d.sourceName AS device,\n       [l IN labels(d) WHERE l <> \"Resource\"][0] AS device_class,\n       d.sPositionM AS s_m,\n       d.ordinalInPlace AS ordinal\nORDER BY s_m, ordinal, device\nLIMIT 200",
+      "cypher": "// The place itself carries the section code too; only a device carries rawType.\nMATCH (d:Resource)\nWHERE d.sectionCode = $section AND d.rawType IS NOT NULL\nRETURN d.deviceId AS device,\n       [l IN labels(d) WHERE l <> \"Resource\"][0] AS device_class,\n       d.sPositionM AS s_m,\n       d.ordinalInPlace AS ordinal\nORDER BY s_m, ordinal, device\nLIMIT 200",
       "description": "Lists the devices in a single section in the order the beam meets them, which is the sequence operators reason in when they talk about a region of the machine. Rows are ordered by longitudinal position (``sPositionM``), ties broken by the device's ordinal within its place (``ordinalInPlace``). A device the corpus gives no position comes last, with both columns empty.\n\n$section — the section code to walk, exactly as the corpus spells it (a transfer line, a sector). Values come from the ``section`` column of q1c.",
       "key": "q2",
       "parameters": {
@@ -68,7 +68,7 @@
       "title": "Read/write split across all bindings"
     },
     {
-      "cypher": "// A place carries the channels on it too; only a device carries rawType.\nMATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding {fullPv: $pv})\nWHERE d.rawType IS NOT NULL\nRETURN b.fullPv AS pv,\n       collect(DISTINCT d.sectionCode) AS sections,\n       collect(DISTINCT d.sourceName) AS devices,\n       count(DISTINCT d) AS device_count\nLIMIT 5",
+      "cypher": "// A place carries the channels on it too; only a device carries rawType.\nMATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding {fullPv: $pv})\nWHERE d.rawType IS NOT NULL\nRETURN b.fullPv AS pv,\n       collect(DISTINCT d.sectionCode) AS sections,\n       collect(DISTINCT d.deviceId) AS devices,\n       count(DISTINCT d) AS device_count\nLIMIT 5",
       "description": "Which devices are bound to a given process variable. Normally the answer is one, and the query doubles as a reverse lookup from an address back to the device that owns it. More than one device on the row is the interesting case: it means those devices share a single control endpoint — magnets on a common power supply, for instance — so writing that address moves all of them at once. The generated demo corpus has no shared PVs by construction, so ``device_count`` is always 1 there; a facility corpus built from real wiring can have them.\n\n$pv — the full process-variable address to look up, exactly as the corpus records it in ``fullPv``. Addresses come from q3.",
       "key": "q6",
       "parameters": {
