@@ -224,7 +224,10 @@ a channel address. A monitor reading carries ``offset``, ``gain``, ``noise``
 and ``polarity`` on its own axis, and a monitor one ``roll``, on its x-axis
 reading or its only one. A setpoint on ``PolynomB`` or ``KickAngle`` carries
 ``cal_factor`` and ``cal_offset``; a calibration is the supply's, so where one
-element is driven by two setpoints, each is miscalibrated alone.
+element is driven by two setpoints, each is miscalibrated alone. A monitor's
+roll turns the beam position in the deck's unit, before the monitor's
+conversion to the unit it publishes, and its offset, gain, noise and polarity
+then act on the published reading.
 
 Four read-only arrays sit beside them: ``tunes``, ``chromaticity``,
 ``beta_at_monitors`` and ``orbit_at_monitors``, the last two one row per
