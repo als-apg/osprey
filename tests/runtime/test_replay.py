@@ -242,44 +242,21 @@ def test_another_target_than_the_approved_one_refuses_before_any_write(
     assert path.read_bytes() == before
 
 
-def test_a_call_without_the_approved_fields_refuses_when_its_tool_asks(
-    channels: _Channels, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    path = _plant({"Q": 0.0})
-    before = path.read_bytes()
-    _approve(monkeypatch, None, None)
-
-    with pytest.raises(OspreyWriteRefused, match="carries none"), lock(None):
-        pytest.fail("a missing field is a refusal, never a skipped comparison")
-
-    assert channels.writes == []
-    assert path.read_bytes() == before
-
-
-def test_a_call_carrying_only_the_digest_refuses_when_its_tool_asks(
-    channels: _Channels, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    path = _plant({"Q": 0.0})
-
-    with pytest.raises(OspreyWriteRefused, match="carries none"):
-        _approve(monkeypatch, _digest(path), None)
-
-    assert channels.writes == []
-
-
 @pytest.mark.parametrize(
     "approval",
     [
+        pytest.param(_ASKING, id="asking"),
         pytest.param({**_ASKING, "tools": {"execute": "skip"}}, id="skip"),
         pytest.param({**_ASKING, "enabled": False}, id="approval-disabled"),
     ],
 )
-def test_a_call_whose_tool_never_asks_restores_its_own_generation(
+def test_a_bound_call_without_fields_restores_its_own_generation(
     repo: Path,
     channels: _Channels,
     monkeypatch: pytest.MonkeyPatch,
     approval: dict[str, Any],
 ) -> None:
+    """The executor decided whether the call needed fields; the sandbox reads no policy."""
     _write_config(repo, approval)
     path = _plant({"Q": 0.0})
     _approve(monkeypatch, None, None)
@@ -291,55 +268,29 @@ def test_a_call_whose_tool_never_asks_restores_its_own_generation(
     assert path.read_bytes() == b""
 
 
-def test_whether_the_tool_asks_is_decided_once_when_the_call_is_bound(
-    repo: Path, channels: _Channels, monkeypatch: pytest.MonkeyPatch
+def test_a_bound_call_without_fields_never_restores_another_generation(
+    channels: _Channels, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Nothing code does to the config after it starts changes what its call needed."""
-    path = _plant({"Q": 0.0})
+    path = _plant({"Q": 0.0}, generation=GENERATION - 1)
     before = path.read_bytes()
     _approve(monkeypatch, None, None)
 
-    _write_config(repo, {**_ASKING, "enabled": False})
-    elsewhere = repo / "elsewhere.yml"
-    elsewhere.write_text(yaml.safe_dump({"approval": {"enabled": False}}), encoding="utf-8")
-    monkeypatch.setenv("OSPREY_CONFIG", str(elsewhere))
-    reset_config_cache()
-
-    with pytest.raises(OspreyWriteRefused, match="carries none"), lock(None):
-        pytest.fail("the call still needs the fields its prompt hands it")
-
-    assert channels.writes == []
-    assert path.read_bytes() == before
-
-
-@pytest.mark.parametrize(
-    "approval",
-    [
-        pytest.param({**_ASKING, "tools": {"execute": "skip"}}, id="skip"),
-        pytest.param({**_ASKING, "enabled": False}, id="approval-disabled"),
-    ],
-)
-def test_fields_no_approval_hook_set_never_replay_a_journal(
-    repo: Path,
-    channels: _Channels,
-    monkeypatch: pytest.MonkeyPatch,
-    approval: dict[str, Any],
-) -> None:
-    """With nobody asked, a digest and target in the call came from the caller alone."""
-    _write_config(repo, approval)
-    path = _plant({"Q": 0.0}, generation=GENERATION - 1)
-    before = path.read_bytes()
-
-    _approve(monkeypatch, _digest(path), "live")
-
-    assert guarded_run._APPROVED is not None
-    assert guarded_run._APPROVED.journal_sha256 is None
-    assert guarded_run._APPROVED.target is None
-    assert channels.writes == []
     with pytest.raises(OspreyStaleJournal), lock(None):
         pytest.fail("another generation's journal is not restored without an approval")
+
     assert channels.writes == []
     assert path.read_bytes() == before
+
+
+def test_a_call_carrying_only_the_digest_replays_under_it(
+    channels: _Channels, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _plant({"Q": 0.0}, generation=GENERATION - 1)
+
+    _approve(monkeypatch, _digest(path), None)
+
+    assert channels.writes == [("Q", 0.0)]
+    assert path.read_bytes() == b""
 
 
 def test_a_stale_journal_names_the_approval_remedy_when_the_tool_asks(
@@ -356,6 +307,36 @@ def test_a_stale_journal_names_the_approval_remedy_when_the_tool_asks(
     )
     assert channels.writes == []
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("tool", "remedy"),
+    [
+        pytest.param("execute", "remove", id="bound-tool-skips"),
+        pytest.param("execute_file", "approval", id="bound-tool-asks"),
+    ],
+)
+def test_a_stale_journal_remedy_follows_the_bound_tool(
+    repo: Path,
+    channels: _Channels,
+    monkeypatch: pytest.MonkeyPatch,
+    tool: str,
+    remedy: str,
+) -> None:
+    _write_config(repo, {**_ASKING, "tools": {"execute": "skip"}})
+    path = _plant({"Q": 0.0}, generation=GENERATION - 1)
+    _approve(monkeypatch, None, None, tool=tool)
+
+    with pytest.raises(OspreyStaleJournal) as caught, lock(None):
+        pytest.fail("a stale journal stops the run")
+
+    expected = {
+        "remove": f"remove {path} after checking the listed setpoints.",
+        "approval": "call any guarded tool under approval: its prompt lists and restores "
+        "these setpoints.",
+    }[remedy]
+    assert str(caught.value).endswith(expected)
+    assert channels.writes == []
 
 
 def test_a_stale_journal_names_the_remove_remedy_with_approval_disabled(

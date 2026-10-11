@@ -484,24 +484,6 @@ def test_a_changed_journal_stops_the_run_before_user_code(tmp_path: Path) -> Non
     assert sandbox.journal.read_bytes() == before
 
 
-#: User code that turns the approval hook off in the config, then takes the run.
-_REWRITE_THEN_LOCK = textwrap.dedent(
-    """
-    import os, yaml
-    from osprey.runtime.guarded_run import lock
-    from osprey_connectors.workspace import reset_config_cache
-
-    with open("build/config.yml", "w") as handle:
-        yaml.safe_dump({"approval": {"enabled": False}}, handle)
-    with open("elsewhere.yml", "w") as handle:
-        yaml.safe_dump({}, handle)
-    os.environ["OSPREY_CONFIG"] = os.path.abspath("elsewhere.yml")
-    reset_config_cache()
-    with lock(None):
-        results = {"ran": True}
-    """
-)
-
 _FORGED_REPORT = {
     "restored": ["Q", "S"],
     "unchanged": [],
@@ -574,36 +556,43 @@ def test_a_forged_report_line_alone_files_nothing(tmp_path: Path) -> None:
     assert not (folder / executor.RESTORE_REPORT_FILE).exists()
 
 
-def test_code_that_rewrites_the_config_still_needs_the_approved_fields(tmp_path: Path) -> None:
-    """Whether the tool asks was settled before the code started."""
-    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0, "S": 5.0}, {"Q": 3.0})
-    before = sandbox.journal.read_bytes()
+#: User code that takes the guarded run on its own target.
+_TAKE_THE_RUN = textwrap.dedent(
+    """
+    from osprey.runtime.guarded_run import lock
+    with lock(None):
+        results = {"ran": True}
+    """
+)
 
-    metadata = sandbox.run({}, _REWRITE_THEN_LOCK)
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(_approval(tools={"execute": "skip"}), id="skip"),
+        pytest.param(_approval(enabled=False), id="approval-disabled"),
+    ],
+)
+def test_a_digest_in_a_call_nobody_approved_restores_nothing(
+    tmp_path: Path, config: dict[str, Any]
+) -> None:
+    """The executor forwards nothing nobody was asked about; another generation stays."""
+    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0, "S": 5.0}, {"Q": 3.0})
+    sandbox.write_config(config)
+    before = sandbox.journal.read_bytes()
+    env = executor._approved_call_env(
+        "readwrite",
+        config,
+        "execute",
+        {"approved_journal_sha256": sandbox.digest(), "approved_target": "live"},
+        control_target="live",
+    )
+    assert env == {}
+
+    metadata = sandbox.run({**env, "OSPREY_CONTROL_TARGET_GENERATION": "5"}, _TAKE_THE_RUN)
 
     assert metadata["success"] is False
-    assert metadata["error_type"] == "OspreyWriteRefused"
-    assert "_results" not in metadata
-    assert sandbox.values() == {"Q": 9.0, "S": 5.0}
-    assert sandbox.journal.read_bytes() == before
-
-
-def test_a_digest_in_a_call_nobody_approved_restores_nothing(tmp_path: Path) -> None:
-    """A sandbox whose tool never asks drops the fields before the code starts."""
-    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0, "S": 5.0}, {"Q": 3.0})
-    sandbox.write_config(_approval(enabled=False))
-    before = sandbox.journal.read_bytes()
-
-    metadata = sandbox.run(
-        {
-            "OSPREY_APPROVED_JOURNAL_SHA256": sandbox.digest(),
-            "OSPREY_APPROVED_TARGET": "live",
-            "OSPREY_CONTROL_TARGET_GENERATION": "5",
-        }
-    )
-
-    assert metadata["success"] is True, metadata.get("traceback")
-    assert metadata["_results"]["seen"] == {"Q": 9.0, "S": 5.0}
+    assert metadata["error_type"] == "OspreyStaleJournal"
     assert sandbox.values() == {"Q": 9.0, "S": 5.0}
     assert sandbox.journal.read_bytes() == before
 
