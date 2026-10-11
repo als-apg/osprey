@@ -379,6 +379,8 @@ class _Answerable:
     baseline: str
     reports: list[Any] = field(default_factory=list)
     in_flight: list[Any] = field(default_factory=list)
+    #: The file ``config`` was parsed from, which the gate fills unset gateway ports from.
+    config_path: str | None = None
 
 
 class ControlContextOwnerTask:
@@ -613,9 +615,10 @@ class ControlContextOwnerTask:
             return None
 
         config = self._rendered_config()
+        config_path = self._config_path()
         baseline = self._baseline()
         for path in paths:
-            request = self._triage(path, config, baseline, reports)
+            request = self._triage(path, config, baseline, reports, config_path=config_path)
             if request is not None:
                 return request
         return None
@@ -626,8 +629,20 @@ class ControlContextOwnerTask:
 
         return load_osprey_config()
 
+    def _config_path(self) -> str:
+        """The file :meth:`_rendered_config` reads, which the switch gate fills unset gateway ports from."""
+        from osprey.utils.workspace import resolve_config_path
+
+        return str(resolve_config_path())
+
     def _triage(
-        self, path: Path, config: Any, baseline: str, reports: list[Any]
+        self,
+        path: Path,
+        config: Any,
+        baseline: str,
+        reports: list[Any],
+        *,
+        config_path: str | None,
     ) -> _Answerable | None:
         """One request file as something to answer, or ``None`` once it is removed.
 
@@ -657,6 +672,7 @@ class ControlContextOwnerTask:
             baseline=baseline,
             reports=reports,
             in_flight=target_state.in_flight_executions(),
+            config_path=config_path,
         )
 
     def _answer(self, request: _Answerable, record: ControlContext | None) -> Mutation[bool]:
@@ -764,6 +780,7 @@ class ControlContextOwnerTask:
             in_flight=request.in_flight,
             reports=request.reports,
             writes_enabled=target_eligibility.effective_writes_for_target(section, request.target),
+            config_path=request.config_path,
         )
 
     def _consume_file(self, request: _Answerable) -> None:
