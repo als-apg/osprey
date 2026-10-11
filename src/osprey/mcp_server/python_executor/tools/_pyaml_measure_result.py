@@ -1,13 +1,19 @@
 """Read what the ``pyaml_measure`` sandbox script printed, and label it.
 
 The script ends with one ``OSPREY_PYAML_MEASURE <json>`` line on stdout, and the
-guarded run it starts prints its restore report as one
-:data:`~osprey.runtime.guarded_run.RESTORE_REPORT_TAG` line on stderr.
-:func:`parse_measure_result` reads both and returns the tool's result for one
-kind:
+guarded run it starts hands its restore report to the executor in the run's
+execution record (``ExecutionResult.restore_reports``); the tagged line the run
+also prints is for people and is never read as the report.
+:func:`parse_measure_result` reads the result line and the record's reports and
+returns the tool's result for one kind:
 
 * every result carries ``kind``, ``model``, ``completed`` and ``sha256``, the
-  digest of the pyAML view the script loaded;
+  digest of the pyAML view the script loaded, and the ``modulation`` (and
+  ``by``) the script ran;
+* the steps: ``deltas`` by variable and ``delta_limited_by``, the setpoint
+  whose ``max_step`` bounded a step; a group adds ``delta_basis``; an RF step
+  adds ``rf_span_hz`` and ``rf_limited_by``, the chromaticity monitor
+  ``e_delta_used``;
 * a completed ``orm``, ``dispersion``, ``trm`` or ``crm``: ``shape``,
   ``observables`` (``[name, plane]`` per row), ``variables`` (one name per
   column), the steps used and ``data_file``;
@@ -26,12 +32,10 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-from osprey.runtime.guarded_run import RESTORE_REPORT_TAG
 
 __all__ = [
     "RESULT_TAG",
@@ -50,6 +54,16 @@ _MATRIX_KINDS = ("orm", "dispersion", "trm", "crm")
 
 #: The planes a row may be read in.
 _PLANES = ("x", "y")
+
+#: The request values the script echoes: the stepping it ran and, for a group,
+#: what sized its step.
+_ECHOED = ("modulation", "by", "delta_basis")
+
+#: The setpoints that bounded a step, each an address or null.
+_NAMED = ("delta_limited_by", "rf_limited_by")
+
+#: The RF step the chromaticity monitor or the dispersion took.
+_RF_NUMBERS = ("e_delta_used", "rf_span_hz")
 
 
 class MeasureResultError(ValueError):
@@ -134,27 +148,28 @@ def _steps(line: Mapping[str, Any]) -> dict[str, Any]:
     return {key: _number(step, f"deltas.{key}") for key, step in value.items()}
 
 
-def parse_measure_result(stdout: str | bytes, stderr: str | bytes, kind: str) -> dict[str, Any]:
-    """The ``pyaml_measure`` result for ``kind`` from what the script printed.
+def parse_measure_result(
+    stdout: str | bytes, restore_reports: Sequence[Any], kind: str
+) -> dict[str, Any]:
+    """The ``pyaml_measure`` result for ``kind`` from the script's output and the run's record.
 
     Args:
         stdout: Everything the script printed to stdout.
-        stderr: Everything the script printed to stderr.
+        restore_reports: The restore reports the run's execution record
+            carries, in the order the guarded runs made them.
         kind: The kind the script was built for.
 
     Returns:
         The result described in the module docstring. A stopped run's
-        ``restore`` is the last :data:`~osprey.runtime.guarded_run.RESTORE_REPORT_TAG`
-        report, the outermost guarded run's.
+        ``restore`` is the record's last report, the outermost guarded run's.
 
     Raises:
         MeasureResultError: No result line was printed (the script raised or
             was killed), it is not a JSON object, it names another kind, a
-            field the kind needs is missing or mistyped, or a stopped run
-            printed no restore report.
+            field the kind needs is missing or mistyped, or a stopped run's
+            execution record carries no restore report.
     """
     out = stdout.decode("utf-8", errors="replace") if isinstance(stdout, bytes) else stdout or ""
-    err = stderr.decode("utf-8", errors="replace") if isinstance(stderr, bytes) else stderr or ""
 
     line = _last_object(out, RESULT_TAG)
     if line is None:
@@ -175,8 +190,20 @@ def parse_measure_result(stdout: str | bytes, stderr: str | bytes, kind: str) ->
         "sha256": _string(line, "sha256"),
         "completed": completed,
     }
+    for name in _ECHOED:
+        if name in line:
+            result[name] = _string(line, name)
     if kind in _MATRIX_KINDS:
         result["deltas"] = _steps(line)
+    for name in _NAMED:
+        if name in line:
+            value = line[name]
+            if value is not None and not isinstance(value, str):
+                raise MeasureResultError(f"{name!r} is not a name or null: {value!r}")
+            result[name] = value
+    for name in _RF_NUMBERS:
+        if name in line:
+            result[name] = _number(line[name], name)
 
     if completed:
         if kind in _MATRIX_KINDS:
@@ -196,10 +223,12 @@ def parse_measure_result(stdout: str | bytes, stderr: str | bytes, kind: str) ->
         result["data_file"] = _string(line, "data_file")
         return result
 
-    restore = _last_object(err, RESTORE_REPORT_TAG)
-    if restore is None:
-        raise MeasureResultError(f"a stopped run printed no {RESTORE_REPORT_TAG} report")
-    result["restore"] = restore
+    if not restore_reports:
+        raise MeasureResultError("a stopped run's execution record carries no restore report")
+    restore = restore_reports[-1]
+    if not isinstance(restore, Mapping):
+        raise MeasureResultError(f"the record's restore report is not a JSON object: {restore!r}")
+    result["restore"] = dict(restore)
     remainder = line.get("remainder")
     result["remainder"] = _names(line, "remainder") if isinstance(remainder, list) else kind
     return result

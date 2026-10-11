@@ -298,6 +298,12 @@ class ExecutionResult:
     #: ledger holds the attempts it reached. Empty for a readonly run and for a
     #: run that never started.
     written_channels: list[str] = field(default_factory=list)
+    #: The restore reports the run's guarded runs made, in the order they were
+    #: made, read from the execution record the sandbox wrapper wrote: the same
+    #: list a readwrite run's record files (:func:`_file_run_record`). A tagged
+    #: line the script printed is never one of them. Empty for a run that left
+    #: no record or whose record carries none.
+    restore_reports: list[dict] = field(default_factory=list)
 
 
 def _read_config() -> dict:
@@ -1420,6 +1426,7 @@ def _result_from_run(
         error_message=error_msg,
         control_target=control_target,
         written_channels=_read_written_channels(execution_folder),
+        restore_reports=_record_reports(metadata),
     )
 
 
@@ -1580,6 +1587,16 @@ def _observed_reason(observed: dict[str, Any], *, abnormal: bool) -> tuple[str, 
     return None
 
 
+def _record_reports(metadata: dict | None) -> list[dict]:
+    """The restore reports a run's execution record carries, each a JSON object."""
+    raw_reports = (metadata or {}).get("restore_reports")
+    return [
+        report
+        for report in (raw_reports if isinstance(raw_reports, list) else ())
+        if isinstance(report, dict)
+    ]
+
+
 def _file_run_record(
     execution_dir: Path,
     control_target: str,
@@ -1621,12 +1638,7 @@ def _file_run_record(
     """
     record: dict[str, Any] = {}
     try:
-        raw_reports = (metadata or {}).get("restore_reports")
-        reports = [
-            report
-            for report in (raw_reports if isinstance(raw_reports, list) else ())
-            if isinstance(report, dict)
-        ]
+        reports = _record_reports(metadata)
         observed = _observe_journal(control_target)
         filed: list[tuple[str, str]] = []
         for report in reports:

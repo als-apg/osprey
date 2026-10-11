@@ -18,9 +18,12 @@ The checks:
   exactly one model has one;
 * the model's measurement file allows the kind; a kind it lacks is refused as
   ``<kind> needs <instrument or group>, which <model> does not have``;
-* ``modulation`` is one of :data:`MODULATIONS`, ``bipolar`` when omitted;
 * ``by`` is one of :data:`BYS`, taken by ``trm`` and ``crm`` alone, ``magnet``
   when omitted;
+* ``modulation`` is one of :data:`MODULATIONS`; a group is stepped once from
+  its present setting, so ``by`` ``group`` is ``unipolar`` when modulation is
+  omitted and refuses ``bipolar``; every other omitted modulation is
+  ``bipolar``;
 * ``correctors`` are setpoint addresses of the model's ``hcor`` or ``vcor``
   group, each named once, taken by ``orm`` and ``dispersion`` alone;
 * the view's configuration resolves under ``<render>/data/pyaml/`` (symlinks
@@ -47,6 +50,8 @@ __all__ = [
     "CORRECTOR_KINDS",
     "DEFAULT_BY",
     "DEFAULT_MODULATION",
+    "GROUP",
+    "GROUP_MODULATION",
     "KINDS",
     "MODULATIONS",
     "STEPPED",
@@ -70,6 +75,10 @@ DEFAULT_BY = "magnet"
 
 #: The kinds that take ``by``.
 BY_KINDS = ("trm", "crm")
+
+#: The ``by`` that steps a whole group as one knob, and the one modulation it runs.
+GROUP = "group"
+GROUP_MODULATION = "unipolar"
 
 #: The kinds that take ``correctors``.
 CORRECTOR_KINDS = ("orm",)
@@ -320,7 +329,8 @@ def resolve_measure_args(
         model: The model to measure, or ``None`` when exactly one model has a
             pyAML view.
         correctors: Corrector setpoint addresses for ``orm``, or ``None``.
-        modulation: One of :data:`MODULATIONS`, or ``None`` for ``bipolar``.
+        modulation: One of :data:`MODULATIONS`, or ``None`` for ``unipolar``
+            with ``by`` ``group`` and ``bipolar`` otherwise.
         by: One of :data:`BYS` for ``trm`` or ``crm``, or ``None`` for
             ``magnet``.
         config_path: The rendered ``config.yml`` this process runs against; its
@@ -338,9 +348,6 @@ def resolve_measure_args(
 
     render_root = Path(config_path).parent
     checked_kind = _one_of("kind", kind, KINDS)
-    checked_modulation = (
-        DEFAULT_MODULATION if modulation is None else _one_of("modulation", modulation, MODULATIONS)
-    )
     if by is not None and checked_kind not in BY_KINDS:
         _refuse(
             f"by is taken by {' and '.join(BY_KINDS)} alone; {checked_kind} has no magnets "
@@ -350,6 +357,16 @@ def resolve_measure_args(
     checked_by: str | None = None
     if checked_kind in BY_KINDS:
         checked_by = DEFAULT_BY if by is None else _one_of("by", by, BYS)
+    if modulation is None:
+        checked_modulation = GROUP_MODULATION if checked_by == GROUP else DEFAULT_MODULATION
+    else:
+        checked_modulation = _one_of("modulation", modulation, MODULATIONS)
+    if checked_by == GROUP and checked_modulation != GROUP_MODULATION:
+        _refuse(
+            f"by group steps each group once from its present setting, so it is "
+            f"{GROUP_MODULATION}; modulation is {checked_modulation}",
+            f"Pass modulation {GROUP_MODULATION!r} with by 'group'.",
+        )
     checked_timeout = _timeout(timeout)
 
     records = _view_records(render_root)

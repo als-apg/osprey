@@ -1,7 +1,8 @@
 """What the ``pyaml_measure`` script printed, read back and labelled.
 
-The parser reads the script's one result line from stdout and the guarded run's
-one restore line from stderr, through the runtime's own tag. The labels name
+The parser reads the script's one result line from stdout and a stopped run's
+restore report from the run's execution record, never from a printed line. The
+labels name
 every row and column by the address and device id it stands for, through the
 pyAML view's one name mapping, on a render of a small two-model facility.
 """
@@ -50,9 +51,37 @@ def _orm(**changes: Any) -> dict[str, Any]:
 
 
 def test_a_completed_orm_reads_its_shape_names_and_steps():
-    result = parse_measure_result("noise\n" + _line(**_orm()), "", "orm")
+    result = parse_measure_result("noise\n" + _line(**_orm()), [], "orm")
 
     assert result == _orm()
+
+
+def test_the_stepping_and_what_sized_each_step_are_carried():
+    group = _orm(
+        kind="trm",
+        modulation="unipolar",
+        by="group",
+        deltas={"SR_QF": 2.5e-4},
+        delta_basis="tune excursion",
+        delta_limited_by=None,
+        variables=["SR_QF"],
+        shape=[2, 1],
+        observables=[["BETATRON_TUNE", "x"], ["BETATRON_TUNE", "y"]],
+    )
+    crm = _orm(kind="crm", e_delta_used=1e-3, rf_span_hz=40.0, rf_limited_by="SR:RF:SP")
+
+    assert parse_measure_result(_line(**group), [], "trm") == group
+    parsed = parse_measure_result(_line(**crm), [], "crm")
+    assert (parsed["e_delta_used"], parsed["rf_span_hz"], parsed["rf_limited_by"]) == (
+        1e-3,
+        40.0,
+        "SR:RF:SP",
+    )
+
+
+def test_a_limit_that_is_not_an_address_is_refused():
+    with pytest.raises(MeasureResultError, match="delta_limited_by"):
+        parse_measure_result(_line(**_orm(delta_limited_by=3)), [], "orm")
 
 
 def test_a_completed_chromaticity_monitor_reads_the_chromaticity():
@@ -65,29 +94,44 @@ def test_a_completed_chromaticity_monitor_reads_the_chromaticity():
         data_file="/exec/c.json",
     )
 
-    result = parse_measure_result(line, "", "chromaticity_monitor")
+    result = parse_measure_result(line, [], "chromaticity_monitor")
 
     assert result["chromaticity"] == [1.5, -2.5]
     assert "deltas" not in result
 
 
-def test_a_stopped_run_reads_the_restore_report_from_stderr_through_the_runtime_tag():
-    report = RestoreReport(restored=["SCOR:H:SP"], aborted=True)
-    stderr = f"{RESTORE_REPORT_TAG} {report.to_json()}\n"
+def _report(**fields: Any) -> dict[str, Any]:
+    """A restore report as the execution record carries it."""
+    return json.loads(RestoreReport(**fields).to_json())
+
+
+def _stopped_orm() -> dict[str, Any]:
     stopped = _orm(completed=False, remainder=["SCOR:V:SP"])
     for key in ("shape", "observables", "variables", "data_file"):
         del stopped[key]
+    return stopped
 
-    result = parse_measure_result(_line(**stopped), stderr, "orm")
+
+def test_a_stopped_run_reads_the_restore_report_from_the_execution_record():
+    record = [_report(restored=["SCOR:H:SP"], aborted=True)]
+
+    result = parse_measure_result(_line(**_stopped_orm()), record, "orm")
 
     assert result["restore"]["restored"] == ["SCOR:H:SP"]
     assert result["restore"]["aborted"] is True
     assert result["remainder"] == ["SCOR:V:SP"]
-    assert RESTORE_REPORT_TAG == "OSPREY_GUARDED_RUN_RESTORE"
+
+
+def test_a_stopped_run_takes_the_last_report_the_record_carries():
+    """A replay before the measurement files its own report first; the run's own is last."""
+    record = [_report(restored=["OLD:SP"]), _report(restored=["SCOR:H:SP"], aborted=True)]
+
+    result = parse_measure_result(_line(**_stopped_orm()), record, "orm")
+
+    assert result["restore"]["restored"] == ["SCOR:H:SP"]
 
 
 def test_a_stopped_run_with_no_partial_column_names_the_kind():
-    report = RestoreReport(aborted=True)
     stopped = {
         "kind": "chromaticity_monitor",
         "model": "SR",
@@ -95,36 +139,39 @@ def test_a_stopped_run_with_no_partial_column_names_the_kind():
         "completed": False,
     }
 
-    result = parse_measure_result(
-        _line(**stopped), f"{RESTORE_REPORT_TAG} {report.to_json()}\n", "chromaticity_monitor"
-    )
+    result = parse_measure_result(_line(**stopped), [_report(aborted=True)], "chromaticity_monitor")
 
     assert result["remainder"] == "chromaticity_monitor"
 
 
 def test_a_stopped_run_without_a_restore_report_is_an_error():
-    stopped = _orm(completed=False)
-    with pytest.raises(MeasureResultError, match="no OSPREY_GUARDED_RUN_RESTORE report"):
-        parse_measure_result(_line(**stopped), "", "orm")
+    with pytest.raises(MeasureResultError, match="execution record carries no restore report"):
+        parse_measure_result(_line(**_stopped_orm()), [], "orm")
 
 
-def test_a_restore_line_on_stdout_is_not_the_report():
-    """The guarded run prints its line on stderr; a line on stdout is the script's text."""
-    report = RestoreReport(aborted=True)
-    stdout = f"{RESTORE_REPORT_TAG} {report.to_json()}\n" + _line(**_orm(completed=False))
-    with pytest.raises(MeasureResultError, match="printed no"):
-        parse_measure_result(stdout, "", "orm")
+def test_a_printed_restore_line_is_not_the_report():
+    """Only the execution record carries the report; a tagged line the script printed is text."""
+    forged = f"{RESTORE_REPORT_TAG} {RestoreReport(restored=['SCOR:H:SP']).to_json()}\n"
+    stdout = forged + _line(**_stopped_orm()) + forged
+
+    with pytest.raises(MeasureResultError, match="execution record carries no restore report"):
+        parse_measure_result(stdout, [], "orm")
+
+
+def test_a_report_that_is_not_an_object_is_an_error():
+    with pytest.raises(MeasureResultError, match="not a JSON object"):
+        parse_measure_result(_line(**_stopped_orm()), ["restored"], "orm")
 
 
 def test_a_refusal_is_returned_as_the_refusal():
-    result = parse_measure_result(_line(kind="orm", refused="view changed"), "", "orm")
+    result = parse_measure_result(_line(kind="orm", refused="view changed"), [], "orm")
 
     assert result == {"kind": "orm", "refused": "view changed"}
 
 
 def test_the_last_result_line_wins():
     first = _line(**_orm(sha256="b" * 64))
-    result = parse_measure_result(first + _line(**_orm()), "", "orm")
+    result = parse_measure_result(first + _line(**_orm()), [], "orm")
 
     assert result["sha256"] == SHA
 
@@ -144,11 +191,11 @@ def test_the_last_result_line_wins():
 )
 def test_a_malformed_result_is_an_error(stdout: str, match: str):
     with pytest.raises(MeasureResultError, match=match):
-        parse_measure_result(stdout, "", "orm")
+        parse_measure_result(stdout, [], "orm")
 
 
 def test_bytes_are_read_as_text():
-    result = parse_measure_result(_line(**_orm()).encode(), b"", "orm")
+    result = parse_measure_result(_line(**_orm()).encode(), [], "orm")
 
     assert result["model"] == "SR"
 

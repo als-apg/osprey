@@ -1,12 +1,14 @@
 """OSPREY Python Executor MCP Server.
 
-FastMCP server exposing the execute tool.
+FastMCP server exposing the execute tools, and the measurement tools when the
+render records a pyAML view.
 
 Usage:
     python -m osprey.mcp_server.python_executor
 """
 
 import logging
+from pathlib import Path
 
 from fastmcp import FastMCP
 
@@ -42,5 +44,41 @@ def create_server() -> FastMCP:
             python_execute_file,
         )
 
+    from osprey.utils.config_paths import resolve_config_dir
+
+    register_optional_tools(mcp, resolve_config_dir())
+
     logger.info("Python Executor MCP server initialised with all tools registered")
     return mcp
+
+
+def pyaml_view_present(render_root: Path | None) -> bool:
+    """Whether the render's facts record a pyAML view.
+
+    The same predicate the build renders the agent's permissions, skill and
+    prompt section by: ``measurement_models`` of ``data/facility_facts.json``
+    is not empty.
+
+    Args:
+        render_root: The directory holding the rendered ``config.yml``, or
+            ``None`` when there is none.
+    """
+    if render_root is None:
+        return False
+    from osprey.facility.views.facts import read_facts
+
+    return bool(read_facts(Path(render_root), "").get("measurement_models"))
+
+
+def register_optional_tools(server: FastMCP, render_root: Path | None) -> None:
+    """Register the tools a render's pyAML view brings, on ``server``.
+
+    Args:
+        server: The server to register on.
+        render_root: The directory holding the rendered ``config.yml``.
+    """
+    if not pyaml_view_present(render_root):
+        return
+    from osprey.mcp_server.python_executor.tools import pyaml_measure
+
+    pyaml_measure.register(server)

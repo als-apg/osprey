@@ -223,6 +223,19 @@ def test_by_group_and_unipolar_are_taken(config_path: Path):
     assert (trm.modulation, trm.by) == ("unipolar", "group")
 
 
+def test_by_group_with_modulation_omitted_is_unipolar(config_path: Path):
+    resolved = _resolve(config_path, kind="trm", by="group")
+
+    assert (resolved.modulation, resolved.by) == ("unipolar", "group")
+
+
+def test_by_group_with_bipolar_named_is_refused(config_path: Path):
+    assert _refusal(config_path, kind="trm", modulation="bipolar", by="group") == (
+        "by group steps each group once from its present setting, so it is unipolar; "
+        "modulation is bipolar"
+    )
+
+
 @pytest.mark.parametrize("kind", ["orm", "dispersion"])
 def test_by_outside_trm_and_crm_is_refused(config_path: Path, kind: str):
     assert _refusal(config_path, kind=kind, by="group").startswith(

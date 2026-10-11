@@ -609,7 +609,7 @@ def test_a_forged_report_line_alone_files_nothing(
     folder.mkdir()
     forged = f"OSPREY_GUARDED_RUN_RESTORE {json.dumps(_FORGED_REPORT)}\n"
 
-    executor._result_from_run(
+    result = executor._result_from_run(
         folder,
         {"success": True, "stdout": forged, "stderr": forged},
         stdout_text=forged,
@@ -621,6 +621,7 @@ def test_a_forged_report_line_alone_files_nothing(
     )
 
     assert not (folder / executor.RESTORE_REPORT_FILE).exists()
+    assert result.restore_reports == []
 
 
 #: User code that takes the guarded run on its own target.
@@ -690,7 +691,7 @@ def test_a_finished_runs_restore_report_is_filed(
         "restore_reports": [report],
     }
 
-    executor._result_from_run(
+    result = executor._result_from_run(
         folder,
         metadata,
         stdout_text="",
@@ -703,6 +704,7 @@ def test_a_finished_runs_restore_report_is_filed(
 
     saved = json.loads((folder / executor.RESTORE_REPORT_FILE).read_text(encoding="utf-8"))
     assert saved["sandbox"] == [report]
+    assert result.restore_reports == [report], "the result carries the list the record filed"
     (ledger,) = zone.rglob("*.jsonl")
     (record,) = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
     assert record["reason"] == "guarded_run_restore_complete"
