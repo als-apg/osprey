@@ -85,7 +85,6 @@ if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
     os._exit(0)
 
 import ipaddress  # noqa: E402
-import math  # noqa: E402
 import re  # noqa: E402
 import shlex  # noqa: E402
 import shutil  # noqa: E402
@@ -425,7 +424,7 @@ def _remove_named(repo: Path, line: str) -> list[str]:
 
 def _widen(limits: Path, address: str, edge: str, nominal: float) -> None:
     """Move one edge of one limits record out to hold *nominal*; change no other line."""
-    value = float(math.ceil(nominal) if edge == "max_value" else math.floor(nominal))
+    value = nominal
     lines = limits.read_text(encoding="utf-8").split("\n")
     starts = [
         index

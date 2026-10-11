@@ -37,7 +37,6 @@ is restated from a plan.
 from __future__ import annotations
 
 import json
-import math
 import re
 import shlex
 import shutil
@@ -260,12 +259,8 @@ def seed_stops(stderr: str) -> dict[str, tuple[str, float]]:
 
 
 def widen_limits_record(limits: Path, address: str, edge: str, nominal: float) -> None:
-    """Move one edge of one limits record out to hold *nominal*; change no other line.
-
-    The stop states the nominal to six significant digits, so the edge is set to
-    the whole number at or beyond it rather than to the stated digits.
-    """
-    value = float(math.ceil(nominal) if edge == "max_value" else math.floor(nominal))
+    """Move one edge of one limits record out to *nominal*, the value the stop states; change no other line."""
+    value = nominal
     lines = limits.read_text(encoding="utf-8").split("\n")
     starts = [
         index
@@ -715,7 +710,7 @@ class TestTheFacilityImportOfATwoZeroExport:
         assert record == {
             "address": address,
             "min_value": -1.0,
-            "max_value": 2.0,
+            "max_value": 1.5,
             "writable": True,
         }
 
