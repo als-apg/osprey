@@ -390,6 +390,22 @@ async def test_an_entry_whose_seq_is_a_bool_is_not_replayed(view, caplog):
     await connector.disconnect()
 
 
+async def test_a_journal_whose_second_entry_the_composite_refuses_is_logged_under_that_address(
+    view, caplog
+):
+    sha = await _active_sha(view)
+    _plant(view, [[1, "A:SP", 5.0], [2, "B:SP", "high"]], sha=sha)
+
+    with caplog.at_level(logging.WARNING):
+        connector = await _connected(view)
+        value = (await connector.read_channel("A:SP")).value
+
+    assert value == 0.0
+    assert "writes journal rejected: B:SP: " in caplog.text
+    assert "writes journal rejected: A:SP" not in caplog.text
+    await connector.disconnect()
+
+
 def _with_physics_model(view: Path, name: str) -> Path:
     """The view again with one served physics model that owns no channel."""
     variables = json.loads((view / "variables.json").read_text())

@@ -428,7 +428,7 @@ class VAInProcessConnector(ControlSystemConnector):
             self._composite.set(replayed)
         except Exception as exc:
             self._composite.reset()
-            self._reject(next(iter(replayed)), str(exc))
+            self._reject(getattr(exc, "address", None) or JOURNAL_FILE, str(exc))
             return
         self._holds_writes = True
 
