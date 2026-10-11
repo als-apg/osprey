@@ -593,9 +593,10 @@ def test_a_readout_the_engine_cannot_carry_is_named_and_not_written(
 ) -> None:
     facility = import_tree(tmp_path, "synthetic")
     lines = [line for line in capsys.readouterr().out.splitlines() if "readout" in line]
-    # The quokka conversions hold neither the stated gain nor the stated offset.
+    # BPMx holds its gain and offset in its conversion: the offset is served
+    # there and the gain, which the export gives nothing to check, is named. BPMy holds neither.
     assert lines == [
-        "import mml: readout not carried: SR: family BPMx (crunch, gain, offset)",
+        "import mml: readout not carried: SR: family BPMx (crunch, gain)",
         "import mml: readout not carried: SR: family BPMy (crunch, gain, roll)",
     ]
     rows = _readout_rows(facility)

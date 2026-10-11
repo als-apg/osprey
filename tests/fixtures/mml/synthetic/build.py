@@ -444,6 +444,48 @@ def _identity_inverse(gain: float) -> Callable[[np.ndarray, float], np.ndarray]:
     return convert
 
 
+def _per_device(value: Any, hardware: np.ndarray, readout: dict[str, Any]) -> np.ndarray:
+    """One readout value per device, laid along the input's leading (device) axis."""
+    devices = len(np.atleast_1d(readout["Gain"]))
+    if np.ndim(hardware) == 0 or np.shape(hardware)[0] != devices:
+        handed = np.shape(hardware)[0] if np.ndim(hardware) else 0
+        raise ValueError(
+            f"The monitor family has {devices} devices; its conversion was handed {handed}."
+        )
+    column = np.broadcast_to(np.asarray(value, dtype=float), (devices,))
+    return np.reshape(column, (-1,) + (1,) * (np.ndim(hardware) - 1))
+
+
+def _readout_flat(
+    gain: float, readout: dict[str, Any]
+) -> Callable[[np.ndarray, float], np.ndarray]:
+    """A flat linear conversion that applies a monitor's own gain and offset first,
+    the way the export's contract has it.
+    """
+
+    def convert(hardware: np.ndarray, _energy: float) -> np.ndarray:
+        hardware = np.asarray(hardware, dtype=float)
+        g = _per_device(readout["Gain"], hardware, readout)
+        o = _per_device(readout.get("Offset", 0.0), hardware, readout)
+        return gain * g * (hardware - o)
+
+    return convert
+
+
+def _readout_inverse(
+    gain: float, readout: dict[str, Any]
+) -> Callable[[np.ndarray, float], np.ndarray]:
+    """The exact inverse of a monitor's flat conversion with its own gain and offset."""
+
+    def convert(physics: np.ndarray, _energy: float) -> np.ndarray:
+        physics = np.asarray(physics, dtype=float)
+        g = _per_device(readout["Gain"], physics, readout)
+        o = _per_device(readout.get("Offset", 0.0), physics, readout)
+        return o + physics / (gain * g)
+
+    return convert
+
+
 def _brho_inverse(gain: float) -> Callable[[np.ndarray, float], np.ndarray]:
     """The exact inverse of a rigidity-scaled conversion."""
 
@@ -469,6 +511,39 @@ NOMINAL_AMPS: dict[str, list[float]] = {
     "IDGAP": [float("nan"), float("nan")],
     "SEPTUM": [48.0],
     "DCCT": [300.0],
+}
+
+#: What the Middle Layer corrects each beam monitor's own reading by, one value
+#: per device. ``Gain`` and ``Offset`` correct a raw reading as
+#: ``Gain * (Raw - Offset)``, the offset in the monitor's hardware units, and the
+#: export's contract puts both inside the family's hardware-to-physics
+#: conversion. ``Roll`` is the angle in radians and ``Crunch`` the shear that
+#: carry the two planes a monitor reads in into the model's, and neither is in
+#: any conversion. Both families of a pair state the rotation, and it is one
+#: rotation of the pair rather than one each.
+#:
+#: ``BPMx`` is written on contract: its conversion holds its gain and offset.
+#: ``BPMy`` is written off contract on purpose: its conversion does not hold its
+#: gain, so the import names that gain as a readout it does not carry.
+#:
+#: The two families are written differently on purpose, because both shapes are
+#: what a facility writes. The horizontal one states four numbers per key, one
+#: per device. The vertical one states a single number for ``Roll`` and
+#: ``Crunch``, which the Middle Layer hands back for every device in the list
+#: and the export therefore writes out per device; and it states no ``Offset``
+#: at all, which stays absent rather than becoming a zero.
+READOUT: dict[str, dict[str, Any]] = {
+    "BPMx": {
+        "Gain": np.array([1.02, 0.98, 1.01, 0.995]),
+        "Offset": np.array([0.12, -0.05, 0.31, 0.0]),
+        "Roll": np.array([1.0e-3, -2.0e-3, 0.0, 5.0e-4]),
+        "Crunch": np.array([2.0e-3, 0.0, -1.0e-3, 4.0e-3]),
+    },
+    "BPMy": {
+        "Gain": np.array([0.99, 1.03, 1.0, 0.97]),
+        "Roll": 7.5e-4,
+        "Crunch": -1.5e-3,
+    },
 }
 
 #: The per-family conversions, as the export calls them: one hardware-to-physics
@@ -518,8 +593,8 @@ CONVERSIONS: dict[str, dict[str, Any]] = {
     },
     "BPMx": {
         "gain": 1.0e-3,
-        "hw2physics": _linear_flat(1.0e-3),
-        "physics2hw": _identity_inverse(1.0e-3),
+        "hw2physics": _readout_flat(1.0e-3, READOUT["BPMx"]),
+        "physics2hw": _readout_inverse(1.0e-3, READOUT["BPMx"]),
         "fcn": "mm2m",
         "inverse_fcn": "m2mm",
     },
@@ -584,34 +659,6 @@ CONVERSIONS: dict[str, dict[str, Any]] = {
         "physics2hw": _identity_inverse(1.0),
         "fcn": "identity",
         "inverse_fcn": "identity",
-    },
-}
-
-#: What the Middle Layer corrects each beam monitor's own reading by, one value
-#: per device. ``Gain`` and ``Offset`` are the pair the hardware-to-physics
-#: conversion already applies before its own, the offset in the monitor's
-#: hardware units; ``Roll`` is the angle in radians and ``Crunch`` the shear
-#: that carry the two planes a monitor reads in into the model's, and neither
-#: is in any conversion. Both families of a pair state the rotation, and it is
-#: one rotation of the pair rather than one each.
-#:
-#: The two families are written differently on purpose, because both shapes are
-#: what a facility writes. The horizontal one states four numbers per key, one
-#: per device. The vertical one states a single number for ``Roll`` and
-#: ``Crunch``, which the Middle Layer hands back for every device in the list
-#: and the export therefore writes out per device; and it states no ``Offset``
-#: at all, which stays absent rather than becoming a zero.
-READOUT: dict[str, dict[str, Any]] = {
-    "BPMx": {
-        "Gain": np.array([1.02, 0.98, 1.01, 0.995]),
-        "Offset": np.array([0.12, -0.05, 0.31, 0.0]),
-        "Roll": np.array([1.0e-3, -2.0e-3, 0.0, 5.0e-4]),
-        "Crunch": np.array([2.0e-3, 0.0, -1.0e-3, 4.0e-3]),
-    },
-    "BPMy": {
-        "Gain": np.array([0.99, 1.03, 1.0, 0.97]),
-        "Roll": 7.5e-4,
-        "Crunch": -1.5e-3,
     },
 }
 
@@ -1409,8 +1456,9 @@ def _model_read(ring: at.Lattice, family: str) -> tuple[np.ndarray, str]:
     if family in ("BPMx", "BPMy"):
         plane = 0 if family == "BPMx" else 2
         orbit = at.find_orbit4(ring, refpts=_named(ring, "BPM"))[1]
+        hardware = CONVERSIONS[family]["physics2hw"](orbit[:, plane], DECK_ENERGY_GEV)
         return (
-            np.array([_round_significant(float(row[plane]) * 1.0e3, 12) for row in orbit]),
+            np.array([_round_significant(float(value), 12) for value in hardware]),
             "Hardware",
         )
     if family == "RF":
@@ -1682,6 +1730,14 @@ def _rounded(value: Any) -> np.ndarray:
     return flat.reshape(array.shape)
 
 
+def _monitor_difference(family: str, physics: np.ndarray) -> np.ndarray:
+    """A difference of two readings in hardware units: the offset cancels, the gain does not."""
+    to_hardware = CONVERSIONS[family]["physics2hw"]
+    physics = np.asarray(physics, dtype=float)
+    zero = to_hardware(np.zeros_like(physics), DECK_ENERGY_GEV)
+    return to_hardware(physics, DECK_ENERGY_GEV) - zero
+
+
 def build_response(ring: at.Lattice, ao: dict[str, Any]) -> dict[str, Any]:
     """The orbit response matrix, measured on the model, block by block."""
     orbit = _orbit(ring)
@@ -1864,7 +1920,7 @@ def _model_dispersion(ring: at.Lattice, ao: dict[str, Any]) -> dict[str, Any]:
     per_mhz = -1.0e6 / (frequency * mcf)
     physics = {"x": avedisp[:, 0], "y": avedisp[:, 2]}
     hardware = {
-        plane: CONVERSIONS[family]["physics2hw"](physics[plane], DECK_ENERGY_GEV) * per_mhz
+        plane: _monitor_difference(family, physics[plane]) * per_mhz
         for plane, family in (("x", "BPMx"), ("y", "BPMy"))
     }
     return {
@@ -1912,7 +1968,7 @@ def _model_response_blocks(
                 monitor_point = point
                 units_string = "meter/radian"
             else:
-                data = to_monitor(data, DECK_ENERGY_GEV) * per_amp
+                data = _monitor_difference(monitor_family, data) * per_amp
                 monitor_point = to_monitor(point, DECK_ENERGY_GEV)
                 delta = np.array(ACTUATOR_DELTA[actuator_family]) / per_amp
                 units_string = "mm/A"
