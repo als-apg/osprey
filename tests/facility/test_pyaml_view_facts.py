@@ -21,7 +21,7 @@ from osprey.cli.templates.manager import TemplateManager
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.facility.views.facts import FACTS_FILE, hook_measurement
 from osprey.facility.views.pyaml import measurement_groups
-from tests.facility._pyaml_trees import built_document, measured_tree
+from tests.facility._pyaml_trees import built_document, measured_tree, with_rf
 
 pytest.importorskip("pyaml")
 
@@ -98,11 +98,13 @@ def test_the_rendered_hook_block_lists_kinds_groups_and_the_same_digest(tmp_path
         "LINE": {
             "kinds": {"orm": ["LINE_BPM", "LINE_HCM", "LINE_VCM"]},
             "groups": measurement_groups(document, "LINE"),
+            "rf": [],
             "view_sha256": records["LINE"]["sha256"],
         },
         "SR": {
             "kinds": {"trm": ["SR_Q"]},
             "groups": measurement_groups(document, "SR"),
+            "rf": [],
             "view_sha256": records["SR"]["sha256"],
         },
     }
@@ -132,3 +134,10 @@ def test_one_group_named_for_both_planes_gives_the_block_both_plane_arrays(
         "vcor": ["LCOR:V:SP"],
         "quad": ["LQ:SP"],
     }
+
+
+def test_the_block_names_the_rf_setpoint_the_views_rf_plant_steps(tmp_path: Path) -> None:
+    render = _render(tmp_path, with_rf(measured_tree()), {})
+    block = hook_measurement(_facts(render), render)
+    assert block["SR"]["rf"] == ["RF:SP"]
+    assert block["LINE"]["rf"] == []

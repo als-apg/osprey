@@ -346,11 +346,13 @@ def test_the_measurement_block_reads_each_view_the_facts_record(tmp_path: Path) 
         "LINE": {
             "kinds": {"orm": ["LINE_BPM", "LINE_HCM", "LINE_VCM"]},
             "groups": measurement_groups(document, "LINE"),
+            "rf": [],
             "view_sha256": facts["measurement_models"]["LINE"]["sha256"],
         },
         "SR": {
             "kinds": {"trm": ["SR_Q"]},
             "groups": measurement_groups(document, "SR"),
+            "rf": [],
             "view_sha256": facts["measurement_models"]["SR"]["sha256"],
         },
     }

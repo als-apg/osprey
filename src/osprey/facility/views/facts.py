@@ -291,11 +291,12 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
             ``config.yml``, ``facility.json`` and ``data/``.
 
     Returns:
-        ``{model: {kinds: {kind: [array]}, groups: {group: [address]},
-        view_sha256}}`` for each pyAML view, sorted by model: ``kinds`` each
-        kind the measurement file allows with the arrays of the groups it
-        needs, ``groups`` each group role with the addresses its array's
-        members stand for, ``bpm`` both planes of each BPM.
+        ``{model: {kinds: {kind: [array]}, groups: {group: [address]}, rf:
+        [address], view_sha256}}`` for each pyAML view, sorted by model:
+        ``kinds`` each kind the measurement file allows with the arrays of the
+        groups it needs, ``groups`` each group role with the addresses its
+        array's members stand for, ``bpm`` both planes of each BPM, ``rf`` the
+        setpoint each of the view's RF plants steps, empty when it has none.
     """
     recorded = facts.get("measurement_models") or {}
     if not recorded:
@@ -303,7 +304,8 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
     import yaml
 
     from osprey.facility import FACILITY_FILE
-    from osprey.facility.views.pyaml import KIND_MEMBERS, view_names
+    from osprey.facility.views.pyaml import KIND_MEMBERS, RF_PLANT_TYPE, view_names
+    from pyaml_cs_osprey.catalog import parse_reference
 
     doc = json.loads((render_root / FACILITY_FILE).read_text(encoding="utf-8"))
     models = {str(model["name"]): model for model in doc.get("models", [])}
@@ -332,6 +334,11 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
                 ]
                 for role, array in array_of.items()
             },
+            "rf": sorted(
+                parse_reference(device["masterclock"]).address
+                for device in devices.values()
+                if device.get("type") == RF_PLANT_TYPE and "masterclock" in device
+            ),
             "view_sha256": record.get("sha256"),
         }
     return block

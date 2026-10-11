@@ -2397,3 +2397,370 @@ def test_an_ask_the_harness_never_received_leaves_no_approved_stamp(
         )
 
     assert list(tmp_path.glob("approval_ask_*.json")) == []
+
+
+# ---------------------------------------------------------------------------
+# pyaml_measure: the view, the stepping and the binding
+# ---------------------------------------------------------------------------
+
+_VIEW_BYTES = b"type: pyaml.accelerator\nmachine: SR\n"
+_VIEW_RELATIVE = "data/pyaml/SR/configuration.yaml"
+_HCOR = [f"SR:HCM:{index:02d}:SP" for index in range(1, 23)]
+_VCOR = ["SR:VCM:01:SP"]
+_QUADS = ["SR:QF:01:SP", "SR:QF:02:SP"]
+
+
+def _measurement_block(**changes):
+    import hashlib
+
+    block = {
+        "kinds": {
+            "orm": ["SR_BPM", "SR_HCM", "SR_VCM"],
+            "trm": ["SR_QF"],
+            "chromaticity_monitor": [],
+        },
+        "groups": {
+            "bpm": ["SR:BPM:01:X", "SR:BPM:01:Y"],
+            "hcor": _HCOR,
+            "vcor": _VCOR,
+            "quad": _QUADS,
+        },
+        "view_sha256": hashlib.sha256(_VIEW_BYTES).hexdigest(),
+    }
+    block.update(changes)
+    return block
+
+
+def _plant_view(render, data=_VIEW_BYTES):
+    path = render / "data" / "pyaml" / "SR" / "configuration.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return path
+
+
+def _measure(hook_runner, make_config, tmp_path, tool_input, *, block=None, cwd=None, extra=None):
+    hook_config = {**DEFAULT_APPROVAL_CONFIG, "measurement": {"SR": block or _measurement_block()}}
+    return hook_runner(
+        "osprey_approval.py",
+        "mcp__python__pyaml_measure",
+        tool_input,
+        config_path=make_config(GUARDED_ALWAYS_CONFIG),
+        cwd=cwd or tmp_path,
+        hook_config=hook_config,
+        hook_input_extra=extra,
+    )
+
+
+def _denied_reason(result):
+    assert _decision(result) == "deny"
+    return result["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_the_measurement_prompt_shows_the_view_and_every_stepping_argument(
+    tmp_path, hook_runner, make_config
+):
+    import hashlib
+
+    _plant_view(tmp_path)
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": "orm", "model": "SR"})
+
+    assert _decision(result) == "ask"
+    reason = _reason(result)
+    digest = hashlib.sha256(_VIEW_BYTES).hexdigest()
+    assert 'Model: SR\nKind: orm\nModulation: "bipolar"\n' in reason
+    assert f"pyAML view: {_VIEW_RELATIVE}\n  sha256 {digest}\n" in reason
+    assert "Setpoints stepped: 23\n" in reason
+    for address in _HCOR[:20]:
+        assert f'  "{address}"' in reason
+    assert f'"{_HCOR[20]}"' not in reason
+    assert "  and 3 more" in reason
+    assert _updated(result)["approved_view_sha256"] == digest
+
+
+def test_the_named_correctors_are_the_ones_listed(tmp_path, hook_runner, make_config):
+    _plant_view(tmp_path)
+
+    result = _measure(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"kind": "orm", "correctors": [_VCOR[0]], "modulation": "unipolar"},
+    )
+
+    reason = _reason(result)
+    assert 'Modulation: "unipolar"' in reason
+    assert f'Setpoints stepped: 1\n  "{_VCOR[0]}"' in reason
+
+
+def test_a_group_step_shows_the_group_it_expands(tmp_path, hook_runner, make_config):
+    _plant_view(tmp_path)
+
+    result = _measure(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"kind": "trm", "modulation": "unipolar", "by": "group"},
+    )
+
+    reason = _reason(result)
+    assert 'By: "group"\n  group SR_QF steps 2 setpoints as one knob' in reason
+    assert f'Setpoints stepped: 2\n  "{_QUADS[0]}"\n  "{_QUADS[1]}"' in reason
+
+
+def test_a_group_step_with_modulation_omitted_shows_unipolar(tmp_path, hook_runner, make_config):
+    _plant_view(tmp_path)
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": "trm", "by": "group"})
+
+    reason = _reason(result)
+    assert 'Modulation: "unipolar"\nBy: "group"\n' in reason
+
+
+_RF = ["SR:RF:FREQ:SP"]
+_SEXTS = ["SR:SF:01:SP", "SR:SF:02:SP", "SR:SD:01:SP"]
+
+
+def _rf_block(**changes):
+    block = _measurement_block(
+        kinds={
+            "orm": ["SR_BPM", "SR_HCM", "SR_VCM"],
+            "dispersion": ["SR_BPM", "SR_HCM", "SR_VCM"],
+            "trm": ["SR_QF"],
+            "crm": ["SR_S"],
+            "chromaticity_monitor": [],
+        },
+        groups={
+            "bpm": ["SR:BPM:01:X", "SR:BPM:01:Y"],
+            "hcor": _HCOR,
+            "vcor": _VCOR,
+            "quad": _QUADS,
+            "sext": _SEXTS,
+        },
+        rf=_RF,
+    )
+    block.update(changes)
+    return block
+
+
+@pytest.mark.parametrize(
+    ("kind", "stepped"),
+    [
+        ("dispersion", _RF),
+        ("crm", [*_SEXTS, *_RF]),
+        ("chromaticity_monitor", _RF),
+    ],
+)
+def test_a_kind_that_steps_the_rf_lists_its_setpoint(
+    tmp_path, hook_runner, make_config, kind, stepped
+):
+    _plant_view(tmp_path)
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": kind}, block=_rf_block())
+
+    assert _decision(result) == "ask"
+    listed = "".join(f'\n  "{address}"' for address in stepped)
+    assert f"Setpoints stepped: {len(stepped)}{listed}" in _reason(result)
+
+
+def test_named_correctors_add_no_corrector_to_a_dispersion(tmp_path, hook_runner, make_config):
+    _plant_view(tmp_path)
+
+    result = _measure(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"kind": "dispersion", "correctors": [_VCOR[0]]},
+        block=_rf_block(),
+    )
+
+    assert f'Setpoints stepped: 1\n  "{_RF[0]}"' in _reason(result)
+
+
+@pytest.mark.parametrize("kind", ["dispersion", "crm", "chromaticity_monitor"])
+def test_a_kind_that_steps_the_rf_is_denied_when_the_view_names_no_rf_setpoint(
+    tmp_path, hook_runner, make_config, kind
+):
+    _plant_view(tmp_path)
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": kind}, block=_rf_block(rf=[]))
+
+    assert _denied_reason(result) == (
+        f"pyaml_measure: {kind} steps the RF frequency and the pyAML view of SR names no "
+        f"RF setpoint: {_VIEW_RELATIVE}"
+    )
+
+
+def test_each_group_line_counts_that_groups_own_setpoints(tmp_path, hook_runner, make_config):
+    _plant_view(tmp_path)
+
+    result = _measure(
+        hook_runner, make_config, tmp_path, {"kind": "crm", "by": "group"}, block=_rf_block()
+    )
+
+    reason = _reason(result)
+    assert f'By: "group"\n  group SR_S steps {len(_SEXTS)} setpoints as one knob\n' in reason
+    assert f"Setpoints stepped: {len(_SEXTS) + len(_RF)}\n" in reason
+
+
+def test_the_binding_overwrites_what_the_agent_supplied(tmp_path, hook_runner, make_config):
+    import hashlib
+
+    _plant_view(tmp_path)
+    agent_input = {
+        "kind": "orm",
+        "approved_journal_sha256": "agent-chosen",
+        "approved_target": "agent-target",
+        "approved_view_sha256": "ab" * 32,
+    }
+
+    result = _measure(hook_runner, make_config, tmp_path, agent_input)
+
+    assert _updated(result) == {
+        "kind": "orm",
+        "approved_journal_sha256": "none",
+        "approved_target": "va",
+        "approved_view_sha256": hashlib.sha256(_VIEW_BYTES).hexdigest(),
+    }
+
+
+def test_a_planted_journal_is_listed_in_the_measurement_prompt(tmp_path, hook_runner, make_config):
+    import hashlib
+
+    _plant_view(tmp_path)
+    raw = _plant_journal(tmp_path, "va", [("SR:QF:01:SP", 1.5)])
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": "trm"})
+
+    reason = _reason(result)
+    assert "left 1 setpoints displaced; approving this call restores them first" in reason
+    assert '  "SR:QF:01:SP" = 1.5' in reason
+    assert _updated(result)["approved_journal_sha256"] == hashlib.sha256(raw).hexdigest()
+
+
+def test_a_view_whose_bytes_differ_from_the_record_is_denied(tmp_path, hook_runner, make_config):
+    _plant_view(tmp_path, _VIEW_BYTES + b"# edited\n")
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": "orm"})
+
+    assert _denied_reason(result) == (
+        f"pyaml_measure: the pyAML view of SR differs from the one the build recorded: "
+        f"{_VIEW_RELATIVE}"
+    )
+
+
+def test_a_model_without_a_view_is_denied_listing_those_with_one(
+    tmp_path, hook_runner, make_config
+):
+    _plant_view(tmp_path)
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": "orm", "model": "LINE"})
+
+    assert _denied_reason(result) == (
+        'pyaml_measure: model "LINE" has no pyAML view in this render; the models that have one: SR'
+    )
+
+
+@pytest.mark.parametrize(
+    ("kind", "needs"),
+    [("crm", "sext"), ("dispersion", "rf")],
+)
+def test_a_kind_the_view_lacks_is_denied_naming_what_it_needs(
+    tmp_path, hook_runner, make_config, kind, needs
+):
+    _plant_view(tmp_path)
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": kind})
+
+    assert (
+        _denied_reason(result) == f'pyaml_measure: "{kind}" needs {needs}, which SR does not have'
+    )
+
+
+@pytest.mark.parametrize("layout", ["host", "container"])
+def test_a_host_and_a_container_render_resolve_the_same_view(
+    tmp_path, hook_runner, make_config, layout
+):
+    render = tmp_path / "repo" / "build" if layout == "host" else tmp_path / "project"
+    if layout == "host":
+        (tmp_path / "repo" / "profile.yml").parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "repo" / "profile.yml").write_text("name: demo\n", encoding="utf-8")
+    _plant_view(render)
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": "orm"}, cwd=render)
+
+    assert _decision(result) == "ask"
+    assert f"pyAML view: {_VIEW_RELATIVE}\n" in _reason(result)
+
+
+def test_the_measurement_stamp_holds_its_three_approved_fields(
+    tmp_path, hook_runner, make_config, stamp_dir
+):
+    _plant_view(tmp_path)
+
+    result = _measure(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"kind": "orm", "approved_view_sha256": "ab" * 32},
+        extra={"hook_event_name": "PreToolUse", "tool_use_id": "toolu_pm1"},
+    )
+
+    stamp = _stamp(stamp_dir, "toolu_pm1")
+    assert _approved(stamp) == _approved(_updated(result))
+    assert set(_approved(stamp)) == {
+        "approved_journal_sha256",
+        "approved_target",
+        "approved_view_sha256",
+    }
+
+
+@pytest.mark.parametrize(
+    ("tool", "tool_input"),
+    [
+        ("execute", {"code": "print(1)", "execution_mode": "readwrite"}),
+        ("execute_file", {"file_path": "scan.py", "execution_mode": "readwrite"}),
+    ],
+)
+def test_a_view_digest_rides_only_in_a_measurements_input(
+    tmp_path, hook_runner, make_config, stamp_dir, tool, tool_input
+):
+    result = _asked(
+        hook_runner,
+        make_config,
+        tmp_path,
+        tool,
+        {**tool_input, "approved_view_sha256": "ab" * 32},
+        GUARDED_ALWAYS_CONFIG,
+        "toolu_nv1",
+    )
+
+    assert _decision(result) == "ask"
+    assert "approved_view_sha256" not in _updated(result)
+    stamp = _stamp(stamp_dir, "toolu_nv1")
+    assert set(_approved(stamp)) == {"approved_journal_sha256", "approved_target"}
+
+
+def test_the_hook_restates_what_the_tool_steps_and_its_defaults(hook_module):
+    from osprey.mcp_server.python_executor.tools import _pyaml_measure_args as tool
+
+    approval = hook_module("osprey_approval")
+    assert set(approval._PYAML_STEPPED) == set(tool.KINDS)
+    for kind in tool.KINDS:
+        assert approval._PYAML_STEPPED[kind] == tool.STEPPED[kind], kind
+    assert approval._PYAML_BY_KINDS == tool.BY_KINDS
+    assert approval._PYAML_DEFAULT_MODULATION == tool.DEFAULT_MODULATION
+    assert approval._PYAML_DEFAULT_BY == tool.DEFAULT_BY
+    assert approval._PYAML_GROUP == tool.GROUP
+    assert approval._PYAML_GROUP_MODULATION == tool.GROUP_MODULATION
+    assert set(approval._PYAML_CORRECTOR_ROLES) <= set(approval._PYAML_STEPPED["orm"])
+
+
+def test_the_hook_restates_the_view_writers_names(hook_module):
+    from osprey.facility.views import pyaml as view
+
+    approval = hook_module("osprey_approval")
+    assert approval._PYAML_KIND_MEMBERS == view.KIND_MEMBERS
+    assert approval._PYAML_GROUP_ROLES == view.GROUP_ROLES
+    assert approval._PYAML_VIEW_ROOT == ("data", view.PYAML_DIR)
+    assert approval._PYAML_CONFIGURATION_FILE == view.CONFIGURATION_FILE

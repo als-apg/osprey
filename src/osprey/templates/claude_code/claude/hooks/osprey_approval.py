@@ -127,6 +127,7 @@ from osprey_hook_log import (
     AUDIT_DECISION_REFUSED,
     emit_audit,
     get_hook_input,
+    get_project_dir,
     get_repo_root,
     is_write_call,
     is_write_tool,
@@ -3202,8 +3203,8 @@ def _guarded_call(hook_input, tool_name, tool_input, read_record):
 
     A readonly call never enters a guarded run, so it gets no lines, keeps its
     input as the agent sent it (``None``) and has no binding (``None``). A
-    readwrite call's input is the agent's with the binding set over any value
-    the agent supplied for it; the binding alone is what the ask stamp records.
+    readwrite call's input is the agent's with every approved field replaced by
+    the binding; the binding alone is what the ask stamp records.
     """
     if tool_input.get("execution_mode") != "readwrite":
         return [], None, None
@@ -3211,7 +3212,198 @@ def _guarded_call(hook_input, tool_name, tool_input, read_record):
         lines, binding = _guarded_run_lines(hook_input, read_record)
     except _GuardedRunRefused as refusal:
         _deny_guarded_run(hook_input, tool_name, refusal)
-    return lines, {**tool_input, **binding}, binding
+    return lines, _bound_input(tool_input, binding), binding
+
+
+def _bound_input(tool_input, binding) -> dict:
+    """*tool_input* with every approved field the agent sent replaced by *binding*."""
+    kept = {
+        key: value
+        for key, value in tool_input.items()
+        if not str(key).startswith(APPROVED_FIELD_PREFIX)
+    }
+    return {**kept, **binding}
+
+
+# -- pyaml_measure ------------------------------------------------------------
+#
+# A measurement runs on the pyAML view the build recorded in the render. The
+# prompt shows the view's path and digest and every stepping argument, and the
+# approved call carries the digest; the sandbox script refuses a view whose bytes
+# differ from it. The names below are the view writer's
+# (`osprey.facility.views.pyaml`), restated because this hook is deployed
+# standalone; tests/hooks/test_approval_hook.py pins them.
+
+#: The view's directory under the render, and each model's configuration in it.
+_PYAML_VIEW_ROOT = ("data", "pyaml")
+_PYAML_CONFIGURATION_FILE = "configuration.yaml"
+
+#: The measurement file's group roles; any other member of a kind is an instrument.
+_PYAML_GROUP_ROLES = ("bpm", "hcor", "vcor", "quad", "sext")
+
+#: The groups and instruments each measurement kind needs.
+_PYAML_KIND_MEMBERS = {
+    "orm": ("bpm", "hcor", "vcor"),
+    "dispersion": ("bpm", "hcor", "vcor", "rf"),
+    "trm": ("quad", "tune"),
+    "crm": ("sext", "tune", "rf"),
+    "chromaticity_monitor": ("tune", "rf"),
+}
+
+#: The setpoint groups and instruments each kind steps, in the order the
+#: prompt lists them; ``rf`` is the setpoint the view's RF plant steps.
+_PYAML_RF = "rf"
+_PYAML_CORRECTOR_ROLES = ("hcor", "vcor")
+_PYAML_STEPPED = {
+    "orm": ("hcor", "vcor"),
+    "dispersion": (_PYAML_RF,),
+    "trm": ("quad",),
+    "crm": ("sext", _PYAML_RF),
+    "chromaticity_monitor": (_PYAML_RF,),
+}
+
+#: The kinds that take ``by``, and the request values an omitted argument
+#: takes; ``by`` ``group`` steps once from the present setting, so an omitted
+#: modulation is unipolar there.
+_PYAML_BY_KINDS = ("trm", "crm")
+_PYAML_DEFAULT_MODULATION = "bipolar"
+_PYAML_DEFAULT_BY = "magnet"
+_PYAML_GROUP = "group"
+_PYAML_GROUP_MODULATION = "unipolar"
+
+#: How many setpoint addresses the prompt lists before it counts the rest.
+_PYAML_LISTED_SETPOINTS = 20
+
+#: The tool argument that carries the approved view digest.
+_APPROVED_VIEW_KEY = "approved_view_sha256"
+
+#: Audit reason of a measurement refused for its view, model or kind.
+_PYAML_VIEW_AUDIT_REASON = "pyaml_view_refused"
+
+
+def _pyaml_view_path(hook_input, model) -> tuple[str, str]:
+    """``(relative, absolute)`` path of *model*'s pyAML configuration in the render."""
+    relative = "/".join((*_PYAML_VIEW_ROOT, str(model), _PYAML_CONFIGURATION_FILE))
+    return relative, os.path.join(get_project_dir(hook_input), *relative.split("/"))
+
+
+def _pyaml_lacking(kind, block) -> list[str]:
+    """The groups, else the instruments, a model's view lacks for *kind*."""
+    members = _PYAML_KIND_MEMBERS.get(kind, ())
+    groups = block.get("groups") or {}
+    lacking = [m for m in members if m in _PYAML_GROUP_ROLES and m not in groups]
+    return lacking or [m for m in members if m not in _PYAML_GROUP_ROLES]
+
+
+def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str]:
+    """The prompt lines of a measurement and the view digest its call is bound to.
+
+    Raises:
+        _GuardedRunRefused: The model has no pyAML view in this render, the
+            view lacks the kind, or the view's bytes differ from the digest
+            the build recorded.
+    """
+    measurement = load_hook_config().get("measurement") or {}
+    models = sorted(measurement)
+    model = tool_input.get("model")
+    if model is None and len(models) == 1:
+        model = models[0]
+    if model not in measurement:
+        listed = ", ".join(models) or "none"
+        raise _GuardedRunRefused(
+            f"pyaml_measure: model {_journal_text(model)} has no pyAML view in this render; "
+            f"the models that have one: {listed}",
+            _PYAML_VIEW_AUDIT_REASON,
+        )
+    block = measurement[model] or {}
+    kind = tool_input.get("kind")
+    if kind not in (block.get("kinds") or {}):
+        needed = " and ".join(_pyaml_lacking(kind, block)) or "a measurement file entry"
+        raise _GuardedRunRefused(
+            f"pyaml_measure: {_journal_text(kind)} needs {needed}, which {model} does not have",
+            _PYAML_VIEW_AUDIT_REASON,
+        )
+    relative, path = _pyaml_view_path(hook_input, model)
+    root = os.path.realpath(os.path.join(get_project_dir(hook_input), *_PYAML_VIEW_ROOT))
+    recorded = block.get("view_sha256")
+    try:
+        if os.path.commonpath([os.path.realpath(path), root]) != root:
+            raise ValueError(f"{path} is outside {root}")
+        with open(path, "rb") as handle:
+            digest = hashlib.sha256(handle.read()).hexdigest()
+    except (OSError, ValueError):
+        raise _GuardedRunRefused(
+            f"pyaml_measure: the pyAML view of {model} cannot be read: {relative}",
+            _PYAML_VIEW_AUDIT_REASON,
+        ) from None
+    if not isinstance(recorded, str) or digest != recorded:
+        raise _GuardedRunRefused(
+            f"pyaml_measure: the pyAML view of {model} differs from the one the build "
+            f"recorded: {relative}",
+            _PYAML_VIEW_AUDIT_REASON,
+        )
+
+    groups = block.get("groups") or {}
+    stepped = _PYAML_STEPPED.get(kind, ())
+    correctors = tool_input.get("correctors")
+    setpoints: list[str] = []
+    for role in stepped:
+        if role == _PYAML_RF:
+            rf = [str(address) for address in block.get(_PYAML_RF) or []]
+            if not rf:
+                raise _GuardedRunRefused(
+                    f"pyaml_measure: {kind} steps the RF frequency and the pyAML view of "
+                    f"{model} names no RF setpoint: {relative}",
+                    _PYAML_VIEW_AUDIT_REASON,
+                )
+            setpoints.extend(rf)
+        elif correctors and role in _PYAML_CORRECTOR_ROLES:
+            named = (str(address) for address in correctors)
+            setpoints.extend(address for address in named if address not in setpoints)
+        else:
+            setpoints.extend(str(address) for address in groups.get(role) or [])
+    by = (tool_input.get("by") or _PYAML_DEFAULT_BY) if kind in _PYAML_BY_KINDS else None
+    modulation = tool_input.get("modulation") or (
+        _PYAML_GROUP_MODULATION if by == _PYAML_GROUP else _PYAML_DEFAULT_MODULATION
+    )
+    lines = [
+        f"Model: {model}",
+        f"Kind: {kind}",
+        f"Modulation: {_journal_text(modulation)}",
+    ]
+    if by is not None:
+        lines.append(f"By: {_journal_text(by)}")
+        if by == _PYAML_GROUP:
+            # The block lists a kind's arrays in the order of its group members.
+            roles = [m for m in _PYAML_KIND_MEMBERS.get(kind, ()) if m in groups]
+            arrays = (block.get("kinds") or {}).get(kind) or []
+            for role, array in zip(roles, arrays, strict=False):
+                if role in stepped:
+                    count = len(groups.get(role) or [])
+                    lines.append(f"  group {array} steps {count} setpoints as one knob")
+    lines.append(f"pyAML view: {relative}")
+    lines.append(f"  sha256 {digest}")
+    lines.append(f"Setpoints stepped: {len(setpoints)}")
+    for address in setpoints[:_PYAML_LISTED_SETPOINTS]:
+        lines.append(f"  {_journal_text(address)}")
+    if len(setpoints) > _PYAML_LISTED_SETPOINTS:
+        lines.append(f"  and {len(setpoints) - _PYAML_LISTED_SETPOINTS} more")
+    return lines, digest
+
+
+def _measure_call(hook_input, tool_name, tool_input, read_record):
+    """The prompt lines, rewritten input and binding of a measurement, or a deny.
+
+    A measurement always runs a guarded run: its binding is the guarded run's
+    plus the view digest, each set over any value the agent supplied.
+    """
+    try:
+        lines, digest = _pyaml_measure_lines(tool_input, hook_input)
+        guarded_lines, binding = _guarded_run_lines(hook_input, read_record)
+    except _GuardedRunRefused as refusal:
+        _deny_guarded_run(hook_input, tool_name, refusal)
+    binding = {**binding, _APPROVED_VIEW_KEY: digest}
+    return [*lines, *guarded_lines], _bound_input(tool_input, binding), binding
 
 
 def main():
@@ -3398,6 +3590,11 @@ def main():
             hook_input, tool_name, tool_input, read_record
         )
         reason_parts.extend(guarded_lines)
+    elif short_name == "pyaml_measure":
+        measure_lines, updated_input, binding = _measure_call(
+            hook_input, tool_name, tool_input, read_record
+        )
+        reason_parts.extend(measure_lines)
     elif short_name == "channel_write":
         channel_list = _channel_write_summary(tool_input)
         if channel_list:
