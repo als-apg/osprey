@@ -93,13 +93,17 @@ in it. The Python executor takes over from there. Before the code runs, it is re
 patterns are refused, code that writes into the deployment's own files is refused, and
 read-only code may neither import a control-system client library nor spell a write;
 read-write code that plainly spells a client library's own put is refused by the approval hook
-before anyone is asked to approve it. Then the code runs in its own process with guards in
+before anyone is asked to approve it. Before a read-write guarded run starts, the executor
+checks that the approval prompt recorded this call and that what the call carries matches
+what it recorded; otherwise nothing runs. This check runs beside the script on one host;
+the end state moves the journal, the restore after a dead run and the report into the
+connector host, out of reach of the script. Then the code runs in its own process with guards in
 place: read-only code cannot write even if it tries, read-write code writes through the
 connector only because a client library's own put is refused (a PVAccess put, which the
 connector cannot carry yet, is limits-checked instead), it cannot write into the
 deployment's own files, and it is stopped after a time limit. When the code finishes, its result is saved to a record and the process ends at once,
 so nothing a library does on the way out can hold it open; the executor reports the run from
-that record. All nine layers are described on :doc:`python-executor`.
+that record. All ten layers are described on :doc:`python-executor`.
 
 A Bluesky plan
 --------------

@@ -60,7 +60,7 @@ architecture of their own:
       :link-type: doc
       :shadow: md
 
-      How agent-written Python actually runs: nine safety layers, the
+      How agent-written Python actually runs: ten safety layers, the
       readonly/readwrite execution modes, and the zones executed code may
       not touch.
 

@@ -97,7 +97,7 @@ project's own environment, so executed code sees the same imports either way.
 Security Model
 ==============
 
-Nine safety layers are applied in sequence:
+Ten safety layers are applied in sequence:
 
 1. **Static safety check** (``quick_safety_check``)---blocks dangerous
    patterns such as dynamic code evaluation, dynamic imports, and
@@ -121,7 +121,19 @@ Nine safety layers are applied in sequence:
    patterns. In ``readonly`` mode, detected writes cause immediate
    rejection.
 
-5. **Readonly runtime guard**---the declared mode is exported into the
+5. **Approved-call check** (``_approved_call_env``)---before it spawns a
+   ``readwrite`` run of a guarded tool (``execute``, ``execute_file``) whose
+   approval policy asks, the executor reads the record the approval prompt
+   left for this tool call. The call's ``approved_journal_sha256`` and
+   ``approved_target`` must equal what the prompt recorded; without a record,
+   or with a field that differs, nothing is spawned and the result carries
+   ``failure_kind: approval_missing``. Only the fields the check confirmed
+   reach the subprocess, which evaluates no approval policy itself. A call
+   that reaches the server without passing the approval hook gets no
+   read-write guarded run on a deployment whose policy asks; such a
+   deployment states ``approval.enabled: false``.
+
+6. **Readonly runtime guard**---the declared mode is exported into the
    subprocess as ``OSPREY_EXECUTION_MODE``. In a ``readonly`` run every
    entry point listed under :ref:`python-executor-write-surface` is
    replaced with a refusing function, the connectors refuse
@@ -129,11 +141,11 @@ Nine safety layers are applied in sequence:
    gateway --- so a write is refused at runtime and at the network layer
    however it is spelled.
 
-6. **Filesystem guard**---the runtime half of layer 2, patched into the
+7. **Filesystem guard**---the runtime half of layer 2, patched into the
    subprocess so it also sees paths the source did not spell out. Emitted
    in **every** execution mode.
 
-7. **Raw-put block** (``osprey.runtime.raw_put_block``, armed
+8. **Raw-put block** (``osprey.runtime.raw_put_block``, armed
    mode)---in a ``readwrite`` run a write goes through ``write_channel()`` /
    ``write_channels()`` from ``osprey.runtime``, and nowhere else. The
    connector underneath them is what applies the write posture, the limits
@@ -150,18 +162,18 @@ Nine safety layers are applied in sequence:
    :ref:`python-executor-write-channel`.
 
    The block occupies the readonly guard's slot: a run gets exactly one of
-   layer 5 and layer 7. It is installed before the user code runs and is not
+   layer 6 and layer 8. It is installed before the user code runs and is not
    wrapped in ``try``, so a block that cannot install aborts the run rather
    than letting it write unguarded. Where the limits database is on, the
    connector checks every ``write_channel`` value against it before the value
    leaves.
 
-8. **Process isolation**---code always runs in a separate subprocess, never
+9. **Process isolation**---code always runs in a separate subprocess, never
    inside the MCP server process.
 
-9. **Execution timeout**---configurable via
-   ``python_executor.execution_timeout_seconds`` (default 600 s). The
-   process is killed if it exceeds the limit.
+10. **Execution timeout**---configurable via
+    ``python_executor.execution_timeout_seconds`` (default 600 s). The
+    process is killed if it exceeds the limit.
 
 .. code-block:: yaml
 
@@ -247,7 +259,7 @@ What a readwrite run refuses
 ----------------------------
 
 A ``readwrite`` run may write, but only through the connector. The raw-put
-block (layer 7) reads the same table as the list above and splits its client
+block (layer 8) reads the same table as the list above and splits its client
 rows into four buckets, so the page, the executor and the notebook kernel
 agree on every row:
 
