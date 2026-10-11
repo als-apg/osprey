@@ -188,6 +188,23 @@ def test_set_under_a_pushed_journal_alone_is_refused(runtime: _Runtime) -> None:
 
 
 @pytest.mark.usefixtures("guarded")
+def test_set_on_a_setpoint_reading_nan_is_refused_with_the_runtimes_reason(
+    runtime: _Runtime,
+) -> None:
+    """A pre-read with no undo value is the runtime's refusal, named, not "outside a run"."""
+    runtime.values["QF_001:Cm:set"] = float("nan")
+    with pytest.raises(OspreyWriteRefused) as info:
+        _device(RW).set(3.0)
+    assert isinstance(info.value, PyAMLException)
+    assert info.value.channel_address == "QF_001:Cm:set"
+    assert str(info.value) == (
+        "OSPREY refused the write to 'QF_001:Cm:set': reads nan before the write, "
+        "so a guarded run could not put it back"
+    )
+    assert runtime.writes == []
+
+
+@pytest.mark.usefixtures("guarded")
 def test_set_and_wait_confirms(runtime: _Runtime) -> None:
     """set_and_wait() is a confirmed write."""
     _device(RW).set_and_wait(4.0)

@@ -7,9 +7,11 @@ are a dict served through ``osprey.runtime``; no control system is involved.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 import yaml
 
@@ -17,7 +19,7 @@ import osprey.runtime
 import osprey.runtime.guarded_run as guarded_run
 from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
 from osprey.runtime.guarded_run import JOURNAL_FILE_NAME, guarded_run_dir, journaled_run
-from osprey.runtime.journal import guarded_write
+from osprey.runtime.journal import OspreyWriteRefused, guarded_write, read_pending_journal
 from osprey_connectors.workspace import reset_config_cache
 
 #: The RF frequency the restore cases start from, in Hz.
@@ -104,3 +106,48 @@ class TestExactUnchanged:
         assert report.unchanged == ["RF:freq"]
         assert report.restored == []
         assert channels.writes == [("RF:freq", F0 + 100)]
+
+
+class TestNoUndoValue:
+    """A write whose pre-read could never be written back is refused before it happens."""
+
+    @pytest.mark.parametrize(
+        ("reading", "shown"),
+        [
+            (float("nan"), "nan"),
+            (float("inf"), "inf"),
+            (float("-inf"), "-inf"),
+            ([1.0, float("nan")], "nan"),
+        ],
+    )
+    def test_a_non_finite_pre_read_is_refused_and_nothing_is_journaled(
+        self, channels: _Channels, reading: Any, shown: str
+    ) -> None:
+        channels.values["Q"] = reading
+        with journaled_run("live"):
+            with pytest.raises(OspreyWriteRefused) as caught:
+                _put("Q", 4.0)
+            lines = _journal_path().read_text(encoding="utf-8").splitlines()
+
+        assert caught.value.channel_address == "Q"
+        assert str(caught.value) == (
+            f"OSPREY refused the write to 'Q': reads {shown} before the write, "
+            "so a guarded run could not put it back"
+        )
+        assert [list(json.loads(line)) for line in lines] == [["header"]]
+        assert read_pending_journal(_journal_path()) is None
+        assert channels.writes == []
+
+    def test_a_numpy_array_holding_nan_is_refused(self, channels: _Channels) -> None:
+        channels.values["Q"] = np.array([1.0, np.nan])
+        with journaled_run("live"), pytest.raises(OspreyWriteRefused, match="reads nan"):
+            _put("Q", 4.0)
+        assert channels.writes == []
+
+    def test_a_finite_pre_read_journals_and_writes(self, channels: _Channels) -> None:
+        with journaled_run("live"):
+            _put("Q", 4.0)
+            pending = read_pending_journal(_journal_path())
+
+        assert pending is not None and pending.values == {"Q": 3.0}
+        assert channels.writes == [("Q", 4.0)]

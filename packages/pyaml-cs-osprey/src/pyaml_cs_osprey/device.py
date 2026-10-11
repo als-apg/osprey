@@ -134,8 +134,11 @@ class OspreyDevice(DeviceAccess):
         except OspreyWriteRefused:
             raise
         except runtime_journal.OspreyWriteRefused as exc:
-            # The runtime's own refusal, raised before any read: no run is open.
-            raise OspreyWriteRefused(OUTSIDE_A_RUN, address) from exc
+            # The runtime's refusals: one naming no channel means no run is open;
+            # one naming a channel carries its own reason.
+            if exc.channel_address is None:
+                raise OspreyWriteRefused(OUTSIDE_A_RUN, address) from exc
+            raise OspreyWriteRefused(exc.reason, exc.channel_address) from exc
 
     def set_and_wait(self, value: Any) -> None:
         """Write ``value`` and confirm the channel holds it (``set(value, confirm=True)``)."""

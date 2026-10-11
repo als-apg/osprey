@@ -164,6 +164,22 @@ def test_a_set_outside_a_run_is_refused_as_a_pyaml_error_with_nothing_read(
     assert runtime.calls == []
 
 
+@pytest.mark.usefixtures("guarded")
+def test_a_set_on_a_setpoint_reading_nan_is_refused_with_the_runtimes_reason(
+    runtime: _Runtime,
+) -> None:
+    runtime.values[SETS[1]] = float("nan")
+    with pytest.raises(OspreyWriteRefused) as info:
+        _list().set([10.0, 20.0, 30.0])
+    assert isinstance(info.value, PyAMLException)
+    assert info.value.channel_address == SETS[1]
+    assert str(info.value) == (
+        f"OSPREY refused the write to '{SETS[1]}': reads nan before the write, "
+        "so a guarded run could not put it back"
+    )
+    assert runtime.calls == ["read_channels"]
+
+
 def test_guarded_set_journals_every_address_before_the_write(runtime: _Runtime, guarded) -> None:
     _list().set([10.0, 20.0, 30.0])
     assert runtime.calls == ["read_channels", "write_channels"]

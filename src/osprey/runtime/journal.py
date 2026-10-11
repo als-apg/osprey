@@ -34,6 +34,8 @@ This module is stdlib-only at import time.
 from __future__ import annotations
 
 import json
+import math
+import numbers
 import os
 import time
 from collections.abc import Callable, ItemsView, Iterator, Sequence
@@ -252,6 +254,30 @@ def read_map(addresses: Sequence[str]) -> dict[str, Any]:
     return dict(zip(addresses, osprey.runtime.read_channels(addresses), strict=True))
 
 
+def _undo_value_problem(value: Any) -> str | None:
+    """Why ``value`` cannot serve as the value a restore writes back, ``None`` when it can.
+
+    A real number that is not finite (NaN or an infinity), alone or anywhere
+    inside a list, tuple or array, is spelled as Python spells it (``nan``,
+    ``inf``, ``-inf``); the first one found is named. Anything else can be
+    written back.
+    """
+    tolist = getattr(value, "tolist", None)
+    if callable(tolist):
+        value = tolist()
+    if isinstance(value, list | tuple):
+        for item in value:
+            problem = _undo_value_problem(item)
+            if problem is not None:
+                return problem
+        return None
+    if isinstance(value, numbers.Real) and not isinstance(value, bool):
+        number = float(value)
+        if not math.isfinite(number):
+            return repr(number)
+    return None
+
+
 def journaled_write(addresses: Sequence[str], write: Callable[[], _T]) -> _T:
     """Run ``write``, journaling ``addresses`` into every active level first.
 
@@ -267,6 +293,9 @@ def journaled_write(addresses: Sequence[str], write: Callable[[], _T]) -> _T:
 
     Raises:
         ChannelReadFailedError: If the pre-write read fails; nothing is written.
+        OspreyWriteRefused: An address reads a value no restore could write
+            back (see :func:`_undo_value_problem`); nothing is journaled or
+            written, and the refusal names that address.
     """
     journals = _ACTIVE.get()
     if not journals:
@@ -274,6 +303,13 @@ def journaled_write(addresses: Sequence[str], write: Callable[[], _T]) -> _T:
     missing = [a for a in dict.fromkeys(addresses) if any(a not in j for j in journals)]
     if missing:
         before = read_map(missing)
+        for address in missing:
+            problem = _undo_value_problem(before[address])
+            if problem is not None:
+                raise OspreyWriteRefused(
+                    f"reads {problem} before the write, so a guarded run could not put it back",
+                    address,
+                )
         for j in journals:
             lacking = [a for a in missing if a not in j]
             j.record(lacking, [before[a] for a in lacking])
@@ -313,9 +349,13 @@ def guarded_write(
             read's own exception propagates when not given.
         confirm: Passed to ``write`` when not ``None``.
 
+    The refusal raised when no journaled guarded run is open names no
+    channel; every other refusal names the channel it refuses.
+
     Raises:
-        OspreyWriteRefused: No journaled guarded run is open; nothing was read
-            or written.
+        OspreyWriteRefused: No journaled guarded run is open, and nothing was
+            read or written; or an address reads a value no restore could
+            write back, and nothing was journaled or written.
         Exception: ``map_write``'s mapping of a write failure, or the pre-write
             read's failure (mapped by ``map_read`` when given); nothing is
             written after a read failure.
@@ -335,6 +375,8 @@ def guarded_write(
 
     try:
         journaled_write(addresses, mapped_write)
+    except OspreyWriteRefused:
+        raise
     except Exception as exc:
         if attempted or map_read is None:
             raise
