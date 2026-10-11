@@ -1672,7 +1672,7 @@ class TestMixedReadWriteTools:
         assert (
             writes_check_matchers("python")
             == expected
-            == ["mcp__python__execute", "mcp__python__execute_file"]
+            == ["mcp__python__execute", "mcp__python__execute_file", "mcp__python__pyaml_measure"]
         )
 
     def test_writes_check_matchers_rewrite_the_clone_prefix(self):
@@ -1681,6 +1681,7 @@ class TestMixedReadWriteTools:
         assert writes_check_matchers("python", "python2") == [
             "mcp__python2__execute",
             "mcp__python2__execute_file",
+            "mcp__python2__pyaml_measure",
         ]
 
     def test_writes_check_matchers_unknown_template_is_empty(self):

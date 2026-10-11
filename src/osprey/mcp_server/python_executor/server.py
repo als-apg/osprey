@@ -79,6 +79,7 @@ def register_optional_tools(server: FastMCP, render_root: Path | None) -> None:
     """
     if not pyaml_view_present(render_root):
         return
-    from osprey.mcp_server.python_executor.tools import pyaml_measure
+    from osprey.mcp_server.python_executor.tools import model_response_matrix, pyaml_measure
 
     pyaml_measure.register(server)
+    model_response_matrix.register(server)

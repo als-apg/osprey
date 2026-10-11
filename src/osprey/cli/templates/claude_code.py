@@ -871,8 +871,8 @@ def build_claude_code_context(
     # change here). python's execute is the one documented exception — it
     # accepts both read_only and write_access kernels, so it is pulled into
     # remove_ask instead (see docstring above); every other writes-check-gated
-    # tool is presumed pure-write and denied outright. WHICH templates are
-    # read/write-mixed is the registry's call (MIXED_READ_WRITE_TEMPLATES), not
+    # tool is presumed pure-write and denied outright. WHICH tools are
+    # read/write-mixed is the registry's call (is_mixed_matcher), not
     # this renderer's: the rendered hook config and the MCP audit middleware
     # classify off that same entry, and a second spelling here is how the
     # three would drift.
@@ -917,7 +917,7 @@ def build_claude_code_context(
         from osprey.registry.mcp import (
             _WRITES_CHECK,
             FRAMEWORK_SERVERS,
-            MIXED_READ_WRITE_TEMPLATES,
+            is_mixed_matcher,
         )
 
         mixed = any(writes_by_target.values())
@@ -957,7 +957,7 @@ def build_claude_code_context(
         required_ask = {
             tool for a in ctx["agents"] if a["enabled"] for tool in a.get("requires_ask_tools", [])
         }
-        # The matchers pulled from `ask` because their template is documented
+        # The matchers pulled from `ask` because the registry documents them
         # read/write-mixed — the only ones the rescue below may promote to
         # `allow`. Tracked separately from `remove_ask`, which on a mixed render
         # also holds the pure-write matchers (and which a profile can seed with
@@ -987,7 +987,7 @@ def build_claude_code_context(
                 matcher = rule.matcher
                 if matcher.startswith(old_prefix):
                     matcher = new_prefix + matcher[len(old_prefix) :]
-                if template in MIXED_READ_WRITE_TEMPLATES:
+                if is_mixed_matcher(template, matcher):
                     mixed_policy_units[matcher] = (
                         new_prefix,
                         frozenset(h.command for h in rule.hooks),

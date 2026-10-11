@@ -3692,8 +3692,8 @@ governed_sets:
       add_panel_to_rail, remove_panel_from_rail and register_panel joined every
       set when the workspace server gave the panel-rail verbs the same approval
       hook: the rail is what the next operator sees, so changing it asks first.
-    control-assistant: [add_panel_to_rail, archiver_read, channel_read, channel_write, control_target_set, draft_concept, entry_create, entry_publish, execute, execute_file, queue_add, queue_remove, queue_start, queue_stop, register_panel, remove_panel_from_rail, setup_patch, stop_run, validate_plan, write_plan]
-    hello-world: [add_panel_to_rail, archiver_read, channel_read, channel_write, control_target_set, draft_concept, execute, execute_file, register_panel, remove_panel_from_rail, setup_patch]
+    control-assistant: [add_panel_to_rail, archiver_read, channel_read, channel_write, control_target_set, draft_concept, entry_create, entry_publish, execute, execute_file, pyaml_measure, queue_add, queue_remove, queue_start, queue_stop, register_panel, remove_panel_from_rail, setup_patch, stop_run, validate_plan, write_plan]
+    hello-world: [add_panel_to_rail, archiver_read, channel_read, channel_write, control_target_set, draft_concept, execute, execute_file, pyaml_measure, register_panel, remove_panel_from_rail, setup_patch]
   draft_concept_note: >-
     draft_concept is approval-governed in control-assistant and hello-world
     (osprey_facility_knowledge is enabled by default and carries the hook) but
@@ -3703,9 +3703,10 @@ governed_sets:
     approval.tools LIST in every preset — do not "fix" one to match the other.
     control_target_set is governed the same way and for the same reason: the
     controls server carries the approval hook on it, and it appears in no
-    approval.tools block, so it too falls to default_policy. execute_file is
-    the third of this kind: it shares execute's policy unit (same server, same
-    hooks) but no approval.tools block names it.
+    approval.tools block, so it too falls to default_policy. execute_file and
+    pyaml_measure are the third of this kind: each shares execute's policy unit
+    (same server, same hooks) but no approval.tools block names it, so each
+    falls to default_policy: always.
   rail_tools_note: >-
     add_panel_to_rail, remove_panel_from_rail and register_panel are governed
     wherever the workspace server runs, which is every preset. Three presets —

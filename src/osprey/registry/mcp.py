@@ -94,6 +94,12 @@ class ServerDefinition:
     # Framework template name this definition was cloned from via ``extends``
     # (set by build_extended_server); None for framework/custom definitions.
     extends_of: str | None = None
+    # Tools the server registers only when the named ctx key is truthy, by
+    # short tool name. The key gates the server's registration of the tool and
+    # the tool's ``permissions_allow`` row; an approval-gated tool's ask row and
+    # hook rule render whatever the key says, so the write floor, the deny list
+    # and the approval set never depend on it.
+    optional_tools: dict[str, str] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +305,6 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
-        permissions_allow=[],
         # execute_file carries the same policy as execute, deliberately: it runs
         # arbitrary Python through the same kernels and the same execution-mode
         # gates, so a ladder that moves one and not the other (writes-off deny,
@@ -308,7 +313,23 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         # it. Two explicit rules rather than one regex matcher: the hooks and the
         # SDK's disallow engine match tool names exactly, so a regex would gate
         # nothing there.
-        permissions_ask=["execute", "execute_file"],
+        #
+        # pyaml_measure steps setpoints through pyAML and writes them back, so
+        # it is a pure-write tool: approval on every call and a hard deny when
+        # writes are off, never the read/write-mixed exception execute is. Its
+        # ask row and hook rule render whether or not the render carries a
+        # pyAML view; the view gates only whether the server registers the
+        # tool. A row that followed the view would make the write floor, the
+        # deny list and the approval set depend on it, and a server that
+        # registers the tool while the render left its row out would serve an
+        # ungated write. model_response_matrix only reads the model, so its
+        # allow row follows the view like its registration.
+        permissions_allow=["model_response_matrix"],
+        permissions_ask=["execute", "execute_file", "pyaml_measure"],
+        optional_tools={
+            "pyaml_measure": "pyaml_view_present",
+            "model_response_matrix": "pyaml_view_present",
+        },
         hooks_pre=[
             HookRule(
                 matcher="mcp__python__execute",
@@ -316,6 +337,10 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             ),
             HookRule(
                 matcher="mcp__python__execute_file",
+                hooks=[_WRITES_CHECK, _APPROVAL],
+            ),
+            HookRule(
+                matcher="mcp__python__pyaml_measure",
                 hooks=[_WRITES_CHECK, _APPROVAL],
             ),
         ],
@@ -750,22 +775,55 @@ del _unregistered_pipelines
 # Read/write-mixed tools (the writes kill switch's documented exception)
 # ---------------------------------------------------------------------------
 
-#: Framework templates whose ``_WRITES_CHECK``-gated tools are read/write
-#: MIXED rather than pure-write.
+#: The ``_WRITES_CHECK``-gated tools that are read/write MIXED rather than
+#: pure-write, as ``(template, short tool name)``.
 #:
-#: ``python``'s ``execute`` is the one documented exception to the writes
-#: kill-switch's hard-deny default: it accepts both read-only and
-#: write-access kernels, so a readonly posture must keep it reachable and let
-#: the writes-check hook (and, server-side, the audit middleware) decide per
-#: call. Every other ``_WRITES_CHECK``-gated tool is presumed pure-write and
-#: is denied outright when writes are off.
+#: ``python``'s ``execute`` and ``execute_file`` are the documented exception
+#: to the writes kill-switch's hard-deny default: they accept both read-only
+#: and write-access kernels, so a readonly posture must keep them reachable and
+#: let the writes-check hook (and, server-side, the audit middleware) decide
+#: per call. Every other ``_WRITES_CHECK``-gated tool — ``python``'s
+#: ``pyaml_measure`` included — is pure-write and denied outright when writes
+#: are off.
 #:
 #: It lives in the registry rather than in a renderer because the registry is
 #: where ``_WRITES_CHECK`` and ``FRAMEWORK_SERVERS`` are: every consumer — the
 #: Claude Code kill switch, the rendered hook config, the MCP audit
 #: middleware's clamp set and its degraded-render floor — reads the same
-#: classification here instead of restating a set of template names.
-MIXED_READ_WRITE_TEMPLATES: frozenset[str] = frozenset({"python"})
+#: classification here instead of restating it.
+MIXED_READ_WRITE_TOOLS: frozenset[tuple[str, str]] = frozenset(
+    {("python", "execute"), ("python", "execute_file")}
+)
+
+#: Framework templates that serve at least one mixed tool — the whole-server
+#: view of :data:`MIXED_READ_WRITE_TOOLS`, for callers that reason about a
+#: server rather than one of its tools. Whether a given tool is mixed is
+#: :func:`is_mixed_matcher`'s question, never membership here.
+MIXED_READ_WRITE_TEMPLATES: frozenset[str] = frozenset(
+    template for template, _ in MIXED_READ_WRITE_TOOLS
+)
+
+
+def is_mixed_matcher(template: str, matcher: str) -> bool:
+    """Whether one ``_WRITES_CHECK``-gated tool matcher is read/write mixed.
+
+    Args:
+        template: The framework template the tool comes from — for an
+            ``extends`` clone, the template it extends, not the clone's name.
+        matcher: The tool matcher, fully qualified (``mcp__<server>__<tool>``)
+            under any server name — the template's own or a clone's re-anchored
+            prefix — or already the short tool name.
+
+    Returns:
+        True when ``(template, <short tool name>)`` is in
+        :data:`MIXED_READ_WRITE_TOOLS`.
+    """
+    tool = matcher
+    if matcher.startswith("mcp__"):
+        _server, sep, short = matcher[len("mcp__") :].partition("__")
+        if sep:
+            tool = short
+    return (template, tool) in MIXED_READ_WRITE_TOOLS
 
 
 def writes_check_matchers(template: str, server_name: str | None = None) -> list[str]:
@@ -822,6 +880,7 @@ def framework_mixed_read_write_tools() -> list[str]:
         matcher
         for template in sorted(MIXED_READ_WRITE_TEMPLATES)
         for matcher in writes_check_matchers(template)
+        if is_mixed_matcher(template, matcher)
     ]
 
 
@@ -882,10 +941,8 @@ def mixed_read_write_tools(servers: list[dict]) -> list[str]:
         if not server.get("enabled"):
             continue
         template = server.get("extends_of") or server["name"]
-        if template not in MIXED_READ_WRITE_TEMPLATES:
-            continue
         for matcher in writes_check_matchers(template, server["name"]):
-            if matcher not in tools:
+            if is_mixed_matcher(template, matcher) and matcher not in tools:
                 tools.append(matcher)
     return tools
 
@@ -1332,7 +1389,11 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
     ``phoebus_drive`` in their permission lists. A context without
     ``ariel_attachment_view`` resolves as ``True``; with it ``False`` the
     ``ariel`` server and its ``extends`` clones come back without
-    ``attachment_view`` and ``attachment_to_artifact``.
+    ``attachment_view`` and ``attachment_to_artifact``. An optional tool's
+    allow row renders only when its ctx key is truthy
+    (:attr:`ServerDefinition.optional_tools`); without ``pyaml_view_present``
+    the ``python`` server and its clones come back without
+    ``model_response_matrix``.
     """
     servers: dict[str, ServerDefinition] = {
         k: copy.deepcopy(v) for k, v in FRAMEWORK_SERVERS.items()
@@ -1411,6 +1472,7 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
 
     # ── Phoebus agent access ──────────────────────────────────
     _withhold_phoebus_drive(servers, ctx.get("phoebus_agent_access", READ))
+    _withhold_optional_tools(servers, ctx)
     _withhold_ariel_attachment_view(servers, ctx.get("ariel_attachment_view", True))
 
     # ── Build output dicts ────────────────────────────────────
@@ -1430,6 +1492,20 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
                 )
         result.append(_server_to_dict(sdef, ctx))
     return result
+
+
+def _withhold_optional_tools(servers: dict[str, ServerDefinition], ctx: dict) -> None:
+    """Drop the allow row of each optional tool whose ctx key is not truthy.
+
+    Only ``permissions_allow`` follows the key: an optional tool that asks
+    keeps its ask row and hook rule, so its gate renders whether or not the
+    server registers it. A framework server and its ``extends`` clones carry
+    the same optional tools under their own names.
+    """
+    for sdef in servers.values():
+        for tool, key in sdef.optional_tools.items():
+            if not ctx.get(key) and tool in sdef.permissions_allow:
+                sdef.permissions_allow.remove(tool)
 
 
 def _withhold_phoebus_drive(servers: dict[str, ServerDefinition], access: str) -> None:

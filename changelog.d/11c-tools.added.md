@@ -9,8 +9,13 @@ by)`, measures an orbit, dispersion, tune or chromaticity response, or the chrom
 with pyAML on the control target. Every write runs inside one guarded run that writes
 back what a stopped run moved, each step is sized so no setpoint's largest single write
 exceeds half its limits.yaml `max_step`, and the run starts only on the pyAML view the
-build recorded and the approval prompt showed. A group stepped as one knob moves every
-member by the same integrated strength, sized so the tune or chromaticity moves no more
-than under the strongest single-magnet step; its column is per unit integrated strength,
-the sum of its members' columns. Both tools register when the render carries a pyAML
-view.
+build recorded and the approval prompt showed. A group stepped as one knob is stepped
+unipolar and moves every member by the same integrated strength, sized so the tune or
+chromaticity moves no more than under the strongest single-magnet step; its column is
+per unit integrated strength, the sum of its members' columns. Both tools register when
+the render carries a pyAML view.
+
+`pyaml_measure` asks for approval on every call and, with writes off, is denied like
+every write tool, whether or not the render carries a pyAML view; `model_response_matrix`
+is read-only and runs without a prompt. The prompt lists every setpoint the measurement
+writes, the RF frequency setpoint included, and the modulation the call resolves to.

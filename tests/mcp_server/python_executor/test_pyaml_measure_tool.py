@@ -304,7 +304,7 @@ def test_a_run_the_executor_declined_reads_like_executes(gated, failure_kind):
 # --- registration ------------------------------------------------------------------
 
 
-def test_the_server_registers_the_tool_only_with_a_pyaml_view(rendered, tmp_path):
+def test_the_server_registers_both_tools_only_with_a_pyaml_view(rendered, tmp_path):
     bare = tmp_path / "bare"
     (bare / "data").mkdir(parents=True)
 
@@ -316,5 +316,8 @@ def test_the_server_registers_the_tool_only_with_a_pyaml_view(rendered, tmp_path
 
     import asyncio
 
-    assert {t.name for t in asyncio.run(with_view.list_tools())} >= {"pyaml_measure"}
+    assert {t.name for t in asyncio.run(with_view.list_tools())} == {
+        "pyaml_measure",
+        "model_response_matrix",
+    }
     assert asyncio.run(without.list_tools()) == []

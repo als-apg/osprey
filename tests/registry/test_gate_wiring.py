@@ -581,6 +581,7 @@ _APPROVAL_RULE_TABLE: frozenset[tuple[str, str, str, int]] = frozenset(
         ("phoebus", "pre", "mcp__phoebus__phoebus_drive", 5),
         ("python", "pre", "mcp__python__execute", 5),
         ("python", "pre", "mcp__python__execute_file", 5),
+        ("python", "pre", "mcp__python__pyaml_measure", 5),
         ("osprey_workspace", "pre", "mcp__osprey_workspace__setup_patch", 5),
         ("osprey_workspace", "pre", "mcp__osprey_workspace__add_panel_to_rail", 5),
         ("osprey_workspace", "pre", "mcp__osprey_workspace__remove_panel_from_rail", 5),

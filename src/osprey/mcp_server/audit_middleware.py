@@ -212,13 +212,14 @@ _FALLBACK_WRITE_TOOLS: list[str] = [
     "mcp__phoebus__phoebus_drive",
     "mcp__python__execute",
     "mcp__python__execute_file",
+    "mcp__python__pyaml_measure",
 ]
 
 #: The read/write tools excluded from the floor clamp. Task 1.8's drift guard
 #: asserts this list against ``registry.mcp.framework_mixed_read_write_tools()``,
-#: which derives the same names from the ``_WRITES_CHECK`` matchers of every
-#: ``MIXED_READ_WRITE_TEMPLATES`` server — so the canonical source stays the
-#: registry and this stays the copy that must match it.
+#: which derives the same names from the ``_WRITES_CHECK`` matchers the
+#: registry's ``is_mixed_matcher`` classifies as mixed — so the canonical source
+#: stays the registry and this stays the copy that must match it.
 #:
 #: It is applied to :data:`_FALLBACK_WRITE_TOOLS` and never to a loaded write
 #: list: the two always degrade together. A loaded write list minus this floor
