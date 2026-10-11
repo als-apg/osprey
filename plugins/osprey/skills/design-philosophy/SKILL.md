@@ -129,8 +129,8 @@ the ordinary development cycle touches all of them.
 
 Every integration point is designed from the end product, never merged from the status quo.
 
-An integration point is any place two lines of work meet: a merge conflict, a lane joining staging, a
-re-cut, a re-plan, a spec or plan written against an older tree. At such a point the question is never
+An integration point is any place two lines of work meet: a merge conflict, a branch joining an integration
+branch, a re-cut, a re-plan, a spec or plan written against an older tree. At such a point the question is never
 "how do these two combine" but "what does the finished OSPREY need here".
 
 This prevents the resolution that treats the two sides as the only candidates: the conflict settled by
@@ -144,11 +144,11 @@ looks cheap at the seam and leaves the product carrying two half-designs where i
 2. The two sides are evidence of intent, not the list of candidates. An answer that discards both is allowed and
    often right. Meeting in the middle is not a design.
 3. Prefer the elegant simple answer over the one with less work, and over the one that preserves more of what exists.
-4. What the owner decides on is one picture of the finished architecture at that seam and, per option, what the
-   product looks like and what it costs, in plain words. Conflict tables, file lists and "keep both" lines stay in
-   the working notes.
-5. This applies to every lane, train, sweep and merge on the roadmap, and to every agent that resolves a merge,
-   assesses base drift, or writes a spec against a moved base.
+4. What the maintainer decides on is one picture of the finished architecture at that seam and, per option, what
+   the product looks like and what it costs, in plain words. Conflict tables, file lists and "keep both" lines stay
+   in the working notes.
+5. This applies to every branch, integration branch, sweep and merge, and to every agent that resolves a merge,
+   assesses base drift, or writes a plan against a moved base.
 
 ---
 
