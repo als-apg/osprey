@@ -5,7 +5,8 @@ solved truth plus whatever motion the caller adds, read out through
 :func:`~osprey.simulation.engines.pyat_faults.readout`. The reference every
 reading is held to is the closed-form
 :func:`~osprey.simulation.engines.pyat_faults.bpm_read`, called on the same
-truth plus motion with its noise and calibration error off.
+truth plus motion with its noise and calibration error off. ``bpm_read``
+itself is held to its written-out expression in :class:`TestBpmReadFormula`.
 """
 
 from __future__ import annotations
@@ -115,6 +116,101 @@ def reference(values: dict[str, float], faults: dict[str, float]) -> tuple[float
         normal_x=0.0,
         normal_y=0.0,
     )
+
+
+#: The true position the formula cases read, unless a case states another.
+TRUE_X = 1.0e-3
+TRUE_Y = 2.0e-3
+
+
+def _read(x: float, y: float, **faults: float) -> tuple[float, float]:
+    """The reference reading with every fault at identity except ``faults``."""
+    return reference_bpm_read(
+        x,
+        y,
+        **{
+            **IDENTITY,
+            "cal_x": 0.0,
+            "cal_y": 0.0,
+            "normal_x": 0.0,
+            "normal_y": 0.0,
+            **faults,
+        },
+    )
+
+
+class TestBpmReadFormula:
+    """``bpm_read`` against its expression written out as plain arithmetic."""
+
+    def test_an_offset_alone_is_subtracted_from_the_true_position(self) -> None:
+        read = _read(TRUE_X, TRUE_Y, offset_x=1.0e-4, offset_y=2.0e-4)
+
+        assert read == pytest.approx((1.0e-3 - 1.0e-4, 2.0e-3 - 2.0e-4), abs=1e-15)
+
+    def test_a_gain_alone_scales_the_true_position(self) -> None:
+        read = _read(TRUE_X, TRUE_Y, gain_x=1.5, gain_y=0.8)
+
+        assert read == pytest.approx((1.0e-3 * 1.5, 2.0e-3 * 0.8), abs=1e-15)
+
+    def test_a_polarity_of_minus_one_negates_its_axis_only(self) -> None:
+        read = _read(TRUE_X, TRUE_Y, polarity_x=-1.0)
+
+        assert read == pytest.approx((-1.0e-3, 2.0e-3), abs=1e-15)
+
+    def test_a_roll_rotates_the_true_position_counterclockwise(self) -> None:
+        read = _read(TRUE_X, TRUE_Y, roll=0.3)
+
+        expected_x = math.cos(0.3) * 1.0e-3 - math.sin(0.3) * 2.0e-3
+        expected_y = math.sin(0.3) * 1.0e-3 + math.cos(0.3) * 2.0e-3
+        assert read == pytest.approx((expected_x, expected_y), abs=1e-15)
+
+    def test_a_quarter_roll_reads_a_horizontal_position_as_vertical(self) -> None:
+        read = _read(1.0e-3, 0.0, roll=math.pi / 2)
+
+        assert read == pytest.approx((0.0, 1.0e-3), abs=1e-15)
+
+    def test_a_calibration_error_scales_by_one_plus_the_error(self) -> None:
+        read = _read(TRUE_X, TRUE_Y, cal_x=0.3, cal_y=-0.1)
+
+        assert read == pytest.approx((1.0e-3 * 1.3, 2.0e-3 * 0.9), abs=1e-15)
+
+    def test_noise_is_its_width_times_the_given_normal_draw(self) -> None:
+        read = _read(0.0, 0.0, noise_x=1.0e-6, noise_y=2.0e-6, normal_x=0.5, normal_y=-1.25)
+
+        assert read == pytest.approx((1.0e-6 * 0.5, 2.0e-6 * -1.25), abs=1e-15)
+
+    def test_the_reading_rolls_then_offsets_then_calibrates_and_flips_then_adds_noise_then_gains(
+        self,
+    ) -> None:
+        """Every step on at once, so each order between two steps changes the number.
+
+        The quarter roll turns the true (1e-3, 2e-3) into (-2e-3, 1e-3). With the
+        stated order the reading is (5.461e-3, 5.3875e-4); multiplying the gain
+        before adding the noise would give x = 5.4605e-3, and calibrating before
+        subtracting the offset would give yet another x.
+        """
+        read = _read(
+            TRUE_X,
+            TRUE_Y,
+            roll=math.pi / 2,
+            offset_x=1.0e-4,
+            offset_y=-2.0e-4,
+            cal_x=0.3,
+            cal_y=-0.1,
+            polarity_x=-1.0,
+            polarity_y=1.0,
+            noise_x=1.0e-6,
+            noise_y=2.0e-6,
+            normal_x=0.5,
+            normal_y=-1.25,
+            gain_x=2.0,
+            gain_y=0.5,
+        )
+
+        expected_x = ((-2.0e-3 - 1.0e-4) * 1.3 * -1.0 + 1.0e-6 * 0.5) * 2.0
+        expected_y = ((1.0e-3 + 2.0e-4) * 0.9 * 1.0 + 2.0e-6 * -1.25) * 0.5
+        assert read == pytest.approx((expected_x, expected_y), abs=1e-15)
+        assert read == pytest.approx((5.461e-3, 5.3875e-4), abs=1e-15)
 
 
 class TestReadout:
