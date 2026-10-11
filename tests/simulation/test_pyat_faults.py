@@ -5,12 +5,15 @@ solved truth plus whatever motion the caller adds, read out through
 :func:`~osprey.simulation.engines.pyat_faults.readout`. The reference every
 reading is held to is the closed-form
 :func:`~osprey.simulation.engines.pyat_faults.bpm_read`, called on the same
-truth plus motion with its noise and calibration error off. ``bpm_read``
-itself is held to its written-out expression in :class:`TestBpmReadFormula`.
+truth plus motion with its noise and calibration error off, after
+:func:`~osprey.simulation.engines.pyat_faults.rolled` has turned it.
+``bpm_read`` itself is held to its written-out expression in
+:class:`TestBpmReadFormula`, and ``rolled`` in :class:`TestRolled`.
 """
 
 from __future__ import annotations
 
+import copy
 import math
 from pathlib import Path
 from typing import Any
@@ -24,10 +27,12 @@ from lume_pyat.model import LUMEPyATModel  # noqa: E402
 from lume_pyat.simulator import PyATSimulator  # noqa: E402
 
 from osprey.simulation.engines import pyat_faults  # noqa: E402
+from osprey.simulation.engines.calibration import Linear, to_hardware, to_physics  # noqa: E402
 from osprey.simulation.engines.pyat_faults import bpm_read as reference_bpm_read  # noqa: E402
 from osprey.simulation.engines.pyat_faults import (  # noqa: E402
     magnet_cal,
     readout,
+    rolled,
     supply_attribute,
 )
 from osprey.simulation.engines.pyat_variables import (  # noqa: E402
@@ -56,7 +61,6 @@ IDENTITY = {
     "gain_y": 1.0,
     "polarity_x": 1.0,
     "polarity_y": 1.0,
-    "roll": 0.0,
     "noise_x": 0.0,
     "noise_y": 0.0,
 }
@@ -107,10 +111,13 @@ def seed(model: LUMEPyATModel, element: str, faults: dict[str, float]) -> None:
 
 
 def reference(values: dict[str, float], faults: dict[str, float]) -> tuple[float, float]:
+    """The reading of an identity-conversion monitor: the roll, then the capture chain."""
+    chain = dict(faults)
+    x, y = rolled(values[X_ADDRESS], values[Y_ADDRESS], chain.pop("roll", 0.0))
     return reference_bpm_read(
-        values[X_ADDRESS],
-        values[Y_ADDRESS],
-        **{**IDENTITY, **faults},
+        x,
+        y,
+        **{**IDENTITY, **chain},
         cal_x=0.0,
         cal_y=0.0,
         normal_x=0.0,
@@ -157,18 +164,6 @@ class TestBpmReadFormula:
 
         assert read == pytest.approx((-1.0e-3, 2.0e-3), abs=1e-15)
 
-    def test_a_roll_rotates_the_true_position_counterclockwise(self) -> None:
-        read = _read(TRUE_X, TRUE_Y, roll=0.3)
-
-        expected_x = math.cos(0.3) * 1.0e-3 - math.sin(0.3) * 2.0e-3
-        expected_y = math.sin(0.3) * 1.0e-3 + math.cos(0.3) * 2.0e-3
-        assert read == pytest.approx((expected_x, expected_y), abs=1e-15)
-
-    def test_a_quarter_roll_reads_a_horizontal_position_as_vertical(self) -> None:
-        read = _read(1.0e-3, 0.0, roll=math.pi / 2)
-
-        assert read == pytest.approx((0.0, 1.0e-3), abs=1e-15)
-
     def test_a_calibration_error_scales_by_one_plus_the_error(self) -> None:
         read = _read(TRUE_X, TRUE_Y, cal_x=0.3, cal_y=-0.1)
 
@@ -179,20 +174,19 @@ class TestBpmReadFormula:
 
         assert read == pytest.approx((1.0e-6 * 0.5, 2.0e-6 * -1.25), abs=1e-15)
 
-    def test_the_reading_rolls_then_offsets_then_calibrates_and_flips_then_adds_noise_then_gains(
+    def test_the_reading_offsets_then_calibrates_and_flips_then_adds_noise_then_gains(
         self,
     ) -> None:
         """Every step on at once, so each order between two steps changes the number.
 
-        The quarter roll turns the true (1e-3, 2e-3) into (-2e-3, 1e-3). With the
+        The position (-2e-3, 1e-3) is already turned by the roll. With the
         stated order the reading is (5.461e-3, 5.3875e-4); multiplying the gain
         before adding the noise would give x = 5.4605e-3, and calibrating before
         subtracting the offset would give yet another x.
         """
         read = _read(
-            TRUE_X,
-            TRUE_Y,
-            roll=math.pi / 2,
+            -2.0e-3,
+            1.0e-3,
             offset_x=1.0e-4,
             offset_y=-2.0e-4,
             cal_x=0.3,
@@ -211,6 +205,22 @@ class TestBpmReadFormula:
         expected_y = ((1.0e-3 + 2.0e-4) * 0.9 * 1.0 + 2.0e-6 * -1.25) * 0.5
         assert read == pytest.approx((expected_x, expected_y), abs=1e-15)
         assert read == pytest.approx((5.461e-3, 5.3875e-4), abs=1e-15)
+
+
+class TestRolled:
+    """``rolled`` turns the beam position counterclockwise about the beam axis."""
+
+    def test_a_roll_rotates_the_true_position_counterclockwise(self) -> None:
+        turned = rolled(TRUE_X, TRUE_Y, 0.3)
+
+        expected_x = math.cos(0.3) * 1.0e-3 - math.sin(0.3) * 2.0e-3
+        expected_y = math.sin(0.3) * 1.0e-3 + math.cos(0.3) * 2.0e-3
+        assert turned == pytest.approx((expected_x, expected_y), abs=1e-15)
+
+    def test_a_quarter_roll_reads_a_horizontal_position_as_vertical(self) -> None:
+        turned = rolled(1.0e-3, 0.0, math.pi / 2)
+
+        assert turned == pytest.approx((0.0, 1.0e-3), abs=1e-15)
 
 
 class TestReadout:
@@ -278,6 +288,108 @@ class TestReadout:
     def test_half_a_pair_is_refused(self, model) -> None:
         with pytest.raises(ValueError, match=Y_ADDRESS):
             readout(model, {X_ADDRESS: 1.0e-3}, 1_000)
+
+
+#: Two conversions that differ per plane, one with an offset, so turning the
+#: published pair and turning the beam position give different readings.
+CONVERTED = {
+    X_ADDRESS: {"gain": 2.0e-3, "offset": -1.0e-4},
+    Y_ADDRESS: {"gain": 1.0e-3, "offset": 0.0},
+}
+CONVERTED_ROLL = 0.3
+#: Beam motion on the converted readings, in their published unit.
+CONVERTED_MOTION = {X_ADDRESS: 0.25, Y_ADDRESS: -0.15}
+
+
+def converted_model(
+    records: dict[str, dict[str, Any]], addresses: tuple[str, ...] = (X_ADDRESS, Y_ADDRESS)
+) -> LUMEPyATModel:
+    """The demo deck with BPM03's readings copied onto the linear conversions in ``CONVERTED``."""
+    simulator = PyATSimulator(at.load_lattice(str(DEMO / "decks" / "SR.json")))
+    energy = deck_energy(simulator)
+    variables = []
+    for address in addresses:
+        record = copy.deepcopy(records[address])
+        record["calibration"]["curve"] = {"linear": dict(CONVERTED[address])}
+        variables.append(variable_from_wiring(record, deck_energy_gev=energy))
+    return LUMEPyATModel(simulator=simulator, action_variables=variables)
+
+
+def curve_of(address: str) -> Linear:
+    return Linear(**CONVERTED[address])
+
+
+def physics_of(address: str, published: float) -> float:
+    return to_physics(curve_of(address), published)
+
+
+def published_of(address: str, physics: float) -> float:
+    return to_hardware(curve_of(address), None, physics)
+
+
+class TestReadoutOnAConvertedMonitor:
+    """A roll turns the beam position in the deck's unit, before the monitor's conversion."""
+
+    @pytest.fixture
+    def converted(self, records) -> LUMEPyATModel:
+        return converted_model(records)
+
+    @staticmethod
+    def published_truth(model: LUMEPyATModel) -> dict[str, float]:
+        truth = model.get(sorted(CONVERTED_MOTION))
+        return {address: float(truth[address]) + CONVERTED_MOTION[address] for address in truth}
+
+    def test_a_roll_turns_the_beam_position_before_the_published_unit(self, converted) -> None:
+        values = self.published_truth(converted)
+        seed(converted, MONITOR, {"roll": CONVERTED_ROLL})
+
+        read = readout(converted, values, 1_000)
+
+        turned_x, turned_y = rolled(
+            physics_of(X_ADDRESS, values[X_ADDRESS]),
+            physics_of(Y_ADDRESS, values[Y_ADDRESS]),
+            CONVERTED_ROLL,
+        )
+        assert read[X_ADDRESS] == pytest.approx(published_of(X_ADDRESS, turned_x), abs=1e-12)
+        assert read[Y_ADDRESS] == pytest.approx(published_of(Y_ADDRESS, turned_y), abs=1e-12)
+        on_published = rolled(values[X_ADDRESS], values[Y_ADDRESS], CONVERTED_ROLL)
+        assert abs(read[X_ADDRESS] - on_published[0]) > 1e-9
+        assert abs(read[Y_ADDRESS] - on_published[1]) > 1e-9
+
+    def test_offset_and_gain_act_on_the_published_reading_after_the_roll(self, converted) -> None:
+        values = self.published_truth(converted)
+        seed(converted, MONITOR, {"roll": CONVERTED_ROLL, "offset_x": 3.0e-2, "gain_x": 1.07})
+
+        read = readout(converted, values, 1_000)
+
+        turned_x, _ = rolled(
+            physics_of(X_ADDRESS, values[X_ADDRESS]),
+            physics_of(Y_ADDRESS, values[Y_ADDRESS]),
+            CONVERTED_ROLL,
+        )
+        expected = 1.07 * (published_of(X_ADDRESS, turned_x) - 3.0e-2)
+        assert read[X_ADDRESS] == pytest.approx(expected, abs=1e-12)
+
+    def test_an_unrolled_monitor_never_leaves_its_published_unit(self, converted) -> None:
+        values = self.published_truth(converted)
+        seed(converted, MONITOR, {"offset_x": 3.0e-2, "offset_y": -1.0e-2})
+
+        read = readout(converted, values, 1_000)
+
+        expected = reference(values, {"offset_x": 3.0e-2, "offset_y": -1.0e-2})
+        assert (read[X_ADDRESS], read[Y_ADDRESS]) == expected
+
+    def test_a_monitor_wired_on_one_plane_rolls_from_on_axis(self, records) -> None:
+        model = converted_model(records, (X_ADDRESS,))
+        published_x = float(model.get([X_ADDRESS])[X_ADDRESS]) + CONVERTED_MOTION[X_ADDRESS]
+        seed(model, MONITOR, {"roll": CONVERTED_ROLL})
+
+        read = readout(model, {X_ADDRESS: published_x}, 1_000)
+
+        expected = published_of(
+            X_ADDRESS, math.cos(CONVERTED_ROLL) * physics_of(X_ADDRESS, published_x)
+        )
+        assert read[X_ADDRESS] == pytest.approx(expected, abs=1e-12)
 
 
 class TestReadoutOverManyInstants:

@@ -5,7 +5,9 @@ https://github.com/kparasch/pySC) as straight arithmetic, so their sign and
 roll conventions are pySC's:
 
 * :func:`bpm_read` -- pySC's ``BPMSystem.capture_orbit`` chain for one
-  monitor: roll, offset, calibration error, polarity, noise, gain.
+  monitor after the roll, in the unit the monitor publishes: offset,
+  calibration error, polarity, noise, gain. :func:`rolled` is the roll, in the
+  deck's unit.
 * :func:`magnet_cal` -- pySC's ``LinearConv.transform``: the value a supply
   delivers against the one commanded.
 
@@ -21,7 +23,9 @@ identity value, so an unseeded deck reads and writes exactly.
 truth; :func:`readout` turns truth -- plus whatever beam motion the caller has
 added to it -- into what each monitor reports. It runs once per monitor
 element on its (x, y) pair, because a roll mixes the two planes, and its noise
-is a pure function of the reading's address and the time it is read at.
+is a pure function of the reading's address and the time it is read at. The
+roll turns the beam position before the monitor's conversion to the unit it
+publishes; the rest of the chain acts on the published number.
 """
 
 from __future__ import annotations
@@ -33,9 +37,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from osprey.simulation.engines.calibration import field as _slot
+from osprey.simulation.engines.calibration import to_hardware, to_physics
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Mapping
+
+    from osprey.simulation.engines.calibration import Calibration
 
 #: The readout fields every monitor readback carries on its own axis, each at
 #: its identity: a monitor that reports the true orbit position exactly, and
@@ -89,6 +96,28 @@ NOISE_SUBKEY = b":readout_noise"
 _AXES = ("x", "y")
 
 
+def rolled(x: float, y: float, roll: float) -> tuple[float, float]:
+    """The beam position ``(x, y)`` as a monitor rolled by ``roll`` sees it.
+
+    The pair is the beam position in the deck's unit. A positive roll, in
+    radians about the beam axis, rotates it counterclockwise
+    (``[[cos, -sin], [sin, cos]]``), so a roll of pi/2 reads a purely
+    horizontal position as purely vertical.
+
+    Args:
+        x: Horizontal beam position at the monitor.
+        y: Vertical beam position at the monitor.
+        roll: The monitor's roll, in radians.
+
+    Returns:
+        The turned ``(x, y)``, in the unit of the input.
+    """
+    return (
+        math.cos(roll) * x - math.sin(roll) * y,
+        math.sin(roll) * x + math.cos(roll) * y,
+    )
+
+
 def bpm_read(
     x: float,
     y: float,
@@ -99,7 +128,6 @@ def bpm_read(
     gain_y: float,
     polarity_x: float,
     polarity_y: float,
-    roll: float,
     cal_x: float,
     cal_y: float,
     noise_x: float,
@@ -107,29 +135,26 @@ def bpm_read(
     normal_x: float,
     normal_y: float,
 ) -> tuple[float, float]:
-    """One monitor's reading of a true (x, y) position.
+    """One monitor's reading of a true (x, y) position the roll has already turned.
 
-    Roll-mix the true position, subtract the offset, apply the calibration
-    error and the polarity, add noise, then apply the gain -- in that order,
-    so the noise is added before the gain multiply, as pySC does.
+    Subtract the offset, apply the calibration error and the polarity, add
+    noise, then apply the gain -- in that order, so the noise is added before
+    the gain multiply, as pySC does.
 
     Every length -- the true position, the offsets, the noise widths and the
     reading -- is in the unit the monitor publishes. The formula is
-    scale-free, so one unit throughout is the whole requirement.
+    scale-free, so one unit throughout is the whole requirement. The roll
+    acts before this, on the beam position (:func:`rolled`).
 
     Args:
-        x: True horizontal position at the monitor.
-        y: True vertical position at the monitor.
+        x: True horizontal position at the monitor, after the roll.
+        y: True vertical position at the monitor, after the roll.
         offset_x: Horizontal offset.
         offset_y: Vertical offset.
         gain_x: Horizontal gain, multiplied in last.
         gain_y: Vertical gain, multiplied in last.
         polarity_x: Horizontal polarity, +1.0 or -1.0.
         polarity_y: Vertical polarity, +1.0 or -1.0.
-        roll: Roll about the beam axis, in radians. A positive roll rotates
-            the true position counterclockwise before it is read
-            (``[[cos, -sin], [sin, cos]]``), so a roll of pi/2 reads a purely
-            horizontal position as purely vertical.
         cal_x: Horizontal calibration error, applied as ``1 + cal_x``.
         cal_y: Vertical calibration error, applied as ``1 + cal_y``.
         noise_x: Standard deviation of the horizontal noise.
@@ -140,11 +165,8 @@ def bpm_read(
     Returns:
         ``(reading_x, reading_y)`` in the unit the monitor publishes.
     """
-    rotated_x = math.cos(roll) * x - math.sin(roll) * y
-    rotated_y = math.sin(roll) * x + math.cos(roll) * y
-
-    reading_x = (rotated_x - offset_x) * (1.0 + cal_x) * polarity_x + noise_x * normal_x
-    reading_y = (rotated_y - offset_y) * (1.0 + cal_y) * polarity_y + noise_y * normal_y
+    reading_x = (x - offset_x) * (1.0 + cal_x) * polarity_x + noise_x * normal_x
+    reading_y = (y - offset_y) * (1.0 + cal_y) * polarity_y + noise_y * normal_y
 
     reading_x *= gain_x
     reading_y *= gain_y
@@ -274,35 +296,58 @@ def fault_variables(wiring: Iterable[Any]) -> dict[str, FaultSlot]:
     return dict(sorted(slots.items()))
 
 
-_MONITORS: weakref.WeakKeyDictionary[Any, dict[str, dict[str, str]]] = weakref.WeakKeyDictionary()
+@dataclass(frozen=True)
+class _Plane:
+    """One plane of a monitor: its address and its conversion to the published unit.
+
+    Attributes:
+        address: The reading's address.
+        calibration: Published unit to the deck's unit; ``None`` when they
+            are the same.
+        inverse: The deck's unit back to the published one, or ``None``
+            where the record states none.
+    """
+
+    address: str
+    calibration: Calibration | None
+    inverse: Calibration | None
+
+
+_MONITORS: weakref.WeakKeyDictionary[Any, dict[str, dict[str, _Plane]]] = (
+    weakref.WeakKeyDictionary()
+)
 """:func:`_monitors` per model. A model's variable set is fixed once it is
 built, so the map is too; a rebuilt model is a new key."""
 
 
-def _monitors(model: Any) -> dict[str, dict[str, str]]:
-    """Each monitor element's readings, axis -> address, from the model's variables."""
+def _monitors(model: Any) -> dict[str, dict[str, _Plane]]:
+    """Each monitor element's planes, axis -> plane, from the model's variables."""
     cached = _MONITORS.get(model)
     if cached is not None:
         return cached
-    monitors: dict[str, dict[str, str]] = {}
+    monitors: dict[str, dict[str, _Plane]] = {}
     for address, variable in model.supported_variables.items():
         axis = getattr(variable, "axis", None)
         element = getattr(variable, "element_name", None)
         if not getattr(variable, "read_only", False) or axis not in _AXES or element is None:
             continue
-        monitors.setdefault(str(element), {})[axis] = address
+        monitors.setdefault(str(element), {})[axis] = _Plane(
+            address,
+            getattr(variable, "calibration", None),
+            getattr(variable, "inverse", None),
+        )
     _MONITORS[model] = monitors
     return monitors
 
 
 def _readout_faults(element: Any) -> dict[str, float]:
-    """:func:`bpm_read`'s fault keywords as ``element`` holds them, identity where absent."""
+    """:func:`bpm_read`'s fault keywords and the roll as ``element`` holds them, identity where absent."""
     faults = {
         f"{field}_{axis}": float(getattr(element, f"readout_{field}_{axis}", identity))
         for field, identity in READOUT_IDENTITY.items()
         for axis in _AXES
     }
-    faults["roll"] = float(getattr(element, "readout_roll", 0.0))
+    faults[ROLL] = float(getattr(element, f"readout_{ROLL}", ROLL_IDENTITY))
     return faults
 
 
@@ -326,9 +371,12 @@ def readout(model: Any, values: Mapping[str, float], t_ms: int | float) -> dict[
     """What each monitor reports for the positions in ``values``.
 
     Every monitor element with a reading in ``values`` is read once, on its
-    (x, y) pair: :func:`bpm_read` with the element's readout attributes, no
-    calibration error, and noise drawn per address at ``t_ms``. A monitor with
-    one reading only reads its other plane as exactly on axis.
+    (x, y) pair: the roll turns the pair in the deck's unit, through each
+    plane's own conversion, and :func:`bpm_read` then applies the element's
+    other readout attributes, no calibration error, and noise drawn per
+    address at ``t_ms``, to the published pair. A monitor with one reading
+    only reads its other plane as exactly on axis. An unrolled monitor never
+    leaves its published unit.
 
     Args:
         model: The model the readings belong to: its ``supported_variables``
@@ -349,21 +397,36 @@ def readout(model: Any, values: Mapping[str, float], t_ms: int | float) -> dict[
             a roll mixes the planes, so the other cannot be guessed.
     """
     read = dict(values)
-    for element_name, axes in sorted(_monitors(model).items()):
-        missing = sorted(address for address in axes.values() if address not in values)
-        if len(missing) == len(axes):
+    for element_name, planes in sorted(_monitors(model).items()):
+        addresses = sorted(plane.address for plane in planes.values())
+        missing = [address for address in addresses if address not in values]
+        if len(missing) == len(planes):
             continue
         if missing:
             raise ValueError(
-                f"monitor {element_name!r} is read on {sorted(axes.values())}; "
+                f"monitor {element_name!r} is read on {addresses}; "
                 f"values hold no reading of {missing}"
             )
-        x_address = axes.get("x")
-        y_address = axes.get("y")
         faults = _readout_faults(model.simulator.element(element_name))
+        roll = faults.pop(ROLL)
+        published = {axis: float(values[plane.address]) for axis, plane in planes.items()}
+        if roll != ROLL_IDENTITY:
+            physics = {
+                axis: to_physics(plane.calibration, published[axis])
+                for axis, plane in planes.items()
+            }
+            turned = dict(
+                zip(_AXES, rolled(physics.get("x", 0.0), physics.get("y", 0.0), roll), strict=True)
+            )
+            published = {
+                axis: to_hardware(plane.calibration, plane.inverse, turned[axis])
+                for axis, plane in planes.items()
+            }
+        x_address = planes["x"].address if "x" in planes else None
+        y_address = planes["y"].address if "y" in planes else None
         reading_x, reading_y = bpm_read(
-            0.0 if x_address is None else float(values[x_address]),
-            0.0 if y_address is None else float(values[y_address]),
+            published.get("x", 0.0),
+            published.get("y", 0.0),
             **faults,
             cal_x=0.0,
             cal_y=0.0,
@@ -383,6 +446,7 @@ __all__ = [
     "bpm_read",
     "magnet_cal",
     "readout",
+    "rolled",
     "supply_attribute",
     "supply_calibration",
 ]
