@@ -387,6 +387,7 @@ class TestSelection:
 
         assert state["selection"]["model"] is None
         assert state["selection"]["status"] == "none"
+        assert state["selection"]["error"] == "Unknown model: BOOSTER"
         assert state["families"] == {}
         assert client.get("/api/figures/optics").status_code == 404
 

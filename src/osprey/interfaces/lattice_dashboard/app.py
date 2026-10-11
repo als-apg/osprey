@@ -260,17 +260,24 @@ def _file_signature(path: Path | None) -> tuple[int, int] | None:
     return stat.st_mtime_ns, stat.st_size
 
 
+def unknown_model_text(name: str) -> str:
+    """The text naming a model the build does not list."""
+    return f"Unknown model: {name}"
+
+
 def resolve_selection(catalog: ModelCatalog, wanted: str | None) -> Selection:
     """Resolve the model *wanted*, or the catalog's default when None.
 
     Loads the deck, so it is called off the event loop. Never raises: a model
     the engine or the deck stops on resolves to ``failed`` with the reason,
-    and a model the catalog no longer lists resolves to ``none``, never to
-    the deck it had before.
+    and a model the catalog does not list resolves to ``none`` with an error
+    naming it, never to the deck it had before.
     """
     model = catalog.default() if wanted is None else catalog.get(wanted)
     if model is None:
-        return Selection(status="none")
+        if wanted is None:
+            return Selection(status="none")
+        return Selection(status="none", error=unknown_model_text(wanted))
     if model.prepared is None:
         return Selection(model=model.name, status="failed", error=model.error)
     try:
@@ -559,7 +566,7 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
     async def select_model(body: SelectModelRequest) -> dict[str, Any]:
         catalog = await resolver.current_catalog()
         if catalog.get(body.name) is None:
-            raise HTTPException(status_code=404, detail=f"Unknown model: {body.name}")
+            raise HTTPException(status_code=404, detail=unknown_model_text(body.name))
         state.set_wanted(body.name)
         resolver.schedule(select=body.name)
         return selection_payload(state.selection)
