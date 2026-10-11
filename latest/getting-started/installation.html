@@ -520,29 +520,21 @@ the one npm’s <code class="docutils literal notranslate"><span class="pre">sta
 </div>
 <section id="pinning-the-claude-code-cli-version">
 <h3>Pinning the Claude Code CLI version<a class="headerlink" href="#pinning-the-claude-code-cli-version" title="Link to this heading">#</a></h3>
-<p>Anthropic ships breaking changes to the Claude Code CLI from time to time.
-The install command above already pins your global <code class="docutils literal notranslate"><span class="pre">claude</span></code> binary; to pin
-what a specific project launches — independently of what is installed
-globally — set a version under <code class="docutils literal notranslate"><span class="pre">config:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and run
+<p>Every OSPREY project runs one exact Claude Code version, and the install
+command above gives you the one new projects use. To run a different version
+in a project, set it under <code class="docutils literal notranslate"><span class="pre">config:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and run
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">claude_code</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">cli_version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2.1.267&quot;</span><span class="w">   </span><span class="c1"># exact version, no semver ranges</span>
+<span class="w">    </span><span class="nt">cli_version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2.1.267&quot;</span><span class="w">   </span><span class="c1"># one exact version</span>
 </pre></div>
 </div>
-<p>When set, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> and the web terminal launch the pinned
-version via <code class="docutils literal notranslate"><span class="pre">npx</span> <span class="pre">-y</span> <span class="pre">&#64;anthropic-ai/claude-code&#64;&lt;version&gt;</span></code> instead of the
-globally-installed <code class="docutils literal notranslate"><span class="pre">claude</span></code> binary. The first run downloads the package;
-subsequent runs hit the npx cache. Use <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> to confirm the pin
-is being honored. To temporarily bypass the pin for debugging, run
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span> <span class="pre">--no-pin</span></code>.</p>
-<p>Headless runs — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code>, the web terminal’s chat view and dispatched
-jobs — download nothing: they execute the installed <code class="docutils literal notranslate"><span class="pre">claude</span></code>, and only once
-it reports the pinned version. On a machine where it does not, the run is
-refused before it starts, with a message that names the version the project
-pins, what was found instead, and the two ways out: install that version
-(<code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">install</span> <span class="pre">-g</span> <span class="pre">&#64;anthropic-ai/claude-code&#64;&lt;version&gt;</span></code>), or change
-<code class="docutils literal notranslate"><span class="pre">cli_version</span></code>.</p>
+<p>Then install that same version, so the <code class="docutils literal notranslate"><span class="pre">claude</span></code> on your machine matches the
+project:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>npm<span class="w"> </span>install<span class="w"> </span>-g<span class="w"> </span>@anthropic-ai/claude-code@2.1.267
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> tells you whether the two agree.</p>
 </section>
 </section>
 <section id="step-3-install-python-tools">

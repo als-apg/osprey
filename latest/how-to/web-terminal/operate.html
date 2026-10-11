@@ -646,12 +646,10 @@ waits. It says <em>The other view may still be working.</em> and offers only
 <strong>Stop and switch now</strong>, and a terminal that was idle all along can still
 take the full five seconds to hand over.</p>
 </div>
-<p>The two views run the same agent CLI build: the version
-<code class="docutils literal notranslate"><span class="pre">claude_code.cli_version</span></code> names, else the installed <code class="docutils literal notranslate"><span class="pre">claude</span></code>. The terminal
-launches it; the chat executes the installed <code class="docutils literal notranslate"><span class="pre">claude</span></code>, and only once it
-reports that version. The server names the build in its log at startup, and
-says so there when the pinned version is not installed, in which case the chat
-is refused until it is.</p>
+<p>The two views run the same Claude Code version, the one
+<code class="docutils literal notranslate"><span class="pre">claude_code.cli_version</span></code> names. If the chat is refused because that version
+is not installed, the server log says which one to install; see
+<a class="reference internal" href="../../getting-started/installation.html"><span class="doc">Installation</span></a>.</p>
 </section>
 <section id="the-control-target-chip">
 <span id="web-terminal-session-posture"></span><h2>The control-target chip<a class="headerlink" href="#the-control-target-chip" title="Link to this heading">#</a></h2>

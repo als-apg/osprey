@@ -84,32 +84,25 @@ Verify:
 Pinning the Claude Code CLI version
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Anthropic ships breaking changes to the Claude Code CLI from time to time.
-The install command above already pins your global ``claude`` binary; to pin
-what a specific project launches — independently of what is installed
-globally — set a version under ``config:`` in ``profile.yml`` and run
+Every OSPREY project runs one exact Claude Code version, and the install
+command above gives you the one new projects use. To run a different version
+in a project, set it under ``config:`` in ``profile.yml`` and run
 ``osprey build``:
 
 .. code-block:: yaml
 
    config:
      claude_code:
-       cli_version: "2.1.267"   # exact version, no semver ranges
+       cli_version: "2.1.267"   # one exact version
 
-When set, ``osprey chat`` and the web terminal launch the pinned
-version via ``npx -y @anthropic-ai/claude-code@<version>`` instead of the
-globally-installed ``claude`` binary. The first run downloads the package;
-subsequent runs hit the npx cache. Use ``osprey health`` to confirm the pin
-is being honored. To temporarily bypass the pin for debugging, run
-``osprey chat --no-pin``.
+Then install that same version, so the ``claude`` on your machine matches the
+project:
 
-Headless runs — ``osprey query``, the web terminal's chat view and dispatched
-jobs — download nothing: they execute the installed ``claude``, and only once
-it reports the pinned version. On a machine where it does not, the run is
-refused before it starts, with a message that names the version the project
-pins, what was found instead, and the two ways out: install that version
-(``npm install -g @anthropic-ai/claude-code@<version>``), or change
-``cli_version``.
+.. code-block:: bash
+
+   npm install -g @anthropic-ai/claude-code@2.1.267
+
+``osprey health`` tells you whether the two agree.
 
 
 Step 3: Install Python tools

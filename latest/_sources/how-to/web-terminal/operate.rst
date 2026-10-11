@@ -143,12 +143,10 @@ and goes as soon as the agent is free.
    **Stop and switch now**, and a terminal that was idle all along can still
    take the full five seconds to hand over.
 
-The two views run the same agent CLI build: the version
-``claude_code.cli_version`` names, else the installed ``claude``. The terminal
-launches it; the chat executes the installed ``claude``, and only once it
-reports that version. The server names the build in its log at startup, and
-says so there when the pinned version is not installed, in which case the chat
-is refused until it is.
+The two views run the same Claude Code version, the one
+``claude_code.cli_version`` names. If the chat is refused because that version
+is not installed, the server log says which one to install; see
+:doc:`/getting-started/installation`.
 
 .. _web-terminal-session-posture:
 
