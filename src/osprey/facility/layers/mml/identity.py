@@ -294,27 +294,33 @@ def _coordinate_ids(
     return ids
 
 
-def _matched_ids(
-    view: FamilyView,
-    target: FamilyView,
-    target_ids: Sequence[str],
-    distinct: bool,
-    invalid: list[str],
-) -> list[str] | None:
-    """Each slot's id as the target's slot at the same ``[sector, device]``.
-
-    ``distinct`` marks a target answer that may give one row two ids
-    (``address`` and a list); such a row is refused where it is matched.
-    """
-    raw, key = view.raw_name, f"families.{view.raw_name}.devices"
+def _lent_rows(target: FamilyView, target_ids: Sequence[str]) -> tuple[dict[Any, str], set[Any]]:
+    """Each row's id as the target's first slot at it, and the rows it states
+    at slots that are different devices."""
     first: dict[Any, str] = {}
     repeated: set[Any] = set()
     for row, device in zip(target.device_rows or (), target_ids, strict=False):
         found = _row_key(row)
         if found not in first:
             first[found] = device
-        elif distinct and first[found] != device:
+        elif first[found] != device:
             repeated.add(found)
+    return first, repeated
+
+
+def _matched_ids(
+    view: FamilyView,
+    target: FamilyView,
+    target_ids: Sequence[str],
+    invalid: list[str],
+) -> list[str] | None:
+    """Each slot's id as the target's slot at the same ``[sector, device]``.
+
+    A row the target states at slots that are different devices is refused
+    where it is matched, whatever the target's answer.
+    """
+    raw, key = view.raw_name, f"families.{view.raw_name}.devices"
+    first, repeated = _lent_rows(target, target_ids)
     ids: list[str] = []
     for row in view.device_rows or ():
         found = _row_key(row)
@@ -420,8 +426,7 @@ def device_ids(
         elif (lent := result[found]) is None:
             continue
         elif view.device_rows is not None and views[found].device_rows is not None:
-            distinct = other == "address" or isinstance(other, tuple)
-            result[index] = _matched_ids(view, views[found], lent, distinct, invalid)
+            result[index] = _matched_ids(view, views[found], lent, invalid)
         elif views[found].n_devices != view.n_devices:
             invalid.append(
                 f"{key}: {view.raw_name} has {view.n_devices} devices in {view.system} "
