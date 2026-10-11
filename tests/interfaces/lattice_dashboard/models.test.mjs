@@ -401,4 +401,19 @@ describe('notice banner', () => {
       expect(selectionNotice({ notice: null, selection: { model: 'main', status } })).toBeNull();
     }
   });
+
+  test('a pick the build does not list puts its error in the banner', () => {
+    const state = {
+      notice: null,
+      selection: { model: null, status: 'none', error: 'Unknown model: GHOST' },
+    };
+
+    expect(selectionNotice(state)).toBe('No model loaded: Unknown model: GHOST');
+  });
+
+  test('no selection without an error adds nothing to the banner', () => {
+    const state = { notice: null, selection: { model: null, status: 'none', error: null } };
+
+    expect(selectionNotice(state)).toBeNull();
+  });
 });

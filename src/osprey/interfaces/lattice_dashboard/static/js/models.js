@@ -138,15 +138,17 @@ export function syncAvailability(state, figureNames, fetchFigure) {
 }
 
 /**
- * The banner text for a state: the build's notice, else the selected model's
- * load error, else null.
+ * The banner text for a state: the build's notice, else the selection's error,
+ * else null.
  * @param {any} state - the /api/state body
  * @returns {string | null}
  */
 export function selectionNotice(state) {
   if (state?.notice) return state.notice;
   const selection = state?.selection;
-  if (selection?.status !== 'failed') return null;
+  const shown =
+    selection?.status === 'failed' || (selection?.status === 'none' && selection.error);
+  if (!shown) return null;
   const error = selection.error ?? 'unknown error';
   return selection.model ? `${selection.model} did not load: ${error}` : `No model loaded: ${error}`;
 }
