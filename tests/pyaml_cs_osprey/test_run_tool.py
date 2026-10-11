@@ -10,6 +10,7 @@ stops it before the tool is called.
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import signal
@@ -30,6 +31,7 @@ from pyaml.tuning_tools.measurement_tool import MeasurementTool
 from pyaml_test_lattice import lattices
 
 import osprey.runtime
+import pyaml_cs_osprey.run_tool as run_tool_mod
 from osprey.errors import ChannelReadFailedError
 from osprey.mcp_server.python_executor.executor import RESTORE_REPORT_TAG
 from osprey.runtime.guarded_run import (
@@ -58,6 +60,19 @@ def machine(
     m = _Machine({"A": 1.0, "B": 2.0, "C": 3.0})
     yield m.install(monkeypatch, ("read_channels", "write_channel", "channel_limits"))
     assert active_journals() == ()
+
+
+def test_run_tool_imports_no_private_runtime_name() -> None:
+    """The wrapper reaches the runtime only through its public names."""
+    tree = ast.parse(Path(run_tool_mod.__file__).read_text(encoding="utf-8"))
+    private = [
+        f"{node.module}.{alias.name}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("osprey.runtime")
+        for alias in node.names
+        if alias.name.startswith("_")
+    ]
+    assert private == []
 
 
 def test_the_report_tag_is_the_one_the_executor_files() -> None:
@@ -456,6 +471,49 @@ class TestRestore:
         out, err = capsys.readouterr()
         assert _tagged(out) + _tagged(err) == [json.loads(report.to_json())]
 
+    def test_a_false_return_in_a_nested_run_ends_the_outer_run_with_one_report(
+        self, machine: _Machine, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A nested ``False`` is an abort of the whole guarded run, restored once."""
+
+        def inner() -> bool:
+            machine.set("B", 6.0)
+            return False
+
+        def outer() -> bool:
+            machine.set("A", 5.0)
+            run_tool(inner)
+            machine.set("C", 9.0)
+            return True
+
+        report = run_tool(outer)
+        assert report.aborted is True
+        assert report.restored == ["A", "B"]
+        assert machine.values == {"A": 1.0, "B": 2.0, "C": 3.0}
+        assert [w for w in machine.writes if w[0] == "C"] == []
+        out, err = capsys.readouterr()
+        assert _tagged(out) + _tagged(err) == [json.loads(report.to_json())]
+
+    def test_a_clean_nested_run_prints_no_line(
+        self, machine: _Machine, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Only the outermost run prints, once, as it ends."""
+        printed: list[list[dict[str, Any]]] = []
+
+        def inner() -> None:
+            machine.set("B", 6.0)
+
+        def outer() -> None:
+            run_tool(inner)
+            out, err = capsys.readouterr()
+            printed.append(_tagged(out) + _tagged(err))
+
+        report = run_tool(outer)
+        assert printed == [[]]
+        out, err = capsys.readouterr()
+        assert _tagged(out) + _tagged(err) == [json.loads(report.to_json())]
+        assert report == RestoreReport(aborted=False)
+
     def test_the_tagged_line_is_printed_once_per_return(
         self, machine: _Machine, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -466,7 +524,7 @@ class TestRestore:
             return False
 
         report = run_tool(tool)
-        lines = _tagged(capsys.readouterr().out)
+        lines = _tagged(capsys.readouterr().err)
         assert lines == [json.loads(report.to_json())]
         assert lines[0] == {
             "restored": ["B"],

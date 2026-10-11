@@ -115,6 +115,7 @@ __all__ = [
     "guarded_run_target",
     "journaled_run",
     "lock",
+    "restore_writes",
 ]
 
 #: The directory under the repo's state zone (``var/``) holding one
@@ -520,6 +521,41 @@ def _walk(current: Any, target: Any, max_step: float | None) -> list[Any]:
     if n_steps == 1:
         return [target]
     return _points(float(current), target, n_steps)
+
+
+def restore_writes(
+    journal: Journal,
+    current: dict[str, Any] | None,
+    max_steps: dict[str, float | None] | None = None,
+) -> int:
+    """Writes a restore needs: ``max(1, ceil(|now - journaled| / max_step))`` per address.
+
+    An address whose current value is unknown, non-numeric, or has no positive
+    ``max_step`` counts one write.
+
+    Args:
+        journal: The journal of the guarded run.
+        current: The current value per journaled address, ``None`` when unknown.
+        max_steps: Each address's ``max_step`` limit, filled in here the first time
+            an address needs it; a lookup that raises is not kept and counts one write.
+            ``None`` looks every limit up afresh.
+    """
+    if max_steps is None:
+        max_steps = {}
+    total = 0
+    for address, target in journal.items():
+        now: Any = None if current is None else current.get(address)
+        max_step: float | None = None
+        if _as_number(now) is not None and _as_number(target) is not None:
+            if address in max_steps:
+                max_step = max_steps[address]
+            else:
+                try:
+                    max_step = max_steps[address] = _max_step(address)
+                except Exception:  # an unknown limit budgets one write
+                    max_step = None
+        total += _n_steps(now, target, max_step)
+    return total
 
 
 def _read_failure_reason(address: str, exc: BaseException) -> str:

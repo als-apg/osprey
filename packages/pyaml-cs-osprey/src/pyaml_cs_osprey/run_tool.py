@@ -5,27 +5,18 @@ writes many setpoints in sequence. :func:`run_tool` calls it inside
 :func:`osprey.runtime.guarded_run.journaled_run`: the target's run lock is held for
 the whole call, every device write is journaled (durably, before the address is
 first written) and the tool's own writes are the only ones the package lets
-through. When the tool stops part-way - the caller's callback says stop, pyAML
-raises ``KeyboardInterrupt``, a write is refused - the setpoints it moved are
-written back before the call returns. A run killed outright leaves its durable
-journal for the next guarded run on the target to restore.
+through. A run killed outright leaves its durable journal for the next guarded
+run on the target to restore.
 
-The guarded run is the one place an interrupted run is restored: whatever
-escapes the tool is restored by ``journaled_run`` as it leaves, which prints the
-run's one report line and hangs the report on the exception. ``run_tool``
-restores by itself only a tool that returns ``False``, and only the setpoints
-that call moved. A ``run_tool`` nested in another runs inside the outer guarded
-run, so anything escaping it ends the outer run too, restored and reported once.
-
-The restore never forces anything. Each address is written back through
-``osprey.runtime.write_channel`` like any other write, so limits, write gates and
-the control-target check apply; an address the connector refuses is reported as
-refused with the value it was left at. When a channel has a ``max_step`` limit and
-the way back is longer, the restore walks back in equal steps no larger than
-``max_step``.
-
-Every run prints one tagged line, ``OSPREY_GUARDED_RUN_RESTORE <json>``, so that
-execution records and the agent both see the outcome.
+``run_tool`` stops the tool and guards the deadline; the runtime restores. Every
+way a tool stops part-way - the caller's callback says stop, pyAML raises
+``KeyboardInterrupt``, the tool returns ``False``, a write is refused - leaves the
+guarded run with an exception, and ``journaled_run`` writes back what the run
+moved as it leaves, hangs the report on the exception and prints the run's one
+tagged line, ``OSPREY_GUARDED_RUN_RESTORE <json>``, on stderr. A run that
+completes prints the same line with ``aborted: false``. A ``run_tool`` nested in
+another runs inside the outer guarded run, so a stop in it ends the outer run
+too, restored and reported once.
 
 Inside the python_executor sandbox the executor exports the absolute time at which
 it kills the script (``OSPREY_EXECUTION_DEADLINE``, Unix seconds). When the tool
@@ -40,11 +31,9 @@ that every nested ``run_tool`` shares. A tool method that accepts a ``callback``
 always receives one that returns ``False`` once the flag is set, deadline or not,
 so the tool stops through pyAML's own abort path; for a method that takes none the
 handler raises ``KeyboardInterrupt`` at once. Either way the guarded run is
-restored, the report is printed to stderr, and ``run_tool`` raises
-``KeyboardInterrupt`` carrying the report, so the script ends and no later
-statement writes. Once the tool has returned or raised, ``SIGINT`` is ignored
-until the guarded run has finished: the restore always writes every journaled
-address back and prints exactly one tagged line.
+restored and ``run_tool`` raises ``KeyboardInterrupt`` carrying the report, so the
+script ends and no later statement writes. The runtime's exit path ignores
+``SIGINT`` while it restores and reports.
 """
 
 from __future__ import annotations
@@ -52,7 +41,6 @@ from __future__ import annotations
 import contextlib
 import inspect
 import signal
-import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -66,14 +54,10 @@ import osprey.runtime
 from osprey.runtime.guarded_run import (
     RESTORE_REPORT_TAG,
     RestoreReport,
-    _max_step,
-    _n_steps,
-    _print_report,
-    _restore,
     journaled_run,
+    restore_writes,
 )
 from osprey.runtime.journal import Journal, pop_journal, push_journal, read_map
-from osprey_connectors.control_system.base import as_number
 
 __all__ = [
     "DEFAULT_WRITE_LATENCY_S",
@@ -107,13 +91,10 @@ class _Level:
         accepts_callback: The tool method has a ``callback`` parameter, so a Ctrl-C
             stops it through that callback rather than by raising.
         in_tool: The tool method is running (not yet returned or raised).
-        shielded: The tool method has returned or raised, and this call holds one
-            count of the shared ``SIGINT`` shield until its guarded run finishes.
     """
 
     accepts_callback: bool
     in_tool: bool = False
-    shielded: bool = False
 
 
 @dataclass
@@ -122,16 +103,14 @@ class _Interrupt:
 
     Attributes:
         requested: The ``SIGINT`` handler asked the run to abort.
-        stopped: A level's callback asked its tool to stop.
+        stopped: A level's callback asked its tool to stop, or a tool returned
+            ``False``.
         levels: The ``run_tool`` calls in progress, outermost first.
-        shield: How many of them are finishing (restoring, reporting); while any
-            is, ``SIGINT`` is ignored.
     """
 
     requested: bool = False
     stopped: bool = False
     levels: list[_Level] = field(default_factory=list)
-    shield: int = 0
 
 
 #: The Ctrl-C state of the ``run_tool`` calls in progress in this context.
@@ -141,14 +120,11 @@ _INTERRUPT: ContextVar[_Interrupt | None] = ContextVar("pyaml_cs_osprey_interrup
 def _sigint_handler(state: _Interrupt) -> Callable[[int, Any], None]:
     """The ``SIGINT`` handler of the guarded run whose state is ``state``.
 
-    Ignored while a run is finishing. Otherwise it sets the abort flag, and raises
-    ``KeyboardInterrupt`` when the innermost tool method is running and takes no
-    callback that could stop it.
+    It sets the abort flag, and raises ``KeyboardInterrupt`` when the innermost
+    tool method is running and takes no callback that could stop it.
     """
 
     def handler(_signum: int, _frame: Any) -> None:
-        if state.shield:
-            return
         state.requested = True
         level = state.levels[-1] if state.levels else None
         if level is not None and level.in_tool and not level.accepts_callback:
@@ -238,36 +214,6 @@ def _seed_interval(tool_method: Callable[..., Any], kwargs: dict[str, Any]) -> f
     return total
 
 
-def _walk_back_writes(
-    journal: Journal, current: dict[str, Any] | None, max_steps: dict[str, float | None]
-) -> int:
-    """Writes a restore needs: ``max(1, ceil(|now - journaled| / max_step))`` per address.
-
-    An address whose current value is unknown, non-numeric, or has no positive
-    ``max_step`` counts one write.
-
-    Args:
-        journal: The journal of the guarded run.
-        current: The current value per journaled address, ``None`` when unknown.
-        max_steps: Each address's ``max_step`` limit, filled in here the first time
-            an address needs it; a lookup that raises is not kept and counts one write.
-    """
-    total = 0
-    for address, target in journal.items():
-        now: Any = None if current is None else current.get(address)
-        max_step: float | None = None
-        if as_number(now) is not None and as_number(target) is not None:
-            if address in max_steps:
-                max_step = max_steps[address]
-            else:
-                try:
-                    max_step = max_steps[address] = _max_step(address)
-                except Exception:  # an unknown limit budgets one write
-                    max_step = None
-        total += _n_steps(now, target, max_step)
-    return total
-
-
 def _deadline_callback(
     caller: Callable[..., Any] | None,
     journal: Journal,
@@ -281,13 +227,14 @@ def _deadline_callback(
     any falsy value (``None`` included) stops the tool. Otherwise the time left
     before ``deadline`` is compared with ``margin + EXIT_RESERVE_S``, where::
 
-        margin = 2 * (interval + latency * (walk_back_writes + 1) + read_latency)
+        margin = 2 * (interval + latency * (writes + 1) + read_latency)
 
     ``interval`` is the longest gap between consecutive invocations, never less
     than ``seed_interval``; ``latency`` is the longest journaled write latency
-    (``DEFAULT_WRITE_LATENCY_S`` before the first one); ``walk_back_writes`` sums,
-    over the journaled addresses, the writes a ``max_step`` walk-back needs from
-    their current values, read once per invocation; ``read_latency`` is the
+    (``DEFAULT_WRITE_LATENCY_S`` before the first one); ``writes`` is
+    :func:`osprey.runtime.guarded_run.restore_writes`, the writes a ``max_step``
+    walk-back needs over the journaled addresses from their current values,
+    read once per invocation; ``read_latency`` is the
     longest such read.
 
     Args:
@@ -330,7 +277,7 @@ def _deadline_callback(
             except Exception:  # unknown values budget one write each
                 current = None
             read_latency = max(read_latency, _clock() - start)
-        writes = _walk_back_writes(journal, current, max_steps)
+        writes = restore_writes(journal, current, max_steps)
         margin = 2.0 * (interval + latency * (writes + 1) + read_latency)
         return bool(deadline - _clock() >= margin + EXIT_RESERVE_S)
 
@@ -351,33 +298,32 @@ def run_tool(
     * The method returns anything but ``False``: the run completed; the machine
       stays as the tool left it and the report is empty with ``aborted=False``.
     * The method returns ``False`` (how a pyAML ``measure()`` reports an
-      interrupted run): what this call moved is restored and the report is
-      returned with ``aborted=True``.
-    * The method raises ``KeyboardInterrupt`` after a callback returned a falsy
-      value (how pyAML's callback machinery aborts): the guarded run is
-      restored and its report is returned with ``aborted=True``.
+      interrupted run), or raises ``KeyboardInterrupt`` after a callback
+      returned a falsy value (how pyAML's callback machinery aborts): the
+      guarded run is restored and its report is returned with ``aborted=True``.
     * The method raises ``KeyboardInterrupt`` that no callback asked for (a
       Ctrl-C): the guarded run is restored, the report is attached as
-      ``exc.restore_report`` and printed to stderr, and the interrupt propagates.
+      ``exc.restore_report``, and the interrupt propagates.
     * The method raises any other exception, ``SystemExit`` and
       ``GeneratorExit`` included: the guarded run is restored, the report is
-      attached as ``exc.restore_report`` and printed to stderr, and the
-      exception propagates.
+      attached as ``exc.restore_report``, and the exception propagates.
     * A Ctrl-C (``SIGINT``) while the tool runs, in this or any enclosing
       ``run_tool``: the tool is stopped (through its callback when it takes one),
-      the guarded run is restored, the report is printed to stderr, and
-      ``KeyboardInterrupt`` is raised carrying the report as ``restore_report``,
-      whatever the method returned. ``SIGINT`` is ignored while restoring.
+      the guarded run is restored, and ``KeyboardInterrupt`` is raised carrying
+      the report as ``restore_report``, whatever the method returned.
 
     In every case the tool's own callback slot is cleared afterwards.
 
     The run is :func:`osprey.runtime.guarded_run.journaled_run` on the process's
     stamped control target: it holds the target's run lock for the whole call,
     restores a killed run's journal before the method starts, journals each
-    address durably before its first write, and restores the run when anything
-    escapes it. A ``run_tool`` nested in another, or in a journaled run opened
-    by its caller, runs under the outer run's lock and journal; whatever escapes
-    it is restored and reported once, by the outermost run.
+    address durably before its first write, and is the one place the run is
+    restored and reported: its exit path ignores ``SIGINT`` and prints the run's
+    one tagged line on stderr, for a completed run as for a stopped one. A
+    ``run_tool`` nested in another, or in a journaled run opened by its caller,
+    runs under the outer run's lock and journal and prints nothing; a stop in
+    it, a ``False`` return included, ends the outer run, which restores and
+    reports once.
 
     When ``OSPREY_EXECUTION_DEADLINE`` is set and the method has a ``callback``
     parameter, the method receives a chained callback that also stops the tool
@@ -394,7 +340,7 @@ def run_tool(
         **kwargs: Keyword arguments for the method.
 
     Returns:
-        The restore report; its tagged line has been printed.
+        The run's report.
 
     Raises:
         osprey.runtime.guarded_run.OspreyRunBusy: Another guarded run holds the
@@ -411,24 +357,25 @@ def run_tool(
         Exception: Whatever the method raised, carrying the report as
             ``restore_report`` once the outermost guarded run has restored.
         KeyboardInterrupt: The method was interrupted without a callback
-            asking it to stop, or the run got a ``SIGINT``; carries the report
-            as ``restore_report`` once the outermost guarded run has restored.
+            asking it to stop, the run got a ``SIGINT``, or a nested run was
+            stopped; carries the report as ``restore_report`` once the
+            outermost guarded run has restored.
     """
     with _interrupt_scope() as state:
         level = _Level(accepts_callback=_accepts_callback(tool_method))
         state.levels.append(level)
         try:
+            deadline = osprey.runtime.execution_deadline()
+            guarded = deadline is not None and level.accepts_callback
             try:
-                with journaled_run(None):
-                    return _run_guarded(tool_method, args, kwargs, callback, state, level)
+                with journaled_run(None, deadline_guard=guarded):
+                    return _run_guarded(tool_method, args, kwargs, callback, state, level, deadline)
             except KeyboardInterrupt as stop:
                 report = getattr(stop, "restore_report", None)
                 if not isinstance(report, RestoreReport) or state.requested or not state.stopped:
                     raise
                 return report
         finally:
-            if level.shielded:
-                state.shield -= 1
             state.levels.remove(level)
 
 
@@ -439,20 +386,21 @@ def _run_guarded(
     callback: Callable[..., Any] | None,
     state: _Interrupt,
     level: _Level,
+    deadline: float | None,
 ) -> RestoreReport:
     """:func:`run_tool`'s body, run inside the journaled guarded run.
 
     ``state`` is the Ctrl-C state shared with every enclosing ``run_tool`` and
-    ``level`` is this call's entry on its stack. Once the method has returned or
-    raised, ``level`` holds one count of the ``SIGINT`` shield, which
-    :func:`run_tool` gives back after the guarded run has finished.
+    ``level`` is this call's entry on its stack; ``deadline`` is the execution
+    deadline, ``None`` when there is none.
 
-    An exception escaping here is restored by the guarded run; one escaping a
+    A ``False`` return is a stop: it is noted in ``state`` and raised as
+    ``KeyboardInterrupt``, so the guarded run restores it like any other. An
+    exception escaping here is restored by the guarded run; one escaping a
     deadline-guarded call carries ``deadline_guard = True`` so its report says so.
     """
     journal = Journal()
     disarm: Callable[[], None] | None = None
-    deadline = osprey.runtime.execution_deadline()
     chained: Callable[..., Any] | None = callback
     if deadline is not None and level.accepts_callback:
         chained, disarm = _deadline_callback(
@@ -487,10 +435,11 @@ def _run_guarded(
             result = tool_method(*args, **kwargs)
         finally:
             level.in_tool = False
-            state.shield += 1
-            level.shielded = True
             pop_journal(journal)
         if state.requested:
+            raise KeyboardInterrupt
+        if result is False:
+            state.stopped = True
             raise KeyboardInterrupt
     except BaseException as exc:
         if guarded:
@@ -501,10 +450,4 @@ def _run_guarded(
         if disarm is not None:
             disarm()
         _clear_owner_callback(tool_method)
-    if result is False:
-        report = _restore(journal, aborted=True)
-    else:
-        report = RestoreReport(aborted=False)
-    report.deadline_guard = guarded
-    _print_report(report, sys.stdout)
-    return report
+    return RestoreReport(aborted=False, deadline_guard=guarded)
