@@ -31,10 +31,11 @@ recorded for that family's row in ``imported/mml/rows.json``
 (:mod:`~osprey.facility.layers.mml.rows`) and to that device's wiring record
 of the family's engine words. A row the export
 marks ``Status`` 0 is the export's own exclusion and is not compared. A row no
-wired device answers to, a column with no finite width and a column whose
-sweep leaves the deck without a solve are left out of the comparison too, and
-``validate`` then prints a second line for the model, naming how many rows the
-check left out and why. Each corrector is swept on its own through the engine's
+wired device answers to, a column whose record names no deck element (it drives
+a property of the whole deck, which the sweep does not step), a column with no
+finite width and a column whose sweep leaves the deck without a solve are left
+out of the comparison too, and ``validate`` then prints a second line for the
+model, naming how many rows the check left out and why. Each corrector is swept on its own through the engine's
 response matrix, rows matched by the readback addresses it returns, and its
 hardware entries are carried into the export's physics units through the two
 records' calibrations, so one unsolvable corrector leaves its column out and
@@ -254,7 +255,8 @@ class LeftOut:
     corrector rows alike.
 
     Attributes:
-        unwired: Rows no wired device of the family answers to.
+        unwired: Rows no wired device of the family answers to, and corrector
+            rows whose record names no deck element to step.
         no_width: Corrector rows with no finite sweep width, or whose width
             spans no physics distance through the corrector's calibration.
         unsolved: Corrector rows whose sweep leaves the deck without a solve.
@@ -651,6 +653,15 @@ def _well_shaped(block: Mapping[str, Any]) -> bool:
 # -- the facility file -------------------------------------------------------
 
 
+def _steps_an_element(record: Mapping[str, Any]) -> bool:
+    """Whether a corrector record binds a deck element the sweep can step.
+
+    A record naming neither an element nor slices drives a property of the
+    whole deck, which a per-corrector sweep does not step.
+    """
+    return record.get("element") is not None or bool(record.get("slices"))
+
+
 def _family_records(
     document: Mapping[str, Any],
     model: Mapping[str, Any],
@@ -840,7 +851,12 @@ def compare(
         actuator_plane = plane(actuator_family, "write")
         entries: list[Entry] = []
         rows, left_rows = _kept_rows(block, "monitor", records(monitor_family, "read"))
-        columns, left_columns = _kept_rows(block, "actuator", records(actuator_family, "write"))
+        correctors = {
+            key: record
+            for key, record in records(actuator_family, "write").items()
+            if _steps_an_element(record)
+        }
+        columns, left_columns = _kept_rows(block, "actuator", correctors)
         left_out = left_rows + left_columns
         tabled = [row for row, monitor in rows.items() if _table_calibrated(monitor)]
         for row in tabled:

@@ -1,0 +1,1 @@
+`osprey facility validate`'s response check counts a corrector row whose wiring record names no deck element (such as an energy knob) as left out, unwired, instead of stopping the check for every model.

@@ -9,6 +9,7 @@ block's figures.
 
 from __future__ import annotations
 
+import copy
 import io
 import json
 import math
@@ -37,6 +38,7 @@ from osprey.facility.layers.mml.response_check import (
     judge,
     report,
 )
+from osprey.facility.layers.mml.rows import read_rows
 from tests.facility._mml_built import WIDENED, widen
 from tests.facility.test_mml_layer_seed_once import OUTSIDE
 
@@ -531,3 +533,76 @@ def test_a_monitor_with_a_table_calibration_is_left_out_and_counted(synthetic: P
         "response check SR: left out 2 rows "
         "(0 unwired, 0 no width, 0 unsolved, 2 table calibration)"
     )
+
+
+def _with_a_deck_property_block(source: Path, root: Path) -> tuple[Path, int]:
+    """A copy of ``source`` whose SR export gains a block swept by the ``BEND`` family.
+
+    Returns:
+        The copy and the number of ``BEND`` rows the new block states.
+    """
+    shutil.copytree(source, root)
+    path = _facility(root) / LAYER_DIR / "SR.response.json"
+    response = json.loads(path.read_text(encoding="utf-8"))
+    block = copy.deepcopy(response["blocks"][0])
+    assert (block["monitor"]["family"], block["actuator"]["family"]) == ("BPMx", "HC")
+    rows = [list(key) for key in sorted(read_rows(_facility(root))[("SR", "BEND")])]
+    n = len(rows)
+    assert n > 0
+    block["actuator"]["family"] = "BEND"
+    block["actuator"]["device_list"] = rows
+    block["actuator"]["status"] = [1] * n
+    block["actuator"]["data"] = [0.0] * n
+    block["actuator_delta"] = 1.0
+    block["data"] = [[1.0e-3] * n for _ in block["monitor"]["device_list"]]
+    response["blocks"].append(block)
+    path.write_text(json.dumps(response), encoding="utf-8")
+    return root, n
+
+
+def test_a_corrector_record_naming_no_element_leaves_its_column_out_as_unwired(
+    synthetic: Path, tmp_path: Path
+) -> None:
+    """A record driving a property of the whole deck is no column the sweep can step."""
+    repo, n = _with_a_deck_property_block(synthetic, tmp_path / "synthetic")
+    facility = _facility(repo)
+    document = build_facility(facility, project_name="scratch")
+    model = next(model for model in document["models"] if model["name"] == "SR")
+    knobs = [
+        record
+        for record in model["wiring"]
+        if record.get("direction") == "write" and record.get("engine") == {"attribute": "energy"}
+    ]
+    assert knobs
+    assert all("element" not in record and "slices" not in record for record in knobs)
+    base_facility = _facility(synthetic)
+    base_document = build_facility(base_facility, project_name="scratch")
+    base_model = next(model for model in base_document["models"] if model["name"] == "SR")
+    baseline = compare(base_facility, base_document, base_model)
+
+    blocks = compare(facility, document, model)
+
+    assert [block.name for block in blocks] == [block.name for block in baseline] + ["BPMx/BEND"]
+    assert blocks[-1].entries == ()
+    assert blocks[-1].judged is False
+    assert blocks[-1].left_out == LeftOut(unwired=n)
+    for block, whole in zip(blocks[:-1], baseline, strict=True):
+        assert block.entries == whole.entries, block.name
+
+
+def test_a_deck_property_corrector_block_exits_0_and_counts_its_rows_unwired(
+    synthetic: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, n = _with_a_deck_property_block(synthetic, tmp_path / "synthetic")
+
+    result = _validate(repo, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert (result.stdout, result.stderr) == (
+        "",
+        SYNTHETIC_LINE
+        + "\n"
+        + f"response check SR: left out {n} rows "
+        + f"({n} unwired, 0 no width, 0 unsolved, 0 table calibration)\n",
+    )
+    assert "The response check cannot run." not in result.stderr
