@@ -9,6 +9,8 @@ appends to. Overlap records from a model's log follow its ``log:`` line,
 prefixed ``(log, …)`` so they never read as the model's status; every other
 log record stays out. On a target served by any other connector, each model's
 status is read from its status channel through that target's connector.
+On the stand-in target the ``log:`` line and the overlap records are read from
+the stand-in's own subdirectory, ``var/simulator/standin/<model>.log``.
 """
 
 from __future__ import annotations
@@ -192,6 +194,81 @@ def test_a_virtual_accelerator_target_reports_each_models_status_channel(
     assert f"SR: {SR_ERROR}" in result.output.splitlines()
     assert connector.read == ["ca:SIM:SR:STATUS"]
     assert connector.disconnected
+    assert asked == [args[1] if args else None]
+
+
+@pytest.mark.parametrize(
+    ("config", "args"),
+    [
+        (
+            "control_system:\n  type: live_standin\n  connector:\n    live_standin: {}\n",
+            (),
+        ),
+        (
+            "control_system:\n  type: epics\n  connector:\n    epics: {}\n    live_standin: {}\n",
+            ("--target", "standin"),
+        ),
+    ],
+    ids=["baseline", "flag"],
+)
+def test_the_standin_target_names_and_reads_the_standins_own_log(
+    lifecycle_repo: Path, monkeypatch: pytest.MonkeyPatch, config: str, args: tuple[str, ...]
+) -> None:
+    from osprey_connectors.factory import ConnectorFactory
+
+    write_simulator_view(stub_build(lifecycle_repo, config=config))
+    connector = _StatusChannels({"ca:SIM:SR:STATUS": "ok"})
+    asked: list[str | None] = []
+
+    async def create(section: dict, control_target: str | None = None) -> _StatusChannels:
+        del section
+        asked.append(control_target)
+        return connector
+
+    monkeypatch.setattr(ConnectorFactory, "create_control_system_connector", create)
+    simulator_logs = lifecycle_repo / "var" / "simulator"
+    standin_log = simulator_logs / "standin" / "SR.log"
+    standin_log.parent.mkdir(parents=True, exist_ok=True)
+    standin_log.write_text(
+        json.dumps(
+            {
+                "instance": "live_standin",
+                "pid": 321,
+                "model": "SR",
+                "event": OVERLAP_EVENT,
+                "target": "SR:MAG:HCM:01:CURRENT:SP",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (simulator_logs / "SR.log").write_text(
+        json.dumps(
+            {
+                "instance": "inprocess",
+                "pid": 999,
+                "model": "SR",
+                "event": OVERLAP_EVENT,
+                "target": "SR:MAG:HCM:01:CURRENT:SP",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _status(lifecycle_repo, *args)
+
+    assert result.exit_code == 0, result.output
+    lines = _log_lines(result.output)
+    assert len(lines) == 1
+    printed = Path(lines[0].removeprefix("log: "))
+    assert printed.is_absolute()
+    assert printed.samefile(standin_log)
+    assert (
+        "SR (log, instance live_standin, pid 321): scenario-overlap on SR:MAG:HCM:01:CURRENT:SP"
+        in result.output.splitlines()
+    )
+    assert "pid 999" not in result.output
     assert asked == [args[1] if args else None]
 
 

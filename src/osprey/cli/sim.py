@@ -257,6 +257,7 @@ def list_command(repo: Path | None) -> None:
 def status_command(repo: Path | None, target: str | None) -> None:
     """Show each served physics model's status and the log it writes."""
     from osprey_connectors.types import (
+        STANDIN_TYPES,
         TRANSPORT_IN_PROCESS,
         connector_transport,
         resolve_control_system_type,
@@ -286,10 +287,15 @@ def status_command(repo: Path | None, target: str | None) -> None:
 
     from osprey_connectors.simulation import format_overlap_record
     from osprey_connectors.simulation.composite import log_dir
+    from osprey_connectors.workspace import SIMULATOR_STANDIN_LOG_SUBDIR
 
     logs = log_dir()
     if logs is None:
         return
+    # The stand-in appends its model logs in its own subdirectory of the simulator
+    # log directory, so the line and the records name the file its server writes.
+    if connector_type in STANDIN_TYPES:
+        logs = logs / SIMULATOR_STANDIN_LOG_SUBDIR
     for model in models:
         log = logs / f"{model}.log"
         output.report(f"log: {log}")
