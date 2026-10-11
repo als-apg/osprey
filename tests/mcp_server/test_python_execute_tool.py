@@ -793,6 +793,28 @@ def test_collect_artifacts_empty_when_no_manifest(tmp_path):
     assert collect_artifacts(tmp_path) == []
 
 
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        pytest.param({"filename": "abc123_test.json"}, id="not-a-list"),
+        pytest.param([{}], id="no-filename"),
+        pytest.param([{"filename": 3}, "abc123_test.json", None], id="malformed-entries"),
+    ],
+)
+def test_collect_artifacts_skips_a_malformed_manifest(tmp_path, manifest):
+    """A manifest that is not a list, or an entry naming no filename, saves nothing."""
+    import json
+
+    from osprey.stores.artifact_manifest import collect_artifacts
+
+    art_dir = tmp_path / "artifacts"
+    art_dir.mkdir()
+    (art_dir / "abc123_test.json").write_bytes(b"{}")
+    (art_dir / "manifest.json").write_text(json.dumps(manifest))
+
+    assert collect_artifacts(tmp_path) == []
+
+
 async def test_save_artifact_registered_in_gallery(tmp_path, monkeypatch):
     """Artifacts from exec_result.artifacts are saved to the gallery."""
 

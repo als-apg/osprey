@@ -214,8 +214,10 @@ _REQUIRED_APPROVED_FIELDS: tuple[str, ...] = ("approved_journal_sha256", "approv
 APPROVAL_ASK_PREFIX = "approval_ask_"
 APPROVAL_ASK_SUFFIX = ".json"
 
-#: The file in the execution folder that holds the restore reports a run's
-#: guarded runs made, as the sandbox handed them back in its execution record.
+#: The file in the execution folder that holds a readwrite run's restore
+#: record: ``{"sandbox": [...], "observed_on_disk": {...}}`` — the reports the
+#: sandbox handed back in its execution record, and what the executor read in
+#: the target's journal after the run.
 RESTORE_REPORT_FILE = "guarded_run_restore_reports.json"
 
 #: Upper bound, in seconds, on winding down a cancelled run that has no finite
@@ -241,6 +243,17 @@ _CANCEL_READ_CHUNK = 65536
 REASON_RESTORE_COMPLETE = "guarded_run_restore_complete"
 #: Audit ``reason`` for a restore that left an address refused or unconfirmed.
 REASON_RESTORE_INCOMPLETE = "guarded_run_restore_incomplete"
+#: Audit ``reason`` for a run's target journal the executor itself read after
+#: the run and found holding entries, or could not read.
+REASON_JOURNAL_LEFT = "guarded_run_journal_left"
+#: Audit ``reason`` for a run that ended abnormally and left no journal entry
+#: the executor could see.
+REASON_JOURNAL_ABSENT = "guarded_run_journal_absent"
+
+#: The provenance word at the front of every filed restore detail: what the
+#: sandbox reported, and what the executor saw on disk itself.
+SOURCE_SANDBOX = "source=sandbox"
+SOURCE_OBSERVED_ON_DISK = "source=observed_on_disk"
 
 
 @dataclass
@@ -1113,6 +1126,11 @@ async def _execute_via_local(
 
     python_bin = str(resolve_agent_interpreter(project_root))
 
+    # A readwrite launch files exactly one run record: each exit path below
+    # that files one says so, and whatever leaves the launch without one (an
+    # exception while the result is built) files it as an abnormal exit.
+    filed = execution_mode != "readwrite"
+
     # A switch of the recorded control target retires the connector host this run
     # was stamped against, so the switch tool has to be able to see that a run is
     # under way. The marker exists for exactly as long as the sandbox process,
@@ -1121,77 +1139,104 @@ async def _execute_via_local(
     with _in_flight_marker(control_target, sandbox_env.get(ENV_LAUNCH_POSTURE)):
         proc: asyncio.subprocess.Process | None = None
         try:
-            proc = await asyncio.create_subprocess_exec(
-                python_bin,
-                str(script_path),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(project_root),
-                env=sandbox_env,
-            )
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            stdout_text = stdout_bytes.decode("utf-8", errors="replace")
-            stderr_text = stderr_bytes.decode("utf-8", errors="replace")
-        except asyncio.CancelledError:
-            # A cancel that lands before the child exists has nothing to wind
-            # down. One that lands after it is answered before it propagates,
-            # inside the marker, so the marker outlives the child.
-            if proc is not None:
-                await _interrupt_and_drain(proc, start_time, timeout, execution_folder)
-            raise
-        except TimeoutError:
-            assert proc is not None  # the wait that timed out is the child's
-            proc.kill()
-            await proc.wait()
-            elapsed = time.time() - start_time
-            # A record on disk means the script ran to completion and the
-            # sandbox then failed to exit — a library's shutdown hook wedged
-            # on the way out. That run may have written to the machine, so it
-            # is reported from its record; the pipes were never drained, so
-            # the record is the only account of its output. No record means
-            # the script itself was still running: that is the timeout.
-            metadata = _read_execution_metadata(execution_folder)
-            if metadata is not None:
-                notice = (
-                    f"The sandbox did not exit within {timeout} seconds after the script "
-                    "finished and was killed; the outcome above is the script's own record."
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    python_bin,
+                    str(script_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(project_root),
+                    env=sandbox_env,
                 )
-                logger.warning(
-                    "Sandbox %s finished its script but did not exit within %ss; killed",
-                    execution_folder.name,
-                    timeout,
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(), timeout=timeout
                 )
-                return _result_from_run(
-                    execution_folder,
-                    metadata,
-                    stdout_text="",
-                    stderr_text="",
-                    returncode=proc.returncode,
-                    elapsed=elapsed,
+                stdout_text = stdout_bytes.decode("utf-8", errors="replace")
+                stderr_text = stderr_bytes.decode("utf-8", errors="replace")
+            except asyncio.CancelledError:
+                # A cancel before the handle exists is still observed on disk;
+                # one after it is answered before it propagates, inside the
+                # marker, so the marker outlives the child. Either way the
+                # record is filed on this path.
+                if proc is not None:
+                    filed = True  # the wind-down files a readwrite run's record
+                    await _interrupt_and_drain(
+                        proc, start_time, timeout, execution_folder, execution_mode, control_target
+                    )
+                elif not filed:
+                    filed = True
+                    _file_run_record(execution_folder, control_target, None, abnormal=True)
+                raise
+            except TimeoutError:
+                assert proc is not None  # the wait that timed out is the child's
+                proc.kill()
+                await proc.wait()
+                elapsed = time.time() - start_time
+                # A record on disk means the script ran to completion and the
+                # sandbox then failed to exit — a library's shutdown hook wedged
+                # on the way out. That run may have written to the machine, so it
+                # is reported from its record; the pipes were never drained, so
+                # the record is the only account of its output. No record means
+                # the script itself was still running: that is the timeout.
+                metadata = _read_execution_metadata(execution_folder)
+                if metadata is not None:
+                    notice = (
+                        f"The sandbox did not exit within {timeout} seconds after the script "
+                        "finished and was killed; the outcome above is the script's own record."
+                    )
+                    logger.warning(
+                        "Sandbox %s finished its script but did not exit within %ss; killed",
+                        execution_folder.name,
+                        timeout,
+                    )
+                    # _result_from_run files the record before it reads anything else.
+                    filed = True
+                    return _result_from_run(
+                        execution_folder,
+                        metadata,
+                        stdout_text="",
+                        stderr_text="",
+                        returncode=proc.returncode,
+                        elapsed=elapsed,
+                        control_target=control_target,
+                        execution_mode=execution_mode,
+                        stderr_notice=notice,
+                    )
+                if not filed:
+                    filed = True
+                    _file_run_record(execution_folder, control_target, None, abnormal=True)
+                return ExecutionResult(
+                    success=False,
+                    stdout="",
+                    stderr=f"Execution timed out after {timeout} seconds",
+                    execution_method_used=EXECUTION_METHOD_SUBPROCESS,
+                    execution_time_seconds=elapsed,
+                    error_message=f"Execution timed out after {timeout} seconds",
                     control_target=control_target,
-                    stderr_notice=notice,
+                    failure_kind=FAILURE_KIND_TIMEOUT,
+                    written_channels=_read_written_channels(execution_folder),
                 )
-            return ExecutionResult(
-                success=False,
-                stdout="",
-                stderr=f"Execution timed out after {timeout} seconds",
-                execution_method_used=EXECUTION_METHOD_SUBPROCESS,
-                execution_time_seconds=elapsed,
-                error_message=f"Execution timed out after {timeout} seconds",
-                control_target=control_target,
-                failure_kind=FAILURE_KIND_TIMEOUT,
-                written_channels=_read_written_channels(execution_folder),
-            )
 
-    return _result_from_run(
-        execution_folder,
-        _read_execution_metadata(execution_folder),
-        stdout_text=stdout_text,
-        stderr_text=stderr_text,
-        returncode=proc.returncode,
-        elapsed=time.time() - start_time,
-        control_target=control_target,
-    )
+            # _result_from_run files the record before it reads anything else.
+            filed = True
+            return _result_from_run(
+                execution_folder,
+                _read_execution_metadata(execution_folder),
+                stdout_text=stdout_text,
+                stderr_text=stderr_text,
+                returncode=proc.returncode,
+                elapsed=time.time() - start_time,
+                control_target=control_target,
+                execution_mode=execution_mode,
+            )
+        finally:
+            if not filed and proc is not None:
+                _file_run_record(
+                    execution_folder,
+                    control_target,
+                    _read_execution_metadata(execution_folder),
+                    abnormal=True,
+                )
 
 
 async def _interrupt_and_drain(
@@ -1199,6 +1244,8 @@ async def _interrupt_and_drain(
     start_time: float,
     timeout: Any,
     execution_folder: Path,
+    execution_mode: str,
+    control_target: str,
 ) -> None:
     """Wind down a cancelled run's child: SIGINT, drain, kill only at the bound.
 
@@ -1216,9 +1263,8 @@ async def _interrupt_and_drain(
     that deadline has already passed, so such a child is killed at once — or
     :data:`CANCEL_DRAIN_CAP_S` when the run has no finite deadline. A child
     still alive at the bound is killed and reaped. Once it has exited the pipes
-    get :data:`_CANCEL_PIPE_GRACE_S` to deliver what is left, and the restore
-    reports of the run's execution record are filed
-    (:func:`_record_restore_report`).
+    get :data:`_CANCEL_PIPE_GRACE_S` to deliver what is left, and a readwrite
+    run's record is filed as an abnormal exit (:func:`_file_run_record`).
 
     The report is filed, and a still-running child killed, even when a native
     asyncio cancellation breaks through the shield; that cancellation then
@@ -1268,8 +1314,13 @@ async def _interrupt_and_drain(
         if proc.returncode is None:
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()
-        metadata = _read_execution_metadata(execution_folder) or {}
-        _record_restore_report(execution_folder, metadata.get("restore_reports"))
+        if execution_mode == "readwrite":
+            _file_run_record(
+                execution_folder,
+                control_target,
+                _read_execution_metadata(execution_folder),
+                abnormal=True,
+            )
 
 
 def _start_pump(tg: Any, stream: asyncio.StreamReader | None, sink: bytearray) -> Any:
@@ -1304,6 +1355,7 @@ def _result_from_run(
     returncode: int | None,
     elapsed: float,
     control_target: str,
+    execution_mode: str,
     stderr_notice: str | None = None,
 ) -> ExecutionResult:
     """Build the result of a run that ran its script, from its record.
@@ -1315,10 +1367,15 @@ def _result_from_run(
     given, is appended to the reported stderr — a fact about the sandbox
     (it had to be killed) rather than about the script.
 
-    The restore reports the run's guarded runs made travel in the record
-    (``restore_reports``) and are filed as an interrupted run's are
-    (:func:`_record_restore_report`).
+    A readwrite run's restore record is filed (:func:`_file_run_record`)
+    before anything else is read from the folder: the exit is abnormal when
+    there is no record and the child exited non-zero, or when the record says
+    the script failed.
     """
+    if execution_mode == "readwrite":
+        abnormal = metadata.get("success") is False if metadata else returncode != 0
+        _file_run_record(execution_folder, control_target, metadata, abnormal=abnormal)
+
     figures = _collect_figures(execution_folder)
     artifacts = collect_artifacts(execution_folder)
 
@@ -1332,8 +1389,6 @@ def _result_from_run(
         final_stderr = stderr_text
         success = returncode == 0
         error_msg = stderr_text if not success else None
-
-    _record_restore_report(execution_folder, (metadata or {}).get("restore_reports"))
 
     if stderr_notice:
         final_stderr = f"{final_stderr.rstrip()}\n{stderr_notice}".lstrip()
@@ -1404,17 +1459,24 @@ def _addresses(entries: Any) -> list[str]:
     return names
 
 
-def _restore_detail(execution_dir: Path, report: dict) -> str:
-    """The audit ``detail`` of one restore report: addresses and flags, no values.
-
-    The ledger holds identifiers only, so a refused write's left-behind value
-    stays in the execution folder's copy of the report. Cut to the envelope's
-    detail bound so the record is never dropped for its length.
-    """
+def _cut_detail(detail: str) -> str:
+    """*detail* cut to the envelope's detail bound, so the record is never dropped."""
     from osprey.audit.envelope import MAX_DETAIL_CHARS
 
+    if len(detail) > MAX_DETAIL_CHARS:
+        detail = detail[: MAX_DETAIL_CHARS - 3] + "..."
+    return detail
+
+
+def _restore_detail(execution_dir: Path, report: dict) -> str:
+    """The audit ``detail`` of one sandbox report: addresses and flags, no values.
+
+    The ledger holds identifiers only, so a refused write's left-behind value
+    stays in the execution folder's copy of the report.
+    """
     restored = [str(a) for a in report.get("restored") or ()]
-    detail = (
+    return _cut_detail(
+        f"{SOURCE_SANDBOX} "
         f"execution={execution_dir.name} "
         f"aborted={bool(report.get('aborted'))} "
         f"deadline_guard={bool(report.get('deadline_guard'))} "
@@ -1423,67 +1485,163 @@ def _restore_detail(execution_dir: Path, report: dict) -> str:
         f"failed={','.join(_addresses(report.get('failed')))} "
         f"restored={','.join(restored)}"
     )
-    if len(detail) > MAX_DETAIL_CHARS:
-        detail = detail[: MAX_DETAIL_CHARS - 3] + "..."
-    return detail
 
 
-def _write_restore_file(execution_dir: Path, reports: list[dict]) -> None:
-    """Write *reports* to :data:`RESTORE_REPORT_FILE`, replacing it atomically."""
+def _write_restore_file(execution_dir: Path, record: dict) -> None:
+    """Write *record* to :data:`RESTORE_REPORT_FILE`, replacing it atomically."""
     from osprey_connectors.dotenv import atomic_replace
 
     atomic_replace(
         execution_dir / RESTORE_REPORT_FILE,
-        json.dumps(reports, indent=2).encode("utf-8"),
+        json.dumps(record, indent=2, allow_nan=True).encode("utf-8"),
         mode=0o644,
     )
 
 
-def _record_restore_report(
-    execution_dir: Path,
-    restore_reports: Any,
-    ledger: Path | None = None,
-) -> list[dict]:
-    """File the restore reports a run's execution record handed back; return them.
+def _observe_journal(control_target: str) -> dict[str, Any]:
+    """What the target's guarded-run journal holds now, read by this process.
 
-    The wrapper copies every report the run's guarded runs made into the
-    execution record (``restore_reports``). The parent keeps them twice: the
-    full reports in the execution folder (:data:`RESTORE_REPORT_FILE`), and one
-    executor-surface audit record per report — addresses and flags, never
-    values — in the audit ledger. Lines the run printed are never read.
+    ``<project root>/var/guarded_run/<target name>/run.journal``, the target
+    name resolved as :func:`osprey.runtime.guarded_run.guarded_run_target`
+    resolves it and the file parsed by
+    :func:`osprey.runtime.journal.parse_pending_journal`. Never raises.
+
+    Returns:
+        ``{"journal", "state", "values"}``: the path (``None`` when it cannot be
+        resolved), ``entries``, ``absent`` (no file, or no record in it) or
+        ``unreadable``, and the journaled values in record order.
+    """
+    observed: dict[str, Any] = {"journal": None, "state": "unreadable", "values": {}}
+    try:
+        from osprey.runtime.guarded_run import (
+            GUARDED_RUN_DIR,
+            JOURNAL_FILE_NAME,
+            guarded_run_target,
+        )
+        from osprey.runtime.journal import parse_pending_journal
+        from osprey_connectors.workspace import STATE_DIR_NAME
+
+        path = (
+            _resolve_project_root()
+            / STATE_DIR_NAME
+            / GUARDED_RUN_DIR
+            / guarded_run_target(control_target)
+            / JOURNAL_FILE_NAME
+        )
+        observed["journal"] = str(path)
+        try:
+            raw = path.read_bytes()
+        except FileNotFoundError:
+            observed["state"] = "absent"
+            return observed
+        pending = parse_pending_journal(raw, path)
+    except Exception:
+        logger.warning(
+            "Could not read the guarded-run journal of %s", control_target, exc_info=True
+        )
+        return observed
+    if pending is None:
+        observed["state"] = "absent"
+        return observed
+    observed["state"] = "entries"
+    observed["values"] = dict(pending.values)
+    return observed
+
+
+def _observed_reason(observed: dict[str, Any], *, abnormal: bool) -> tuple[str, str] | None:
+    """The audit reason and detail of what the executor saw on disk, ``None`` when nothing."""
+    state = observed.get("state")
+    if state == "entries":
+        addresses = ",".join(str(address) for address in observed.get("values") or {})
+        return REASON_JOURNAL_LEFT, f"{SOURCE_OBSERVED_ON_DISK} addresses={addresses}"
+    if state == "unreadable":
+        return REASON_JOURNAL_LEFT, f"{SOURCE_OBSERVED_ON_DISK} unreadable"
+    if abnormal:
+        return (
+            REASON_JOURNAL_ABSENT,
+            f"{SOURCE_OBSERVED_ON_DISK} journal absent after abnormal exit",
+        )
+    return None
+
+
+def _file_run_record(
+    execution_dir: Path,
+    control_target: str,
+    metadata: dict | None,
+    *,
+    abnormal: bool,
+    ledger: Path | None = None,
+) -> dict[str, Any]:
+    """File what a readwrite run's guarded runs restored, each fact with where it came from.
+
+    Two sources, filed side by side and never merged into one verdict:
+
+    * the reports the sandbox handed back in its execution record
+      (``restore_reports``), each filed with today's reason and a detail that
+      starts ``source=sandbox``;
+    * the executor's own read of the target's journal after the run: entries
+      left (or a journal it cannot read) are filed as
+      :data:`REASON_JOURNAL_LEFT`; after an abnormal exit, no entry is filed
+      as :data:`REASON_JOURNAL_ABSENT`. Each detail starts
+      ``source=observed_on_disk``.
+
+    A clean exit whose journal holds nothing files nothing of its own. The
+    folder keeps the values (:data:`RESTORE_REPORT_FILE`); the audit ledger
+    keeps identifiers only.
 
     Args:
         execution_dir: The run's execution folder.
-        restore_reports: The record's ``restore_reports`` value; anything but
-            a list of JSON objects files nothing for the entries it lacks.
+        control_target: The target the run was stamped with.
+        metadata: The run's execution record, ``None`` when it left none.
+        abnormal: Whether the run was killed, interrupted, exited non-zero
+            with no record, or recorded a failure.
         ledger: The ledger file to append to; ``None`` routes the records the
             way every executor record is routed (``var/audit/<identity>/``).
 
     Returns:
-        The filed reports, in record order. Nothing is written when there are
-        none. Never raises: a record that cannot be stored costs the audit trail
-        that record and is logged, not the run's outcome.
+        ``{"sandbox": [...], "observed_on_disk": {...}}``; empty when nothing
+        was filed. Never raises: a record that cannot be stored costs the audit
+        trail that record and is logged, not the run's outcome.
     """
-    reports = [
-        report
-        for report in (restore_reports if isinstance(restore_reports, list) else ())
-        if isinstance(report, dict)
-    ]
-    if not reports:
-        return reports
+    record: dict[str, Any] = {}
+    try:
+        raw_reports = (metadata or {}).get("restore_reports")
+        reports = [
+            report
+            for report in (raw_reports if isinstance(raw_reports, list) else ())
+            if isinstance(report, dict)
+        ]
+        observed = _observe_journal(control_target)
+        filed: list[tuple[str, str]] = []
+        for report in reports:
+            incomplete = bool(report.get("refused") or report.get("failed"))
+            filed.append(
+                (
+                    REASON_RESTORE_INCOMPLETE if incomplete else REASON_RESTORE_COMPLETE,
+                    _restore_detail(execution_dir, report),
+                )
+            )
+        seen = _observed_reason(observed, abnormal=abnormal)
+        if seen is not None:
+            filed.append((seen[0], _cut_detail(seen[1])))
+        if not filed:
+            return record
+        record = {"sandbox": reports, "observed_on_disk": observed}
+    except Exception:  # never costs the run's outcome
+        logger.warning("Could not assemble the run record of %s", execution_dir, exc_info=True)
+        return record
 
     try:
-        _write_restore_file(execution_dir, reports)
-    except Exception:  # the ledger record below still lands
-        logger.warning("Could not write the restore reports into %s", execution_dir, exc_info=True)
+        _write_restore_file(execution_dir, record)
+    except Exception:  # the ledger records below still land
+        logger.warning("Could not write the restore record into %s", execution_dir, exc_info=True)
 
-    for report in reports:
+    for reason, detail in filed:
         try:
             from osprey.audit.envelope import DECISION_ALLOWED, SURFACE_EXECUTOR, AuditEnvelope
             from osprey.audit.writer import append_envelope, record_envelope
             from osprey.utils.identity import acting_identity
 
-            incomplete = bool(report.get("refused") or report.get("failed"))
             envelope = AuditEnvelope(
                 surface=SURFACE_EXECUTOR,
                 actor=acting_identity(),
@@ -1492,8 +1650,8 @@ def _record_restore_report(
                 session=posture.posture_session(),
                 subject=f"execution/{execution_dir.name}",
                 decision=DECISION_ALLOWED,
-                reason=REASON_RESTORE_INCOMPLETE if incomplete else REASON_RESTORE_COMPLETE,
-                detail=_restore_detail(execution_dir, report),
+                reason=reason,
+                detail=detail,
             )
             if ledger is None:
                 record_envelope(envelope)
@@ -1501,8 +1659,8 @@ def _record_restore_report(
                 ledger.parent.mkdir(parents=True, exist_ok=True)
                 append_envelope(ledger, envelope)
         except Exception:  # the audit trail degrades; the run's outcome does not
-            logger.warning("Could not record a restore report for audit", exc_info=True)
-    return reports
+            logger.warning("Could not record a run record for audit", exc_info=True)
+    return record
 
 
 def _collect_figures(execution_folder: Path) -> list[Path]:

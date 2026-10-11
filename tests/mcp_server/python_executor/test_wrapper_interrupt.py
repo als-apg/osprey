@@ -34,9 +34,12 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.mcp_server.python_executor import executor
 from osprey.mcp_server.python_executor.executor import (
+    REASON_JOURNAL_ABSENT,
+    REASON_RESTORE_COMPLETE,
     RESTORE_REPORT_FILE,
-    _record_restore_report,
+    _file_run_record,
 )
 from osprey.runtime.guarded_run import RESTORE_REPORT_TAG
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
@@ -255,7 +258,9 @@ def _ledger_records(ledger: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines() if line]
 
 
-def test_sigint_mid_run_tool_persists_report(child: Callable[..., _Child], tmp_path: Path) -> None:
+def test_sigint_mid_run_tool_persists_report(
+    child: Callable[..., _Child], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """SIGINT inside the journaled span: restored, reported, recorded, and the child exits itself."""
     run = child(_RUN_TOOL_CODE, deployment=True)
     run.interrupt_at("span")
@@ -273,16 +278,19 @@ def test_sigint_mid_run_tool_persists_report(child: Callable[..., _Child], tmp_p
     assert metadata["error_type"] == "KeyboardInterrupt"
     assert metadata["restore_reports"] == [report]
 
+    monkeypatch.setattr(executor, "_resolve_project_root", lambda: run.workdir)
     ledger = tmp_path / "audit" / "executor.jsonl"
-    reports = _record_restore_report(run.execution_folder, metadata["restore_reports"], ledger)
-    assert reports == [report]
+    filed = _file_run_record(run.execution_folder, "live", metadata, abnormal=True, ledger=ledger)
+    assert filed["sandbox"] == [report]
     saved = json.loads((run.execution_folder / RESTORE_REPORT_FILE).read_text(encoding="utf-8"))
-    assert saved == [report]
-    (record,) = _ledger_records(ledger)
+    assert saved["sandbox"] == [report]
+    record, seen = _ledger_records(ledger)
     assert record["surface"] == "executor"
-    assert record["reason"] == "guarded_run_restore_complete"
+    assert record["reason"] == REASON_RESTORE_COMPLETE
+    assert record["detail"].startswith("source=sandbox ")
     assert run.execution_folder.name in record["subject"]
     assert "A" in record["detail"]
+    assert seen["reason"] == REASON_JOURNAL_ABSENT, "the restore emptied the journal"
 
 
 def test_sigint_mid_load_persists_metadata(child: Callable[..., _Child]) -> None:
@@ -333,8 +341,11 @@ def test_sigint_plain_script_skips_blocking_atexit(child: Callable[..., _Child])
     assert metadata["restore_reports"] == []
 
 
-def test_restore_reports_filed_to_ledger_and_folder(tmp_path: Path) -> None:
+def test_restore_reports_filed_to_ledger_and_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Every report object of the record lands in the folder and the ledger; noise does not."""
+    monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
     first = {
         "restored": ["SR:Q1"],
         "unchanged": [],
@@ -354,32 +365,36 @@ def test_restore_reports_filed_to_ledger_and_folder(tmp_path: Path) -> None:
     folder = tmp_path / "execution_x"
     folder.mkdir()
     ledger = tmp_path / "audit" / "executor.jsonl"
+    metadata = {"success": True, "restore_reports": [first, "not a report", second]}
 
-    reports = _record_restore_report(folder, [first, "not a report", second], ledger)
+    filed = _file_run_record(folder, "live", metadata, abnormal=False, ledger=ledger)
 
-    assert reports == [first, second]
-    assert json.loads((folder / RESTORE_REPORT_FILE).read_text(encoding="utf-8")) == [
-        first,
-        second,
-    ]
+    assert filed["sandbox"] == [first, second]
+    saved = json.loads((folder / RESTORE_REPORT_FILE).read_text(encoding="utf-8"))
+    assert saved["sandbox"] == [first, second]
+    assert saved["observed_on_disk"]["state"] == "absent"
     records = _ledger_records(ledger)
-    assert len(records) == 2
+    assert len(records) == 2, "a clean exit with no journal adds no observation"
     assert all(r["surface"] == "executor" and folder.name in r["subject"] for r in records)
+    assert all(r["detail"].startswith("source=sandbox ") for r in records)
     assert "SR:Q1" in records[0]["detail"]
     assert "SR:Q3" in records[1]["detail"] and "SR:Q4" in records[1]["detail"]
     # Addresses are identifiers; the value a refused write left behind is not.
     assert "4.5" not in records[1]["detail"]
     assert records[0]["reason"] != records[1]["reason"]
 
-    # No report: nothing written anywhere.
+    # No report and a clean exit with no journal: nothing written anywhere.
     quiet = tmp_path / "execution_y"
     quiet.mkdir()
     other_ledger = tmp_path / "audit" / "other.jsonl"
-    for nothing in ([], None, "not a list", {"restored": ["SR:Q1"]}):
-        assert _record_restore_report(quiet, nothing, other_ledger) == []
+    for nothing in ({}, None, {"restore_reports": "not a list"}, {"restore_reports": []}):
+        assert _file_run_record(quiet, "live", nothing, abnormal=False, ledger=other_ledger) == {}
     assert not (quiet / RESTORE_REPORT_FILE).exists()
     assert not other_ledger.exists()
 
     # Never raises, even on an unusable folder.
     missing = tmp_path / "missing" / "dir"
-    assert _record_restore_report(missing, [first], ledger) == [first]
+    filed = _file_run_record(
+        missing, "live", {"restore_reports": [first]}, abnormal=False, ledger=ledger
+    )
+    assert filed["sandbox"] == [first]

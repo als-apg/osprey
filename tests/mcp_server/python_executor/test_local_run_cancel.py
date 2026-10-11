@@ -18,6 +18,7 @@ child's exit status.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import signal
@@ -206,7 +207,31 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(executor, "resolve_agent_interpreter", lambda root=None: sys.executable)
     # These cancels are not about approval: the deployment asks nobody.
     monkeypatch.setattr("osprey.cli.build_posture_check.ask_capable", lambda *_args: False)
+    monkeypatch.setattr(executor, "_apply_target_stamp", _stamp_live)
     return ledger
+
+
+def _stamp_live(sandbox_env: dict[str, str]) -> str:
+    """Stamp the run onto ``live``, whose journal lives under the test's project root."""
+    sandbox_env["OSPREY_CONTROL_TARGET"] = "live"
+    return "live"
+
+
+def _journal(root: Path) -> Path:
+    """The ``live`` target's guarded-run journal under the project root *root*."""
+    return root / "var" / "guarded_run" / "live" / "run.journal"
+
+
+def _plant_journal(root: Path, *addresses: str) -> bytes:
+    """Leave a killed run's journal on ``live`` holding *addresses*; return its bytes."""
+    lines = [{"header": {"target": "live", "generation": 1, "pid": 4242}}] + [
+        {"address": address, "value": 1.5} for address in addresses
+    ]
+    raw = "".join(json.dumps(line) + "\n" for line in lines).encode("utf-8")
+    path = _journal(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(raw)
+    return raw
 
 
 @pytest.fixture
@@ -254,6 +279,20 @@ def _ledger_records(ledger: Path) -> list[dict[str, Any]]:
     if not ledger.exists():
         return []
     return [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines() if line]
+
+
+def _sandbox_records(ledger: Path) -> list[dict[str, Any]]:
+    return [r for r in _ledger_records(ledger) if r["detail"].startswith("source=sandbox ")]
+
+
+def _observed_records(ledger: Path) -> list[dict[str, Any]]:
+    return [
+        r for r in _ledger_records(ledger) if r["detail"].startswith("source=observed_on_disk ")
+    ]
+
+
+def _filed(folder: Path) -> dict[str, Any]:
+    return json.loads((folder / RESTORE_REPORT_FILE).read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------
@@ -324,8 +363,7 @@ def test_cancel_drains_large_output_after_sigint(make_run: Callable[..., _Run]) 
 
     assert outcome == {"cancelled_caught": True}
     assert run.proc.returncode == 0  # exited by itself: never killed
-    saved = json.loads((run.folder / RESTORE_REPORT_FILE).read_text(encoding="utf-8"))
-    assert saved == [REPORT]
+    assert _filed(run.folder)["sandbox"] == [REPORT]
 
 
 def test_cancel_before_spawn_reraises(
@@ -351,7 +389,9 @@ def test_cancel_before_spawn_reraises(
 
     assert outcome == {"cancelled_caught": True}
     assert run.spawned == []
-    assert not (run.folder / RESTORE_REPORT_FILE).exists()
+    assert _filed(run.folder)["sandbox"] == []
+    (record,) = _ledger_records(run.ledger)
+    assert record["reason"] == executor.REASON_JOURNAL_ABSENT
     assert run.live_markers() == []
 
 
@@ -416,11 +456,14 @@ def test_restore_report_in_ledger_and_folder(make_run: Callable[..., _Run]) -> N
     outcome = run.cancel(timeout=60)
 
     assert outcome == {"cancelled_caught": True}
-    assert json.loads((run.folder / RESTORE_REPORT_FILE).read_text(encoding="utf-8")) == [REPORT]
-    (record,) = _ledger_records(run.ledger)
+    assert _filed(run.folder)["sandbox"] == [REPORT]
+    (record,) = _sandbox_records(run.ledger)
     assert record["surface"] == "executor"
     assert run.folder.name in record["subject"]
     assert "SR:Q1" in record["detail"]
+    (seen,) = _observed_records(run.ledger)
+    assert seen["reason"] == executor.REASON_JOURNAL_ABSENT
+    assert seen["detail"] == "source=observed_on_disk journal absent after abnormal exit"
 
 
 def test_cancel_report_kept_when_pipes_outlive_child(make_run: Callable[..., _Run]) -> None:
@@ -453,8 +496,8 @@ def test_cancel_report_kept_when_pipes_outlive_child(make_run: Callable[..., _Ru
 
     assert outcome == {"cancelled_caught": True}
     assert run.proc.returncode == 0  # exited by itself: never killed
-    assert json.loads((run.folder / RESTORE_REPORT_FILE).read_text(encoding="utf-8")) == [REPORT]
-    (record,) = _ledger_records(run.ledger)
+    assert _filed(run.folder)["sandbox"] == [REPORT]
+    (record,) = _sandbox_records(run.ledger)
     assert "SR:Q1" in record["detail"]
     assert run.live_markers() == []
 
@@ -477,7 +520,133 @@ def test_cancel_report_kept_when_child_is_killed(
 
     assert outcome == {"cancelled_caught": True}
     assert run.proc.returncode == -signal.SIGKILL
-    assert json.loads((run.folder / RESTORE_REPORT_FILE).read_text(encoding="utf-8")) == [REPORT]
-    (record,) = _ledger_records(run.ledger)
+    assert _filed(run.folder)["sandbox"] == [REPORT]
+    (record,) = _sandbox_records(run.ledger)
     assert "SR:Q1" in record["detail"]
     assert run.live_markers() == []
+
+
+def test_a_cancel_before_the_handle_exists_is_observed_on_disk(
+    make_run: Callable[..., _Run], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A child killed while it was being spawned leaves its journal; the executor names it."""
+    run = make_run()
+    raw = b""
+
+    async def spawned_then_cancelled(*_args: Any, **_kwargs: Any) -> Any:
+        nonlocal raw
+        raw = _plant_journal(tmp_path, "SR:Q7")
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(executor.asyncio, "create_subprocess_exec", spawned_then_cancelled)
+
+    async def main() -> None:
+        with pytest.raises(asyncio.CancelledError):
+            await executor._execute_via_local(
+                "print('never runs')", "readwrite", {"timeout": 60}, run.folder
+            )
+
+    asyncio.run(main())
+
+    (record,) = _ledger_records(run.ledger)
+    assert record["reason"] == executor.REASON_JOURNAL_LEFT
+    assert record["detail"] == "source=observed_on_disk addresses=SR:Q7"
+    assert all("confirmed" not in r["detail"] for r in _ledger_records(run.ledger))
+    assert _filed(run.folder)["observed_on_disk"]["state"] == "entries"
+    assert _journal(tmp_path).read_bytes() == raw
+    assert run.live_markers() == []
+
+
+def test_a_run_killed_at_its_timeout_names_the_journal_it_left(
+    make_run: Callable[..., _Run], tmp_path: Path
+) -> None:
+    run = make_run(ignore_sigint=True)
+    raw = _plant_journal(tmp_path, "SR:Q1", "SR:Q2")
+
+    async def main() -> Any:
+        run.handed_over = anyio.Event()
+        return await executor._execute_via_local(
+            "print('never runs')", "readwrite", {"timeout": 0.5}, run.folder
+        )
+
+    result = asyncio.run(main())
+
+    assert result.failure_kind == executor.FAILURE_KIND_TIMEOUT
+    (record,) = _ledger_records(run.ledger)
+    assert record["reason"] == executor.REASON_JOURNAL_LEFT
+    assert record["detail"] == "source=observed_on_disk addresses=SR:Q1,SR:Q2"
+    assert _journal(tmp_path).read_bytes() == raw
+
+
+#: A readwrite script that saves a malformed artifact manifest and exits cleanly.
+_MALFORMED_MANIFEST = textwrap.dedent(
+    """
+    import json, os
+    FOLDER = {folder!r}
+    os.makedirs(os.path.join(FOLDER, "artifacts"), exist_ok=True)
+    with open(os.path.join(FOLDER, "artifacts", "manifest.json"), "w") as fh:
+        json.dump([{{}}], fh)
+    with open(os.path.join(FOLDER, "execution_metadata.json"), "w") as fh:
+        json.dump({{"success": True, "stdout": "", "stderr": ""}}, fh)
+    """
+)
+
+
+def _run_to_exit(
+    make_run: Callable[..., _Run], monkeypatch: pytest.MonkeyPatch, script: str
+) -> tuple[_Run, Any]:
+    """Run *script* in place of the wrapped one and let it exit; return the run and outcome."""
+    run = make_run()
+    monkeypatch.setattr(
+        ExecutionWrapper,
+        "create_wrapper",
+        lambda self, code, execution_folder: script.format(folder=str(execution_folder)),
+    )
+    outcome: dict[str, Any] = {}
+
+    async def main() -> None:
+        run.handed_over = anyio.Event()
+        try:
+            outcome["result"] = await executor._execute_via_local(
+                "print('never runs')", "readwrite", {"timeout": 60}, run.folder
+            )
+        except Exception as error:  # the run record is the subject, not the outcome
+            outcome["error"] = error
+
+    asyncio.run(main())
+    return run, outcome
+
+
+def test_a_malformed_artifact_manifest_still_files_the_run_record(
+    make_run: Callable[..., _Run], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    raw = _plant_journal(tmp_path, "SR:Q3")
+
+    run, outcome = _run_to_exit(make_run, monkeypatch, _MALFORMED_MANIFEST)
+
+    assert "error" not in outcome
+    assert outcome["result"].artifacts == []
+    (record,) = _observed_records(run.ledger)
+    assert record["reason"] == executor.REASON_JOURNAL_LEFT
+    assert record["detail"] == "source=observed_on_disk addresses=SR:Q3"
+    assert (run.folder / RESTORE_REPORT_FILE).exists()
+    assert _journal(tmp_path).read_bytes() == raw
+
+
+def test_a_run_whose_result_cannot_be_built_still_files_one_record(
+    make_run: Callable[..., _Run], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _plant_journal(tmp_path, "SR:Q4")
+
+    def broken(_folder: Path) -> list[dict]:
+        raise RuntimeError("artifact store unavailable")
+
+    monkeypatch.setattr(executor, "collect_artifacts", broken)
+
+    run, outcome = _run_to_exit(make_run, monkeypatch, _MALFORMED_MANIFEST)
+
+    assert isinstance(outcome.get("error"), RuntimeError)
+    (record,) = _ledger_records(run.ledger)
+    assert record["reason"] == executor.REASON_JOURNAL_LEFT
+    assert record["detail"] == "source=observed_on_disk addresses=SR:Q4"
+    assert (run.folder / RESTORE_REPORT_FILE).exists()

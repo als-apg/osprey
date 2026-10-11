@@ -94,7 +94,8 @@ def collect_artifacts(execution_folder: Path) -> list[dict]:
 
     Returns one dict per manifest entry whose file still exists, with ``path``
     resolved to the file on disk; the caller registers each with the store.
-    A missing or unreadable manifest means nothing was saved.
+    A missing or unreadable manifest, or one that is not a list, means nothing
+    was saved; an entry that is not a mapping naming its ``filename`` is skipped.
     """
     manifest_path = execution_folder / "artifacts" / MANIFEST_FILENAME
     if not manifest_path.exists():
@@ -106,8 +107,14 @@ def collect_artifacts(execution_folder: Path) -> list[dict]:
         logger.debug("Failed to read artifact manifest", exc_info=True)
         return []
 
+    if not isinstance(manifest, list):
+        return []
+
     artifacts = []
     for entry in manifest:
+        if not isinstance(entry, dict) or not isinstance(entry.get("filename"), str):
+            logger.debug("Skipping a malformed artifact manifest entry: %r", entry)
+            continue
         file_path = execution_folder / "artifacts" / entry["filename"]
         if not file_path.exists():
             logger.debug("Artifact file missing: %s", file_path)

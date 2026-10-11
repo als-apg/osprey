@@ -585,7 +585,7 @@ def test_a_held_live_run_does_not_block_a_run_on_va(
 
 
 def test_an_execute_replay_prints_one_restore_line_filed_as_complete(
-    repo: Path, machine: _Machine, tmp_path: Path
+    repo: Path, machine: _Machine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The replay before user code reports once, however often the code takes the run."""
     machine.set("Q", 9.0)
@@ -600,9 +600,14 @@ def test_an_execute_replay_prints_one_restore_line_filed_as_complete(
     assert path.read_bytes() == b""
     assert len(_report_lines(metadata["stdout"], metadata["stderr"])) == 1
 
+    monkeypatch.setattr(executor, "_resolve_project_root", lambda: repo)
     ledger = tmp_path / "audit" / "executor.jsonl"
-    (report,) = executor._record_restore_report(execute.folder, metadata["restore_reports"], ledger)
+    filed = executor._file_run_record(
+        execute.folder, "live", metadata, abnormal=False, ledger=ledger
+    )
+    (report,) = filed["sandbox"]
     assert report["restored"] == ["Q"] and not report["refused"] and not report["failed"]
     (record,) = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
-    assert record["reason"] == "guarded_run_restore_complete"
     assert record["reason"] == executor.REASON_RESTORE_COMPLETE
+    assert record["detail"].startswith("source=sandbox ")
+    assert "source=observed_on_disk" not in ledger.read_text(encoding="utf-8")

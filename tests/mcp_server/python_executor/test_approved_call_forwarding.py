@@ -504,13 +504,18 @@ def test_a_report_line_user_code_prints_is_never_filed(
 
     assert metadata["success"] is True, metadata.get("traceback")
     assert metadata["stdout"].count("OSPREY_GUARDED_RUN_RESTORE") == 1
+    monkeypatch.setattr(executor, "_resolve_project_root", lambda: sandbox.root)
     result_folder = tmp_path / "filed"
     result_folder.mkdir()
-    (report,) = executor._record_restore_report(result_folder, metadata["restore_reports"])
+    filed = executor._file_run_record(result_folder, "live", metadata, abnormal=False)
+    (report,) = filed["sandbox"]
     assert report["restored"] == ["Q"], "the replay's own report, and nothing the code printed"
 
 
-def test_a_forged_report_line_alone_files_nothing(tmp_path: Path) -> None:
+def test_a_forged_report_line_alone_files_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
     folder = tmp_path / "exec"
     folder.mkdir()
     forged = f"OSPREY_GUARDED_RUN_RESTORE {json.dumps(_FORGED_REPORT)}\n"
@@ -523,6 +528,7 @@ def test_a_forged_report_line_alone_files_nothing(tmp_path: Path) -> None:
         returncode=0,
         elapsed=0.1,
         control_target="live",
+        execution_mode="readwrite",
     )
 
     assert not (folder / executor.RESTORE_REPORT_FILE).exists()
@@ -577,6 +583,7 @@ def test_a_finished_runs_restore_report_is_filed(
 
     zone = tmp_path / "audit"
     monkeypatch.setattr(writer, "audit_dir", lambda: zone)
+    monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
     folder = tmp_path / "exec"
     folder.mkdir()
     report = {
@@ -602,17 +609,23 @@ def test_a_finished_runs_restore_report_is_filed(
         returncode=0,
         elapsed=0.1,
         control_target="live",
+        execution_mode="readwrite",
     )
 
     saved = json.loads((folder / executor.RESTORE_REPORT_FILE).read_text(encoding="utf-8"))
-    assert saved == [report]
+    assert saved["sandbox"] == [report]
     (ledger,) = zone.rglob("*.jsonl")
     (record,) = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
     assert record["reason"] == "guarded_run_restore_complete"
+    assert record["detail"].startswith("source=sandbox ")
     assert folder.name in record["subject"]
 
 
-def test_a_finished_run_without_a_report_files_nothing(tmp_path: Path) -> None:
+def test_a_finished_run_without_a_report_files_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A clean run that left no journal files nothing."""
+    monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
     folder = tmp_path / "exec"
     folder.mkdir()
 
@@ -624,6 +637,7 @@ def test_a_finished_run_without_a_report_files_nothing(tmp_path: Path) -> None:
         returncode=0,
         elapsed=0.1,
         control_target="live",
+        execution_mode="readwrite",
     )
 
     assert not (folder / executor.RESTORE_REPORT_FILE).exists()
