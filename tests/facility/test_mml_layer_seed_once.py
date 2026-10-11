@@ -526,11 +526,47 @@ def test_a_gain_beside_an_offset_the_conversion_holds_is_not_carried(
     assert not (facility / READOUT_FILE).exists()
 
 
+def _served_and_model_readings(
+    facility: Path, document: dict[str, Any], model_name: str, faults: dict[str, float]
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Every monitor reading of a model as served, and as the model position in metres.
+
+    Both builds carry ``faults``; the second drops each monitor's conversion, so
+    its readings are the deck's positions. Every monitor address is read, so a
+    rolled monitor always arrives with both planes.
+    """
+    from osprey.facility.views.simulator import simulator_wiring
+    from osprey.simulation.engines import pyat as engine
+
+    (model,) = [entry for entry in document["models"] if entry["name"] == model_name]
+    wiring = simulator_wiring(document, model_name)
+    deck = facility / model["deck"]
+    monitors = {
+        record["address"]
+        for record in wiring
+        if "axis" in record["engine"] and "attribute" not in record["engine"]
+    }
+
+    def read(records: list[dict[str, Any]]) -> dict[str, float]:
+        built = engine.build(model_name, records, deck, model.get("settings"), faults)
+        return engine.readout(built, built.get(sorted(monitors)), 0)
+
+    raw = read(wiring)
+    position = read(
+        [
+            {key: value for key, value in record.items() if key != "calibration"}
+            if record["address"] in monitors
+            else record
+            for record in wiring
+        ]
+    )
+    return raw, position
+
+
 def test_the_middle_layer_correction_of_a_served_spear3_reading_is_the_model_position(
     tmp_path: Path,
 ) -> None:
     from osprey.facility.views.simulator import simulator_wiring
-    from osprey.simulation.engines import pyat as engine
 
     va = json.loads((FIXTURES / "spear3" / "spear3.storagering.va.json").read_text("utf-8"))
     ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text("utf-8"))
@@ -549,9 +585,7 @@ def test_the_middle_layer_correction_of_a_served_spear3_reading_is_the_model_pos
     facility = import_tree(tmp_path, "spear3")
     widen(facility, WIDENED["spear3"])
     document = build_facility(facility, project_name="demo")
-    (model,) = [entry for entry in document["models"] if entry["name"] == "StorageRing"]
-    wiring = simulator_wiring(document, model["name"])
-    deck = facility / model["deck"]
+    wiring = simulator_wiring(document, "StorageRing")
     monitors = {
         record["address"]: record
         for record in wiring
@@ -566,23 +600,47 @@ def test_the_middle_layer_correction_of_a_served_spear3_reading_is_the_model_pos
         for address, fields in seeded.items()
         for name, value in fields.items()
     }
-
-    def read(records: list[dict[str, Any]], active: dict[str, float]) -> dict[str, float]:
-        built = engine.build(model["name"], records, deck, model.get("settings"), active)
-        return engine.readout(built, built.get(sorted(stated)), 0)
-
-    raw = read(wiring, applied)
-    position = read(
-        [
-            {key: value for key, value in record.items() if key != "calibration"}
-            if record["address"] in monitors
-            else record
-            for record in wiring
-        ],
-        {},
-    )
+    raw, position = _served_and_model_readings(facility, document, "StorageRing", applied)
     # The Middle Layer corrects a reading as Gain x (Raw - Offset); with whatever
     # readout the import seeded applied, the served reading carries the offset once.
+    for address, (gain, offset) in stated.items():
+        corrected = gain * (raw[address] - offset)
+        assert corrected == pytest.approx(MM_PER_M * position[address], abs=1e-9)
+
+
+def test_the_middle_layer_correction_of_a_served_synthetic_bpmx_reading_is_the_model_position(
+    tmp_path: Path,
+) -> None:
+    va = json.loads((FIXTURES / "synthetic" / "quokka.sr.va.json").read_text("utf-8"))
+    ao = json.loads((FIXTURES / "synthetic" / "quokka.sr.ao.json").read_text("utf-8"))
+    readout = va["families"]["BPMx"]["Monitor"]["readout"]
+    addresses = ao["BPMx"]["Monitor"]["ChannelNames"]
+    stated = {
+        address: (gain, offset)
+        for address, gain, offset in zip(addresses, readout["gain"], readout["offset"], strict=True)
+    }
+    rolls = dict(zip(addresses, readout["roll"], strict=True))
+
+    facility = import_tree(tmp_path, "synthetic")
+    widen(facility, {OUTSIDE: ("max_value", 2.0)})
+    document = build_facility(facility, project_name="demo")
+
+    seeded = _readout_rows(facility)
+    assert seeded == {
+        address: {"roll": pytest.approx(roll)} for address, roll in rolls.items() if roll != 0
+    }
+    applied = {
+        f"{address}/{name}": value
+        for address, fields in seeded.items()
+        for name, value in fields.items()
+    }
+
+    raw, position = _served_and_model_readings(facility, document, "SR", applied)
+    _, unrolled = _served_and_model_readings(facility, document, "SR", {})
+    assert any(MM_PER_M * abs(position[address] - unrolled[address]) > 1e-9 for address in seeded)
+    # The roll turns the beam position before the monitor's conversion, so the
+    # Middle Layer correction Gain x (Raw - Offset) of a served reading is the
+    # rolled model position.
     for address, (gain, offset) in stated.items():
         corrected = gain * (raw[address] - offset)
         assert corrected == pytest.approx(MM_PER_M * position[address], abs=1e-9)
