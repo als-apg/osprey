@@ -36,7 +36,7 @@ from osprey.audit import writer as audit_writer
 from osprey.interfaces.web_terminal import control_context_owner
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
-from osprey.mcp_server.control_system import target_state
+from osprey.mcp_server.control_system import target_eligibility, target_state
 from osprey_connectors import control_context, posture_store
 from tests._control_context_fixtures import owner, state_dir_under, write_control_context
 
@@ -584,6 +584,22 @@ class TestSelectedRoleMissing:
             control_system_section(standin_writes=True, standin_gateways={"write_access": row}),
         )
         assert post_posture(client, target="standin", posture="writes").status_code == 200
+
+    def test_the_narrowing_check_derives_against_the_terminals_own_render(
+        self, client, monkeypatch
+    ):
+        """An unset gateway port is filled from the file the terminal parsed."""
+        original = target_eligibility.narrowing_refusal
+        seen: list = []
+
+        def recording(*args, **kwargs):
+            seen.append(kwargs.get("config_path"))
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(target_eligibility, "narrowing_refusal", recording)
+        post_posture(client, target="standin", posture="sandbox")
+        assert seen
+        assert set(seen) == {str(client.app.state.config_path)}
 
 
 class TestExecutionInFlight:

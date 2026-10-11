@@ -2002,8 +2002,12 @@ def _target_writes_key(section: Any, target: str) -> str:
         return WRITES_ENABLED_KEY
 
 
-def _narrowing_refusals(config: Any, targets: tuple[str, ...]) -> dict[str, str]:
+def _narrowing_refusals(
+    config: Any, targets: tuple[str, ...], *, config_path: str | None
+) -> dict[str, str]:
     """Which of *targets* cannot be narrowed, and why. ``{target: detail}``.
+
+    *config_path* is the file *config* was parsed from; an unset gateway port is filled from it.
 
     Delegated to
     :func:`~osprey.mcp_server.control_system.target_eligibility.narrowing_refusal`,
@@ -2027,7 +2031,7 @@ def _narrowing_refusals(config: Any, targets: tuple[str, ...]) -> dict[str, str]
         from osprey.mcp_server.control_system.target_eligibility import narrowing_refusal
 
         for target in targets:
-            verdict = narrowing_refusal(config, target)
+            verdict = narrowing_refusal(config, target, config_path=config_path)
             if verdict is not None:
                 refusals[target] = verdict.detail
     except Exception:  # an underivable narrowing is not a refusal
@@ -2068,13 +2072,16 @@ def _posture_post_facts(
     # otherwise let it refuse on behalf of a change nobody requested.
     current = _recorded_posture()
     changing = tuple(t for t in wanted if current.get(t) != POSTURE_SANDBOX)
+    derive_path = str(config_path) if config_path else None
 
     return _PostureRequestFacts(
         configured=configured,
         wanted=wanted,
         ceilings=_session_ceilings(section),
         writes_keys={t: _target_writes_key(section, t) for t in wanted},
-        narrowing_refusals={} if widening else _narrowing_refusals(config, changing),
+        narrowing_refusals={}
+        if widening
+        else _narrowing_refusals(config, changing, config_path=derive_path),
         in_flight=_first_live_execution() if widening else None,
         current=current,
     )
