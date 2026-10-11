@@ -50,8 +50,14 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal import control_context_owner
 from osprey.interfaces.web_terminal.app import create_app
-from osprey.mcp_server.control_system import target_state
+from osprey.mcp_server.control_system import (
+    connector_host_manager,
+    target_eligibility,
+    target_state,
+)
+from osprey.utils import workspace
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.ipc import verification
 from tests._control_context_fixtures import (
     owner,
     state_dir_under,
@@ -157,6 +163,7 @@ def render(
     live_write_port=None,
     name="config.yml",
     tmp_path=None,
+    va_port=None,
 ):
     """A render carrying all three control targets.
 
@@ -181,6 +188,10 @@ def render(
     one gateway row serving both roles the selected role moves under a narrowing
     and the host:port the row reports does not, so a render that named the wrong
     gateway would look identical to one that named the right one.
+
+    ``va_port`` leaves the simulator's gateway without a ``port`` and states it
+    as ``services.virtual_accelerator.port`` instead, which is where an unset
+    gateway port is filled from.
     """
     gateway = {"address": "gw", "port": 5064, "use_name_server": True}
     standin_gateway = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
@@ -190,6 +201,8 @@ def render(
     }
     if va_writes is not None:
         va["writes_enabled"] = va_writes
+    if va_port is not None:
+        del va["gateways"]["read_only"]["port"]
     config = {
         "control_system": {
             "type": "live_standin",
@@ -226,6 +239,8 @@ def render(
     }
     if display_names is not None:
         config["control_system"]["target_display_names"] = display_names
+    if va_port is not None:
+        config["services"]["virtual_accelerator"] = {"port": va_port}
     path = tmp_path / name
     path.write_text(yaml.safe_dump(config), encoding="utf-8")
     return path
@@ -1032,6 +1047,52 @@ class TestTargetIdentity:
         with make_client(config) as client:
             payload = get_posture(client)
         assert row_for(payload, "va")["display_name"] == "Digital Twin"
+
+    def test_a_va_rows_endpoint_carries_the_port_its_own_render_sets(
+        self, make_client, tmp_path, monkeypatch
+    ):
+        """An unset gateway port is filled from the terminal's render, not the process default."""
+        other = tmp_path / "other" / "config.yml"
+        other.parent.mkdir()
+        other.write_text(
+            yaml.safe_dump({"services": {"virtual_accelerator": {"port": 25064}}}),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("CONFIG_FILE", str(other))
+        monkeypatch.setenv("OSPREY_CONFIG", str(other))
+        monkeypatch.chdir(other.parent)
+        config = render(tmp_path=tmp_path, va_port=15064, name="terminal.yml")
+        try:
+            with make_client(config) as client:
+                workspace.reset_config_cache()
+                payload = get_posture(client)
+        finally:
+            workspace.reset_config_cache()
+        assert row_for(payload, "va")["endpoint"].endswith(":15064")
+
+    def test_every_roster_derivation_reads_the_terminals_own_render(self, client, monkeypatch):
+        """Each derivation behind a row fills unset ports from the file the terminal parsed."""
+        seen: dict[str, list] = {}
+
+        def spy(module, name):
+            original = getattr(module, name)
+            seen[name] = []
+
+            def recording(*args, **kwargs):
+                seen[name].append(kwargs.get("config_path"))
+                return original(*args, **kwargs)
+
+            monkeypatch.setattr(module, name, recording)
+
+        spy(target_eligibility, "narrowing_refusal")
+        spy(target_eligibility, "target_availability")
+        spy(connector_host_manager, "target_display_metadata")
+        spy(verification, "derive_endpoints")
+        get_posture(client)
+        expected = str(client.app.state.config_path)
+        for name, paths in seen.items():
+            assert paths, name
+            assert set(paths) == {expected}, name
 
 
 # -- ceiling, posture, effective -------------------------------------------
