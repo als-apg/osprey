@@ -6402,6 +6402,63 @@ def test_als_lane_module_carries_its_collection_floor__mutation_drops_the_floor(
     assert _collected_floor_errors(source.replace(guard, "collected"), guard=guard)
 
 
+#: Minutes the VA live job keeps for everything outside its two pytest steps:
+#: checkout, uv sync, the image build (a few minutes on a runner), the skip gate
+#: and the capture step that must run after a step times out.
+VA_LIVE_OUTSIDE_STEPS_MINUTES = 10
+
+
+def test_va_live_step_caps_leave_the_job_room_for_the_build_and_the_capture(
+    workflow: dict[str, Any] | None = None,
+) -> None:
+    """The two pytest steps' caps plus the outside budget fit under the job cap.
+
+    The job has two heavy steps, so the generic one-heavy-step check passes it
+    by. A step that hangs must fail by its own cap, with the image build
+    already spent and the capture step still to run.
+    """
+    wf = workflow if workflow is not None else _load_workflow()
+    job_cap = _jobs(wf)[VA_LIVE_JOB]["timeout-minutes"]
+    run_step = _find_named_step(wf, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
+    als_step = _find_named_step(wf, VA_LIVE_JOB, ALS_LANE_STEP)
+    run_cap = run_step.get("timeout-minutes")
+    als_cap = als_step.get("timeout-minutes")
+    assert isinstance(run_cap, int), f"'{run_step['name']}' has no int timeout-minutes: {run_cap!r}"
+    assert isinstance(als_cap, int), f"'{ALS_LANE_STEP}' has no int timeout-minutes: {als_cap!r}"
+    assert run_cap + als_cap + VA_LIVE_OUTSIDE_STEPS_MINUTES <= job_cap, (
+        f"run step {run_cap} + real-facility step {als_cap} + outside "
+        f"{VA_LIVE_OUTSIDE_STEPS_MINUTES} exceeds the job cap {job_cap}"
+    )
+
+
+def test_va_live_step_caps_leave_the_job_room__mutation_drops_the_real_facility_step_cap() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, VA_LIVE_JOB, ALS_LANE_STEP)["timeout-minutes"]
+    with pytest.raises(AssertionError):
+        test_va_live_step_caps_leave_the_job_room_for_the_build_and_the_capture(mutated)
+
+
+def test_va_live_step_caps_leave_the_job_room__mutation_raises_the_run_step_to_the_job_cap() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    job_cap = _jobs(mutated)[VA_LIVE_JOB]["timeout-minutes"]
+    run_step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
+    run_step["timeout-minutes"] = job_cap
+    with pytest.raises(AssertionError):
+        test_va_live_step_caps_leave_the_job_room_for_the_build_and_the_capture(mutated)
+
+
+def test_va_live_step_caps_leave_the_job_room__mutation_lowers_the_job_to_the_two_steps() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    run_step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
+    als_step = _find_named_step(mutated, VA_LIVE_JOB, ALS_LANE_STEP)
+    job = _jobs(mutated)[VA_LIVE_JOB]
+    job["timeout-minutes"] = run_step["timeout-minutes"] + als_step["timeout-minutes"]
+    with pytest.raises(AssertionError):
+        test_va_live_step_caps_leave_the_job_room_for_the_build_and_the_capture(mutated)
+
+
 # ---------------------------------------------------------------------------
 # The virtual accelerator image: one recipe, four lanes
 # ---------------------------------------------------------------------------
