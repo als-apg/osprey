@@ -308,6 +308,43 @@ def _unstated(root: Path, family: str, edit: Callable[[dict[str, Any]], None] | 
     return sources
 
 
+def _uncalibrated(root: Path, family: str, device: int) -> list[Path]:
+    """The spear3 export with one device's Setpoint calibration row stated as no numbers."""
+    sources = _exports(root, "spear3", TREES["spear3"])
+    path = sources[0].parent / "spear3.storagering.va.json"
+    va = json.loads(path.read_text(encoding="utf-8"))
+    values = va["families"][family]["Setpoint"]["calibration"]["values"]
+    values[device] = ["NaN"] * len(values[device])
+    path.write_text(json.dumps(va), encoding="utf-8")
+    return sources
+
+
+def test_a_supply_whose_first_device_states_no_calibration_row_stops_the_import(
+    tmp_path: Path,
+) -> None:
+    facility = _facility(tmp_path, "spear3")
+    with pytest.raises(ImportStop) as stop:
+        import_mml(_uncalibrated(tmp_path, "QDZ", 0), facility)
+    assert _layer_files(facility) == [MAPPING_FILE]
+    assert stop.value.format_message() == (
+        "import mml: export-invalid: StorageRing: family QDZ device 1: "
+        "its Setpoint block states no calibration"
+    )
+
+
+def test_a_later_series_member_that_states_no_calibration_row_stops_the_import(
+    tmp_path: Path,
+) -> None:
+    facility = _facility(tmp_path, "spear3")
+    with pytest.raises(ImportStop) as stop:
+        import_mml(_uncalibrated(tmp_path, "QDZ", 3), facility)
+    assert _layer_files(facility) == [MAPPING_FILE]
+    assert stop.value.format_message() == (
+        "import mml: export-invalid: StorageRing: family QDZ device 4: "
+        "its Setpoint block states no calibration"
+    )
+
+
 def test_a_one_way_family_with_no_nominal_is_wired_from_the_deck(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
