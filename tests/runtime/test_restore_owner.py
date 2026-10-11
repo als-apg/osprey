@@ -8,6 +8,7 @@ are a dict served through ``osprey.runtime``; no control system is involved.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ import osprey.runtime.guarded_run as guarded_run
 from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
 from osprey.runtime.guarded_run import JOURNAL_FILE_NAME, guarded_run_dir, journaled_run
 from osprey.runtime.journal import OspreyWriteRefused, guarded_write, read_pending_journal
+from osprey_connectors.dotenv import atomic_replace
 from osprey_connectors.workspace import reset_config_cache
 
 #: The RF frequency the restore cases start from, in Hz.
@@ -151,3 +153,67 @@ class TestNoUndoValue:
 
         assert pending is not None and pending.values == {"Q": 3.0}
         assert channels.writes == [("Q", 4.0)]
+
+
+class TestAtomicReplace:
+    """The journal rewrite and the executor's restore record replace a file one way."""
+
+    def test_a_link_planted_at_every_predictable_name_is_never_followed(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "run.journal"
+        path.write_bytes(b"old\n")
+        victim = tmp_path / "victim"
+        victim.write_text("untouched", encoding="utf-8")
+        planted = [
+            path.with_name(name)
+            for name in (
+                f"{path.name}.tmp",
+                f".{path.name}.tmp",
+                f".{path.name}.{os.getpid()}.tmp",
+                f"{path.name}.{os.getpid()}.tmp",
+            )
+        ]
+        for link in planted:
+            link.symlink_to(victim)
+
+        atomic_replace(path, b"new\n", mode=0o664)
+
+        assert path.read_bytes() == b"new\n"
+        assert not path.is_symlink()
+        assert victim.read_text(encoding="utf-8") == "untouched"
+        assert all(link.is_symlink() for link in planted)
+        leftovers = sorted(p for p in path.parent.iterdir() if p.name.endswith(".tmp"))
+        assert leftovers == sorted(planted)
+
+    def test_a_failing_replace_leaves_no_temporary_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        folder = tmp_path / "execution"
+        folder.mkdir()
+        path = folder / "restore.json"
+        path.write_bytes(b"old")
+
+        def refuse(*_args: Any) -> None:
+            raise OSError("replace refused")
+
+        monkeypatch.setattr(os, "replace", refuse)
+        with pytest.raises(OSError, match="replace refused"):
+            atomic_replace(path, b"new", mode=0o644)
+
+        assert path.read_bytes() == b"old"
+        assert [p.name for p in folder.iterdir()] == ["restore.json"]
+
+    @pytest.mark.parametrize("mode", [0o664, 0o644, 0o600])
+    def test_the_result_has_the_mode_asked_for_whatever_the_umask(
+        self, tmp_path: Path, mode: int
+    ) -> None:
+        path = tmp_path / "file"
+        previous = os.umask(0o077)
+        try:
+            atomic_replace(path, b"data", mode=mode)
+        finally:
+            os.umask(previous)
+
+        assert path.read_bytes() == b"data"
+        assert path.stat().st_mode & 0o777 == mode

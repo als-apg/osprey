@@ -779,13 +779,14 @@ def _rewrite_journal(path: Path, raw: bytes, pending: PendingJournal, keep: list
     """Replace the journal at *path* with its header and the entries for *keep*.
 
     *raw* is the file's content, whose first line is kept byte for byte; each
-    kept address gets its journaled value from *pending*. Written to a
-    temporary file in the same directory, synced, and renamed over the journal,
-    so a reader sees the old journal or the new one, never a mix. The temporary
-    file is created here under a name nobody can predict and is never an
-    existing file or link: the directory is shared by every identity that runs
-    on the target.
+    kept address gets its journaled value from *pending*. Written through
+    :func:`osprey_connectors.dotenv.atomic_replace`, so a reader sees the old
+    journal or the new one, never a mix, and no file or link waiting in the
+    directory is ever written: the directory is shared by every identity that
+    runs on the target.
     """
+    from osprey_connectors.dotenv import atomic_replace
+
     header = raw.split(b"\n", 1)[0] + b"\n"
     records = b"".join(
         (json.dumps({"address": a, "value": pending.values[a]}, allow_nan=True) + "\n").encode(
@@ -793,24 +794,7 @@ def _rewrite_journal(path: Path, raw: bytes, pending: PendingJournal, keep: list
         )
         for a in keep
     )
-    import tempfile
-
-    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        try:
-            os.fchmod(fd, 0o664)
-            os.write(fd, header + records)
-            os.fsync(fd)
-        finally:
-            os.close(fd)
-        os.replace(temporary, path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(temporary)
-        raise
-    from osprey.runtime.journal import _fsync_directory
-
-    _fsync_directory(path.parent)
+    atomic_replace(path, header + records, mode=0o664)
 
 
 def _replay_dead_run(path: Path, target: str) -> None:

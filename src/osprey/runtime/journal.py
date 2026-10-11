@@ -579,6 +579,8 @@ class DurableJournal:
         created = not path.exists()
         self._fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o664)
         if created:
+            from osprey_connectors.dotenv import _fsync_directory
+
             os.fchmod(self._fd, 0o664)
             _fsync_directory(path.parent)
 
@@ -633,17 +635,3 @@ class DurableJournal:
     def close(self) -> None:
         """Close the file descriptor."""
         os.close(self._fd)
-
-
-def _fsync_directory(directory: Path) -> None:
-    """Sync ``directory`` so a newly created entry in it survives a crash."""
-    try:
-        fd = os.open(directory, os.O_RDONLY)
-    except OSError:
-        return
-    try:
-        os.fsync(fd)
-    except OSError:
-        pass
-    finally:
-        os.close(fd)

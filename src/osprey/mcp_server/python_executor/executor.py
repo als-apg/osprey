@@ -1374,14 +1374,13 @@ def _restore_detail(execution_dir: Path, report: dict) -> str:
 
 def _write_restore_file(execution_dir: Path, reports: list[dict]) -> None:
     """Write *reports* to :data:`RESTORE_REPORT_FILE`, replacing it atomically."""
-    target = execution_dir / RESTORE_REPORT_FILE
-    temporary = execution_dir / f".{RESTORE_REPORT_FILE}.{uuid.uuid4().hex}.tmp"
-    try:
-        temporary.write_text(json.dumps(reports, indent=2), encoding="utf-8")
-        os.replace(temporary, target)
-    finally:
-        with contextlib.suppress(OSError):
-            temporary.unlink()
+    from osprey_connectors.dotenv import atomic_replace
+
+    atomic_replace(
+        execution_dir / RESTORE_REPORT_FILE,
+        json.dumps(reports, indent=2).encode("utf-8"),
+        mode=0o644,
+    )
 
 
 def _record_restore_report(

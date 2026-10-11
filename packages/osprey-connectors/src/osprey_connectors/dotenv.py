@@ -389,25 +389,56 @@ def _append_profile_env_locked(
     )
 
 
+def _fsync_directory(directory: Path) -> None:
+    """Sync ``directory`` so a newly created entry in it survives a crash."""
+    try:
+        fd = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
 def atomic_write(path: Path, text: str) -> None:
-    """Write ``text`` to ``path`` via a same-directory temp file + ``os.replace``.
+    """Write ``text`` to ``path`` through :func:`atomic_replace`, at :data:`ENV_FILE_MODE`.
 
     Every writer of a ``.env`` this package owns goes through here. These files
     are rewritten whole, so a crash mid-write would truncate an operator's
-    secrets; the replace is atomic and the temp file is a sibling, keeping the
-    rename inside one filesystem. The result is always
-    :data:`ENV_FILE_MODE` — a ``.env`` holds facility secrets whether it is
-    being created or refreshed.
+    secrets. The result is always :data:`ENV_FILE_MODE` — a ``.env`` holds
+    facility secrets whether it is being created or refreshed.
     """
-    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+    atomic_replace(path, text.encode("utf-8"), mode=ENV_FILE_MODE)
+
+
+def atomic_replace(path: Path, data: bytes, *, mode: int) -> None:
+    """Replace the file at ``path`` with ``data``, whole or not at all.
+
+    ``data`` goes into a temporary file in the same directory, created here
+    under a name nobody can predict, so it is never an existing file or a link
+    someone planted; it is given ``mode`` (whatever the umask), synced, and
+    renamed over ``path``, and the directory is synced after the rename. A
+    reader sees the old file or the new one, never a mix. When anything fails,
+    the temporary file is removed and the exception propagates.
+    """
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-        os.chmod(tmp_name, ENV_FILE_MODE)
-        os.replace(tmp_name, path)
+        try:
+            os.fchmod(fd, mode)
+            view = memoryview(data)
+            while view:
+                view = view[os.write(fd, view) :]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(temporary, path)
     except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
+        Path(temporary).unlink(missing_ok=True)
         raise
+    _fsync_directory(path.parent)
 
 
 def format_env_line(key: str, value: str) -> str:
