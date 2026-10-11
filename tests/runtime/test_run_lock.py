@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import subprocess
 import sys
 import textwrap
@@ -161,6 +162,26 @@ def test_a_created_lock_is_group_writable_under_umask_022() -> None:
         os.umask(previous)
 
     assert (directory / LOCK_FILE_NAME).stat().st_mode & 0o060 == 0o060
+
+
+@pytest.mark.usefixtures("channels")
+def test_lock_and_journal_files_are_group_writable(repo: Path) -> None:
+    """Every identity of the deployment's group can take the lock and restore the journal."""
+    assert not (repo / "var").exists(), "the run creates its directory"
+    previous = os.umask(0o077)
+    try:
+        with lock("live") as directory:
+            pass
+        with journaled_run("live"):
+            pass
+    finally:
+        os.umask(previous)
+
+    for name in (LOCK_FILE_NAME, JOURNAL_FILE_NAME):
+        assert stat.S_IMODE(os.stat(directory / name).st_mode) == 0o664
+    # A process outside the directory's group cannot set its setgid bit.
+    in_group = os.geteuid() == 0 or os.stat(directory).st_gid in os.getgroups()
+    assert stat.S_IMODE(os.stat(directory).st_mode) == (0o2775 if in_group else 0o775)
 
 
 @pytest.mark.usefixtures("channels")
