@@ -20,6 +20,15 @@ cavity state), never by which tree it came from. The two facility storage rings
 and the NSLS-II transport line are checked, the line to the same strict floor
 as the rings; the engine builds each model on the deck as the build wrote it,
 in 6D on the rings. A shifted quadrupole shows the tune replay can fail.
+
+A family step lands on each element at the device's step times the slice's
+weight, the share and the sign the wiring states. The weighted strength
+families the fixture trees carry are ``WEIGHTED_STRENGTH_FAMILIES``: the NSLS-II
+transport line's ``Q``, seven of whose quadrupoles the deck holds at the other
+sign. A transport line's model file refuses the tune and chromaticity
+responses, so no model answer holds a weighted step, and
+``test_a_weighted_step_moves_each_slice_by_the_step_times_its_weight`` holds it
+instead.
 """
 
 from __future__ import annotations
@@ -73,6 +82,9 @@ MODELS = pytest.mark.parametrize(
     ids=[stem for _tree, stem in (*MATLAB_RINGS, *MATLAB_LINES)],
 )
 RESPONSES = pytest.mark.parametrize("name", ["tune_response", "chromaticity_response"])
+
+#: The ``(stem, family)`` of every ``PolynomB`` family whose write slices carry a weight other than 1.
+WEIGHTED_STRENGTH_FAMILIES: frozenset[tuple[str, str]] = frozenset({("nsls2.ltb", "Q")})
 
 Built = Callable[[str, str], BuiltModel]
 
@@ -929,3 +941,38 @@ def test_a_weighted_step_moves_each_slice_by_the_step_times_its_weight() -> None
 
     strengths = [float(element.PolynomB[1]) for element in lattice]
     assert strengths == pytest.approx([1.0 + 2e-3, -1.0 - 2e-3, 0.5 + 0.5 * 4e-3], abs=1e-15)
+
+
+def test_the_weighted_strength_families_are_the_named_ones_and_no_model_file_answers_them(
+    mml_built: Built,
+) -> None:
+    """Every fixture tree's weighted ``PolynomB`` families, and no response answer over one."""
+    weighted: set[tuple[str, str]] = set()
+    for tree, stem in (*MATLAB_RINGS, *MATLAB_LINES):
+        wiring = Wiring(mml_built(tree, stem))
+        for family, wired in wiring.model.wiring.items():
+            if wired.engine is None or wired.engine.attribute != "PolynomB":
+                continue
+            if wiring.mapping.mapped(family) not in wiring.groups:
+                continue
+            weights = {
+                weight
+                for pieces in wiring.slices(family, "write").values()
+                for _element, weight in pieces
+            }
+            if weights != {1.0}:
+                weighted.add((stem, family))
+    assert weighted == WEIGHTED_STRENGTH_FAMILIES
+
+    trees = {stem: tree for tree, stem in (*MATLAB_RINGS, *MATLAB_LINES)}
+    answered = []
+    for stem, family in sorted(WEIGHTED_STRENGTH_FAMILIES):
+        reference = model_reference(trees[stem], stem)
+        for name in ("tune_response", "chromaticity_response"):
+            block = reference[name]
+            if refusal(block) is not None:
+                continue
+            facts = block["families"].get(family)
+            if facts is not None and refusal(facts) is None:
+                answered.append(f"{stem} {family} {name}")
+    assert not answered, f"a model file answers a weighted strength family: {answered}"
