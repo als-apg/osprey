@@ -233,6 +233,57 @@ def values_match(sent: Any, observed: Any, *, enum_label: str | None = None) -> 
         return False
 
 
+def _scalars_equal(a: Any, b: Any) -> bool:
+    """Compare two scalars exactly: reals by value, everything else by ``==``."""
+    if (
+        isinstance(a, numbers.Real)
+        and isinstance(b, numbers.Real)
+        and not isinstance(a, bool)
+        and not isinstance(b, bool)
+    ):
+        return float(a) == float(b)
+
+    result = a == b
+    if isinstance(result, bool):
+        return result
+    return bool(result.all()) if hasattr(result, "all") else bool(result)
+
+
+def readings_equal(a: Any, b: Any) -> bool:
+    """True when the readings ``a`` and ``b`` are the same value.
+
+    :func:`values_match` answers whether a write landed, and tolerates the
+    rounding of a float32 store; this answers whether two readings are the same
+    value, exactly. It shares :func:`values_match`'s shape rules and is
+    symmetric:
+
+    1. A length-1 sequence is unwrapped to its element, on both sides.
+    2. After unwrapping, exactly one side a sequence is ``False``.
+    3. Two sequences of unequal length are ``False``; equal lengths compare
+       elementwise.
+    4. Two real numbers (bools excluded) are equal only when ``float(a) ==
+       float(b)``, so NaN equals nothing.
+    5. Anything else compares by ``==``.
+    6. Any exception means the two cannot be compared, which is not equal.
+    """
+    try:
+        a = _unwrap_length_one(a)
+        b = _unwrap_length_one(b)
+
+        a_is_seq = _is_sequence(a)
+        if a_is_seq != _is_sequence(b):
+            return False
+
+        if a_is_seq:
+            if len(a) != len(b):
+                return False
+            return all(_scalars_equal(x, y) for x, y in zip(a, b, strict=True))
+
+        return _scalars_equal(a, b)
+    except Exception:
+        return False
+
+
 def as_number(value: Any) -> float | None:
     """``value`` as a float, or ``None`` when it is not a number.
 
