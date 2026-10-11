@@ -2919,8 +2919,9 @@ _APPROVED_NO_JOURNAL = "none"
 _APPROVED_JOURNAL_KEY = "approved_journal_sha256"
 _APPROVED_TARGET_KEY = "approved_target"
 
-#: How many displaced setpoints a prompt names before it counts the rest.
-_JOURNAL_LISTED_ENTRIES = 20
+#: The most displaced setpoints an approval prompt lists. A journal holding
+#: more is refused: no approval is asked for a journal the prompt cannot list in full.
+_JOURNAL_MAX_LISTED = 500
 
 #: Audit reasons of the three guarded-run refusals.
 _GUARDED_RUN_BUSY_AUDIT_REASON = "guarded_run_busy"
@@ -3001,8 +3002,21 @@ def _parse_pending_journal(raw: bytes, path) -> dict | None:
     }
 
 
+def _journal_text(value) -> str:
+    """*value*, a string read from a journal or lock file, as one line of printable ASCII.
+
+    JSON-quoted, so every control and format character is escaped and two
+    different strings never render alike.
+    """
+    return json.dumps(value)
+
+
 def _holder_text(raw: bytes) -> tuple[str, str]:
-    """The ``(pid, started)`` a lock file's holder record names, ``unknown`` for each gap."""
+    """The ``(pid, started)`` a lock file's holder record names, ``unknown`` for each gap.
+
+    ``started`` is the holder's own text with every control and format
+    character escaped as in :func:`_journal_text`, without the quotes.
+    """
     try:
         holder = json.loads(raw or b"null")
     except ValueError:
@@ -3013,7 +3027,7 @@ def _holder_text(raw: bytes) -> tuple[str, str]:
     started = _journal_optional(holder.get(_HOLDER_STARTED_KEY), str)
     return (
         "unknown" if pid is None else str(pid),
-        "unknown" if started is None else _sanitize_label(started),
+        "unknown" if started is None else _journal_text(started)[1:-1],
     )
 
 
@@ -3067,11 +3081,13 @@ def _guarded_run_lines(hook_input, read_record) -> tuple[list[str], dict[str, st
 
     The target's lock is tried first: a live run on the target refuses this call
     as busy. Otherwise the target's journal is read. A journal holding records
-    is what a killed run left; it is listed (who, pid, started, then the first
-    :data:`_JOURNAL_LISTED_ENTRIES` addresses with the values they are restored
-    to, then a count of the rest) and its sha256 is the approved digest. With no
-    record the digest is :data:`_APPROVED_NO_JOURNAL`. Under a dispatch run no
-    human reads the prompt, so a pending journal refuses the call.
+    is what a killed run left; it is listed (who, pid, started, the target and
+    generation its header records, then every address with the value it is
+    restored to) and its sha256 is the approved digest. Every string read from
+    the journal is JSON-quoted. A journal holding more than
+    :data:`_JOURNAL_MAX_LISTED` addresses refuses the call. With no record the
+    digest is :data:`_APPROVED_NO_JOURNAL`. Under a dispatch run no human reads
+    the prompt, so a pending journal refuses the call.
 
     The directory is ``<repo root>/var/guarded_run/<target>``, the one every
     process of the deployment resolves for the target.
@@ -3082,8 +3098,8 @@ def _guarded_run_lines(hook_input, read_record) -> tuple[list[str], dict[str, st
         values the call's input carries.
 
     Raises:
-        _GuardedRunRefused: The target is busy, its journal cannot be read, or a
-            dispatch run meets a pending journal.
+        _GuardedRunRefused: The target is busy, its journal cannot be read or
+            listed in full, or a dispatch run meets a pending journal.
     """
     target = _guarded_run_target(hook_input, read_record)
     directory = os.path.join(get_repo_root(hook_input), _STATE_DIR_NAME, _GUARDED_RUN_DIR, target)
@@ -3124,21 +3140,29 @@ def _guarded_run_lines(hook_input, read_record) -> tuple[list[str], dict[str, st
             f"pending guarded-run journal on {target} needs a human-approved call: {journal_path}",
             _GUARDED_RUN_DISPATCH_AUDIT_REASON,
         )
+    values = pending["values"]
+    if len(values) > _JOURNAL_MAX_LISTED:
+        raise _GuardedRunRefused(
+            f"pending guarded-run journal on {target} holds {len(values)} setpoints, "
+            f"more than an approval prompt lists: {journal_path}",
+            _GUARDED_RUN_UNREADABLE_AUDIT_REASON,
+        )
     binding[_APPROVED_JOURNAL_KEY] = hashlib.sha256(raw).hexdigest()
 
-    values = pending["values"]
-    who = _sanitize_label(pending["identity"] or "unknown")
+    def known(text):
+        return "unknown" if text is None else _journal_text(text)
+
     pid = "unknown" if pending["pid"] is None else str(pending["pid"])
-    started = _sanitize_label(pending["started"] or "unknown")
+    generation = "unknown" if pending["generation"] is None else str(pending["generation"])
     lines = [
         "",
-        f"{who}'s interrupted run (pid {pid}, started {started}) left {len(values)} "
-        "setpoints displaced; approving this call restores them first",
+        f"{known(pending['identity'])}'s interrupted run (pid {pid}, started "
+        f"{known(pending['started'])}) left {len(values)} setpoints displaced; approving "
+        "this call restores them first",
+        f"  recorded on {known(pending['target'])}, generation {generation}",
     ]
-    for address, value in list(values.items())[:_JOURNAL_LISTED_ENTRIES]:
-        lines.append(f"  {_sanitize_label(address)} = {_sanitize_label(json.dumps(value))}")
-    if len(values) > _JOURNAL_LISTED_ENTRIES:
-        lines.append(f"  and {len(values) - _JOURNAL_LISTED_ENTRIES} more")
+    for address, value in values.items():
+        lines.append(f"  {_journal_text(address)} = {json.dumps(value)}")
     return lines, binding
 
 

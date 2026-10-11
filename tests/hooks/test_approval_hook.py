@@ -9,6 +9,7 @@ This hook implements the human-in-the-loop approval system. Based on the
 Also covers pre-execution notebook creation for execute (python) approval.
 """
 
+import json
 import os
 import re
 import sys
@@ -1971,11 +1972,12 @@ def test_a_pending_journal_is_listed_and_bound_to_the_call(tmp_path, hook_runner
     assert _decision(result) == "ask"
     reason = _reason(result)
     assert (
-        "operator's interrupted run (pid 4242, started 2026-10-01T08:00:00Z) left 2 setpoints "
-        "displaced; approving this call restores them first"
+        '"operator"\'s interrupted run (pid 4242, started "2026-10-01T08:00:00Z") left 2 '
+        "setpoints displaced; approving this call restores them first\n"
+        '  recorded on "va", generation 1\n'
+        '  "SR:QF:SP" = 1.5\n'
+        '  "SR:QD:SP" = -0.25'
     ) in reason
-    assert "SR:QF:SP = 1.5" in reason
-    assert "SR:QD:SP = -0.25" in reason
     assert _updated(result) == {
         "code": "print(1)",
         "execution_mode": "readwrite",
@@ -1984,8 +1986,8 @@ def test_a_pending_journal_is_listed_and_bound_to_the_call(tmp_path, hook_runner
     }
 
 
-def test_the_listing_names_the_first_twenty_then_a_count(tmp_path, hook_runner, make_config):
-    entries = [(f"SR:C{index:02d}:SP", float(index)) for index in range(25)]
+def test_the_listing_names_every_displaced_setpoint(tmp_path, hook_runner, make_config):
+    entries = [(f"SR:C{index:02d}:SP", float(index)) for index in range(21)]
     _plant_journal(tmp_path, "va", entries)
 
     result = _run_guarded(
@@ -1993,10 +1995,66 @@ def test_the_listing_names_the_first_twenty_then_a_count(tmp_path, hook_runner, 
     )
 
     reason = _reason(result)
-    assert "left 25 setpoints displaced" in reason
-    assert "SR:C19:SP = 19.0" in reason
-    assert "SR:C20:SP" not in reason
-    assert "and 5 more" in reason
+    assert "left 21 setpoints displaced" in reason
+    for address, value in entries:
+        assert f'  "{address}" = {value}' in reason
+    assert "more" not in reason
+
+
+def test_a_journal_longer_than_a_prompt_lists_is_denied(tmp_path, hook_runner, make_config):
+    entries = [(f"SR:C{index:03d}:SP", float(index)) for index in range(501)]
+    raw = _plant_journal(tmp_path, "va", entries)
+    path = tmp_path / "var" / "guarded_run" / "va" / "run.journal"
+
+    result = _run_guarded(
+        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+    )
+
+    assert _decision(result) == "deny"
+    assert _reason(result) == (
+        "pending guarded-run journal on va holds 501 setpoints, more than an approval prompt "
+        f"lists: {path}"
+    )
+    assert _updated(result) is None
+    assert path.read_bytes() == raw
+
+
+_HOSTILE = "SR\u009bQF\u202e:\u200bSP\n = 9"
+
+
+def test_journal_text_renders_as_one_printable_line_each(tmp_path, hook_runner, make_config):
+    _plant_journal(
+        tmp_path,
+        "va",
+        [(_HOSTILE, 1.0), (_HOSTILE.replace("\u200b", ""), 2.0)],
+        identity=_HOSTILE,
+    )
+
+    result = _run_guarded(
+        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+    )
+
+    lines = _reason(result).splitlines()
+    start = next(i for i, line in enumerate(lines) if "interrupted run" in line)
+    listing = lines[start : start + 4]
+    assert all(line.isascii() and line.isprintable() for line in listing)
+    assert listing[0].startswith(json.dumps(_HOSTILE) + "'s interrupted run")
+    first, second = listing[2], listing[3]
+    assert first == f"  {json.dumps(_HOSTILE)} = 1.0"
+    assert second == f"  {json.dumps(_HOSTILE.replace(chr(0x200B), ''))} = 2.0"
+    assert first.split(" = ")[0] != second.split(" = ")[0]
+
+
+def test_the_listing_names_the_target_its_header_records(tmp_path, hook_runner, make_config):
+    raw = _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5)])
+    path = tmp_path / "var" / "guarded_run" / "va" / "run.journal"
+    path.write_bytes(raw.replace(b'"target": "va"', b'"target": "live"', 1))
+
+    result = _run_guarded(
+        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+    )
+
+    assert '  recorded on "live", generation 1' in _reason(result).splitlines()
 
 
 @pytest.mark.parametrize(
@@ -2072,7 +2130,7 @@ def test_selective_readwrite_lists_the_recorded_targets_journal(tmp_path, hook_r
     )
 
     assert _decision(result) == "ask"
-    assert "SR:QF:SP = 1.5" in _reason(result)
+    assert '"SR:QF:SP" = 1.5' in _reason(result)
     assert "SR:QD:SP" not in _reason(result)
     assert _updated(result)["approved_target"] == "live"
 
