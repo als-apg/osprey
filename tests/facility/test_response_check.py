@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.main import cli
@@ -238,6 +239,39 @@ def test_an_unreadable_export_exits_1_without_a_traceback(
     assert result.exit_code == 1
     assert "The response check cannot run." in result.stderr
     assert "Traceback" not in result.output
+
+
+def test_a_corrector_record_naming_no_element_stops_the_build_before_the_response_check(
+    synthetic: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A setpoint naming no element has no start value to read, so the build stops first."""
+    facility = _facility(synthetic)
+    document = build_facility(facility, project_name="scratch")
+    model = next(model for model in document["models"] if model["name"] == "SR")
+    corrector = next(
+        block for block in compare(facility, document, model) if block.name == "BPMx/HC"
+    )
+    address = corrector.entries[0].actuator_address
+    repo = tmp_path / "synthetic"
+    shutil.copytree(synthetic, repo)
+    path = _facility(repo) / LAYER_DIR / "models.yaml"
+    models = yaml.safe_load(path.read_text(encoding="utf-8"))
+    wiring = next(model for model in models if model["name"] == "SR")["wiring"]
+    record = next(record for record in wiring if record["address"] == address)
+    record.pop("element", None)
+    record.pop("slices", None)
+    path.write_text(yaml.safe_dump(models, sort_keys=False), encoding="utf-8")
+
+    result = _validate(repo, monkeypatch)
+
+    assert result.exit_code == 1, result.output
+    assert any(
+        "facility: engine-invalid: wiring " in line
+        and f"{address}: no element to read a start value from" in line
+        for line in result.stderr.splitlines()
+    ), result.stderr
+    assert "response check" not in result.stderr
+    assert "The response check cannot run." not in result.stderr
 
 
 # --- the figures on a real export -------------------------------------------------
