@@ -25,6 +25,7 @@ assemble a line by hand.
 from __future__ import annotations
 
 import copy
+import itertools
 import json
 import math
 import numbers
@@ -1573,7 +1574,8 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
     """Hold each measurement file to the kinds it allows (the stage after compute).
 
     Runs once every wiring slot is filled, so a group or instrument is judged
-    by the setpoints and readbacks its model actually wires. For each kind the
+    by the setpoints and readbacks its model actually wires. One group stands
+    for one group role, or for ``hcor`` and ``vcor`` together. For each kind the
     file allows, every group and instrument the kind needs
     (:data:`osprey.facility.views.pyaml.KIND_MEMBERS`) must be named by the file
     and wired by the model, a ``single_pass`` model allows ``orm`` alone, and
@@ -1585,7 +1587,8 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
 
     Returns:
         Every stop: ``reference-missing`` naming the kind and the member it
-        lacks, ``value-invalid`` naming the kind and the key it lacks.
+        lacks, ``value-invalid`` naming the kind and the key it lacks, or the
+        two group roles that name one group.
     """
     document: dict[str, Any] = need(validated.document)
     return list(_measurement_stops(document))
@@ -1609,6 +1612,23 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
         groups_named = measurement.get("groups") or {}
         instruments = measurement.get("instruments") or {}
         wired = {str(entry.get("address")) for entry in model.get("wiring") or []}
+        for first, second in itertools.combinations(
+            [role for role in GROUP_ROLES if role in groups_named], 2
+        ):
+            if groups_named[first] != groups_named[second] or {first, second} == set(ROLE_PLANES):
+                continue
+            yield FacilityBuildError(
+                "value-invalid",
+                name,
+                files,
+                f"name a group of its own for each of `groups.{first}` and `groups.{second}`; "
+                f"only {' and '.join(f'`groups.{role}`' for role in ROLE_PLANES)} may name "
+                "one group",
+                record_kind="measurement",
+                detail=(
+                    f"`groups.{first}` and `groups.{second}` both name group {groups_named[first]}"
+                ),
+            )
         grouped = measurement_groups(document, name)
         for kind in measurement.get("kinds") or []:
             if kind != "orm" and _single_pass(model):

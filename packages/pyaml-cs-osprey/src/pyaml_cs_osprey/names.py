@@ -9,7 +9,8 @@ configuration cannot spell a name two ways.
 * A magnet is named after its setpoint address, a BPM after its device id and an
   array after its group id, each through :func:`pyaml_name`. One group named as
   both ``hcor`` and ``vcor`` is two arrays, one per plane, its name followed by
-  each plane's :data:`PLANE_SUFFIXES` entry.
+  each plane's :data:`PLANE_SUFFIXES` entry; no other two roles may name one
+  group.
 * The RF plant is :data:`RF_PLANT_NAME`, pyAML's default plant, and stands for the
   one ``instruments.rf`` address of the view.
 * The tune monitor is :data:`TUNE_MONITOR_NAME`, pyAML's default betatron tune
@@ -116,8 +117,19 @@ def _array_table(groups: Mapping[str, str]) -> dict[tuple[str, str], str]:
     """Each ``(role, group)`` to its array name, refusing two groups sharing one name.
 
     A group named as both ``hcor`` and ``vcor`` is named per plane; any other
-    group is named by its id alone, whichever roles name it.
+    group is named by its id alone. One group stands for one role, or for
+    ``hcor`` and ``vcor`` together: named by any other two roles it is refused,
+    since one array cannot hold the same magnets as two kinds of magnet.
     """
+    roles_of: dict[str, list[str]] = {}
+    for role, group in groups.items():
+        roles_of.setdefault(group, []).append(role)
+    for group, roles in roles_of.items():
+        if len(roles) > 1 and set(roles) != set(PLANE_SUFFIXES):
+            listed = f"{', '.join(roles[:-1])} and {roles[-1]}"
+            raise ValueError(
+                f"group {group} is named as {listed}; only hcor and vcor may name one group"
+            )
     named = {groups.get(role) for role in PLANE_SUFFIXES}
     split = named - {None} if len(named) == 1 else set()
     table: dict[tuple[str, str], str] = {}
@@ -181,7 +193,8 @@ class ViewNames:
         Raises:
             ValueError: Two addresses or ids of one table, or a magnet and a BPM,
                 would share a name, or a name is one of the fixed names; the
-                message names both.
+                message names both. One group is named by two roles other than
+                ``hcor`` and ``vcor`` together; the message names the roles.
         """
         magnet_table = _table("magnet setpoint", magnets)
         bpm_table = _table("BPM device", bpms)

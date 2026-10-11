@@ -272,6 +272,20 @@ def test_a_step_key_the_kind_needs_missing_stops(tmp_path: Path) -> None:
     )
 
 
+def test_one_group_named_by_two_roles_other_than_the_corrector_planes_stops(
+    tmp_path: Path,
+) -> None:
+    """A quadrupole array and a sextupole array cannot hold the same magnets."""
+    tree = with_rf(_with_sextupole_group(measured_tree()))
+    tree["measurement/SR.yaml"]["groups"]["sext"] = "SR/Q"
+    stop = _stop(tmp_path, tree)
+    assert str(stop.format_message()) == (
+        "facility: value-invalid: measurement SR — `groups.quad` and `groups.sext` both name "
+        "group SR/Q; fix: name a group of its own for each of `groups.quad` and `groups.sext`; "
+        "only `groups.hcor` and `groups.vcor` may name one group"
+    )
+
+
 def test_one_group_named_for_both_corrector_planes_builds_split_by_plane(
     tmp_path: Path,
 ) -> None:

@@ -100,6 +100,21 @@ def test_a_plane_array_name_another_group_would_take_is_refused() -> None:
         ViewNames.build(groups={"bpm": "SR/COR_h", "hcor": "SR/COR", "vcor": "SR/COR"})
 
 
+@pytest.mark.parametrize(
+    ("groups", "roles"),
+    [
+        ({"quad": "SR/M", "sext": "SR/M"}, "quad and sext"),
+        ({"bpm": "SR/M", "hcor": "SR/M"}, "bpm and hcor"),
+        ({"hcor": "SR/M", "vcor": "SR/M", "quad": "SR/M"}, "hcor, vcor and quad"),
+    ],
+)
+def test_one_group_named_by_two_roles_other_than_the_corrector_planes_is_refused(
+    groups: dict[str, str], roles: str
+) -> None:
+    with pytest.raises(ValueError, match=f"group SR/M is named as {roles}"):
+        ViewNames.build(groups=groups)
+
+
 @pytest.mark.parametrize(("role", "group"), [("quad", "SR/QF"), ("vcor", "SR/HCM")])
 def test_an_array_is_looked_up_by_the_role_naming_its_group(role: str, group: str) -> None:
     with pytest.raises(UnmappedName, match=group) as refused:
