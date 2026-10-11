@@ -8,7 +8,7 @@ Without ``--simulator`` the script renders that facility's simulator view
 in-process; with it, it reads an existing one, such as the
 ``build/data/simulator`` an ``osprey build`` writes.
 
-Inputs, all read from the simulator view:
+Inputs, all read through the simulator view's reader:
 
 * ``scenarios.json`` -- the scenario's polarity faults;
 * ``variables.json`` -- the faulted model's deck, settings and wiring;
@@ -34,7 +34,6 @@ antialiased edge differ between hosts).
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -42,6 +41,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from osprey_connectors.simulation.view import VIEW_RELPATH, Binding, SimulatorView
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE_FACILITY = REPO_ROOT / "src/osprey/templates/facilities/example"
@@ -58,8 +59,6 @@ BUMP_NOISE_SEED = 17
 #: The corrector step the response is measured with, in radians.
 STEP_RAD = 1e-5
 
-_KICK_ENGINE = {"attribute": "KickAngle", "index": 0}
-
 
 @dataclass(frozen=True)
 class BumpTest:
@@ -73,10 +72,6 @@ class BumpTest:
     model_slopes: tuple[float, ...]
     readings_um: tuple[tuple[float, ...], ...]
     reversed_bpms: tuple[str, ...]
-
-
-def _read_json(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def render_simulator_view(facility_dir: Path, root: Path) -> Path:
@@ -109,7 +104,7 @@ def _element_index(lattice: Any, name: str) -> int:
     return found[0]
 
 
-def bump_test(view: Path, scenario: str = SCENARIO) -> BumpTest:
+def bump_test(view: SimulatorView, scenario: str = SCENARIO) -> BumpTest:
     """The scenario's reversed horizontal monitor, seen in a one-corrector bump test.
 
     The segment is the stretch of lattice between the plain markers around the
@@ -123,7 +118,7 @@ def bump_test(view: Path, scenario: str = SCENARIO) -> BumpTest:
     from osprey.simulation.engines.calibration import curve_from_record, to_physics
     from osprey.simulation.engines.pyat import response_matrix
 
-    scenarios = _read_json(view / "scenarios.json")["scenarios"]
+    scenarios = view.scenarios()
     (entry,) = [s for s in scenarios if s["name"] == scenario]
     reversed_by_model = {
         model: {
@@ -140,23 +135,26 @@ def bump_test(view: Path, scenario: str = SCENARIO) -> BumpTest:
         )
     ((model_name, polarity),) = reversed_by_model.items()
 
-    variables = _read_json(view / "variables.json")
-    (model,) = [m for m in variables["models"] if m["name"] == model_name]
-    deck = view / model["deck"]
-    settings = model.get("settings")
-    wiring = model["wiring"]
-    by_address = {record["address"]: record for record in wiring}
+    model = view.model(model_name)
+    if model.deck is None:
+        raise ValueError(f"{model_name} names no deck")
+    deck = model.deck
+    settings = model.settings
+    wiring = [binding.record for binding in model.bindings]
+    by_address = {binding.address: binding for binding in model.bindings}
 
     lattice = at.load_lattice(str(deck))
     horizontal = [
-        address
-        for address in polarity
-        if (by_address[address].get("engine") or {}).get("axis") == "x"
+        a
+        for a in polarity
+        if by_address[a].role == "monitor"
+        and by_address[a].plane == "x"
+        and by_address[a].element is not None
     ]
     if not horizontal:
         raise ValueError(f"{scenario} reverses no horizontal monitor")
-    horizontal.sort(key=lambda a: _element_index(lattice, by_address[a]["element"]))
-    reversed_bpms = tuple(by_address[a]["element"] for a in horizontal)
+    horizontal.sort(key=lambda a: _element_index(lattice, by_address[a].element))
+    reversed_bpms = tuple(by_address[a].element for a in horizontal)
     target = _element_index(lattice, reversed_bpms[0])
 
     # The plain markers bound the segment; a monitor is not one of them.
@@ -164,23 +162,22 @@ def bump_test(view: Path, scenario: str = SCENARIO) -> BumpTest:
     start = max((i for i in markers if i < target), default=-1)
     end = min((i for i in markers if i > target), default=len(lattice))
 
-    monitors: list[tuple[int, dict]] = []
-    correctors: list[tuple[int, dict]] = []
-    for record in wiring:
-        if "element" not in record:
+    monitors: list[tuple[int, Binding]] = []
+    correctors: list[tuple[int, Binding]] = []
+    for binding in model.bindings:
+        if binding.element is None:
             continue
-        engine = record.get("engine") or {}
-        is_monitor = record.get("direction") == "read" and engine.get("axis") == "x"
-        is_corrector = record.get("direction") == "write" and engine == _KICK_ENGINE
+        is_monitor = binding.role == "monitor" and binding.plane == "x"
+        is_corrector = binding.role == "setpoint" and binding.plane == "x"
         if not (is_monitor or is_corrector):
             continue
-        index = _element_index(lattice, record["element"])
+        index = _element_index(lattice, binding.element)
         if not start < index < end:
             continue
         if is_monitor:
-            monitors.append((index, record))
+            monitors.append((index, binding))
         elif index < target:
-            correctors.append((index, record))
+            correctors.append((index, binding))
     if not monitors:
         raise ValueError(f"no horizontal monitor is wired between {start} and {end}")
     if not correctors:
@@ -188,26 +185,25 @@ def bump_test(view: Path, scenario: str = SCENARIO) -> BumpTest:
     monitors.sort(key=lambda item: item[0])
     _, corrector = max(correctors, key=lambda item: item[0])
 
-    curve = curve_from_record((corrector.get("calibration") or {}).get("curve"))
+    curve = curve_from_record((corrector.record.get("calibration") or {}).get("curve"))
     rad_per_unit = to_physics(curve, 0.5) - to_physics(curve, -0.5)
     if rad_per_unit == 0:
-        raise ValueError(f"{corrector['address']} has a calibration with no slope")
-    address = corrector["address"]
+        raise ValueError(f"{corrector.address} has a calibration with no slope")
+    address = corrector.address
     rows, matrix = response_matrix(
         deck, wiring, settings, [address], {address: STEP_RAD / rad_per_unit}
     )
 
-    units = {channel["address"]: channel.get("unit") for channel in variables["channels"]}
-    seeds = _read_json(view / "seeds.json")["seeds"]
     rng = np.random.default_rng(BUMP_NOISE_SEED)
     slopes = []
     readings = []
     for _, record in monitors:
-        monitor = record["address"]
-        if units.get(monitor) != "m":
-            raise ValueError(f"{monitor} reads in {units.get(monitor)!r}, not 'm'")
+        monitor = record.address
+        unit = view.channel(monitor).unit
+        if unit != "m":
+            raise ValueError(f"{monitor} reads in {unit!r}, not 'm'")
         slope = float(matrix[rows.index(monitor), 0] / rad_per_unit)  # m/rad == um/urad
-        noise = (seeds.get(monitor) or {}).get("noise") or {}
+        noise = (view.seed(monitor) or {}).get("noise") or {}
         if "relative" in noise:
             raise ValueError(f"{monitor} carries relative noise; the picture needs absolute")
         noise_um = float(noise.get("absolute", 0.0)) * 1e6
@@ -217,8 +213,8 @@ def bump_test(view: Path, scenario: str = SCENARIO) -> BumpTest:
         readings.append(tuple(float(v) for v in values))
 
     return BumpTest(
-        corrector=corrector["element"],
-        bpms=tuple(record["element"] for _, record in monitors),
+        corrector=corrector.element,
+        bpms=tuple(binding.element for _, binding in monitors),
         model_slopes=tuple(slopes),
         readings_um=tuple(readings),
         reversed_bpms=reversed_bpms,
@@ -266,11 +262,11 @@ def main(argv: list[str]) -> int:
     facility_dir: Path = args.facility_dir
     path = facility_dir / "scenarios" / SCENARIO / PICTURE
     if args.simulator is not None:
-        draw_bump_test(bump_test(args.simulator), path)
+        draw_bump_test(bump_test(SimulatorView.open(args.simulator)), path)
     else:
         with tempfile.TemporaryDirectory() as tmp:
-            view = render_simulator_view(facility_dir, Path(tmp) / "data" / "simulator")
-            draw_bump_test(bump_test(view), path)
+            view_dir = render_simulator_view(facility_dir, Path(tmp) / VIEW_RELPATH)
+            draw_bump_test(bump_test(SimulatorView.open(view_dir)), path)
     print(f"wrote {path.relative_to(facility_dir)} ({path.stat().st_size // 1024} KB)")
     return 0
 

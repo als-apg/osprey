@@ -19,6 +19,8 @@ import numpy as np
 import pytest
 import yaml
 
+from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _SPEC = importlib.util.spec_from_file_location(
     "bpm_polarity_picture", REPO_ROOT / "scripts" / "bpm_polarity_picture.py"
@@ -36,9 +38,11 @@ COMMITTED_PICTURE = EXAMPLE / "scenarios" / plots.SCENARIO / plots.PICTURE
 
 
 @pytest.fixture(scope="module")
-def view(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return plots.render_simulator_view(
-        plots.EXAMPLE_FACILITY, tmp_path_factory.mktemp("render") / "data" / "simulator"
+def view(tmp_path_factory: pytest.TempPathFactory) -> SimulatorView:
+    return SimulatorView.open(
+        plots.render_simulator_view(
+            plots.EXAMPLE_FACILITY, tmp_path_factory.mktemp("render") / VIEW_RELPATH
+        )
     )
 
 
@@ -155,7 +159,7 @@ def test_a_rerun_writes_the_same_bytes_and_the_committed_picture_is_the_same_pic
 def test_the_script_reads_a_built_simulator_view_as_it_reads_its_own_render(view, tmp_path):
     copy = _copy_example(tmp_path)
     picture = copy / "scenarios" / plots.SCENARIO / plots.PICTURE
-    assert plots.main([str(copy), "--simulator", str(view)]) == 0
+    assert plots.main([str(copy), "--simulator", str(view.path)]) == 0
     from_view = picture.read_bytes()
     assert plots.main([str(copy)]) == 0
     assert picture.read_bytes() == from_view
