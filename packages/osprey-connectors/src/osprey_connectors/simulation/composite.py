@@ -28,7 +28,8 @@ waveform as an array of the variable's dtype and shape.
 **Writes.** :meth:`Composite.set` coerces each value to its channel's
 ``value_type``, then sets the physics children in name order and the texture
 last. When any child refuses, every earlier child gets its previous inputs back
-and the refusal is raised as a ``ValueError`` carrying the child's text. A
+and the refusal is raised as a ``WriteRefusedError`` (a ``ValueError``) carrying
+the child's text and, when one channel was refused, its address. A
 setpoint the active scenarios hold (``stuck`` or ``disconnected`` in
 ``channel_faults``) accepts a write, reads the value written, and forwards none
 of it; its readback shows the model where it was.
@@ -113,6 +114,7 @@ __all__ = [
     "STATUS_OK",
     "UDF",
     "Composite",
+    "WriteRefusedError",
     "cap_status",
     "log_dir",
 ]
@@ -201,6 +203,14 @@ def _for_variable(variable: Variable, value: Any) -> Any:
     if isinstance(variable, NDVariable):
         return np.asarray(value, dtype=variable.dtype).reshape(variable.shape)
     return value
+
+
+class WriteRefusedError(ValueError):
+    """A write the composite refused; ``address`` is the one channel refused, else ``None``."""
+
+    def __init__(self, message: str, *, address: str | None = None) -> None:
+        super().__init__(message)
+        self.address = address
 
 
 @dataclass
@@ -907,9 +917,10 @@ class Composite(LUMEModel):
                 nested list.
 
         Raises:
-            ValueError: A name is not a channel of the view, a value is refused
-                for its channel, or a child refuses the write; every earlier
-                child has its previous inputs back.
+            WriteRefusedError: (a ``ValueError``) A name is not a channel of the
+                view, a value is refused for its channel, or a child refuses the
+                write; every earlier child has its previous inputs back.
+                ``address`` names the channel when one channel was refused.
             ReadOnlyError: A name is not a settable channel.
         """
         self._refresh()
@@ -919,17 +930,22 @@ class Composite(LUMEModel):
         for name, value in values_by_name.items():
             variable = self._variables.get(name)
             if variable is None:
-                raise ValueError(f"Variable '{name}' is not supported by the model.")
+                raise WriteRefusedError(
+                    f"Variable '{name}' is not supported by the model.", address=name
+                )
             if variable.read_only:
                 raise ReadOnlyError(f"Variable '{name}' is read-only. Cannot be set.")
             channel = self._channels[name]
-            coerced[name] = values.coerce(
-                value.tolist() if isinstance(value, np.ndarray) else value,
-                channel.get("value_type"),
-                channel.get("options"),
-                channel.get("shape"),
-            )
-            variable.validate_value(_for_variable(variable, coerced[name]))
+            try:
+                coerced[name] = values.coerce(
+                    value.tolist() if isinstance(value, np.ndarray) else value,
+                    channel.get("value_type"),
+                    channel.get("options"),
+                    channel.get("shape"),
+                )
+                variable.validate_value(_for_variable(variable, coerced[name]))
+            except ValueError as exc:
+                raise WriteRefusedError(str(exc), address=name) from exc
         self._set(coerced)
 
     def _set(self, values_by_name: dict[str, Any]) -> None:
@@ -939,12 +955,15 @@ class Composite(LUMEModel):
         restores: list[Callable[[], None]] = []
         texture = batches.get(TEXTURE_OWNER) or {}
         demands = {name: value for name, value in texture.items() if name in self._held_writes}
+        writing: Mapping[str, Any] = {}
         try:
             for model, child in self._children.items():
                 if model in batches:
-                    restores.append(self._set_child(child, batches[model]))
+                    writing = batches[model]
+                    restores.append(self._set_child(child, writing))
             forward = {name: value for name, value in texture.items() if name not in demands}
             if forward:
+                writing = forward
                 self._texture.set(
                     {
                         name: _for_variable(self._texture.supported_variables[name], value)
@@ -954,9 +973,10 @@ class Composite(LUMEModel):
         except Exception as exc:
             for restore in reversed(restores):
                 restore()
-            if isinstance(exc, ValueError | ReadOnlyError):
+            if isinstance(exc, ReadOnlyError):
                 raise
-            raise ValueError(str(exc) or type(exc).__name__) from exc
+            address = next(iter(writing)) if len(writing) == 1 else None
+            raise WriteRefusedError(str(exc) or type(exc).__name__, address=address) from exc
         self._texture_demands.update(demands)
 
     def _set_child(self, child: _Child, batch: Mapping[str, Any]) -> Callable[[], None]:

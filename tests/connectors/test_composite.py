@@ -24,6 +24,7 @@ from osprey_connectors.simulation.composite import (
     LOG_RECORD_MAX_BYTES,
     STATUS_MAX_BYTES,
     Composite,
+    WriteRefusedError,
 )
 from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
 
@@ -463,6 +464,35 @@ def test_a_texture_refusal_restores_the_physics_childs_inputs(tmp_path: Path) ->
         composite.set({"M:SP": 9.0, "T:STEP:SP": 3.5})
 
     assert composite.held(["M:SP", "T:STEP:SP"]) == {"M:SP": 2.0, "T:STEP:SP": 3.0}
+
+
+def test_a_refusal_names_the_one_channel_it_refused(tmp_path: Path) -> None:
+    composite = _composite(tmp_path)
+
+    with pytest.raises(ValueError, match="int") as refused:
+        composite.set({"M:SP": 9.0, "T:STEP:SP": 3.5})
+
+    assert isinstance(refused.value, WriteRefusedError)
+    assert refused.value.address == "T:STEP:SP"
+    assert composite.held(["M:SP", "T:STEP:SP"]) == {"M:SP": 2.0, "T:STEP:SP": 3.0}
+
+
+def test_a_refused_batch_of_several_channels_names_no_address(tmp_path: Path) -> None:
+    composite = _composite(tmp_path)
+
+    with pytest.raises(WriteRefusedError) as refused:
+        composite.set({"T:SP": 6.5, "T:STEP:SP": 3.5})
+
+    assert refused.value.address is None
+
+
+def test_a_value_the_channel_refuses_names_its_address(tmp_path: Path) -> None:
+    composite = _composite(tmp_path)
+
+    with pytest.raises(WriteRefusedError, match="not a valid float") as refused:
+        composite.set({"M:SP": "high"})
+
+    assert refused.value.address == "M:SP"
 
 
 def test_an_engine_refusal_fails_the_write_only(tmp_path: Path) -> None:
