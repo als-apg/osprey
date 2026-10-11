@@ -2175,3 +2175,167 @@ def test_a_dispatch_run_with_no_pending_journal_still_asks(
 
     assert _decision(result) == "ask"
     assert _updated(result)["approved_journal_sha256"] == "none"
+
+
+# ---------------------------------------------------------------------------
+# The ask stamp records the fields the approval prompt bound the call to
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def stamp_dir(tmp_path, monkeypatch):
+    """The identity state directory the hook files its ask stamps in."""
+    from tests._control_context_fixtures import pin_identity, state_dir_under
+
+    pin_identity(monkeypatch)
+    root = tmp_path / "agent_data"
+    state = state_dir_under(root)
+    state.mkdir(parents=True)
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+    return state
+
+
+def _asked(hook_runner, make_config, tmp_path, tool, tool_input, config, tool_use_id):
+    return hook_runner(
+        "osprey_approval.py",
+        f"mcp__python__{tool}",
+        tool_input,
+        config_path=make_config(config),
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+        hook_input_extra={"hook_event_name": "PreToolUse", "tool_use_id": tool_use_id},
+    )
+
+
+def _stamp(stamp_dir, tool_use_id):
+    import json
+
+    return json.loads((stamp_dir / f"approval_ask_{tool_use_id}.json").read_text())
+
+
+def _approved(mapping):
+    return {key: value for key, value in mapping.items() if key.startswith("approved_")}
+
+
+@pytest.mark.parametrize(
+    ("tool", "config", "tool_input"),
+    [
+        pytest.param(
+            "execute",
+            GUARDED_SELECTIVE_CONFIG,
+            {"code": "print(1)", "execution_mode": "readwrite"},
+            id="execute-selective",
+        ),
+        pytest.param(
+            "execute",
+            GUARDED_ALWAYS_CONFIG,
+            {"code": "print(1)", "execution_mode": "readwrite"},
+            id="execute-always",
+        ),
+        pytest.param(
+            "execute_file",
+            GUARDED_ALWAYS_CONFIG,
+            {"file_path": "scan.py", "execution_mode": "readwrite"},
+            id="execute_file-always",
+        ),
+    ],
+)
+def test_the_ask_stamp_carries_the_approved_fields_of_the_envelope(
+    tmp_path, hook_runner, make_config, stamp_dir, tool, config, tool_input
+):
+    _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5)])
+    agent_input = {
+        **tool_input,
+        "approved_journal_sha256": "agent-chosen",
+        "approved_target": "agent-target",
+    }
+
+    result = _asked(hook_runner, make_config, tmp_path, tool, agent_input, config, "toolu_rw1")
+
+    assert _decision(result) == "ask"
+    stamp = _stamp(stamp_dir, "toolu_rw1")
+    assert _approved(stamp) == _approved(_updated(result))
+    assert set(_approved(stamp)) == {"approved_journal_sha256", "approved_target"}
+    assert stamp["approved_target"] == "va"
+    assert "agent-chosen" not in stamp.values()
+
+
+def test_an_agent_supplied_field_the_hook_did_not_bind_never_reaches_the_stamp(
+    tmp_path, hook_runner, make_config, stamp_dir
+):
+    tool_input = {
+        "code": "print(1)",
+        "execution_mode": "readwrite",
+        "approved_view_sha256": "ab" * 32,
+    }
+
+    result = _asked(
+        hook_runner,
+        make_config,
+        tmp_path,
+        "execute",
+        tool_input,
+        GUARDED_ALWAYS_CONFIG,
+        "toolu_rw2",
+    )
+
+    assert _decision(result) == "ask"
+    stamp = _stamp(stamp_dir, "toolu_rw2")
+    assert set(_approved(stamp)) == {"approved_journal_sha256", "approved_target"}
+    assert "approved_view_sha256" not in stamp
+
+
+def test_an_agent_supplied_field_never_reaches_a_readonly_stamp(
+    tmp_path, hook_runner, make_config, stamp_dir
+):
+    tool_input = {
+        "code": "print(1)",
+        "execution_mode": "readonly",
+        "approved_journal_sha256": "agent-chosen",
+        "approved_target": "live",
+    }
+
+    result = _asked(
+        hook_runner,
+        make_config,
+        tmp_path,
+        "execute",
+        tool_input,
+        GUARDED_ALWAYS_CONFIG,
+        "toolu_ro1",
+    )
+
+    assert _decision(result) == "ask"
+    assert _updated(result) is None
+    assert _approved(_stamp(stamp_dir, "toolu_ro1")) == {}
+
+
+def test_an_ask_the_harness_never_received_leaves_no_approved_stamp(
+    tmp_path, hook_module, monkeypatch
+):
+    approval = hook_module("osprey_approval")
+    monkeypatch.setattr(approval, "_approval_state_dir", lambda _hook_input: str(tmp_path))
+
+    class _Broken:
+        def write(self, _text):
+            raise OSError("stdout closed")
+
+        def flush(self):
+            raise OSError("stdout closed")
+
+    monkeypatch.setattr(approval.sys, "stdout", _Broken())
+    output = {
+        "hookSpecificOutput": {
+            "permissionDecision": "ask",
+            "updatedInput": {"approved_journal_sha256": "none", "approved_target": "va"},
+        }
+    }
+
+    with pytest.raises(OSError):
+        approval._emit_ask(
+            output,
+            {"tool_use_id": "toolu_lost", "tool_name": "x"},
+            {"approved_journal_sha256": "none", "approved_target": "va"},
+        )
+
+    assert list(tmp_path.glob("approval_ask_*.json")) == []

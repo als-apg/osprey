@@ -273,11 +273,13 @@ def build_approval_output(
     *updated_input*, when given, is the whole input the approved call runs
     with, sent as ``updatedInput`` beside the ask; left unset, the call runs
     with the input the agent sent.
+
+    The ask stamp is not written here: :func:`_emit_ask` writes it once the
+    envelope has reached the harness, from the binding this hook computed.
     """
     record = (read_record or _record_reader(hook_input))()
     _stamp_write_approval(hook_input, record)
     _record_ask(hook_input)
-    _stamp_ask(hook_input)
     specific: dict = {
         "hookEventName": "PreToolUse",
         "permissionDecision": "ask",
@@ -291,6 +293,24 @@ def build_approval_output(
     if updated_input is not None:
         specific["updatedInput"] = dict(updated_input)
     return {"hookSpecificOutput": specific}
+
+
+#: The prefix of the input fields the approval prompt binds a call to.
+APPROVED_FIELD_PREFIX = "approved_"
+
+
+def _emit_ask(output, hook_input, approved=None) -> None:
+    """Send the ask envelope, then leave its stamp.
+
+    The stamp is written only after the envelope is flushed to the harness, so
+    a stamp carrying ``approved_*`` fields exists only for an ask the harness
+    received. *approved* is the binding this hook computed for the call; an
+    ``approved_*`` key the agent sent and the hook did not set never reaches
+    the stamp.
+    """
+    json.dump(output, sys.stdout)
+    sys.stdout.flush()
+    _stamp_ask(hook_input, approved=approved)
 
 
 def _record_ask(hook_input):
@@ -884,13 +904,18 @@ def _approval_state_dir(hook_input):
         return None
 
 
-def _stamp_ask(hook_input) -> None:
+def _stamp_ask(hook_input, approved=None) -> None:
     """Leave the stamp that lets this ask's answer be recorded. Never raises.
 
     Keyed by the call's tool-use id, so the ``PostToolUse`` for that call finds
     it. It names the approver — the dispatch policy in a headless dispatch run,
     a human otherwise — and the permission mode the prompt was shown under. A
     missing stamp costs only the outcome record, never the prompt.
+
+    *approved* holds the ``approved_*`` fields this hook computed for the
+    call; the python executor reads them back before it starts a read-write
+    guarded run, and refuses a call whose own fields differ or that carries
+    one the stamp does not hold.
     """
     try:
         if not isinstance(hook_input, dict):
@@ -913,6 +938,9 @@ def _stamp_ask(hook_input) -> None:
             "permission_mode": hook_input.get("permission_mode"),
             "asked_at": time.time(),
         }
+        for key, value in (approved or {}).items():
+            if key.startswith(APPROVED_FIELD_PREFIX):
+                payload[key] = value
         _write_stamp(os.path.join(directory, approval_ask_filename(tool_use_id)), payload)
     except Exception:
         return
@@ -3146,19 +3174,20 @@ def _deny_guarded_run(hook_input, tool_name, refusal):
 
 
 def _guarded_call(hook_input, tool_name, tool_input, read_record):
-    """The guarded-run lines and rewritten input of a readwrite call, or a deny.
+    """The guarded-run lines, rewritten input and binding of a readwrite call, or a deny.
 
-    A readonly call never enters a guarded run, so it gets no lines and keeps
-    its input as the agent sent it (``None``). A readwrite call's input is the
-    agent's with the binding set over any value the agent supplied for it.
+    A readonly call never enters a guarded run, so it gets no lines, keeps its
+    input as the agent sent it (``None``) and has no binding (``None``). A
+    readwrite call's input is the agent's with the binding set over any value
+    the agent supplied for it; the binding alone is what the ask stamp records.
     """
     if tool_input.get("execution_mode") != "readwrite":
-        return [], None
+        return [], None, None
     try:
         lines, binding = _guarded_run_lines(hook_input, read_record)
     except _GuardedRunRefused as refusal:
         _deny_guarded_run(hook_input, tool_name, refusal)
-    return lines, {**tool_input, **binding}
+    return lines, {**tool_input, **binding}, binding
 
 
 def main():
@@ -3281,7 +3310,7 @@ def main():
             needs_approval = exec_mode == "readwrite" or writes_detected
             if needs_approval:
                 read_record = _record_reader(hook_input)
-                guarded_lines, updated_input = _guarded_call(
+                guarded_lines, updated_input, binding = _guarded_call(
                     hook_input, tool_name, tool_input, read_record
                 )
                 reason_parts = [f"Python execution (mode: {exec_mode or 'unspecified'})"]
@@ -3294,9 +3323,10 @@ def main():
                         reason_parts.append(f"\nReview notebook: {gallery_link}")
                 reason = "\n".join(reason_parts)
                 log_hook("approval", hook_input, status="ask", detail="execute_selective")
-                json.dump(
+                _emit_ask(
                     build_approval_output(reason, hook_input, read_record, updated_input),
-                    sys.stdout,
+                    hook_input,
+                    binding,
                 )
                 sys.exit(0)
 
@@ -3310,7 +3340,7 @@ def main():
             channel_list = _channel_write_summary(tool_input)
             reason = f"Channel write: {channel_list or 'unknown'}"
             log_hook("approval", hook_input, status="ask", detail="channel_write_selective")
-            json.dump(build_approval_output(reason, hook_input), sys.stdout)
+            _emit_ask(build_approval_output(reason, hook_input), hook_input)
             sys.exit(0)
 
         # Other tools under selective: treat as always (conservative)
@@ -3327,17 +3357,22 @@ def main():
     # prompt with no target-aware describer costs exactly what it always did.
     read_record = _record_reader(hook_input)
     updated_input = None
+    binding = None
     if short_name == "execute":
         code = tool_input.get("code", "")
         exec_mode = tool_input.get("execution_mode", "")
-        guarded_lines, updated_input = _guarded_call(hook_input, tool_name, tool_input, read_record)
+        guarded_lines, updated_input, binding = _guarded_call(
+            hook_input, tool_name, tool_input, read_record
+        )
         reason_parts.extend(guarded_lines)
         if code.strip():
             gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
             if gallery_link:
                 reason_parts.append(f"\nReview notebook: {gallery_link}")
     elif short_name == "execute_file":
-        guarded_lines, updated_input = _guarded_call(hook_input, tool_name, tool_input, read_record)
+        guarded_lines, updated_input, binding = _guarded_call(
+            hook_input, tool_name, tool_input, read_record
+        )
         reason_parts.extend(guarded_lines)
     elif short_name == "channel_write":
         channel_list = _channel_write_summary(tool_input)
@@ -3372,7 +3407,11 @@ def main():
         status="ask",
         detail=f"policy={policy} tool={short_name}",
     )
-    json.dump(build_approval_output(reason, hook_input, read_record, updated_input), sys.stdout)
+    _emit_ask(
+        build_approval_output(reason, hook_input, read_record, updated_input),
+        hook_input,
+        binding,
+    )
     sys.exit(0)
 
 
