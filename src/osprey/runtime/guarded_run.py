@@ -44,12 +44,17 @@ one :data:`RESTORE_REPORT_TAG` line.
 
 ``execute`` and ``execute_file`` hold :func:`lock` over user code and never
 journal. :func:`journaled_run` adds the durable journal and is the only context
-in which :func:`osprey.runtime.journal.guarded_write` writes; it clears the
-journal on a clean exit and restores what it displaced when an exception
-escapes it, so only a killed run leaves records. A readonly run raises before
-it takes the lock.
+in which :func:`osprey.runtime.journal.guarded_write` writes. It is the one
+place a run's displaced setpoints are put back: its outermost exit path
+ignores ``SIGINT``, clears the journal on a clean exit, restores what the run
+displaced when an exception escapes it, and prints one
+:data:`RESTORE_REPORT_TAG` line either way. When that restore cannot run, one
+untagged ``restore not attempted`` line says so and the journal is left for
+the next run, as a killed run leaves it. A readonly run raises before it takes
+the lock.
 
-A journal is restored without forcing anything: each displaced address is
+A journal is restored without forcing anything: an address reading exactly
+its journaled value is left alone, and each other displaced address is
 written back through ``osprey.runtime.write_channel`` like any other write, so
 limits, write gates and the control-target check all apply, and an address the
 connector refuses is reported with the value it was left at. When a channel has
@@ -68,7 +73,9 @@ import hashlib
 import json
 import math
 import os
+import signal
 import sys
+import threading
 import time
 from collections.abc import Iterator
 from contextvars import ContextVar
@@ -141,7 +148,8 @@ ENV_APPROVED_TARGET = "OSPREY_APPROVED_TARGET"
 #: The approved digest when the prompt listed no pending journal.
 APPROVED_NO_JOURNAL = "none"
 
-#: Prefix of the one line every restore prints: the tag, one space, then the
+#: Prefix of the one line every outermost journaled run prints as it ends, and
+#: every restore of a killed run's journal: the tag, one space, then the
 #: :class:`RestoreReport` as a single JSON object. In a sandbox the executor
 #: gave a report nonce, the nonce and one more space sit between the two.
 RESTORE_REPORT_TAG = "OSPREY_GUARDED_RUN_RESTORE"
@@ -922,54 +930,105 @@ def lock(target: str | None) -> Iterator[Path]:
         os.close(fd)
 
 
-def _restore_escaped(durable: DurableJournal, journal: Journal, exc: BaseException) -> None:
+@contextlib.contextmanager
+def _sigint_ignored() -> Iterator[None]:
+    """Ignore ``SIGINT`` for the body, then put the previous handler back.
+
+    Only the main thread can change a handler, so elsewhere the body runs
+    unshielded; so does it when the handler in place was installed outside
+    Python (``signal.getsignal`` answers ``None``), which could not be put back.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    previous = signal.getsignal(signal.SIGINT)
+    if previous is None:
+        yield
+        return
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+
+def _restore_escaped(
+    durable: DurableJournal,
+    journal: Journal,
+    exc: BaseException,
+    *,
+    target: str,
+    deadline_guard: bool,
+) -> None:
     """Restore what a journaled run displaced before *exc* escaped it.
 
-    Prints the one :data:`RESTORE_REPORT_TAG` line and hangs the report on
-    *exc* as ``restore_report``. An exception whose ``deadline_guard``
-    attribute is ``True`` was raised by a run guarded by the execution
-    deadline, and its report says so. The durable journal is cleared when every
-    entry is back and otherwise rewritten to hold exactly the refused and
-    failed entries. Never raises: a restore that cannot finish its bookkeeping
-    leaves the durable journal as it is, for the next run to restore.
+    Hangs the report on *exc* as ``restore_report``, clears the durable journal
+    when every entry is back or rewrites it to hold exactly the refused and
+    failed entries, then prints the one :data:`RESTORE_REPORT_TAG` line. The
+    report says the run was deadline-guarded when *deadline_guard* is set or
+    *exc* carries a ``deadline_guard`` attribute that is ``True``. When the
+    restore itself cannot run, nothing is written, the durable journal is left
+    byte for byte for the next guarded run on *target*, and one untagged
+    ``restore not attempted: <reason>`` line on stderr says so instead. Never
+    raises: bookkeeping that cannot finish leaves the durable journal as it is.
     """
     try:
         report = _restore(journal, aborted=True)
-        report.deadline_guard = getattr(exc, "deadline_guard", False) is True
-        _print_report(report)
-        with contextlib.suppress(AttributeError, TypeError):
-            exc.restore_report = report  # type: ignore[attr-defined]
-        left = _left_displaced(report)
-        if not left:
-            durable.clear()
-            return
-        raw = durable.path.read_bytes()
-        pending = parse_pending_journal(raw, durable.path)
-        if pending is not None:
-            _rewrite_journal(durable.path, raw, pending, left)
-    except Exception:  # the journal stays for the next run to restore
+    except Exception as failure:  # the journal stays for the next run to restore
+        reason = _first_line(str(failure)) or type(failure).__name__
+        with contextlib.suppress(Exception):
+            print(
+                f"restore not attempted: {reason}; the journal {durable.path} stays "
+                f"for the next guarded run on {target}",
+                file=sys.stderr,
+                flush=True,
+            )
         return
+    report.deadline_guard = deadline_guard or getattr(exc, "deadline_guard", False) is True
+    with contextlib.suppress(AttributeError, TypeError):
+        exc.restore_report = report  # type: ignore[attr-defined]
+    with contextlib.suppress(Exception):  # the journal stays for the next run to restore
+        left = _left_displaced(report)
+        if left:
+            raw = durable.path.read_bytes()
+            pending = parse_pending_journal(raw, durable.path)
+            if pending is not None:
+                _rewrite_journal(durable.path, raw, pending, left)
+        else:
+            durable.clear()
+    with contextlib.suppress(Exception):
+        _print_report(report)
 
 
 @contextlib.contextmanager
-def journaled_run(target: str | None) -> Iterator[Journal]:
+def journaled_run(target: str | None, *, deadline_guard: bool = False) -> Iterator[Journal]:
     """Hold *target*'s run lock with its durable journal open.
 
     The only context in which :func:`osprey.runtime.journal.guarded_write`
-    writes. The lock is taken as :func:`lock` takes it, unless this context
+    writes, and the one place a guarded run's displaced setpoints are put
+    back. The lock is taken as :func:`lock` takes it, unless this context
     already holds it, and then the run goes on under it. The durable journal
     gets this run's header (target, generation, identity, pid, started) and one
-    fsync'd line per address before that address is first written. A clean
-    exit clears it. When an exception escapes the run, every journaled address
-    is written back first, one :data:`RESTORE_REPORT_TAG` line is printed, the
-    report rides on the exception as ``restore_report``, and the journal is
-    cleared or, when entries stay displaced, rewritten to hold exactly those;
-    the exception then propagates. A journaled run opened inside another one on
-    the same target runs under the outer one.
+    fsync'd line per address before that address is first written.
+
+    The outermost run's exit path ignores ``SIGINT`` (on the main thread) and
+    prints exactly one :data:`RESTORE_REPORT_TAG` line, on stderr. A clean exit
+    clears the journal and reports ``aborted: false``. When an exception
+    escapes the run, every journaled address not exactly at its journaled
+    value is written back, the report rides on the exception as
+    ``restore_report``, the journal is cleared or, when entries stay
+    displaced, rewritten to hold exactly those, and the exception then
+    propagates. When the restore itself cannot run, no tagged line is printed:
+    one ``restore not attempted: <reason>`` line on stderr names the journal,
+    which is left for the next guarded run on the target. A journaled run
+    opened inside another one on the same target runs under the outer one and
+    prints nothing; whatever escapes it ends the outer run.
 
     Args:
         target: The target the run is for, or ``None`` for the process's own
             stamp (see :func:`guarded_run_target`).
+        deadline_guard: The run is guarded by the execution deadline; its
+            report says so. Ignored by a run nested in another.
 
     Yields:
         The run's outermost journal.
@@ -1011,6 +1070,9 @@ def journaled_run(target: str | None) -> Iterator[Journal]:
                 finally:
                     _OPEN.reset(token)
         except BaseException as exc:
-            _restore_escaped(durable, journal, exc)
+            with _sigint_ignored():
+                _restore_escaped(durable, journal, exc, target=name, deadline_guard=deadline_guard)
             raise
-        durable.clear()
+        with _sigint_ignored():
+            durable.clear()
+            _print_report(RestoreReport(aborted=False, deadline_guard=deadline_guard))

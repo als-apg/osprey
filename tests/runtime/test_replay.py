@@ -532,7 +532,7 @@ def test_an_exception_escaping_a_journaled_run_keeps_what_stayed_displaced(
     assert pending.values == {"Q": 3.0}
 
 
-def test_a_clean_journaled_run_clears_and_prints_no_report(
+def test_a_clean_journaled_run_clears_and_prints_one_report(
     channels: _Channels, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with journaled_run("live"):
@@ -540,4 +540,13 @@ def test_a_clean_journaled_run_clears_and_prints_no_report(
 
     assert channels.values["Q"] == 9.0
     assert _journal_path().read_bytes() == b""
-    assert _reports(capsys.readouterr().err) == []
+    assert _reports(capsys.readouterr().err) == [
+        {
+            "restored": [],
+            "unchanged": [],
+            "refused": [],
+            "failed": [],
+            "aborted": False,
+            "deadline_guard": False,
+        }
+    ]
