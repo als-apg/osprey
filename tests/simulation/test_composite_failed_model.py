@@ -14,7 +14,6 @@ import importlib.metadata
 import importlib.util
 import json
 import math
-import os
 import re
 from collections.abc import Mapping
 from pathlib import Path
@@ -22,7 +21,6 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
-import yaml
 from click.testing import CliRunner
 from lume.model import LUMEModel
 from lume.variables import ScalarVariable, StrVariable, Variable
@@ -38,8 +36,7 @@ from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import model_status
 from osprey_connectors.simulation.composite import ENGINE_GROUP, STATUS_MAX_BYTES, Composite
 from osprey_connectors.simulation.view import SCHEMAS
-from tests.cli._lifecycle_build import stub_build
-from tests.fixtures.lifecycle_repo import build_exemplar_repo
+from tests.simulation.conftest import stage_built_simulator_view
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -276,41 +273,12 @@ async def test_a_live_line_corrector_write_that_loses_the_beam_is_refused(
     await connector.disconnect()
 
 
-@pytest.fixture
-def _contain_env_written_by_the_cli() -> Any:
-    """Keep what ``sim apply`` loads into the environment inside the test that ran it."""
-    before = dict(os.environ)
-    try:
-        yield
-    finally:
-        os.environ.clear()
-        os.environ.update(before)
-
-
-def _stage(built: BuiltProject, tmp_path: Path) -> tuple[Path, Path]:
-    """A deployment repo whose render carries the demo's simulator view.
-
-    Returns:
-        The repo and its simulator view.
-    """
-    repo = build_exemplar_repo(tmp_path / "repo")
-    config = {"control_system": {"connector": {"virtual_accelerator": {"serving": "in_process"}}}}
-    build = stub_build(repo, config=yaml.safe_dump(config))
-    prefix = "data/simulator/"
-    for name, data in built.outputs[0].files.items():
-        if name.startswith(prefix):
-            target = build / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
-    return repo, build / "data" / "simulator"
-
-
 @pytest.mark.slow
-@pytest.mark.usefixtures("_contain_env_written_by_the_cli")
+@pytest.mark.usefixtures("contain_env_written_by_the_cli")
 def test_an_applied_line_fault_that_loses_the_beam_fails_line(
     built_control_assistant: BuiltProject, tmp_path: Path
 ) -> None:
-    repo, view = _stage(built_control_assistant, tmp_path)
+    repo, view = stage_built_simulator_view(built_control_assistant, tmp_path)
     _with_scenario(
         view,
         {

@@ -1,9 +1,18 @@
-"""Shared helpers for the simulation tests: a staged project and a stand-in
-archive collection."""
+"""Shared helpers for the simulation tests: a staged project, a staged simulator
+view, the environment fixture that contains what ``sim apply`` loads, and a
+stand-in archive collection."""
+
+from __future__ import annotations
 
 import copy
+import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+import pytest
+
+if TYPE_CHECKING:
+    from tests._builds import BuiltProject
 
 #: The ``control_system`` block of a project serving the simulator in process:
 #: it serves the simulator view under ``data/`` and takes no setting of its own.
@@ -34,6 +43,40 @@ def stage_sim_project(
     }
     (root / "config.yml").write_text(yaml.safe_dump(config))
     return root
+
+
+def stage_built_simulator_view(built: BuiltProject, tmp_path: Path) -> tuple[Path, Path]:
+    """A deployment repo whose render carries the demo's simulator view.
+
+    Returns:
+        The repo and its simulator view.
+    """
+    import yaml
+
+    from tests.cli._lifecycle_build import stub_build
+    from tests.fixtures.lifecycle_repo import build_exemplar_repo
+
+    repo = build_exemplar_repo(tmp_path / "repo")
+    config = {"control_system": {"connector": {"virtual_accelerator": {"serving": "in_process"}}}}
+    build = stub_build(repo, config=yaml.safe_dump(config))
+    prefix = "data/simulator/"
+    for name, data in built.outputs[0].files.items():
+        if name.startswith(prefix):
+            target = build / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+    return repo, build / "data" / "simulator"
+
+
+@pytest.fixture
+def contain_env_written_by_the_cli():
+    """Keep what ``sim apply`` loads into the environment inside the test that ran it."""
+    before = dict(os.environ)
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(before)
 
 
 class StubCollection:
