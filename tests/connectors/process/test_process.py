@@ -269,6 +269,39 @@ async def test_a_job_superseded_before_it_starts_spawns_nothing():
     assert (exit_.cause, exit_.returncode) == (ExitCause.CANCELLED, None)
 
 
+async def test_waiting_on_a_job_that_was_never_started_raises_and_leaves_it_startable():
+    slots = JobSlots()
+    job = slots.reserve("worker")
+
+    with pytest.raises(RuntimeError, match=rf"^job {job.job} was never started$"):
+        await job.wait()
+
+    assert slots.current("worker") is job
+    await job.start(_python("pass"))
+    assert job.process is not None
+    assert await job.wait() == ChildExit(job.job, ExitCause.COMPLETED, 0, "")
+
+
+async def test_stopping_a_job_before_it_starts_ends_it_cancelled_without_a_returncode():
+    job = JobSlots().reserve("worker")
+
+    exit_ = await job.stop()
+
+    assert exit_ == ChildExit(job.job, ExitCause.CANCELLED, None, "")
+    await job.start(_python(_SLEEP))
+    assert job.process is None
+
+
+async def test_waiting_after_a_stop_before_start_returns_that_exit():
+    slots = JobSlots()
+    job = slots.reserve("worker")
+
+    exits = await slots.stop_all()
+
+    assert await job.wait() is exits[0]
+    assert (exits[0].cause, exits[0].returncode) == (ExitCause.CANCELLED, None)
+
+
 @posix_only
 async def test_stop_all_returns_only_after_every_child_is_reaped():
     slots = JobSlots()

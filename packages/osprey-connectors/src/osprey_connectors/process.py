@@ -257,7 +257,12 @@ class ChildJob:
         An exit with no recorded cause is classified by its code: 0 is
         :attr:`ExitCause.COMPLETED`, anything else :attr:`ExitCause.FAILED`.
         A job that never spawned ends as :attr:`ExitCause.CANCELLED`.
+
+        Raises:
+            RuntimeError: The job was neither started nor stopped.
         """
+        if self._starting is None and self._exit is None:
+            raise RuntimeError(f"job {self._job} was never started")
         await self._started()
         if self._exit is None and self.process is not None:
             try:
