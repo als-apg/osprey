@@ -3,7 +3,9 @@ call was approved before it starts anything. When the tool's approval policy
 asks, the approval hook's record of the call must exist and its
 `approved_journal_sha256` and `approved_target` must equal the call's; otherwise
 nothing runs and the result carries `failure_kind: approval_missing`. The
-approval hook writes those fields into its record only after the prompt is sent.
+refusal reaches the agent as an `execution_error` whose `details.kind` is
+`approval_missing`. The approval hook writes those fields into its record only
+after the prompt is sent.
 The sandbox binds the fields it is handed and reads no approval policy. After a
 read-write run the executor files what the sandbox reported (detail
 `source=sandbox`) and what it read in the target's journal itself (detail

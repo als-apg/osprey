@@ -9,6 +9,7 @@ import nbformat
 from osprey.audit.call import note, write_stamps
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.python_executor.executor import (
+    FAILURE_KIND_APPROVAL_MISSING,
     FAILURE_KIND_SETUP,
     FAILURE_KIND_SWITCH_IN_PROGRESS,
     FAILURE_KIND_TIMEOUT,
@@ -46,6 +47,10 @@ _SWITCH_IN_PROGRESS_SUGGESTIONS = [
     "The control target is being switched, so the run was declined before it started.",
     "Re-run the code after the target switch completes.",
 ]
+_APPROVAL_MISSING_SUGGESTIONS = [
+    "The approval prompt left no record for this call, so the run was declined before it started.",
+    "Call the tool again so the approval prompt can ask.",
+]
 
 
 def _note_writes(exec_result: ExecutionResult) -> None:
@@ -72,7 +77,10 @@ def _raise_failure(exec_result: ExecutionResult, stderr_text: str, payload: dict
     declined because the control target is mid-switch
     (:data:`FAILURE_KIND_SWITCH_IN_PROGRESS`) is the third ``kind``: nothing
     ran, nothing is broken, and the answer is to run it again once the switch
-    lands — which is neither of the other two protocols.
+    lands — which is neither of the other two protocols. A run declined because
+    the approval prompt left no record of the call
+    (:data:`FAILURE_KIND_APPROVAL_MISSING`) is the fourth: nothing ran, nothing
+    is broken, and the answer is to call the tool again so the prompt can ask.
 
     ``details`` carries the response the success path would have returned, so
     a failed run still surfaces its artifacts, plus :data:`SUBSYSTEM` and the
@@ -90,6 +98,8 @@ def _raise_failure(exec_result: ExecutionResult, stderr_text: str, payload: dict
         kind, suggestions = "timeout", _TIMEOUT_SUGGESTIONS
     elif exec_result.failure_kind == FAILURE_KIND_SWITCH_IN_PROGRESS:
         kind, suggestions = FAILURE_KIND_SWITCH_IN_PROGRESS, _SWITCH_IN_PROGRESS_SUGGESTIONS
+    elif exec_result.failure_kind == FAILURE_KIND_APPROVAL_MISSING:
+        kind, suggestions = FAILURE_KIND_APPROVAL_MISSING, _APPROVAL_MISSING_SUGGESTIONS
     else:
         kind, suggestions = "script_error", _SCRIPT_ERROR_SUGGESTIONS
     make_error(
