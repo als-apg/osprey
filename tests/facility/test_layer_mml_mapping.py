@@ -1071,6 +1071,20 @@ class TestDraft:
         ao["SR"]["Spare"] = copy.deepcopy(ao["SR"]["BPMx"])
         assert draft_mapping(ao)["families"]["BPMy"]["devices"] == "address"
 
+    def test_the_other_axis_of_a_family_naming_one_row_twice_is_left_to_its_addresses(
+        self,
+    ) -> None:
+        ao = _export()
+        ao["SR"]["BPMx"]["DeviceList"] = [[1, 1], [1, 1]]
+        ao["SR"]["BPMx"]["CommonNames"] = ["BPM1", "BPM2"]
+        ao["SR"]["BPMy"] = {
+            "DeviceList": [[1, 1], [1, 1]],
+            "Monitor": {"ChannelNames": ["BPM1:Y", "BPM2:Y"]},
+        }
+        families = draft_mapping(ao)["families"]
+        assert families["BPMx"]["devices"] == "names"
+        assert families["BPMy"]["devices"] == "address"
+
     def test_a_twin_in_one_system_only_is_not_the_same_devices(self) -> None:
         ao = _export()
         ao["SR"]["BPMx"]["CommonNames"] = ["BPM1", "BPM2"]

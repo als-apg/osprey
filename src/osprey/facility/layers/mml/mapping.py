@@ -76,7 +76,8 @@ export by :func:`draft_mapping` and stops the import
 (``import mml: mapping-draft``), so the reviewer edits one stable file rather
 than writing it from scratch. The draft proposes every family's ``devices``:
 ``names`` where the export names every device, ``same_as`` where exactly one
-such family binds the other axis of the same addresses, else ``address`` with
+such family binds the other axis of the same addresses and states no
+``[sector, device]`` row at two slots under two names, else ``address`` with
 the ids it yields in a comment beneath. Families of one system that share an
 address each binds at exactly one slot, at the same ``[sector, device]``, bind
 one device; where those answers give such an address two ids, and a family of
@@ -1903,8 +1904,9 @@ def _draft_devices(
 
     ``names`` where the export names every device of the family in every
     system carrying it; ``{same_as: <family>}`` where exactly one such family
-    binds, in each of those systems, the other axis of the same addresses;
-    else ``address``. Families that bind one device then take one identity
+    binds, in each of those systems, the other axis of the same addresses and
+    states no ``[sector, device]`` row at two slots under two names; else
+    ``address``. Families that bind one device then take one identity
     where these answers give it two ids (:func:`_one_identity`).
 
     Args:
@@ -1921,7 +1923,12 @@ def _draft_devices(
         ``address`` answer yields, and the families each family shares its
         devices with, all keyed by raw family.
     """
-    from osprey.facility.layers.mml.identity import axis_twins, device_ids, stated_ids
+    from osprey.facility.layers.mml.identity import (
+        _lent_rows,
+        axis_twins,
+        device_ids,
+        stated_ids,
+    )
 
     systems = list(models)
     carried = {
@@ -1940,13 +1947,19 @@ def _draft_devices(
             view.system in theirs and axis_twins(view, theirs[view.system]) for view in carried[raw]
         )
 
+    def lends(other: str) -> bool:
+        return all(
+            not _lent_rows(view, [d or "" for d in stated_ids(view, systems, models)])[1]
+            for view in carried[other]
+        )
+
     answers: dict[str, DeviceIdentity] = {}
     for raw in carried:
         if raw in named:
             answers[raw] = "names"
             continue
         twins = [other for other in named if twin(raw, other)]
-        answers[raw] = SameAs(twins[0]) if len(twins) == 1 else "address"
+        answers[raw] = SameAs(twins[0]) if len(twins) == 1 and lends(twins[0]) else "address"
 
     ordered = [view for view in imported if view.channel_count > 0]
     shared = _one_identity(ordered, device_ids(ordered, models, answers), answers, wired or {})
