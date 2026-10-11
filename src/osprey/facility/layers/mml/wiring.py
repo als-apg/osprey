@@ -38,7 +38,8 @@ Rules of the derivation:
   weight is its split share and its polarity. A device split over several
   deck elements is a slice per piece; a kick is shared out over the pieces, a
   strength or a reading describes each piece whole. A slice names its device
-  only where the address is a shared endpoint of several.
+  only where the address is a shared endpoint of several. The import names
+  each family with such a supply, with the count of them.
 * **A device with no element is not wired.** It is on the supply and not in
   the deck, so it enters no slice and no mean.
 * **The tunes are read off the solve.** A model's ``tune`` block wires its
@@ -57,9 +58,15 @@ Rules of the derivation:
   curve keeps the points that are numbers at both ends, and where its grid
   turns back on itself it keeps the stretch holding the device's operating
   point, because a table is read by interpolating on a grid that runs one way.
+  The import names each family whose curves it cut, with the count.
 * **Energy scaling** is the word the export states beside the wired field's
   calibration, carried for a strength or a kick and ``none`` for everything
   else.
+
+Lines the import prints, one per family, on stdout and never stopping it:
+``import mml: nominal not stated``, ``import mml: polarity`` (one per device),
+``import mml: curves trimmed: <model>: family <family> (<n>)`` and
+``import mml: supplies folded: <model>: family <family> (<n>)``.
 
 Stops, each an :class:`~osprey.facility.layers.mml.mapping.ImportStop`:
 
@@ -172,6 +179,19 @@ class _Slice:
     curve: Calibration | None = None
 
 
+@dataclass
+class _Derived:
+    """What one family's wiring derived that its records show only as a result.
+
+    Attributes:
+        trimmed: The sampled conversions cut to the stretch their device runs on.
+        folded: The supplies written as one record for several devices.
+    """
+
+    trimmed: int = 0
+    folded: int = 0
+
+
 def wire_model(
     model: Model,
     deck_path: Path | None,
@@ -271,7 +291,10 @@ def _records(
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Every wiring record of one model, sorted by address.
 
-    Each family wired without a hardware nominal adds its line to ``lines``.
+    Each family adds its lines to ``lines``: one where it is wired without a
+    hardware nominal, one per device whose polarity the deck holds the other
+    way, one counting the curves it cut and one counting its supplies that
+    feed several devices.
 
     Returns:
         The records, and the raw family that wrote each record stating an
@@ -297,6 +320,7 @@ def _records(
             model.raw, family, {model.raw: facts}, answers, devices=view.n_devices
         )
         _require_devices(family, view, block)
+        derived = _Derived()
         records, unstated, flipped = _family_records(
             family,
             wiring,
@@ -306,6 +330,7 @@ def _records(
             device_ids.get(family),
             endpoints,
             addressing.deck,
+            derived,
         )
         if unstated:
             lines.append(
@@ -317,6 +342,14 @@ def _records(
             "the deck holds the other sign"
             for device in flipped
         )
+        if derived.trimmed:
+            lines.append(
+                f"import mml: curves trimmed: {model.name}: family {family} ({derived.trimmed})"
+            )
+        if derived.folded:
+            lines.append(
+                f"import mml: supplies folded: {model.name}: family {family} ({derived.folded})"
+            )
         for address, readbacks, body in records:
             for piece in _elements(body):
                 key = (piece, _field_name(body["engine"]))
@@ -392,6 +425,7 @@ def _family_records(
     ids: Sequence[str] | None,
     endpoints: Map[str, Sequence[str]],
     deck: Any,
+    derived: _Derived,
 ) -> tuple[list[tuple[str, list[str], dict[str, Any]]], bool, list[int]]:
     """One family's records: per supply its address, its readbacks and the record body.
 
@@ -404,6 +438,9 @@ def _family_records(
     that turns back, whose stretch the operating point picks, and a supply
     feeding several devices in series, each of which converts from its own
     nominal.
+
+    Each cut curve and each supply feeding several devices counts on
+    ``derived``.
 
     Returns:
         The records, whether a device was wired without a nominal, and the
@@ -447,7 +484,11 @@ def _family_records(
             if len(members) > 1 or _turns_back(block, written, members[0], devices, family):
                 raise ValueError(f"family {family} is wired through {written} and the export {gap}")
             unstated = True
-        body = _supply_record(family, kind, engine, wiring, view, block, elements, members, deck)
+        if len(members) > 1:
+            derived.folded += 1
+        body = _supply_record(
+            family, kind, engine, wiring, view, block, elements, members, deck, derived
+        )
         flipped.extend(
             sorted({piece.device for piece in body.get("slices", ()) if piece.weight < 0.0})
         )
@@ -492,6 +533,7 @@ def _supply_record(
     elements: Map[int, decks.ElementBinding],
     members: list[int],
     deck: Any,
+    derived: _Derived,
 ) -> dict[str, Any]:
     """One supply's record body, whether it feeds one device or several in series.
 
@@ -499,7 +541,8 @@ def _supply_record(
     the shared nominal itself where they all state one, and converts through
     the first device's row moved so that the start reads it at its own
     nominal. With one device the start is its own nominal, nothing moves, and
-    its slice weighs what a split shares out.
+    its slice weighs what a split shares out. Each curve it cuts counts on
+    ``derived``.
 
     Returns:
         ``{slices, engine, calibration}`` with ``slices`` as :class:`_Slice`
@@ -526,7 +569,7 @@ def _supply_record(
     else:
         hardware = math.fsum(stated) / len(stated) if stated else 0.0
     if kind == _ENERGY:
-        return _energy_record(family, engine, wiring, block, hardware)
+        return _energy_record(family, engine, wiring, block, hardware, derived)
     own = hardware if nominals[0] is None else nominals[0]
 
     sampled = _curve_for_device(block.get(written), "calibration", reference, devices, where)
@@ -538,13 +581,13 @@ def _supply_record(
             f"{where}: the mapping names a {wiring.calibration} calibration "
             f"and the export states a {shape} one"
         )
-    curve = shifted(_one_way(sampled, where, "calibration", hardware=own), hardware - own)
+    curve = shifted(_kept(sampled, where, "calibration", derived, hardware=own), hardware - own)
     inverse = _curve_for_device(
         block.get(MONITOR_FIELD), "monitor_inverse", reference, devices, where
     )
     if inverse is not None:
         inverse = shifted(
-            _one_way(inverse, where, "monitor_inverse", hardware=own, on_values=True),
+            _kept(inverse, where, "monitor_inverse", derived, hardware=own, on_values=True),
             hardware - own,
             on_values=True,
         )
@@ -555,7 +598,7 @@ def _supply_record(
     calibration["energy_scaling"] = _energy_scaling(kind, block.get(written))
     return {
         "slices": _slices(
-            family, kind, written, view, block, elements, members, hardware, curve, deck
+            family, kind, written, view, block, elements, members, hardware, curve, deck, derived
         ),
         "engine": _engine_record(engine),
         "calibration": calibration,
@@ -563,7 +606,12 @@ def _supply_record(
 
 
 def _energy_record(
-    family: str, engine: EngineBlock, wiring: WiringFamily, block: Map[str, Any], hardware: float
+    family: str,
+    engine: EngineBlock,
+    wiring: WiringFamily,
+    block: Map[str, Any],
+    hardware: float,
+    derived: _Derived,
 ) -> dict[str, Any]:
     """The energy knob's record body: its supply's current to the deck energy.
 
@@ -571,7 +619,8 @@ def _energy_record(
     written in eV, the unit the deck states its energy in, so the deck's own
     energy reads back through the inverse to the current the supply sits at.
     The inverse is the same table read the other way: a table that runs one
-    way on both axes converts back exactly.
+    way on both axes converts back exactly. Each table it cuts counts on
+    ``derived``.
 
     Raises:
         ValueError: The export states no energy table with two finite points,
@@ -598,11 +647,13 @@ def _energy_record(
             f"{where}: the mapping names a {wiring.calibration} calibration "
             "and the export states the energy as a table"
         )
-    curve = _one_way(sampled, where, "energy table", hardware=hardware)
-    inverse = _one_way(
-        Table(grid=curve.values, values=curve.grid),  # type: ignore[union-attr]
+    curve = _kept(sampled, where, "energy table", derived, hardware=hardware)
+    reversed_table = Table(grid=curve.values, values=curve.grid)  # type: ignore[union-attr]
+    inverse = _kept(
+        reversed_table,
         where,
         "energy table",
+        derived,
         hardware=hardware,
         on_values=True,
     )
@@ -699,6 +750,7 @@ def _slices(
     start: float,
     record_curve: Calibration,
     deck: Any,
+    derived: _Derived,
 ) -> list[_Slice]:
     """Every element one supply writes, each with its share and its conversion.
 
@@ -713,7 +765,7 @@ def _slices(
     axis by ``start`` less its own nominal, so the supply's change from
     ``start`` moves it as its own row does from its nominal. The first device's
     is ``record_curve``; another device's slices state theirs only where it
-    differs.
+    differs. Each curve cut here counts on ``derived``.
 
     Raises:
         ValueError: A device after the first states no calibration, or its
@@ -733,7 +785,7 @@ def _slices(
             row = _curve_for_device(block.get(written), "calibration", device, devices, where)
             if row is None:
                 raise ValueError(f"{where}: its {written} block states no calibration")
-            converts = _one_way(row, where, "calibration", hardware=own)
+            converts = _kept(row, where, "calibration", derived, hardware=own)
             curve, physics = shifted(converts, start - own), evaluate(converts, own)
         if nominal is None:
             physics = 0.0
@@ -979,6 +1031,22 @@ def _one_way(
     if (start, end) == (0, len(curve.grid) - 1):
         return curve
     return Table(grid=curve.grid[start : end + 1], values=curve.values[start : end + 1])
+
+
+def _kept(
+    curve: Calibration,
+    where: str,
+    what: str,
+    derived: _Derived,
+    *,
+    hardware: float,
+    on_values: bool = False,
+) -> Calibration:
+    """``_one_way``, counting a cut on ``derived``."""
+    kept = _one_way(curve, where, what, hardware=hardware, on_values=on_values)
+    if kept is not curve:
+        derived.trimmed += 1
+    return kept
 
 
 def _stretches(grid: tuple[float, ...]) -> list[tuple[int, int]]:

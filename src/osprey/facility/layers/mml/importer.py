@@ -66,8 +66,8 @@ does not carry is removed.
 Nothing is written until every record and every model's wiring is derived, so
 a stop leaves the layer directory as it was.
 
-The wiring pass's lines are printed once the records are written: one per
-family wired without a stated hardware nominal. After the records,
+The wiring pass's lines are printed once the records are written
+(:mod:`~osprey.facility.layers.mml.wiring` lists them). After the records,
 :func:`import_mml` seeds the authored files that do not
 exist yet (``limits.yaml``, ``seeds.yaml``, ``measurement/<model>.yaml``,
 ``classes.yaml`` and ``identity.yaml``; :mod:`~osprey.facility.layers.mml.seed`)

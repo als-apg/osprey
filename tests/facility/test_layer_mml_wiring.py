@@ -19,7 +19,7 @@ import yaml
 from osprey.facility.layers.mml import decks
 from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
 from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop, read_mapping
-from osprey.facility.layers.mml.wiring import _one_way
+from osprey.facility.layers.mml.wiring import _Derived, _kept, _one_way
 from osprey.simulation.engines.calibration import Linear, Table
 from tests.fixtures.mml._trees import SUPPORTED
 
@@ -578,3 +578,91 @@ def test_the_transfer_line_carries_the_calibrations_its_export_states(
                 },
                 "energy_scaling": facts["Setpoint"]["energy_scaling"],
             }
+
+
+# --- what the import derives ----------------------------------------------------------
+
+
+def _printed(capsys: pytest.CaptureFixture[str], what: str) -> list[str]:
+    return [line for line in capsys.readouterr().out.splitlines() if what in line]
+
+
+def test_each_family_whose_supply_feeds_several_devices_is_named_once_with_its_count(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    facility = _facility(tmp_path, "spear3")
+    import_mml([FIXTURES / "spear3" / f"{stem}.ao.json" for stem in TREES["spear3"]], facility)
+    counts = [
+        ("QF", 1),
+        ("QD", 1),
+        ("QFC", 2),
+        ("QDX", 1),
+        ("QFX", 1),
+        ("QDY", 1),
+        ("QFY", 1),
+        ("QDZ", 1),
+        ("QFZ", 1),
+        ("SF", 1),
+        ("SD", 1),
+        ("SFM", 1),
+        ("SDM", 1),
+        ("SkewQuad", 1),
+        ("BEND", 1),
+    ]
+    assert _printed(capsys, "supplies folded") == [
+        f"import mml: supplies folded: StorageRing: family {family} ({count})"
+        for family, count in counts
+    ]
+
+
+def test_the_nsls2_series_families_are_named_with_their_supply_counts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    facility = _facility(tmp_path, "nsls2")
+    import_mml([FIXTURES / "nsls2" / f"{stem}.ao.json" for stem in TREES["nsls2"]], facility)
+    assert _printed(capsys, "supplies folded") == [
+        "import mml: supplies folded: StorageRing: family SM2 (5)",
+        "import mml: supplies folded: StorageRing: family SH1 (8)",
+        "import mml: supplies folded: StorageRing: family SL2 (5)",
+        "import mml: supplies folded: StorageRing: family SQ (30)",
+    ]
+
+
+def test_a_family_whose_curves_turn_back_is_named_once_with_the_count_it_trimmed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sources = _exports(tmp_path, "spear3", TREES["spear3"])
+    path = sources[0].parent / "spear3.storagering.va.json"
+    va = json.loads(path.read_text(encoding="utf-8"))
+    for row in va["families"]["Q9S"]["Setpoint"]["calibration"]["grid"]:
+        row[-1] = row[0]
+    path.write_text(json.dumps(va), encoding="utf-8")
+    facility = _facility(tmp_path, "spear3")
+    import_mml(sources, facility)
+    assert _printed(capsys, "curves trimmed") == [
+        "import mml: curves trimmed: StorageRing: family Q9S (3)"
+    ]
+
+
+def test_an_export_with_no_turning_curve_and_no_series_names_neither(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    facility = _facility(tmp_path, "synthetic")
+    import_mml([FIXTURES / "synthetic" / "quokka.sr.ao.json"], facility)
+    out = capsys.readouterr().out
+    assert "curves trimmed" not in out
+    assert "supplies folded" not in out
+
+
+def test_a_cut_is_counted_once_and_a_whole_curve_not_at_all() -> None:
+    turning = Table(grid=(0.0, 1.0, 2.0, 1.5, 1.0), values=(0.0, 10.0, 20.0, 30.0, 40.0))
+    table = Table(grid=(0.0, 1.0, 2.0), values=(0.0, 10.0, 20.0))
+    line = Linear(gain=2.0, offset=1.0)
+    derived = _Derived()
+    where = "family Q device 1"
+    assert _kept(turning, where, "calibration", derived, hardware=0.9) == _one_way(
+        turning, where, "calibration", hardware=0.9
+    )
+    assert _kept(table, where, "calibration", derived, hardware=5.0) is table
+    assert _kept(line, where, "calibration", derived, hardware=5.0) is line
+    assert derived.trimmed == 1
