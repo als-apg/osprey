@@ -5,9 +5,10 @@ config, the store, the credential, the channel list — is resolved here, before
 the loop begins, so a misconfigured deployment says so in ``docker logs``
 within seconds instead of running as a service that quietly writes nothing.
 
-What is NOT fatal here is the control system being something other than the one
-recorded: that is the ordinary state of a mock deployment, and the service is
-supposed to sit there idling until someone flips it.
+What is NOT fatal here is a deployment the recorder does not record — a
+real machine, or the simulator served in process. The service starts,
+idles, and begins recording within one poll once the mounted config says
+it should.
 """
 
 from __future__ import annotations
