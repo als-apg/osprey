@@ -6,6 +6,7 @@ Pattern: monkeypatch.chdir(tmp_path) -> write config.yml -> mock deps -> call ad
 
 import asyncio
 import json
+import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -541,6 +542,44 @@ def test_figure_collection_multiple_formats(execution_folder):
 
     figures = _collect_figures(execution_folder)
     assert len(figures) == 3
+
+
+def test_a_figure_name_linked_to_a_file_outside_is_not_collected(execution_folder, tmp_path):
+    """A link, a hard link or a linked ``figures/`` never hands over an outside file."""
+    secret = tmp_path / ".env"
+    secret.write_bytes(b"API_KEY=do-not-read\n")
+    (execution_folder / "x.png").symlink_to(secret)
+    os.link(secret, execution_folder / "y.png")
+    (execution_folder / "figures" / "z.svg").symlink_to(secret)
+    (execution_folder / "figures" / "kept.png").write_bytes(b"PNG")
+
+    assert _collect_figures(execution_folder) == [execution_folder / "figures" / "kept.png"]
+
+
+def test_a_figures_folder_that_is_a_link_is_not_scanned(execution_folder, tmp_path):
+    outside = tmp_path / "pictures"
+    outside.mkdir()
+    (outside / "private.png").write_bytes(b"PNG")
+    (execution_folder / "figures").rmdir()
+    (execution_folder / "figures").symlink_to(outside, target_is_directory=True)
+    (execution_folder / "kept.png").write_bytes(b"PNG")
+
+    assert _collect_figures(execution_folder) == [execution_folder / "kept.png"]
+
+
+def test_figures_past_the_run_caps_are_not_collected(execution_folder, monkeypatch):
+    import osprey.mcp_server.python_executor.executor as executor_module
+
+    monkeypatch.setattr(executor_module, "MAX_COLLECTED_ENTRIES", 2)
+    for name in ("a.png", "b.png", "c.png"):
+        (execution_folder / name).write_bytes(b"PNG")
+
+    assert [path.name for path in _collect_figures(execution_folder)] == ["a.png", "b.png"]
+
+    monkeypatch.setattr(executor_module, "MAX_COLLECTED_ENTRIES", 10)
+    monkeypatch.setattr(executor_module, "MAX_COLLECTED_TOTAL_BYTES", 7)
+
+    assert [path.name for path in _collect_figures(execution_folder)] == ["a.png", "b.png"]
 
 
 # ---------------------------------------------------------------------------

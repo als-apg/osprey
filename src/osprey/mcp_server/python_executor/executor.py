@@ -42,7 +42,12 @@ from osprey.mcp_server.sandbox_env import (
     configured_child_env_passthrough,
     scrub_sandbox_child_env,
 )
-from osprey.stores.artifact_manifest import collect_artifacts
+from osprey.stores.artifact_manifest import (
+    MAX_COLLECTED_ENTRIES,
+    MAX_COLLECTED_TOTAL_BYTES,
+    collect_artifacts,
+    is_collectable_file,
+)
 from osprey.utils.config import EXECUTION_METHOD_SUBPROCESS, get_facility_timezone
 from osprey_connectors import posture_store
 
@@ -1664,13 +1669,34 @@ def _file_run_record(
 
 
 def _collect_figures(execution_folder: Path) -> list[Path]:
-    """Collect figure files from execution folder and its figures/ subdirectory."""
+    """Collect figure files from execution folder and its figures/ subdirectory.
+
+    A figure is a regular file with one hard link, and ``figures/`` is a
+    directory, never a link: the folder is written by agent code, and a link
+    under a figure's name would hand the parent a file from outside it. At most
+    ``MAX_COLLECTED_ENTRIES`` figures and ``MAX_COLLECTED_TOTAL_BYTES`` bytes are
+    collected. Anything else is left out with a warning.
+    """
     figures: list[Path] = []
+    total_bytes = 0
     search_dirs = [execution_folder / "figures", execution_folder]
     for search_dir in search_dirs:
-        if search_dir.exists():
-            for ext in ("*.png", "*.jpg", "*.jpeg", "*.svg"):
-                figures.extend(sorted(search_dir.glob(ext)))
+        if search_dir.is_symlink() or not search_dir.is_dir():
+            continue
+        for ext in ("*.png", "*.jpg", "*.jpeg", "*.svg"):
+            for candidate in sorted(search_dir.glob(ext)):
+                if not is_collectable_file(candidate):
+                    logger.warning("Figure not collected: %s is not a regular file", candidate)
+                    continue
+                size = candidate.lstat().st_size
+                if (
+                    len(figures) >= MAX_COLLECTED_ENTRIES
+                    or total_bytes + size > MAX_COLLECTED_TOTAL_BYTES
+                ):
+                    logger.warning("Figure not collected: %s is past the run's cap", candidate)
+                    continue
+                total_bytes += size
+                figures.append(candidate)
     return figures
 
 

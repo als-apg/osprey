@@ -14,6 +14,7 @@ from osprey.mcp_server.python_executor.executor import (
     FAILURE_KIND_TIMEOUT,
     ExecutionResult,
 )
+from osprey.stores.artifact_manifest import read_collected_file
 
 logger = logging.getLogger("osprey.mcp_server.tools.execute")
 
@@ -148,7 +149,7 @@ async def build_execution_response(
 
             store = get_artifact_store()
             fig_entry = store.save_file(
-                file_content=fig_path.read_bytes(),
+                file_content=read_collected_file(fig_path),
                 filename=fig_path.name,
                 artifact_type="image",
                 title=f"Figure: {fig_path.stem}",
@@ -167,7 +168,7 @@ async def build_execution_response(
 
             store = get_artifact_store()
             art_entry = store.save_file(
-                file_content=art["path"].read_bytes(),
+                file_content=read_collected_file(art["path"]),
                 filename=art["path"].name,
                 artifact_type=art["artifact_type"],
                 title=art["title"],

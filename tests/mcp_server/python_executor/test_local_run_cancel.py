@@ -633,6 +633,53 @@ def test_a_malformed_artifact_manifest_still_files_the_run_record(
     assert _journal(tmp_path).read_bytes() == raw
 
 
+#: A readwrite script whose manifest names a file outside the artifacts folder
+#: by a climbing path, by a link and by a hard link, beside one real artifact,
+#: and which links a figure name to the same file.
+_ESCAPING_MANIFEST = textwrap.dedent(
+    """
+    import json, os
+    FOLDER = {folder!r}
+    SECRET = {secret!r}
+    ARTIFACTS = os.path.join(FOLDER, "artifacts")
+    os.makedirs(ARTIFACTS, exist_ok=True)
+    os.symlink(SECRET, os.path.join(ARTIFACTS, "link.txt"))
+    os.link(SECRET, os.path.join(ARTIFACTS, "hard.txt"))
+    os.symlink(SECRET, os.path.join(FOLDER, "x.png"))
+    with open(os.path.join(ARTIFACTS, "kept.json"), "w") as fh:
+        fh.write("{{}}")
+    names = [os.path.relpath(SECRET, ARTIFACTS), SECRET, "link.txt", "hard.txt", "kept.json"]
+    with open(os.path.join(ARTIFACTS, "manifest.json"), "w") as fh:
+        json.dump([{{"filename": name, "title": name}} for name in names], fh)
+    with open(os.path.join(FOLDER, "execution_metadata.json"), "w") as fh:
+        json.dump({{"success": True, "stdout": "", "stderr": ""}}, fh)
+    """
+)
+
+
+def test_a_manifest_naming_files_outside_its_folder_hands_none_of_them_over(
+    make_run: Callable[..., _Run], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    raw = _plant_journal(tmp_path, "SR:Q5")
+    secret = tmp_path / ".env"
+    secret.write_bytes(b"API_KEY=do-not-read\n")
+    script = _ESCAPING_MANIFEST.replace("{secret!r}", repr(str(secret)))
+
+    run, outcome = _run_to_exit(make_run, monkeypatch, script)
+
+    assert "error" not in outcome
+    result = outcome["result"]
+    assert result.success is True
+    assert [artifact["path"] for artifact in result.artifacts] == [
+        run.folder / "artifacts" / "kept.json"
+    ]
+    assert result.figures == []
+    (record,) = _observed_records(run.ledger)
+    assert record["reason"] == executor.REASON_JOURNAL_LEFT
+    assert (run.folder / RESTORE_REPORT_FILE).exists()
+    assert _journal(tmp_path).read_bytes() == raw
+
+
 def test_a_run_whose_result_cannot_be_built_still_files_one_record(
     make_run: Callable[..., _Run], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
