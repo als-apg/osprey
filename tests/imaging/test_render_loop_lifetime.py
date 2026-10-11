@@ -262,3 +262,24 @@ def test_a_guard_on_a_closed_loop_is_left_alone():
     render._forget_worker()
 
     assert not guard.done()
+
+
+@pytest.mark.parametrize("closed", ["before-the-stop", "after-the-stop"])
+def test_a_stopped_guard_whose_loop_never_runs_again_is_dropped_unreported(closed, caplog):
+    """A guard that can never finish is collected without a pending-task report."""
+    loop = asyncio.new_event_loop()
+
+    async def make_client() -> None:
+        render._client()
+
+    loop.run_until_complete(make_client())
+    loop.run_until_complete(asyncio.sleep(0))
+    if closed == "before-the-stop":
+        loop.close()
+
+    with caplog.at_level(logging.ERROR, logger="asyncio"):
+        render._forget_worker()
+        loop.close()
+        gc.collect()
+
+    assert "Task was destroyed but it is pending" not in caplog.text
