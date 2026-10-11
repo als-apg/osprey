@@ -1,0 +1,1 @@
+`osprey facility import mml` stops with `mapping-invalid` when a `same_as` family is matched by `[sector, device]` to a family whose common names give one row two different devices; the slot no longer takes the first name silently. The drafted mapping proposes `address`, not `same_as`, for the other axis of such a family.
