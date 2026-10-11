@@ -103,6 +103,14 @@ subsequent runs hit the npx cache. Use ``osprey health`` to confirm the pin
 is being honored. To temporarily bypass the pin for debugging, run
 ``osprey chat --no-pin``.
 
+Headless runs — ``osprey query``, the web terminal's chat view and dispatched
+jobs — download nothing: they execute the installed ``claude``, and only once
+it reports the pinned version. On a machine where it does not, the run is
+refused before it starts, with a message that names the version the project
+pins, what was found instead, and the two ways out: install that version
+(``npm install -g @anthropic-ai/claude-code@<version>``), or change
+``cli_version``.
+
 
 Step 3: Install Python tools
 ------------------------------

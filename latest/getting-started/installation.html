@@ -536,6 +536,13 @@ globally-installed <code class="docutils literal notranslate"><span class="pre">
 subsequent runs hit the npx cache. Use <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> to confirm the pin
 is being honored. To temporarily bypass the pin for debugging, run
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span> <span class="pre">--no-pin</span></code>.</p>
+<p>Headless runs — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code>, the web terminal’s chat view and dispatched
+jobs — download nothing: they execute the installed <code class="docutils literal notranslate"><span class="pre">claude</span></code>, and only once
+it reports the pinned version. On a machine where it does not, the run is
+refused before it starts, with a message that names the version the project
+pins, what was found instead, and the two ways out: install that version
+(<code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">install</span> <span class="pre">-g</span> <span class="pre">&#64;anthropic-ai/claude-code&#64;&lt;version&gt;</span></code>), or change
+<code class="docutils literal notranslate"><span class="pre">cli_version</span></code>.</p>
 </section>
 </section>
 <section id="step-3-install-python-tools">
