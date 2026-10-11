@@ -12,6 +12,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `check_config_keys.py` | Config-key resurrection guard | 2-5s | After touching a `config.yml.j2`, a preset, or config-reading code |
 | `changelog_fragments.py` | Changelog-fragment gate and release fold | < 1s | After touching `src/` or `packages/`; when cutting a release |
 | `cli_tool_inventory.py` | CLI tool inventory of each pinned build | ~2 s plus an npm download | After bumping `_DEFAULT_CLAUDE_CLI_VERSION` or the `claude-agent-sdk` pin |
+| `bpm_polarity_picture.py` | Redraw the example facility's bpm-polarity logbook picture from its model and scenario | ~5 s | After changing the example's SR deck or wiring, the bpm-polarity scenario, or the BPM noise seeds |
 
 ## Scripts
 
@@ -215,6 +216,33 @@ is never one the build lacks.
 ```bash
 uv run python scripts/cli_tool_inventory.py --write   # after bumping a pin
 uv run python scripts/cli_tool_inventory.py --check   # what the static-checks CI job runs
+```
+
+---
+
+### bpm_polarity_picture.py
+
+**Purpose**: Redraw the picture the example facility's bpm-polarity scenario
+attaches to its logbook entry, so it stays in step with the model it shows.
+
+---
+
+**What it does**: Reads the example facility's simulator view: `scenarios.json`
+(the scenario's polarity faults), `variables.json` (the model's deck, settings
+and wiring), `seeds.json` (each monitor's absolute noise) and
+`decks/<model>.json`. It draws one panel per monitor of the lattice segment
+holding the reversed monitor, the reading against a kick of the corrector
+upstream of it, and writes
+`src/osprey/templates/facilities/example/scenarios/bpm-polarity/plots/corrector_bump_test.png`.
+Without `--simulator` it renders the view in-process first. A fixed noise seed
+makes a re-run write the same bytes on one host and the same picture on any.
+
+---
+
+**Usage**:
+```bash
+uv run python scripts/bpm_polarity_picture.py
+uv run python scripts/bpm_polarity_picture.py --simulator build/data/simulator
 ```
 
 ---
