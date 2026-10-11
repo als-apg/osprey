@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import pytest
+import yaml
 
 import osprey.runtime
 from osprey.errors import (
@@ -26,6 +27,7 @@ from osprey_connectors.control_system.base import (
     WriteOutcome,
 )
 from osprey_connectors.control_system.limits_validator import ChannelLimitsConfig
+from osprey_connectors.workspace import reset_config_cache
 
 RUNTIME_FUNCTIONS = (
     "read_channel",
@@ -215,21 +217,34 @@ class DictConnector(ControlSystemConnector):
         return channel_address in self._state
 
 
+#: The control system of the throwaway deployment: a real machine's, so the
+#: baseline control target is ``live`` because the render says so.
+LIVE_CONTROL_SYSTEM = {"type": "epics", "connector": {"epics": {}}}
+
+
 @pytest.fixture
-def guarded_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def guarded_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """A throwaway deployment repo, the working directory, with no target stamp.
 
-    The repo holds only its ``profile.yml``, so a guarded run's lock and durable
-    journal live under ``<tmp>/repo/var/guarded_run/live/``.
+    The repo holds its ``profile.yml`` and a render naming a real machine's
+    control system, so an unstamped guarded run is on ``live`` and its lock and
+    durable journal live under ``<tmp>/repo/var/guarded_run/live/``. The config
+    caches are empty going in and coming out, so the render read is this repo's
+    and no later test is answered from it.
     """
     root = tmp_path / "repo"
-    root.mkdir()
+    (root / "build").mkdir(parents=True)
     (root / "profile.yml").write_text("name: probe\n", encoding="utf-8")
+    (root / "build" / "config.yml").write_text(
+        yaml.safe_dump({"control_system": LIVE_CONTROL_SYSTEM}), encoding="utf-8"
+    )
     monkeypatch.chdir(root)
     monkeypatch.delenv(ENV_CONTROL_TARGET, raising=False)
     monkeypatch.delenv(ENV_CONTROL_TARGET_GENERATION, raising=False)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    return root
+    reset_config_cache()
+    yield root
+    reset_config_cache()
 
 
 @pytest.fixture
