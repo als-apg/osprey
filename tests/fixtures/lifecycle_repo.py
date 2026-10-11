@@ -213,6 +213,7 @@ skills:
   - writing-bluesky-plans  # Write, check and queue a plan (needs the Bluesky server)
   - operating-bluesky-plans  # Stage, queue and watch a plan (needs the Bluesky server)
   - bluesky-plans  # Browse which plans this deployment can run
+  - pyaml-tools  # Measure through pyaml_measure (renders only with a pyAML view)
   # Available — uncomment to enable:
   # - logbook-deep-research  # Multi-phase logbook investigation skill
 
@@ -1666,6 +1667,7 @@ exclude:
     - writing-bluesky-plans    # Plan authoring needs the Bluesky server
     - operating-bluesky-plans  # and so does running one
     - bluesky-plans            # and so does listing them
+    - pyaml-tools              # Measuring needs the Python sandbox
   agents:
     - channel-finder
     - data-visualizer
@@ -1808,6 +1810,7 @@ exclude:
     - writing-bluesky-plans    # Plan authoring needs the Bluesky server
     - operating-bluesky-plans  # and so does running one
     - bluesky-plans            # and so does listing them
+    - pyaml-tools              # Measuring needs the Python sandbox
   agents:
     - data-visualizer
     - logbook-search          # The logbook is the logbook persona's

@@ -1,0 +1,90 @@
+{% if pyaml_view_present | default(false) -%}
+{% set measured = facility_facts.measurement_models | default({}) -%}
+{% set solves = {} -%}
+{% for model in facility_facts.models | default([]) %}{% set _ = solves.update({model.name: model.solve}) %}{% endfor -%}
+---
+name: pyaml-tools
+description: >
+  Measure an orbit, dispersion, tune or chromaticity response, or the
+  chromaticity, on the control target through the pyaml_measure tool, read a
+  served model's orbit response through model_response_matrix, and read the
+  machine or the design lattice through pyAML in the Python executor. Use when
+  asked to measure a response matrix or the chromaticity, to compare a measured
+  response with the model, or to read magnets, BPMs, the RF or the tunes through
+  pyAML.
+summary: Measure through pyaml_measure, read the model through model_response_matrix, read through pyAML in execute
+---
+
+# pyAML Tools
+
+This deployment carries a pyAML view for each model below. Each view is one
+configuration the build wrote; nothing else in the deployment edits it.
+
+{% for model in measured -%}
+- `{{ model }}`: `data/pyaml/{{ model }}/configuration.yaml`{% if solves.get(model) == "single_pass" %} (single pass: no design simulator){% endif %}
+{% endfor %}
+---
+
+## Measure through `pyaml_measure`
+
+- Every measurement goes through `mcp__python__pyaml_measure`. Never step setpoints for a measurement in `mcp__python__execute`: pyAML writes there are refused.
+- `pyaml_measure` steps the setpoints inside one guarded run on the control target and writes back every setpoint a stopped run moved before it returns.
+- Every call asks for approval. The prompt shows the model, the kind, the pyAML view's digest and every setpoint it steps; the measurement runs only on that view.
+- Arguments:
+  - `kind`: `orm`, `dispersion`, `trm`, `crm` or `chromaticity_monitor`.
+  - `model`: the model; omit when only one model has a pyAML view.
+  - `correctors`: corrector setpoint addresses, for `orm` only; omit for every corrector.
+  - `modulation`: `bipolar` steps each setting to both sides of its present value, `unipolar` to one side; omit for bipolar, or for unipolar with `by: group`.
+  - `by`: `magnet` steps one magnet per column, `group` steps the whole group as one column; `trm` and `crm` only; omit for magnet.
+- A kind the model's measurement file does not allow is refused, naming the group or instrument it needs.
+
+### Step sizes
+
+- Each step comes from the model's measurement file: `corrector_delta`, `frequency_delta`, `quad_delta`, `sextu_delta`.
+- The tool shrinks a step until no setpoint's largest single write exceeds half its `max_step` in `data/facility/limits.yaml`; the result names the setpoint that bounded it in `delta_limited_by` (`rf_limited_by` for the RF).
+- A setpoint with no `max_step` in limits.yaml is stepped by the measurement file's value.
+
+### A group stepped as one knob
+
+- `by: group` moves every magnet of the group by the same integrated strength, once, from its present setting. Group stepping is unipolar: an omitted modulation is unipolar, and `modulation: bipolar` is refused.
+- The group step is sized so the tune or chromaticity moves no more than under the strongest single-magnet step of the view's `trm.json` or `crm.json`, and no magnet moves by more than one magnet's step; then each member is held to half its `max_step`.
+- `delta_basis` says what sized it: `tune excursion`, `chromaticity excursion`, `magnet step` or `max_step`.
+- The group column is per unit integrated strength: the sum of its members' magnet-by-magnet columns.
+- `crm` by group needs the view's `crm.json`; a view without one refuses it.
+
+### Bipolar or unipolar
+
+- Bipolar is the default. The MATLAB Middle Layer measures tune and chromaticity responses unipolar because of magnet hysteresis: choose `unipolar` when a magnet must approach its setting from one side.
+
+### The result
+
+- `rows` and `columns` name each reading and each stepped setpoint by its address and device id; `deltas` gives each step by address, or by group id for a group.
+- The matrix is in the file `data_file` names and in the artifact `artifact_id` names; the result carries its `shape`, never the matrix.
+- A result with `completed` false stopped part-way and was written back: report every `refused` and `failed` entry of its `restore` report to the operator, with its address and the value it was left at.
+- `remainder` names what was not measured.
+
+---
+
+## Read the model through `model_response_matrix`
+
+- `mcp__python__model_response_matrix(model, correctors)` solves a served model's orbit response on the model's own deck. It writes nothing and asks for no approval.
+- Each corrector steps by the measurement file's `corrector_delta`, converted to the corrector's hardware unit; each entry is a readback change in its hardware unit per setpoint change in its own.
+- `rows` and `columns` name each monitor readback and each corrector by address and device id.
+- A solve longer than the executor's timeout is stopped and refused; name fewer correctors.
+
+---
+
+## Read through pyAML in `execute`
+
+- Load a view in `mcp__python__execute`: `Accelerator.load("data/pyaml/<model>/configuration.yaml")` from `pyaml.accelerator`.
+- `sr.live` reads the machine; `sr.design` computes on the design lattice and touches no hardware.
+{% for model in measured if solves.get(model) == "single_pass" -%}
+- `{{ model }}` is solved single pass: its view carries `simulators: []`, so it has no `sr.design`. Its reads are `sr.live` only.
+{% endfor -%}
+- Reads only: a pyAML write in `execute` is refused (`OspreyWriteRefused: pyAML writes run only inside pyaml_measure`).
+- A named array: `sr.live.magnets.get("<array>")`, `sr.live.bpms.get("<array>")`. Never subscript a holder with a name: `sr.live.magnets["<array>"]` is a name glob and returns an empty array.
+- Array values: `.strengths.get()`, `.positions.get()`; element names in order: `.names()`.
+- The RF plant: `sr.live.rf.get("DEFAULT_RF_PLANT").frequency.get()`.
+- The tunes: `sr.live.get_betatron_tune_monitor("BETATRON_TUNE").tune.get()`.
+- pyAML values are SI; a channel reference's `[unit]` suffix names the unit the control system serves.
+{% endif -%}

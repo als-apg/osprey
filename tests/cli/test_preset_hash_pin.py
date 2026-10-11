@@ -275,15 +275,20 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # the build derives every persona's `project`/`project_path` from the
     # profile's `project_name`. The five `extends` children inherit the
     # catalog; the other three stand still.
+    # The thirty-eighth move, and four presets: control-assistant lists the
+    # `pyaml-tools` skill, which renders only where the build has a pyAML view,
+    # and the readonly, readwrite and admin children inherit it. The knowledge
+    # and logbook children exclude the skill, so their resolved content and
+    # their digests stand still, as do the other three presets.
     "ariel-standalone": ("sha256:31c1eace09974cac6b8dbfc744685b7d8e6f5b9cd58431b04659c79c93d3bb23"),
     "channel-finder-standalone": (
         "sha256:8503c046ea3c8a9ef1e3504e68853a5465556d65ec02c4ef790d3a3db32e4763"
     ),
     "control-assistant": (
-        "sha256:3f40af06684eb91dacf443325686f626a9be2b91f7567d5bffc8185b4f7832cf"
+        "sha256:e615d14b09d1ea8ed366a9880baa5a3c6be4d6b7b29beb7a99c0a8ffb0a58d9a"
     ),
     "control-assistant-admin": (
-        "sha256:1ab19bd74477afed4233d7f1e43db00be24baf55d789a0a4ab25a1fec4cdef58"
+        "sha256:8c5cf3ed6676cf73074b9fdecf59d771d49cb83daf96922578be1194fda9941c"
     ),
     "control-assistant-knowledge": (
         "sha256:693dc0a5b3b38ace335e6bb5ec1097aa4ca2657ab105a6e9ff9806a85a234400"
@@ -292,10 +297,10 @@ PINNED_PRESET_HASHES: dict[str, str] = {
         "sha256:68773c2d0b41b2fba1135beb02325923e1cb0bc7fd2e177315607599d3364376"
     ),
     "control-assistant-readonly": (
-        "sha256:6211adf4e0701118681316be81d6b3567fffb387e48e0b8e924800daf4c8346a"
+        "sha256:90f8b717904a94380ef3da036264288e9ac4e507265934ea63bbcb8cadd9dafe"
     ),
     "control-assistant-readwrite": (
-        "sha256:17d6c7ab3f56efaaf0d357b472c4b349dc3a01b1ff172fbd9010d9481cfff7ca"
+        "sha256:f0adcad57b48e7f020497e79231035b9364160c9bfa79cf03c061534f431972a"
     ),
     "hello-world": ("sha256:d9328877c94d4e066e6bb98e54f38f9bb2918025928ed37f598141c91082c5d7"),
 }

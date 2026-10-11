@@ -102,3 +102,55 @@ def test_a_changed_seed_changes_the_facility_file(
         rendered[name] = (render_dir / FACILITY_FILE).read_bytes()
 
     assert rendered["authored"] != rendered["reseeded"]
+
+
+def _measurement_surface(render_dir: Path, config: dict[str, Any]) -> dict[str, Any]:
+    """What a render's pyAML view brings: the view, the tools, the skill and the prompt."""
+    import asyncio
+
+    from fastmcp import FastMCP
+
+    from osprey.cli.templates.claude_code import config_derived_context
+    from osprey.cli.templates.manager import TemplateManager
+    from osprey.mcp_server.python_executor.server import register_optional_tools
+
+    ctx = config_derived_context(config, render_dir)
+    server = FastMCP("probe")
+    register_optional_tools(server, render_dir)
+    env = TemplateManager().jinja_env
+    skill = env.get_template("claude_code/claude/skills/pyaml-tools/SKILL.md.j2").render(ctx)
+    prompt = env.get_template("claude_code/CLAUDE.md.j2").render(
+        ctx, enabled_servers={"python"}, agents=[], agent_data_root="var/agent_data"
+    )
+    return {
+        "view": (render_dir / "data" / "pyaml").exists(),
+        "present": ctx["pyaml_view_present"],
+        "tools": {tool.name for tool in asyncio.run(server.list_tools())},
+        "skill": skill.strip() != "",
+        "prompt": "## Measurements" in prompt,
+    }
+
+
+def test_a_texture_only_render_carries_no_pyaml_view_tool_skill_or_prompt_section(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    config = yaml.safe_load(
+        (built_control_assistant.build_dir / "config.yml").read_text(encoding="utf-8")
+    )
+    texture = _measurement_surface(_texture_only(tmp_path, built_control_assistant), config)
+    served = _measurement_surface(built_control_assistant.build_dir, config)
+
+    assert texture == {
+        "view": False,
+        "present": False,
+        "tools": set(),
+        "skill": False,
+        "prompt": False,
+    }
+    assert served == {
+        "view": True,
+        "present": True,
+        "tools": {"pyaml_measure", "model_response_matrix"},
+        "skill": True,
+        "prompt": True,
+    }

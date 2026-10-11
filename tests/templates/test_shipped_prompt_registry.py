@@ -34,11 +34,24 @@ CONFIG_KEY_MANIFEST = PACKAGE_ROOT / "profiles" / "config_key_manifest.yml"
 
 
 def registered_tool_names() -> set[str]:
-    """Every ``@<server>.tool`` function name under ``osprey.mcp_server``, by AST."""
+    """Every tool name registered under ``osprey.mcp_server``, by AST.
+
+    A ``@<server>.tool`` decorated function, and a ``<server>.tool(fn, name="...")``
+    call that registers a tool only when the render asks for it.
+    """
     names: set[str] = set()
     for path in sorted(MCP_SERVER_ROOT.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "tool"
+                and node.args
+            ):
+                for keyword in node.keywords:
+                    if keyword.arg == "name" and isinstance(keyword.value, ast.Constant):
+                        names.add(keyword.value.value)
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             for decorator in node.decorator_list:

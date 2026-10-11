@@ -363,6 +363,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             output_path=".claude/skills/bluesky-plans/SKILL.md",
             description="Index of the plans this deployment can run. The template renders an index built from the operator's own plan directory, so this artifact's framework hash tracks that directory: a claimed copy reports drift whenever a plan's docstring changes, not only when the framework template does.",
         ),
+        BuildArtifact(
+            canonical_name="skills/pyaml-tools",
+            template_path="claude/skills/pyaml-tools/SKILL.md.j2",
+            output_path=".claude/skills/pyaml-tools/SKILL.md",
+            description="Measure through pyaml_measure, read the model through model_response_matrix, read through pyAML; renders only when the build wrote a pyAML view",
+        ),
         # ── Output Styles ────────────────────────────────────────────
         BuildArtifact(
             canonical_name="output-styles/control-operator",

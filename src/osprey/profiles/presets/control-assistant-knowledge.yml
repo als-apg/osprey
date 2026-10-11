@@ -63,6 +63,7 @@ exclude:
     - writing-bluesky-plans    # Plan authoring needs the Bluesky server
     - operating-bluesky-plans  # and so does running one
     - bluesky-plans            # and so does listing them
+    - pyaml-tools              # Measuring needs the Python sandbox
   agents:
     - data-visualizer
     - logbook-search          # The logbook is the logbook persona's

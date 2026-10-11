@@ -19,3 +19,9 @@ the render carries a pyAML view.
 every write tool, whether or not the render carries a pyAML view; `model_response_matrix`
 is read-only and runs without a prompt. The prompt lists every setpoint the measurement
 writes, the RF frequency setpoint included, and the modulation the call resolves to.
+
+A render with a pyAML view installs the `pyaml-tools` skill and a measurements section in
+`CLAUDE.md`: every measurement goes through `pyaml_measure`, pyAML reads stay in
+`execute`, and a single-pass model, which has no design simulator, is read live only. The
+control-room presets list the skill; the knowledge and logbook personas, which run no
+Python sandbox, drop it.
