@@ -118,7 +118,7 @@ The ten skills
    * - ``/osprey:release``
      - Walks a maintainer through a CalVer release: the release-notes PR, the
        tag, and verifying the automated PyPI publish.
-   * - ``/osprey:install``
+   * - ``/osprey:setup``
      - The guided setup, as a conversation: installs Osprey if it is missing,
        inventories what exists, and sets up or migrates a deployment for an
        accelerator, beamline, or detector one confirmed card at a time.
@@ -126,7 +126,7 @@ The ten skills
      - Investigates whether something a facility needs is an Osprey gap, a
        deployment gap, or already supported; judges whether the fix is
        mechanical or architectural; drafts the write-up to file or to branch
-       from. ``/osprey:install`` runs it in the background.
+       from. ``/osprey:setup`` runs it in the background.
    * - ``/osprey:panel``
      - Authors a themed web-terminal panel that passes the panel validator.
    * - ``/osprey:housekeeping``
@@ -145,14 +145,14 @@ The ten skills
        test surface.
 
 In Codex the same ten are ``$design-philosophy``, ``$contribute``,
-``$pre-commit``, ``$release``, ``$install``, ``$upstream-scout``, ``$panel``,
+``$pre-commit``, ``$release``, ``$setup``, ``$upstream-scout``, ``$panel``,
 ``$housekeeping``, ``$doc-sync``, and ``$test-audit``.
 
 The skills route to each other: ``/osprey:contribute`` hands a standalone
 validation run to ``/osprey:pre-commit`` and a release to ``/osprey:release``;
 ``/osprey:release`` runs ``/osprey:housekeeping`` and ``/osprey:doc-sync`` as
 advisory steps before the release-notes PR, ``/osprey:housekeeping`` hands
-doc-page items to ``/osprey:doc-sync``, ``/osprey:install`` launches
+doc-page items to ``/osprey:doc-sync``, ``/osprey:setup`` launches
 ``/osprey:upstream-scout`` in the background, and the scout's branch path hands
 the implementation to ``/osprey:contribute``, as ``/osprey:test-audit`` does
 with a finished audit.

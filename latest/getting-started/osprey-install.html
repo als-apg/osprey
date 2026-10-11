@@ -450,7 +450,7 @@
                   
   <section id="guided-facility-setup">
 <h1>Guided Facility Setup<a class="headerlink" href="#guided-facility-setup" title="Link to this heading">#</a></h1>
-<p>The <code class="docutils literal notranslate"><span class="pre">/osprey:install</span></code> skill is OSPREY’s guided setup: a conversation with a
+<p>The <code class="docutils literal notranslate"><span class="pre">/osprey:setup</span></code> skill is OSPREY’s guided setup: a conversation with a
 coding agent you bring — Claude Code in the commands below. That agent is not the
 OSPREY agent: the setup builds the deployment the OSPREY agent later runs
 from. It starts from what you already have, installs OSPREY if it is missing,
@@ -494,7 +494,7 @@ claude
 </pre></div>
 </div>
 <p>In the agent session, type:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/osprey:install
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/osprey:setup
 </pre></div>
 </div>
 </section>
@@ -552,7 +552,7 @@ setup offers to investigate it in the background while you continue. The result
 comes back as a write-up with a verdict, mechanical or architectural, and a
 recommendation: fix it on a branch and build your deployment against that branch, or
 file an issue with the OSPREY team. Nothing is sent without you seeing it.</p>
-<p>To resume, open the repository and run <code class="docutils literal notranslate"><span class="pre">/osprey:install</span></code> again. It continues
+<p>To resume, open the repository and run <code class="docutils literal notranslate"><span class="pre">/osprey:setup</span></code> again. It continues
 after the last confirmed card.</p>
 <p>Migrating an existing project is the same conversation. Answer “an OSPREY
 deployment already exists” and DISCOVER inventories it, whatever its generation.

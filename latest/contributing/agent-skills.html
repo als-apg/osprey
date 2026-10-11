@@ -552,7 +552,7 @@ gate that matches what you are about to do.</p></td>
 <td><p>Walks a maintainer through a CalVer release: the release-notes PR, the
 tag, and verifying the automated PyPI publish.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:install</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:setup</span></code></p></td>
 <td><p>The guided setup, as a conversation: installs Osprey if it is missing,
 inventories what exists, and sets up or migrates a deployment for an
 accelerator, beamline, or detector one confirmed card at a time.</p></td>
@@ -561,7 +561,7 @@ accelerator, beamline, or detector one confirmed card at a time.</p></td>
 <td><p>Investigates whether something a facility needs is an Osprey gap, a
 deployment gap, or already supported; judges whether the fix is
 mechanical or architectural; drafts the write-up to file or to branch
-from. <code class="docutils literal notranslate"><span class="pre">/osprey:install</span></code> runs it in the background.</p></td>
+from. <code class="docutils literal notranslate"><span class="pre">/osprey:setup</span></code> runs it in the background.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:panel</span></code></p></td>
 <td><p>Authors a themed web-terminal panel that passes the panel validator.</p></td>
@@ -587,13 +587,13 @@ test surface.</p></td>
 </table>
 </div>
 <p>In Codex the same ten are <code class="docutils literal notranslate"><span class="pre">$design-philosophy</span></code>, <code class="docutils literal notranslate"><span class="pre">$contribute</span></code>,
-<code class="docutils literal notranslate"><span class="pre">$pre-commit</span></code>, <code class="docutils literal notranslate"><span class="pre">$release</span></code>, <code class="docutils literal notranslate"><span class="pre">$install</span></code>, <code class="docutils literal notranslate"><span class="pre">$upstream-scout</span></code>, <code class="docutils literal notranslate"><span class="pre">$panel</span></code>,
+<code class="docutils literal notranslate"><span class="pre">$pre-commit</span></code>, <code class="docutils literal notranslate"><span class="pre">$release</span></code>, <code class="docutils literal notranslate"><span class="pre">$setup</span></code>, <code class="docutils literal notranslate"><span class="pre">$upstream-scout</span></code>, <code class="docutils literal notranslate"><span class="pre">$panel</span></code>,
 <code class="docutils literal notranslate"><span class="pre">$housekeeping</span></code>, <code class="docutils literal notranslate"><span class="pre">$doc-sync</span></code>, and <code class="docutils literal notranslate"><span class="pre">$test-audit</span></code>.</p>
 <p>The skills route to each other: <code class="docutils literal notranslate"><span class="pre">/osprey:contribute</span></code> hands a standalone
 validation run to <code class="docutils literal notranslate"><span class="pre">/osprey:pre-commit</span></code> and a release to <code class="docutils literal notranslate"><span class="pre">/osprey:release</span></code>;
 <code class="docutils literal notranslate"><span class="pre">/osprey:release</span></code> runs <code class="docutils literal notranslate"><span class="pre">/osprey:housekeeping</span></code> and <code class="docutils literal notranslate"><span class="pre">/osprey:doc-sync</span></code> as
 advisory steps before the release-notes PR, <code class="docutils literal notranslate"><span class="pre">/osprey:housekeeping</span></code> hands
-doc-page items to <code class="docutils literal notranslate"><span class="pre">/osprey:doc-sync</span></code>, <code class="docutils literal notranslate"><span class="pre">/osprey:install</span></code> launches
+doc-page items to <code class="docutils literal notranslate"><span class="pre">/osprey:doc-sync</span></code>, <code class="docutils literal notranslate"><span class="pre">/osprey:setup</span></code> launches
 <code class="docutils literal notranslate"><span class="pre">/osprey:upstream-scout</span></code> in the background, and the scout’s branch path hands
 the implementation to <code class="docutils literal notranslate"><span class="pre">/osprey:contribute</span></code>, as <code class="docutils literal notranslate"><span class="pre">/osprey:test-audit</span></code> does
 with a finished audit.</p>

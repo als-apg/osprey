@@ -336,7 +336,7 @@ out, an empty answer, and the words that answer it. There are three kinds.
 ``map --check`` refuses while any slot is still empty, exactly as it does for
 an unanswered judgment, so nothing is emitted from a question nobody answered.
 
-You do not have to read the block to answer it. During a guided install the
+You do not have to read the block to answer it. During a guided setup the
 OSPREY agent draws the whole thing as one **VA MAP card**: what the export
 brought and which families MATLAB itself refused, then the open questions one
 row each with the question and its answer words verbatim, then the families it
