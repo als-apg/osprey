@@ -364,6 +364,95 @@ async def test_a_refused_call_spawns_nothing_and_leaves_the_journal(
     assert journal.read_bytes() == before
 
 
+#: The approved fields a measurement's prompt binds its call to.
+_MEASURE_BOUND = {**_BOUND, "approved_view_sha256": "cd" * 32}
+
+
+def test_a_measurement_whose_stamp_agrees_on_all_three_forwards_the_two(stamps: Path) -> None:
+    _stamp(stamps, tool="mcp__python__pyaml_measure", **_MEASURE_BOUND)
+
+    assert _gate(_ASKING_CONFIG, _MEASURE_BOUND, tool="pyaml_measure") == {
+        "OSPREY_APPROVED_JOURNAL_SHA256": "ab" * 32,
+        "OSPREY_APPROVED_TARGET": "live",
+    }
+
+
+def test_an_asking_measurement_without_a_view_digest_is_refused(stamps: Path) -> None:
+    _stamp(stamps, tool="mcp__python__pyaml_measure", **_MEASURE_BOUND)
+
+    with pytest.raises(executor._ApprovalMissing, match="`approved_view_sha256` differs"):
+        _gate(_ASKING_CONFIG, _BOUND, tool="pyaml_measure")
+
+
+@pytest.mark.parametrize(
+    "stamped",
+    [
+        pytest.param(_BOUND, id="stamp-lacks-the-view"),
+        pytest.param({**_BOUND, "approved_view_sha256": "ef" * 32}, id="stamp-differs"),
+    ],
+)
+async def test_a_measurement_whose_view_digest_disagrees_spawns_nothing(
+    stamps: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stamped: dict[str, str]
+) -> None:
+    from osprey.audit.call import call_scope
+
+    _stamp(stamps, tool="mcp__python__pyaml_measure", **stamped)
+    journal = tmp_path / "var" / "guarded_run" / "live" / "run.journal"
+    journal.parent.mkdir(parents=True)
+    journal.write_text('{"header": {"target": "live"}}\n{"address": "Q", "value": 1}\n')
+    before = journal.read_bytes()
+    folder = tmp_path / "exec"
+    folder.mkdir()
+
+    def stamp_target(sandbox_env: dict[str, str]) -> str:
+        sandbox_env["OSPREY_CONTROL_TARGET"] = "live"
+        return "live"
+
+    async def spawn(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("a refused call spawns nothing")
+
+    monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
+    monkeypatch.setattr("osprey.utils.workspace.load_osprey_config", lambda: _ASKING_CONFIG)
+    monkeypatch.setattr(executor, "_apply_target_stamp", stamp_target)
+    monkeypatch.setattr(executor.asyncio, "create_subprocess_exec", spawn)
+
+    with call_scope(_CALL_ID, None):
+        result = await executor._execute_via_local(
+            "x = 1\n",
+            "readwrite",
+            {"timeout": 30},
+            folder,
+            tool="pyaml_measure",
+            **_MEASURE_BOUND,
+        )
+
+    assert result.failure_kind == executor.FAILURE_KIND_APPROVAL_MISSING
+    assert "`approved_view_sha256` differs" in (result.error_message or "")
+    assert list(folder.iterdir()) == []
+    assert journal.read_bytes() == before
+
+
+async def test_the_gate_sequence_hands_the_view_digest_to_the_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey.mcp_server.python_executor.tools._execution_gates import run_gated_execution
+
+    monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
+    monkeypatch.chdir(tmp_path)
+    launch = AsyncMock(return_value=_result())
+    with patch("osprey.mcp_server.python_executor.executor.execute_code", launch):
+        await run_gated_execution(
+            tool="pyaml_measure",
+            code="x = 1\n",
+            description="probe",
+            execution_mode="readonly",
+            project_root=tmp_path,
+            approved_view_sha256="cd" * 32,
+        )
+
+    assert launch.await_args.kwargs["approved_view_sha256"] == "cd" * 32
+
+
 def test_a_readonly_wrapper_binds_nothing() -> None:
     script = ExecutionWrapper(execution_mode="readonly").create_wrapper("x = 1\n")
     assert "_open_approved_call" not in script

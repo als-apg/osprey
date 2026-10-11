@@ -796,6 +796,7 @@ async def run_gated_execution(
     notify: Callable[..., Awaitable[Any]] | None = None,
     approved_journal_sha256: str | None = None,
     approved_target: str | None = None,
+    approved_view_sha256: str | None = None,
 ) -> tuple[ExecutionResult, dict]:
     """Run *code* through every executor gate, launch it, and report the run.
 
@@ -846,6 +847,8 @@ async def run_gated_execution(
             put into the call, handed to the launch.
         approved_target: The control target the approval hook put into the
             call, handed to the launch.
+        approved_view_sha256: The pyAML view digest the approval hook put into
+            the call, handed to the launch.
 
     Returns:
         ``(exec_result, patterns)`` — the backend's result and the pattern
@@ -950,6 +953,7 @@ async def run_gated_execution(
         tool=tool,
         approved_journal_sha256=approved_journal_sha256,
         approved_target=approved_target,
+        approved_view_sha256=approved_view_sha256,
     )
 
     detail = write_activity_detail(bool(patterns.get("has_writes")), execution_mode)

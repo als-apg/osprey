@@ -211,6 +211,12 @@ APPROVED_FIELDS: tuple[str, ...] = (
 #: The approved fields an asking guarded call must carry.
 _REQUIRED_APPROVED_FIELDS: tuple[str, ...] = ("approved_journal_sha256", "approved_target")
 
+#: The further approved fields an asking call of one tool must carry: a
+#: measurement is bound to the pyAML view its prompt showed.
+_TOOL_REQUIRED_APPROVED_FIELDS: Mapping[str, tuple[str, ...]] = {
+    "pyaml_measure": ("approved_view_sha256",),
+}
+
 #: The ask stamp the approval hook leaves for a call it put to an approver,
 #: restated from ``osprey_approval.py`` (a hook script this package cannot
 #: import);
@@ -788,7 +794,8 @@ def _approved_call_env(
     policy asks runs only when the approval hook's ask stamp for this tool call
     exists, names *tool*, and records every approved field the call carries
     with the same value; the call must carry the journal digest and the target,
-    and that target must name the guarded-run directory *control_target* does.
+    ``pyaml_measure`` the view digest too, and that target must name the
+    guarded-run directory *control_target* does.
 
     Args:
         execution_mode: ``"readonly"`` or ``"readwrite"``.
@@ -820,9 +827,10 @@ def _approved_call_env(
             "not run: this call's approval prompt left no record (approval_missing). "
             "Call the tool again so the approval prompt can ask."
         )
+    required = (*_REQUIRED_APPROVED_FIELDS, *_TOOL_REQUIRED_APPROVED_FIELDS.get(tool, ()))
     for name in APPROVED_FIELDS:
         value = approved.get(name)
-        if value is None and name not in _REQUIRED_APPROVED_FIELDS:
+        if value is None and name not in required:
             continue
         if value is None or stamp.get(name) != value:
             raise _ApprovalMissing(
@@ -1005,13 +1013,15 @@ async def _execute_via_local(
     tool: str = "execute",
     approved_journal_sha256: str | None = None,
     approved_target: str | None = None,
+    approved_view_sha256: str | None = None,
 ) -> ExecutionResult:
     """Execute code in a host subprocess with the ExecutionWrapper.
 
     *tool* names the guarded tool the run is for; with the approved journal
-    digest and target it binds a readwrite run's guarded runs to the call the
-    approval hook recorded (:func:`_approved_call_env`). A call that should have
-    been asked and was not is refused before anything is spawned.
+    digest, target and view digest it binds a readwrite run's guarded runs to
+    the call the approval hook recorded (:func:`_approved_call_env`). A call
+    that should have been asked and was not is refused before anything is
+    spawned.
     """
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
     from osprey.utils.workspace import load_osprey_config
@@ -1075,6 +1085,7 @@ async def _execute_via_local(
                 {
                     "approved_journal_sha256": approved_journal_sha256,
                     "approved_target": approved_target,
+                    "approved_view_sha256": approved_view_sha256,
                 },
                 control_target=control_target,
             )
@@ -1708,6 +1719,7 @@ async def execute_code(
     tool: str = "execute",
     approved_journal_sha256: str | None = None,
     approved_target: str | None = None,
+    approved_view_sha256: str | None = None,
 ) -> ExecutionResult:
     """Execute Python code in a host subprocess.
 
@@ -1728,6 +1740,8 @@ async def execute_code(
             call carries none.
         approved_target: The control target the approval hook put into the
             call; ``None`` when the call carries none.
+        approved_view_sha256: The pyAML view digest the approval hook put into
+            the call; ``None`` when the call carries none.
 
     Returns:
         :class:`ExecutionResult` with stdout, stderr, success status, figures,
@@ -1745,6 +1759,7 @@ async def execute_code(
             tool=tool,
             approved_journal_sha256=approved_journal_sha256,
             approved_target=approved_target,
+            approved_view_sha256=approved_view_sha256,
         )
     except Exception as exc:
         logger.error(
