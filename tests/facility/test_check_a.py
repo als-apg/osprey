@@ -263,19 +263,38 @@ class Deck:
         ``dK = k_per_amp * delta_resp_mat`` is the step the Middle Layer's
         family measurement lands on the model (``hw2physics`` of the nominal
         plus the width, less that of the nominal); ``setsp`` writes a device's
-        strength to every element it drives.
+        strength to every element it drives, times that slice's weight.
         """
         lattice = self.copy()
         engine = self.wiring.engine(family)
         attribute, index = str(engine["attribute"]), int(engine["index"])
-        bound = self._bound(family, "write", facts["device_list"])
-        for pieces, step in zip(bound, _step(facts), strict=True):
-            for element, _weight in pieces:
-                target = lattice[self.where(element)]
-                values = np.array(getattr(target, attribute), dtype=float)
-                values[index] += step
-                setattr(target, attribute, values)
+        bound = [
+            [(self.where(element), weight) for element, weight in pieces]
+            for pieces in self._bound(family, "write", facts["device_list"])
+        ]
+        _apply_steps(lattice, bound, _step(facts), attribute, index)
         return lattice
+
+
+def _apply_steps(
+    lattice: Any,
+    bound: Sequence[Sequence[tuple[int, float]]],
+    steps: np.ndarray,
+    attribute: str,
+    index: int,
+) -> None:
+    """Add ``steps[n]`` times each slice's weight to ``attribute[index]`` of device ``n``'s elements.
+
+    ``bound[n]`` holds ``(position, weight)`` for every element device ``n``
+    drives; ``setsp`` writes a device's strength to every element it drives,
+    times that slice's weight.
+    """
+    for pieces, step in zip(bound, steps, strict=True):
+        for position, weight in pieces:
+            target = lattice[position]
+            values = np.array(getattr(target, attribute), dtype=float)
+            values[index] += step * weight
+            setattr(target, attribute, values)
 
 
 def _deck(built: BuiltModel, reference: dict[str, Any]) -> Deck:
@@ -891,3 +910,22 @@ def test_a_wiring_entry_reads_as_its_slices_with_their_weights() -> None:
 
     assert _pieces(sliced, "D1") == [("QA", "D1", 1.0), ("QB", "D1", -1.0)]
     assert _pieces(whole, "D1") == [("Q1", "D1", 1.0)]
+
+
+def test_a_weighted_step_moves_each_slice_by_the_step_times_its_weight() -> None:
+    """Two devices, the first split over two slices of opposite sign, the second at half weight."""
+    lattice = at.Lattice(
+        [
+            at.Quadrupole("QA", 0.2, 1.0),
+            at.Quadrupole("QB", 0.2, -1.0),
+            at.Quadrupole("QC", 0.2, 0.5),
+        ],
+        energy=3e9,
+    )
+
+    _apply_steps(
+        lattice, [[(0, 1.0), (1, -1.0)], [(2, 0.5)]], np.array([2e-3, 4e-3]), "PolynomB", 1
+    )
+
+    strengths = [float(element.PolynomB[1]) for element in lattice]
+    assert strengths == pytest.approx([1.0 + 2e-3, -1.0 - 2e-3, 0.5 + 0.5 * 4e-3], abs=1e-15)
