@@ -53,7 +53,6 @@ MINIMAL_CONFIG_CONTEXT: dict[str, Any] = {
     "provider_catalog": PROVIDER_CATALOG,
     "builtin_panels": sorted(BUILTIN_PANELS),
     "selected_web_panels": [],
-    "approval_hook_wired": False,
     "ariel_server_on": False,
 }
 

@@ -180,10 +180,10 @@ async def test_the_gate_sequence_hands_the_approved_fields_to_the_launch(
     assert launch.await_args.kwargs["approved_target"] == "va"
 
 
-#: A rendered config whose approval hook is wired and asks about every tool.
+#: A rendered config whose approval policy asks about every tool.
 _ASKING_CONFIG: dict[str, Any] = {
     "control_system": {"type": "epics", "connector": {"epics": {}}},
-    "approval": {"enabled": True, "default_policy": "always", "hook_wired": True},
+    "approval": {"enabled": True, "default_policy": "always"},
 }
 
 
@@ -335,7 +335,7 @@ _REWRITE_THEN_LOCK = textwrap.dedent(
     from osprey_connectors.workspace import reset_config_cache
 
     with open("build/config.yml", "w") as handle:
-        yaml.safe_dump({"approval": {"enabled": False, "hook_wired": False}}, handle)
+        yaml.safe_dump({"approval": {"enabled": False}}, handle)
     with open("elsewhere.yml", "w") as handle:
         yaml.safe_dump({}, handle)
     os.environ["OSPREY_CONFIG"] = os.path.abspath("elsewhere.yml")

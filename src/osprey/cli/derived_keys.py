@@ -60,8 +60,6 @@ _DERIVED_KEY_SOURCES: dict[str, str] = {
     ),
     # The port layout.
     "artifact_server.port": "the build derives it from `deployment.port_base`",
-    # The hook selection.
-    "approval.hook_wired": "the build derives it from the `hooks:` list",
     # Profile fields.
     "claude_code.provider": "the top-level `provider:` field sets it",
     "claude_code.default_model": "the top-level `model:` field sets it",

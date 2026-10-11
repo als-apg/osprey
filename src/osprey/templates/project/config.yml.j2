@@ -111,17 +111,6 @@ execution:
 artifact_server:
   port: {{ osprey_ports.artifact }}
 
-# ── Approval hook ───────────────────────────────────────────
-# From the profile's `hooks:` list: true when this render runs the approval
-# hook in front of its tool calls. A guarded run reads it to tell whether a
-# call was put to a human. The policies are the profile's own `approval.*` keys.
-{#- Never a default: a render that reaches here without the answer is a wiring
-    fault, and `false` would tell a guarded run that nobody is asked. #}
-{%- set _approval_hook_wired = approval_hook_wired if approval_hook_wired is defined
-    else fail("approval_hook_wired missing from render context") %}
-approval:
-  hook_wired: {{ _approval_hook_wired | tojson }}
-
 # ── Which model answers ─────────────────────────────────────
 # From the profile's `provider:` and `model:` fields. `provider` names an entry
 # of `api.providers` below; `default_model` is a model id the provider serves;

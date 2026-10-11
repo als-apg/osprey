@@ -10,10 +10,6 @@ fields are dropped: nobody approved them. A restore that leaves setpoints
 displaced rewrites the journal to hold exactly those. An exception escaping
 `journaled_run` restores what the run moved.
 
-The build records whether a render runs the approval hook as
-`approval.hook_wired` in `config.yml`, from the profile's `hooks:` list; a
-`config:` line for it is refused.
-
 The restore report is tagged `OSPREY_GUARDED_RUN_RESTORE`, saved as
 `guarded_run_restore_reports.json` and audited as `guarded_run_restore_complete`
 or `guarded_run_restore_incomplete`, for a finished run as for an interrupted

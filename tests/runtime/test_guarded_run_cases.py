@@ -67,8 +67,8 @@ ENV_READY_FD = "GUARDED_RUN_CASES_READY_FD"
 #: A deployment on a real control system, whose own target is ``live``.
 LIVE_BASELINE = {"type": "epics", "connector": {"epics": {"gateways": {}}}}
 
-#: An ``approval`` block whose hook is wired and puts every tool's call to a human.
-ASKING = {"enabled": True, "default_policy": "always", "hook_wired": True}
+#: An ``approval`` block that puts every tool's call to a human.
+ASKING = {"enabled": True, "default_policy": "always"}
 
 #: Installed as ``sitecustomize`` in every child: ``osprey.runtime`` reads and
 #: writes the machine file before any other code of the child runs.

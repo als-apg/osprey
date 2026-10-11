@@ -54,8 +54,8 @@ from osprey_connectors.workspace import reset_config_cache
 #: The generation this process is stamped with.
 GENERATION = 4
 
-#: An ``approval`` block whose hook is wired and puts every tool's call to a human.
-_ASKING = {"enabled": True, "default_policy": "always", "hook_wired": True}
+#: An ``approval`` block that puts every tool's call to a human.
+_ASKING = {"enabled": True, "default_policy": "always"}
 
 
 class _Channels:
