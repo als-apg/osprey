@@ -1553,6 +1553,8 @@ class _TargetRequestFacts:
     configured: tuple[str, ...]
     #: The whole rendered config, which is what the switch gate reads.
     config: Any
+    #: The file ``config`` was parsed from, which the gate fills unset gateway ports from.
+    config_path: str | None
     #: Its ``control_system:`` section, for the ceilings the gate is handed.
     section: Any
     #: The target this deployment's own config selects.
@@ -1582,6 +1584,7 @@ def _target_request_facts(app: Any, config_path: Path | None) -> _TargetRequestF
     return _TargetRequestFacts(
         configured=_configured_target_names(section),
         config=config,
+        config_path=str(config_path) if config_path else None,
         section=section,
         baseline=_baseline_target(section),
         in_flight=in_flight,
@@ -1695,6 +1698,7 @@ def _switch_mutation(
         # A pure lookup: the sidecar was asked in the facts hop, because this
         # call happens under the record lock.
         kernel_name=facts.kernel_names.get,
+        config_path=facts.config_path,
     )
     applied = verdict.allowed
     if applied:
