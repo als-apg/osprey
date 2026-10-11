@@ -151,6 +151,8 @@ def _write_deployment(root: Path) -> Path:
     config = {
         "project_root": str(root),
         "agent_data": {"base_dir": "var/agent_data"},
+        # Nobody is asked: these runs are about the limits posture, not approval.
+        "approval": {"enabled": False},
         "control_system": {
             "type": "epics",
             # Otherwise the connector's writes_enabled gate refuses first and

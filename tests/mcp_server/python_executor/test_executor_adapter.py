@@ -29,6 +29,12 @@ from osprey_connectors.config import DEFAULT_EXECUTION_TIMEOUT_SECONDS, ConfigBu
 
 
 @pytest.fixture(autouse=True)
+def _nobody_is_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These readwrite runs are not about approval: the deployment asks nobody."""
+    monkeypatch.setattr("osprey.cli.build_posture_check.ask_capable", lambda *_args: False)
+
+
+@pytest.fixture(autouse=True)
 def _reset_all_config_caches(monkeypatch):
     """Reset ALL config caches before each test.
 

@@ -201,6 +201,29 @@ FAILURE_KIND_TIMEOUT = "timeout"
 #: the switch lands — which is what makes it neither a setup failure (the
 #: service is healthy) nor a script error (the code is fine).
 FAILURE_KIND_SWITCH_IN_PROGRESS = "switch_in_progress"
+#: :attr:`ExecutionResult.failure_kind` for a guarded call that was never
+#: admitted: its tool's approval policy asks, and the approval hook left no
+#: matching record for this call. Nothing ran.
+FAILURE_KIND_APPROVAL_MISSING = "approval_missing"
+
+#: The call fields the approval prompt binds a guarded call to. Every one the
+#: call carries must equal the value the approval hook recorded for the call.
+APPROVED_FIELDS: tuple[str, ...] = (
+    "approved_journal_sha256",
+    "approved_target",
+    "approved_view_sha256",
+)
+
+#: The approved fields an asking guarded call must carry.
+_REQUIRED_APPROVED_FIELDS: tuple[str, ...] = ("approved_journal_sha256", "approved_target")
+
+#: The ask stamp the approval hook leaves for a call it put to an approver,
+#: restated from ``osprey_approval.py`` (a hook script this package cannot
+#: import);
+#: ``tests/mcp_server/python_executor/test_approved_call_forwarding.py`` pins the
+#: spellings equal.
+APPROVAL_ASK_PREFIX = "approval_ask_"
+APPROVAL_ASK_SUFFIX = ".json"
 
 #: Prefix of the line a guarded run prints with its restore report: the tag,
 #: one space, the sandbox's report nonce, one space, then the report as a
@@ -259,8 +282,9 @@ class ExecutionResult:
     #: was resolvable and the sandbox fell back to the deployment config.
     control_target: str = CONTROL_TARGET_BASELINE
     #: Why a failed run failed, when the sandbox itself is the reason:
-    #: :data:`FAILURE_KIND_SETUP`, :data:`FAILURE_KIND_TIMEOUT` or
-    #: :data:`FAILURE_KIND_SWITCH_IN_PROGRESS`. ``None`` for
+    #: :data:`FAILURE_KIND_SETUP`, :data:`FAILURE_KIND_TIMEOUT`,
+    #: :data:`FAILURE_KIND_SWITCH_IN_PROGRESS` or
+    #: :data:`FAILURE_KIND_APPROVAL_MISSING`. ``None`` for
     #: a run that started and whose own code raised — the only failure the
     #: submitted code can be blamed for. The response builder reads this to
     #: class the error envelope: a dead backend is an infrastructure outage,
@@ -724,36 +748,102 @@ def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
     return target
 
 
-def _apply_approved_call(
-    sandbox_env: dict[str, str],
+class _ApprovalMissing(Exception):
+    """A guarded call whose approval prompt left no matching record.
+
+    Raised by :func:`_approved_call_env` and turned into an
+    :class:`ExecutionResult` by :func:`_execute_via_local`, before anything
+    is spawned — never seen outside this module.
+    """
+
+
+def _approved_call_stamp(tool_use_id: str | None) -> dict | None:
+    """The approval hook's ask stamp for the call *tool_use_id*, or ``None``.
+
+    ``None`` without an id, without a stamp, and when the state directory
+    cannot be resolved: each is a call nobody can show was asked.
+    """
+    if not tool_use_id:
+        return None
+    try:
+        from osprey.mcp_server.control_system import target_state
+
+        stamp = target_state.read_file(
+            target_state.state_dir() / f"{APPROVAL_ASK_PREFIX}{tool_use_id}{APPROVAL_ASK_SUFFIX}"
+        )
+    except Exception:
+        logger.debug("Could not read the ask stamp for %s", tool_use_id, exc_info=True)
+        return None
+    return stamp if isinstance(stamp, dict) else None
+
+
+def _approved_call_env(
     execution_mode: str,
-    osprey_config: dict,
+    osprey_config: Mapping[str, Any],
     tool: str,
-    approved_journal_sha256: str | None,
-    approved_target: str | None,
-) -> None:
-    """Carry the call's approved journal digest and target into a readwrite sandbox.
+    approved: Mapping[str, str | None],
+    *,
+    control_target: str,
+) -> dict[str, str]:
+    """The approved fields a readwrite sandbox carries, decided before it is spawned.
 
-    Called after :func:`_apply_target_stamp`, which removed both names. A
-    readonly run never enters the guarded run, so it carries neither; a field
-    the call does not carry stays absent, which the sandbox reads as missing.
+    A readonly run never enters the guarded run, and a call whose tool's policy
+    does not ask was put to nobody, so neither carries a field. A call whose
+    policy asks runs only when the approval hook's ask stamp for this tool call
+    exists, names *tool*, and records every approved field the call carries
+    with the same value; the call must carry the journal digest and the target,
+    and that target must name the guarded-run directory *control_target* does.
 
-    Both fields are ordinary tool arguments, and only the approval hook's
-    rewrite of the call makes them an approval. When *osprey_config* says the
-    hook does not put *tool*'s calls to a human — approval disabled, policy
-    ``skip`` — nothing rewrote the call, so whatever it carries is the caller's
-    own and neither field is carried.
+    Args:
+        execution_mode: ``"readonly"`` or ``"readwrite"``.
+        osprey_config: The rendered ``config.yml``.
+        tool: The tool's short name, as ``approval.tools`` keys it.
+        approved: The call's :data:`APPROVED_FIELDS`, ``None`` for an absent one.
+        control_target: The target this run is stamped with.
+
+    Returns:
+        The sandbox environment entries for the approved journal digest and
+        target; empty when nothing is carried.
+
+    Raises:
+        _ApprovalMissing: The policy asks and the stamp is missing, names
+            another tool, or disagrees with the call, or the call was approved
+            for another target than the run's.
     """
     if execution_mode != "readwrite":
-        return
+        return {}
     from osprey.cli.build_posture_check import ask_capable
 
     if not ask_capable(osprey_config, tool):
-        return
-    if approved_journal_sha256:
-        sandbox_env[ENV_APPROVED_JOURNAL_SHA256] = approved_journal_sha256
-    if approved_target:
-        sandbox_env[ENV_APPROVED_TARGET] = approved_target
+        return {}
+    from osprey.audit.call import current_tool_use_id
+
+    stamp = _approved_call_stamp(current_tool_use_id())
+    if stamp is None or not str(stamp.get("tool") or "").endswith(tool):
+        raise _ApprovalMissing(
+            "not run: this call's approval prompt left no record (approval_missing). "
+            "Call the tool again so the approval prompt can ask."
+        )
+    for name in APPROVED_FIELDS:
+        value = approved.get(name)
+        if value is None and name not in _REQUIRED_APPROVED_FIELDS:
+            continue
+        if value is None or stamp.get(name) != value:
+            raise _ApprovalMissing(
+                f"not run: `{name}` differs from what the approval prompt recorded "
+                "(approval_missing). Call the tool again."
+            )
+    approved_target = str(approved["approved_target"])
+    approved_name = _guarded_run_name(approved_target)
+    if approved_name is None or approved_name != _guarded_run_name(control_target):
+        raise _ApprovalMissing(
+            f"not run: this call was approved for target `{approved_target}`; the run is on "
+            f"`{control_target}` (approval_missing). Call the tool again."
+        )
+    return {
+        ENV_APPROVED_JOURNAL_SHA256: str(approved["approved_journal_sha256"]),
+        ENV_APPROVED_TARGET: str(approved["approved_target"]),
+    }
 
 
 def _apply_report_nonce(sandbox_env: dict[str, str], execution_mode: str) -> str | None:
@@ -768,6 +858,17 @@ def _apply_report_nonce(sandbox_env: dict[str, str], execution_mode: str) -> str
     nonce = secrets.token_hex(16)
     sandbox_env[ENV_RESTORE_REPORT_NONCE] = nonce
     return nonce
+
+
+def _guarded_run_name(target: str) -> str | None:
+    """The guarded-run directory name *target* resolves to, ``None`` when it names none."""
+    from osprey.runtime.guarded_run import guarded_run_target
+
+    try:
+        return guarded_run_target(target)
+    except Exception:
+        logger.debug("Target %r names no guarded-run directory", target, exc_info=True)
+        return None
 
 
 @contextlib.contextmanager
@@ -927,7 +1028,8 @@ async def _execute_via_local(
 
     *tool* names the guarded tool the run is for; with the approved journal
     digest and target it binds a readwrite run's guarded runs to the call the
-    approval hook passed (:func:`_apply_approved_call`).
+    approval hook recorded (:func:`_approved_call_env`). A call that should have
+    been asked and was not is refused before anything is spawned.
     """
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
     from osprey.utils.workspace import load_osprey_config
@@ -979,9 +1081,33 @@ async def _execute_via_local(
             error_message=str(refusal),
             failure_kind=FAILURE_KIND_SWITCH_IN_PROGRESS,
         )
-    _apply_approved_call(
-        sandbox_env, execution_mode, osprey_config, tool, approved_journal_sha256, approved_target
-    )
+    # Whether this call was put to a human is decided here, by the process
+    # that launches the script, from the record the approval hook left for
+    # this tool call; the sandbox binds what it is handed and decides nothing.
+    try:
+        sandbox_env.update(
+            _approved_call_env(
+                execution_mode,
+                osprey_config,
+                tool,
+                {
+                    "approved_journal_sha256": approved_journal_sha256,
+                    "approved_target": approved_target,
+                },
+                control_target=control_target,
+            )
+        )
+    except _ApprovalMissing as refusal:
+        return ExecutionResult(
+            success=False,
+            stdout="",
+            stderr=str(refusal),
+            execution_method_used=EXECUTION_METHOD_SUBPROCESS,
+            execution_time_seconds=0.0,
+            error_message=str(refusal),
+            control_target=control_target,
+            failure_kind=FAILURE_KIND_APPROVAL_MISSING,
+        )
     report_nonce = _apply_report_nonce(sandbox_env, execution_mode)
     limits_validator = _load_limits_validator(target=control_target)
 

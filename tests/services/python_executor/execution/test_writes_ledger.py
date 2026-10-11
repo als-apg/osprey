@@ -34,6 +34,12 @@ print("notified")
 """
 
 
+@pytest.fixture(autouse=True)
+def _nobody_is_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These readwrite runs are not about approval: the deployment asks nobody."""
+    monkeypatch.setattr("osprey.cli.build_posture_check.ask_capable", lambda *_args: False)
+
+
 def _folder(tmp_path):
     folder = tmp_path / "exec"
     folder.mkdir()

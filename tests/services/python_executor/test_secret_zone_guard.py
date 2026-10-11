@@ -41,6 +41,12 @@ _SECRET_DETAIL = "Secret files and process environments cannot be opened by exec
 # --------------------------------------------------------------------------- #
 
 
+@pytest.fixture(autouse=True)
+def _nobody_is_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These readwrite runs are not about approval: the deployment asks nobody."""
+    monkeypatch.setattr("osprey.cli.build_posture_check.ask_capable", lambda *_args: False)
+
+
 @pytest.fixture
 def layout(tmp_path: Path) -> dict[str, Path]:
     """A project holding the env chain, plus an unrelated directory beside it."""

@@ -202,6 +202,8 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(audit_writer, "ledger_path", lambda surface, identity=None: ledger)
     monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
     monkeypatch.setattr(executor, "resolve_agent_interpreter", lambda root=None: sys.executable)
+    # These cancels are not about approval: the deployment asks nobody.
+    monkeypatch.setattr("osprey.cli.build_posture_check.ask_capable", lambda *_args: False)
     return ledger
 
 
