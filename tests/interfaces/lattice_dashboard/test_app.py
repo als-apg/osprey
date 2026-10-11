@@ -135,6 +135,19 @@ def select(client, name: str) -> dict:
     return settle(client)
 
 
+def _block_read_catalog(monkeypatch) -> threading.Event:
+    """Hold every catalog read until the returned event is set."""
+    release = threading.Event()
+    read = app_mod.read_catalog
+
+    def blocked(*args, **kwargs):
+        release.wait(10)
+        return read(*args, **kwargs)
+
+    monkeypatch.setattr(app_mod, "read_catalog", blocked)
+    return release
+
+
 def job_spec(client, slots, name: str) -> dict:
     """Return the job file figure *name*'s current job was started with."""
     job = slots.current(name)
@@ -324,8 +337,106 @@ class TestModels:
             release.set()
         assert settle(client)["selection"]["model"] == "SR"
 
+    def test_select_answers_while_the_catalog_is_read_again(self, client, render, monkeypatch):
+        _write_render(
+            render,
+            served=["SR", "TRANSFER", "BOOSTER", "texture"],
+            models={
+                "BOOSTER": {"solve": "periodic"},
+                "SR": {"solve": "periodic"},
+                "TRANSFER": {"solve": "single_pass", "twiss_in": TWISS_IN},
+            },
+        )
+        release = _block_read_catalog(monkeypatch)
+        try:
+            answers = []
+            picker = threading.Thread(
+                target=lambda: answers.append(
+                    client.post("/api/models/select", json={"name": "TRANSFER"})
+                )
+            )
+            picker.start()
+            picker.join(timeout=5)
+
+            assert [answer.status_code for answer in answers] == [200]
+            assert answers[0].json()["status"] == "loading"
+        finally:
+            release.set()
+        state = settle(client)
+        assert state["selection"]["model"] == "TRANSFER"
+        assert state["selection"]["status"] == "ready"
+
     def test_select_unknown_model_404(self, client):
-        assert client.post("/api/models/select", json={"name": "SPARE"}).status_code == 404
+        wanted = client.app.state.lattice.wanted()
+
+        response = client.post("/api/models/select", json={"name": "SPARE"})
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Unknown model: SPARE"}
+        assert client.app.state.lattice.wanted() == wanted
+
+    def test_an_unlisted_pick_while_the_view_changed_resolves_to_no_model_and_keeps_the_last_pick(
+        self, client, render
+    ):
+        select(client, "BOOSTER")
+        _write_render(
+            render,
+            served=["SR", "TRANSFER", "BOOSTER", "texture"],
+            models={
+                "BOOSTER": {"solve": "periodic"},
+                "SR": {"solve": "periodic"},
+                "TRANSFER": {"solve": "single_pass", "twiss_in": TWISS_IN},
+            },
+        )
+
+        response = client.post("/api/models/select", json={"name": "GHOST"})
+        state = settle(client)
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "loading"
+        assert state["selection"]["model"] is None
+        assert state["selection"]["status"] == "none"
+        assert state["selection"]["error"] == "Unknown model: GHOST"
+        assert client.app.state.lattice.wanted() == "BOOSTER"
+
+    def test_a_pick_before_the_first_catalog_read_answers_loading(
+        self, tmp_path, render, monkeypatch
+    ):
+        release = _block_read_catalog(monkeypatch)
+        app = create_app(workspace_root=tmp_path / "ws", render_root=render)
+        with TestClient(app) as client:
+            try:
+                response = client.post("/api/models/select", json={"name": "SR"})
+            finally:
+                release.set()
+            state = settle(client)
+            wanted = client.app.state.lattice.wanted()
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "loading"
+        assert state["selection"]["model"] == "SR"
+        assert state["selection"]["status"] == "ready"
+        assert wanted == "SR"
+
+    def test_an_unlisted_pick_before_the_first_catalog_read_resolves_to_no_model(
+        self, tmp_path, render, monkeypatch
+    ):
+        release = _block_read_catalog(monkeypatch)
+        app = create_app(workspace_root=tmp_path / "ws", render_root=render)
+        with TestClient(app) as client:
+            try:
+                response = client.post("/api/models/select", json={"name": "GHOST"})
+            finally:
+                release.set()
+            state = settle(client)
+            wanted = client.app.state.lattice.wanted()
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "loading"
+        assert state["selection"]["model"] is None
+        assert state["selection"]["status"] == "none"
+        assert state["selection"]["error"] == "Unknown model: GHOST"
+        assert wanted is None
 
     def test_select_unserved_model(self, client):
         assert select(client, "BOOSTER")["selection"]["model"] == "BOOSTER"

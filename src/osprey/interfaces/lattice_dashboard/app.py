@@ -325,6 +325,7 @@ class _Resolver:
         self._task: asyncio.Task[None] | None = None
         self._again = False
         self._select = False
+        self._pick: str | None = None
         self._catalog: ModelCatalog | None = None
         self._catalog_signature: tuple[Any, ...] | None = None
         self._deck_signature: tuple[int, int] | None = None
@@ -334,6 +335,10 @@ class _Resolver:
     def catalog(self) -> ModelCatalog | None:
         """The catalog last read, or None until one has been."""
         return self._catalog
+
+    def catalog_is_current(self) -> bool:
+        """Whether a catalog was read and the view has not changed since."""
+        return self._catalog is not None and self._view_signature() == self._catalog_signature
 
     def _view_signature(self) -> tuple[Any, ...] | None:
         root = self._render_root
@@ -357,11 +362,13 @@ class _Resolver:
         """Mark the selection loading and run a resolve on the event loop.
 
         Args:
-            select: The model the operator just picked; its what-if inputs
-                are reset even when it is the model already selected.
+            select: The model the operator just picked; it is recorded as the
+                pick once the catalog lists it, and its what-if inputs are
+                reset even when it is the model already selected.
         """
         if select is not None:
             self._select = True
+            self._pick = select
             self._state.selection = Selection(model=select, status="loading")
         elif self._state.selection.status != "loading":
             self._state.selection = dataclasses.replace(self._state.selection, status="loading")
@@ -403,10 +410,12 @@ class _Resolver:
             select, self._select = self._select, False
             try:
                 catalog = await self.current_catalog()
+                pick = self._pick
+                if pick is not None and catalog.get(pick) is not None:
+                    self._state.set_wanted(pick)
+                wanted = pick if pick is not None else self._wanted(catalog)
                 async with self._lock:
-                    selection = await asyncio.to_thread(
-                        resolve_selection, catalog, self._wanted(catalog)
-                    )
+                    selection = await asyncio.to_thread(resolve_selection, catalog, wanted)
             except Exception as exc:
                 logger.exception("Failed to resolve the selected model")
                 selection = Selection(status="failed", error=f"{type(exc).__name__}: {exc}")
@@ -414,6 +423,7 @@ class _Resolver:
                 continue
             self._deck_signature = _file_signature(selection.deck)
             self._resolved = True
+            self._pick = None
             reset = self._state.adopt(selection, reset=select)
             self._broadcaster.broadcast({"type": "state_updated"})
             if reset:
@@ -564,10 +574,9 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
 
     @app.post("/api/models/select", response_model=SelectionModel, responses={404: _DETAIL})
     async def select_model(body: SelectModelRequest) -> dict[str, Any]:
-        catalog = await resolver.current_catalog()
-        if catalog.get(body.name) is None:
+        catalog = resolver.catalog
+        if catalog is not None and resolver.catalog_is_current() and catalog.get(body.name) is None:
             raise HTTPException(status_code=404, detail=unknown_model_text(body.name))
-        state.set_wanted(body.name)
         resolver.schedule(select=body.name)
         return selection_payload(state.selection)
 
