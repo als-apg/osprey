@@ -13,7 +13,7 @@ Stub document format (OKF §9)::
 
     ---
     type: device_stub
-    title: GTL:BC1 (BuckingCoil)
+    title: GTL/BC1 (BuckingCoil)
     description: Auto-generated stub for BuckingCoil GTL/BC1.
     resource: https://narad.example.org/device/ex_device_GTL_x2F_BC1
     device_class: BuckingCoil
@@ -54,8 +54,6 @@ _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 
 _P_DEVICE_ID = _NARAD_P + "deviceId"
 _P_FACILITY = _NARAD_P + "facility"
-_P_SOURCE_NAME = _NARAD_P + "sourceName"
-_P_SECTION_CODE = _NARAD_P + "sectionCode"
 _P_HAS_BINDING = _NARAD_P + "hasBinding"
 _P_BINDING_ID = _NARAD_P + "bindingId"
 _P_FULL_PV = _NARAD_P + "fullPv"
@@ -267,8 +265,7 @@ def seed_from_ttl(ttl_path: Path | str | None) -> list[DeviceStub]:
     * ``device_id`` — value of ``narad_p:deviceId``; when it is absent, the
       device IRI decoded with its ``narad_p:facility`` code, else the IRI's
       local name.
-    * ``title`` — ``"<sectionCode>:<sourceName> (<device_class>)"`` when both
-      section and source are present, otherwise ``"<device_class> <device_id>"``.
+    * ``title`` — ``"<device_id> (<device_class>)"``.
     * ``channels`` — sorted :class:`ChannelRow` list from all ``narad_p:hasBinding``
       objects.
     * ``body`` — fully rendered OKF document text.
@@ -329,15 +326,10 @@ def seed_from_ttl(ttl_path: Path | str | None) -> list[DeviceStub]:
         device_class = narad_sem_classes[0]
 
         device_id = _device_id(g, subject)
-        source_name = str(g.value(subject, URIRef(_P_SOURCE_NAME)) or "")
-        section_code = str(g.value(subject, URIRef(_P_SECTION_CODE)) or "")
         code = str(g.value(subject, URIRef(_P_FACILITY)) or "")
 
         # Build a human-readable title.
-        if section_code and source_name:
-            title = f"{section_code}:{source_name} ({device_class})"
-        else:
-            title = f"{device_class} {device_id}"
+        title = f"{device_id} ({device_class})"
 
         # Collect binding IRIs.
         binding_iris = [str(b) for b in g.objects(subject, URIRef(_P_HAS_BINDING))]

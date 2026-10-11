@@ -173,13 +173,29 @@ class TestSeedFromTTLSynthetic:
         for stub in stubs:
             assert stub.device_class == "Quadrupole"
 
-    def test_title_uses_section_source_and_class(self, mini_ttl):
+    def test_title_is_the_device_id_and_class(self, mini_ttl):
         _require_rdflib()
         from osprey.services.facility_knowledge.seeder import seed_from_ttl
 
         stubs = {s.resource: s for s in seed_from_ttl(mini_ttl)}
         qf1 = stubs[_QF1]
-        assert qf1.title == "SEC:SEC/QF1 (Quadrupole)"
+        assert qf1.title == "SEC/QF1 (Quadrupole)"
+
+    def test_a_foreign_corpus_device_is_titled_by_its_id_and_class(self, foreign_ttl):
+        _require_rdflib()
+        from osprey.services.facility_knowledge.seeder import seed_from_ttl
+
+        [stub] = seed_from_ttl(foreign_ttl)
+        assert stub.title == "SEC/QF1 (Quadrupole)"
+
+    def test_the_stub_body_carries_the_title(self, mini_ttl):
+        _require_rdflib()
+        from osprey.services.facility_knowledge.okf.document import OKFDocument
+        from osprey.services.facility_knowledge.seeder import seed_from_ttl
+
+        stubs = {s.resource: s for s in seed_from_ttl(mini_ttl)}
+        qf1 = stubs[_QF1]
+        assert OKFDocument.parse(qf1.body).frontmatter["title"] == "SEC/QF1 (Quadrupole)"
 
     def test_channels_sorted_by_name(self, mini_ttl):
         _require_rdflib()
@@ -317,6 +333,7 @@ class TestSeedFromGraphView:
         [stub] = seed_from_ttl(ttl)
 
         assert stub.device_id == "SR/QF-1.A"
+        assert stub.title == "SR/QF-1.A (Quadrupole)"
 
 
 # ---------------------------------------------------------------------------
