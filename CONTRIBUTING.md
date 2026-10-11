@@ -105,6 +105,7 @@ For details (CI gates, branch protection, release cuts) see the [full Contributi
 - Add tests for new functionality
 - Write Google-style docstrings
 - Update documentation as needed
+- Resolve merge conflicts, and any plan written against an older tree, by principle 8 of `/osprey:design-philosophy`: where two lines of work meet, design from the end product
 
 ## Running Tests
 

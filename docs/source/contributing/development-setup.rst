@@ -48,6 +48,9 @@ If all tests pass, you are ready to contribute.
 
 Code Standards
 --------------
+
+.. _contributing-design-principles:
+
 Design Principles
 ^^^^^^^^^^^^^^^^^
 
@@ -62,6 +65,12 @@ is on :doc:`agent-skills`.
 The principles guide decisions; they are not mechanical rules. When a change
 feels wrong but the reason is hard to name, they help you name the drift and
 correct it before you open the PR.
+
+Principle 8, *where two lines of work meet, design from the end product*,
+applies to every merge and conflict resolution, and to every plan or spec
+written against an older tree. In its own words: at such a point the question
+is never "how do these two combine" but "what does the finished OSPREY need
+here". The ``/osprey:design-philosophy`` skill carries the principle in full.
 
 Python Style
 ^^^^^^^^^^^^
