@@ -5,13 +5,11 @@ it works the way ``git`` finds its repository: walk up from where the operator
 is standing until the marker appears, and act on that repo no matter which
 subdirectory the command was typed in.
 
-One rule, in one module, is the point. Three divergent contracts — a
-``profile/`` dirname match, an ancestor walk keyed off ``profile/profile.yml``,
-and a ``--project`` flag — meant the same command line could act on different
-directories depending on which verb ran it, and that an operator had to know
-which verb used which rule. Every repo-scoped command now calls
-:func:`find_repo_root`, and the ones that need no repo at all are named in
-:data:`REPO_FREE_COMMANDS` rather than deciding case by case.
+One rule, in one module, is the point: the same command line acts on the
+same directory whichever verb runs it, and an operator never has to know
+which verb looks where. Every repo-scoped command calls
+:func:`find_repo_root`, and the commands that need no repo at all are named
+in :data:`REPO_FREE_COMMANDS` rather than deciding case by case.
 
 :mod:`osprey.cli.profile_root` is not one of those contracts and is not
 replaced by this one. It answers a different question — given a profile FILE
@@ -65,10 +63,11 @@ REPO_FREE_COMMANDS: frozenset[str] = frozenset(
 #: rather than left unmentioned so that "no ``--repo`` here" reads as a recorded
 #: decision instead of an oversight.
 #:
-#: Two different reasons live here. ``ariel`` and ``artifacts`` predate the
-#: lifecycle surface and were not rewired onto it; ``knowledge`` is listed for
-#: its bundle verbs (``regen-index``, ``validate``), which act on the bundle
-#: path they are handed.
+#: Three different reasons live here. ``ariel`` and ``artifacts`` act on a
+#: rendered project: they read its ``config.yml`` through the framework's
+#: config resolver, and a deployment repo is never their subject.
+#: ``knowledge`` is listed for its bundle verbs (``regen-index``,
+#: ``validate``), which act on the bundle path they are handed.
 #: ``health`` and ``channel-finder`` are here because a deployment repo is not
 #: the only subject they accept: both also act on a RENDERED project directory,
 #: which holds a ``config.yml`` at its own root and no ``profile.yml`` anywhere
@@ -76,9 +75,9 @@ REPO_FREE_COMMANDS: frozenset[str] = frozenset(
 #: :func:`osprey.cli.project_utils.resolve_project_path`, which applies exactly
 #: the walk below whenever the directory in hand is not itself a project — which
 #: is what makes ``osprey health`` run from ``<repo>/data/raw`` report on that
-#: repo, like every repo-scoped verb. ``health`` reports ON a deployment; it was
-#: previously filed under :data:`REPO_FREE_COMMANDS`, whose members act on the
-#: machine or the installed framework, and that claim was simply false.
+#: repo, like every repo-scoped verb. ``health`` reports ON a deployment, so
+#: it is not a member of :data:`REPO_FREE_COMMANDS`, whose members act on the
+#: machine or the installed framework.
 #:
 #: The ``knowledge`` entry names a GROUP, and one verb under it does not need
 #: the exemption: ``knowledge seed-from-ttl`` reads the graph view of the
