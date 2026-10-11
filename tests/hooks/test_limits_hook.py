@@ -409,7 +409,7 @@ def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
 # The limits posture is a property of the machine a write would reach, not of
 # the deployment as a whole: `control_system.connector.<type>.limits_checking`
 # overrides the deployment-wide `control_system.limits_checking` block whole, so
-# a facility can refuse unlisted channels on its ring and allow them on its
+# a facility can refuse unlisted channels on its live machine and allow them on its
 # virtual accelerator. The hook therefore resolves the recorded control target before
 # it builds a validator, and the tests below state that in the same shape
 # `test_writes_check_hook.py` states the write posture: the expected decision is
@@ -468,7 +468,7 @@ def _unlisted_write(tmp_path, hook_runner, config):
     )
 
 
-#: A deployment strict on its ring and permissive on its simulator — the shape
+#: A deployment strict on its live machine and permissive on its simulator — the shape
 #: the per-type block exists for, reused by several tests below. Both connector
 #: blocks are non-empty, so the deployment renders the target switch and the
 #: reachable set a targetless call folds over is both targets.
@@ -508,7 +508,7 @@ HALF_WRITTEN_VA_BLOCK = {
     },
 }
 
-#: A deployment permissive deployment-wide and strict on its ring — the mirror
+#: A deployment permissive deployment-wide and strict on its live machine — the mirror
 #: of `VA_PERMISSIVE`, and the shape whose refusal must name a per-type key.
 LIVE_STRICT_BLOCK = {
     "type": "epics",
@@ -664,7 +664,7 @@ def test_no_state_file_refuses_when_the_only_limits_line_cannot_be_read(tmp_path
 def test_live_refusal_names_the_deployment_wide_key(tmp_path, hook_runner):
     """On `live`, a deployment that relaxed only its simulator still refuses.
 
-    And the refusal names the key that would actually lift it: the ring's own
+    And the refusal names the key that would actually lift it: the live machine's own
     connector block wrote no `limits_checking`, so the deployment-wide line is
     the one an operator would have to edit.
     """
@@ -686,7 +686,7 @@ def test_va_passes_where_the_same_deployment_refuses_on_live(tmp_path, hook_runn
     """The same config, one target over: the simulator takes the unlisted write.
 
     The mirror of the test above, and the whole point of the per-type block — a
-    facility whose ring refuses unlisted channels can still let an agent write
+    facility whose live machine refuses unlisted channels can still let an agent write
     freely against its virtual accelerator.
     """
     # Arrange
@@ -703,7 +703,7 @@ def test_va_passes_where_the_same_deployment_refuses_on_live(tmp_path, hook_runn
 def test_per_type_refusal_names_the_connector_block(tmp_path, hook_runner):
     """A refusal read from a connector block names that block, not the global key.
 
-    A deployment permissive deployment-wide and strict on its ring is exactly
+    A deployment permissive deployment-wide and strict on its live machine is exactly
     the case where naming `control_system.limits_checking.mode`
     would send the operator to flip a key that is already `true` and changes
     nothing.
@@ -727,7 +727,7 @@ def test_removed_state_directory_takes_the_most_restrictive_posture(tmp_path, ho
     The record existed and is gone — a swept `var/`, a server that never
     started, a deployment whose agent-data root was moved — so the hook cannot
     say which machine this write would reach. The simulator would take it and
-    the ring would not, and a guess between them could be a guess in favour of
+    the live machine would not, and a guess between them could be a guess in favour of
     hardware, so the write is refused and the refusal names the deployment-wide
     key: no per-type line decides a union.
     """
@@ -930,7 +930,7 @@ def test_a_render_without_the_state_reader_takes_the_most_restrictive_posture(
     A project rendered before `osprey_target_state` existed has no such sibling,
     so the guarded import leaves `_target_state` as `None`. The hook still has a
     validator and still has to decide, and the posture it decides under is the
-    one every reachable target agrees on — refusing what the ring refuses rather
+    one every reachable target agrees on — refusing what the live machine refuses rather
     than exiting 0 and letting an unlisted write reach it unchecked.
     """
     # Arrange
