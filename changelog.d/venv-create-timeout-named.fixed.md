@@ -1,0 +1,1 @@
+When creating the project venv runs past its five-minute bound, `osprey build` now stops with a build error that names the step and says to check the base interpreter, instead of printing `Unexpected error`.

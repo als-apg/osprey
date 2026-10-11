@@ -801,25 +801,46 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
     logger.info("  Creating project virtual environment...")
     if base_python is not None:
         logger.debug("  Base interpreter: %s", base_python)
-    if uv_path:
-        # `--clear` because a rebuild is the ordinary case, not the exception:
-        # without it uv refuses a directory that already holds a venv, so the
-        # second build of an unchanged tree would fail where the first
-        # succeeded. The stdlib branch below already replaces what it finds, so
-        # this is also what keeps the two branches behaving alike.
-        result = subprocess.run(
-            [uv_path, "venv", str(venv_path), "--python", base_python_arg, "--quiet", "--clear"],
-            capture_output=True,
-            text=True,
-            timeout=_VENV_CREATE_TIMEOUT_S,
-        )
-    else:
-        result = subprocess.run(
-            [base_python_arg, "-m", "venv", str(venv_path)],
-            capture_output=True,
-            text=True,
-            timeout=_VENV_CREATE_TIMEOUT_S,
-        )
+    creator = "uv venv" if uv_path else f"{base_python_arg} -m venv"
+    try:
+        if uv_path:
+            # `--clear` because a rebuild is the ordinary case, not the exception:
+            # without it uv refuses a directory that already holds a venv, so the
+            # second build of an unchanged tree would fail where the first
+            # succeeded. The stdlib branch below already replaces what it finds, so
+            # this is also what keeps the two branches behaving alike.
+            result = subprocess.run(
+                [
+                    uv_path,
+                    "venv",
+                    str(venv_path),
+                    "--python",
+                    base_python_arg,
+                    "--quiet",
+                    "--clear",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=_VENV_CREATE_TIMEOUT_S,
+            )
+        else:
+            result = subprocess.run(
+                [base_python_arg, "-m", "venv", str(venv_path)],
+                capture_output=True,
+                text=True,
+                timeout=_VENV_CREATE_TIMEOUT_S,
+            )
+    except subprocess.TimeoutExpired as e:
+        # A bare TimeoutExpired escapes to build_cmd's catch-all, which names
+        # neither the step nor a way forward.
+        raise BuildProfileError(
+            f"creating the project venv with {creator} did not finish within "
+            f"{_VENV_CREATE_TIMEOUT_S // 60} minutes.\n"
+            "        Creating a venv takes seconds when the base interpreter starts; a run this long "
+            "means the process hung.\n"
+            f"        Check that the base interpreter starts ({base_python_arg} -c pass), then re-run "
+            "the build."
+        ) from e
     if result.returncode != 0:
         output = (result.stdout + result.stderr).strip()
         raise BuildProfileError(f"Failed to create project venv: {output}")

@@ -16,6 +16,10 @@ When the cap does fire it must also say so in terms the operator can act on:
 :func:`_create_project_venv` raising a bare ``subprocess.TimeoutExpired`` lands
 in ``build_cmd``'s catch-all and prints "Unexpected error", which names neither
 the step that timed out nor anything to do about it.
+
+Venv creation is bounded the same way, and its timeout is reported the same
+way: as a build error naming the step and the check to run, not as an
+unexpected error.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.cli import build_environment
 from osprey.cli.build_environment import _create_project_venv
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
 from osprey.errors import BuildProfileError
@@ -33,6 +38,9 @@ from osprey.errors import BuildProfileError
 # Fifteen minutes is the floor at which the cap is bounding a hung installer
 # rather than a slow network; the shipped value may be more generous still.
 MIN_INSTALL_TIMEOUT_S = 900
+
+# A tighter cap on venv creation fires on a merely loaded host.
+MIN_CREATE_TIMEOUT_S = 300
 
 
 def _profile() -> BuildProfile:
@@ -57,6 +65,13 @@ def with_uv(monkeypatch) -> str:
     monkeypatch.setattr("osprey.cli.build_environment.shutil.which", lambda _: uv)
     monkeypatch.delenv("UV", raising=False)
     return uv
+
+
+@pytest.fixture
+def without_uv(monkeypatch) -> None:
+    """Pin the stdlib branch: no uv on PATH."""
+    monkeypatch.setattr("osprey.cli.build_environment.shutil.which", lambda _: None)
+    monkeypatch.delenv("UV", raising=False)
 
 
 @pytest.mark.usefixtures("with_uv")
@@ -116,6 +131,55 @@ def test_venv_creation_failure_still_reports_its_own_error(monkeypatch, tmp_path
 
     with pytest.raises(BuildProfileError, match="Failed to create project venv"):
         _create_project_venv(Path(tmp_path), _profile())
+
+
+@pytest.mark.parametrize("branch", ["with_uv", "without_uv"])
+def test_a_venv_creation_timeout_is_reported_as_a_build_error_naming_the_step(
+    branch, request, monkeypatch, tmp_path
+):
+    """A timed-out venv creation raises BuildProfileError naming the step and a check."""
+    request.getfixturevalue(branch)
+    seen: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append(cmd)
+        if _is_install(cmd):
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get("timeout", 0))
+
+    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        _create_project_venv(tmp_path, _profile())
+
+    message = str(excinfo.value)
+    assert "creating the project venv" in message, message
+    assert "5 minutes" in message, message
+    assert "-c pass" in message, message
+    assert isinstance(excinfo.value.__cause__, subprocess.TimeoutExpired)
+    assert not [cmd for cmd in seen if _is_install(cmd)], (
+        f"the install ran after venv creation timed out: {seen}"
+    )
+
+
+@pytest.mark.usefixtures("with_uv")
+def test_the_venv_creation_bound_leaves_a_loaded_host_room(monkeypatch, tmp_path):
+    """The venv-creation subprocess is capped by the module bound, never below its floor."""
+    seen: list[tuple[list[str], dict]] = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append((cmd, kwargs))
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+
+    _create_project_venv(tmp_path, _profile())
+
+    create_calls = [(cmd, kw) for cmd, kw in seen if not _is_install(cmd)]
+    assert create_calls, f"no venv-creation call recorded; saw {[c for c, _ in seen]}"
+    _, kwargs = create_calls[0]
+    assert kwargs["timeout"] == build_environment._VENV_CREATE_TIMEOUT_S
+    assert kwargs["timeout"] >= MIN_CREATE_TIMEOUT_S
 
 
 @pytest.mark.usefixtures("with_uv")
