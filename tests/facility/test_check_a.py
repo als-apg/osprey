@@ -86,6 +86,20 @@ def _row(values: Sequence[float]) -> tuple[int, ...]:
     return tuple(int(value) for value in values)
 
 
+def _pieces(entry: dict[str, Any], own: str | None) -> list[tuple[str, str | None, float]]:
+    """``(element, device, weight)`` for every slice of one wiring entry.
+
+    A slice naming no device sits on ``own``, the device the entry's address
+    sits on; a slice stating no weight weighs 1. The weight is the share and
+    the sign the wiring states. An entry without slices is one piece of
+    weight 1 on its own element.
+    """
+    return [
+        (str(piece["element"]), piece.get("device", own), float(piece.get("weight", 1.0)))
+        for piece in entry.get("slices") or [{"element": entry["element"]}]
+    ]
+
+
 class Wiring:
     """One model's wiring, read as the elements each ``DeviceList`` row of a family binds.
 
@@ -134,26 +148,34 @@ class Wiring:
             if getattr(wired.engine, key) is not None
         }
 
-    def elements(self, family: str, direction: str) -> dict[tuple[int, ...], list[str]]:
-        """The elements each row of ``family`` binds in one direction, by ``DeviceList`` row."""
+    def slices(self, family: str, direction: str) -> dict[tuple[int, ...], list[tuple[str, float]]]:
+        """The elements each row of ``family`` binds in one direction, each with its slice weight.
+
+        Keyed by ``DeviceList`` row; one device bound to one element twice at
+        two weights is a wiring this replay refuses.
+        """
         members = self.groups[self.mapping.mapped(family)]
         words = self.engine(family)
         devices = {self.rows[device]: device for device in sorted(members) if device in self.rows}
         assert len(devices) == len([device for device in members if device in self.rows]), (
             f"{family} devices share a DeviceList row"
         )
-        found: dict[str, list[str]] = {}
+        found: dict[str, list[tuple[str, float]]] = {}
         for entry in self.built.wiring:
             if entry.get("direction") != direction or dict(entry.get("engine") or {}) != words:
                 continue
             own = self.on_device.get(str(entry["address"]))
-            pieces = [
-                (str(piece["element"]), piece.get("device", own))
-                for piece in entry.get("slices") or [{"element": entry["element"]}]
-            ]
-            for element, device in pieces:
-                if device in members and element not in found.setdefault(device, []):
-                    found[device].append(element)
+            for element, device, weight in _pieces(entry, own):
+                if device not in members:
+                    continue
+                bound = found.setdefault(device, [])
+                held = dict(bound)
+                if element not in held:
+                    bound.append((element, weight))
+                    continue
+                assert held[element] == weight, (
+                    f"{family} {device} binds {element} at weights {held[element]} and {weight}"
+                )
         return {row: found[device] for row, device in devices.items() if device in found}
 
 
@@ -201,8 +223,8 @@ class Deck:
 
     def _bound(
         self, family: str, direction: str, device_list: Sequence[Sequence[float]]
-    ) -> list[list[str]]:
-        bound = self.wiring.elements(family, direction)
+    ) -> list[list[tuple[str, float]]]:
+        bound = self.wiring.slices(family, direction)
         rows = [_row(row) for row in device_list]
         missing = [row for row in rows if row not in bound]
         assert not missing, f"the wiring binds no {direction} element for {family} {missing}"
@@ -212,7 +234,8 @@ class Deck:
         """The replay-deck position of each listed monitor of ``family``, in listed order."""
         positions = []
         bound = self._bound(family, "read", device_list)
-        for row, elements in zip(device_list, bound, strict=True):
+        for row, pieces in zip(device_list, bound, strict=True):
+            elements = [element for element, _weight in pieces]
             assert len(elements) == 1, f"{family} {row} reads {elements}"
             positions.append(self.where(elements[0]))
         return positions
@@ -229,7 +252,8 @@ class Deck:
         The Middle Layer's calculator kicks one element per device, so a device
         split over several elements has no replay.
         """
-        (elements,) = self._bound(family, "write", [device])
+        (pieces,) = self._bound(family, "write", [device])
+        elements = [element for element, _weight in pieces]
         assert len(elements) == 1, f"{family} {_row(device)} kicks {elements}"
         return self.where(elements[0]), self.kick_plane(family)
 
@@ -245,8 +269,8 @@ class Deck:
         engine = self.wiring.engine(family)
         attribute, index = str(engine["attribute"]), int(engine["index"])
         bound = self._bound(family, "write", facts["device_list"])
-        for elements, step in zip(bound, _step(facts), strict=True):
-            for element in elements:
+        for pieces, step in zip(bound, _step(facts), strict=True):
+            for element, _weight in pieces:
                 target = lattice[self.where(element)]
                 values = np.array(getattr(target, attribute), dtype=float)
                 values[index] += step
@@ -853,3 +877,17 @@ def test_monitors_listed_out_of_ring_order_read_in_listed_order(mml_built: Built
     forward = deck.positions(monitors["family"], listed)
     rotated = deck.positions(monitors["family"], listed[1:] + listed[:1])
     assert rotated == forward[1:] + forward[:1]
+
+
+# ---------------------------------------------------------------------------
+# Weighted slices
+# ---------------------------------------------------------------------------
+
+
+def test_a_wiring_entry_reads_as_its_slices_with_their_weights() -> None:
+    """Each slice binds its element at its weight; an entry without slices is one piece."""
+    sliced = {"address": "Q:SP", "slices": [{"element": "QA"}, {"element": "QB", "weight": -1.0}]}
+    whole = {"address": "Q:SP", "element": "Q1"}
+
+    assert _pieces(sliced, "D1") == [("QA", "D1", 1.0), ("QB", "D1", -1.0)]
+    assert _pieces(whole, "D1") == [("Q1", "D1", 1.0)]
