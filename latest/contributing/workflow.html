@@ -540,6 +540,9 @@ cannot bypass them.</p></li>
 </ul>
 <p>Linear history is not enforced: a PR may land as a merge commit or a rebase,
 and both appear in <code class="docutils literal notranslate"><span class="pre">main</span></code>’s history.</p>
+<p>However a branch catches up with <code class="docutils literal notranslate"><span class="pre">main</span></code>, its conflicts are resolved by
+principle 8 of the <a class="reference internal" href="development-setup.html#contributing-design-principles"><span class="std std-ref">design principles</span></a>:
+<em>where two lines of work meet, design from the end product</em>.</p>
 <p>If a required check turns out to be wrong, fix it forward — there is no
 escape hatch.</p>
 </section>

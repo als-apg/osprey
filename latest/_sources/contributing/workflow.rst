@@ -104,6 +104,10 @@ protection on ``main`` enforces:
 Linear history is not enforced: a PR may land as a merge commit or a rebase,
 and both appear in ``main``'s history.
 
+However a branch catches up with ``main``, its conflicts are resolved by
+principle 8 of the :ref:`design principles <contributing-design-principles>`:
+*where two lines of work meet, design from the end product*.
+
 If a required check turns out to be wrong, fix it forward — there is no
 escape hatch.
 

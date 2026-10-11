@@ -482,7 +482,7 @@ uv<span class="w"> </span>add<span class="w"> </span>&lt;package&gt;
 <section id="code-standards">
 <h2>Code Standards<a class="headerlink" href="#code-standards" title="Link to this heading">#</a></h2>
 <section id="design-principles">
-<h3>Design Principles<a class="headerlink" href="#design-principles" title="Link to this heading">#</a></h3>
+<span id="contributing-design-principles"></span><h3>Design Principles<a class="headerlink" href="#design-principles" title="Link to this heading">#</a></h3>
 <p>Before designing a new connector, MCP server, provider, capability, or any
 non-trivial feature, consult OSPREY’s design and architecture principles – the
 safe-state default, facility-neutral core, measured symmetry with peer
@@ -493,6 +493,11 @@ is on <a class="reference internal" href="agent-skills.html"><span class="doc">A
 <p>The principles guide decisions; they are not mechanical rules. When a change
 feels wrong but the reason is hard to name, they help you name the drift and
 correct it before you open the PR.</p>
+<p>Principle 8, <em>where two lines of work meet, design from the end product</em>,
+applies to every merge and conflict resolution, and to every plan or spec
+written against an older tree. In its own words: at such a point the question
+is never “how do these two combine” but “what does the finished OSPREY need
+here”. The <code class="docutils literal notranslate"><span class="pre">/osprey:design-philosophy</span></code> skill carries the principle in full.</p>
 </section>
 <section id="python-style">
 <h3>Python Style<a class="headerlink" href="#python-style" title="Link to this heading">#</a></h3>
