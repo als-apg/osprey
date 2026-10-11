@@ -714,10 +714,10 @@ def approval_asks(tool: str | None) -> bool:
     """Whether a call of the guarded *tool* is put to a human before it runs.
 
     Read from the rendered ``config.yml`` alone, by
-    :func:`osprey.cli.build_posture_check.asks_in_render`: the build records
-    there whether the approval hook is wired (``approval.hook_wired``), beside
-    the policies the hook applies. One reading answers both what a call without
-    an approved digest does and which remedy a stale journal names.
+    :func:`osprey.cli.build_posture_check.ask_capable`: the build stops a
+    profile that asks without selecting the approval hook, so the policies the
+    hook applies answer the question. One reading answers both what a call
+    without an approved digest does and which remedy a stale journal names.
 
     Args:
         tool: The tool's short name, as ``approval.tools`` keys it. ``None``,
@@ -727,12 +727,12 @@ def approval_asks(tool: str | None) -> bool:
     Returns:
         ``True`` when the approval hook asks about such a call.
     """
-    from osprey.cli.build_posture_check import GUARDED_TOOLS, asks_in_render
+    from osprey.cli.build_posture_check import GUARDED_TOOLS, ask_capable
     from osprey_connectors.workspace import load_osprey_config
 
     config = load_osprey_config()
     tools = GUARDED_TOOLS if tool is None else (tool,)
-    return any(asks_in_render(config, name) for name in tools)
+    return any(ask_capable(config, name) for name in tools)
 
 
 def _open_approved_call(tool: str) -> None:

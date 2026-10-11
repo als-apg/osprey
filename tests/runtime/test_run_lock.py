@@ -81,14 +81,15 @@ class _Channels:
 
 @pytest.fixture(autouse=True)
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A host deployment repo on a live baseline, entered and stamped ``live``."""
+    """A host deployment repo on a live baseline that asks nobody, entered and stamped ``live``."""
     root = tmp_path / "repo"
     (root / "build").mkdir(parents=True)
     (root / "profile.yml").write_text("name: probe\n", encoding="utf-8")
-    (root / "build" / "config.yml").write_text(
-        yaml.safe_dump({"control_system": {"type": "epics", "connector": {"epics": {}}}}),
-        encoding="utf-8",
-    )
+    config = {
+        "control_system": {"type": "epics", "connector": {"epics": {}}},
+        "approval": {"enabled": False},
+    }
+    (root / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
     monkeypatch.chdir(root)
     monkeypatch.setenv(ENV_CONTROL_TARGET, "live")
     monkeypatch.setenv(ENV_CONTROL_TARGET_GENERATION, str(GENERATION))

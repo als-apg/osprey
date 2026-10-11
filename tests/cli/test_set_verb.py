@@ -572,7 +572,8 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
         "config:\n"
         "  control_system.type: mock\n"
         "  archiver.type: mock_archiver\n"
-        "  approval.enabled: true\n"
+        # No approval hook is selected, so nothing would ask: approval is off.
+        "  approval.enabled: false\n"
         "  approval.default_policy: always\n"
         "  claude_code.telemetry.enabled: false\n"
         "  hooks.debug: false\n"

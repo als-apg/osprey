@@ -44,7 +44,7 @@ from osprey.cli.build_posture_check import (
     REQUIRED_WITH_APPROVAL_HOOK,
     REQUIRED_WITH_CONTROLS,
     ask_capable,
-    asks_in_render,
+    check_approval_hook_selected,
     check_guarded_tool_policies,
     effective_policy,
     missing_posture_errors,
@@ -294,41 +294,73 @@ class TestEffectivePolicy:
 
 
 class TestAskCapable:
-    """Whether a guarded tool's call is put to a human before it runs."""
+    """Whether a guarded tool's call is put to a human, read from the render alone."""
 
-    def test_hook_enabled_and_a_prompting_policy_is_ask_capable(self) -> None:
-        assert ask_capable(_rendered(approval=_approval()), [APPROVAL_HOOK], "execute_file")
-
-    def test_a_profile_without_the_approval_hook_is_not_ask_capable(self) -> None:
-        assert not ask_capable(_rendered(approval=_approval()), ["hook-log"], "execute_file")
+    def test_enabled_and_a_prompting_policy_is_ask_capable(self) -> None:
+        assert ask_capable(_rendered(approval=_approval()), "execute_file")
 
     def test_approval_disabled_is_not_ask_capable(self) -> None:
         rendered = _rendered(approval={**_approval(), "enabled": False})
-        assert not ask_capable(rendered, [APPROVAL_HOOK], "execute_file")
+        assert not ask_capable(rendered, "execute_file")
 
     def test_a_skip_policy_is_not_ask_capable(self) -> None:
         rendered = _rendered(approval=_approval(pyaml_measure="skip"))
-        assert not ask_capable(rendered, [APPROVAL_HOOK], "pyaml_measure")
+        assert not ask_capable(rendered, "pyaml_measure")
+
+    def test_a_selective_policy_is_ask_capable(self) -> None:
+        rendered = _rendered(approval=_approval(execute="selective"))
+        assert ask_capable(rendered, "execute")
+
+    def test_an_absent_approval_block_asks(self) -> None:
+        """The hook reads an unstated switch as on and an unstated policy as ``always``."""
+        rendered = _rendered()
+        del rendered["approval"]
+        assert ask_capable(rendered, "execute")
+
+    @pytest.mark.parametrize(
+        ("enabled", "asks"),
+        [(None, False), ("", False), (0, False), ("false", True), ("no", True), (1, True)],
+    )
+    def test_enabled_reads_as_the_hook_reads_it(self, enabled: Any, asks: bool) -> None:
+        """``approval.enabled`` is taken by truthiness, the expression the hook evaluates."""
+        rendered = _rendered(approval={**_approval(), "enabled": enabled})
+        assert ask_capable(rendered, "execute") is asks
 
 
-class TestAsksInRender:
-    """The same question at run time, with the hook selection read from the render."""
+class TestApprovalHookSelected:
+    """A render that puts a guarded tool to a human selects the hook that asks."""
 
-    def test_a_wired_hook_and_a_prompting_policy_asks(self) -> None:
-        rendered = _rendered(approval={**_approval(), "hook_wired": True})
-        assert asks_in_render(rendered, "execute_file")
+    def test_the_hook_selected_passes(self) -> None:
+        check_approval_hook_selected(_rendered(approval=_approval()), [APPROVAL_HOOK])
 
-    @pytest.mark.parametrize("stated", [False, None, "true", 1])
-    def test_anything_but_true_is_no_hook(self, stated: Any) -> None:
-        rendered = _rendered(approval={**_approval(), "hook_wired": stated})
-        assert not asks_in_render(rendered, "execute_file")
+    def test_approval_disabled_without_the_hook_passes(self) -> None:
+        rendered = _rendered(approval={**_approval(), "enabled": False})
+        check_approval_hook_selected(rendered, ["hook-log"])
 
-    def test_an_unstated_answer_is_no_hook(self) -> None:
-        assert not asks_in_render(_rendered(approval=_approval()), "execute_file")
+    def test_every_guarded_tool_skipped_without_the_hook_passes(self) -> None:
+        rendered = _rendered(
+            approval=_approval(
+                channel_write="skip", execute="skip", execute_file="skip", pyaml_measure="skip"
+            )
+        )
+        check_approval_hook_selected(rendered, ["hook-log"])
 
-    def test_a_skip_policy_under_a_wired_hook_does_not_ask(self) -> None:
-        rendered = _rendered(approval={**_approval(execute="skip"), "hook_wired": True})
-        assert not asks_in_render(rendered, "execute")
+    def test_an_asking_tool_without_the_hook_stops(self) -> None:
+        rendered = _rendered(approval=_approval(execute="selective"))
+        with pytest.raises(FacilityBuildError) as stop:
+            check_approval_hook_selected(rendered, ["hook-log"])
+        assert stop.value.kind == "profile-invalid"
+        assert stop.value.record_id == "approval.enabled"
+        message = stop.value.format_message()
+        assert "guarded tool `execute` is put to a human under `approval.tools.execute`" in message
+        assert "add `approval` to `hooks:` in profile.yml" in message
+
+    def test_an_unstated_approval_block_without_the_hook_stops(self) -> None:
+        rendered = _rendered()
+        del rendered["approval"]
+        with pytest.raises(FacilityBuildError) as stop:
+            check_approval_hook_selected(rendered, [])
+        assert "under `approval.default_policy`" in stop.value.format_message()
 
 
 class TestGuardedToolPolicies:

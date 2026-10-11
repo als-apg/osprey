@@ -369,6 +369,7 @@ class TestManifestPresetStamp:
                     "config": {
                         "control_system.type": "mock",
                         "archiver.type": "mock",
+                        "approval.enabled": False,
                         "claude_code.telemetry.enabled": False,
                         "hooks.debug": False,
                     },

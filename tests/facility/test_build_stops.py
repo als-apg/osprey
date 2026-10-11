@@ -663,6 +663,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "profile-invalid",
         "a guarded tool's default approval policy `skip` while `channel_write` prompts",
     ),
+    (
+        "profile_invalid__approval_hook_not_selected",
+        "profile-invalid",
+        "a guarded tool put to a human while the profile does not select the `approval` hook",
+    ),
 )
 
 #: Each case: the tree that breaks the rule, and the one line it stops with.
@@ -2214,6 +2219,15 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "with no one asked; fix: set `approval.tools.execute_file` to `always` in profile.yml"
         ),
     ),
+    "profile_invalid__approval_hook_not_selected": (
+        _plain(),
+        (
+            "facility: profile-invalid: path approval.enabled — guarded tool `execute` is put "
+            "to a human under `approval.tools.execute` but the profile does not select the "
+            "`approval` hook, so nothing would ask; fix: add `approval` to `hooks:` in "
+            "profile.yml, or set `config: approval.enabled: false`"
+        ),
+    ),
 }
 
 #: The files a case puts in the profile's ``project/`` mirror, beside a clean tree.
@@ -2318,6 +2332,29 @@ def _state_approval(key: str) -> Callable[[Path], None]:
     return edit
 
 
+def _drop_approval_hook(repo: Path) -> None:
+    profile = repo / "profile.yml"
+    data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+    data["hooks"] = [hook for hook in data["hooks"] if hook != "approval"]
+    profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
+def _disable_approval(repo: Path) -> None:
+    """Turn approval off, and writes with it: armed writes need the approval hook installed.
+
+    The personas that arm the simulator's writes on their own are disarmed too.
+    """
+    profile = repo / "profile.yml"
+    data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+    data.setdefault("config", {})["approval.enabled"] = False
+    data["config"]["control_system.writes_enabled"] = False
+    profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    armed = "control_system.connector.virtual_accelerator.writes_enabled: true"
+    for persona in sorted((repo / "personas").glob("*.yml")):
+        text = persona.read_text(encoding="utf-8")
+        persona.write_text(text.replace(armed, armed.replace("true", "false")), encoding="utf-8")
+
+
 def _ship_limits(repo: Path) -> None:
     (repo / "data" / "channel_limits.json").write_text('{"_version": "4.0"}\n', encoding="utf-8")
 
@@ -2360,6 +2397,7 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
     "profile_invalid__served_probe_channel": _probe("NOPE:RB"),
     "profile_invalid__guarded_tool_skip": _state_approval("approval.tools.pyaml_measure"),
     "profile_invalid__default_policy_skip": _state_approval("approval.default_policy"),
+    "profile_invalid__approval_hook_not_selected": _drop_approval_hook,
 }
 
 #: Cases only ``osprey build`` stops on: validate checks the main profile render, and
@@ -2475,6 +2513,29 @@ def test_validate_prints_the_one_line(initialised: Path, tmp_path: Path, case: s
         _assert_notes_then_stop(result.stderr, case)
         return
     assert result.stderr == CASES[case][1] + "\n"
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "edits",
+    [
+        pytest.param((), id="hook-selected"),
+        pytest.param((_drop_approval_hook, _disable_approval), id="approval-disabled"),
+    ],
+)
+def test_an_asking_profile_builds_with_the_hook_or_approval_off(
+    initialised: Path, tmp_path: Path, edits: tuple[Callable[[Path], None], ...]
+) -> None:
+    repo = tmp_path / PROJECT
+    shutil.copytree(initialised, repo, symlinks=True)
+    _clear_facility_records(repo / "data" / "facility")
+    write_tree(repo / "data" / "facility", plain_tree())
+    for edit in edits:
+        edit(repo)
+
+    result = run_build(repo)
+
+    assert result.exit_code == 0, result.output
 
 
 @pytest.mark.slow

@@ -64,6 +64,11 @@ _POSTURE_FLOOR = (
     "  hooks.debug: false\n"
 )
 
+#: The floor for a profile that selects no approval hook: it states that nobody is asked.
+_POSTURE_FLOOR_NO_APPROVAL_HOOK = _POSTURE_FLOOR.replace(
+    "  approval.enabled: true\n", "  approval.enabled: false\n"
+)
+
 
 def _config_yaml(project_dir: Path) -> dict:
     return yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
@@ -148,10 +153,18 @@ def test_set_with_a_list_value_replaces_the_presets_list(runner: CliRunner, tmp_
 
     The edit half of the rule at the CLI surface. An inheritance layer would
     union these and leave the operator unable to take a hook away, which is the
-    narrowing the explicit-profile work exists to make expressible.
+    narrowing the explicit-profile work exists to make expressible. Taking the
+    approval hook away means stating that nobody is asked.
     """
     result = _materialize(
-        runner, str(tmp_path), "smoke", "hello-world", "--set", "hooks=[memory-guard]"
+        runner,
+        str(tmp_path),
+        "smoke",
+        "hello-world",
+        "--set",
+        "hooks=[memory-guard]",
+        "--set",
+        "config.approval.enabled=false",
     )
     assert result.exit_code == 0, result.output
     # The persisted manifest is the artifact list the build actually saw.
@@ -1388,7 +1401,7 @@ def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
         "channel_finder_mode: hierarchical\n"
         "hooks: [memory-guard]\n"
         "web_panels: [okf, lattice, grafana]\n"
-        "config:\n" + _POSTURE_FLOOR + "  web.panels.lattice.label: LATTICE\n"
+        "config:\n" + _POSTURE_FLOOR_NO_APPROVAL_HOOK + "  web.panels.lattice.label: LATTICE\n"
         "  web.panels.grafana.label: GRAFANA\n"
         "  web.panels.grafana.url: http://grafana.local:3000\n"
     )
@@ -1446,7 +1459,7 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(
         "channel_finder_mode: hierarchical\n"
         "hooks: [memory-guard]\n"
         "web_panels: [okf, beam.viewer]\n"
-        "config:\n" + _POSTURE_FLOOR + "  web.panels:\n"
+        "config:\n" + _POSTURE_FLOOR_NO_APPROVAL_HOOK + "  web.panels:\n"
         "    beam.viewer:\n"
         "      label: BEAM\n"
         "      url: http://beam.local:9000\n"

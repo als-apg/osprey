@@ -33,7 +33,8 @@ from tests._preset_data import copy_bundle_data
 POSTURE_FLOOR = {
     "control_system.type": "mock",
     "archiver.type": "mock_archiver",
-    "approval.enabled": True,
+    # No approval hook is selected, so nothing would ask: approval is off.
+    "approval.enabled": False,
     "approval.default_policy": "always",
     "claude_code.telemetry.enabled": False,
     "hooks.debug": False,

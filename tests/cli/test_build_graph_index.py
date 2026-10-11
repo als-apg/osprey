@@ -85,6 +85,8 @@ def _graph_repo(
         # `none` because this repo is about the search index, not the machine.
         "  control_system.type: mock\n"
         "  archiver.type: none\n"
+        # No approval hook is selected, so nothing would ask: approval is off.
+        "  approval.enabled: false\n"
         "  claude_code.telemetry.enabled: false\n"
         "  hooks.debug: false\n"
         f"  services.graphdb.ttl_path: {_CORPUS_RELATIVE}\n"

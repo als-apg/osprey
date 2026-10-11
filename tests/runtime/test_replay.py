@@ -272,8 +272,6 @@ def test_a_call_carrying_only_the_digest_refuses_when_its_tool_asks(
     [
         pytest.param({**_ASKING, "tools": {"execute": "skip"}}, id="skip"),
         pytest.param({**_ASKING, "enabled": False}, id="approval-disabled"),
-        pytest.param({**_ASKING, "hook_wired": False}, id="no-hook"),
-        pytest.param({"enabled": True, "default_policy": "always"}, id="hook-unstated"),
     ],
 )
 def test_a_call_whose_tool_never_asks_restores_its_own_generation(
@@ -301,7 +299,7 @@ def test_whether_the_tool_asks_is_decided_once_when_the_call_is_bound(
     before = path.read_bytes()
     _approve(monkeypatch, None, None)
 
-    _write_config(repo, {**_ASKING, "hook_wired": False})
+    _write_config(repo, {**_ASKING, "enabled": False})
     elsewhere = repo / "elsewhere.yml"
     elsewhere.write_text(yaml.safe_dump({"approval": {"enabled": False}}), encoding="utf-8")
     monkeypatch.setenv("OSPREY_CONFIG", str(elsewhere))
@@ -319,7 +317,6 @@ def test_whether_the_tool_asks_is_decided_once_when_the_call_is_bound(
     [
         pytest.param({**_ASKING, "tools": {"execute": "skip"}}, id="skip"),
         pytest.param({**_ASKING, "enabled": False}, id="approval-disabled"),
-        pytest.param({**_ASKING, "hook_wired": False}, id="no-hook"),
     ],
 )
 def test_fields_no_approval_hook_set_never_replay_a_journal(
@@ -374,10 +371,10 @@ def test_a_stale_journal_names_the_remove_remedy_with_approval_disabled(
     assert channels.writes == []
 
 
-def test_a_stale_journal_names_the_remove_remedy_without_the_approval_hook(
+def test_a_stale_journal_names_the_remove_remedy_when_every_guarded_tool_skips(
     repo: Path, channels: _Channels
 ) -> None:
-    _write_config(repo, {**_ASKING, "hook_wired": False})
+    _write_config(repo, {**_ASKING, "default_policy": "skip"})
     path = _plant({"Q": 0.0}, generation=GENERATION - 1)
 
     with pytest.raises(OspreyStaleJournal) as caught, lock(None):
@@ -387,13 +384,13 @@ def test_a_stale_journal_names_the_remove_remedy_without_the_approval_hook(
     assert channels.writes == []
 
 
-def test_approval_asks_reads_the_policy_and_the_wired_hook(repo: Path) -> None:
+def test_approval_asks_reads_the_policy_and_the_switch(repo: Path) -> None:
     assert approval_asks("execute") is True
     _write_config(repo, {**_ASKING, "tools": {"execute": "skip"}})
     assert approval_asks("execute") is False
     assert approval_asks("execute_file") is True
     assert approval_asks(None) is True, "any guarded tool that asks"
-    _write_config(repo, {**_ASKING, "hook_wired": False})
+    _write_config(repo, {**_ASKING, "enabled": False})
     assert approval_asks("execute_file") is False
     assert approval_asks(None) is False
 
@@ -406,7 +403,7 @@ def test_approval_asks_never_reads_the_rendered_settings(repo: Path) -> None:
     (claude / "settings.json").write_text(
         json.dumps({"hooks": {"PreToolUse": [rule]}}), encoding="utf-8"
     )
-    _write_config(repo, {**_ASKING, "hook_wired": False})
+    _write_config(repo, {**_ASKING, "enabled": False})
     assert approval_asks("execute") is False
 
 

@@ -740,15 +740,15 @@ def _apply_approved_call(
 
     Both fields are ordinary tool arguments, and only the approval hook's
     rewrite of the call makes them an approval. When *osprey_config* says the
-    hook does not put *tool*'s calls to a human — no hook wired, approval
-    disabled, policy ``skip`` — nothing rewrote the call, so whatever it
-    carries is the caller's own and neither field is carried.
+    hook does not put *tool*'s calls to a human — approval disabled, policy
+    ``skip`` — nothing rewrote the call, so whatever it carries is the caller's
+    own and neither field is carried.
     """
     if execution_mode != "readwrite":
         return
-    from osprey.cli.build_posture_check import asks_in_render
+    from osprey.cli.build_posture_check import ask_capable
 
-    if not asks_in_render(osprey_config, tool):
+    if not ask_capable(osprey_config, tool):
         return
     if approved_journal_sha256:
         sandbox_env[ENV_APPROVED_JOURNAL_SHA256] = approved_journal_sha256

@@ -217,8 +217,6 @@ def test_only_a_readwrite_sandbox_carries_the_approved_fields() -> None:
     [
         pytest.param(_approval(tools={"execute": "skip"}), id="skip"),
         pytest.param(_approval(enabled=False), id="approval-disabled"),
-        pytest.param(_approval(hook_wired=False), id="no-hook"),
-        pytest.param({}, id="no-config"),
     ],
 )
 def test_fields_no_approval_hook_set_never_reach_the_sandbox(config: dict[str, Any]) -> None:
@@ -436,7 +434,7 @@ def test_code_that_rewrites_the_config_still_needs_the_approved_fields(tmp_path:
 def test_a_digest_in_a_call_nobody_approved_restores_nothing(tmp_path: Path) -> None:
     """A sandbox whose tool never asks drops the fields before the code starts."""
     sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0, "S": 5.0}, {"Q": 3.0})
-    sandbox.write_config(_approval(hook_wired=False))
+    sandbox.write_config(_approval(enabled=False))
     before = sandbox.journal.read_bytes()
 
     metadata = sandbox.run(

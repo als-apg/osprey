@@ -1846,7 +1846,11 @@ def _render_project(
     from osprey.agent_runner.provider_env import load_provider_spec
     from osprey.deployment.reach import reach_errors
 
-    from .build_posture_check import check_guarded_tool_policies, missing_posture_errors
+    from .build_posture_check import (
+        check_approval_hook_selected,
+        check_guarded_tool_policies,
+        missing_posture_errors,
+    )
     from .build_profile_archiver import va_archiver_config_overrides
     from .build_profile_deploy import deploy_config_overrides
     from .build_profile_health import health_config_overrides
@@ -2158,6 +2162,10 @@ def _render_project(
         # A guarded tool that skips approval while single writes prompt would
         # replay a pending journal with no one asked; the render is what the
         # approval hook reads, so it is the render that is held to the rule.
+        # A guarded tool put to a human in a profile that does not select the
+        # approval hook would never be asked; the render is held to "asks ⇒ hook
+        # selected" so config.yml alone answers whether a call is asked.
+        check_approval_hook_selected(_rendered_config(render_dir), build_profile.hooks)
         check_guarded_tool_policies(_rendered_config(render_dir))
         if unrunnable:
             raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrunnable))

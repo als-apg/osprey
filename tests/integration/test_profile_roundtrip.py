@@ -772,6 +772,7 @@ channel_finder_mode: hierarchical
 config:
   control_system.type: mock
   archiver.type: mock_archiver
+  approval.enabled: false
   claude_code.telemetry.enabled: false
   hooks.debug: false
 """

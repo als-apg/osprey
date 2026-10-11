@@ -48,9 +48,10 @@ a human sees that replay. A guarded tool whose policy is ``skip`` while
 ``channel_write`` still prompts would replay setpoints no one was asked about,
 so the build stops on it naming both keys. :func:`effective_policy` and
 :func:`ask_capable` are the one reading of a tool's policy that the check and
-the guarded run share. At run time nothing holds the profile, so the build
-records its ``hooks:`` answer in the render as ``approval.hook_wired`` and
-:func:`asks_in_render` reads the whole question back from the render alone.
+the guarded run share. The build also guarantees that a render which asks
+selects the hook that asks: a guarded tool put to a human in a profile whose
+``hooks:`` list lacks ``approval`` stops the build. So asks ⇒ hook selected,
+and ``config.yml`` alone answers whether a call of a guarded tool is asked.
 """
 
 from __future__ import annotations
@@ -67,7 +68,7 @@ __all__ = [
     "REQUIRED_WITH_APPROVAL_HOOK",
     "REQUIRED_WITH_CONTROLS",
     "ask_capable",
-    "asks_in_render",
+    "check_approval_hook_selected",
     "check_guarded_tool_policies",
     "effective_policy",
     "missing_posture_errors",
@@ -275,44 +276,62 @@ def effective_policy(rendered: Mapping[str, Any], tool: str) -> str:
     return str(policy) if policy is not None else HOOK_FALLBACK_POLICY
 
 
-def ask_capable(rendered: Mapping[str, Any], selected_hooks: Iterable[str], tool: str) -> bool:
+def ask_capable(rendered: Mapping[str, Any], tool: str) -> bool:
     """Whether a call of *tool* is put to a human before it runs.
 
-    True when the approval hook is selected, ``approval.enabled`` is on (the
-    hook reads an unstated switch as on), and *tool*'s effective policy is not
-    ``skip``.
+    True when ``approval.enabled`` is truthy (the hook reads an unstated switch
+    as on, and evaluates the stated one by truthiness) and *tool*'s effective
+    policy is not ``skip``. No hook term: :func:`check_approval_hook_selected`
+    stops every build whose render asks without selecting the approval hook.
 
     Args:
         rendered: A rendered ``config.yml``, as ``safe_load`` produced it.
-        selected_hooks: The resolved profile's ``hooks:`` list.
         tool: The tool's short name, as ``approval.tools`` keys it.
 
     Returns:
-        ``True`` when the approval hook can ask about a call of *tool*.
+        ``True`` when a call of *tool* is put to a human.
     """
-    if APPROVAL_HOOK not in set(selected_hooks):
-        return False
     if not _approval_section(rendered).get("enabled", True):
         return False
     return effective_policy(rendered, tool) != SKIP_POLICY
 
 
-def asks_in_render(rendered: Mapping[str, Any], tool: str) -> bool:
-    """Whether a call of *tool* is put to a human, read from the render alone.
+def check_approval_hook_selected(
+    rendered: Mapping[str, Any], selected_hooks: Iterable[str]
+) -> None:
+    """Stop a render that puts a guarded tool to a human with no hook to ask.
 
-    :func:`ask_capable` with the hook selection the build recorded in the
-    render: the approval hook counts as selected only when
-    ``approval.hook_wired`` is ``true``.
+    The first tool of :data:`GUARDED_TOOLS` that is :func:`ask_capable` is
+    named when :data:`APPROVAL_HOOK` is not among *selected_hooks*.
 
     Args:
-        rendered: A rendered ``config.yml``, as ``safe_load`` produced it.
-        tool: The tool's short name, as ``approval.tools`` keys it.
+        rendered: The rendered ``config.yml``, read after the injectors.
+        selected_hooks: The resolved profile's ``hooks:`` list.
 
-    Returns:
-        ``True`` when the approval hook is wired and can ask about *tool*.
+    Raises:
+        FacilityBuildError: ``profile-invalid`` on ``approval.enabled``, naming
+            the guarded tool and the key that gives it its asking policy.
     """
-    wired = _approval_section(rendered).get("hook_wired") is True
-    return ask_capable(rendered, [APPROVAL_HOOK] if wired else [], tool)
+    if APPROVAL_HOOK in set(selected_hooks):
+        return
+    for tool in GUARDED_TOOLS:
+        if not ask_capable(rendered, tool):
+            continue
+        from osprey.facility.errors import FacilityBuildError
+
+        raise FacilityBuildError(
+            "profile-invalid",
+            "approval.enabled",
+            [PROFILE_FILENAME],
+            f"add `{APPROVAL_HOOK}` to `hooks:` in {PROFILE_FILENAME}, or set "
+            "`config: approval.enabled: false`",
+            record_kind="path",
+            detail=(
+                f"guarded tool `{tool}` is put to a human under "
+                f"`{_policy_key(rendered, tool)}` but the profile does not select the "
+                f"`{APPROVAL_HOOK}` hook, so nothing would ask"
+            ),
+        )
 
 
 def check_guarded_tool_policies(rendered: Mapping[str, Any]) -> None:

@@ -44,10 +44,12 @@ DEPLOY_BLOCK: dict[str, Any] = {
 
 #: The posture keys a build refuses to guess at. Stated once here because they
 #: are the price of admission to a build, not a subject of any test in this file
-#: — the deploy/lint parity these tests are about is judged past them.
+#: — the deploy/lint parity these tests are about is judged past them. The
+#: profiles select no approval hook, so they state that nobody is asked.
 POSTURE_FLOOR: dict[str, Any] = {
     "control_system.type": "mock",
     "archiver.type": "mock_archiver",
+    "approval.enabled": False,
     "claude_code.telemetry.enabled": False,
     "hooks.debug": False,
 }
@@ -230,7 +232,7 @@ def _write_profile(
     ``channel_finder_mode``, ``hooks`` and :data:`POSTURE_FLOOR` are here to
     make the profile buildable at all, not because these tests are about any of
     them: a repo profile must name a data tree, the channel-finder agent the
-    default artifact set selects refuses to render without a paradigm, the four
+    default artifact set selects refuses to render without a paradigm, the
     posture keys are the ones a build refuses to guess, and ``memory-guard`` is
     what gates ``Write`` — a profile that could write with no gate is refused.
     A caller stating one of them keeps its own value.
