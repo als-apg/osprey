@@ -666,6 +666,27 @@ class TestSyntheticExport:
         assert monitor["monitor_inverse"]["kind"] == "linear"
         assert inverse != pytest.approx(1.0 / gain, rel=1e-3)
 
+    def test_the_synthetic_bpmx_inverse_holds_its_stated_gain_and_offset_and_bpmy_holds_neither(
+        self,
+    ):
+        """One monitor family's conversion holds its stated readout and the other's does not."""
+        families = _synthetic_va()["families"]
+
+        bpmx = families["BPMx"]["Monitor"]
+        inverse, readout = bpmx["monitor_inverse"], bpmx["readout"]
+        assert inverse["kind"] == "linear"
+        assert any(offset != 0 for offset in readout["offset"])
+        for offset, stated in zip(inverse["offset"], readout["offset"], strict=True):
+            assert offset == pytest.approx(stated, rel=1e-9, abs=1e-12)
+        for gain, stated in zip(inverse["gain"], readout["gain"], strict=True):
+            assert gain == pytest.approx(1.0 / (1.0e-3 * stated), rel=1e-12)
+
+        bpmy = families["BPMy"]["Monitor"]
+        assert "offset" not in bpmy["readout"]
+        assert any(gain != 1 for gain in bpmy["readout"]["gain"])
+        for gain in bpmy["monitor_inverse"]["gain"]:
+            assert gain == pytest.approx(1000.0, rel=1e-12)
+
     def test_the_synthetic_table_calibration_stops_where_its_numbers_do(self):
         """A conversion with an end writes ``"NaN"`` past it and records the span."""
         calibration = _synthetic_va()["families"]["BEND"]["Setpoint"]["calibration"]
