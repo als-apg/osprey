@@ -4,8 +4,8 @@ MCP delivers a tool call's cancellation as an anyio ``CancelScope`` that
 re-cancels on every await, so ``_execute_via_local`` answers a cancel inside a
 shielded scope: ``SIGINT`` the sandbox, drain both pipes until it exits (bounded
 by the run's own deadline, or by :data:`CANCEL_DRAIN_CAP_S` when the run has
-none), kill it only when that bound runs out, file any restore report it
-printed, and re-raise. The in-flight marker outlives the child.
+none), kill it only when that bound runs out, file the restore reports its
+execution record holds, and re-raise. The in-flight marker outlives the child.
 
 Every child here is a stub script run by the test interpreter in place of the
 wrapped one; it announces its phases by creating files in the execution folder
@@ -37,7 +37,6 @@ from osprey.mcp_server.python_executor.executor import (
     INFLIGHT_FILE_PREFIX,
     INFLIGHT_FILE_SUFFIX,
     RESTORE_REPORT_FILE,
-    RESTORE_REPORT_TAG,
 )
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 from osprey_connectors import posture_store
@@ -67,7 +66,8 @@ def _stub(folder: Path, markers: Path, on_sigint: str, *, ignore_sigint: bool = 
     """A child that announces ``ready``, then runs *on_sigint* when interrupted.
 
     *on_sigint* is the body of the handler: ``FOLDER``, ``MARKERS``, ``hold``,
-    ``note`` and ``REPORT_LINE`` are in scope. ``ignore_sigint`` installs
+    ``note`` and ``record_report`` are in scope; ``record_report`` writes the
+    execution record a wrapped script leaves, holding :data:`REPORT`. ``ignore_sigint`` installs
     ``SIG_IGN`` instead, for a child that never answers the interrupt.
     """
     handler = textwrap.indent(textwrap.dedent(on_sigint).strip(), "    ")
@@ -80,12 +80,14 @@ def _stub(folder: Path, markers: Path, on_sigint: str, *, ignore_sigint: bool = 
     return (
         textwrap.dedent(
             f"""
-            import glob, os, signal, sys, time
+            import glob, json, os, signal, sys, time
             FOLDER = {str(folder)!r}
             MARKERS = {str(markers)!r}
-            REPORT_LINE = " ".join(
-                [{RESTORE_REPORT_TAG!r}, os.environ[{executor.ENV_RESTORE_REPORT_NONCE!r}], {report_json!r}]
-            )
+
+            def record_report():
+                record = {{"success": False, "restore_reports": [json.loads({report_json!r})]}}
+                with open(os.path.join(FOLDER, "execution_metadata.json"), "w") as fh:
+                    json.dump(record, fh)
 
             def note(name, text=""):
                 with open(os.path.join(FOLDER, name), "w") as fh:
@@ -306,13 +308,14 @@ def test_anyio_scope_cancel_keeps_marker_until_child_exit(make_run: Callable[...
 
 
 def test_cancel_drains_large_output_after_sigint(make_run: Callable[..., _Run]) -> None:
-    """A child echoing >1 MB after SIGINT is drained, exits by itself, and its report parses."""
+    """A child echoing >1 MB after SIGINT is drained, exits by itself, and its report is filed."""
     run = make_run(
         f"""
         sys.stdout.write("x" * {LARGE_OUTPUT_BYTES} + "\\n")
         sys.stdout.flush()
-        sys.stderr.write("y" * {LARGE_OUTPUT_BYTES} + "\\n" + REPORT_LINE + "\\n")
+        sys.stderr.write("y" * {LARGE_OUTPUT_BYTES} + "\\n")
         sys.stderr.flush()
+        record_report()
         os._exit(0)
         """
     )
@@ -365,8 +368,7 @@ def test_no_sigkill_before_deadline(
         """
         note("interrupted")
         hold("go")
-        sys.stderr.write(REPORT_LINE + "\\n")
-        sys.stderr.flush()
+        record_report()
         os._exit(0)
         """
     )
@@ -401,13 +403,12 @@ def test_cancel_null_timeout_bounded(
 
 
 def test_restore_report_in_ledger_and_folder(make_run: Callable[..., _Run]) -> None:
-    """The report the interrupted child printed lands in the folder and the audit ledger."""
+    """The report the interrupted child recorded lands in the folder and the audit ledger."""
     run = make_run(
         """
         sys.stdout.write("partial output\\n")
-        sys.stderr.write(REPORT_LINE + "\\n")
         sys.stdout.flush()
-        sys.stderr.flush()
+        record_report()
         os._exit(0)
         """
     )
@@ -426,7 +427,7 @@ def test_cancel_report_kept_when_pipes_outlive_child(make_run: Callable[..., _Ru
     """A descendant holding the pipes open costs neither the report nor the exit status.
 
     The child hands its pipes to a grandchild (as a detached EPICS helper
-    would), prints its report and exits by itself. The wind-down waits on the
+    would), records its report and exits by itself. The wind-down waits on the
     child, not on the pipes, and keeps every byte it read.
     """
     run = make_run(
@@ -440,8 +441,7 @@ def test_cancel_report_kept_when_pipes_outlive_child(make_run: Callable[..., _Ru
             "while not os.path.exists(path) and time.time() < deadline:\\n"
             "    time.sleep(0.05)\\n" % FOLDER,
         ])
-        sys.stderr.write(REPORT_LINE + "\\n")
-        sys.stderr.flush()
+        record_report()
         os._exit(0)
         """
     )
@@ -462,12 +462,11 @@ def test_cancel_report_kept_when_pipes_outlive_child(make_run: Callable[..., _Ru
 def test_cancel_report_kept_when_child_is_killed(
     make_run: Callable[..., _Run], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A report printed before the child hangs survives the kill at the bound."""
+    """A report recorded before the child hangs survives the kill at the bound."""
     monkeypatch.setattr(executor, "CANCEL_DRAIN_CAP_S", 3.0)
     run = make_run(
         """
-        sys.stderr.write(REPORT_LINE + "\\n")
-        sys.stderr.flush()
+        record_report()
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         while True:
             time.sleep(0.05)

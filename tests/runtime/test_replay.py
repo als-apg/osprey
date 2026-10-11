@@ -528,3 +528,17 @@ def test_a_clean_journaled_run_clears_and_prints_one_report(
             "deadline_guard": False,
         }
     ]
+
+
+def test_restore_reports_hands_out_a_copy_its_caller_cannot_reach_into(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import io
+
+    monkeypatch.setattr(guarded_run, "_REPORTS", [])
+    guarded_run._print_report(guarded_run.RestoreReport(restored=["Q"]), io.StringIO())
+
+    handed = guarded_run.restore_reports()
+    handed[0]["restored"].append("forged")
+
+    assert guarded_run.restore_reports()[0]["restored"] == ["Q"]

@@ -1286,10 +1286,8 @@ if not _execution_dir.exists():
         approved journal digest and target out of the environment and keeps
         them, with :attr:`tool`, for every guarded run the code takes; when the
         call carries a digest it restores the approved journal now, whether or
-        not the code takes a guarded run. The executor's restore-report nonce
-        leaves the environment in the same step. An interpreter that cannot
-        import ``osprey.runtime`` cannot take a guarded run either: it binds
-        nothing and only drops the nonce.
+        not the code takes a guarded run. An interpreter that cannot import
+        ``osprey.runtime`` cannot take a guarded run either: it binds nothing.
         """
         if self.execution_mode != "readwrite":
             return ""
@@ -1301,7 +1299,6 @@ if not _execution_dir.exists():
                     from osprey.runtime.guarded_run import _open_approved_call as _osprey_bind
                 except ImportError:
                     _osprey_bind = None
-                    os.environ.pop("OSPREY_GUARDED_RUN_REPORT_NONCE", None)
                 if _osprey_bind is not None:
                     _osprey_bind({self.tool!r})
                 del _osprey_bind
@@ -1370,8 +1367,9 @@ if not _execution_dir.exists():
         An interrupted run takes the same way out. The executor cancels a run
         with ``SIGINT``; the prologue in :meth:`_get_imports` restores the
         default handler, the ``KeyboardInterrupt`` is recorded (error_type
-        ``'KeyboardInterrupt'``, plus the ``restore_report`` a guarded run
-        interrupted inside its journaled span raises with), and every handler
+        ``'KeyboardInterrupt'``; the restore report a guarded run interrupted
+        inside its journaled span made travels in ``restore_reports`` with
+        every other), and every handler
         here first ignores further ``SIGINT``, so no second interrupt can carry
         an exception past the persistence and ``os._exit``.
         """
@@ -1401,7 +1399,7 @@ if not _execution_dir.exists():
         # Build the complete code block properly
         base_cleanup = textwrap.dedent(
             """
-            except KeyboardInterrupt as e:
+            except KeyboardInterrupt:
                 # Interrupted (the executor's cancel sends SIGINT). Recorded like
                 # a failure, so the tail below persists the record, echoes the
                 # output and leaves through os._exit - never interpreter
@@ -1411,18 +1409,6 @@ if not _execution_dir.exists():
                 execution_metadata["error_type"] = "KeyboardInterrupt"
                 execution_metadata["error"] = "Interrupted (SIGINT) before the script finished"
                 execution_metadata["traceback"] = traceback.format_exc()
-                # A guarded run interrupted inside its journaled span restores
-                # the setpoints it moved, prints one OSPREY_GUARDED_RUN_RESTORE
-                # report line and raises carrying the report; keep it in the
-                # record as well.
-                _osprey_restore_report = getattr(e, "restore_report", None)
-                if _osprey_restore_report is not None:
-                    try:
-                        execution_metadata["restore_report"] = json.loads(
-                            _osprey_restore_report.to_json()
-                        )
-                    except Exception:
-                        execution_metadata["restore_report"] = repr(_osprey_restore_report)
                 print(f"\\n{'='*60}", file=sys.stderr)
                 print("PYTHON EXECUTION INTERRUPTED (KeyboardInterrupt)", file=sys.stderr)
                 print(f"{'='*60}", file=sys.stderr)
@@ -1516,6 +1502,15 @@ if not _execution_dir.exists():
                         execution_metadata["figure_count"] = len(execution_metadata["figures_saved"])
                 except Exception as e:
                     execution_metadata["figure_save_error"] = str(e)
+
+                # The restore reports this process's guarded runs made, for the
+                # executor to file. Read only when the run loaded the runtime.
+                _osprey_guarded_run = sys.modules.get("osprey.runtime.guarded_run")
+                if _osprey_guarded_run is not None:
+                    try:
+                        execution_metadata["restore_reports"] = _osprey_guarded_run.restore_reports()
+                    except Exception:
+                        pass  # the record without the reports beats no record
 
                 # Save execution metadata for debugging
                 try:

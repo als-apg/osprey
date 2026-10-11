@@ -6,9 +6,9 @@ must then end the way a finished one does: the failure recorded in
 process gone through ``os._exit`` rather than interpreter shutdown, where a
 control-system client's shutdown hook (pyepics' ``finalize_libca``) can wedge
 it. A guarded run interrupted inside its journaled span restores the
-setpoints it moved and prints one ``OSPREY_GUARDED_RUN_RESTORE`` report line;
-the parent reads that report out of the drained pipes into the audit ledger and
-the execution folder.
+setpoints it moved, prints one ``OSPREY_GUARDED_RUN_RESTORE`` line for people,
+and the wrapper keeps its report in the execution record's ``restore_reports``;
+the parent files that list into the audit ledger and the execution folder.
 
 Every child here is a real :class:`ExecutionWrapper`-wrapped script run by the
 test interpreter; the control system is a dict behind stubbed
@@ -36,9 +36,9 @@ import yaml
 
 from osprey.mcp_server.python_executor.executor import (
     RESTORE_REPORT_FILE,
-    RESTORE_REPORT_TAG,
     _record_restore_report,
 )
+from osprey.runtime.guarded_run import RESTORE_REPORT_TAG
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
 _SRC_ROOT = Path(__file__).resolve().parents[3] / "src"
@@ -157,7 +157,6 @@ class _Child:
             _provision_deployment(workdir)
             env.pop("OSPREY_CONFIG", None)
             env.update(_STAMP)
-            env["OSPREY_GUARDED_RUN_REPORT_NONCE"] = _NONCE
 
         def ignore_sigint() -> None:
             # The disposition an asyncio child of a process that ignores SIGINT
@@ -243,12 +242,8 @@ def _provision_deployment(workdir: Path) -> None:
     )
 
 
-#: The report nonce a deployment child is handed, as the executor hands one.
-_NONCE = "c0ffee" * 5 + "c0"
-
-
 def _tagged(text: str) -> list[dict[str, Any]]:
-    prefix = f"{RESTORE_REPORT_TAG} {_NONCE} "
+    prefix = f"{RESTORE_REPORT_TAG} "
     return [
         json.loads(line[len(prefix) :]) for line in text.splitlines() if line.startswith(prefix)
     ]
@@ -276,10 +271,10 @@ def test_sigint_mid_run_tool_persists_report(child: Callable[..., _Child], tmp_p
     metadata = run.metadata()
     assert metadata["success"] is False
     assert metadata["error_type"] == "KeyboardInterrupt"
-    assert metadata["restore_report"] == report
+    assert metadata["restore_reports"] == [report]
 
     ledger = tmp_path / "audit" / "executor.jsonl"
-    reports = _record_restore_report(out, err, run.execution_folder, _NONCE, ledger)
+    reports = _record_restore_report(run.execution_folder, metadata["restore_reports"], ledger)
     assert reports == [report]
     saved = json.loads((run.execution_folder / RESTORE_REPORT_FILE).read_text(encoding="utf-8"))
     assert saved == [report]
@@ -335,11 +330,11 @@ def test_sigint_plain_script_skips_blocking_atexit(child: Callable[..., _Child])
     metadata = run.metadata()
     assert metadata["error_type"] == "KeyboardInterrupt"
     assert metadata["success"] is False
-    assert "restore_report" not in metadata
+    assert metadata["restore_reports"] == []
 
 
-def test_restore_report_parsed_to_ledger_and_folder(tmp_path: Path) -> None:
-    """Every tagged line on either pipe lands in the folder and the ledger; noise does not."""
+def test_restore_reports_filed_to_ledger_and_folder(tmp_path: Path) -> None:
+    """Every report object of the record lands in the folder and the ledger; noise does not."""
     first = {
         "restored": ["SR:Q1"],
         "unchanged": [],
@@ -356,19 +351,11 @@ def test_restore_report_parsed_to_ledger_and_folder(tmp_path: Path) -> None:
         "aborted": True,
         "deadline_guard": False,
     }
-    stdout = (
-        "hello\n"
-        f"{RESTORE_REPORT_TAG} {_NONCE} {json.dumps(first)}\n"
-        f"{RESTORE_REPORT_TAG} {_NONCE} not json\n"
-        f"{RESTORE_REPORT_TAG} {json.dumps(second)}\n"
-        f"not a {RESTORE_REPORT_TAG} line\n"
-    ).encode()
-    stderr = f"warning\n{RESTORE_REPORT_TAG} {_NONCE} {json.dumps(second)}\n"
     folder = tmp_path / "execution_x"
     folder.mkdir()
     ledger = tmp_path / "audit" / "executor.jsonl"
 
-    reports = _record_restore_report(stdout, stderr, folder, _NONCE, ledger)
+    reports = _record_restore_report(folder, [first, "not a report", second], ledger)
 
     assert reports == [first, second]
     assert json.loads((folder / RESTORE_REPORT_FILE).read_text(encoding="utf-8")) == [
@@ -388,19 +375,11 @@ def test_restore_report_parsed_to_ledger_and_folder(tmp_path: Path) -> None:
     quiet = tmp_path / "execution_y"
     quiet.mkdir()
     other_ledger = tmp_path / "audit" / "other.jsonl"
-    assert _record_restore_report(b"plain\n", b"", quiet, _NONCE, other_ledger) == []
-    assert _record_restore_report(stdout, stderr, quiet, None, other_ledger) == []
-    assert _record_restore_report(stdout, stderr, quiet, "0" * 32, other_ledger) == []
+    for nothing in ([], None, "not a list", {"restored": ["SR:Q1"]}):
+        assert _record_restore_report(quiet, nothing, other_ledger) == []
     assert not (quiet / RESTORE_REPORT_FILE).exists()
     assert not other_ledger.exists()
 
     # Never raises, even on an unusable folder.
     missing = tmp_path / "missing" / "dir"
-    assert _record_restore_report(stdout, "", missing, _NONCE, ledger) == [first]
-
-
-def test_restore_report_tag_matches_the_guarded_run() -> None:
-    """The executor's copy of the tag is the one the guarded run's restore prints."""
-    from osprey.runtime import guarded_run
-
-    assert RESTORE_REPORT_TAG is guarded_run.RESTORE_REPORT_TAG
+    assert _record_restore_report(missing, [first], ledger) == [first]

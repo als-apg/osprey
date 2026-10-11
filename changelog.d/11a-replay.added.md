@@ -13,5 +13,5 @@ displaced rewrites the journal to hold exactly those. An exception escaping
 The restore report is tagged `OSPREY_GUARDED_RUN_RESTORE`, saved as
 `guarded_run_restore_reports.json` and audited as `guarded_run_restore_complete`
 or `guarded_run_restore_incomplete`, for a finished run as for an interrupted
-one. The executor files a report line only when it carries the nonce drawn for
-that sandbox, so a line a script prints under the tag is not a report.
+one. The executor files the reports the run's execution record carries in
+`restore_reports`; a line a script prints under the tag is never filed.

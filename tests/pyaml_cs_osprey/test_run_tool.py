@@ -33,7 +33,6 @@ from pyaml_test_lattice import lattices
 import osprey.runtime
 import pyaml_cs_osprey.run_tool as run_tool_mod
 from osprey.errors import ChannelReadFailedError
-from osprey.mcp_server.python_executor.executor import RESTORE_REPORT_TAG
 from osprey.runtime.guarded_run import (
     JOURNAL_FILE_NAME,
     GuardedRunDirError,
@@ -75,10 +74,9 @@ def test_run_tool_imports_no_private_runtime_name() -> None:
     assert private == []
 
 
-def test_the_report_tag_is_the_one_the_executor_files() -> None:
-    """The tag is the runtime's own, and the executor files exactly the lines it starts."""
+def test_the_report_tag_is_the_runtimes() -> None:
+    """The tag is the runtime's own."""
     assert REPORT_TAG is RUNTIME_REPORT_TAG
-    assert REPORT_TAG == RESTORE_REPORT_TAG
 
 
 class TestGuardedRun:

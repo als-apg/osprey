@@ -71,6 +71,7 @@ deployment is imported when a directory is asked for or a journal restored.
 from __future__ import annotations
 
 import contextlib
+import copy
 import fcntl
 import hashlib
 import json
@@ -103,7 +104,6 @@ __all__ = [
     "APPROVED_NO_JOURNAL",
     "ENV_APPROVED_JOURNAL_SHA256",
     "ENV_APPROVED_TARGET",
-    "ENV_REPORT_NONCE",
     "GUARDED_RUN_DIR",
     "GUARDED_RUN_DIR_MODE",
     "JOURNAL_FILE_NAME",
@@ -118,6 +118,7 @@ __all__ = [
     "guarded_run_target",
     "journaled_run",
     "lock",
+    "restore_reports",
     "restore_writes",
 ]
 
@@ -154,16 +155,9 @@ APPROVED_NO_JOURNAL = "none"
 
 #: Prefix of the one line every outermost journaled run prints as it ends, and
 #: every restore of a killed run's journal: the tag, one space, then the
-#: :class:`RestoreReport` as a single JSON object. In a sandbox the executor
-#: gave a report nonce, the nonce and one more space sit between the two.
+#: :class:`RestoreReport` as a single JSON object. The line is for people; the
+#: same report is kept for :func:`restore_reports`.
 RESTORE_REPORT_TAG = "OSPREY_GUARDED_RUN_RESTORE"
-
-#: The secret the executor draws for one readwrite sandbox and expects on every
-#: restore report line it files, so a line user code prints under the tag alone
-#: is no report. Written into the sandbox by the executor, which spells the same
-#: name, and taken out of the environment by :func:`_open_approved_call` before
-#: user code runs.
-ENV_REPORT_NONCE = "OSPREY_GUARDED_RUN_REPORT_NONCE"
 
 #: The executor's spelling of "no recorded control target". It names no
 #: machine, so it is never a directory; it resolves to the baseline's name.
@@ -212,9 +206,9 @@ class _ApprovedCall:
 #: guarded tool started. Process-wide, so a thread user code starts sees it.
 _APPROVED: _ApprovedCall | None = None
 
-#: The report nonce :func:`_open_approved_call` took out of the environment;
-#: ``None`` in a process the executor gave none.
-_REPORT_NONCE: str | None = None
+#: Every report :func:`_print_report` printed in this process, as JSON objects,
+#: in print order.
+_REPORTS: list[dict[str, Any]] = []
 
 
 class OspreyRunBusy(Exception):
@@ -740,9 +734,8 @@ def _open_approved_call(tool: str) -> None:
     The approved digest and target the executor confirmed are taken out of
     the environment (:data:`ENV_APPROVED_JOURNAL_SHA256`,
     :data:`ENV_APPROVED_TARGET`) and kept in this module as given, so nothing
-    user code later sets in the environment changes them. The report nonce
-    (:data:`ENV_REPORT_NONCE`) leaves the environment with them and is kept for
-    :func:`_print_report`. When the call carries an approved digest the
+    user code later sets in the environment changes them. When the call
+    carries an approved digest the
     target's lock is taken and released once, which restores the approved
     journal whether or not the code itself takes the guarded run.
 
@@ -753,10 +746,9 @@ def _open_approved_call(tool: str) -> None:
         RuntimeError: A call is already bound in this process.
         Exception: Whatever :func:`lock` raises.
     """
-    global _APPROVED, _REPORT_NONCE
+    global _APPROVED
     if _APPROVED is not None:
         raise RuntimeError("a guarded tool call is already bound to this process")
-    _REPORT_NONCE = os.environ.pop(ENV_REPORT_NONCE, "").strip() or None
     digest = os.environ.pop(ENV_APPROVED_JOURNAL_SHA256, "").strip() or None
     target = os.environ.pop(ENV_APPROVED_TARGET, "").strip() or None
     _APPROVED = _ApprovedCall(tool=tool, journal_sha256=digest, target=target)
@@ -785,14 +777,24 @@ def _check_approved_call(target: str) -> None:
 
 
 def _print_report(report: RestoreReport, stream: TextIO | None = None) -> None:
-    """Print *report* as the one :data:`RESTORE_REPORT_TAG` line.
+    """Print *report* as the one :data:`RESTORE_REPORT_TAG` line, and keep it.
 
-    The line goes to *stream*, stderr when not given, and carries the report
-    nonce this process was bound with, when it was bound with one.
+    The line goes to *stream*, stderr when not given. The report is appended to
+    what :func:`restore_reports` returns.
     """
-    nonce = "" if _REPORT_NONCE is None else f"{_REPORT_NONCE} "
+    _REPORTS.append(json.loads(report.to_json()))
     out = sys.stderr if stream is None else stream
-    print(f"{RESTORE_REPORT_TAG} {nonce}{report.to_json()}", file=out, flush=True)
+    print(f"{RESTORE_REPORT_TAG} {report.to_json()}", file=out, flush=True)
+
+
+def restore_reports() -> list[dict[str, Any]]:
+    """Every restore report this process's guarded runs made, as JSON objects.
+
+    In print order; a deep copy, so the caller cannot change what a later
+    call returns. The sandbox wrapper hands the list to the executor in the run's
+    execution record.
+    """
+    return copy.deepcopy(_REPORTS)
 
 
 def _left_displaced(report: RestoreReport) -> list[str]:

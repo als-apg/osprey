@@ -233,11 +233,9 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
         "OSPREY_EXECUTION_DEADLINE",
         ENV_APPROVED_JOURNAL_SHA256,
         ENV_APPROVED_TARGET,
-        guarded_run.ENV_REPORT_NONCE,
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(guarded_run, "_APPROVED", None)
-    monkeypatch.setattr(guarded_run, "_REPORT_NONCE", None)
     yield root
     reset_config_cache()
 
@@ -306,7 +304,6 @@ def _child_env(repo: Path, **extra: str) -> dict[str, str]:
         ENV_CONTROL_TARGET_GENERATION,
         ENV_APPROVED_JOURNAL_SHA256,
         ENV_APPROVED_TARGET,
-        guarded_run.ENV_REPORT_NONCE,
     ):
         env.pop(name, None)
     env["PYTHONPATH"] = os.pathsep.join(
@@ -594,7 +591,6 @@ def test_an_execute_replay_prints_one_restore_line_filed_as_complete(
     machine.set("Q", 9.0)
     path = _plant({"Q": 3.0})
     env = {ENV_APPROVED_JOURNAL_SHA256: _digest(path), ENV_APPROVED_TARGET: "live"}
-    nonce = executor._apply_report_nonce(env, "readwrite")
     execute = _Execute(repo, "readwrite", _TRY_THE_RUN)
 
     metadata = execute.run(**env)
@@ -605,9 +601,7 @@ def test_an_execute_replay_prints_one_restore_line_filed_as_complete(
     assert len(_report_lines(metadata["stdout"], metadata["stderr"])) == 1
 
     ledger = tmp_path / "audit" / "executor.jsonl"
-    (report,) = executor._record_restore_report(
-        metadata["stdout"], metadata["stderr"], execute.folder, nonce, ledger
-    )
+    (report,) = executor._record_restore_report(execute.folder, metadata["restore_reports"], ledger)
     assert report["restored"] == ["Q"] and not report["refused"] and not report["failed"]
     (record,) = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
     assert record["reason"] == "guarded_run_restore_complete"
