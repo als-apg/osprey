@@ -647,6 +647,14 @@ def _place_from(device: dict[str, Any], place_from: str) -> None:
 # --- nominal band --------------------------------------------------------------------
 
 
+def _exact(number: float) -> str:
+    """*number* as the shortest text that reads back as the same float.
+
+    A whole number prints bare (``5``, not ``5.0``).
+    """
+    return repr(float(number)).removesuffix(".0")
+
+
 def _nominal_band(run: _Run) -> None:
     from osprey_connectors.simulation.values import coerce, zero
 
@@ -736,7 +744,7 @@ def _nominal_band(run: _Run) -> None:
             "channel",
             address,
             sorted({*files, _LIMITS_FILE}),
-            f"nominal {value:g} lies {'below' if value < low else 'above'} {side} {bound:g}",
+            f"nominal {_exact(value)} lies {'below' if value < low else 'above'} {side} {_exact(bound)}",
             "move the operating point inside [min_value, max_value], or widen the limits record",
         )
 

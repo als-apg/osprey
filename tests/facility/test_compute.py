@@ -634,6 +634,29 @@ class TestNominalBand:
         files["limits.yaml"] = {"records": [{"address": "QD:SP", "min_value": -2, "max_value": 0}]}
         _ok(tmp_path, files)
 
+    def test_a_nominal_off_its_band_prints_every_digit_it_carries(self, tmp_path):
+        files = _tree()
+        files["records/channels.yaml"].append(
+            {"id": "T:X", "simulation": {"nominal": -52.57394123}}
+        )
+        files["limits.yaml"] = {
+            "records": [{"address": "T:X", "min_value": -52.5739, "max_value": 0}]
+        }
+        result = _run(tmp_path, files)
+        assert [(e.kind, e.record_id) for e in result.errors] == [("seed-invalid", "T:X")]
+        assert "nominal -52.57394123 lies below `min_value` -52.5739" in result.errors[0].detail
+
+    def test_widening_the_edge_to_the_stated_nominal_builds(self, tmp_path):
+        files = _tree()
+        files["records/channels.yaml"].append(
+            {"id": "T:X", "simulation": {"nominal": -52.57394123}}
+        )
+        record = {"address": "T:X", "min_value": -52.5739, "max_value": 0}
+        files["limits.yaml"] = {"records": [record]}
+        (error,) = _run(tmp_path / "stopped", files).errors
+        record["min_value"] = float(error.detail.split()[1])
+        _ok(tmp_path / "remedied", files)
+
 
 # --- the in-memory build on the synthetic A/B slice deck ------------------------------
 
