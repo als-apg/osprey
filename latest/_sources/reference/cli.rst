@@ -1313,7 +1313,10 @@ Manage the ARIEL logbook search service.
 ``ariel.demo_narrative`` into an empty logbook and run the enhancement modules
 over it.
 
-``status [--json]`` -- Show service status.
+``status [--json]`` -- Show service status. Includes the vocabulary line (with
+the ``e1:…`` vocabulary key when entries are expanded) and, per text-embedding
+table, one line for each group of vectors built with other settings than the
+running ones, ending with the ``reembed`` command that rebuilds them.
 
 ``migrate`` -- Create or update database tables.
 
@@ -1332,7 +1335,8 @@ Safe to run on every build; on a fresh database, runs a full ingest.
    the web interface, attachment uploads, and entries written through the
    logbook write service. ``--rebuild`` wipes the mirror and re-exports
    everything, which is what to run after ``purge``.
-   ``ingest`` and ``watch`` already do this pass on their own.
+   ``ingest`` and ``watch`` already do this pass on their own. Prints the
+   vocabulary key it used as its last row (``Expansion key``).
 
 ``models`` -- List embedding models and tables.
 
@@ -1346,8 +1350,18 @@ Safe to run on every build; on a fresh database, runs a full ingest.
    ``ariel.vocabulary.path`` when no path is given. Needs no database. Exits 1
    and lists every error when the file is broken; warnings never fail it.
 
-``reembed --model NAME --dimension N [--batch-size N] [--force]``
-   Re-embed entries with a different model.
+``reembed --model NAME --dimension N [--batch-size N] [--force] [--dry-run]``
+   Re-embed entries with a different model, or with the current vocabulary
+   settings after ``status`` reports stale vectors (``--force``). ``--dry-run``
+   prints the plan, including ``Running key: r1`` or ``Running key:
+   r1:e1:<hex>`` --- the key each new vector will record. ``reembed`` refuses
+   to start when ``ariel.vocabulary.expand_entries`` is on but the vocabulary
+   does not load; that refusal names the loader error and the remedy ``fix
+   ariel.vocabulary.path or set ariel.vocabulary.expand_entries: false``.
+   ``sync``, ``ingest``, ``watch``, ``enhance``, ``quickstart`` and
+   ``qmd-resync`` refuse the same way. Without ``--dry-run`` it also refuses
+   when the table predates the key column (``schema behind code: run osprey
+   ariel migrate``).
 
 ``web [--port N] [--host ADDR] [--reload]``
    Launch the web interface on the host and port ``ariel.web`` names (default

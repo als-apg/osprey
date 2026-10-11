@@ -225,6 +225,52 @@ The built-in enhancement modules:
       device names, numbers and non-Latin script, which tokenize far more densely
       than prose. A model listed without the key is cut to 512 tokens.
 
+      .. _ariel-entry-expansion-rollout:
+
+      **Entry expansion.** With ``ariel.vocabulary.expand_entries: true`` the
+      entry text is run through the facility vocabulary before it is embedded:
+      each matched span gets its alternatives inserted after it (``BPM drifted``
+      becomes ``BPM beam position monitor drifted``). An entry that fits the
+      input window whole is never cut. When the entry and its inserted terms do
+      not fit, the entry keeps at least three quarters of its room, cut at a word
+      end, and the terms fill the rest in text order; a term that does not fit is
+      dropped whole. Each vector records the key it was built with, and
+      ``osprey ariel status`` names the tables whose vectors were built with
+      other settings (see :doc:`search-modes`).
+
+      .. note::
+
+         Until the entries are expanded, ``semantic`` and ``hybrid`` search the
+         query as typed: expanding only the query makes dense search **worse**
+         than no expansion (JLAB-TN-26-024: 17--22 % lower). Turning
+         ``expand_entries`` on and re-embedding brings query expansion to them as
+         well, and expanding both sides is what improves dense search.
+
+      **Turning it on, or editing the vocabulary while it is on.** The
+      vocabulary file ships inside the image, so do these steps in order:
+
+      #. Edit ``data/ariel/vocabulary.yml`` and/or set ``expand_entries: true``;
+         run ``osprey ariel vocab-check``.
+      #. Rebuild and redeploy the image.
+      #. Restart the sync service. Its startup line prints the new key, and its
+         first poll rewrites the qmd mirror; there is no manual ``qmd-resync``
+         step.
+      #. ``osprey ariel reembed --model <name> --dimension <dim> --force`` for
+         each embedding model. Status names the command per table.
+
+      Vectors are not rebuilt on their own; until step 4 finishes, status
+      reports the old ones as stale.
+
+      **Rolling back.** The qmd mirror heals itself on any change. The vectors
+      do not: older code re-embeds new entries without updating their key.
+      After a deployment has run older code with the key on, either run
+      ``reembed --force`` once it is upgraded again, or clear the keys first so
+      status reports every row as built without expansion:
+
+      .. code-block:: sql
+
+         UPDATE text_embeddings_<model> SET input_key = NULL;
+
       The vector index over those tables is an HNSW index. It takes no sizing
       parameter, so there is nothing about it to author per deployment.
 
@@ -361,6 +407,8 @@ The built-in enhancement modules:
                  mirror_path: var/ariel_mirror
 
       ``mirror_path`` is resolved against the project root --- the deployment repo, not the ``build/`` render inside it, which is exactly where the qmd sidecar bind-mounts the same path from. Keep it under ``var/``: the mirror is machine-written from PostgreSQL, it is as large as the logbook, and ``var/`` is the directory git ignores --- a path under ``data/`` would commit a generated corpus. An enabled export with no ``mirror_path`` is refused at startup rather than skipped, because a mirror nobody writes looks exactly like "search returns nothing".
+
+      With ``ariel.vocabulary.expand_entries: true`` each mirror file holds the expanded entry text, the same insertions the text embedding gets, so the sidecar's vector and BM25 halves both see them. The mirror records the vocabulary key it was written with. When the key changes --- expansion turned on or off, a vocabulary edit, a rollback --- the next mirror pass scans every entry again and rewrites each file whose text changed, and the sidecar re-indexes those files; ``ingest`` and ``watch`` run that pass before they ingest. No manual ``qmd-resync`` is needed. ``osprey ariel qmd-resync`` prints the key it used as its last row (``Expansion key: e1:…`` or ``none``).
 
       **Requirements:** the ``services.qmd`` sidecar, which bind-mounts this same directory read-only. See :ref:`qmd-search-sidecar`.
 

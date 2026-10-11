@@ -832,14 +832,24 @@ canonical.</p>
 field, an unknown <code class="docutils literal notranslate"><span class="pre">kind</span></code>, a duplicate canonical, an empty list, a file that is
 not a YAML mapping. The check reports <strong>every</strong> problem in one pass, so a file
 with three mistakes takes one run to fix, not three.</p>
-<p><strong>How text is matched.</strong> The file and the query go through the same rule before
-anything is compared: lowercase; <code class="docutils literal notranslate"><span class="pre">-</span></code> becomes a space (so <code class="docutils literal notranslate"><span class="pre">Beam-Position</span>
-<span class="pre">Monitor</span></code> and <code class="docutils literal notranslate"><span class="pre">beam</span> <span class="pre">position</span> <span class="pre">monitor</span></code> are one phrase); <code class="docutils literal notranslate"><span class="pre">/</span></code> is <strong>kept</strong> (so
-<code class="docutils literal notranslate"><span class="pre">t/s</span></code> and <code class="docutils literal notranslate"><span class="pre">i/o</span></code> stay a single token); runs of whitespace collapse to one.
-Nothing else is stripped, and no stemming happens here — PostgreSQL’s stemmer
-runs afterwards, on the text this produces. Forms match on whole tokens;
-multi-word forms match as phrases, longest first, left to right, and a stretch
-of text that has already matched is never matched again.</p>
+<p><strong>How text is matched.</strong> The file, the query and — when <code class="docutils literal notranslate"><span class="pre">expand_entries</span></code> is
+on — the entry text all go through the same rule before anything is compared:
+lowercase; <code class="docutils literal notranslate"><span class="pre">-</span></code> becomes a space (so <code class="docutils literal notranslate"><span class="pre">Beam-Position</span> <span class="pre">Monitor</span></code> and <code class="docutils literal notranslate"><span class="pre">beam</span>
+<span class="pre">position</span> <span class="pre">monitor</span></code> are one phrase); <code class="docutils literal notranslate"><span class="pre">/</span></code> is <strong>kept</strong> (so <code class="docutils literal notranslate"><span class="pre">t/s</span></code> and <code class="docutils literal notranslate"><span class="pre">i/o</span></code>
+stay a single token); runs of whitespace collapse to one. The punctuation
+characters <code class="docutils literal notranslate"><span class="pre">,</span> <span class="pre">.</span> <span class="pre">:</span> <span class="pre">;</span> <span class="pre">!</span> <span class="pre">?</span> <span class="pre">(</span> <span class="pre">)</span> <span class="pre">[</span> <span class="pre">]</span> <span class="pre">&quot;</span> <span class="pre">'</span></code> are stripped from the edges of each
+token, so <code class="docutils literal notranslate"><span class="pre">BPM,</span></code>, <code class="docutils literal notranslate"><span class="pre">(BPM)</span></code> and <code class="docutils literal notranslate"><span class="pre">BPM?</span></code> all match the form <code class="docutils literal notranslate"><span class="pre">bpm</span></code>. No
+stemming happens here — PostgreSQL’s stemmer runs afterwards, on the text this
+produces. Forms match on whole tokens; multi-word forms match as phrases,
+longest first, left to right, and a stretch of text that has already matched is
+never matched again.</p>
+<p>Punctuation <em>inside</em> a multi-word form is part of the form. The form
+<code class="docutils literal notranslate"><span class="pre">vert.</span> <span class="pre">orbit</span></code> matches the text <code class="docutils literal notranslate"><span class="pre">vert.</span> <span class="pre">orbit</span></code> and not <code class="docutils literal notranslate"><span class="pre">vert</span> <span class="pre">orbit</span></code>; write
+both spellings as forms if both occur. A phrase only matches where the text
+breaks the same way, so <code class="docutils literal notranslate"><span class="pre">beam.</span> <span class="pre">position</span> <span class="pre">monitor</span></code> does not match <code class="docutils literal notranslate"><span class="pre">beam</span>
+<span class="pre">position</span> <span class="pre">monitor</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">vocab-check</span></code> warns about each form whose
+edge punctuation is ignored and each form whose interior punctuation is
+required.</p>
 <p><strong>The two direction gates.</strong> Matching a form and adding its canonical is
 <em>always</em> on: type <code class="docutils literal notranslate"><span class="pre">bpm</span></code> and the search also finds “beam position monitor”.
 The reverse direction — spelling the canonical out and <em>also</em> searching the
@@ -901,8 +911,8 @@ nothing.</p>
 </section>
 <section id="what-gets-expanded-and-where">
 <h4>What gets expanded, and where<a class="headerlink" href="#what-gets-expanded-and-where" title="Link to this heading">#</a></h4>
-<p>Expansion runs once, in the search service, before the request reaches a search
-module. What it looks at depends on the mode:</p>
+<p>Expansion of a <strong>query</strong> runs once, in the search service, before the request
+reaches a search module. What it looks at depends on the mode:</p>
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">keyword</span></code></dt><dd><p>The search terms and quoted phrases only. The values of <code class="docutils literal notranslate"><span class="pre">author:</span></code> and
 <code class="docutils literal notranslate"><span class="pre">date:</span></code> filters are never expanded, and neither is the body of a pattern
@@ -917,8 +927,26 @@ sidecar.</p>
 </dd>
 </dl>
 <p>The same query can therefore report different expansions in different modes.
-<code class="docutils literal notranslate"><span class="pre">expand_modes</span></code> limits which modes expand at all; unset — the default —
-means every enabled search module.</p>
+<code class="docutils literal notranslate"><span class="pre">expand_modes</span></code> limits which modes expand at all. Unset — the default —
+means every enabled search module once the entries are expanded too, and only
+the modes other than <code class="docutils literal notranslate"><span class="pre">semantic</span></code> and <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> until then (see below).</p>
+<p>With <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.expand_entries:</span> <span class="pre">true</span></code> the <strong>entries</strong> are expanded too,
+once, when they are embedded and when they are written to the qmd mirror: every
+matched span gets its alternatives inserted right after it, in the text itself
+(<code class="docutils literal notranslate"><span class="pre">BPM</span> <span class="pre">drifted</span></code> is embedded as <code class="docutils literal notranslate"><span class="pre">BPM</span> <span class="pre">beam</span> <span class="pre">position</span> <span class="pre">monitor</span> <span class="pre">drifted</span></code>), under the
+same direction gates as the query. An entry that already spells both terms
+next to each other (<code class="docutils literal notranslate"><span class="pre">beam</span> <span class="pre">position</span> <span class="pre">monitor</span> <span class="pre">(BPM)</span></code>) gains nothing. Keyword
+search never sees entry expansion: it searches the stored text, which is not
+changed.</p>
+<p>Both sides matter for the dense lanes. JLAB-TN-26-024 measured that expanding
+only the query makes <code class="docutils literal notranslate"><span class="pre">semantic</span></code> retrieval worse than not expanding at all
+(17–22 % lower), while expanding both the query and the entries raised <a class="reference external" href="mailto:P&#37;&#52;&#48;10">P<span>&#64;</span>10</a>
+by 29 % and <a class="reference external" href="mailto:MRR&#37;&#52;&#48;10">MRR<span>&#64;</span>10</a> by 19 %. The default therefore never expands one side
+alone: while <code class="docutils literal notranslate"><span class="pre">expand_entries</span></code> is off, <code class="docutils literal notranslate"><span class="pre">semantic</span></code> and <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> search the
+query as typed and only <code class="docutils literal notranslate"><span class="pre">keyword</span></code> expands it. Turning <code class="docutils literal notranslate"><span class="pre">expand_entries</span></code> on and
+re-embedding (see <a class="reference internal" href="data-ingestion.html#ariel-entry-expansion-rollout"><span class="std std-ref">turning on entry expansion</span></a> in <a class="reference internal" href="data-ingestion.html"><span class="doc">Data Ingestion</span></a>) brings query
+expansion to the dense modes as well. A deployment that wants query-only
+expansion on a dense mode anyway names that mode in <code class="docutils literal notranslate"><span class="pre">expand_modes</span></code>.</p>
 <div class="note admonition">
 <p class="admonition-title">Hybrid feeds the expanded query to a reranker</p>
 <p><code class="docutils literal notranslate"><span class="pre">hybrid</span></code> hands its query to the qmd sidecar’s LLM reranker, so expansion
@@ -945,6 +973,10 @@ expansions reported. It is the switch to reach for when you want to see what a
 query finds on its own, and the OSPREY agent can use it the same way when a
 rewrite looks like it widened a search too far. With the vocabulary disabled the
 toggle is not advertised at all and the argument does nothing.</p>
+<p><code class="docutils literal notranslate"><span class="pre">expand_query</span></code> acts on the query only. Entries embedded or mirrored with
+<code class="docutils literal notranslate"><span class="pre">expand_entries</span></code> on keep their inserted terms, so <code class="docutils literal notranslate"><span class="pre">semantic</span></code> and <code class="docutils literal notranslate"><span class="pre">hybrid</span></code>
+can still reach an entry through a vocabulary term with the toggle off. To see
+the corpus without entry expansion, set <code class="docutils literal notranslate"><span class="pre">expand_entries:</span> <span class="pre">false</span></code> and re-embed.</p>
 </section>
 <section id="what-you-see-when-a-query-expands">
 <h4>What you see when a query expands<a class="headerlink" href="#what-you-see-when-a-query-expands" title="Link to this heading">#</a></h4>
@@ -961,6 +993,14 @@ the same list in their result envelopes, and <code class="docutils literal notra
 truncated query, a skipped expansion, or a pattern searched as text.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">search</span></code> does not print the expansion — use the panel or an MCP
 tool to see it.</p>
+<p><code class="docutils literal notranslate"><span class="pre">expanded_terms</span></code> lists only what was added to the <strong>query</strong>. Terms inserted
+into entries are not listed there. They do show up in one place: the web
+panel’s <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> result previews are snippets of the qmd mirror, which holds
+the expanded text, so a preview can read <code class="docutils literal notranslate"><span class="pre">BPM</span> <span class="pre">beam</span> <span class="pre">position</span> <span class="pre">monitor</span> <span class="pre">drifted</span></code>
+where the stored entry says <code class="docutils literal notranslate"><span class="pre">BPM</span> <span class="pre">drifted</span></code>. The entry itself, the <code class="docutils literal notranslate"><span class="pre">keyword</span></code>
+and <code class="docutils literal notranslate"><span class="pre">semantic</span></code> previews, and the MCP tools (which return no snippets or
+highlights) show the stored text unchanged. The inserted terms also count
+toward the sidecar’s BM25 half of <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> scoring.</p>
 </section>
 <section id="pattern-tokens-in-keyword-search">
 <h4>Pattern tokens in keyword search<a class="headerlink" href="#pattern-tokens-in-keyword-search" title="Link to this heading">#</a></h4>
@@ -1012,9 +1052,11 @@ the pattern. Both carry the expansion groups the query was going to use.</p>
 <span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                       </span><span class="c1"># default: false</span>
 <span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/ariel/vocabulary.yml</span><span class="w">     </span><span class="c1"># required when enabled</span>
 <span class="w">    </span><span class="nt">expand_by_default</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">             </span><span class="c1"># default: true</span>
+<span class="w">    </span><span class="nt">expand_entries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">               </span><span class="c1"># default: false</span>
 <span class="w">    </span><span class="nt">canonical_to_acronym</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># default: true</span>
 <span class="w">    </span><span class="nt">canonical_to_shorthand</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">       </span><span class="c1"># default: false</span>
 <span class="w">    </span><span class="c1"># expand_modes: [keyword, semantic] # default: every enabled module</span>
+<span class="w">                                        </span><span class="c1"># (semantic/hybrid only with expand_entries)</span>
 
 <span class="w">  </span><span class="nt">search_modules</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">keyword</span><span class="p">:</span>
@@ -1030,6 +1072,13 @@ that was loaded (the deployment repo, not its <code class="docutils literal notr
 rule as <code class="docutils literal notranslate"><span class="pre">qmd_export.mirror_path</span></code> and <code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code> —
 so the panel, the CLI and the MCP server all read the same file no matter
 where the process was started.</p>
+<p><code class="docutils literal notranslate"><span class="pre">expand_entries</span></code> expands entry text before it is embedded and before it is
+written to the qmd mirror. It has no effect while <code class="docutils literal notranslate"><span class="pre">enabled</span></code> is <code class="docutils literal notranslate"><span class="pre">false</span></code>
+(<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> warns <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.expand_entries</span> <span class="pre">is</span> <span class="pre">on</span> <span class="pre">and</span> <span class="pre">has</span>
+<span class="pre">no</span> <span class="pre">effect</span> <span class="pre">while</span> <span class="pre">ariel.vocabulary.enabled</span> <span class="pre">is</span> <span class="pre">false</span></code>). With it on and a
+vocabulary that does not load, <code class="docutils literal notranslate"><span class="pre">sync</span></code>, <code class="docutils literal notranslate"><span class="pre">ingest</span></code>, <code class="docutils literal notranslate"><span class="pre">watch</span></code>, <code class="docutils literal notranslate"><span class="pre">enhance</span></code>,
+<code class="docutils literal notranslate"><span class="pre">quickstart</span></code>, <code class="docutils literal notranslate"><span class="pre">qmd-resync</span></code> and <code class="docutils literal notranslate"><span class="pre">reembed</span></code> refuse to start rather than
+build unexpanded vectors.</p>
 <p><code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">true</span></code> with no <code class="docutils literal notranslate"><span class="pre">path</span></code>, an <code class="docutils literal notranslate"><span class="pre">expand_modes</span></code> entry naming a module
 that is unknown or not enabled, and a malformed keyword knob are all
 configuration errors that name the offending key. Nothing is quietly defaulted.</p>
@@ -1053,12 +1102,37 @@ osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span clas
 database. <code class="docutils literal notranslate"><span class="pre">vocab-check</span></code> exits <code class="docutils literal notranslate"><span class="pre">0</span></code> when the file loads and <code class="docutils literal notranslate"><span class="pre">1</span></code> when it does
 not, listing every error it found. Warnings are printed either way and never
 fail the check.</p>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> reports one line — <code class="docutils literal notranslate"><span class="pre">Vocabulary:</span> <span class="pre">OK</span> <span class="pre">(20</span> <span class="pre">concepts)</span></code>,
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> reports one vocabulary line — <code class="docutils literal notranslate"><span class="pre">Vocabulary:</span> <span class="pre">OK</span> <span class="pre">(20</span>
+<span class="pre">concepts)</span></code>, <code class="docutils literal notranslate"><span class="pre">Vocabulary:</span> <span class="pre">OK</span> <span class="pre">(20</span> <span class="pre">concepts,</span> <span class="pre">entries</span> <span class="pre">expanded,</span> <span class="pre">key</span>
+<span class="pre">e1:3f9a0c1d2b7e4a55)</span></code> when <code class="docutils literal notranslate"><span class="pre">expand_entries</span></code> is on,
 <code class="docutils literal notranslate"><span class="pre">Vocabulary:</span> <span class="pre">INVALID</span> <span class="pre">(1</span> <span class="pre">errors).</span> <span class="pre">Run:</span> <span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">vocab-check</span></code>, or
 <code class="docutils literal notranslate"><span class="pre">Vocabulary:</span> <span class="pre">disabled</span></code> — and its <code class="docutils literal notranslate"><span class="pre">--json</span></code> output carries the same verdict
 under <code class="docutils literal notranslate"><span class="pre">vocabulary</span></code>. Run <code class="docutils literal notranslate"><span class="pre">vocab-check</span></code> on every edit, before you deploy: the
 file is read once, when the configuration is parsed, so a mistake in it is a
 startup problem rather than a search that quietly stops expanding.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">e1:…</span></code> value is the <strong>vocabulary key</strong>: the expansion rule and a
+fingerprint of the file and the two gates. Any edit to a concept’s spellings,
+its kind or the order of the concepts changes it, and so does flipping a gate;
+comments and layout do not. Every command that writes entries or vectors
+(<code class="docutils literal notranslate"><span class="pre">sync</span></code>, <code class="docutils literal notranslate"><span class="pre">watch</span></code>, <code class="docutils literal notranslate"><span class="pre">reembed</span></code>, …) prints the same line when it starts, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">qmd-resync</span></code> prints the key as <code class="docutils literal notranslate"><span class="pre">Expansion</span> <span class="pre">key</span></code>, so you can
+check that the host and the running image read the same file.</p>
+<p>Every stored vector also records the <strong>running key</strong> it was built with —
+<code class="docutils literal notranslate"><span class="pre">r1</span></code> without entry expansion, <code class="docutils literal notranslate"><span class="pre">r1:e1:…</span></code> with it. When a table holds vectors
+built differently from the running configuration, status prints one line per
+cause and, on the last one, the command that rebuilds them:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">text_embedding</span> <span class="n">nomic</span><span class="o">-</span><span class="n">embed</span><span class="o">-</span><span class="n">text</span><span class="p">:</span> <span class="mi">1200</span> <span class="n">entries</span> <span class="n">embedded</span> <span class="n">without</span> <span class="n">entry</span> <span class="n">expansion</span><span class="o">.</span> <span class="n">To</span> <span class="n">rebuild</span> <span class="n">them</span> <span class="k">with</span> <span class="n">the</span> <span class="n">current</span> <span class="n">settings</span><span class="p">,</span> <span class="n">run</span> <span class="n">osprey</span> <span class="n">ariel</span> <span class="n">reembed</span> <span class="o">--</span><span class="n">model</span> <span class="n">nomic</span><span class="o">-</span><span class="n">embed</span><span class="o">-</span><span class="n">text</span> <span class="o">--</span><span class="n">dimension</span> <span class="mi">768</span> <span class="o">--</span><span class="n">force</span><span class="o">.</span>
+</pre></div>
+</div>
+<p>The causes are <code class="docutils literal notranslate"><span class="pre">with</span> <span class="pre">a</span> <span class="pre">different</span> <span class="pre">input</span> <span class="pre">rule</span></code>, <code class="docutils literal notranslate"><span class="pre">without</span> <span class="pre">entry</span> <span class="pre">expansion</span></code>,
+<code class="docutils literal notranslate"><span class="pre">with</span> <span class="pre">entry</span> <span class="pre">expansion</span></code>, <code class="docutils literal notranslate"><span class="pre">with</span> <span class="pre">a</span> <span class="pre">different</span> <span class="pre">expansion</span> <span class="pre">rule</span></code>, <code class="docutils literal notranslate"><span class="pre">with</span> <span class="pre">a</span>
+<span class="pre">different</span> <span class="pre">vocabulary</span></code> and <code class="docutils literal notranslate"><span class="pre">with</span> <span class="pre">an</span> <span class="pre">unrecognized</span> <span class="pre">build</span> <span class="pre">key</span></code>. With the
+vocabulary disabled the causes print without a command. A table whose schema
+predates the key prints <code class="docutils literal notranslate"><span class="pre">schema</span> <span class="pre">behind</span> <span class="pre">code:</span> <span class="pre">run</span> <span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code>; a
+vocabulary that does not load prints <code class="docutils literal notranslate"><span class="pre">text_embedding</span> <span class="pre">&lt;model&gt;:</span> <span class="pre">cannot</span> <span class="pre">check</span> <span class="pre">how</span>
+<span class="pre">N</span> <span class="pre">entries</span> <span class="pre">were</span> <span class="pre">embedded:</span> <span class="pre">the</span> <span class="pre">vocabulary</span> <span class="pre">does</span> <span class="pre">not</span> <span class="pre">load.</span> <span class="pre">Run:</span> <span class="pre">osprey</span> <span class="pre">ariel</span>
+<span class="pre">vocab-check</span></code>. The web <code class="docutils literal notranslate"><span class="pre">/status</span></code> page and the MCP status tool do not report
+this.</p>
 </section>
 <section id="when-the-vocabulary-is-broken">
 <h4>When the vocabulary is broken<a class="headerlink" href="#when-the-vocabulary-is-broken" title="Link to this heading">#</a></h4>

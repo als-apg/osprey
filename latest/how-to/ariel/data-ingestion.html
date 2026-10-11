@@ -774,6 +774,46 @@ that. A longer entry is cut so its start is embedded, and the cut is logged
 with the entry’s id. The cut counts UTF-8 bytes, one per token, so it fits
 device names, numbers and non-Latin script, which tokenize far more densely
 than prose. A model listed without the key is cut to 512 tokens.</p>
+<p id="ariel-entry-expansion-rollout"><strong>Entry expansion.</strong> With <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.expand_entries:</span> <span class="pre">true</span></code> the
+entry text is run through the facility vocabulary before it is embedded:
+each matched span gets its alternatives inserted after it (<code class="docutils literal notranslate"><span class="pre">BPM</span> <span class="pre">drifted</span></code>
+becomes <code class="docutils literal notranslate"><span class="pre">BPM</span> <span class="pre">beam</span> <span class="pre">position</span> <span class="pre">monitor</span> <span class="pre">drifted</span></code>). An entry that fits the
+input window whole is never cut. When the entry and its inserted terms do
+not fit, the entry keeps at least three quarters of its room, cut at a word
+end, and the terms fill the rest in text order; a term that does not fit is
+dropped whole. Each vector records the key it was built with, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> names the tables whose vectors were built with
+other settings (see <a class="reference internal" href="search-modes.html"><span class="doc">Search Modes</span></a>).</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Until the entries are expanded, <code class="docutils literal notranslate"><span class="pre">semantic</span></code> and <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> search the
+query as typed: expanding only the query makes dense search <strong>worse</strong>
+than no expansion (JLAB-TN-26-024: 17–22 % lower). Turning
+<code class="docutils literal notranslate"><span class="pre">expand_entries</span></code> on and re-embedding brings query expansion to them as
+well, and expanding both sides is what improves dense search.</p>
+</div>
+<p><strong>Turning it on, or editing the vocabulary while it is on.</strong> The
+vocabulary file ships inside the image, so do these steps in order:</p>
+<ol class="arabic simple">
+<li><p>Edit <code class="docutils literal notranslate"><span class="pre">data/ariel/vocabulary.yml</span></code> and/or set <code class="docutils literal notranslate"><span class="pre">expand_entries:</span> <span class="pre">true</span></code>;
+run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">vocab-check</span></code>.</p></li>
+<li><p>Rebuild and redeploy the image.</p></li>
+<li><p>Restart the sync service. Its startup line prints the new key, and its
+first poll rewrites the qmd mirror; there is no manual <code class="docutils literal notranslate"><span class="pre">qmd-resync</span></code>
+step.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">reembed</span> <span class="pre">--model</span> <span class="pre">&lt;name&gt;</span> <span class="pre">--dimension</span> <span class="pre">&lt;dim&gt;</span> <span class="pre">--force</span></code> for
+each embedding model. Status names the command per table.</p></li>
+</ol>
+<p>Vectors are not rebuilt on their own; until step 4 finishes, status
+reports the old ones as stale.</p>
+<p><strong>Rolling back.</strong> The qmd mirror heals itself on any change. The vectors
+do not: older code re-embeds new entries without updating their key.
+After a deployment has run older code with the key on, either run
+<code class="docutils literal notranslate"><span class="pre">reembed</span> <span class="pre">--force</span></code> once it is upgraded again, or clear the keys first so
+status reports every row as built without expansion:</p>
+<div class="highlight-sql notranslate"><div class="highlight"><pre><span></span><span class="k">UPDATE</span><span class="w"> </span><span class="n">text_embeddings_</span><span class="o">&lt;</span><span class="n">model</span><span class="o">&gt;</span><span class="w"> </span><span class="k">SET</span><span class="w"> </span><span class="n">input_key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">NULL</span><span class="p">;</span>
+</pre></div>
+</div>
 <p>The vector index over those tables is an HNSW index. It takes no sizing
 parameter, so there is nothing about it to author per deployment.</p>
 <div class="admonition note">
@@ -892,6 +932,7 @@ qmd Export</label><div class="sd-tab-content docutils">
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">mirror_path</span></code> is resolved against the project root — the deployment repo, not the <code class="docutils literal notranslate"><span class="pre">build/</span></code> render inside it, which is exactly where the qmd sidecar bind-mounts the same path from. Keep it under <code class="docutils literal notranslate"><span class="pre">var/</span></code>: the mirror is machine-written from PostgreSQL, it is as large as the logbook, and <code class="docutils literal notranslate"><span class="pre">var/</span></code> is the directory git ignores — a path under <code class="docutils literal notranslate"><span class="pre">data/</span></code> would commit a generated corpus. An enabled export with no <code class="docutils literal notranslate"><span class="pre">mirror_path</span></code> is refused at startup rather than skipped, because a mirror nobody writes looks exactly like “search returns nothing”.</p>
+<p>With <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.expand_entries:</span> <span class="pre">true</span></code> each mirror file holds the expanded entry text, the same insertions the text embedding gets, so the sidecar’s vector and BM25 halves both see them. The mirror records the vocabulary key it was written with. When the key changes — expansion turned on or off, a vocabulary edit, a rollback — the next mirror pass scans every entry again and rewrites each file whose text changed, and the sidecar re-indexes those files; <code class="docutils literal notranslate"><span class="pre">ingest</span></code> and <code class="docutils literal notranslate"><span class="pre">watch</span></code> run that pass before they ingest. No manual <code class="docutils literal notranslate"><span class="pre">qmd-resync</span></code> is needed. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">qmd-resync</span></code> prints the key it used as its last row (<code class="docutils literal notranslate"><span class="pre">Expansion</span> <span class="pre">key:</span> <span class="pre">e1:…</span></code> or <code class="docutils literal notranslate"><span class="pre">none</span></code>).</p>
 <p><strong>Requirements:</strong> the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar, which bind-mounts this same directory read-only. See <a class="reference internal" href="search-sidecar.html#qmd-search-sidecar"><span class="std std-ref">The Search Sidecar (qmd)</span></a>.</p>
 </div>
 </div>

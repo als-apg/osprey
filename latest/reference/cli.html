@@ -1611,7 +1611,10 @@ osprey<span class="w"> </span>mml<span class="w"> </span>verify
 <code class="docutils literal notranslate"><span class="pre">--source</span></code> or the configured ingestion source; with neither, seed
 <code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> into an empty logbook and run the enhancement modules
 over it.</p>
-<p><code class="docutils literal notranslate"><span class="pre">status</span> <span class="pre">[--json]</span></code> – Show service status.</p>
+<p><code class="docutils literal notranslate"><span class="pre">status</span> <span class="pre">[--json]</span></code> – Show service status. Includes the vocabulary line (with
+the <code class="docutils literal notranslate"><span class="pre">e1:…</span></code> vocabulary key when entries are expanded) and, per text-embedding
+table, one line for each group of vectors built with other settings than the
+running ones, ending with the <code class="docutils literal notranslate"><span class="pre">reembed</span></code> command that rebuilds them.</p>
 <p><code class="docutils literal notranslate"><span class="pre">migrate</span></code> – Create or update database tables.</p>
 <p><code class="docutils literal notranslate"><span class="pre">sync</span> <span class="pre">[--limit</span> <span class="pre">N]</span></code> – Idempotent migrate + incremental ingest + enhance.
 Safe to run on every build; on a fresh database, runs a full ingest.</p>
@@ -1626,7 +1629,8 @@ Safe to run on every build; on a fresh database, runs a full ingest.</p>
 the web interface, attachment uploads, and entries written through the
 logbook write service. <code class="docutils literal notranslate"><span class="pre">--rebuild</span></code> wipes the mirror and re-exports
 everything, which is what to run after <code class="docutils literal notranslate"><span class="pre">purge</span></code>.
-<code class="docutils literal notranslate"><span class="pre">ingest</span></code> and <code class="docutils literal notranslate"><span class="pre">watch</span></code> already do this pass on their own.</p>
+<code class="docutils literal notranslate"><span class="pre">ingest</span></code> and <code class="docutils literal notranslate"><span class="pre">watch</span></code> already do this pass on their own. Prints the
+vocabulary key it used as its last row (<code class="docutils literal notranslate"><span class="pre">Expansion</span> <span class="pre">key</span></code>).</p>
 </dd>
 </dl>
 <p><code class="docutils literal notranslate"><span class="pre">models</span></code> – List embedding models and tables.</p>
@@ -1639,7 +1643,17 @@ query expansion uses. Checks <code class="docutils literal notranslate"><span cl
 <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.path</span></code> when no path is given. Needs no database. Exits 1
 and lists every error when the file is broken; warnings never fail it.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">reembed</span> <span class="pre">--model</span> <span class="pre">NAME</span> <span class="pre">--dimension</span> <span class="pre">N</span> <span class="pre">[--batch-size</span> <span class="pre">N]</span> <span class="pre">[--force]</span></code></dt><dd><p>Re-embed entries with a different model.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">reembed</span> <span class="pre">--model</span> <span class="pre">NAME</span> <span class="pre">--dimension</span> <span class="pre">N</span> <span class="pre">[--batch-size</span> <span class="pre">N]</span> <span class="pre">[--force]</span> <span class="pre">[--dry-run]</span></code></dt><dd><p>Re-embed entries with a different model, or with the current vocabulary
+settings after <code class="docutils literal notranslate"><span class="pre">status</span></code> reports stale vectors (<code class="docutils literal notranslate"><span class="pre">--force</span></code>). <code class="docutils literal notranslate"><span class="pre">--dry-run</span></code>
+prints the plan, including <code class="docutils literal notranslate"><span class="pre">Running</span> <span class="pre">key:</span> <span class="pre">r1</span></code> or <code class="docutils literal notranslate"><span class="pre">Running</span> <span class="pre">key:</span>
+<span class="pre">r1:e1:&lt;hex&gt;</span></code> — the key each new vector will record. <code class="docutils literal notranslate"><span class="pre">reembed</span></code> refuses
+to start when <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.expand_entries</span></code> is on but the vocabulary
+does not load; that refusal names the loader error and the remedy <code class="docutils literal notranslate"><span class="pre">fix</span>
+<span class="pre">ariel.vocabulary.path</span> <span class="pre">or</span> <span class="pre">set</span> <span class="pre">ariel.vocabulary.expand_entries:</span> <span class="pre">false</span></code>.
+<code class="docutils literal notranslate"><span class="pre">sync</span></code>, <code class="docutils literal notranslate"><span class="pre">ingest</span></code>, <code class="docutils literal notranslate"><span class="pre">watch</span></code>, <code class="docutils literal notranslate"><span class="pre">enhance</span></code>, <code class="docutils literal notranslate"><span class="pre">quickstart</span></code> and
+<code class="docutils literal notranslate"><span class="pre">qmd-resync</span></code> refuse the same way. Without <code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> it also refuses
+when the table predates the key column (<code class="docutils literal notranslate"><span class="pre">schema</span> <span class="pre">behind</span> <span class="pre">code:</span> <span class="pre">run</span> <span class="pre">osprey</span>
+<span class="pre">ariel</span> <span class="pre">migrate</span></code>).</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">web</span> <span class="pre">[--port</span> <span class="pre">N]</span> <span class="pre">[--host</span> <span class="pre">ADDR]</span> <span class="pre">[--reload]</span></code></dt><dd><p>Launch the web interface on the host and port <code class="docutils literal notranslate"><span class="pre">ariel.web</span></code> names (default
 <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> and the layout’s ARIEL port); <code class="docutils literal notranslate"><span class="pre">--host</span></code> and <code class="docutils literal notranslate"><span class="pre">--port</span></code> override
