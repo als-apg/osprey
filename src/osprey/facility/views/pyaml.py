@@ -16,9 +16,11 @@ that names a deck and has a ``measurement/<model>.yaml``::
                          dipole polynomials pyAML reads, as the model's engine
                          writes it
     trm.json, crm.json   the tune and chromaticity response matrices of the
-                         design optics, each with the correction tool that
-                         loads it, for a periodic model whose measurement file
-                         allows ``trm`` or ``crm``
+                         design optics, for a periodic model whose measurement
+                         file allows ``trm`` or ``crm`` and whose group has a
+                         finite column for every member; the correction tool
+                         that loads one is added only when the matrix can
+                         drive a two-plane correction (rank two)
 
 A model solved ``single_pass`` has no design simulator (``simulators: []``):
 pyAML's design simulator solves a periodic orbit. Every other model the render
@@ -662,7 +664,7 @@ def _slice_average(magnet: _Magnet, deck: _Deck, optics: _Optics, quantity: Any)
 def _response_matrix(
     columns: Sequence[tuple[str, float, float]], monitor: str
 ) -> dict[str, Any] | None:
-    """A two-row response matrix, or ``None`` when it cannot drive a correction."""
+    """A two-row response matrix, or ``None`` when a column is missing or not finite."""
     import numpy as np
 
     if not columns:
@@ -671,8 +673,7 @@ def _response_matrix(
         [float(f"{x:.9g}") for _, x, _ in columns],
         [float(f"{y:.9g}") for _, _, y in columns],
     ]
-    matrix = np.asarray(rows, dtype=float)
-    if not np.all(np.isfinite(matrix)) or int(np.linalg.matrix_rank(matrix)) < 2:
+    if not np.all(np.isfinite(np.asarray(rows, dtype=float))):
         return None
     return {
         "type": RESPONSE_MATRIX_DATA_TYPE,
@@ -680,6 +681,13 @@ def _response_matrix(
         "observable_names": [f"{monitor}.x", f"{monitor}.y"],
         "variable_names": [name for name, _, _ in columns],
     }
+
+
+def _drives_a_correction(matrix: Mapping[str, Any]) -> bool:
+    """Whether the matrix can drive a two-plane correction: rank two."""
+    import numpy as np
+
+    return int(np.linalg.matrix_rank(np.asarray(matrix["matrix"], dtype=float))) >= 2
 
 
 def _tuning_matrix(
@@ -974,6 +982,7 @@ def _configuration(
             )
             if trm is not None:
                 files[TRM_FILE] = _matrix_text(trm)
+            if trm is not None and _drives_a_correction(trm):
                 tool_type, tool_name = TUNE_CORRECTION
                 devices.append(
                     {
@@ -996,6 +1005,7 @@ def _configuration(
             )
             if crm is not None:
                 files[CRM_FILE] = _matrix_text(crm)
+            if crm is not None and _drives_a_correction(crm):
                 tool_type, tool_name = CHROMATICITY_CORRECTION
                 devices.append(
                     {

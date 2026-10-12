@@ -50,7 +50,7 @@ configuration the build wrote; nothing else in the deployment edits it.
 - The group step is sized so the tune or chromaticity moves no more than under the strongest single-magnet step of the view's `trm.json` or `crm.json`, and no magnet moves by more than one magnet's step; then each member is held to half its `max_step`.
 - `delta_basis` says what sized it: `tune excursion`, `chromaticity excursion`, `magnet step` or `max_step`.
 - The group column is per unit integrated strength: the sum of its members' magnet-by-magnet columns.
-- `crm` by group needs the view's `crm.json`; a view without one refuses it.
+- `crm` by group needs the view's `crm.json`, written whenever every member of the sextupole group has a modelled column; a group with an unmodelled member has none and refuses it.
 
 ### Bipolar or unipolar
 

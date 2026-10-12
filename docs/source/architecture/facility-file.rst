@@ -128,7 +128,11 @@ The views
 
 **pyAML.** One configuration per measured model: its arrays, magnets, BPMs,
 RF plant and tools, read from the facility file and the model's measurement
-file, beside the deck it runs the design simulator on. The build names on
+file, beside the deck it runs the design simulator on. A periodic model whose
+measurement file allows ``trm`` or ``crm`` gets ``trm.json`` or ``crm.json``, the
+design response of its ``quad`` or ``sext`` group, whenever every member has a
+modelled column; the tune or chromaticity correction tool that loads it is
+added only when the matrix has rank two. The build names on
 stderr what it leaves out. A served model that cannot have a view is named as
 ``pyAML view omitted for <model>: <reason>``. Setpoints pyAML has no magnet
 model for are counted as ``view pyaml: <model> leaves out N setpoint(s) pyAML

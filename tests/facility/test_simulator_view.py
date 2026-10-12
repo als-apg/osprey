@@ -54,6 +54,7 @@ GRAPH = "data/graph/facility.ttl"
 PYAML = (
     "data/pyaml/LINE/configuration.yaml",
     "data/pyaml/SR/configuration.yaml",
+    "data/pyaml/SR/crm.json",
     "data/pyaml/SR/lattice.json",
     "data/pyaml/SR/trm.json",
 )

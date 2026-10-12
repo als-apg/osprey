@@ -100,8 +100,9 @@ The saved file is the one the run left in its own execution folder; a run that
 names any other file saves nothing and says so in ``data_file_refused``.
 
 ``crm`` by group is sized from the view's ``crm.json``, which the build writes
-only when the sextupole group's design response can drive a correction; a view
-without it refuses ``crm`` by group.
+whenever every member of the sextupole group has a modelled column; a group
+with a member the model gives no column has no ``crm.json``, and its view
+refuses ``crm`` by group.
 
 The model's answer
 ==================

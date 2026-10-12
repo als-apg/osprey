@@ -2,9 +2,10 @@
 
 A periodic model whose measurement file allows ``trm`` gets ``trm.json`` and the
 tune correction tool that loads it: column ``j`` is ``(+beta_x, -beta_y) / 4pi``
-of the quadrupole, averaged over its slices by weight times length. A matrix
-that cannot drive a correction (rank below two) is not written, and neither is
-its tool; a single-pass model has no design optics and no matrix.
+of the quadrupole, averaged over its slices by weight times length. The matrix
+is the group step's sizing input, so it is written whenever every member has a
+finite column; the correction tool needs a matrix that can drive a two-plane
+correction (rank two). A single-pass model has no design optics and no matrix.
 """
 
 from __future__ import annotations
@@ -60,14 +61,15 @@ def test_the_tune_correction_tool_loads_the_matrix(tmp_path: Path) -> None:
     assert sr.design.tune.response_matrix.shape == (2, 2)
 
 
-def test_a_rank_one_matrix_is_not_written_and_neither_is_its_tool(tmp_path: Path) -> None:
+def test_a_rank_one_matrix_is_written_without_its_correction_tool(tmp_path: Path) -> None:
     tree = measured_tree()
     tree["records/groups.yaml"] = [
         group if group["id"] != "SR/Q" else {"id": "SR/Q", "members": ["SR/QD"]}
         for group in tree["records/groups.yaml"]
     ]
     directory, written = write_view(tmp_path, tree)
-    assert directory / "SR" / TRM_FILE not in written
+    assert directory / "SR" / TRM_FILE in written
+    assert _trm(directory)["variable_names"] == ["QD:SP"]
     configuration = yaml.safe_load((directory / "SR" / CONFIGURATION_FILE).read_text())
     names = [device["name"] for device in configuration["devices"]]
     assert "DEFAULT_TUNE_CORRECTION" not in names

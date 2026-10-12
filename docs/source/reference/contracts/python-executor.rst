@@ -119,7 +119,10 @@ any setpoint moves. A group step is first sized from the view's
 under the strongest single-magnet step, and no magnet moves by more than one
 magnet's step; ``delta_basis`` is ``tune excursion``, ``chromaticity
 excursion``, ``magnet step`` or ``max_step``. A group column is per unit
-integrated strength: the sum of its members' magnet-by-magnet columns.
+integrated strength: the sum of its members' magnet-by-magnet columns. The
+build writes ``trm.json`` or ``crm.json`` whenever every member of the group has
+a modelled column; a group with an unmodelled member has none, and its group
+step is refused.
 
 The run starts only on the view the build recorded and the approval prompt
 showed (``approved_view_sha256``), and every write runs inside one guarded run:
