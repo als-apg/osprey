@@ -682,3 +682,24 @@ def test_a_nan_rf_write_is_refused_and_never_stepped(
     assert set(result) == {"kind", "refused"}
     assert RF_ADDRESS in result["refused"]
     assert runs == [] and FakeStep.built == []
+
+
+# --- the saved measurement ---------------------------------------------------------
+
+
+def test_a_measurement_holding_arrays_is_saved_as_json_lists(render, execution, capsys, holder):
+    holder.monitor.latest_measurement = {
+        "chromaticity_fit": np.array([[0.1, 1.5, 0.01], [0.2, -2.5, 0.02]]),
+        "chromaticity": np.array([1.5, -2.5]),
+        "n_step": np.int64(5),
+    }
+
+    result = _run(render, execution, capsys, kind="chromaticity_monitor")
+
+    assert result["completed"] is True
+    saved = json.loads(Path(result["data_file"]).read_text(encoding="utf-8"))
+    assert saved == {
+        "chromaticity_fit": [[0.1, 1.5, 0.01], [0.2, -2.5, 0.02]],
+        "chromaticity": [1.5, -2.5],
+        "n_step": 5,
+    }

@@ -22,7 +22,8 @@ resolved measurement request. The script runs in the executor sandbox
    once at the top level of the script, never inside a guarded run the script
    opens itself: bipolar orbit responses, dispersion and magnet-by-magnet tune
    and chromaticity responses run pyAML's own tools, every other stepping runs
-   ``pyaml_cs_osprey.measure.StepMeasurement.measure``;
+   ``pyaml_cs_osprey.measure.StepMeasurement.measure``; a completed
+   measurement is saved as JSON, every array as a list;
 4. prints one ``OSPREY_PYAML_MEASURE <json>`` line. The guarded run prints its
    restore report on stderr.
 
@@ -548,6 +549,20 @@ def plan(holder, copy_dir):
     return monitor, (monitor.measure, {}), [KIND], fields, None
 
 
+def plain(value):
+    """A numpy value as the JSON value it holds."""
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    raise TypeError(f"{type(value).__name__} is not a measurement value")
+
+
+def save(tool, path):
+    """Write the tool's latest measurement to ``path`` as JSON, arrays as lists."""
+    path.write_text(json.dumps(tool.latest_measurement, indent=4, default=plain), encoding="utf-8")
+
+
 def tool_bpm_array(holder):
     return holder.orm.bpm_array_name if KIND == "orm" else holder.dispersion.bpm_array_name
 
@@ -578,7 +593,7 @@ def main():
         print(RESULT_TAG, json.dumps(result), flush=True)
         return
     data_file = root / f"pyaml_measure_{KIND}.json"
-    tool.save(data_file)
+    save(tool, data_file)
     result["data_file"] = str(data_file)
     measured = tool.latest_measurement
     if KIND == "chromaticity_monitor":
