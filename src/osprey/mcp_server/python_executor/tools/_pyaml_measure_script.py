@@ -16,7 +16,8 @@ resolved measurement request. The script runs in the executor sandbox
    in); a group stepped as one knob is first sized from the view's
    ``trm.json``/``crm.json`` so the tune or chromaticity moves no more than
    under the strongest single-magnet step, and never by more than one
-   magnet's step;
+   magnet's step; a strength, ``max_step`` or write that is not a finite
+   number, or a ``max_step`` not above zero, refuses the measurement;
 3. runs the measurement through ``pyaml_cs_osprey.run_tool.run_tool``, called
    once at the top level of the script, never inside a guarded run the script
    opens itself: bipolar orbit responses, dispersion and magnet-by-magnet tune
@@ -238,6 +239,25 @@ def setpoint_of(magnet):
     return model, parse_reference(devices[0])
 
 
+def finite(value, what):
+    """``value`` as a float, refusing unless it is a finite number."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        refuse(f"{what} is not a number: {value!r}")
+    if not math.isfinite(number):
+        refuse(f"{what} is not a finite number: {number!r}")
+    return number
+
+
+def positive_bound(value, what):
+    """Half a ``max_step``, refusing unless the max_step is a finite number above zero."""
+    bound = finite(value, f"the max_step of {what}")
+    if bound <= 0.0:
+        refuse(f"the max_step of {what} is not above zero: {bound!r}")
+    return 0.5 * bound
+
+
 def max_step(reference, owner):
     """The setpoint's max_step in the unit pyAML works in, or None."""
     limits = osprey.runtime.channel_limits(reference.address)
@@ -247,37 +267,45 @@ def max_step(reference, owner):
         refuse(f"{owner}: {exc}")
 
 
-def largest_write(model, strength, delta):
-    """The hardware move of the largest single write a step of ``delta`` takes."""
+def largest_write(model, strength, delta, address):
+    """The hardware move of the largest single write a step of ``delta`` takes.
+
+    Every hardware value and the move itself are finite, or the step is refused.
+    """
     def hardware(value):
-        return float(np.asarray(model.compute_hardware_values(np.array([value])))[0])
+        native = float(np.asarray(model.compute_hardware_values(np.array([value])))[0])
+        return finite(native, f"the hardware value of {address}")
 
     if MODULATION == "bipolar":
-        return abs(hardware(strength + 0.5 * delta) - hardware(strength - 0.5 * delta))
-    return abs(hardware(strength + delta) - hardware(strength))
+        move = abs(hardware(strength + 0.5 * delta) - hardware(strength - 0.5 * delta))
+    else:
+        move = abs(hardware(strength + delta) - hardware(strength))
+    return finite(move, f"the largest write of {address}")
 
 
 def fit_member(magnet, delta):
     """The step, no larger than ``delta``, whose largest write is within half max_step.
 
     Returns ``(step, address)``: ``address`` names the setpoint when its
-    max_step shrank the step, else ``None``.
+    max_step shrank the step, else ``None``. The strength, the bound and every
+    write compared are finite numbers, or the step is refused.
     """
     model, reference = setpoint_of(magnet)
     name = magnet.get_name()
-    bound = max_step(reference, name)
-    if bound is None:
+    address = reference.address
+    limit = max_step(reference, name)
+    if limit is None:
         return delta, None
-    bound *= 0.5
-    strength = float(magnet.strength.get())
-    if largest_write(model, strength, delta) <= bound:
+    bound = positive_bound(limit, address)
+    strength = finite(magnet.strength.get(), f"the strength of {address}")
+    if largest_write(model, strength, delta, address) <= bound:
         return delta, None
     low, high = 0.0, abs(delta)
     for _ in range(BISECTIONS):
         middle = 0.5 * (low + high)
         if middle in (low, high):
             break
-        if largest_write(model, strength, math.copysign(middle, delta)) > bound:
+        if largest_write(model, strength, math.copysign(middle, delta), address) > bound:
             high = middle
         else:
             low = middle
@@ -341,11 +369,12 @@ def fit_rf_span(span_hz, reference):
     limit = getattr(limits, "max_step", None)
     if limit is None:
         return span_hz, None
-    bound = 0.5 * float(limit)
+    bound = positive_bound(limit, reference.address)
     try:
-        write = abs(units.to_native(span_hz, reference))
+        native = units.to_native(span_hz, reference)
     except units.UnitError as exc:
         refuse(f"{reference.address}: {exc}")
+    write = abs(finite(native, f"the RF write of {reference.address}"))
     if write <= bound:
         return span_hz, None
     return span_hz * bound / write, reference.address

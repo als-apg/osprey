@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import sys
 import types
@@ -606,3 +607,78 @@ def test_a_stopped_measurement_ends_with_its_result_and_one_restore_line(
     assert report["aborted"] is True
     assert sorted(report["restored"]) == sorted(QUADS)
     assert machine.values == dict.fromkeys(QUADS, 0.0)
+
+
+# --- a non-finite number never sizes a step ------------------------------------------
+
+
+def _strength(magnet: FakeMagnet, value: float) -> None:
+    magnet.strength = SimpleNamespace(get=lambda: value)
+
+
+@pytest.mark.parametrize("modulation", ["bipolar", "unipolar"])
+def test_a_nan_strength_is_refused_and_never_stepped(
+    render, execution, capsys, holder, limits, runs, modulation
+):
+    limits[H_NAMES[0]] = 0.05
+    _strength(holder.arrays["SR_HCM"][0], math.nan)
+
+    result = _run(render, execution, capsys, kind="orm", modulation=modulation)
+
+    assert set(result) == {"kind", "refused"}
+    assert H_NAMES[0] in result["refused"]
+    assert runs == [] and FakeStep.built == []
+
+
+def test_a_nan_hardware_conversion_is_refused_and_never_stepped(
+    render, execution, capsys, holder, limits, runs
+):
+    limits[H_NAMES[0]] = 0.05
+    holder.arrays["SR_HCM"][0].model.gain = math.nan
+
+    result = _run(render, execution, capsys, kind="orm")
+
+    assert set(result) == {"kind", "refused"}
+    assert H_NAMES[0] in result["refused"]
+    assert runs == []
+
+
+@pytest.mark.parametrize("bound", [math.nan, math.inf, 0.0, -0.05])
+def test_a_max_step_that_is_not_a_positive_finite_number_is_refused(
+    render, execution, capsys, limits, runs, bound
+):
+    limits[H_NAMES[0]] = bound
+
+    result = _run(render, execution, capsys, kind="orm")
+
+    assert set(result) == {"kind", "refused"}
+    assert H_NAMES[0] in result["refused"]
+    assert runs == []
+
+
+@pytest.mark.parametrize("bound", [math.nan, math.inf, 0.0])
+def test_an_rf_max_step_that_is_not_a_positive_finite_number_is_refused(
+    render, execution, capsys, limits, runs, bound
+):
+    limits[RF_ADDRESS] = bound
+
+    result = _run(render, execution, capsys, kind="dispersion")
+
+    assert set(result) == {"kind", "refused"}
+    assert RF_ADDRESS in result["refused"]
+    assert runs == []
+
+
+@pytest.mark.parametrize("kind", ["dispersion", "chromaticity_monitor"])
+def test_a_nan_rf_write_is_refused_and_never_stepped(
+    render, execution, capsys, holder, limits, runs, kind
+):
+    limits[RF_ADDRESS] = 1.0e-4
+    holder.dispersion.frequency_delta = math.nan
+    holder.rf_plant.frequency = SimpleNamespace(get=lambda: math.nan)
+
+    result = _run(render, execution, capsys, kind=kind)
+
+    assert set(result) == {"kind", "refused"}
+    assert RF_ADDRESS in result["refused"]
+    assert runs == [] and FakeStep.built == []
