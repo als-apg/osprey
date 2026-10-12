@@ -194,6 +194,9 @@ PTY_TESTS_DIR = "tests/pty/"
 #: form the pair: the parallel lane hands the marker away, the serial step
 #: picks it up. Single spaces and the quoting are part of the pin.
 PTY_DESELECT = '-m "not pty"'
+#: The parallel lane's marker expression: it hands away the real-terminal suite
+#: and every wall-clock budget, both of which its other workers would distort.
+UNIT_LANE_DESELECT = '-m "not pty and not wallclock"'
 PTY_SELECT = "-m pty"
 _PTY_MARK_RE = re.compile(r"pytest\.mark\.pty\b")
 #: The local check scripts that run the same wholesale `pytest tests/` sweep the
@@ -1416,9 +1419,10 @@ def test_unit_lane_hands_the_pty_suite_away(workflow: dict[str, Any]) -> None:
     """The parallel lane must deselect the marker. It collects ``tests/``
     wholesale, so without this the pty scenarios are simply part of it."""
     line = _unit_test_pytest_line(workflow)
-    assert PTY_DESELECT in line, (
-        f"the '{UNIT_TEST_JOB}' job must run pytest with {PTY_DESELECT} so the "
-        f"real-terminal scenarios are left to the '{PTY_STEP}' step; got: {line.strip()!r}"
+    assert UNIT_LANE_DESELECT in line, (
+        f"the '{UNIT_TEST_JOB}' job must run pytest with {UNIT_LANE_DESELECT} so the "
+        f"real-terminal scenarios are left to the '{PTY_STEP}' step and no wall-clock "
+        f"budget shares the box with three other workers; got: {line.strip()!r}"
     )
 
 
@@ -1426,7 +1430,17 @@ def test_unit_lane_hands_the_pty_suite_away__mutation_drops_the_deselection() ->
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
     original = step["run"]
-    step["run"] = original.replace(f" {PTY_DESELECT}", "")
+    step["run"] = original.replace(f" {UNIT_LANE_DESELECT}", "")
+    assert step["run"] != original, "deselection not found; mutation is stale"
+    with pytest.raises(AssertionError):
+        test_unit_lane_hands_the_pty_suite_away(mutated)
+
+
+def test_unit_lane_hands_the_pty_suite_away__mutation_keeps_only_the_pty_term() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    original = step["run"]
+    step["run"] = original.replace(UNIT_LANE_DESELECT, PTY_DESELECT)
     assert step["run"] != original, "deselection not found; mutation is stale"
     with pytest.raises(AssertionError):
         test_unit_lane_hands_the_pty_suite_away(mutated)
@@ -1439,7 +1453,9 @@ def test_unit_lane_hands_the_pty_suite_away__mutation_parks_it_in_a_comment() ->
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
     original = step["run"]
-    step["run"] = original.replace(f" {PTY_DESELECT}", f"  # TODO restore {PTY_DESELECT}")
+    step["run"] = original.replace(
+        f" {UNIT_LANE_DESELECT}", f"  # TODO restore {UNIT_LANE_DESELECT}"
+    )
     assert step["run"] != original, "deselection not found; mutation is stale"
     with pytest.raises(AssertionError):
         test_unit_lane_hands_the_pty_suite_away(mutated)

@@ -593,6 +593,54 @@ def test_unconfigured_qmd_logs_nothing(okf_bundle_root: Path, caplog):
 # ---------------------------------------------------------------------------
 
 
+def _timed_panel_session(panel_client) -> tuple[list[str], list[float], int]:
+    """Every fixture query once, then repeats to fill: the queries, each duration, ranked hits.
+
+    A warm-up query is excluded entirely: the first query of a *process* also
+    pays the MCP session handshake, which a user pays once per panel load.
+    """
+    queries = [f.query for f in OKF_QUERY_FIXTURES]
+    _panel_search(panel_client, "ion pump")  # warm-up: session handshake
+
+    durations: list[float] = []
+    ranked_hits = 0
+    for index in range(LATENCY_SAMPLES):
+        query = queries[index % len(queries)]
+        started = time.perf_counter()
+        results = _panel_search(panel_client, query)
+        durations.append(time.perf_counter() - started)
+        ranked_hits += sum(1 for hit in results if hit["score"] is not None)
+    return queries, durations, ranked_hits
+
+
+def test_every_timed_panel_query_is_answered_ranked_without_reranking(panel_client, monkeypatch):
+    """What the latency budget measures, pinned where the host's load cannot move it.
+
+    A budget met by returning nothing is not a budget met: every timed query
+    answers with ranked hits. And the budget applies to the mode the panel
+    really runs: each query it sends asks for no reranking.
+    """
+    from osprey.services.qmd import QMDClient
+
+    sent: list[Any] = []
+    real_query = QMDClient.query
+
+    def recording(self, *args: Any, **kwargs: Any) -> Any:
+        sent.append(kwargs.get("rerank"))
+        return real_query(self, *args, **kwargs)
+
+    monkeypatch.setattr(QMDClient, "query", recording)
+
+    _queries, _durations, ranked_hits = _timed_panel_session(panel_client)
+
+    assert ranked_hits >= LATENCY_SAMPLES, (
+        f"only {ranked_hits} ranked hits across {LATENCY_SAMPLES} timed queries — the "
+        "latency measured is not the latency of answering"
+    )
+    assert sent and set(sent) == {False}, f"the panel asked for rerank={sorted(set(sent))}"
+
+
+@pytest.mark.wallclock
 def test_panel_search_p95_is_under_one_second(panel_client):
     """The panel's interactive budget over a realistic panel session.
 
@@ -614,28 +662,10 @@ def test_panel_search_p95_is_under_one_second(panel_client):
     a real panel session. Both halves are in every failure message, so a
     regression names itself rather than hiding in an aggregate.
 
-    A warm-up query is excluded entirely: the first query of a *process* also
-    pays the MCP session handshake, which a user pays once per panel load.
+    A wall-clock budget, so it runs alone (``wallclock``): the load-independent
+    half of what it measures is the test above.
     """
-    queries = [f.query for f in OKF_QUERY_FIXTURES]
-    _panel_search(panel_client, "ion pump")  # warm-up: session handshake
-
-    durations: list[float] = []
-    ranked_hits = 0
-    for index in range(LATENCY_SAMPLES):
-        query = queries[index % len(queries)]
-        started = time.perf_counter()
-        results = _panel_search(panel_client, query)
-        durations.append(time.perf_counter() - started)
-        ranked_hits += sum(1 for hit in results if hit["score"] is not None)
-
-    # A budget met by returning nothing is not a budget met. Timing a search
-    # that answered no query would pass this test at any threshold, which is
-    # precisely the hollow green a latency assertion is prone to.
-    assert ranked_hits >= LATENCY_SAMPLES, (
-        f"only {ranked_hits} ranked hits across {LATENCY_SAMPLES} timed queries — the "
-        "latency measured is not the latency of answering"
-    )
+    queries, durations, _ranked_hits = _timed_panel_session(panel_client)
 
     # `method="inclusive"` is load-bearing. The default ("exclusive")
     # extrapolates at the extremes and can report a p95 ABOVE the largest value
