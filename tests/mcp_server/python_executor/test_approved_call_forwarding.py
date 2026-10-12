@@ -732,3 +732,92 @@ def test_a_finished_run_without_a_report_files_nothing(
     )
 
     assert not (folder / executor.RESTORE_REPORT_FILE).exists()
+
+
+def test_the_executor_spells_the_busy_failure_like_the_hooks_audit_reason() -> None:
+    from osprey.services.python_executor.execution import wrapper
+    from tests.hooks.conftest import import_hook
+
+    approval = import_hook("osprey_approval")
+    assert executor.FAILURE_KIND_GUARDED_RUN_BUSY == approval._GUARDED_RUN_BUSY_AUDIT_REASON
+    assert wrapper.FAILURE_KIND_GUARDED_RUN_BUSY == executor.FAILURE_KIND_GUARDED_RUN_BUSY
+
+
+def _held(sandbox: _Sandbox) -> int:
+    """Take the sandbox target's lock from this process, as another run would hold it."""
+    import fcntl
+
+    fd = os.open(sandbox.journal.parent / guarded_run.LOCK_FILE_NAME, os.O_RDWR | os.O_CREAT, 0o664)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    guarded_run._write_holder(fd)
+    return fd
+
+
+def _filed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sandbox: _Sandbox, metadata: dict[str, Any]
+) -> ExecutionResult:
+    monkeypatch.setattr(executor, "_resolve_project_root", lambda: sandbox.root)
+    folder = tmp_path / "filed"
+    folder.mkdir()
+    return executor._result_from_run(
+        folder,
+        metadata,
+        stdout_text="",
+        stderr_text=metadata.get("stderr", ""),
+        returncode=0,
+        elapsed=0.1,
+        control_target="live",
+        execution_mode="readwrite",
+    )
+
+
+def _envelope(result: ExecutionResult) -> dict[str, Any]:
+    from osprey.mcp_server.python_executor.tools._response_builder import _raise_failure
+    from tests.mcp_server.conftest import assert_error
+
+    with pytest.raises(Exception) as caught:
+        _raise_failure(result, result.stderr, {})
+    return assert_error(str(caught.value), error_type="execution_error")
+
+
+def test_a_run_on_a_held_target_is_reported_as_busy_with_its_holder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sandbox refuses before user code; the result names the holder and its own kind."""
+    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0}, {})
+    fd = _held(sandbox)
+    try:
+        holder = json.loads(os.pread(fd, 4096, 0))
+        metadata = sandbox.run({})
+    finally:
+        os.close(fd)
+
+    result = _filed(tmp_path, monkeypatch, sandbox, metadata)
+
+    assert "_results" not in metadata, "the user code never started"
+    assert metadata["failure_kind"] == executor.FAILURE_KIND_GUARDED_RUN_BUSY
+    assert result.success is False
+    assert result.failure_kind == executor.FAILURE_KIND_GUARDED_RUN_BUSY
+    assert f"pid {os.getpid()}" in result.error_message
+    assert holder["started"] in result.error_message
+    envelope = _envelope(result)
+    assert envelope["details"]["kind"] == executor.FAILURE_KIND_GUARDED_RUN_BUSY
+    assert f"pid {os.getpid()}" in envelope["error_message"]
+    assert holder["started"] in envelope["error_message"]
+    assert len(envelope["suggestions"]) == 1
+
+
+def test_a_busy_raised_by_the_scripts_own_lock_is_the_scripts_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """User code that asks for the lock its own run holds fails as its own code."""
+    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0}, {})
+    code = "from osprey.runtime.guarded_run import lock\nwith lock(None):\n    pass\n"
+
+    metadata = sandbox.run({}, code)
+    result = _filed(tmp_path, monkeypatch, sandbox, metadata)
+
+    assert metadata["error_type"] == guarded_run.OspreyRunBusy.__name__, metadata.get("traceback")
+    assert "failure_kind" not in metadata
+    assert result.failure_kind is None, "a script's own error stays the script's"
+    assert _envelope(result)["details"]["kind"] == "script_error"

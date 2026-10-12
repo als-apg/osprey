@@ -71,6 +71,11 @@ READONLY_REFUSAL_MARKER = "readonly execution mode"
 #: the writes it reached.
 WRITES_LEDGER_FILENAME = "writes.jsonl"
 
+#: The ``failure_kind`` a readwrite run's record carries when its control
+#: target's lock was held by another run at entry, so no user code ran. A busy
+#: lock that user code asks for itself is the code's own error and carries none.
+FAILURE_KIND_GUARDED_RUN_BUSY = "guarded_run_busy"
+
 #: Refusal prefix the filesystem guard carries in a readonly run. It embeds
 #: :data:`READONLY_REFUSAL_MARKER` so that a write refused into the render zone
 #: or the profile sources, and an open refused on a secret file, reaches the
@@ -1290,7 +1295,8 @@ if not _execution_dir.exists():
         entered and held until the run's record is saved (see
         :meth:`_get_cleanup_and_export`); its entry restores a killed run's
         journal under the bound call's rules, and another holder makes it raise
-        :class:`~osprey.runtime.guarded_run.OspreyRunBusy`. The entered context
+        :class:`~osprey.runtime.guarded_run.OspreyRunBusy`, which the record
+        marks with :data:`FAILURE_KIND_GUARDED_RUN_BUSY`. The entered context
         is kept in ``_osprey_run_lock``, set only once the entry succeeded. An
         interpreter that cannot import ``osprey.runtime`` cannot take a guarded
         run either: it binds nothing and takes no lock.
@@ -1303,17 +1309,22 @@ if not _execution_dir.exists():
                 # The approval hook's binding of this call, read before user code,
                 # and the control target's lock, held until the record is saved.
                 try:
+                    from osprey.runtime.guarded_run import OspreyRunBusy as _OspreyRunBusy
                     from osprey.runtime.guarded_run import _open_approved_call as _osprey_bind
                     from osprey.runtime.guarded_run import lock as _osprey_lock
                 except ImportError:
-                    _osprey_bind = _osprey_lock = None
+                    _osprey_bind = _osprey_lock = _OspreyRunBusy = None
                 if _osprey_bind is not None:
                     _osprey_bind({self.tool!r})
                     _osprey_entering = _osprey_lock(None)
-                    _osprey_entering.__enter__()
+                    try:
+                        _osprey_entering.__enter__()
+                    except _OspreyRunBusy:
+                        execution_metadata["failure_kind"] = {FAILURE_KIND_GUARDED_RUN_BUSY!r}
+                        raise
                     _osprey_run_lock = _osprey_entering
                     del _osprey_entering
-                del _osprey_bind, _osprey_lock
+                del _osprey_bind, _osprey_lock, _OspreyRunBusy
                 """
             ).strip(),
             "        ",

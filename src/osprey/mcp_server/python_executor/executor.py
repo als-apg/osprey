@@ -199,6 +199,11 @@ FAILURE_KIND_SWITCH_IN_PROGRESS = "switch_in_progress"
 #: admitted: its tool's approval policy asks, and the approval hook left no
 #: matching record for this call. Nothing ran.
 FAILURE_KIND_APPROVAL_MISSING = "approval_missing"
+#: :attr:`ExecutionResult.failure_kind` for a readwrite run that did not start
+#: because another guarded run holds its control target's lock. Nothing in the
+#: submitted code ran; the error message names the holder's pid and start time.
+#: Spelled like the approval hook's audit reason for the same refusal.
+FAILURE_KIND_GUARDED_RUN_BUSY = "guarded_run_busy"
 
 #: The call fields the approval prompt binds a guarded call to. Every one the
 #: call carries must equal the value the approval hook recorded for the call.
@@ -285,8 +290,9 @@ class ExecutionResult:
     control_target: str = CONTROL_TARGET_BASELINE
     #: Why a failed run failed, when the sandbox itself is the reason:
     #: :data:`FAILURE_KIND_SETUP`, :data:`FAILURE_KIND_TIMEOUT`,
-    #: :data:`FAILURE_KIND_SWITCH_IN_PROGRESS` or
-    #: :data:`FAILURE_KIND_APPROVAL_MISSING`. ``None`` for
+    #: :data:`FAILURE_KIND_SWITCH_IN_PROGRESS`,
+    #: :data:`FAILURE_KIND_APPROVAL_MISSING` or
+    #: :data:`FAILURE_KIND_GUARDED_RUN_BUSY`. ``None`` for
     #: a run that started and whose own code raised — the only failure the
     #: submitted code can be blamed for. The response builder reads this to
     #: class the error envelope: a dead backend is an infrastructure outage,
@@ -1405,11 +1411,16 @@ def _result_from_run(
     figures = _collect_figures(execution_folder)
     artifacts = collect_artifacts(execution_folder)
 
+    failure_kind: str | None = None
     if metadata:
         final_stdout = metadata.get("stdout", stdout_text)
         final_stderr = metadata.get("stderr", stderr_text)
         success = metadata.get("success", returncode == 0)
         error_msg = metadata.get("error")
+        # Only the wrapper's own lock entry marks a busy target; a busy lock
+        # the user code asked for is the code's error.
+        if not success and metadata.get("failure_kind") == FAILURE_KIND_GUARDED_RUN_BUSY:
+            failure_kind = FAILURE_KIND_GUARDED_RUN_BUSY
     else:
         final_stdout = stdout_text
         final_stderr = stderr_text
@@ -1429,6 +1440,7 @@ def _result_from_run(
         execution_time_seconds=elapsed,
         error_message=error_msg,
         control_target=control_target,
+        failure_kind=failure_kind,
         written_channels=_read_written_channels(execution_folder),
         restore_reports=_record_reports(metadata),
         execution_folder=execution_folder,
