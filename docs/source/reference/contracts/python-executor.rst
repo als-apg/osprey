@@ -75,6 +75,8 @@ tools to the ``python`` server. A render without one registers neither.
 
 Steps setpoints on the control target through pyAML and writes them back. Every
 call asks for approval, and with writes off it is denied like every write tool.
+The prompt lists every setpoint the call steps; a call stepping more than 500
+is refused without asking.
 
 .. list-table:: ``pyaml_measure`` parameters
    :header-rows: 1
@@ -110,7 +112,9 @@ Each step comes from the measurement file (``corrector_delta``,
 ``frequency_delta``, ``quad_delta``, ``sextu_delta``) and is shrunk until no
 setpoint's largest single write exceeds half its ``max_step`` in
 ``data/facility/limits.yaml``; ``delta_limited_by`` and ``rf_limited_by`` name
-the setpoint that bounded it. A group step is first sized from the view's
+the setpoint that bounded it. A strength, ``max_step`` or write that is not a
+finite number, or a ``max_step`` not above zero, refuses the measurement before
+any setpoint moves. A group step is first sized from the view's
 ``trm.json`` or ``crm.json`` so the tune or chromaticity moves no more than
 under the strongest single-magnet step, and no magnet moves by more than one
 magnet's step; ``delta_basis`` is ``tune excursion``, ``chromaticity
@@ -121,7 +125,10 @@ The run starts only on the view the build recorded and the approval prompt
 showed (``approved_view_sha256``), and every write runs inside one guarded run:
 a run that stops part-way is written back before the call returns. The result
 names every row, column and step by address and device id and carries the
-view's ``sha256``, the ``shape``, ``data_file`` and ``artifact_id``; a stopped
+view's ``sha256``, the ``shape``, ``data_file`` and ``artifact_id``. The file
+saved is the one the run left in its own execution folder under the script's
+fixed name; a run that names any other file saves nothing, answers
+``data_file`` as ``null`` and says why in ``data_file_refused``. A stopped
 run carries its ``remainder`` and the ``restore`` report, taken from the run's
 execution record and never from a line the script printed.
 

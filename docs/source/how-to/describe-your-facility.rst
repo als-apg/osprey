@@ -403,16 +403,52 @@ what they use:
      sext: SR/SF
    instruments:
      tune: SR:DIAG:TUNE:X
-     chromaticity: SR:DIAG:CHROM:X
      rf: SR:RF:CAVITY:01:FREQUENCY:SP
    n_step: 5
    n_avg_meas: 1
+   fit_order: 2
+   sleep_between_step: 0.0
+   sleep_between_meas: 0.0
    corrector_delta: 1.0e-05
+   quad_delta: 0.001
+   sextu_delta: 0.01
+   frequency_delta: 100.0
 
-``kinds`` names the allowed measurements, ``groups`` the group that plays
-each part and ``instruments`` the channel each scalar is read on. The step
-and settle keys (``n_step``, ``n_avg_meas``, ``corrector_delta`` and the
-rest) are carried as written.
+``kinds`` names the allowed measurements: ``orm``, ``dispersion``, ``trm``,
+``crm`` and ``chromaticity_monitor``. ``groups`` names the group that plays
+each part (``bpm``, ``hcor``, ``vcor``, ``quad``, ``sext``) and
+``instruments`` the channel each instrument is read or stepped on (``tune``,
+``rf``). Each kind needs its own members and step keys, and the build stops
+when the file allows a kind without them, or names a member its model does
+not wire:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 40 35
+
+   * - Kind
+     - Groups and instruments
+     - Keys
+   * - ``orm``
+     - ``bpm``, ``hcor``, ``vcor``
+     - ``corrector_delta``
+   * - ``dispersion``
+     - ``bpm``, ``hcor``, ``vcor``, ``rf``
+     - ``frequency_delta``
+   * - ``trm``
+     - ``quad``, ``tune``
+     - ``quad_delta``
+   * - ``crm``
+     - ``sext``, ``tune``, ``rf``
+     - ``sextu_delta``
+   * - ``chromaticity_monitor``
+     - ``tune``, ``rf``
+     - ``n_step``, ``n_avg_meas``, ``fit_order``, ``sleep_between_step``,
+       ``sleep_between_meas``
+
+A model solved in a single pass allows ``orm`` alone. Each group role names a
+group of its own; only ``hcor`` and ``vcor`` may name one group. The tools
+that run these measurements are in :doc:`measure-with-pyaml`.
 
 Scenarios
 =========

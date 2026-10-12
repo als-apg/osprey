@@ -35,8 +35,16 @@ artifact gallery. The ``artifact_type`` parameter overrides automatic type
 detection (e.g., ``"figure"``, ``"dataframe"``); ``category`` is a free-form
 grouping label used by the gallery UI.
 
-The ``execute`` and ``execute_file`` tool parameters and the JSON they return
-are documented in :doc:`/reference/contracts/python-executor`.
+A render that carries a pyAML view adds two tools to the same server, and a
+render without one registers neither: ``pyaml_measure`` measures a response
+matrix or the chromaticity on the control target through a generated script,
+every write of one measurement inside one guarded run, and
+``model_response_matrix`` solves a served model's orbit response on its deck
+in a sandbox child (see :doc:`/how-to/measure-with-pyaml`).
+
+The ``execute``, ``execute_file``, ``pyaml_measure`` and
+``model_response_matrix`` tool parameters and the JSON they return are
+documented in :doc:`/reference/contracts/python-executor`.
 
 Where Code Runs
 ===============

@@ -90,6 +90,14 @@ Facility services
       importers, fixes, limits, seeds, models and measurement — that every
       facility service is built from.
 
+   .. grid-item-card:: Measure with the pyAML Tools
+      :link: measure-with-pyaml
+      :link-type: doc
+
+      Measure orbit, dispersion, tune and chromaticity responses on the
+      control target, every write inside one guarded run, and read the
+      model's orbit response.
+
    .. grid-item-card:: Use the Channel Finder
       :link: use-channel-finder
       :link-type: doc
@@ -132,6 +140,7 @@ Facility services
    health-and-monitoring/index
    control-systems/index
    describe-your-facility
+   measure-with-pyaml
    use-channel-finder
    import-mml-export
    run-scenarios
