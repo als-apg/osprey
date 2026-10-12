@@ -565,7 +565,7 @@ class ServedTree:
 
 
 @contextmanager
-def _serving(tree: BuiltTree):
+def _serving(tree: BuiltTree, state_dir: Path | None = None):
     """Boot one container over ``tree``'s published data root and wait for it.
 
     The container reads the instance and the simulator view from the env and
@@ -574,7 +574,16 @@ def _serving(tree: BuiltTree):
     ``simulator/`` is the view the composite serves. Nothing here restates
     what the build derived from this tree, so the boot tests the harvest
     rather than this file's idea of it.
+
+    ``state_dir``, when given, is mounted read-only as the container's
+    simulation state, so the container serves the active set it records;
+    without one it serves the view's own.
     """
+    state = (
+        ()
+        if state_dir is None
+        else ("-v", f"{state_dir}:/state/simulation:ro", "-e", "VA_STATE_DIR=/state/simulation")
+    )
 
     def container(port: int) -> tuple[str, list[str]]:
         # The port alone does not make the name unique: it is released when the
@@ -591,6 +600,7 @@ def _serving(tree: BuiltTree):
             f"EPICS_CA_SERVER_PORT={port}",
             *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
             *e2e_conftest.data_root_run_args(tree.data_root),
+            *state,
             "-p",
             f"127.0.0.1:{port}:{port}/tcp",
             IMAGE,

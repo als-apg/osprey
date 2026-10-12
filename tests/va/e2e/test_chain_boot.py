@@ -15,8 +15,13 @@ accelerator image, and reads the machine over Channel Access:
   here, so every setpoint answers with the value an in-process composite over
   the same view holds for it. A server answering with values it never
   computed is not a served machine.
+* **A measurement on the chain stays on the simulator.** ``pyaml_measure``
+  takes the orbit response of ``LTB`` through the approval hook, in one
+  guarded run that clears its journal at the end; the render configures no
+  target but the simulator, so every write reaches the virtual accelerator
+  and none reaches hardware.
 
-One container serves both models. The chain and the boot are module-scoped, and
+One container serves both models, from the built-in ``still`` scenario. The chain and the boot are module-scoped, and
 the module's ``xdist_group`` mark keeps every lane on one worker, so a parallel
 run boots the tree once.
 
@@ -34,6 +39,8 @@ from typing import Any
 import pytest
 
 from osprey_connectors.simulation.view import Model, SimulatorView
+from tests.va._still import assert_readings_still
+from tests.va.e2e import _guarded_measure as gm
 from tests.va.e2e import conftest as e2e_conftest
 
 pytestmark = [
@@ -45,13 +52,25 @@ pytestmark = [
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
-# Two lanes over two models and one over the view; the guard test itself is
-# the sixth item, so a floor of 5 reds on the loss of a single lane.
-MIN_COLLECTED_TESTS = 5
+# Two lanes over two models, one over the view and the measurement; the guard
+# test itself is the seventh item, so a floor of 6 reds on the loss of a
+# single lane.
+MIN_COLLECTED_TESTS = 6
 
 #: The models the chain's tree serves. A literal tuple, because parametrisation
 #: is read at COLLECTION; the first lane holds it to the chain's own.
 MODELS = ("LTB", "StorageRing")
+
+#: The model the chain's measurement takes the orbit response of.
+MEASURED = "LTB"
+
+#: The config the chain renders under: a served render's, every model served,
+#: and the active set the container starts in.
+CHAIN_CONFIG: dict[str, Any] = {
+    **e2e_conftest.VIEW_CONFIG,
+    "agent_data": {"base_dir": "var/agent_data"},
+    "simulation": {"default_scenarios": [gm.STILL]},
+}
 
 
 def _chain() -> Any:
@@ -77,9 +96,7 @@ def served(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Any]:
     """The chain, run under a served render's config, with a container over it."""
     chain = _chain()
     boot = _boot()
-    built = chain.run_chain(
-        tmp_path_factory.mktemp("chain-boot") / chain.PROJECT, e2e_conftest.VIEW_CONFIG
-    )
+    built = chain.run_chain(tmp_path_factory.mktemp("chain-boot") / chain.PROJECT, CHAIN_CONFIG)
     tree = boot.BuiltTree(
         name=chain.TREE,
         repo=built.root,
@@ -88,7 +105,18 @@ def served(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Any]:
         stopped="",
         remedied=(),
     )
-    with boot._serving(tree) as running:
+    import yaml
+
+    from osprey.simulation.apply import activate_default_scenarios
+    from osprey_connectors.workspace import resolve_simulation_state_dir
+
+    # The render's config names the default set; activating it is what
+    # `osprey up` does on a first start.
+    (built.root / "build" / "config.yml").write_text(yaml.safe_dump(CHAIN_CONFIG), "utf-8")
+    assert activate_default_scenarios(CHAIN_CONFIG, built.root), "no scenario was activated"
+    state = resolve_simulation_state_dir(CHAIN_CONFIG, built.root)
+    gm.readable_by_anyone(state)
+    with boot._serving(tree, state_dir=state) as running:
         yield running
 
 
@@ -153,6 +181,93 @@ def test_every_setpoint_of_the_model_serves_what_the_model_owes(served: Any, nam
         assert values[address] == pytest.approx(owed[address], rel=_boot().READBACK_RTOL), (
             f"{name}: {address} serves {values[address]}, and the model owes {owed[address]}"
         )
+
+
+def _measuring(served: Any) -> gm.Deployment:
+    """The chain's render, made a deployment the measurement tool and its hook can run in.
+
+    The chain renders the facility outputs alone; this adds what a build
+    renders beside them for an agent: a ``config.yml`` naming the container
+    the chain booted as its one control target, armed for writes, every
+    guarded tool asking, and the approval hook with the ``measurement`` block
+    the build writes for it.
+    """
+    import json
+    import shutil as files
+
+    import yaml
+
+    from osprey.facility.views.facts import FACTS_FILE, hook_measurement
+
+    repo = served.tree.repo
+    render = repo / "build"
+    gateway = {"address": "127.0.0.1", "port": served.port, "use_name_server": True}
+    config = {
+        "project_name": _chain().PROJECT,
+        "project_root": str(repo),
+        "agent_data": CHAIN_CONFIG["agent_data"],
+        "simulation": CHAIN_CONFIG["simulation"],
+        "control_system": {
+            "type": "virtual_accelerator",
+            "writes_enabled": True,
+            "limits_checking": {
+                "enabled": True,
+                "mode": "optional",
+                "database_path": "data/channel_limits.json",
+            },
+            "connector": {
+                "virtual_accelerator": {
+                    "gateways": {"read_only": gateway, "write_access": gateway},
+                    "writes_enabled": True,
+                    "timeout_s": 30.0,
+                }
+            },
+        },
+        "approval": {"enabled": True, "default_policy": "always"},
+        "python_executor": {"execution_timeout_seconds": gm.EXECUTION_TIMEOUT_S},
+    }
+    (render / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
+    hooks = render / gm.APPROVAL_HOOK.parent
+    hooks.mkdir(parents=True, exist_ok=True)
+    source = gm.REPO_ROOT / "src" / "osprey" / "templates" / "claude_code" / "claude" / "hooks"
+    for hook in source.glob("osprey_*.py"):
+        files.copyfile(hook, hooks / hook.name)
+    facts = json.loads((render / "data" / FACTS_FILE).read_text(encoding="utf-8"))
+    (hooks / "hook_config.json").write_text(
+        json.dumps(
+            {
+                "server_prefixes": ["mcp__python__"],
+                "approval_prefixes": ["mcp__python__"],
+                "measurement": hook_measurement(facts, render),
+            }
+        ),
+        encoding="utf-8",
+    )
+    return gm.Deployment(repo=repo, port=served.port)
+
+
+async def test_a_pyaml_measure_on_the_chain_writes_the_simulator_alone(
+    served: Any, tmp_path: Any
+) -> None:
+    """The orbit response of LTB, approved, in one guarded run that ends with no journal."""
+    deployment = _measuring(served)
+    readings = sorted(
+        {b.address for b in served.tree.view.bindings(model=MEASURED, served_only=False)}
+    )
+    assert_readings_still(served.tree.view, readings, deployment.active_scenarios())
+    assert gm.only_simulated_targets(deployment.config) == []
+
+    with gm.acting_in(deployment, tmp_path / "agent_data"):
+        asked, answer = await gm.approved(
+            deployment, "pyaml_measure", {"kind": "orm", "model": MEASURED}
+        )
+
+    assert f"Model: {MEASURED}\nKind: orm\n" in asked.reason
+    assert answer.error is None, answer.text
+    assert answer.result is not None and answer.result["completed"] is True, answer.text
+    assert gm.pending(deployment) is None
+    guarded = deployment.journal().parent.parent
+    assert sorted(path.name for path in guarded.iterdir()) == [gm.VA_TARGET]
 
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
