@@ -53,7 +53,7 @@ import pytest
 from tests.va.e2e import conftest as e2e_conftest
 
 #: The image under test.
-IMAGE = os.environ.get("OSPREY_VA_E2E_IMAGE", "osprey-va-full:latest")
+IMAGE = e2e_conftest.IMAGE
 
 #: Container-name prefix; ``_serving`` appends the run's own ephemeral port.
 CONTAINER_PREFIX = "osprey-va-e2e-put-surface"
@@ -144,10 +144,7 @@ def _require_image() -> None:
     """Fail loudly unless the image is present."""
     inspected = _docker("image", "inspect", IMAGE, "--format", "{{.Config.Cmd}}", timeout=60)
     if inspected.returncode != 0:
-        pytest.fail(
-            f"image {IMAGE!r} is not present. Build it with "
-            f"scripts/va/build_and_boot_check.sh, or name another with OSPREY_VA_E2E_IMAGE."
-        )
+        pytest.fail(f"image {IMAGE!r} is not present. {e2e_conftest.IMAGE_REMEDY}")
 
 
 def _ca_environment(port: int) -> dict[str, str]:

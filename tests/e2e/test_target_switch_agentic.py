@@ -133,6 +133,7 @@ from tests.fixtures.bench_ioc import (
     free_port,
     require_bench_image,
 )
+from tests.va.e2e import _image as va_image
 
 # ---------------------------------------------------------------------------
 # Gates
@@ -156,12 +157,11 @@ pytestmark = [
 # The two machines
 # ---------------------------------------------------------------------------
 
-#: The virtual accelerator image, and the one command that produces it. Named
-#: through the same environment variable ``tests/va/e2e/`` uses, so a developer
-#: who has pointed one suite at a side build does not have to remember a second
-#: knob for this one.
-VA_IMAGE = os.environ.get("OSPREY_VA_E2E_IMAGE", "osprey-va-full:latest")
-VA_BUILD_COMMAND = "scripts/va/build_and_boot_check.sh"
+#: The virtual accelerator image, and the one command that produces it: the
+#: image ``tests/va/e2e/`` names, so a developer who has pointed one suite at a
+#: side build does not have to remember a second knob for this one.
+VA_IMAGE = va_image.IMAGE
+VA_BUILD_COMMAND = va_image.BUILD_COMMAND
 
 #: Container-name prefix; the run's own port is appended, which is what makes
 #: concurrent runs safe — a port belongs to one run by construction.
@@ -288,8 +288,7 @@ def _require_va_image() -> None:
         pytest.fail(
             f"image {VA_IMAGE!r} is not present, and this fixture never builds it implicitly "
             f"(an implicit build turns a first run into an unexplained multi-minute hang). "
-            f"Build it with:\n    {VA_BUILD_COMMAND}\n"
-            f"or name another build with OSPREY_VA_E2E_IMAGE."
+            f"{va_image.IMAGE_REMEDY}"
         )
     architecture, _, command = inspected.stdout.strip().partition("|")
     if "EPICS_CAS_SERVER_PORT" not in command:

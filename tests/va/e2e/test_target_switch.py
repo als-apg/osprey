@@ -113,7 +113,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
 
 #: The image under test, and the simulation data both containers serve.
-IMAGE = os.environ.get("OSPREY_VA_E2E_IMAGE", "osprey-va-full:latest")
+IMAGE = e2e_conftest.IMAGE
 
 #: Container-name prefixes; ``_serving`` appends the run's own ephemeral port.
 CONTAINER_VA = "osprey-va-e2e-switch-va"
@@ -207,18 +207,13 @@ def _require_image() -> None:
         "image", "inspect", IMAGE, "--format", "{{.Architecture}}|{{.Config.Cmd}}", timeout=60
     )
     if inspected.returncode != 0:
-        pytest.fail(
-            f"image {IMAGE!r} is not present. Build it with "
-            f"scripts/va/build_and_boot_check.sh, or name another with "
-            f"OSPREY_VA_E2E_IMAGE."
-        )
+        pytest.fail(f"image {IMAGE!r} is not present. {e2e_conftest.IMAGE_REMEDY}")
     architecture, _, command = inspected.stdout.strip().partition("|")
     if "EPICS_CAS_SERVER_PORT" not in command:
         pytest.fail(
             f"image {IMAGE!r} ({architecture}) does not derive EPICS_CAS_SERVER_PORT from "
             f"EPICS_CA_SERVER_PORT, so it cannot serve on any port but its baked default. "
-            f"Rebuild it (scripts/va/build_and_boot_check.sh) or point "
-            f"OSPREY_VA_E2E_IMAGE at a current build. Its entry point is: {command}"
+            f"{e2e_conftest.IMAGE_REMEDY} Its entry point is: {command}"
         )
 
 

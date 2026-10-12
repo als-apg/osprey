@@ -54,7 +54,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
 
 #: The image every container here serves from.
-IMAGE = os.environ.get("OSPREY_VA_E2E_IMAGE", e2e_conftest.IMAGE)
+IMAGE = e2e_conftest.IMAGE
 
 #: A local run on Apple Silicon is emulated.
 BOOT_TIMEOUT_S = 240.0
@@ -281,10 +281,7 @@ def require_image() -> None:
     """Fail loudly unless the image is present."""
     inspected = _docker("image", "inspect", IMAGE, "--format", "{{.Id}}", timeout=60)
     if inspected.returncode != 0:
-        pytest.fail(
-            f"image {IMAGE!r} is not present. Build it with "
-            "scripts/va/build_and_boot_check.sh, or name another with OSPREY_VA_E2E_IMAGE."
-        )
+        pytest.fail(f"image {IMAGE!r} is not present. {e2e_conftest.IMAGE_REMEDY}")
 
 
 class PortTaken(RuntimeError):
