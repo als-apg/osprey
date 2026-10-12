@@ -281,6 +281,40 @@ def test_no_guarded_run_directory_refuses_to_start(
             pytest.fail("a run with no directory never starts")
 
 
+#: The refusal a link planted in the guarded-run directory meets.
+LINK_REFUSED = "is a link; the guarded-run directory holds files only"
+
+
+def test_a_link_planted_as_the_lock_is_refused(tmp_path: Path) -> None:
+    victim = tmp_path / "victim"
+    victim.write_bytes(b"keep\n")
+    lock_path = guarded_run_dir("live") / LOCK_FILE_NAME
+    os.symlink(victim, lock_path)
+
+    with pytest.raises(GuardedRunDirError, match=LINK_REFUSED) as refused:
+        with lock("live"):
+            pytest.fail("a run whose lock is a link never starts")
+
+    assert str(lock_path) in str(refused.value)
+    assert victim.read_bytes() == b"keep\n"
+
+
+def test_a_link_planted_as_the_journal_stops_a_journaled_run(
+    tmp_path: Path, channels: _Channels
+) -> None:
+    victim = tmp_path / "victim"
+    victim.write_bytes(b"")
+    os.symlink(victim, journal_path())
+
+    with pytest.raises(GuardedRunDirError, match=LINK_REFUSED):
+        with journaled_run("live"):
+            pytest.fail("a run whose journal is a link never starts")
+
+    assert victim.read_bytes() == b""
+    assert channels.writes == []
+    assert (guarded_run_dir("live") / LOCK_FILE_NAME).read_bytes() == b""
+
+
 def test_guarded_write_under_the_lock_alone_is_refused(channels: _Channels) -> None:
     with lock("live"):
         with pytest.raises(OspreyWriteRefused):

@@ -97,6 +97,7 @@ from osprey.runtime.journal import (
     OspreyWriteRefused,
     PendingJournal,
     _journaled_level,
+    _open_no_follow,
     parse_pending_journal,
     read_map,
 )
@@ -935,7 +936,8 @@ def lock(target: str | None) -> Iterator[Path]:
         OspreyWriteRefused: This is a readonly run, or the bound call was not
             approved for this target (see :func:`_check_approved_call`); no
             lock was taken.
-        GuardedRunDirError: The guarded-run directory cannot be resolved.
+        GuardedRunDirError: The guarded-run directory cannot be resolved, or the
+            lock or the journal is a link.
         OspreyRunBusy: Another guarded run holds the target's lock.
         OspreyJournalChanged: A killed run's journal is not the approved one.
         OspreyStaleJournal: A killed run's journal is for another generation
@@ -956,7 +958,7 @@ def lock(target: str | None) -> Iterator[Path]:
     lock_path = directory / LOCK_FILE_NAME
     created = not lock_path.exists()
     _register_fork_hook()
-    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o664)
+    fd = _open_no_follow(lock_path, os.O_RDWR | os.O_CREAT)
     closed_by_fork = False
     try:
         if created:
