@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 11, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 12, 2026"/>
   </head>
   
   
@@ -867,8 +867,8 @@ run gets <code class="docutils literal notranslate"><span class="pre">allowed_to
 file at load if it is not a list of tool names.</p>
 <p class="sd-card-text"><strong>Tool denylist (defence in depth).</strong> The worker enforces a server-side tool
 denylist regardless of what a trigger requests: <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>, <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code>,
-every plugin’s and claude.ai connector’s MCP tools, all shell tools (<code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">TaskOutput</span></code>,
-<code class="docutils literal notranslate"><span class="pre">TaskStop</span></code>, <code class="docutils literal notranslate"><span class="pre">Monitor</span></code>), the tools that fire or schedule jobs
+every plugin’s and claude.ai connector’s MCP tools, all shell tools
+(<code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">TaskStop</span></code>, <code class="docutils literal notranslate"><span class="pre">Monitor</span></code>), the tools that fire or schedule jobs
 (<code class="docutils literal notranslate"><span class="pre">Workflow</span></code>, <code class="docutils literal notranslate"><span class="pre">CronCreate</span></code>, <code class="docutils literal notranslate"><span class="pre">ScheduleWakeup</span></code>, and the dispatcher’s own
 <code class="docutils literal notranslate"><span class="pre">manual_fire</span></code>), <code class="docutils literal notranslate"><span class="pre">SendMessage</span></code> and <code class="docutils literal notranslate"><span class="pre">EnterWorktree</span></code>. This sits on top of
 the per-trigger allowlist, so a trigger can never widen its way to a shell,

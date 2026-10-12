@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 11, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 12, 2026"/>
   </head>
   
   
@@ -896,6 +896,11 @@ take; that number is what live progress counts against. A plan built on top
 of one of Bluesky’s own scans inherits the run and its point count from that
 scan, so it states neither itself — but it still marks its own parameters,
 because those markings are what everything else reads.</p></li>
+<li><p><strong>A plan records what it moves.</strong> Every reading is taken at some setting of
+the channel being moved, and only means something next to it. The validator
+watches the rehearsal, and refuses a plan that moves a channel without ever
+recording it alongside its readings — such a run would finish with no record
+of what each reading was taken at.</p></li>
 </ul>
 </section>
 <section id="give-a-plan-its-own-view">

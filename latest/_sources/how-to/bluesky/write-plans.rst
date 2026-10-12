@@ -358,6 +358,11 @@ Two consequences you will notice:
   of one of Bluesky's own scans inherits the run and its point count from that
   scan, so it states neither itself — but it still marks its own parameters,
   because those markings are what everything else reads.
+- **A plan records what it moves.** Every reading is taken at some setting of
+  the channel being moved, and only means something next to it. The validator
+  watches the rehearsal, and refuses a plan that moves a channel without ever
+  recording it alongside its readings — such a run would finish with no record
+  of what each reading was taken at.
 
 Give a plan its own view
 ========================
