@@ -186,7 +186,6 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
         "IOC (only on a deployment with `bluesky.second_lane`)"
     ),
     "OSPREY_TERMINAL_SECRET": "the operator login secret for the bluesky-web panel's web gate",
-    "ZO_ROOT_USER_PASSWORD": "OpenObserve root/ingest credential",
     "ARIEL_DB_PASSWORD": "ARIEL Postgres password (also fills the agent's derived DSN)",
     "ARIEL_DB_READONLY_PASSWORD": (
         "password of the SELECT-only Postgres role the agent's SQL tool queries through"

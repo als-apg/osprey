@@ -202,12 +202,12 @@ def _profile_edits() -> dict[str, Any]:
     records a VA and idles on a mock. ``archiver.type`` selects the store that
     ``va_archiver:`` declares (declaring alone would leave the agent reading the
     mock beside a full store). ARIEL stays on, so ``deployed_services`` keeps
-    its Postgres and the qmd sidecar hybrid search answers from; OpenObserve goes
-    with telemetry, graphdb with the graph channel-finder paradigm (the
-    hierarchical database the preset also ships answers instead). The bluesky
-    stack, dispatch, the record archive and the web terminals are trimmed as the
-    archiver-world lane trims them. The archive is CI-sized: two days of
-    retention are a lifetime away from a 380-day-old entry.
+    its Postgres and the qmd sidecar hybrid search answers from; the telemetry
+    store and gateway go with telemetry, graphdb with the graph channel-finder
+    paradigm (the hierarchical database the preset also ships answers instead).
+    The bluesky stack, dispatch, the record archive and the web terminals are
+    trimmed as the archiver-world lane trims them. The archive is CI-sized: two
+    days of retention are a lifetime away from a 380-day-old entry.
     """
     return {
         "config": {
