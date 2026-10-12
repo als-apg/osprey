@@ -39,10 +39,6 @@ MATLAB_RINGS = exports_taking("A", lines=False)
 #: The transport lines whose model file a real Middle Layer wrote.
 MATLAB_LINES = exports_taking("A", lines=True)
 
-#: The synthetic machine: a made-up one whose model file no Middle Layer wrote,
-#: so it takes check B only.
-(SYNTHETIC,) = exports_taking("B", lines=False)
-
 #: What brings a facility model file into the tree. It is the owner's step: no
 #: test run writes a facility export file.
 OWNER_STEP = (

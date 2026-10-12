@@ -66,7 +66,7 @@ SUPPORTED: tuple[Tree, ...] = (
         name="spear3",
         exports=("spear3.storagering",),
         golden=True,
-        check=("A",),
+        check=("A", "B"),
     ),
     Tree(
         name="nsls2",
@@ -78,7 +78,6 @@ SUPPORTED: tuple[Tree, ...] = (
     Tree(
         name="synthetic",
         exports=("quokka.sr",),
-        check=("B",),
     ),
 )
 
