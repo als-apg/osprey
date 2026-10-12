@@ -304,6 +304,10 @@ class ExecutionResult:
     #: line the script printed is never one of them. Empty for a run that left
     #: no record or whose record carries none.
     restore_reports: list[dict] = field(default_factory=list)
+    #: The folder the run executed in, for a run that ran its script; the files
+    #: a tool reads back from its own run are named under it. ``None`` for a
+    #: run that never started.
+    execution_folder: Path | None = None
 
 
 def _read_config() -> dict:
@@ -1427,6 +1431,7 @@ def _result_from_run(
         control_target=control_target,
         written_channels=_read_written_channels(execution_folder),
         restore_reports=_record_reports(metadata),
+        execution_folder=execution_folder,
     )
 
 

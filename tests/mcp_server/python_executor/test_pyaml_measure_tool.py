@@ -187,7 +187,9 @@ def test_a_refusal_before_any_write_is_a_validation_error(gated):
 
 def test_a_completed_orm_is_named_by_address_and_device(gated, monkeypatch):
     saved: list[dict[str, Any]] = []
-    monkeypatch.setattr(tool, "_save_measurement", lambda result, args: saved.append(result))
+    monkeypatch.setattr(
+        tool, "_save_measurement", lambda result, args, folder: saved.append(result)
+    )
     gated.result = _result(
         _line(
             kind="orm",
@@ -213,8 +215,75 @@ def test_a_completed_orm_is_named_by_address_and_device(gated, monkeypatch):
     assert saved == [answer]
 
 
+def _completed_orm_line(data_file: str) -> str:
+    return _line(
+        kind="orm",
+        model="SR",
+        sha256="ab" * 32,
+        completed=True,
+        modulation="bipolar",
+        deltas={"SCOR:H:SP": 1e-5},
+        delta_limited_by=None,
+        shape=[2, 1],
+        observables=[["SR_BPM1", "x"], ["SR_BPM1", "y"]],
+        variables=["SCOR:H:SP"],
+        data_file=data_file,
+    )
+
+
+@pytest.fixture
+def store(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """What reaches the artifact store: each saved file's name and bytes."""
+    saved: list[dict[str, Any]] = []
+
+    def save_file(**fields: Any) -> Any:
+        saved.append(fields)
+        return type("Entry", (), {"id": f"artifact-{len(saved)}"})()
+
+    monkeypatch.setattr(
+        "osprey.stores.artifact_store.get_artifact_store",
+        lambda: type("Store", (), {"save_file": staticmethod(save_file)})(),
+    )
+    return saved
+
+
+def test_the_measurement_file_saved_is_the_one_in_the_runs_own_folder(gated, store, tmp_path):
+    folder = tmp_path / "execution"
+    folder.mkdir()
+    measured = folder / "pyaml_measure_orm.json"
+    measured.write_text('{"matrix": [[1.0], [2.0]]}', encoding="utf-8")
+    gated.result = _result(_completed_orm_line(str(measured.resolve())), execution_folder=folder)
+
+    answer = _call(kind="orm", correctors=["SCOR:H:SP"])
+
+    ((saved,),) = [store]
+    assert saved["file_content"] == measured.read_bytes()
+    assert saved["filename"] == "pyaml_measure_orm.json"
+    assert answer["artifact_id"] == "artifact-1"
+    assert "data_file_refused" not in answer
+
+
+@pytest.mark.parametrize("named", ["outside", "other-name"])
+def test_a_printed_measurement_file_outside_the_runs_folder_is_never_opened(
+    gated, store, tmp_path, named
+):
+    folder = tmp_path / "execution"
+    folder.mkdir()
+    (folder / "pyaml_measure_orm.json").write_text("{}", encoding="utf-8")
+    secret = tmp_path / "secret.json" if named == "outside" else folder / "other.json"
+    secret.write_text('{"token": "x"}', encoding="utf-8")
+    gated.result = _result(_completed_orm_line(str(secret.resolve())), execution_folder=folder)
+
+    answer = _call(kind="orm", correctors=["SCOR:H:SP"])
+
+    assert store == []
+    assert answer["data_file"] is None
+    assert "artifact_id" not in answer
+    assert str(secret.resolve()) in answer["data_file_refused"]
+
+
 def test_a_run_notes_its_writes_on_the_call_record(gated, monkeypatch):
-    monkeypatch.setattr(tool, "_save_measurement", lambda result, args: None)
+    monkeypatch.setattr(tool, "_save_measurement", lambda result, args, folder: None)
     gated.result = _result(
         _line(
             kind="orm",

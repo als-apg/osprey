@@ -16,7 +16,8 @@ One call:
 4. notes who the run wrote as and which channels it attempted on the call's
    audit record, then parses what the script printed, names every row, column
    and step by its address and device id, and copies a completed run's saved
-   measurement into the artifact store.
+   measurement, read from the run's own execution folder under its fixed
+   name, into the artifact store.
 
 The response is a summary: names, shape, steps used and the view's digest,
 never the matrix itself, which ``data_file`` and ``artifact_id`` point at. A
@@ -167,16 +168,36 @@ def _raise_unparsed(exec_result: Any, error: MeasureResultError) -> NoReturn:
     raise AssertionError("unreachable: _raise_failure always raises")
 
 
-def _save_measurement(result: dict[str, Any], args: MeasureArgs) -> None:
-    """Copy a completed run's saved measurement into the artifact store."""
-    data_file = result.get("data_file")
-    if not data_file:
+def _measurement_file(kind: str, folder: Path | None) -> Path | None:
+    """Where the script of a ``kind`` run in ``folder`` saves its measurement."""
+    if folder is None:
+        return None
+    return Path(folder).resolve() / f"pyaml_measure_{kind}.json"
+
+
+def _save_measurement(result: dict[str, Any], args: MeasureArgs, folder: Path | None) -> None:
+    """Copy a completed run's saved measurement into the artifact store.
+
+    The file read is the one the run's own execution folder holds under the
+    script's fixed name, never a path the script printed: a printed
+    ``data_file`` naming any other path is refused, nothing is read or saved,
+    and the result says so under ``data_file_refused``.
+    """
+    printed = result.get("data_file")
+    if not printed:
+        return
+    path = _measurement_file(args.kind, folder)
+    if path is None or str(printed) != str(path):
+        result["data_file"] = None
+        result["data_file_refused"] = (
+            f"measurement file not saved: the run named {printed}, "
+            f"not pyaml_measure_{args.kind}.json in its own execution folder"
+        )
         return
     try:
         from osprey.stores.artifact_manifest import read_collected_file
         from osprey.stores.artifact_store import get_artifact_store
 
-        path = Path(data_file)
         entry = get_artifact_store().save_file(
             file_content=read_collected_file(path),
             filename=path.name,
@@ -194,7 +215,7 @@ def _save_measurement(result: dict[str, Any], args: MeasureArgs) -> None:
             },
         )
     except Exception:
-        logger.warning("Could not save %s to the artifact store", data_file, exc_info=True)
+        logger.warning("Could not save %s to the artifact store", path, exc_info=True)
         return
     result["artifact_id"] = entry.id
 
@@ -247,8 +268,10 @@ async def pyaml_measure(
         JSON summary: ``kind``, ``model``, ``completed``, ``sha256`` of the view,
         ``modulation`` (and ``by``), the steps used by address or group, and for
         a completed run ``rows`` and ``columns`` named by address and device id,
-        ``shape``, ``data_file`` and ``artifact_id``. A stopped run returns its
-        ``remainder`` and the ``restore`` report.
+        ``shape``, ``data_file`` and ``artifact_id``; a ``data_file`` that is not
+        the run's own measurement file is answered as ``null`` with
+        ``data_file_refused``. A stopped run returns its ``remainder`` and the
+        ``restore`` report.
     """
     from osprey.mcp_server.python_executor.tools._response_builder import _note_writes
     from osprey.utils.config_paths import resolve_config_dir
@@ -297,5 +320,5 @@ async def pyaml_measure(
         )
 
     labelled = label_result(result, measure_labels(args.render_root, args.model, args.config_path))
-    _save_measurement(labelled, args)
+    _save_measurement(labelled, args, exec_result.execution_folder)
     return json.dumps(labelled)
