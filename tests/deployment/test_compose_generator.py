@@ -22,6 +22,8 @@ import os
 import re
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -2010,8 +2012,8 @@ def _run_tiled_start(
     escape is undone, so the script runs as the container's shell would run it.
     The stub records each invocation and exits *upgrade_rc* for
     ``upgrade-database``. With *hold_s* set the script is expected NOT to exit:
-    it is checked alive after that long, then sent SIGTERM, and the completed
-    process is ``None``.
+    once its stderr carries the failed-upgrade line it is checked alive for
+    *hold_s* more, then sent SIGTERM, and the completed process is ``None``.
 
     Returns the recorded invocations, the completed process, and stderr.
     """
@@ -2043,6 +2045,28 @@ def _run_tiled_start(
         stderr = done.stderr
     else:
         proc = subprocess.Popen(["sh", "-c", script], env=env, stderr=subprocess.PIPE, text=True)
+        lines: list[str] = []
+        failed_line = threading.Event()
+
+        def _read_stderr() -> None:
+            assert proc.stderr is not None
+            for line in proc.stderr:
+                lines.append(line)
+                if "upgrade-database failed" in line:
+                    failed_line.set()
+
+        reader = threading.Thread(target=_read_stderr, daemon=True)
+        reader.start()
+        deadline = time.monotonic() + 30
+        while not failed_line.wait(timeout=0.05):
+            if proc.poll() is not None or time.monotonic() > deadline:
+                proc.kill()
+                proc.wait(timeout=5)
+                reader.join(timeout=5)
+                pytest.fail(
+                    "the start script never reported the failed upgrade "
+                    f"(exit {proc.returncode}); stderr: {''.join(lines)!r}"
+                )
         try:
             proc.wait(timeout=hold_s)
             pytest.fail(f"the start script exited ({proc.returncode}) instead of holding")
@@ -2050,7 +2074,8 @@ def _run_tiled_start(
             pass
         proc.terminate()
         proc.wait(timeout=5)
-        stderr = proc.stderr.read() if proc.stderr else ""
+        reader.join(timeout=5)
+        stderr = "".join(lines)
         done = None
 
     recorded = (
