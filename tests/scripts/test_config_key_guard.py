@@ -517,9 +517,9 @@ def test_a_same_value_mark_on_a_divergent_key_goes_red():
     assert "channel-finder-standalone" in text
 
 
-@pytest.mark.parametrize("key", ["web.theme", "services.openobserve.port"])
+@pytest.mark.parametrize("key", ["web.theme", "services.telemetry_store.port"])
 def test_a_same_value_mark_no_two_presets_state_goes_red(key: str):
-    # web.theme is live only in control-assistant; services.openobserve.port
+    # web.theme is live only in control-assistant; services.telemetry_store.port
     # reaches the union only through the layout fill, which no preset writes.
     guard = make_guard(mark_same_value(key))
     guard.check_parity()

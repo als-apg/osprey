@@ -92,7 +92,9 @@ def _unrecognized_top_level_keys(pairs: tuple[str, ...]) -> list[str]:
     reads it should not be blocked by this command. The build still refuses.
 
     ``config.``-prefixed keys are excluded — they address the rendered config,
-    whose key space is open, and the profile's ``config:`` block holds them as
+    whose key space is open except the closed blocks
+    (:func:`~osprey.cli.build_profile_load.reject_unknown_closed_config_keys`,
+    which the build applies), and the profile's ``config:`` block holds them as
     the dotted paths they are.
     """
     from .build_profile import _KNOWN_PROFILE_KEYS

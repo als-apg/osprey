@@ -109,6 +109,10 @@ PRESET_DIR = "src/osprey/profiles/presets"
 #: name so a failure can say which side of the config a key came from.
 FRAMEWORK_SOURCE = "framework"
 
+#: The suffix naming a preset's deploying render — its config after every
+#: service injector ran — as a union source of its own.
+INJECTED_SUFFIX = "+injectors"
+
 #: Ledger 6.1 wired one ``# osprey:panel-port <name>`` stanza per panel-port
 #: entry, and the rule the proposal states is a NAME correspondence with the
 #: web-server registry — not an arithmetic one. Counting markers pins the wrong
@@ -549,6 +553,45 @@ class ConfigKeyGuard:
         self._rendered = out
         return out
 
+    def injected_render(self, name: str) -> dict[str, Any]:
+        """One preset's config as its deploying build writes it.
+
+        The third kind of source. The service injectors write into
+        ``services.<name>`` what no template and no preset spells — a bluesky
+        lane's port and plan keys, the dispatch pair's worker knobs, the
+        archiver store's connection — so a union of the first two would never
+        see those keys, and a row for one of them could rot or never be
+        written. Here the preset's own render (:meth:`render_one`) is laid
+        into a scratch project and every injector runs over it exactly as
+        ``osprey build`` runs them for a deploying profile, so an injected key
+        with no row is ``unmapped-key`` like any other.
+
+        The union takes only what the injectors ADD (:meth:`injected_paths`);
+        the rest of this render is the preset's own, already in the union under
+        the preset's name.
+        """
+        from dataclasses import replace
+
+        from osprey.cli.build_cmd import _inject_services
+        from osprey.cli.build_profile_resolve import resolve_build_profile
+
+        profile, preset_dir = resolve_build_profile(None, name)
+        with tempfile.TemporaryDirectory() as scratch:
+            project = Path(scratch)
+            (project / "config.yml").write_text(yaml.safe_dump(self.render_one(name)))
+            _inject_services(replace(profile, deploy_services=True), preset_dir, project)
+            return yaml.safe_load((project / "config.yml").read_text()) or {}
+
+    def injected_paths(self, name: str) -> set[str]:
+        """The dotted paths the service injectors add to one preset's render.
+
+        Kept under a source name of its own (``<preset>+injectors``), so that
+        parity — a claim about the operator's document — and the branch
+        self-test — a claim about the framework template — never count them.
+        """
+        before = set(walk_paths(self.render_one(name)))
+        return set(walk_paths(self.injected_render(name))) - before
+
     def union(self) -> dict[str, set[str]]:
         """Every rendered dotted path -> the sources that carry it."""
         if self._union is not None:
@@ -558,6 +601,9 @@ class ConfigKeyGuard:
             for cfg in configs:
                 for path in walk_paths(cfg):
                     merged.setdefault(path, set()).add(name)
+        for name in self.resolved_presets():
+            for path in self.injected_paths(name):
+                merged.setdefault(path, set()).add(f"{name}{INJECTED_SUFFIX}")
         self._union = merged
         return merged
 
@@ -624,15 +670,35 @@ class ConfigKeyGuard:
             if isinstance(spec, dict) and spec.get("data-map")
         }
 
+    @staticmethod
+    def family_path(path: str) -> str:
+        """*path* with an instance's service key replaced by its family's.
+
+        A second plan lane (``services.bluesky_va.port``) renders off the
+        bluesky template, so it is described by the ``services.bluesky.*``
+        rows rather than by rows of its own — the rule
+        ``notes.service_instance_families`` states, applied by the same
+        :func:`~osprey.cli.build_profile_load.service_family` the profile
+        parser closes the block with.
+        """
+        from osprey.cli.build_profile_load import service_family
+
+        parts = path.split(".")
+        if len(parts) < 2 or parts[0] != "services":
+            return path
+        return ".".join([parts[0], service_family(parts[1]), *parts[2:]])
+
     def check_unmapped_keys(self) -> None:
         mapped = set(self.manifest["keys"])
         data_maps = self.data_map_prefixes()
-        for path in sorted(self.union()):
+        for rendered_path in sorted(self.union()):
+            path = self.family_path(rendered_path)
             if path in mapped or any(path.startswith(f"{prefix}.") for prefix in data_maps):
                 continue
             self.fail(
                 "unmapped-key",
-                f"{path} is rendered by {sorted(self.union()[path])} but has no manifest entry",
+                f"{rendered_path} is rendered by {sorted(self.union()[rendered_path])} "
+                "but has no manifest entry",
             )
 
     # ── failure mode 2: phantom manifest key ────────────────────────────

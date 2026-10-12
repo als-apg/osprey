@@ -34,6 +34,7 @@ persistence (config overrides, convention artifacts, MCP servers, git init) in
 
 from __future__ import annotations
 
+import difflib
 import errno
 import json
 import os
@@ -74,6 +75,7 @@ from .build_environment import (
     report_provider_credentials,
 )
 from .build_injectors import (
+    _SHARED_SERVICE_TEMPLATE,
     _copy_service_templates,
     _declare_bundled_host_bindings,
     _inject_bluesky,
@@ -1062,6 +1064,102 @@ def _network_check_errors(config: dict[str, Any], compose_files: Sequence[str]) 
     ]
 
 
+# ---------------------------------------------------------------------------
+# A service must be real, checked against what is about to be rendered
+# ---------------------------------------------------------------------------
+
+#: The file that makes a directory a service template, bundled or custom.
+_SERVICE_TEMPLATE_FILE = "docker-compose.yml.j2"
+
+
+def _bundled_service_names() -> frozenset[str]:
+    """Every service OSPREY ships a compose template for, by its config key.
+
+    A second instance of a bundled service (``live_standin``) is bundled too:
+    it renders the template of the service it shares.
+    """
+    root = _locate_pkg_services()
+    if not root.is_dir():
+        return frozenset()
+    templates = {
+        entry.name
+        for entry in root.iterdir()
+        if entry.is_dir() and (entry / _SERVICE_TEMPLATE_FILE).is_file()
+    }
+    shared = {name for name, owner in _SHARED_SERVICE_TEMPLATE.items() if owner in templates}
+    return frozenset(templates | shared)
+
+
+def _service_existence_errors(config: Mapping[str, Any], render_root: Path) -> list[str]:
+    """Every ``services.<name>`` block and ``deployed_services`` entry nothing can render.
+
+    A service is real when OSPREY bundles a template under its name, or when its
+    block's ``path`` names a directory holding a ``docker-compose.yml.j2`` in the
+    render — where the injectors write the template of a second instance and of
+    each lane service, and where the profile's own ``services/`` directory lands.
+    A block of a bundled service passes by name whether or not it is deployed:
+    an attached project describes the service it dials. A deployed entry also
+    needs a block, which is where its ``path`` lives.
+
+    Checked on the rendered config, after every injector and before the compose
+    render, so the refusal is an ordinary build error in one place rather than
+    the render's own ``RuntimeError`` for the first name it cannot find.
+
+    Args:
+        config: The rendered config.
+        render_root: The directory the compose render resolves ``path`` against.
+
+    Returns:
+        One message per offending name; empty when every name is renderable.
+    """
+    raw_services = config.get("services")
+    services = raw_services if isinstance(raw_services, Mapping) else {}
+    raw_deployed = config.get("deployed_services")
+    deployed = [str(name) for name in raw_deployed] if isinstance(raw_deployed, list) else []
+    bundled = _bundled_service_names()
+
+    errors: list[str] = []
+    seen: set[str] = set()
+    for name in [*(str(key) for key in services), *deployed]:
+        if name in seen:
+            continue
+        seen.add(name)
+        block = services.get(name)
+        if name in bundled:
+            if name in deployed and not isinstance(block, Mapping):
+                errors.append(
+                    f"deployed_services names {name!r}, but the config has no "
+                    f"services.{name} block to render it from. Add the block (its "
+                    f"`path` is ./services/{name}) or drop the entry."
+                )
+            continue
+        path = block.get("path") if isinstance(block, Mapping) else None
+        if (
+            isinstance(path, str)
+            and path.strip()
+            and (render_root / path / _SERVICE_TEMPLATE_FILE).is_file()
+        ):
+            continue
+        where = [
+            *(["deployed_services"] if name in deployed else []),
+            *([f"services.{name}"] if name in services else []),
+        ]
+        close = difflib.get_close_matches(name, sorted(bundled), n=1)
+        hint = f" (did you mean {close[0]!r}?)" if close else ""
+        if isinstance(path, str) and path.strip():
+            found = f"its path {path!r} holds no {_SERVICE_TEMPLATE_FILE}"
+        else:
+            found = "it states no path"
+        errors.append(
+            f"{' and '.join(where)} name(s) the service {name!r}{hint}, which OSPREY "
+            f"does not bundle, and {found}. Bundled services are: "
+            f"{', '.join(sorted(bundled))}. A custom service needs services.{name}.path "
+            f"naming a directory in the repo that holds its {_SERVICE_TEMPLATE_FILE} "
+            "(for example ./services/<name>, from the profile's services/ directory)."
+        )
+    return errors
+
+
 def _render_compose_files(
     zones: _RenderZones, runtime_root: str | None = None, dev_mode: bool = False
 ) -> dict[str, Any] | None:
@@ -1119,6 +1217,10 @@ def _render_compose_files(
         return None
 
     from osprey.deployment.compose_generator import prepare_compose_files
+
+    unrenderable = _service_existence_errors(_rendered_config(zones.stage), zones.stage)
+    if unrenderable:
+        raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrenderable))
 
     previous = Path.cwd()
     os.chdir(zones.stage)
@@ -1343,6 +1445,55 @@ class _SharedRenderInputs(NamedTuple):
 #: Parsed ``config.yml`` documents by (path, content digest); see
 #: :func:`_rendered_config`. Cleared at the start of every ``osprey build``.
 _rendered_config_cache: dict[tuple[str, bytes], dict[str, Any]] = {}
+
+
+def _record_host_identity(render_dir: Path, rendered: dict[str, Any]) -> bool:
+    """Record ``deployment.host_identity`` in a render that states none.
+
+    A session launched on the host sends telemetry under one name and files
+    its ledger under another unless both are told the same one. The name is
+    fixed at build — the account building, unless the profile states one — so a
+    repo built by one account and run by another still agrees with itself.
+    Only where the telemetry store is deployed: nothing else reads the key.
+
+    Returns:
+        Whether the render's ``config.yml`` was changed.
+    """
+    import getpass
+
+    from osprey.deployment import telemetry_config
+    from osprey.utils.config_writer import config_update_fields
+
+    if not telemetry_config.store_deployed(rendered):
+        return False
+    if telemetry_config.host_identity(rendered) is not None:
+        return False
+    try:
+        account = getpass.getuser()
+    except (KeyError, OSError):
+        # A uid with no passwd entry has no name to record; host launches
+        # then fall back to the ledger's own ladder.
+        return False
+    config_update_fields(render_dir / "config.yml", {"deployment.host_identity": account})
+    return True
+
+
+def _ensure_telemetry_credentials(repo_root: Path, rendered: dict[str, Any]) -> None:
+    """Mint the telemetry credential files this build's compose files name.
+
+    Reader keys are left to ``osprey up``: a build must not produce a key
+    nobody was told about.
+    """
+    from osprey.deployment.telemetry_credentials import ensure_telemetry_credentials
+
+    try:
+        report = ensure_telemetry_credentials(repo_root, rendered, reader_keys=False)
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
+    for name in report.minted:
+        logger.debug("telemetry credential file created: %s", name)
+    for name in report.purged:
+        logger.debug("telemetry credential file removed: %s", name)
 
 
 def _rendered_config(render_dir: Path) -> dict[str, Any]:
@@ -2164,6 +2315,11 @@ def _render_project(
         # restart and preflight this deployment read the render, and must act on
         # the runtime that owns the containers rather than re-detect one.
         _resolve_rendered_container_runtime(render_dir, progress)
+        # And who host launches send and record as, recorded once so the two
+        # agree whichever account later runs them. The deployment's render
+        # only: a persona's runs in a container the compose file names.
+        if deployment:
+            _record_host_identity(render_dir, _rendered_config(render_dir))
 
         applied = _apply_conventions(
             repo_root,
@@ -2278,14 +2434,12 @@ def _render_project(
             "Agent tool/permission drift detected:\n  " + "\n  ".join(validation_errors)
         )
     try:
-        # Reachability: with defer_unresolved_telemetry_creds=True, an
-        # unresolved "${VAR}" in an openobserve credential (user/password) no
-        # longer raises here — _openobserve_auth_header
-        # (claude_code_telemetry.py) warns and omits the auth header instead.
-        # Only the missing/blank-credential arm of that same check still
+        # Reachability: with defer_unresolved_telemetry_creds=True, a sender's
+        # gateway login or a collector token absent at build time does not
+        # raise here — a build never carries the secret, so
+        # _gateway_auth_header and _bearer_header (claude_code_telemetry.py)
+        # omit the auth header instead. Only a malformed credential still
         # raises ObservabilityCredentialError into this ValueError catch.
-        # Pinned by test_deferred_var_credential_warns_not_raises_through_resolve
-        # in tests/cli/test_telemetry_env.py.
         #
         # A provider base_url still spelled "${VAR}" is deferred for the same
         # reason: this render may start on another host (a container image is
@@ -3360,6 +3514,16 @@ def _build_repo(
             persona_renders = _render_persona_projects(shared, zones, name)
             if persona_renders:
                 phase.step(f"{len(persona_renders)} persona render(s)")
+
+            # The telemetry credential files, before the compose files that
+            # name them as `env_file`: every sender's login (the persona
+            # renders above settled the roster) and every service account's.
+            # At the real repo root, never in the staged tree — they are
+            # durable secrets, and `build/` is disposable. Not under
+            # --runtime-root, for the reason the compose files are not: those
+            # files belong to the host that deploys.
+            if not runtime_root:
+                _ensure_telemetry_credentials(zones.repo_root, rendered)
 
             config = _render_compose_files(zones, runtime_root, dev_mode=dev)
             phase.step("compose files")

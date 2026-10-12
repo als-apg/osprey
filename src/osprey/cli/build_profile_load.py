@@ -4,7 +4,9 @@ Turns a raw profile mapping into the typed dataclasses — validating the
 per-server and per-section shapes that only the parser can see (MCP
 command/url/port exclusivity, mapping-vs-scalar sections) and rejecting keys
 the schema does not define, both at the top level and inside the closed
-``environment:`` and ``bluesky:`` blocks. :func:`load_profile` is the
+``environment:`` and ``bluesky:`` blocks, and inside the closed blocks of the
+otherwise open ``config:`` block (``claude_code.telemetry`` and the telemetry
+services). :func:`load_profile` is the
 plain single-file entry point; the preset/override/``--set`` layering path in
 :mod:`osprey.cli.build_profile_resolve` reuses :func:`_parse_profile` after it has
 assembled its own raw dict.
@@ -15,9 +17,12 @@ from __future__ import annotations
 import difflib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, fields
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
+from osprey.build.claude_code_telemetry import TELEMETRY_AUTH_KEYS, TELEMETRY_KEYS
 from osprey.config_guards import is_positive_int
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.errors import BuildProfileError
@@ -31,6 +36,7 @@ from osprey.port_layout import (
 )
 from osprey_connectors.control_system.call_timeout import refuse_renamed_timeout_keys
 from osprey_connectors.simulation import TICK_KEY, resolve_tick_s
+from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 from osprey_connectors.types import (
     RETIRED_CONTROL_SYSTEM_TYPES,
     SET_CONTROL_SYSTEM_TYPES,
@@ -48,7 +54,7 @@ from .build_profile_document import (
     _read_profile_document,
 )
 from .build_profile_merge import resolve_profile_document
-from .build_profile_model import BuildProfile
+from .build_profile_model import SERVICE_AXES, BuildProfile
 from .build_profile_presets import PRESET_DATA_BUNDLE_KEY, PRESET_FACILITY_KEY
 from .build_profile_schema import (
     DEFAULT_DEVIATION_MARKER,
@@ -427,9 +433,10 @@ def _reject_unknown_block_keys(keys: Iterable[str], known_keys: frozenset[str], 
     """Reject unrecognized keys in a closed profile block, naming every one at once.
 
     The shared body behind the closed-schema blocks this module parses — the
-    top level, ``environment``, ``dispatch``, ``bluesky``, ``provenance`` and
-    the virtual-accelerator blocks — so an operator meets one wording whichever
-    of them they mistyped. Two closed blocks parsed elsewhere answer in their
+    top level, ``environment``, ``dispatch``, ``bluesky``, ``provenance``, the
+    virtual-accelerator blocks and the closed blocks inside ``config:``
+    (:func:`reject_unknown_closed_config_keys`) — so an operator meets one
+    wording whichever of them they mistyped. Two closed blocks parsed elsewhere answer in their
     own words instead, because they COLLECT problems rather than raise on the
     first: ``va_archiver``
     (:func:`~osprey.cli.build_profile_archiver._reject_unknown_keys`) and the
@@ -458,6 +465,163 @@ def _reject_unknown_block_keys(keys: Iterable[str], known_keys: frozenset[str], 
         f"Unknown {label} key(s): {', '.join(named)}. "
         f"Remove or correct them — valid keys are: {', '.join(known)}."
     )
+
+
+#: The file that makes a directory a service template, bundled or custom.
+_SERVICE_TEMPLATE_FILE = "docker-compose.yml.j2"
+
+#: The second instance of the virtual accelerator, rendered off the same
+#: template under a service key of its own. Its block keeps its own manifest
+#: rows (``services.live_standin.*``): the instance is told apart by them.
+LIVE_STANDIN_SERVICE = LIVE_STANDIN_PORT_KEY.split(".")[1]
+
+
+def service_family(name: str) -> str:
+    """The service whose manifest rows close the ``services.<name>`` block.
+
+    A plan lane beyond lane one (``bluesky_va``, ``bluesky_live``,
+    ``bluesky_standin``) is an instance of the bluesky service, rendered off its
+    template, so it is closed against ``services.bluesky.*``. Every other
+    service — the live stand-in included — is its own family.
+    """
+    return LANE_ONE if name in SECOND_LANE_KEYS.values() else name
+
+
+@lru_cache(maxsize=1)
+def bundled_service_names() -> frozenset[str]:
+    """Every service key whose block OSPREY's own template reads.
+
+    The template directories shipped under ``osprey/templates/services``, plus
+    the instances rendered off one of them: the second plan lanes and the live
+    stand-in. A custom service is not here — its template is the facility's
+    own, so its block stays open.
+    """
+    import osprey.templates
+
+    root = Path(osprey.templates.__file__).parent / "services"
+    if not root.is_dir():
+        return frozenset()
+    templates = {
+        entry.name
+        for entry in root.iterdir()
+        if entry.is_dir() and (entry / _SERVICE_TEMPLATE_FILE).is_file()
+    }
+    return frozenset(templates | set(SECOND_LANE_KEYS.values()) | {LIVE_STANDIN_SERVICE})
+
+
+@lru_cache(maxsize=1)
+def manifest_rows() -> Mapping[str, Any]:
+    """The config-key manifest's ``keys:`` rows, read once per process.
+
+    The same packaged manifest ``osprey config --defaults`` renders, through
+    its one loader, so a missing or unreadable manifest is refused as a broken
+    installation here too.
+
+    Returns:
+        Dotted key → the row's entry.
+    """
+    from .config_cmd import _load_key_manifest
+
+    return _load_key_manifest()
+
+
+def _reject_unknown_manifest_keys(
+    block: Mapping[Any, Any],
+    path: str,
+    extra: frozenset[str] = frozenset(),
+    *,
+    label: str | None = None,
+) -> None:
+    """Close one config block against the manifest rows beneath *path*.
+
+    A block's valid keys are the next segment of every manifest row under
+    ``<path>.``, plus *extra*. A member that is itself a mapping is checked the
+    same way when the manifest has rows below it, unless its own row is a
+    ``data-map`` (user-extensible data, open below). Non-string keys are left
+    to :meth:`~.build_profile_model.BuildProfile._validate_service_key_shapes`.
+
+    *label* is what the message calls the block when that differs from
+    *path* — a lane instance checked against its family's rows is still named
+    by its own key.
+
+    Raises:
+        BuildProfileError: Naming every unknown key, its closest spelling and
+            the valid set, in :func:`_reject_unknown_block_keys`'s wording.
+    """
+    rows = manifest_rows()
+    head = f"{path}."
+    known = {key[len(head) :].split(".", 1)[0] for key in rows if key.startswith(head)}
+    _reject_unknown_block_keys(
+        (key for key in block if isinstance(key, str)),
+        frozenset(known) | extra,
+        label or path,
+    )
+    for key, value in block.items():
+        if not isinstance(key, str) or not isinstance(value, Mapping):
+            continue
+        child = f"{path}.{key}"
+        entry = rows.get(child)
+        if isinstance(entry, Mapping) and entry.get("data-map"):
+            continue
+        if any(row.startswith(f"{child}.") for row in rows):
+            _reject_unknown_manifest_keys(value, child, label=f"{label or path}.{key}")
+
+
+def reject_unknown_closed_config_keys(config: Any) -> None:
+    """Refuse a key no reader takes in one of the closed blocks inside ``config:``.
+
+    The ``config:`` block is open — it addresses the rendered config, whose key
+    space belongs to every reader in the tree — except for the blocks whose
+    readers are known exactly:
+
+    * ``claude_code.telemetry``, closed to
+      :data:`~osprey.build.claude_code_telemetry.TELEMETRY_KEYS`, its ``auth``
+      member to ``TELEMETRY_AUTH_KEYS``; ``resource_attributes`` stays open;
+    * ``services.<name>`` for every bundled service
+      (:func:`bundled_service_names`), closed to the manifest's rows under its
+      family (:func:`service_family`) plus the generic service axes. A custom
+      service's block stays open: its template is the facility's own.
+
+    Read over every spelling at once — a nested mapping, a partly nested one
+    and dotted keys address the same tree
+    (:func:`~.build_profile_archiver._expand_dotted`) — so the check cannot be
+    stepped around by spelling a key differently. Works the same on a rendered
+    ``config.yml``, which is the fully nested spelling.
+
+    Args:
+        config: A profile's ``config:`` block, or a rendered config mapping.
+
+    Raises:
+        BuildProfileError: On the first closed block holding an unknown key,
+            naming every unknown key in it.
+    """
+    tree = _expand_dotted(config)
+    claude_code = tree.get("claude_code")
+    telemetry = claude_code.get("telemetry") if isinstance(claude_code, Mapping) else None
+    if isinstance(telemetry, Mapping):
+        _reject_unknown_block_keys(
+            (key for key in telemetry if isinstance(key, str)),
+            TELEMETRY_KEYS,
+            "claude_code.telemetry",
+        )
+        auth = telemetry.get("auth")
+        if isinstance(auth, Mapping):
+            _reject_unknown_block_keys(
+                (key for key in auth if isinstance(key, str)),
+                TELEMETRY_AUTH_KEYS,
+                "claude_code.telemetry.auth",
+            )
+    services = tree.get("services")
+    if isinstance(services, Mapping):
+        bundled = bundled_service_names()
+        for name, block in services.items():
+            if name in bundled and isinstance(block, Mapping):
+                _reject_unknown_manifest_keys(
+                    block,
+                    f"services.{service_family(name)}",
+                    SERVICE_AXES,
+                    label=f"services.{name}",
+                )
 
 
 #: What a profile that still carries the retired ``app_template:`` key is told.
@@ -1406,6 +1570,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     # no single permissions list to check the shape of.
     _reject_mixed_claude_code_spellings(config)
     _reject_permission_list_shapes(config)
+    reject_unknown_closed_config_keys(config)
     if isinstance(config, dict):
         try:
             refuse_renamed_timeout_keys(config)

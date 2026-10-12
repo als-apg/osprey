@@ -78,6 +78,13 @@ DISPATCH_PAIR_SERVICES = ("event_dispatcher", "dispatch_worker")
 network by construction, so ``dispatch.network:`` is their only network knob
 and a per-half ``network:`` is rejected rather than honored."""
 
+SERVICE_AXES = frozenset({"path", "image", "port", "network", "http", "listens", "bind_env", "env"})
+"""The generic keys any ``services.<name>`` block may carry, whatever the service.
+``path``, ``image`` and ``port`` are read off every block by the compose
+generator and the port layout; ``network``, ``http``, ``listens``, ``bind_env``
+and ``env`` are the per-service axes the scans below validate. A bundled
+service's closed key set is its manifest rows plus these."""
+
 _GRAPH_MODE = "graph"
 """The one channel-finder paradigm that answers from a graph store rather than a
 channel-database file, and so the one with a service prerequisite. A member name
@@ -189,7 +196,7 @@ def _config_service_block(config: Any, service: str) -> Any:
     Args:
         config: A profile's ``config:`` block, whatever shape it parsed as.
         service: The service's key in the rendered ``services:`` section
-            (``openobserve``, ``graphdb``, …), not its compose name.
+            (``telemetry_store``, ``graphdb``, …), not its compose name.
 
     Returns:
         :data:`_MISSING` when no spelling addresses that service; ``None`` when
@@ -1127,7 +1134,7 @@ class BuildProfile:
 
         Args:
             service: The service's key in the rendered ``services:`` section
-                (``openobserve``, ``postgresql``, …), not its compose name.
+                (``telemetry_store``, ``postgresql``, …), not its compose name.
 
         Returns:
             Whether the rendered ``config.yml`` will carry that block.
