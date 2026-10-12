@@ -13,9 +13,9 @@ read-write run the executor files what the sandbox reported (detail
 journal still holds, and `guarded_run_journal_absent` records an abnormal exit
 that left no journal entry. The restore reports reach the executor in the run's
 `execution_metadata.json` as `restore_reports`; the report nonce and
-`OSPREY_GUARDED_RUN_REPORT_NONCE` are gone. Every read-write launch files
-exactly one record, also when its result cannot be built, and a malformed saved-
-artifact manifest no longer fails the run: entries that name no file are
+`OSPREY_GUARDED_RUN_REPORT_NONCE` are gone. A read-write run whose script was
+started files its record, also when its result cannot be built, and a malformed
+saved-artifact manifest no longer fails the run: entries that name no file are
 skipped. The executor also refuses a call approved for another target than the
 run's. This check runs beside the script on one host; moving the journal, the
 restore after a dead run and the report into the connector host is the planned
