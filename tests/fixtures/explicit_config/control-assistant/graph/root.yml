@@ -9,6 +9,7 @@ api:
   - cborg
   - ds4
   - google
+  - llama-cpp
   - ollama
   - openai
   - stanford
@@ -16,11 +17,15 @@ approval:
   default_policy: always
   enabled: true
   tools:
+    add_panel_to_rail: always
     archiver_read: skip
     channel_read: skip
     channel_write: always
     entry_create: always
+    entry_publish: always
     execute: selective
+    register_panel: always
+    remove_panel_from_rail: always
     setup_patch: always
 archiver:
   auto_bin_points: 10000
@@ -36,10 +41,24 @@ archiver:
     timeout_s: 5
   type: mongodb_archiver
 ariel:
+  attachments:
+    copy_on_ingest: images
+    view:
+      enabled: true
   default_search_mode: hybrid
   embedding:
     provider: ollama
   enhancement_modules:
+    image_caption:
+      enabled: true
+      model:
+        model_id: qwen3-vl:4b
+      provider: ollama
+    image_embedding:
+      dimensions: 1024
+      enabled: true
+      model: qwen3-vl-embedding-2b
+      provider: llama-cpp
     qmd_export:
       enabled: true
       settings:
@@ -53,6 +72,7 @@ ariel:
       enabled: true
       models:
       - dimension: 768
+        max_input_tokens: 2048
         name: nomic-embed-text
       provider: ollama
   search_modules:
@@ -64,6 +84,7 @@ ariel:
     keyword:
       enabled: true
       settings:
+        fuzzy_threshold: 0.3
         pattern_timeout_seconds: 10.0
         patterns_enabled: true
     semantic:
@@ -75,12 +96,17 @@ ariel:
     canonical_to_shorthand: false
     enabled: true
     expand_by_default: true
+    expand_entries: false
     path: data/ariel/vocabulary.yml
 artifact_server:
   auto_launch: true
   example_artifact: true
   host: 127.0.0.1
   port: 10200
+audit:
+  tool_call:
+    enabled: true
+    max_inline_bytes: 262144
 bluesky:
   queue_autostart: true
 build_dir: ./build
@@ -89,11 +115,8 @@ channel_finder:
     dataset_path: data/benchmarks/queries.json
   pipeline_mode: graph
   pipelines: null
+  query_max_rows: 500
 claude_code:
-  agent_models:
-    channel-finder: claude-sonnet-5
-    facility-knowledge-graph: claude-sonnet-5
-    logbook-deep-research: claude-opus-5-5
   permissions:
     deny:
     - mcp__osprey_workspace__setup_patch
@@ -104,17 +127,17 @@ claude_code:
     health:
       enabled: true
   telemetry:
-    backend: openobserve
+    backend: gateway
+    content_max_length: 262144
     enabled: true
     log_assistant_responses: true
     log_raw_api_bodies: true
+    log_tool_content: true
     log_tool_details: true
     log_user_prompts: true
-    openobserve:
-      org: default
-      password: ${ZO_INGEST_SA_TOKEN}
-      user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
     protocol: http/protobuf
+  transcripts:
+    retention_days: 3650
 cli:
   theme: default
 container_runtime: docker
@@ -134,8 +157,6 @@ control_system:
           port: 10090
           use_name_server: true
       probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
-    mock:
-      simulation_file: data/simulation/machine.json
     virtual_accelerator:
       gateways:
         read_only:
@@ -145,7 +166,6 @@ control_system:
           address: localhost
           use_name_server: true
       probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
-      simulation_file: data/simulation/machine.json
       timeout_s: 5.0
   limits_checking:
     database_path: data/channel_limits.json
@@ -155,15 +175,18 @@ control_system:
   target_switch:
     drain_timeout_s: 5
     probe_interval_s: 30
-  type: live_standin
+    probe_timeout_s: 5
+  type: virtual_accelerator
   writes_enabled: true
 deploy:
   fqdn: 127.0.0.1
 deployed_services:
 - postgresql
-- openobserve
+- telemetry_store
+- telemetry_gateway
 - qmd
 - graphdb
+- archive
 - event_dispatcher
 - dispatch_worker
 - bluesky
@@ -174,14 +197,15 @@ deployed_services:
 - archiver_recorder
 execution:
   execution_method: subprocess
-facility:
-  prefix: ca
 facility_knowledge:
-  bundle_path: data/facility_knowledge
+  bundle_path: data/facility/knowledge
 file_paths:
   api_calls_dir: api_calls
   registry_exports_dir: registry_exports
 health:
+  auto:
+    mcp:
+      url_key: host_url
   categories:
     archiver:
       checks:
@@ -262,34 +286,39 @@ scaffold:
   user_owned:
   - rules/facility
 services:
+  archive:
+    path: ./services/archive
   archiver_recorder:
     path: ./services/archiver_recorder
   bluesky:
-    ca_name_servers: live-standin:10090
-    devices_file: data/bluesky_devices.yml
     path: ./services/bluesky
     port: 10080
-    target: standin
     tiled_enabled: true
     tiled_port: 10070
   bluesky_web:
     path: ./services/bluesky_web
     port: 10071
   dispatch_worker:
+    bind_env: DISPATCH_WORKER_BIND
     inactivity_sec: 120
+    max_turns: 25
+    network: host
     path: ./services/dispatch_worker
     timeout_sec: 300
     worker_count: 1
     worker_port_base: 10011
+    worker_port_stride: 1
     workspace_mode: isolated
   event_dispatcher:
     additional_dirs:
     - dst: triggers.yml
       src: triggers.yml
-    facility_name: ''
+    bind_env: FASTMCP_HOST
+    channel_strip_prefix: ''
+    facility_name: Example Research Facility
+    network: host
     path: ./services/event_dispatcher
     port: 10010
-    channel_strip_prefix: ''
   graphdb:
     heap_initial_size: 512m
     heap_max_size: 1G
@@ -309,10 +338,6 @@ services:
     path: ./services/mongodb
     port_host: 10801
     username: osprey
-  openobserve:
-    path: ./services/openobserve
-    port: 10050
-    retention_days: 14
   postgresql:
     database_name: ariel
     path: ./services/postgresql
@@ -322,9 +347,23 @@ services:
     interval: 30
     path: ./services/qmd
     port: 10060
+  telemetry_gateway:
+    path: ./services/telemetry_gateway
+    port: 10051
+  telemetry_store:
+    path: ./services/telemetry_store
+    port: 10804
+    readers:
+    - name: carol
+    retention_days: 14
   virtual_accelerator:
     path: ./services/virtual_accelerator
     port: 5064
+simulation:
+  default_scenarios:
+  - rf-thermal
+  models: null
+  tick_s: 1.0
 system:
   timezone: UTC
 va_archiver:
@@ -341,10 +380,7 @@ web:
     max_channels: 50000
   config_panel:
     enabled: false
-  docs_url: https://als-apg.github.io/osprey
   feedback:
-    email: alice@example.com
-    github_repo: als-apg/osprey
     max_store_bytes: 268435456
   panels:
     ariel:
@@ -363,6 +399,8 @@ web:
       path: /dashboard
       url: http://localhost:10010
     jupyter:
+      enabled: true
+    lattice:
       enabled: true
     okf:
       enabled: true
