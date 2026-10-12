@@ -32,6 +32,7 @@ from osprey.deployment.compose_generator import (
     DISPATCH_WORKER_SERVICE_PREFIX,
     resolve_project_name,
 )
+from osprey.deployment.telemetry_config import RESERVED_ACCOUNT_NAMES, RESERVED_ACCOUNT_PREFIX
 from osprey.deployment.web_terminals.persona_images import (
     PREDATES_DELTA_REMEDY,
     persona_build_profile_shape_problem,
@@ -311,7 +312,7 @@ def lint_profile_config(
     """Validate the ``modules.web_terminals`` a build profile's ``config:`` sets.
 
     A ``config:`` block is a flat bag of dotted keys (``modules.web_terminals``,
-    ``deploy.fqdn``, ``services.openobserve.port``, …) applied over the
+    ``deploy.fqdn``, ``services.postgresql.port_host``, …) applied over the
     rendered template, so it is nested into the shape the checks read before
     linting. Shallowest key first, so a deeper key refines the subtree a
     shallower one set rather than being overwritten by it — the same order
@@ -4507,7 +4508,11 @@ def _check_reserved_audit_identities(users: list[Any]) -> list[Finding]:
                     f"modules.web_terminals.users entry {name!r} collides with a "
                     "service's own audit identity (the auth sidecar writes "
                     f"var/audit/{AUTH_SIDECAR_AUDIT_IDENTITY}/, dispatch worker <n> "
-                    f"writes var/audit/{DISPATCH_WORKER_SERVICE_PREFIX}-<n>/). Each "
+                    f"writes var/audit/{DISPATCH_WORKER_SERVICE_PREFIX}-<n>/, a "
+                    "queueserver writes var/audit/[<lane>-]queueserver/) or with a "
+                    "name the telemetry store keeps for its own accounts "
+                    f"({RESERVED_ACCOUNT_PREFIX}*, "
+                    f"{', '.join(sorted(RESERVED_ACCOUNT_NAMES))}). Each "
                     "user's container binds var/audit/<user>/ read-write, so this user "
                     "could read and rewrite the audit trail of the component that "
                     "records them. Rename the roster entry"

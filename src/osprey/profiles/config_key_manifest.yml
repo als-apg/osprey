@@ -40,7 +40,7 @@
 # (840 files), `path` (519), `type` (475) or `enabled` (169). Those match
 # whether or not the key is still read, so they prove nothing — a passing guard
 # built on them is theatre. Nested leaves genuinely have no per-leaf reader to
-# cite: code does `services.get("openobserve")` and then `.get("port")`, so the
+# cite: code does `services.get("postgresql")` and then `.get("port_host")`, so the
 # only honest citation is at the parent. `covered-by` records that structural
 # fact instead of manufacturing evidence. Do NOT "improve" a `covered-by` entry
 # into a bare-word `evidence` regex; if you add one, it must be an anchored
@@ -55,8 +55,8 @@
 # the manifest otherwise). The bare entries are domain identifiers, not English
 # words, so deleting the reader really would drop the count toward zero. Where
 # an obvious anchored form existed it was preferred instead — e.g.
-# claude_code.telemetry.backend cites `telemetry_cfg.get("backend") ==
-# "openobserve"` rather than the bare word, and services.postgresql.path cites
+# claude_code.telemetry.backend cites `telemetry_cfg.get("backend")` rather
+# than the bare word, and services.postgresql.path cites
 # the compose generator's `service_config["path"]` read after the bare word
 # crossed the ceiling. The rest have no clean single reader to anchor on (the
 # value is unpacked from a block, or read in several places with different
@@ -146,9 +146,17 @@ keys:
     evidence: 'config\.get\("deployed_services", \[\]\)'
     note: >-
       PRESENCE is all-templates; VALUES deliberately diverge ([] /
-      [openobserve] / [postgresql, openobserve, qmd, graphdb]). The guard must
+      [telemetry_store, telemetry_gateway] / [postgresql, telemetry_store, telemetry_gateway, qmd, graphdb]). The guard must
       not assert value equality here.
     default: []
+  deployment.host_identity:
+    rendered: false
+    evidence: 'get\("host_identity"\)'
+    note: >-
+      The identity host launches send telemetry and file their records under.
+      Unset in the presets: the build records the account that ran it.
+    default: derived
+    default_note: the account that ran `osprey build`
   deployment.port_base:
     rendered: false
     evidence: 'deployment\.get\("port_base"\)'
@@ -245,10 +253,70 @@ keys:
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
     default: {}
-  services.openobserve: {evidence: 'get\("openobserve", \{\}\)', default: {}}
-  services.openobserve.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build injector writes ./services/openobserve"}
-  services.openobserve.port: {evidence: 'services\.openobserve\.port', default: derived, default_note: the layout's openobserve slot at this deployment's port base}
-  services.openobserve.retention_days: {evidence: 'retention_days', default: 14}
+  # The telemetry store and the gateway that feeds it. Every key below is read
+  # in one place, deployment/telemetry_config.py, so each regex anchors there:
+  # the module spells a key's dotted name in the refusal it raises for an
+  # unusable value, which is the one string that leaves with the reader.
+  services.telemetry_store: {evidence: 'STORE_SERVICE = "telemetry_store"', default: {}}
+  services.telemetry_store.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the presets write ./services/telemetry_store"}
+  services.telemetry_store.port: {evidence: '"services\.telemetry_store\.port"', default: derived, default_note: the layout's telemetry_store slot at this deployment's port base}
+  services.telemetry_store.retention_days: {same-value: true, evidence: '"services\.telemetry_store\.retention_days"', default: 14}
+  services.telemetry_store.image:
+    rendered: false
+    evidence: 'DEFAULT_STORE_IMAGE = "clickhouse/clickhouse-server'
+    note: Upstream pin (ClickHouse). Point it at an internal mirror or a digest on a host that cannot pull from Docker Hub.
+    default: clickhouse/clickhouse-server:26.8.18.2
+  services.telemetry_store.memory:
+    rendered: false
+    evidence: '"services\.telemetry_store\.memory"'
+    note: >-
+      The store container's memory limit, as compose takes it. The store memory
+      lint holds limits.reader_slots and limits.query_memory to 0.9 of it.
+    default: 2g
+  services.telemetry_store.env: {rendered: false, data-map: true, evidence: 'hostenv\.passthrough\(services\.telemetry_store', default: []}
+  services.telemetry_store.readers:
+    evidence: 'get\("readers"\)'
+    note: >-
+      The named readers, as a LIST: one entry per reader (`name`, `tables`,
+      `days_back`, `oidc_subject`). A list has no dotted paths below it, so the
+      per-entry keys never enter the union. Every preset that deploys the store
+      ships one default reader: the admin roster user, or `operator` where the
+      preset has no roster.
+    default: []
+  services.telemetry_store.limits:
+    rendered: false
+    evidence: 'services\.telemetry_store\.limits must be a mapping'
+    note: >-
+      Per-reader query limits, plus `reader_slots`, the pool all readers share.
+      Read whole by telemetry_config.store_limits, which refuses an unknown
+      leaf and fills each absent one from DEFAULT_LIMITS.
+    default: {}
+  services.telemetry_store.limits.result_rows: {rendered: false, covered-by: services.telemetry_store.limits, default: 1000}
+  services.telemetry_store.limits.result_bytes: {rendered: false, covered-by: services.telemetry_store.limits, default: 10000000}
+  services.telemetry_store.limits.seconds: {rendered: false, covered-by: services.telemetry_store.limits, default: 30}
+  services.telemetry_store.limits.concurrent: {rendered: false, covered-by: services.telemetry_store.limits, default: 2}
+  services.telemetry_store.limits.reader_slots: {rendered: false, covered-by: services.telemetry_store.limits, default: 2}
+  services.telemetry_store.limits.per_minute: {rendered: false, covered-by: services.telemetry_store.limits, default: 60}
+  services.telemetry_store.limits.rows_read: {rendered: false, covered-by: services.telemetry_store.limits, default: 1000000}
+  services.telemetry_store.limits.bytes_read: {rendered: false, covered-by: services.telemetry_store.limits, default: 500000000}
+  services.telemetry_store.limits.query_memory: {rendered: false, covered-by: services.telemetry_store.limits, default: 200000000}
+  services.telemetry_gateway: {evidence: 'GATEWAY_SERVICE = "telemetry_gateway"', default: {}}
+  services.telemetry_gateway.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the presets write ./services/telemetry_gateway"}
+  services.telemetry_gateway.port: {evidence: '"services\.telemetry_gateway\.port"', default: derived, default_note: the layout's telemetry_gateway slot at this deployment's port base}
+  services.telemetry_gateway.image:
+    rendered: false
+    evidence: 'DEFAULT_GATEWAY_IMAGE = \('
+    note: Upstream pin (OpenTelemetry Collector contrib). Same mirror rule as the store's.
+    default: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.162.0
+  services.telemetry_gateway.memory:
+    rendered: false
+    evidence: '"services\.telemetry_gateway\.memory"'
+    note: >-
+      The gateway container's memory limit. Unset, it is the floor the gateway
+      memory lint computes from the number of audit directories it reads; a
+      stated value below that floor is refused.
+    default: derived
+    default_note: telemetry_config.gateway_memory_floor for the rendered receiver count
   services.postgresql: {evidence: 'get_config_value\("services\.postgresql", \{\}\)', default: {}}
   services.postgresql.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build injector writes ./services/postgresql"}
   services.postgresql.database_name: {evidence: 'database_name', default: ariel}
@@ -272,7 +340,7 @@ keys:
   services.qmd.path:
     evidence: 'service_config\["path"\]'
     note: >-
-      Same generic compose-generator read as the openobserve/postgresql `path`
+      Same generic compose-generator read as the telemetry_store/postgresql `path`
       keys — it resolves any service's fragment directory, qmd included.
     default: no-fallback
     default_note: >-
@@ -354,7 +422,7 @@ keys:
   services.graphdb.path:
     evidence: 'service_config\["path"\]'
     note: >-
-      Same generic compose-generator read as the openobserve/postgresql/qmd
+      Same generic compose-generator read as the telemetry_store/postgresql/qmd
       `path` keys — it resolves any service's fragment directory, graphdb
       included.
     default: no-fallback
@@ -490,11 +558,6 @@ keys:
       Upstream pin (pgvector). Point it at an internal mirror or a digest on a
       host that cannot pull from public registries.
     default: pgvector/pgvector:pg16
-  services.openobserve.image:
-    rendered: false
-    evidence: '\(services\.openobserve \| default\(\{\}\)\)\.image'
-    note: Upstream pin (openobserve). Same three-layer chain as the rest.
-    default: public.ecr.aws/zinclabs/openobserve:v0.92.2
   services.mongodb.image:
     rendered: false
     evidence: '\(services\.mongodb \| default\(\{\}\)\)\.image'
@@ -512,12 +575,11 @@ keys:
     default: derived
     default_note: osprey_images.dispatch — <registry><project>-dispatch:<images.tag>
   services.dispatch_worker.worker_port_stride:
-    rendered: false
     evidence: 'worker\.get\("worker_port_stride"\)'
     note: >-
-      Hidden key, unset in the framework template and the four presets,
-      written by the dispatch
-      injector rather than rendered — and only in host-network mode, where the
+      Unset in the framework template and the four presets' `config:` blocks,
+      written by the dispatch injector — and only in host-network mode, which
+      is how control-assistant's deploying render carries it, where the
       workers share the host's namespace and so need their host ports to fan
       out. Worker `i` publishes `worker_port_base + (i - 1) * stride`; the
       value comes from the profile's `dispatch.worker_port_stride`, and it is
@@ -598,6 +660,15 @@ keys:
       with it. The evidence anchors on the template's own alias line.
     default: derived
     default_note: osprey_images.worker — the archive runs the worker image
+  services.history.image:
+    rendered: false
+    evidence: 'set svc = services\.history \| default'
+    note: >-
+      OSPREY-built image, same layering as `services.archive.image`: the
+      history page runs the bare project image and shares `OSPREY_WORKER_IMAGE`
+      with it. The evidence anchors on the template's own alias line.
+    default: derived
+    default_note: osprey_images.worker — the history page runs the worker image
   services.archive.interval_seconds:
     rendered: false
     evidence: '_resolve_archive_render_context'
@@ -671,10 +742,11 @@ keys:
   # image, its own Channel Access port — whenever a build profile sets
   # `virtual_accelerator.live_standin`, and appends the key to
   # `deployed_services` so the VA compose fragment renders a second container
-  # off it. Both blocks are INJECTOR-written, so neither reaches the rendered
-  # union and every entry below carries `rendered: false` — the same standing
-  # as the `services.bluesky_va` / `services.bluesky_live` lane blocks noted at
-  # the head of this section.
+  # off it. Both blocks are INJECTOR-written: they reach the rendered union
+  # through control-assistant's deploying render (the guard runs the
+  # injectors), whose `virtual_accelerator.live_standin` writes the block,
+  # path and port; the per-instance image pin is written by nothing shipped
+  # and keeps `rendered: false`.
   #
   # The stand-in is recorded where its baseline twin is not, because
   # `services.live_standin.port` is not a deployment detail: it is the whole
@@ -685,7 +757,6 @@ keys:
   # VA's port — read only by the generic compose machinery, and recorded here
   # no more than `services.virtual_accelerator.port` is — would not be.
   services.live_standin:
-    rendered: false
     evidence: '_LIVE_STANDIN_SERVICE_KEY = LIVE_STANDIN_PORT_KEY\.split\("\."\)\[1\]'
     note: >-
       Evidence anchors on the injector deriving the block's name FROM the
@@ -696,7 +767,6 @@ keys:
       `services[instance_key]`, which names no service and would prove nothing.
     default: null
   services.live_standin.path:
-    rendered: false
     covered-by: services.live_standin
     note: >-
       Always `./services/virtual_accelerator`, the same fragment directory the
@@ -708,7 +778,6 @@ keys:
     default_note: >-
       the compose generator indexes service_config['path'] and raises when absent
   services.live_standin.port:
-    rendered: false
     evidence: 'LIVE_STANDIN_PORT_KEY = "services\.live_standin\.port"'
     note: >-
       The stand-in's Channel Access port, and the one fact four independent
@@ -742,6 +811,129 @@ keys:
       `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.qmd
+
+  # ── Bundled service blocks: injector-written and template-read keys ──
+  # Every bundled service's `services.<name>` block is CLOSED: the profile
+  # parser refuses a key under it that has no row here and is not one of the
+  # generic service axes (build_profile_model.SERVICE_AXES). The keys below are
+  # the ones a bundled service's compose template or a Python reader takes but
+  # no preset's `config:` block spells — most are written by the service
+  # injectors (build_injectors.py) from the profile's own `bluesky:` /
+  # `dispatch:` / `va_archiver:` / bridge blocks, and the guard renders each
+  # preset through those injectors, so an injected key with no row here is
+  # `unmapped-key`. A second plan lane (`bluesky_va`, `bluesky_live`,
+  # `bluesky_standin`) is described by the `services.bluesky.*` rows — see
+  # notes.service_instance_families. Rows the control-assistant preset's
+  # deploying render carries are live; the rest are `rendered: false`.
+  services.bluesky: {evidence: 'LANE_ONE = "bluesky"', default: null}
+  services.bluesky.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the bluesky injector writes ./services/bluesky"}
+  services.bluesky.port: {evidence: 'PortSlot\("bluesky", 80, "services", "services\.bluesky\.port"\)', default: derived, default_note: the layout's bluesky slot at this deployment's port base; a second lane takes the bluesky_second_lane slot}
+  services.bluesky.tiled_enabled: {evidence: 'svc\.tiled_enabled \| default\(false\)', default: false}
+  services.bluesky.tiled_port: {evidence: '"tiled": "services\.bluesky\.tiled_port"', default: derived, default_note: the layout's tiled slot at this deployment's port base}
+  services.bluesky.target:
+    rendered: false
+    evidence: 'ProjectedKey\("services\.bluesky\.target"'
+    note: >-
+      The control target a lane queues plans against. Written by the bluesky
+      injector on every lane of a two-lane deploy, and on the single lane of a
+      live-stand-in baseline; absent, the compose template addresses the
+      co-deployed virtual accelerator.
+    default: derived
+    default_note: the co-deployed virtual accelerator, the compose template's fallback
+  services.bluesky.ca_name_servers:
+    rendered: false
+    evidence: 'EPICS_CA_NAME_SERVERS: "\{\{ svc\.ca_name_servers \}\}"'
+    note: Written beside `target` for a lane serving the live machine or the stand-in.
+    default: derived
+    default_note: the virtual-accelerator container, which the template addresses without being told
+  services.bluesky.plan_dir: {rendered: false, evidence: 'service\.get\("plan_dir"\)', default: null}
+  services.bluesky.excluded_plans: {rendered: false, evidence: '_as_str_list\(source\.get\("excluded_plans"\)\)', default: null}
+  services.bluesky.device_page_size: {rendered: false, evidence: 'BLUESKY_DEVICE_PAGE_SIZE: "\{\{ svc\.device_page_size', default: 500}
+  services.bluesky.settle_timeout_s: {rendered: false, evidence: 'BLUESKY_SETTLE_TIMEOUT_S: "\{\{ svc\.settle_timeout_s', default: 5.0}
+  services.bluesky.settle_tolerance: {rendered: false, evidence: 'svc\.settle_tolerance is defined', default: 1.0e-09}
+  services.bluesky.live_max_runs: {rendered: false, evidence: 'BLUESKY_LIVE_MAX_RUNS: "\{\{ svc\.live_max_runs', default: 50}
+  services.bluesky.live_max_rows_per_run: {rendered: false, evidence: 'BLUESKY_LIVE_MAX_ROWS_PER_RUN: "\{\{ svc\.live_max_rows_per_run', default: 10000}
+  services.bluesky.external:
+    rendered: false
+    evidence: 'set external = svc\.external \| default\(false\)'
+    note: >-
+      External-worker mode, written by the bluesky injector from the profile's
+      `bluesky.external` block: the bridge renders as a client of a
+      facility-run RE Manager. Its leaves are the injector's, listed below.
+    default: null
+  services.bluesky.external.zmq_control_addr: {rendered: false, evidence: 'QSERVER_ZMQ_CONTROL_ADDRESS: "\{\{ external\.zmq_control_addr', default: no-fallback, default_note: required whenever the external block is written}
+  services.bluesky.external.zmq_public_key_env: {rendered: false, evidence: 'external\.zmq_public_key_env ~', default: null}
+  services.bluesky.external.insecure_plaintext: {rendered: false, evidence: 'external_block\["insecure_plaintext"\]', default: false}
+  services.bluesky.external.tiled_uri: {rendered: false, evidence: 'BLUESKY_TILED_URI: "\{\{ external\.tiled_uri', default: null}
+  services.bluesky.external.tiled_api_key_env: {rendered: false, evidence: 'external\.tiled_api_key_env \}\}', default: null}
+  services.bluesky.external.parameter_schema_mounts: {rendered: false, evidence: 'for m in external\.parameter_schema_mounts', default: []}
+  services.bluesky.external.parameter_schemas_env: {rendered: false, evidence: 'external\.parameter_schemas_env \}\}', default: null}
+  services.bluesky.env: {rendered: false, data-map: true, evidence: 'hostenv\.passthrough\(services\.bluesky\)', default: []}
+  services.bluesky_web: {evidence: 'hostenv\.passthrough\(services\.bluesky_web\)', default: null}
+  services.bluesky_web.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the bluesky-web injector writes ./services/bluesky_web"}
+  services.bluesky_web.port: {evidence: '"bluesky-web": "services\.bluesky_web\.port"', default: derived, default_note: the layout's bluesky_web slot at this deployment's port base}
+  services.virtual_accelerator: {evidence: 'set svc = services\[instance_key\]', default: null}
+  services.virtual_accelerator.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the VA injector writes ./services/virtual_accelerator"}
+  services.virtual_accelerator.port: {evidence: 'dotted_get\(config, "services\.virtual_accelerator\.port"\) or DEFAULT_VA_PORT', default: derived, default_note: the virtual accelerator's Channel Access default port}
+  services.event_dispatcher: {evidence: 'hostenv\.passthrough\(services\.event_dispatcher\)', default: null}
+  services.event_dispatcher.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the dispatch injector writes ./services/event_dispatcher"}
+  services.event_dispatcher.port: {evidence: 'PortSlot\("dispatcher", 10, "dispatch", "services\.event_dispatcher\.port"\)', default: derived, default_note: the layout's dispatcher slot at this deployment's port base}
+  services.event_dispatcher.facility_name: {evidence: 'OSPREY_FACILITY_NAME: "\{\{ services\.event_dispatcher\.facility_name', default: ""}
+  services.event_dispatcher.channel_strip_prefix: {evidence: 'CHANNEL_STRIP_PREFIX: "\{\{ services\.event_dispatcher\.channel_strip_prefix', default: ""}
+  services.event_dispatcher.additional_dirs: {evidence: 'container_cfg\.get\("additional_dirs", \[\]\)', default: []}
+  services.event_dispatcher.network: {evidence: 'services\.event_dispatcher\.network \| default\(.bridge., true\)', default: bridge}
+  services.event_dispatcher.bind_env: {covered-by: services.event_dispatcher, default: n/a}
+  services.event_dispatcher.bind:
+    rendered: false
+    evidence: 'FASTMCP_HOST: \{\{ services\.event_dispatcher\.bind'
+    note: The interface the dispatcher listens on inside its network namespace.
+    default: derived
+    default_note: 127.0.0.1 on the host network, 0.0.0.0 on the bridge network
+  services.event_dispatcher.env: {rendered: false, data-map: true, evidence: 'hostenv\.passthrough\(services\.event_dispatcher\)', default: []}
+  services.dispatch_worker: {evidence: 'hostenv\.passthrough\(services\.dispatch_worker\)', default: null}
+  services.dispatch_worker.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the dispatch injector writes ./services/dispatch_worker"}
+  services.dispatch_worker.worker_count: {evidence: 'services\.dispatch_worker\.worker_count \| default\(1\)', default: 1}
+  services.dispatch_worker.worker_port_base: {evidence: 'PortSlot\("worker", 10, "dispatch", "services\.dispatch_worker\.worker_port_base"\)', default: derived, default_note: the layout's worker slot at this deployment's port base}
+  services.dispatch_worker.workspace_mode: {evidence: 'services\.dispatch_worker\.workspace_mode \| default\(.isolated.\)', default: isolated}
+  services.dispatch_worker.timeout_sec: {evidence: 'DISPATCH_TIMEOUT_SEC: "\{\{ services\.dispatch_worker\.timeout_sec', default: 300}
+  services.dispatch_worker.inactivity_sec: {evidence: 'DISPATCH_INACTIVITY_SEC: "\{\{ services\.dispatch_worker\.inactivity_sec', default: 120}
+  services.dispatch_worker.max_turns: {evidence: 'DISPATCH_MAX_TURNS: "\{\{ services\.dispatch_worker\.max_turns', default: 25}
+  services.dispatch_worker.network: {evidence: '\bdw\.network\b', default: bridge}
+  services.dispatch_worker.bind_env: {covered-by: services.dispatch_worker, default: n/a}
+  services.dispatch_worker.env: {rendered: false, data-map: true, evidence: 'hostenv\.passthrough\(services\.dispatch_worker\)', default: []}
+  services.mongodb: {evidence: 'hostenv\.passthrough\(services\.mongodb\)', default: null}
+  services.mongodb.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the archiver-store injector writes ./services/mongodb"}
+  services.mongodb.port_host: {evidence: 'PortSlot\("mongo", 801, "stores", "services\.mongodb\.port_host"\)', default: derived, default_note: the layout's mongo slot at this deployment's port base}
+  services.mongodb.username: {covered-by: services.mongodb, default: n/a}
+  services.mongodb.compression: {evidence: 'get\(_ARCHIVER_STORE_SERVICE\) or \{\}\)\.get\("compression"\)', default: zstd}
+  services.archiver_recorder: {evidence: 'hostenv\.passthrough\(services\.archiver_recorder\)', default: null}
+  services.archiver_recorder.path: {evidence: 'ProjectedKey\("services\.archiver_recorder\.path"', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the archiver-store injector writes ./services/archiver_recorder"}
+  services.archive: {evidence: 'set svc = services\.archive \| default', default: null}
+  services.archive.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build writes ./services/archive"}
+  services.archive.network: {rendered: false, covered-by: services.archive, default: bridge}
+  services.ariel_sync.network: {rendered: false, evidence: 'set svc = services\.ariel_sync \| default', default: bridge}
+  services.graphdb.network: {rendered: false, covered-by: services.graphdb, default: bridge}
+  services.graphdb.username:
+    rendered: false
+    evidence: '_text\(section\.get\("username"\), DEFAULT_USERNAME, "services\.graphdb\.username"\)'
+    note: The graph store's login, read beside `uri`.
+    default: neo4j
+  services.gchat_bridge.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the Google Chat injector writes ./services/gchat_bridge"}
+  services.gchat_bridge.trigger: {rendered: false, evidence: 'DISPATCH_TRIGGER: "\{\{ services\.gchat_bridge\.trigger', default: no-fallback, default_note: the injector always writes the profile's gchat_bridge.trigger (gchat-question)}
+  services.gchat_bridge.env: {rendered: false, data-map: true, evidence: 'hostenv\.passthrough\(services\.gchat_bridge\)', default: []}
+  services.nextcloud_bridge.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the Nextcloud Talk injector writes ./services/nextcloud_bridge"}
+  services.nextcloud_bridge.trigger: {rendered: false, evidence: 'DISPATCH_TRIGGER: "\{\{ services\.nextcloud_bridge\.trigger', default: no-fallback, default_note: the injector always writes the profile's nextcloud_bridge.trigger (nextcloud-question)}
+  services.teams_bridge.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the Teams injector writes ./services/teams_bridge"}
+  services.teams_bridge.trigger: {rendered: false, evidence: 'DISPATCH_TRIGGER: "\{\{ services\.teams_bridge\.trigger', default: no-fallback, default_note: the injector always writes the profile's teams_bridge.trigger (teams-question)}
+  web.panels.events: {covered-by: web.panels, default: n/a}
+  web.panels.events.url: {evidence: 'url = str\(spec\.get\("url"\) or ""\)', default: derived, default_note: "http://localhost:<the dispatcher's port>, written by the dispatch injector"}
+  web.panels.events.path: {evidence: 'path = str\(spec\.get\("path"\) or "/"\)', default: /dashboard}
+  web.panels.events.label: {evidence: 'label = str\(spec\.get\("label"\) or panel_id\.upper\(\)\)', default: EVENTS}
+  web.panels.events.health_endpoint: {evidence: 'endpoint = spec\.get\("health_endpoint"\)', default: /health}
+  web.panels.bluesky: {covered-by: web.panels, default: n/a}
+  web.panels.bluesky.url: {covered-by: web.panels.events.url, default: derived, default_note: "the bluesky-web sidecar's loopback URL, written by the bluesky-web injector"}
+  web.panels.bluesky.path: {covered-by: web.panels.events.path, default: /bluesky/}
+  web.panels.bluesky.label: {covered-by: web.panels.events.label, default: BLUESKY}
 
   # ── Safety / approval ───────────────────────────────────────────────
   approval:
@@ -1787,13 +1979,26 @@ keys:
       (the ones claude_code.telemetry.signals names) to the backend named
       below; false exports none and the rest of the block is inert.
   claude_code.telemetry.backend:
-    evidence: 'telemetry_cfg\.get\("backend"\) == "openobserve"'
+    evidence: 'telemetry_cfg\.get\("backend"\)'
     default: null
   claude_code.telemetry.protocol: {evidence: 'http/protobuf', default: http/protobuf}
-  claude_code.telemetry.openobserve: {evidence: 'telemetry_cfg\.get\("openobserve"\)', default: {}}
-  claude_code.telemetry.openobserve.user: {covered-by: claude_code.telemetry.openobserve, default: null}
-  claude_code.telemetry.openobserve.password: {covered-by: claude_code.telemetry.openobserve, default: null}
-  claude_code.telemetry.openobserve.org: {covered-by: claude_code.telemetry.openobserve, default: default}
+  claude_code.telemetry.endpoint:
+    rendered: false
+    evidence: 'telemetry_cfg\.get\("endpoint"\)'
+    note: >-
+      The collector's OTLP/HTTP base URL on the generic backend. The gateway
+      backend derives its own address per network context, and a stated
+      endpoint there is refused. Documented as a commented example in the
+      control-assistant preset.
+    default: null
+  claude_code.telemetry.resource_attributes:
+    rendered: false
+    evidence: 'telemetry_cfg\.get\("resource_attributes"\)'
+    note: >-
+      Extra OTLP resource attributes every record carries, as a mapping (or a
+      `k=v,k=v` string). Under the gateway the terminal session is OSPREY's
+      own attribute and may not be named here.
+    default: {}
   claude_code.telemetry.auth:
     rendered: false
     evidence: 'telemetry_cfg\.get\("auth"\)'
@@ -3095,6 +3300,21 @@ keys:
     default_note: >-
       resolve_personas refuses an enabled web_terminals block with no personas
       catalog (lint web_terminals.requires_catalog)
+  modules.web_terminals.reader_port:
+    rendered: false
+    evidence: '"modules\.web_terminals\.reader_port"'
+    note: >-
+      The port of the readers' origin, a second nginx server beside the
+      terminals'. Unset in the presets: it sits on the layout's `reader` slot.
+    default: derived
+    default_note: the layout's reader slot at this deployment's port base
+  modules.web_terminals.reader_origin:
+    rendered: false
+    evidence: 'web_terminals\.get\("reader_origin"\)'
+    note: >-
+      Verbatim override of the readers' origin, the mirror of
+      `external_origin`. Required beside it, on the same host.
+    default: null
   modules.web_terminals.users:
     evidence: 'normalize_users\(web_terminals\.get\("users"\)\)'
     note: >-
@@ -3110,6 +3330,19 @@ keys:
 # in any preset `config:` dotted key, or in the loader's synthesized defaults.
 # ---------------------------------------------------------------------------
 deleted:
+  # The OpenObserve store and its ingest account. The store is
+  # `services.telemetry_store`, fed by `services.telemetry_gateway`; a sender
+  # logs in with a credential the build mints, so no key names one. A profile
+  # that still states one is rejected like any other unknown key.
+- services.openobserve
+- services.openobserve.image
+- services.openobserve.path
+- services.openobserve.port
+- services.openobserve.retention_days
+- claude_code.telemetry.openobserve
+- claude_code.telemetry.openobserve.user
+- claude_code.telemetry.openobserve.password
+- claude_code.telemetry.openobserve.org
   # A collector's token is named by claude_code.telemetry.auth.token_env; there
   # is no free-form header map.
 - claude_code.telemetry.headers
@@ -3286,6 +3519,18 @@ deleted_commented_examples:
 # regex here must match ZERO times under the listed root (failure mode 4).
 # ---------------------------------------------------------------------------
 orphan_sites:
+  services.openobserve.path:
+  - root: src/osprey/templates
+    regex: 'path: \./services/openobserve'
+    back_test: {base_matches: 4, branch_matches: 0}
+    why: >-
+      a template stating the retired store's compose directory.
+  services.openobserve.port:
+  - root: src/osprey/deployment/host_ports.py
+    regex: '"services\.openobserve\.port"'
+    back_test: {base_matches: 1, branch_matches: 0}
+    why: >-
+      the port preflight's remedy table naming the retired store's port key.
   control_system.connector.mock:
   - root:
     - src/osprey/templates
@@ -3673,7 +3918,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 347
+  expected_union_size: 398
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
@@ -3884,3 +4129,14 @@ notes:
       Deliberately holds every retired key so the loader's tolerance stays
       tested. If the guard is ever pointed at tests/, this file MUST be
       allowlisted or every `deleted` entry will fire on it.
+  service_instance_families:
+    rule: >-
+      A service key rendered off another bundled service's template is
+      described by that service's rows: a second plan lane — `bluesky_va`,
+      `bluesky_live`, `bluesky_standin` (bluesky_bridge_connection.SECOND_LANE_KEYS)
+      — by `services.bluesky.*`. The live stand-in, the virtual accelerator's
+      second instance, is the one exception: it keeps rows of its own,
+      `services.live_standin.*`, because its port is what tells the instance
+      apart. build_profile_load.service_family is the rule in code; the profile
+      parser closes an instance's block with it and the guard maps a rendered
+      instance key with it before looking for a row.

@@ -94,8 +94,9 @@ BLOCK_SIZE = 1000
 INDEX_MAX = 99
 
 #: Highest worker number the dispatch band holds. Worker *w* is at
-#: ``base + 10 + w``, so ``w`` runs 1..39 and the band ends one below the
-#: openobserve slot. Only host-network workers publish anything: under the
+#: ``base + 10 + w``, so ``w`` runs 1..39 and the band ends at ``base + 49``,
+#: two below the telemetry gateway's slot; ``base + 50`` is unassigned. Only
+#: host-network workers publish anything: under the
 #: default bridge topology workers bind nothing on the host and the band is
 #: unused.
 WORKER_MAX = 39
@@ -183,12 +184,22 @@ class PortSlot:
 LAYOUT: tuple[PortSlot, ...] = (
     PortSlot("nginx", 0, "gateway", "modules.web_terminals.nginx_port"),
     PortSlot("auth", 1, "gateway", "modules.web_terminals.auth.port"),
+    # The readers' origin: a second nginx server, on its own port so that a page
+    # served from the terminal origin is a different origin to it.
+    PortSlot("reader", 2, "gateway", "modules.web_terminals.reader_port"),
+    # The history app nginx proxies to. Published on loopback only, whatever
+    # ``deployment.bind_address`` says, and moved by no key.
+    PortSlot("history", 3, "gateway", None),
     PortSlot("dispatcher", 10, "dispatch", "services.event_dispatcher.port"),
     # Worker w is at offset 10 + w, so the band is +11..+49 and its first
     # member sits directly above the dispatcher it answers to. Host-network
     # mode only: bridge-mode workers publish nothing on the host.
     PortSlot("worker", 10, "dispatch", "services.dispatch_worker.worker_port_base"),
-    PortSlot("openobserve", 50, "services", "services.openobserve.port"),
+    # The collector every sender posts to. Offset 50 is unassigned.
+    PortSlot("telemetry_gateway", 51, "services", "services.telemetry_gateway.port"),
+    # The collector's own counters. Published on loopback only, and moved by no
+    # key: the series are labelled with roster names.
+    PortSlot("telemetry_metrics", 52, "services", None),
     # One qmd sidecar per corpus, corpus i at offset 60 + i.
     PortSlot("qmd", 60, "services", "services.qmd.port"),
     PortSlot("tiled", 70, "services", "services.bluesky.tiled_port"),
@@ -224,6 +235,9 @@ LAYOUT: tuple[PortSlot, ...] = (
     PortSlot("mongo", 801, "stores", "services.mongodb.port_host"),
     PortSlot("graphdb_bolt", 802, "stores", "services.graphdb.port_host"),
     PortSlot("graphdb_http", 803, "stores", "services.graphdb.http_port_host"),
+    # Published on loopback only, whatever ``deployment.bind_address`` says:
+    # the readers' origin is the one remote path to the store.
+    PortSlot("telemetry_store", 804, "stores", "services.telemetry_store.port"),
     # The facility's own services. Nothing the framework publishes lives here,
     # so a deployment may spend the band as it likes; the exemplar profile's
     # facility MCP server takes the first port of it.

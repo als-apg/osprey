@@ -1758,9 +1758,16 @@ def web_terminals_lint(repo, config_path):
     # `write_web_terminal_artifacts` resolves it against — so a lint run from
     # anywhere else used to read no persona `config.yml` at all and report
     # every persona as unprivileged.
-    findings = lint_web_terminals(config, project_root=repo_root)
+    # The telemetry store's rules ride the same command: its readers are named
+    # beside the roster, and a deployment is linted in one pass.
+    from osprey.deployment.telemetry_lint import lint_telemetry
 
-    if not findings:
+    findings = [*lint_web_terminals(config, project_root=repo_root), *lint_telemetry(config)]
+    notes = [f for f in findings if f.severity == "info"]
+    for finding in notes:
+        console.print(f"[dim]\u2139 [{finding.code}] {finding.message}[/dim]")
+
+    if len(notes) == len(findings):
         console.print("[success]\u2713[/success] modules.web_terminals: no issues found\n")
         return
 

@@ -37,7 +37,7 @@ _CLEAN_CONFIG = {
     "facility": {"prefix": "test"},
     "registry": {"url": "registry.example.org/demo"},
     "services": {
-        "openobserve": {"port": 5080},
+        "telemetry_gateway": {"port": 4318},
         "postgresql": {"port_host": 5432},
         "event_dispatcher": {"port": 8020},
         # Reaches the dispatcher over the compose network and publishes nothing
@@ -105,9 +105,9 @@ def test_lint_port_family_overlap_with_a_deployed_service_is_an_error() -> None:
     any port a deployed service publishes."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    # artifact_base_port's band starts at index 0 above; move openobserve onto
+    # artifact_base_port's band starts at index 0 above; move the telemetry gateway onto
     # index 1, the port the second configured user would bind.
-    config["services"]["openobserve"]["port"] = default_port(
+    config["services"]["telemetry_gateway"]["port"] = default_port(
         "artifact", 1, base=_OVERRIDE_PORT_BASE
     )
 
@@ -119,7 +119,7 @@ def test_lint_port_family_overlap_with_a_deployed_service_is_an_error() -> None:
     overlap_findings = [f for f in errors if f.code == "web_terminals.port_overlap"]
     assert overlap_findings
     assert any("artifact_base_port" in f.message for f in overlap_findings)
-    assert any("services.openobserve.port" in f.message for f in overlap_findings)
+    assert any("services.telemetry_gateway.port" in f.message for f in overlap_findings)
 
 
 def test_lint_nginx_port_colliding_with_a_user_port_is_an_error() -> None:
@@ -4628,14 +4628,14 @@ def test_lint_profile_config_reports_a_port_collision_with_a_declared_service() 
     config = _profile_config()
     # The second user's web-terminal port: a facility service parked on a port
     # the layout has already spent is what the rule is for.
-    config["services.openobserve.port"] = default_port("web", 1)
+    config["services.telemetry_gateway.port"] = default_port("web", 1)
 
     # Act
     findings = lint_profile_config(config)
 
     # Assert
     overlap = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
-    assert any("services.openobserve.port" in f.message for f in overlap)
+    assert any("services.telemetry_gateway.port" in f.message for f in overlap)
 
 
 def test_lint_profile_config_lets_a_deeper_dotted_key_refine_the_subtree() -> None:

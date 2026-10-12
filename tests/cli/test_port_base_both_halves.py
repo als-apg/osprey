@@ -46,6 +46,7 @@ from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import (
     BLOCK_SIZE,
     DEFAULT_PORT_BASE,
+    LAYOUT,
     PORT_BASE_CONFIG_KEY,
     QMD_CORPUS_MAX,
     default_port,
@@ -86,7 +87,8 @@ SERVICE_PORT_KEYS = (
     ("mongo", "services.mongodb.port_host"),
     ("graphdb_bolt", "services.graphdb.port_host"),
     ("graphdb_http", "services.graphdb.http_port_host"),
-    ("openobserve", "services.openobserve.port"),
+    ("telemetry_store", "services.telemetry_store.port"),
+    ("telemetry_gateway", "services.telemetry_gateway.port"),
     ("qmd", "services.qmd.port"),
     ("dispatcher", "services.event_dispatcher.port"),
     ("bluesky", "services.bluesky.port"),
@@ -105,7 +107,8 @@ SERVICE_COMPOSE_DIRS = (
     "postgresql",
     "mongodb",
     "graphdb",
-    "openobserve",
+    "telemetry_store",
+    "telemetry_gateway",
     "qmd",
     "bluesky",
     "bluesky_web",
@@ -453,6 +456,9 @@ class TestTheComposeHalfAgrees:
         qmd_port = _dotted(dotted_render.config, "services.qmd.port")
         if qmd_port is not None:
             named |= {qmd_port + index for index in range(QMD_CORPUS_MAX + 1)}
+        # A slot no key moves (the gateway's own counters) is named by the base
+        # alone, so it moves with the block like every keyed slot.
+        named |= {_slot_port(slot.name) for slot in LAYOUT if slot.config_key is None}
         published = dotted_render.published(service_dir)
         assert published, f"{service_dir} publishes nothing"
         assert set(published) <= named, (
@@ -487,7 +493,11 @@ class TestThePanelsMove:
     """The web-terminal render is derived from the same rendered config."""
 
     def test_nginx_listens_on_the_base_itself(self, dotted_render: Rendered) -> None:
-        """The landing page is the first port of the block, by definition."""
+        """The landing page is the first port of the block, by definition.
+
+        The only other server nginx runs is the readers' origin, on its own
+        slot so that a page from the terminal origin is a different origin.
+        """
         listens = {
             int(match)
             for match in re.findall(
@@ -496,7 +506,8 @@ class TestThePanelsMove:
                 re.MULTILINE,
             )
         }
-        assert listens == {_slot_port("nginx")}
+        assert _slot_port("nginx") in listens
+        assert listens <= {_slot_port("nginx"), _slot_port("reader")}
 
     def test_the_auth_sidecar_sits_one_above_it(self, dotted_render: Rendered) -> None:
         """The gateway tier is two ports, and both belong to the block."""

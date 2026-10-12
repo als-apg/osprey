@@ -411,11 +411,14 @@ def deploy_aware_config_errors(
     """
     # Imported in-function: this module is on `BuildProfile`'s import chain, and
     # the lint engine pulls in the whole web-terminals package behind it.
-    from osprey.deployment.web_terminals.lint import profile_config_errors
+    from osprey.deployment.telemetry_lint import telemetry_errors
+    from osprey.deployment.web_terminals.lint import _nest_dotted, profile_config_errors
 
-    return profile_config_errors(
-        build_lint_view(deploy, config, project_name), profile_root=profile_root
-    )
+    view = build_lint_view(deploy, config, project_name)
+    return [
+        *profile_config_errors(view, profile_root=profile_root),
+        *telemetry_errors(_nest_dotted(view)),
+    ]
 
 
 def deploy_aware_config_warnings(
@@ -435,11 +438,14 @@ def deploy_aware_config_warnings(
     ``none`` — in front of a privileged terminal) is deliberately not an error,
     so printing is the only way it reaches an operator at all.
     """
-    from osprey.deployment.web_terminals.lint import profile_config_warnings
+    from osprey.deployment.telemetry_lint import telemetry_warnings
+    from osprey.deployment.web_terminals.lint import _nest_dotted, profile_config_warnings
 
-    return profile_config_warnings(
-        build_lint_view(deploy, config, project_name), profile_root=profile_root
-    )
+    view = build_lint_view(deploy, config, project_name)
+    return [
+        *profile_config_warnings(view, profile_root=profile_root),
+        *telemetry_warnings(_nest_dotted(view)),
+    ]
 
 
 def limits_block_errors(config: Mapping[str, Any]) -> list[str]:

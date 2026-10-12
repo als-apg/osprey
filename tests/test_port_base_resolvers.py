@@ -52,6 +52,16 @@ PORT_BASE = 20000
 CONFIG: dict[str, Any] = {"deployment": {"port_base": PORT_BASE}}
 
 
+#: The slots the telemetry port readers resolve, in the order the case reads them.
+_TELEMETRY_SLOTS = (
+    "telemetry_store",
+    "telemetry_gateway",
+    "telemetry_metrics",
+    "reader",
+    "history",
+)
+
+
 def _base() -> int:
     """The resolved base, taken the way production takes it."""
     return resolve_port_base(CONFIG)
@@ -78,11 +88,8 @@ _AMBIENT_ENV_VARS = (
 @pytest.fixture(autouse=True)
 def no_ambient_port_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """Strip every env var that overrides a port before the config is consulted."""
-    from osprey.build.claude_code_telemetry import OPENOBSERVE_PORT_ENV_VAR
-
     names = {
         *_AMBIENT_ENV_VARS,
-        OPENOBSERVE_PORT_ENV_VAR,
         *(definition.port_env_var for definition in FRAMEWORK_WEB_SERVERS.values()),
     }
     for name in names:
@@ -309,18 +316,28 @@ def _simulation_archiver_store(tmp_path: Path, _monkeypatch: pytest.MonkeyPatch)
     return store["port"], default_port("mongo", base=PORT_BASE)
 
 
-def _openobserve_published(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
-    """``openobserve_published_port`` with no ``services.openobserve.port``."""
-    from osprey.build.claude_code_telemetry import openobserve_published_port
+def _telemetry_ports(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+    """Every telemetry port reader with no port key of its own set."""
+    from osprey.deployment import telemetry_config
 
-    return openobserve_published_port(CONFIG), default_port("openobserve", base=PORT_BASE)
+    resolved = [
+        telemetry_config.store_port(CONFIG),
+        telemetry_config.gateway_port(CONFIG),
+        telemetry_config.metrics_port(CONFIG),
+        telemetry_config.reader_port(CONFIG),
+        telemetry_config.history_port(CONFIG),
+    ]
+    return resolved, [default_port(slot, base=PORT_BASE) for slot in _TELEMETRY_SLOTS]
 
 
-def _openobserve_runtime(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
-    """``resolve_openobserve_port`` with no env override and no config key."""
-    from osprey.build.claude_code_telemetry import resolve_openobserve_port
+def _telemetry_gateway_dial(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+    """The address a host launch posts to carries the published gateway port."""
+    from osprey.deployment import telemetry_config
 
-    return resolve_openobserve_port(CONFIG), default_port("openobserve", base=PORT_BASE)
+    return (
+        telemetry_config.runtime_gateway_url(CONFIG, {}),
+        f"http://127.0.0.1:{default_port('telemetry_gateway', base=PORT_BASE)}",
+    )
 
 
 def _web_server_address(key: str) -> Callable[[Path, pytest.MonkeyPatch], tuple[Any, Any]]:
@@ -372,7 +389,7 @@ def _mcp_web_terminal_url(_tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> t
     return web_terminal_url(), f"http://127.0.0.1:{default_port('web', 0, base=PORT_BASE)}"
 
 
-def _scaffold_openobserve_probe(
+def _scaffold_telemetry_store_probe(
     _tmp_path: Path, _monkeypatch: pytest.MonkeyPatch
 ) -> tuple[Any, Any]:
     """The deploy scaffold probes the telemetry store inside the profile's block."""
@@ -381,11 +398,11 @@ def _scaffold_openobserve_probe(
     profile = {
         "config": {
             "deployment.port_base": PORT_BASE,
-            "deployed_services": ["openobserve"],
+            "deployed_services": ["telemetry_store"],
         }
     }
     ports = [probe.port for probe in _service_probes(profile)]
-    return ports, [default_port("openobserve", base=PORT_BASE)]
+    return ports, [default_port("telemetry_store", base=PORT_BASE)]
 
 
 def _scaffold_dispatcher_probe(
@@ -581,16 +598,16 @@ CASES: tuple[Case, ...] = (
         ("mongo",),
     ),
     Case(
-        "openobserve_published_port",
+        "telemetry_config port readers",
         "the config it is handed",
-        _openobserve_published,
-        ("openobserve",),
+        _telemetry_ports,
+        _TELEMETRY_SLOTS,
     ),
     Case(
-        "resolve_openobserve_port",
+        "telemetry_config.runtime_gateway_url",
         "the config it is handed",
-        _openobserve_runtime,
-        ("openobserve",),
+        _telemetry_gateway_dial,
+        ("telemetry_gateway",),
     ),
     *(
         Case(
@@ -618,8 +635,8 @@ CASES: tuple[Case, ...] = (
     Case(
         "deploy_scaffold_templates._service_probes",
         "the profile's config: overlay, re-wrapped for resolve_port_base",
-        _scaffold_openobserve_probe,
-        ("openobserve",),
+        _scaffold_telemetry_store_probe,
+        ("telemetry_store",),
     ),
     Case(
         "deploy_scaffold_templates._dispatch_probes",
