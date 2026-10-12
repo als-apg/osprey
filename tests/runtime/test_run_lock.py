@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 import osprey.runtime
 import osprey.runtime.guarded_run as guarded_run
@@ -50,9 +49,13 @@ from osprey_connectors.control_system.limits_validator import (
     LimitsValidator,
 )
 from osprey_connectors.types import LIMITS_MODE_OPTIONAL
-
-#: The generation this process is stamped with.
-GENERATION = 4
+from tests.runtime._guarded_run_fixtures import (
+    GENERATION,
+    journal_path,
+    plant,
+    plant_raw,
+    write_config,
+)
 
 #: Seconds a child process may take to import the runtime and try the lock.
 CHILD_TIMEOUT_S = 120.0
@@ -87,11 +90,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "repo"
     (root / "build").mkdir(parents=True)
     (root / "profile.yml").write_text("name: probe\n", encoding="utf-8")
-    config = {
-        "control_system": {"type": "epics", "connector": {"epics": {}}},
-        "approval": {"enabled": False},
-    }
-    (root / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
+    write_config(root, {"enabled": False})
     monkeypatch.chdir(root)
     monkeypatch.setenv(ENV_CONTROL_TARGET, "live")
     monkeypatch.setenv(ENV_CONTROL_TARGET_GENERATION, str(GENERATION))
@@ -106,25 +105,6 @@ def channels(monkeypatch: pytest.MonkeyPatch) -> _Channels:
     for name in ("read_channels", "write_channel", "channel_limits"):
         monkeypatch.setattr(osprey.runtime, name, getattr(fake, name))
     return fake
-
-
-def _journal_path() -> Path:
-    return guarded_run_dir("live") / JOURNAL_FILE_NAME
-
-
-def _plant(values: dict[str, Any], *, target: str = "live", generation: int = GENERATION) -> Path:
-    """A journal a killed run on ``target`` left, holding ``values``."""
-    header = {
-        "target": target,
-        "generation": generation,
-        "identity": "alice",
-        "pid": 4242,
-        "started": "2026-01-01T00:00:00Z",
-    }
-    lines = [{"header": header}] + [{"address": a, "value": v} for a, v in values.items()]
-    path = _journal_path()
-    path.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
-    return path
 
 
 def _holder(directory: Path) -> dict[str, Any] | None:
@@ -322,21 +302,21 @@ def test_guarded_write_under_a_journaled_run_journals_then_writes(
     on_disk_before_write: list[dict[str, Any]] = []
 
     def write() -> None:
-        pending = read_pending_journal(_journal_path())
+        pending = read_pending_journal(journal_path())
         assert pending is not None
         on_disk_before_write.append(pending.values)
         channels.write_channel("Q", 2.5)
 
     with journaled_run("live") as journal:
         guarded_write(["Q"], write, lambda exc: exc)
-        pending = read_pending_journal(_journal_path())
+        pending = read_pending_journal(journal_path())
 
     assert on_disk_before_write == [{"Q": 3.0}], "the record is on disk before the write"
     assert journal.values == {"Q": 3.0}
     assert channels.writes == [("Q", 2.5)]
     assert pending is not None
     assert (pending.target, pending.generation, pending.pid) == ("live", GENERATION, os.getpid())
-    assert _journal_path().read_bytes() == b"", "a run that ends clears its journal"
+    assert journal_path().read_bytes() == b"", "a run that ends clears its journal"
 
 
 def test_a_journaled_run_inside_the_lock_runs_under_it(channels: _Channels) -> None:
@@ -353,7 +333,7 @@ def test_a_journaled_run_inside_the_lock_runs_under_it(channels: _Channels) -> N
 def test_a_dead_run_restores_in_max_step_writes_before_the_run(
     channels: _Channels, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    path = _plant({"Q": 0.0, "S": 5.0})
+    path = plant({"Q": 0.0, "S": 5.0})
     seen: list[list[tuple[str, Any]]] = []
 
     with lock("live"):
@@ -369,7 +349,7 @@ def test_a_dead_run_restores_in_max_step_writes_before_the_run(
 def test_an_incomplete_restore_keeps_what_stayed_displaced_and_does_not_start(
     channels: _Channels, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    path = _plant({"Q": 0.0, "S": 4.0})
+    path = plant({"Q": 0.0, "S": 4.0})
 
     def refuse_q(address: str, value: Any, **kwargs: Any) -> None:
         if address == "Q":
@@ -391,7 +371,7 @@ def test_an_incomplete_restore_keeps_what_stayed_displaced_and_does_not_start(
 
 
 def test_a_journal_for_another_generation_is_stale(channels: _Channels) -> None:
-    path = _plant({"Q": 0.0}, generation=GENERATION - 1)
+    path = plant({"Q": 0.0}, generation=GENERATION - 1)
     before = path.read_bytes()
 
     with pytest.raises(OspreyStaleJournal, match="after checking the listed setpoints"):
@@ -403,8 +383,7 @@ def test_a_journal_for_another_generation_is_stale(channels: _Channels) -> None:
 
 
 def test_a_header_only_journal_is_cleared(channels: _Channels) -> None:
-    path = _journal_path()
-    path.write_text(json.dumps({"header": {"target": "live"}}) + "\n", encoding="utf-8")
+    path = plant_raw([json.dumps({"header": {"target": "live"}})])
 
     with journaled_run("live"):
         lines = path.read_text(encoding="utf-8").splitlines()
