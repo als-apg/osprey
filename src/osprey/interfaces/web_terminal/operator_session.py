@@ -35,6 +35,7 @@ from osprey.agent_runner import (
 from osprey.agent_runner.clean_env import build_clean_env
 from osprey.agent_runner.sdk_context import build_system_prompt
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
+from osprey.build.claude_code_telemetry import terminal_session_env
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
 from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
@@ -241,11 +242,13 @@ def build_operator_child_env(
     # key names whose posture applies and the root names the directory the
     # answer is read out of, and a child holding one but not the other would
     # look for that state in a directory it had to guess.
+    # The terminal session travels with the posture session and equals it.
     if session_key:
         env[POSTURE_SOURCE_ENV] = posture_source
         env[POSTURE_SESSION_ENV] = session_key
         env[OSPREY_AGENT_DATA_ROOT] = resolve_agent_data_root(app)
         env["OSPREY_SESSION_ID"] = session_key
+        env.update(terminal_session_env(session_key, env))
 
     return env
 

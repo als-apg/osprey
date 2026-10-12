@@ -23,6 +23,7 @@ from starlette.concurrency import run_in_threadpool
 
 from osprey.agent_runner.launcher import NoConversationWatch, build_session_argv
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
+from osprey.build.claude_code_telemetry import terminal_session_env
 from osprey.interfaces.common_middleware import (
     HTTP_MUTATION_POSTURE,
     HTTP_MUTATION_SURFACE,
@@ -543,10 +544,14 @@ def _build_extra_env(
     # authoritative for all of them; a child that held the key without it would
     # be told whose posture to read and left to guess where. Never one without
     # the other, and a test pins that.
+    #
+    # The terminal session travels with the posture session and equals it, so
+    # the child's OTLP resource and its ledger lines carry one value.
     if session_key:
         extra_env[POSTURE_SOURCE_ENV] = POSTURE_SOURCE_LIVE
         extra_env[POSTURE_SESSION_ENV] = session_key
         extra_env[OSPREY_AGENT_DATA_ROOT] = resolve_agent_data_root(websocket.app)
+        extra_env.update(terminal_session_env(session_key, os.environ))
     return extra_env
 
 

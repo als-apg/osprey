@@ -111,6 +111,11 @@ def build_pty_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
 #:   (``live``) on this seam, so it never forces a respawn, and leaving it in
 #:   keeps the deny list to names that provably differ per connection.
 #:
+#: * ``OSPREY_TERMINAL_SESSION`` — stamped beside ``OSPREY_POSTURE_SESSION``
+#:   with the same value, so the same shape.
+#: * ``OTEL_RESOURCE_ATTRIBUTES`` — rewritten on the same spawn to carry that
+#:   session as ``terminal.session``; otherwise the process's own value.
+#:
 #: Fingerprinting any of these would make a mere reconnect or tab-switch kill a
 #: running agent session, which is the liveness half of this contract.
 POOL_FINGERPRINT_EXCLUDED_ENV = frozenset(
@@ -119,6 +124,8 @@ POOL_FINGERPRINT_EXCLUDED_ENV = frozenset(
         "OSPREY_TELEMETRY_SESSION_ID",
         "OSPREY_TELEMETRY_SESSION_START",
         "OSPREY_POSTURE_SESSION",
+        "OSPREY_TERMINAL_SESSION",
+        "OTEL_RESOURCE_ATTRIBUTES",
     }
 )
 

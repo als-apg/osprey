@@ -41,6 +41,7 @@ from osprey.agent_runner.artifact_resolve import (
 from osprey.agent_runner.claude_state import is_untrusted_allow_rules_notice
 from osprey.agent_runner.errors import AgentCliUnavailableError
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
+from osprey.build.claude_code_telemetry import DISPATCH_SESSION_PREFIX, terminal_session_env
 from osprey.mcp_server.dispatch_worker import failure_class, run_stats
 from osprey.mcp_server.dispatch_worker.prior_answers import (
     PRIOR_ANSWER_RUNS_ENV,
@@ -465,6 +466,13 @@ async def run_dispatch(
     # session id — a dispatch run is not an interactive session.
     if run_id:
         sdk_env["OSPREY_DISPATCH_RUN_ID"] = run_id
+
+    # The run's terminal session, so its OTLP resource and its ledger lines
+    # carry one value. Only this variable: the posture pair stays unset, because
+    # the posture session decides approval stamps, in-flight attribution and
+    # per-session write blocking, and a dispatched job has none of its own.
+    if run_id:
+        sdk_env.update(terminal_session_env(f"{DISPATCH_SESSION_PREFIX}{run_id}", sdk_env))
 
     # ``build_clean_env`` copies the worker's own environment, so a stray value
     # there would otherwise widen every run. The set is fixed at spawn and read

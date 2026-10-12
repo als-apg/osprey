@@ -592,6 +592,10 @@ UNKNOWN_IDENTITY = "unknown"
 #: process was not launched by a posture-carrying spawn site at all.
 POSTURE_SOURCE_ENV = "OSPREY_POSTURE_SOURCE"
 POSTURE_SESSION_ENV = "OSPREY_POSTURE_SESSION"
+#: The launch-scoped terminal session, for a process with no posture session of
+#: its own (a dispatched job, a host chat). Mirrors
+#: ``osprey.audit.envelope.TERMINAL_SESSION_ENV``; read by exact name.
+TERMINAL_SESSION_ENV = "OSPREY_TERMINAL_SESSION"
 
 #: The closed set of provenances a record may claim for its posture, and the
 #: one a child-side emitter uses when the marker is absent, blank or
@@ -809,7 +813,9 @@ def emit_audit(hook_name, hook_input, decision, subject, reason, detail=None, to
     try:
         record = {"ts": datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")}
         identity = acting_identity()
-        session = _audit_component(os.environ.get(POSTURE_SESSION_ENV))
+        session = _audit_component(os.environ.get(POSTURE_SESSION_ENV)) or _audit_component(
+            os.environ.get(TERMINAL_SESSION_ENV)
+        )
         sandboxed = os.environ.get(EXECUTION_MODE_ENV) == READONLY_MODE
         record["surface"] = audit_surface(hook_name)
         record["actor"] = identity

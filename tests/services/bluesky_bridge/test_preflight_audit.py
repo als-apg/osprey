@@ -153,6 +153,9 @@ def test_a_person_owned_plan_carries_its_owner_and_channels(ledger):
     assert bound_owner() is NO_OWNER
 
     (record,) = ledger()
+    keys = list(record)
+    assert record["on_behalf_of"] == "alice"
+    assert keys.index("on_behalf_of") == keys.index("session") + 1
     detail = record["detail"]
     assert detail.startswith("lane=bluesky_va target=va addresses=3 owner=alice ")
     assert f"digest={_digest('A:1', 'B:2')}" in detail
@@ -167,6 +170,7 @@ def test_no_owner_gives_no_owner_token(ledger):
 
     (record,) = ledger()
     assert "owner=" not in record["detail"]
+    assert "on_behalf_of" not in record
 
 
 def test_the_digest_ignores_declaration_order(ledger):

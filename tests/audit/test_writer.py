@@ -1054,6 +1054,78 @@ class TestAuditDirSeam:
         assert module_scope_imports == []
 
 
+class TestNonFiniteNumbers:
+    """A ledger line is strict JSON, whatever number a record was handed."""
+
+    @staticmethod
+    def _strict(line: str) -> dict:
+        def refuse(token: str) -> float:
+            raise AssertionError(f"the line carries the bare token {token}")
+
+        return json.loads(line, parse_constant=refuse)
+
+    def test_nan_inside_facts_round_trips_and_keeps_the_rest(self, audit_root):
+        assert not audit_root.exists()
+        record = {
+            "ts": "t",
+            "surface": "tool_call",
+            "actor": "alice",
+            "tool_use_id": "toolu_1",
+            "duration_ms": 3.5,
+            "arguments": {"value": 1.25},
+            "facts": {"old_values": {"A:1": float("nan"), "A:2": 2.0}},
+        }
+
+        path = writer.append_record("tool_call", record)
+
+        (line,) = path.read_text().splitlines()
+        stored = self._strict(line)
+        assert stored["facts"]["old_values"] == {"A:1": "NaN", "A:2": 2.0}
+        expected = {**record, "facts": {"old_values": {"A:1": "NaN", "A:2": 2.0}}}
+        assert stored == expected
+        assert list(stored) == list(record)
+
+    def test_every_non_finite_value_is_named(self):
+        record = {
+            "a": [float("inf"), (float("-inf"), 1.0)],
+            "b": {"c": [{"d": float("nan")}]},
+            float("inf"): "key",
+        }
+        stored = self._strict(writer._encode(record).decode())
+        assert stored == {
+            "a": ["Infinity", ["-Infinity", 1.0]],
+            "b": {"c": [{"d": "NaN"}]},
+            "Infinity": "key",
+        }
+
+    def test_the_caller_s_record_is_not_modified(self):
+        record = {"facts": {"old_values": [float("nan")]}}
+        writer._encode(record)
+        (value,) = record["facts"]["old_values"]
+        assert value != value
+
+    def test_a_finite_record_is_encoded_in_one_pass(self, monkeypatch):
+        """The walk is for the rare record that needs it, never the hot path."""
+
+        def unexpected(value):
+            raise AssertionError(f"a finite record was walked: {value!r}")
+
+        monkeypatch.setattr(writer, "_finite", unexpected)
+        record = {"a": 1.5, "b": [1, 2.0, {"c": None}], "d": "x"}
+        assert writer._encode(record) == b'{"a":1.5,"b":[1,2.0,{"c":null}],"d":"x"}\n'
+
+    def test_an_unencodable_record_is_still_refused(self):
+        """Only numbers are spelled out; anything else keeps the encoder's verdict."""
+        with pytest.raises(TypeError):
+            writer._encode({"a": object()})
+
+    def test_an_envelope_line_is_strict_json(self, audit_root):
+        path = writer.record_envelope(make_envelope(on_behalf_of="bob"))
+        assert audit_root in path.parents
+        (line,) = path.read_text().splitlines()
+        assert self._strict(line)["on_behalf_of"] == "bob"
+
+
 class TestMarkerSpelling:
     """The writer marker's spelling is a wire contract with the registry.
 

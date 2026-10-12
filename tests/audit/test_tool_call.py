@@ -191,6 +191,7 @@ def test_the_record_keeps_its_documented_order() -> None:
         "session",
         "session_id",
         "tool_use_id",
+        "duration_ms",
         "server",
         "subject",
         "decision",
@@ -203,8 +204,66 @@ def test_the_record_keeps_its_documented_order() -> None:
         "error",
         "is_error",
         "facts",
-        "duration_ms",
     ]
+
+
+def _full_record(**overrides):
+    fields = {
+        "ts": "t",
+        "actor": "a",
+        "posture": "writes",
+        "posture_source": "process",
+        "session": None,
+        "session_id": "c",
+        "tool_use_id": "u",
+        "server": "controls",
+        "subject": "s",
+        "decision": "allowed",
+        "reason": "tool_call",
+        "approval": None,
+        "target": "va",
+        "generation": 3,
+        "arguments": {"x": 1},
+        "arguments_ref": None,
+        "result": "r",
+        "result_ref": None,
+        "error": None,
+        "is_error": False,
+        "facts": {},
+        "duration_ms": 12.5,
+    }
+    fields.update(overrides)
+    return tool_call.build_record(**fields)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"arguments": {"x": 1}, "arguments_ref": None},
+        {"arguments": None, "arguments_ref": {"size": 1}},
+    ],
+)
+def test_the_duration_comes_before_either_payload(payload: dict) -> None:
+    """A line cut short inside its payload still says how long the call took."""
+    keys = list(_full_record(**payload))
+    payload_key = "arguments_ref" if payload["arguments_ref"] else "arguments"
+    assert keys.index("duration_ms") == keys.index("tool_use_id") + 1
+    assert keys.index("duration_ms") < keys.index(payload_key)
+
+    line = json.dumps(_full_record(**payload), separators=(",", ":"))
+    assert '"duration_ms":12.5' in line[: line.index(f'"{payload_key}"')]
+
+
+def test_an_unset_session_takes_the_terminal_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OSPREY_TERMINAL_SESSION", "dispatch-42")
+    assert _full_record(session=None)["session"] == "dispatch-42"
+    assert _full_record(session="pty-3")["session"] == "pty-3"
+
+
+def test_no_session_anywhere_stays_null(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OSPREY_TERMINAL_SESSION", raising=False)
+    monkeypatch.setenv("OSPREY_TERMINAL_SESSION_LIFETIME", "43200")
+    assert _full_record(session=None)["session"] is None
 
 
 # ---- image blocks -----------------------------------------------------------
