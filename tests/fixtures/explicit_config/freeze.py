@@ -49,7 +49,7 @@ listed under ``masked_keys`` in ``meta.json``:
     business; which providers reach the render is this fixture's business.
 ``project_root``
     Deleted. The absolute path of the scratch directory the freeze ran in.
-    Verified to be the only machine-specific value in the render: the script
+    Verified to be the only machine-specific path in the render: the script
     re-scans every masked document for the scratch root and for the invoking
     user's home directory and fails if either survives.
 ``execution.environment``
@@ -57,6 +57,9 @@ listed under ``masked_keys`` in ``meta.json``:
     ``execution.environment.python`` resolves to an interpreter path on a
     machine that has one, so the block cannot be frozen. ``execution_method``
     is kept.
+``deployment.host_identity``
+    Deleted (and ``deployment`` with it when nothing else is left).
+    ``osprey build`` records the account that ran it, which differs per host.
 
 The CLI runs with every ``*_API_KEY`` variable removed from the environment, so
 which provider keys happen to be exported on the freezing machine cannot reach
@@ -152,6 +155,7 @@ STRIPPED_KEYS: Mapping[str, str] = {
     "execution.environment": (
         "execution.environment.python resolves to an interpreter path on a machine that has one"
     ),
+    "deployment.host_identity": "the account that ran the build, recorded by osprey build",
 }
 
 #: Keys replaced rather than deleted, with what replaces them.
@@ -237,6 +241,14 @@ def mask_document(document: Mapping[str, Any]) -> dict[str, Any]:
         execution = dict(execution)
         execution.pop("environment")
         masked["execution"] = execution
+
+    deployment = masked.get("deployment")
+    if isinstance(deployment, Mapping) and "host_identity" in deployment:
+        deployment = {k: v for k, v in deployment.items() if k != "host_identity"}
+        if deployment:
+            masked["deployment"] = deployment
+        else:
+            masked.pop("deployment")
 
     return masked
 

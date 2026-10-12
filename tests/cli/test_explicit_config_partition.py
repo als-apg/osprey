@@ -25,6 +25,11 @@ preset admits), the keys of the frozen root render are partitioned into:
     ``services.graphdb.ttl_path`` for a preset that spells a graph store block
     and names no corpus: :func:`~osprey.cli.build_injectors.graphdb_corpus_fill`
     supplies the graph view the build writes.
+``W``
+    Keys the build or ``osprey init`` writes that no preset states: the MCP
+    health address a render serving web terminals pins, the bundled record
+    archive's compose directory, and each persona-catalog
+    entry's project name and directory.
 ``B``
     Keys a profile SECTION other than ``config:`` stands for — the ``bluesky:``
     bridge and its panel, the ``va_archiver:`` store and recorder, the
@@ -37,7 +42,7 @@ none of them is a key nothing documents; a key in two is one fact with two
 homes, which is exactly what the refusals in :mod:`osprey.cli.derived_keys`
 and the ``va_archiver`` duplicate check exist to prevent.
 
-The fixtures were frozen at the last commit before the conversion, with
+The fixtures are frozen by ``freeze.py`` from the live tree, with
 ``api.providers`` masked to a sorted name list and ``project_root`` /
 ``execution.environment`` stripped (see ``meta.json``); both masked keys are
 members of ``D``, so the partition is unaffected.
@@ -56,6 +61,7 @@ import yaml
 
 from osprey.cli.build_injectors import graphdb_corpus_fill
 from osprey.cli.build_profile_archiver import _expand_dotted
+from osprey.cli.build_profile_health import MCP_URL_KEY
 from osprey.cli.build_profile_merge import _resolve_extends
 from osprey.cli.build_profile_ports import layout_port_fill
 from osprey.cli.build_profile_presets import _load_preset_raw
@@ -73,14 +79,6 @@ _PORT_LEAF = re.compile(r"^services\.[^.]+\.(port|port_host|http_port_host)$")
 #: sorted list of names, so it is a single leaf there.
 _PROVIDERS_KEY = "api.providers"
 
-#: What the standalone presets gain under ``api.providers`` from the packaged
-#: catalog: the four entries their own templates never carried (Requirement 1).
-_STANDALONE_GAINS = frozenset({"amsc-i2", "stanford", "argo", "ds4"})
-
-#: Entries the catalog carries that no frozen render had, in every preset: the
-#: embeddings-only llama-cpp, which an embedding module names as its provider.
-_CATALOG_GAINS = frozenset({"llama-cpp"})
-
 #: Keys whose rendered VALUE is legitimately not the preset's: the build
 #: resolves ``auto`` to the runtime it used, the injectors append every service
 #: a profile section deploys, and ``osprey init`` repoints the persona catalog
@@ -91,6 +89,14 @@ _VALUE_REWRITTEN_BY_BUILD = ("container_runtime", "deployed_services")
 #: (``landing_group``) is compared like any preset value.
 _VALUE_REWRITTEN_BY_INIT_PATTERN = re.compile(
     r"^modules\.web_terminals\.personas\.[^.]+\.(project|project_path|build_profile)$"
+)
+#: Keys the build or ``osprey init`` writes that no preset states: the MCP
+#: health address a render serving web terminals pins
+#: (:mod:`osprey.cli.build_profile_health`), the compose directory of the
+#: record archive the build bundles, and the project name and directory
+#: ``osprey init`` gives each persona-catalog entry from its ``build_profile``.
+_WRITTEN_BY_BUILD_PATTERN = re.compile(
+    rf"^({re.escape(MCP_URL_KEY)}|services\.archive\.path|modules\.web_terminals\.personas\.[^.]+\.(project|project_path))$"
 )
 
 
@@ -117,123 +123,8 @@ def _leaves(node: Any, prefix: tuple[str, ...] = ()) -> Iterator[tuple[str, Any]
         yield ".".join(prefix), node
 
 
-#: Leaves the frozen renders carry that no preset states any more.
-#:
-#: The fixtures are a baseline, never re-frozen, so a key a preset has since
-#: stopped rendering stays in them forever and would read here as a rendered
-#: key with no source. These three named the OSPREY project's own mailbox,
-#: tracker and documentation site; each preset documents them as a commented
-#: example now, and the code defaults still apply, so the rendered document is
-#: simply three leaves shorter. The same three are declared in
-#: ``test_explicit_config_equivalence.CELL_DELTAS`` — that table is what pins
-#: the divergence; this set only keeps the partition reading the render as it
-#: is produced today. The three ``claude_code.agent_models`` leaves are the
-#: helper-agent pins control-assistant carried; it pins none now, so every agent
-#: runs the deployment's main model, and no preset renders the key.
-#: ``facility.name`` has no reader: the display name is the facility identity's,
-#: so no preset states the leaf. ``facility.prefix`` is deleted:
-#: container names and persona projects come from the project name. The two
-#: ``simulation_file`` leaves are deleted: every connector serves the simulator
-#: view the build writes, so no connector block names a model file. The
-#: ``project``/``project_path`` leaves of each control-assistant persona entry
-#: are gone too: an entry that names a ``build_profile`` takes its project name
-#: and directory from that profile, so the catalog no longer spells them.
-_RETIRED_SINCE_THE_FREEZE = frozenset(
-    {
-        "web.docs_url",
-        "web.feedback.email",
-        "web.feedback.github_repo",
-        "claude_code.agent_models.channel-finder",
-        "claude_code.agent_models.facility-knowledge-graph",
-        "claude_code.agent_models.logbook-deep-research",
-        "facility.name",
-        "facility.prefix",
-        "control_system.connector.mock.simulation_file",
-        "control_system.connector.virtual_accelerator.simulation_file",
-        *(
-            f"modules.web_terminals.personas.{persona}.{key}"
-            for persona in ("admin", "knowledge", "logbook", "readonly", "readwrite")
-            for key in ("project", "project_path")
-        ),
-    }
-)
-
-#: Leaves a preset still states whose VALUE moved since the freeze, mapped to
-#: the value the frozen renders carry. ``control-assistant`` baselined its
-#: sessions on the live stand-in when the fixtures were frozen and opens them on
-#: the sandbox simulator now, so the frozen render holds the old value. The
-#: frozen value is asserted before the key is skipped, so the exception proves
-#: the freeze rather than blinding the comparison; the difference itself is
-#: pinned in ``test_explicit_config_equivalence.CELL_DELTAS``. The two presets
-#: that carry a text-embedding block now state each model's input window
-#: (``max_input_tokens``), so the frozen renders hold the models list as it was
-#: before that key existed; lists are leaves here, so the whole list is the
-#: frozen value. ``control-assistant`` authors its knowledge pages inside the
-#: facility tree now (``data/facility/knowledge``), so the frozen renders hold
-#: the bundle's old top-level directory; the difference is pinned in
-#: ``test_explicit_config_equivalence.CELL_DELTAS`` by ``_knowledge_bundle_deltas``.
-_VALUE_MOVED_SINCE_THE_FREEZE = {
-    "control_system.type": "live_standin",
-    "facility_knowledge.bundle_path": "data/facility_knowledge",
-    "ariel.enhancement_modules.text_embedding.models": [
-        {"dimension": 768, "name": "nomic-embed-text"}
-    ],
-}
-
-#: The same, for a leaf one cell alone retired, keyed by fixture directory.
-#:
-#: ``hello-world`` gates the two ARIEL logbook tools while disabling the server
-#: that serves them, so both rows were inert; dropping them leaves the frozen
-#: render carrying an ``entry_create`` the preset no longer states. The other
-#: presets that spell an ARIEL approval policy still render both rows, which is
-#: why this retirement is per cell rather than global — subtracting the leaf
-#: from every render would read as those presets stating a key that never
-#: arrives. The same difference is declared in
-#: ``test_explicit_config_equivalence.CELL_DELTAS``.
-_RETIRED_PER_CELL: Mapping[str, frozenset[str]] = {
-    "hello-world/unset": frozenset({"approval.tools.entry_create"}),
-}
-
-#: Leaves retired since the freeze from one persona document of every
-#: control-assistant cell. The logbook and knowledge personas drop the JUPYTER
-#: panel, whose kernels reach the control target, so the switch their frozen
-#: renders carry is no longer one their preset selects.
-_RETIRED_PER_DOCUMENT: Mapping[str, frozenset[str]] = {
-    "knowledge": frozenset({"web.panels.jupyter.enabled"}),
-    "logbook": frozenset({"web.panels.jupyter.enabled"}),
-}
-
-
-#: Panel switches a preset's selection renders that the frozen renders lack.
-#: ``control-assistant`` lists ``lattice`` in ``web_panels:``, so its root
-#: render carries ``web.panels.lattice.enabled`` and the freeze does not; the
-#: difference is pinned in ``test_explicit_config_equivalence.CELL_DELTAS`` by
-#: ``_lattice_panel_deltas``.
-_PANELS_GAINED_SINCE_THE_FREEZE = frozenset({"web.panels.lattice.enabled"})
-
-
-#: The ARIEL picture-module leaves the presets state; the freeze predates them.
-_PICTURE_MODULE_KEYS = (
-    "ariel.attachments.copy_on_ingest",
-    "ariel.attachments.view.enabled",
-    "ariel.enhancement_modules.image_caption.enabled",
-    "ariel.enhancement_modules.image_caption.provider",
-    "ariel.enhancement_modules.image_caption.model.model_id",
-    "ariel.enhancement_modules.image_embedding.enabled",
-    "ariel.enhancement_modules.image_embedding.provider",
-    "ariel.enhancement_modules.image_embedding.model",
-    "ariel.enhancement_modules.image_embedding.dimensions",
-)
-
-
 def _render(directory: str, document: str = "root") -> dict[str, Any]:
-    retired = (
-        _RETIRED_SINCE_THE_FREEZE
-        | _RETIRED_PER_CELL.get(directory, frozenset())
-        | _RETIRED_PER_DOCUMENT.get(document, frozenset())
-    )
-    frozen = _leaves(yaml.safe_load((FIXTURE_ROOT / directory / f"{document}.yml").read_text()))
-    return {key: value for key, value in frozen if key not in retired}
+    return dict(_leaves(yaml.safe_load((FIXTURE_ROOT / directory / f"{document}.yml").read_text())))
 
 
 def _preset_document(preset: str) -> dict[str, Any]:
@@ -311,7 +202,7 @@ def _panel_switches(document: Mapping[str, Any]) -> set[str]:
 
 
 def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[str, set[str]]:
-    """Split the render's keys into the seven named sets, in claim order.
+    """Split the render's keys into the eight named sets, in claim order.
 
     Claim order matters only where a key could be read two ways: a port leaf
     of a block-derived service (``services.bluesky.port``) is that block's,
@@ -330,6 +221,7 @@ def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[s
         "B": set(),
         "Ports": set(),
         "Corpus": set(),
+        "W": set(),
         "C": set(),
     }
     for key in render:
@@ -345,6 +237,8 @@ def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[s
             sets["Ports"].add(key)
         elif key in corpus:
             sets["Corpus"].add(key)
+        elif _WRITTEN_BY_BUILD_PATTERN.match(key) and key not in config:
+            sets["W"].add(key)
         elif key in config:
             sets["C"].add(key)
     return sets
@@ -372,82 +266,13 @@ def test_root_render_is_partitioned_between_its_sources(
     assert sum(len(members) for members in sets.values()) == len(render)
 
     # The panel-switch term is exactly the field's selection: every selected
-    # panel renders its switch, and nothing else renders one there. A panel
-    # the preset gained after the freeze is selected but absent from the render.
-    expected_panels = _panel_switches(document) - _PANELS_GAINED_SINCE_THE_FREEZE
-    assert sets["Panels"] == expected_panels, directory
+    # panel renders its switch, and nothing else renders one there.
+    assert sets["Panels"] == _panel_switches(document), directory
     assert not {key for key in config if key in sets["Panels"]}
 
-    # Every key the preset states reaches the render, save the ones the
-    # fixtures were frozen before: hello-world gains `hooks.debug: false`,
-    # which the old template shipped commented out; every preset that spells an
-    # ARIEL approval policy gains `approval.tools.entry_publish`, the logbook
-    # write-through that was gated nowhere when the freeze ran; every preset
-    # that names its approval policy tool by tool gains the three panel-rail
-    # verbs, which decide what an operator can launch at all and were likewise
-    # gated nowhere then; and every preset that carries a `channel_finder`
-    # block gains `channel_finder.query_max_rows`, the middle-layer SQL row
-    # cap, which was a number fixed in the tool; every preset that keeps
-    # transcripts past Claude Code's own 30 days gains
-    # `claude_code.transcripts.retention_days`; control-assistant gains
-    # the tool-content gate and the content limit, which the telemetry block
-    # did not carry when the freeze ran; and every preset that turns on the
-    # full tool-call record gains its two `audit.tool_call.*` keys, which
-    # did not exist when the freeze ran; and every preset that carries a
-    # keyword block gains its `fuzzy_threshold`, the fuzzy-fallback floor,
-    # which was a number fixed in the keyword module; and control-assistant
-    # gains the readiness-probe bound, which was a constant when the freeze ran;
-    # and every preset gains `simulation.models` and `simulation.tick_s`, which
-    # did not exist when the freeze ran either, and control-assistant gains
-    # `simulation.default_scenarios`, its start set, for the same reason; and
-    # every preset that reaches no
-    # machine gains `web.control_target_picker`, which did not exist when the
-    # freeze ran; and every preset that carries an `ariel:` block gains the
-    # picture modules (`image_caption`, `image_embedding`) and the two
-    # `ariel.attachments` switches, none of which existed when the freeze ran;
-    # and every preset that carries an `ariel:` block gains
-    # `ariel.vocabulary.expand_entries`, the entry-side vocabulary switch,
-    # which did not exist when the freeze ran.
+    # Every key the preset states reaches the render.
     missing = set(config) - set(render)
-    expected_gain = {"hooks.debug"} if preset == "hello-world" else set()
-    if "approval.tools.entry_publish" in config:
-        expected_gain = expected_gain | {"approval.tools.entry_publish"}
-    for tool in ("add_panel_to_rail", "remove_panel_from_rail", "register_panel"):
-        if f"approval.tools.{tool}" in config:
-            expected_gain = expected_gain | {f"approval.tools.{tool}"}
-    if "channel_finder.query_max_rows" in config:
-        expected_gain = expected_gain | {"channel_finder.query_max_rows"}
-    if "claude_code.transcripts.retention_days" in config:
-        expected_gain = expected_gain | {"claude_code.transcripts.retention_days"}
-    for key in (
-        "claude_code.telemetry.log_tool_content",
-        "claude_code.telemetry.content_max_length",
-    ):
-        if key in config:
-            expected_gain = expected_gain | {key}
-    for key in ("audit.tool_call.enabled", "audit.tool_call.max_inline_bytes"):
-        if key in config:
-            expected_gain = expected_gain | {key}
-    if "ariel.search_modules.keyword.settings.fuzzy_threshold" in config:
-        expected_gain = expected_gain | {"ariel.search_modules.keyword.settings.fuzzy_threshold"}
-    if "control_system.target_switch.probe_timeout_s" in config:
-        expected_gain = expected_gain | {"control_system.target_switch.probe_timeout_s"}
-    if "simulation.models" in config:
-        expected_gain = expected_gain | {"simulation.models"}
-    if "simulation.tick_s" in config:
-        expected_gain = expected_gain | {"simulation.tick_s"}
-    if "simulation.default_scenarios" in config:
-        expected_gain = expected_gain | {"simulation.default_scenarios"}
-    if "web.control_target_picker" in config:
-        expected_gain = expected_gain | {"web.control_target_picker"}
-    for key in _PICTURE_MODULE_KEYS:
-        if key in config:
-            expected_gain = expected_gain | {key}
-    if "ariel.vocabulary.expand_entries" in config:
-        expected_gain = expected_gain | {"ariel.vocabulary.expand_entries"}
-    assert missing == expected_gain, (
-        f"{directory}: preset keys absent from the render: {sorted(missing)}"
-    )
+    assert not missing, f"{directory}: preset keys absent from the render: {sorted(missing)}"
 
     # A preset must spell nothing the build renders on its own.
     for name in ("D", "P", "Panels", "B", "Ports", "Corpus"):
@@ -468,11 +293,6 @@ def test_preset_values_reach_the_render_unchanged(
         if key not in render:
             continue
         if _VALUE_REWRITTEN_BY_INIT_PATTERN.match(key):
-            continue
-        if key in _VALUE_MOVED_SINCE_THE_FREEZE and render[key] != value:
-            assert render[key] == _VALUE_MOVED_SINCE_THE_FREEZE[key], (
-                f"{directory}: {key}: frozen {render[key]!r}"
-            )
             continue
         if key == "container_runtime":
             assert value == "auto"
@@ -503,24 +323,13 @@ def test_ports_are_the_layout_fill_and_nothing_else(
         assert render[key] == port, f"{directory}: {key} renders {render[key]}, layout says {port}"
 
 
-@pytest.mark.parametrize(("preset", "_mode", "directory"), _cells())
+@pytest.mark.parametrize(("_preset", "_mode", "directory"), _cells())
 def test_provider_catalog_covers_the_render(
-    preset: str, _mode: str | None, directory: str, tmp_path: Path
+    _preset: str, _mode: str | None, directory: str, tmp_path: Path
 ) -> None:
-    """The packaged catalog carries every provider the old render had.
-
-    The standalones gain the four entries their templates never listed
-    (Requirement 1); every preset gains the embeddings-only llama-cpp entry,
-    and nothing else.
-    """
+    """The render lists exactly the packaged provider catalog."""
     rendered_names = set(_render(directory)[_PROVIDERS_KEY])
-    catalog_names = set(load_provider_catalog(tmp_path).entries)
-    assert rendered_names <= catalog_names
-    gained = catalog_names - rendered_names
-    if preset in {"ariel-standalone", "channel-finder-standalone"}:
-        assert gained == _STANDALONE_GAINS | _CATALOG_GAINS
-    else:
-        assert gained == _CATALOG_GAINS
+    assert rendered_names == set(load_provider_catalog(tmp_path).entries), directory
 
 
 def _persona_cells() -> list[tuple[str, str, str]]:
@@ -550,11 +359,15 @@ def test_persona_render_stays_inside_the_partition(
     config = _config_leaves(document)
     block_prefixes = _block_derived_prefixes(document)
     panel_switches = _panel_switches(document)
+    root_document = _preset_document(preset)
+    corpus = set(graphdb_corpus_fill(dict(root_document.get("config") or {})))
     unclaimed = [
         key
         for key in render
         if not (
             is_derived_key(key)
+            or _WRITTEN_BY_BUILD_PATTERN.match(key)
+            or key in corpus
             or key == _PROVIDERS_KEY
             or key in panel_switches
             or _PORT_LEAF.match(key)

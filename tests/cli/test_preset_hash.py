@@ -52,7 +52,7 @@ def test_compute_preset_hash_sees_extends_parent_change(presets_dir):
     _write(presets_dir, "base", "name: Base\n")
     _write(presets_dir, "child", "extends: base\nname: Child\n")
     before = build_profile.compute_preset_hash("child")
-    _write(presets_dir, "base", "name: Base\nservices:\n  openobserve: {}\n")
+    _write(presets_dir, "base", "name: Base\nservices:\n  telemetry_store: {}\n")
     assert build_profile.compute_preset_hash("child") != before
 
 

@@ -3,22 +3,45 @@ agent_data:
 api:
   providers:
   - als-apg
+  - amsc-i2
   - anthropic
+  - argo
   - cborg
+  - ds4
   - google
+  - llama-cpp
   - ollama
   - openai
+  - stanford
 approval:
   default_policy: always
   enabled: true
   tools:
+    add_panel_to_rail: always
     entry_create: always
+    entry_publish: always
+    register_panel: always
+    remove_panel_from_rail: always
 ariel:
+  attachments:
+    copy_on_ingest: images
+    view:
+      enabled: true
   default_search_mode: hybrid
   demo_narrative: all
   embedding:
     provider: ollama
   enhancement_modules:
+    image_caption:
+      enabled: true
+      model:
+        model_id: qwen3-vl:4b
+      provider: ollama
+    image_embedding:
+      dimensions: 1024
+      enabled: true
+      model: qwen3-vl-embedding-2b
+      provider: llama-cpp
     qmd_export:
       enabled: true
       settings:
@@ -32,6 +55,7 @@ ariel:
       enabled: true
       models:
       - dimension: 768
+        max_input_tokens: 2048
         name: nomic-embed-text
       provider: ollama
   search_modules:
@@ -43,6 +67,7 @@ ariel:
     keyword:
       enabled: true
       settings:
+        fuzzy_threshold: 0.3
         pattern_timeout_seconds: 10.0
         patterns_enabled: true
     semantic:
@@ -54,6 +79,7 @@ ariel:
     canonical_to_shorthand: false
     enabled: false
     expand_by_default: true
+    expand_entries: false
 artifact_server:
   auto_launch: true
   host: 127.0.0.1
@@ -67,27 +93,22 @@ claude_code:
     python:
       enabled: false
   telemetry:
-    backend: openobserve
+    backend: gateway
     enabled: true
     log_assistant_responses: true
     log_raw_api_bodies: true
     log_tool_details: true
     log_user_prompts: true
-    openobserve:
-      org: default
-      password: ${ZO_INGEST_SA_TOKEN}
-      user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
     protocol: http/protobuf
 container_runtime: docker
 deployed_services:
 - postgresql
-- openobserve
+- telemetry_store
+- telemetry_gateway
 - qmd
 - graphdb
 execution:
   execution_method: subprocess
-facility:
-  name: Example Research Facility
 file_paths:
   api_calls_dir: api_calls
   registry_exports_dir: registry_exports
@@ -112,10 +133,6 @@ services:
     query_max_rows: 200
     query_timeout_s: 15
     ttl_path: ./data/graph/facility.ttl
-  openobserve:
-    path: ./services/openobserve
-    port: 10050
-    retention_days: 14
   postgresql:
     database_name: ariel
     path: ./services/postgresql
@@ -125,16 +142,26 @@ services:
     interval: 30
     path: ./services/qmd
     port: 10060
+  telemetry_gateway:
+    path: ./services/telemetry_gateway
+    port: 10051
+  telemetry_store:
+    path: ./services/telemetry_store
+    port: 10804
+    readers:
+    - name: operator
+    retention_days: 14
+simulation:
+  models: null
+  tick_s: 1.0
 system:
   timezone: UTC
 web:
   config_panel:
     enabled: true
+  control_target_picker: false
   default_panel: ariel
-  docs_url: https://als-apg.github.io/osprey
   feedback:
-    email: alice@example.com
-    github_repo: als-apg/osprey
     max_store_bytes: 268435456
   panels:
     ariel:

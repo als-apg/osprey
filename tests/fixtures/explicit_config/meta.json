@@ -1,7 +1,7 @@
 {
   "api_key_env_stripped": true,
-  "baseline_commit": "246198f1c10cb35bcba3b5fc6b58346ef25d6b24",
-  "baseline_sha": "246198f1c",
+  "baseline_commit": "241443d5dac64d337c95e9e45ca5e5d0a49c620d",
+  "baseline_sha": "241443d5dac64d337c95e9e45ca5e5d0a49c620d",
   "cells": [
     "hello-world/unset",
     "control-assistant/in_context",
@@ -16,7 +16,7 @@
   ],
   "completeness": {
     "ariel-standalone/unset": {
-      "build_configs_checked": 6,
+      "build_configs_checked": 7,
       "documents": [
         "root.yml"
       ],
@@ -44,7 +44,7 @@
       "personas": []
     },
     "control-assistant/graph": {
-      "build_configs_checked": 23,
+      "build_configs_checked": 25,
       "documents": [
         "admin.yml",
         "knowledge.yml",
@@ -62,7 +62,7 @@
       ]
     },
     "control-assistant/hierarchical": {
-      "build_configs_checked": 23,
+      "build_configs_checked": 25,
       "documents": [
         "admin.yml",
         "knowledge.yml",
@@ -80,7 +80,7 @@
       ]
     },
     "control-assistant/in_context": {
-      "build_configs_checked": 23,
+      "build_configs_checked": 25,
       "documents": [
         "admin.yml",
         "knowledge.yml",
@@ -98,7 +98,7 @@
       ]
     },
     "control-assistant/middle_layer": {
-      "build_configs_checked": 23,
+      "build_configs_checked": 25,
       "documents": [
         "admin.yml",
         "knowledge.yml",
@@ -116,19 +116,20 @@
       ]
     },
     "hello-world/unset": {
-      "build_configs_checked": 3,
+      "build_configs_checked": 4,
       "documents": [
         "root.yml"
       ],
       "personas": []
     }
   },
-  "external_source": false,
+  "external_source": true,
   "masked_keys": {
     "replaced": {
       "api.providers": "sorted list of provider names, in place of the catalog mapping"
     },
     "stripped": {
+      "deployment.host_identity": "the account that ran the build, recorded by osprey build",
       "execution.environment": "execution.environment.python resolves to an interpreter path on a machine that has one",
       "project_root": "absolute path of the directory the freeze built in"
     }

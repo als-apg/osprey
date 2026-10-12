@@ -294,29 +294,41 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # but the resolved content gained a key, so the advisory fires once on
     # already-deployed projects. The five `extends` children inherit it;
     # channel-finder-standalone and hello-world stand still.
-    "ariel-standalone": ("sha256:54027f2889b8e2f453238b9ab8001054053300ae24e4aec13215b16bbc5f101d"),
+    # The forty-first move, and every preset that deploys a telemetry store:
+    # the telemetry store is ClickHouse behind an OpenTelemetry Collector
+    # gateway. ariel-standalone, hello-world and control-assistant
+    # deploy `telemetry_store` and `telemetry_gateway`, emit with
+    # `claude_code.telemetry.backend: gateway` and state no store
+    # credential under `claude_code.telemetry`, carry
+    # `services.telemetry_store.retention_days`, and name a default reader in
+    # `services.telemetry_store.readers` (`carol` in control-assistant,
+    # `operator` in the two roster-less presets). The five `extends` children
+    # inherit the change. channel-finder-standalone deploys no store and
+    # stands still. A rebuilt project runs a different store, so the staleness
+    # advisory firing on already-deployed projects is the correct signal.
+    "ariel-standalone": ("sha256:2c89e6847871ea21f8d6a4841a038e4ae30a064ea8965d8975de2ec2e05f3628"),
     "channel-finder-standalone": (
         "sha256:8503c046ea3c8a9ef1e3504e68853a5465556d65ec02c4ef790d3a3db32e4763"
     ),
     "control-assistant": (
-        "sha256:f161ef6b401cf55a8af5e54a9ac0e48e023fcd1e5cdae8807822ca6867eab102"
+        "sha256:bc0b8119ab8460bf4e40cc981017130c4b6c0fc3435db11642f283a35e3522da"
     ),
     "control-assistant-admin": (
-        "sha256:69d1e93ef50a72d956d5af110be91f62febea0bf0b7937c0733563be6bf36277"
+        "sha256:2e127cc7c0f294a9f10d5a7f9e42771659f41fdcff69572e482580006b0de678"
     ),
     "control-assistant-knowledge": (
-        "sha256:3d78e2665a0ae2c82468cb9ac8e6c466935551f747e4a46550daa5d883862bbd"
+        "sha256:cf0703e80ead1ed7a69df98817191c5a5e70055ad614136038c73a18dd10c2ea"
     ),
     "control-assistant-logbook": (
-        "sha256:9cb24f535ed5c7a0a7880ede08b23e9865dd365fd2eda311594e463e8338ac72"
+        "sha256:59210330f7ba9ab7dec810f88c0281ef464268e2bfb15b2476106b68f3961e4f"
     ),
     "control-assistant-readonly": (
-        "sha256:64dcc0c716bc947b0f767065c2ac1f8b40239ce00cd45919385a2e8107a29cc9"
+        "sha256:94774aee878c7d85e620c50d9f3da38b9ec3033a234aef81e77b7f8505e5dd2e"
     ),
     "control-assistant-readwrite": (
-        "sha256:2d3b9f6ea714c94ec6877fdbea487c5244fa1b51a9ef236ebcaff93722646925"
+        "sha256:e66025b8305f8aaea17489cecef83cea98be2d441f834205c1c5c758a2691381"
     ),
-    "hello-world": ("sha256:274f48f804eea7f86fb14d30673e9935cf325bd5236f9de2361d4a07a34c275d"),
+    "hello-world": ("sha256:7c70f737295971c63093e823a2021e78251ca6c285b5da4c1f04cb0afd964803"),
 }
 
 
