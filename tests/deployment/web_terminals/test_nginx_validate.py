@@ -1134,3 +1134,100 @@ def _status(response: str) -> str:
     """The status code of the one HTTP response in *response* (nginx's access
     log shares the container's stdout, so lines around it are not the response)."""
     return next(line for line in response.splitlines() if line.startswith("HTTP/")).split(" ")[1]
+
+
+@pytest.mark.parametrize("tls", [False, True], ids=["plain", "tls"])
+def test_the_readers_server_passes_nginx_t(tls: bool) -> None:
+    """The readers' origin is a config nginx accepts, in both listener shapes.
+
+    Its constructs are ones a string match cannot vouch for: two `map`s at http
+    level whose values hold variables, a `proxy_pass` to a target built from
+    one, a named location reached only through `error_page`, and `if` blocks
+    that stand beside a proxy in the same location.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        conf_dir = tmp_path / "conf"
+        certs_dir = tmp_path / "certs"
+        conf_dir.mkdir()
+        certs_dir.mkdir()
+        tls_stanza = None
+        if tls:
+            cert_path, key_path = _generate_self_signed_cert(certs_dir)
+            tls_stanza = {
+                "enabled": True,
+                "port": _UNPRIVILEGED_TLS_PORT,
+                "cert": f"/etc/nginx/certs/{cert_path.name}",
+                "key": f"/etc/nginx/certs/{key_path.name}",
+            }
+        config = _config(tls=tls_stanza)
+        config["deployed_services"] = ["telemetry_store"]
+        nginx_conf = render_web_terminals(config)["nginx/nginx.conf"]
+        # Guard against a vacuous green: the server under test is in the file.
+        assert "map $args $osprey_reader_query {" in nginx_conf
+        assert "location @osprey_reader_401 {" in nginx_conf
+        reader_port = default_port("reader")
+        assert f"listen {reader_port}{' ssl' if tls else ''};" in nginx_conf
+        (conf_dir / "default.conf").write_text(nginx_conf)
+
+        result = _run_nginx_t(conf_dir, certs_dir=certs_dir if tls else None)
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("tls", [False, True], ids=["plain", "tls"])
+def test_the_history_page_passes_nginx_t_with_its_gate_snippet_substituted(tls: bool) -> None:
+    """The readers' history locations are a config nginx accepts, snippet and all.
+
+    Driven through the entrypoint's envsubst pass as a deployment drives it, so
+    the history location's `include` resolves to the substituted gate snippet,
+    and the dump shows the gate secret landed in that snippet and nowhere else.
+    """
+    users = ["alice", "bob"]
+    gate_value = "history-gate-secret-value"
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        conf_dir = tmp_path / "conf"
+        certs_dir = tmp_path / "certs"
+        templates_dir = tmp_path / "templates"
+        for directory in (conf_dir, certs_dir, templates_dir):
+            directory.mkdir()
+        tls_stanza = None
+        if tls:
+            cert_path, key_path = _generate_self_signed_cert(certs_dir)
+            tls_stanza = {
+                "enabled": True,
+                "port": _UNPRIVILEGED_TLS_PORT,
+                "cert": f"/etc/nginx/certs/{cert_path.name}",
+                "key": f"/etc/nginx/certs/{key_path.name}",
+            }
+        auth = (
+            {"method": "password"} if tls else {"method": "password", "allow_insecure_http": True}
+        )
+        config = _config(tls=tls_stanza, auth=auth, users=users)
+        config["deployed_services"] = ["telemetry_store"]
+        secrets = _terminal_secrets(users)
+        artifacts = render_web_terminals(config, terminal_secrets=secrets)
+        nginx_conf = artifacts["nginx/nginx.conf"]
+        # Guard against a vacuous green: the locations under test are in the file.
+        assert "location /history/ {" in nginx_conf
+        assert "include /etc/nginx/osprey/history-gate.conf;" in nginx_conf
+        (conf_dir / "default.conf").write_text(nginx_conf)
+        _write_secret_templates(artifacts, templates_dir)
+        assert (templates_dir / "history-gate.conf.template").is_file()
+        secret_env = {terminal_secret_env_var(user): secrets[user] for user in users}
+        secret_env["OSPREY_TERMINAL_SECRET_HISTORY"] = gate_value
+
+        result = _run_nginx_t(
+            conf_dir,
+            certs_dir=certs_dir if tls else None,
+            templates_dir=templates_dir,
+            secret_env=secret_env,
+            command=("nginx", "-T"),
+        )
+
+    assert result.returncode == 0, result.stderr
+    sections = _config_file_sections(result.stdout)
+    gate = sections["/etc/nginx/osprey/history-gate.conf"]
+    assert f'"{gate_value}";' in gate
+    assert sum(gate_value in body for body in sections.values()) == 1

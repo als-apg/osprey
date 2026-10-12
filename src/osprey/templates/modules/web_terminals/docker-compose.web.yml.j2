@@ -560,6 +560,19 @@ services:
     network_mode: host
     labels:
       com.osprey.repo-id: "{{ repo_id }}"
+{%- if nginx_history_gate_file %}
+      {#- Recreates nginx when the history page's gate secret is minted anew: a
+         container reads its `env_file` once, when it is created. #}
+      {{ telemetry_cred_digest_label }}: "${{ "{" }}{{ nginx_cred_digest_env }}:-}"
+    {#- The history page's gate secret, the one value nginx presents to the
+       history app on every request it forwards there. The variable passes the
+       envsubst filter below, which writes it into the history location's
+       snippet; nothing else in this service reads it. Repo-root-relative, like
+       every env file (see MOUNT PATHS in the header); `osprey build` and
+       `osprey up` create it before any compose command reads this document. #}
+    env_file:
+      - {{ nginx_history_gate_file }}
+{%- endif %}
     environment:
       - TZ={{ facility_timezone | default("UTC") }}
       {#- Where the base image's entrypoint writes the envsubst'd snippets, and
@@ -903,6 +916,15 @@ services:
       - {{ (svc.role_env ~ "=" ~ svc.role) | tojson }}
 {%- endif %}
 {%- endfor %}
+{#- The history page's carriers (render.history_carriers): the readers' origin,
+   each roster entry's `history`, the roles marked `history: all`, and the
+   readers with their tables and IdP identities. Empty unless the page is
+   deployed. Inline rather than in `.env.auth` because none is a secret, and a
+   changed line is a changed service definition, which recreates the sidecar.
+   tojson quotes each whole `KEY=value`, as the role table above does. #}
+{%- for line in history_carriers %}
+      - {{ line | tojson }}
+{%- endfor %}
 {#- The roster's shared cards -> OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>=<set>:
    one line per entry that admits anybody beyond its own user, telling the
    sidecar WHO may open this card. An owner-only entry (the default) emits
@@ -967,7 +989,28 @@ services:
     network_mode: host
     labels:
       com.osprey.repo-id: "{{ repo_id }}"
+{%- if telemetry_sender_file_prefix and telemetry_cred_digests.get(svc.audit_identity) %}
+      {#- The sha256 of this terminal's telemetry login file, for the reason
+         the login service carries one for `.env.auth`: a container reads an
+         `env_file` when it is created, so a login minted anew reaches the
+         terminal only if its definition changed. One file per terminal, so
+         one terminal is recreated. Absent on a render outside the deploy
+         path, which has no repo root to read. #}
+      {{ telemetry_cred_digest_label }}: "{{ telemetry_cred_digests[svc.audit_identity] }}"
+{%- endif %}
+{%- if telemetry_sender_file_prefix %}
+    {#- The terminal's telemetry login rides beside the shared runtime
+       secrets as a file of its own: one login and nothing else, named after
+       this terminal's audit identity, so the name the gateway stamps on what
+       it sends is the name its ledger is filed under. Listed whenever the
+       gateway is deployed — `osprey build` and `osprey up` both create the
+       file before any compose command reads this document. #}
+    env_file:
+      - .env.users
+      - {{ telemetry_sender_file_prefix }}{{ svc.audit_identity }}
+{%- else %}
     env_file: .env.users
+{%- endif %}
     environment:
       - CLAUDE_CONFIG_DIR=/data/claude-config
       - HOME=/data/claude-config
@@ -1114,20 +1157,17 @@ services:
          entry: it is not a secret. #}
       - PHOEBUS_REQUIRE_HANDLE=1
 {%- endif %}
-      {#- Where the telemetry store is from inside this container. The agent's
-         launch derives its OTLP endpoint from `claude_code.telemetry` with the
-         host chosen for the running context, and the context it would sniff
-         here is wrong: `/.dockerenv` says "container", which selects the
-         compose DNS name `openobserve` — a name that resolves to nothing under
-         `network_mode: host`, so every metric and log would be dropped with no
-         error anywhere. Under host networking this container's loopback IS
-         the deployment host's, and the store answers there on the port it
-         PUBLISHES — which the emitter reads from `services.openobserve.port`
-         in this persona's own config (inherited from the hosting profile), so
-         no port is declared here. Same convention, same reason, as the
-         dispatch worker's compose. Inert unless telemetry is enabled with
-         backend: openobserve. #}
-      - OSPREY_OTEL_OPENOBSERVE_HOST={{ bind_host }}
+{%- if telemetry_gateway_address %}
+      {#- Where the telemetry gateway is from inside this container. Under
+         `network_mode: host` the gateway answers where it PUBLISHES — the
+         interface `deployment.bind_address` names (loopback for a wildcard),
+         on the published port — never at its compose service name. The pair
+         declares the shape; nothing in the container sniffs for it
+         (`telemetry_config.runtime_gateway_url`). Same macro arm as the
+         dispatch worker's host-networked compose. #}
+      - OSPREY_OTEL_GATEWAY_HOST={{ telemetry_gateway_address[0] }}
+      - OSPREY_OTEL_GATEWAY_PORT={{ telemetry_gateway_address[1] }}
+{%- endif %}
       {#- This user's operator secret, in the container-shape variable the app
          pops at construction (web_auth.OPERATOR_SECRET_ENV). The per-user
          variable it is interpolated FROM is the same one nginx exports and this
@@ -1135,8 +1175,7 @@ services:
          minted under one spelling and read under another — see the OPERATOR
          SECRET section in the header.
 
-         `${VAR:-}` rather than a rendered value, exactly as ZO_INGEST_SA_TOKEN
-         above and for the same reason: the secret stays in the deploy .env and
+         `${VAR:-}` rather than a rendered value: the secret stays in the deploy .env and
          out of this file, out of `git status`, and out of every image layer. It
          is NOT out of `docker inspect` — compose interpolates this at
          container-create time and the result is stored in the container's
@@ -1165,44 +1204,10 @@ services:
          same reason OSPREY_TERMINAL_LANDING_URL above is not — a URL holds no
          `": "` and so is a plain YAML scalar. #}
       - OSPREY_TERMINAL_EXTERNAL_ORIGIN={{ svc.external_origin }}
-      {#- The telemetry ingest identity's SECRET. Every persona's rendered
-         config.yml carries `password: ${ZO_INGEST_SA_TOKEN}` verbatim (the
-         build defers it — the store mints the token, so no build can resolve
-         it), and the agent this container starts re-resolves that reference
-         against its own environment. Without this line the placeholder is
-         still a placeholder inside the container and the terminal refuses to
-         start: `_openobserve_auth_header` is strict at runtime, so a web
-         terminal that cannot resolve it crash-loops behind the proxy.
-
-         Unconditional, unlike the three credentials below: this is not a
-         per-persona entitlement. Every terminal runs an agent that emits
-         telemetry as the same ingest account, so there is no tier to express
-         here — which is also why gating it on a persona set would only
-         produce terminals that fail to start.
-
-         NOT in `.env.users`, though, and that exclusion is deliberate
-         (`env_production._build_env_production_subset`): the account reads
-         back every log and metric in the store, and `.env.users` is a
-         rendered, operator-facing file that `osprey users env` re-writes
-         whole. `${VAR:-}` keeps the secret out of every rendered artifact
-         instead — compose interpolates it at container-create time from the
-         deploy `.env` (the pinned --env-file, see
-         provision.web_stack_compose_cmd), which is where `osprey up` harvests
-         it to (`container_lifecycle._stage_openobserve_identity`, which runs
-         before this stack is brought up).
-
-         The `:-` default only suppresses compose's unset-variable warning. An
-         empty value does NOT quietly half-authenticate: the same strict check
-         refuses a blank credential, so a deploy that never provisioned the
-         token fails where it is visible rather than shipping an agent whose
-         telemetry is silently dropped. #}
-      - ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}
 {%- for name in svc.telemetry_vars %}
       {#- The variables this persona's telemetry block needs: the collector's
          bearer token (`claude_code.telemetry.auth.token_env`) plus every
-         variable the block references, except the two every terminal already
-         receives by a fixed route (the ingest token above, the account name
-         through `.env.users`). Per-user because the names are the persona's
+         variable the block references. Per-user because the names are the persona's
          own. `${VAR:-}` keeps every value in the deploy `.env`, out of this
          rendered file. An empty token is refused at agent start by name, and a
          defaulted reference falls back to its default inside the container
