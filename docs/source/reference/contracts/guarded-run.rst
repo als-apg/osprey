@@ -43,7 +43,9 @@ Beside the lock sits the journal, ``run.journal``, which only a
 the journal, flushed to disk before the write goes out. The journal keeps the
 first value per address only, the value from before the run, however often the
 run writes the address afterwards. Its header line records the control target,
-the target's generation, who is acting, the process id and the start time.
+the target's generation, who is acting, the process id and the start time. The lock and
+the journal are regular files; a link found at either name is refused by name
+and the run does not start.
 
 A write through the guarded path is refused outside a journaled run and
 touches no channel, so no code path writes a device under the guard without
