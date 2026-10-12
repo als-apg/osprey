@@ -222,26 +222,17 @@ def _measurement(render_root: Path, model: str) -> Mapping[str, Any]:
     return {}
 
 
-def _kind_tools(config_path: Path) -> set[str]:
-    """The pyAML tool types the view's configuration holds."""
-    import yaml
-
-    configuration = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    return {str(device.get("type")) for device in configuration.get("devices") or []}
-
-
 def _refuse_lacking(
     kind: str,
     model: str,
     block: Mapping[str, Any],
     measurement: Mapping[str, Any],
-    tools: set[str],
 ) -> None:
     """Refuse a kind the model's view cannot run, naming what the model lacks."""
-    from osprey.facility.views.pyaml import GROUP_ROLES, KIND_MEMBERS, KIND_TOOLS
+    from osprey.facility.views.pyaml import GROUP_ROLES, KIND_MEMBERS
 
     allowed = list(block.get("kinds") or {})
-    if kind in allowed and KIND_TOOLS[kind][0] in tools:
+    if kind in allowed:
         return
     groups = block.get("groups") or {}
     instruments = measurement.get("instruments") or {}
@@ -261,7 +252,6 @@ def _refuse_lacking(
             f"{', '.join(allowed) or 'none'}",
             f"Measure a kind {model} allows, or add {kind} to `kinds` and rebuild.",
         )
-    _refuse(f"the pyAML view of {model} holds no {kind} tool", _REBUILD)
 
 
 def _correctors(
@@ -378,10 +368,9 @@ def resolve_measure_args(
             checked_model
         ]
         measurement = _measurement(render_root, checked_model)
-        tools = _kind_tools(path)
     except Exception as exc:
         _refuse(f"the pyAML view of {checked_model} cannot be read: {exc}", _REBUILD)
-    _refuse_lacking(checked_kind, checked_model, block, measurement, tools)
+    _refuse_lacking(checked_kind, checked_model, block, measurement)
     checked_correctors = _correctors(
         checked_kind, correctors, checked_model, block.get("groups") or {}
     )

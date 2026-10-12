@@ -62,6 +62,7 @@ __all__ = [
     "measured_models",
     "measurement_groups",
     "pyaml_view_wanted",
+    "tune_references",
     "view_names",
     "write_pyaml_view",
 ]
@@ -559,7 +560,7 @@ def _units(doc: Mapping[str, Any]) -> dict[str, str]:
     }
 
 
-def _tune_references(doc: Mapping[str, Any], model: str, address: str) -> tuple[str, str] | None:
+def tune_references(doc: Mapping[str, Any], model: str, address: str) -> tuple[str, str] | None:
     """The horizontal and vertical tune references the ``tune`` instrument stands for.
 
     A waveform reading the whole tune output is read by element: ``@0`` and
@@ -901,7 +902,7 @@ def _configuration(
             }
         )
     tune = instruments.get("tune")
-    tunes = _tune_references(doc, model, str(tune)) if tune is not None else None
+    tunes = tune_references(doc, model, str(tune)) if tune is not None else None
     if tunes is not None:
         monitor: dict[str, Any] = {
             "type": TUNE_MONITOR_TYPE,
@@ -931,24 +932,18 @@ def _configuration(
                 "rf_plant_name": RF_PLANT_NAME,
             }
         elif kind == "trm":
-            if tunes is None:
-                continue
             section |= {
                 "name": tool_name,
                 "quad_array_name": array_of["quad"],
                 "betatron_tune_name": TUNE_MONITOR_NAME,
             }
         elif kind == "crm":
-            if tunes is None or rf is None:
-                continue
             section |= {
                 "name": tool_name,
                 "sextu_array_name": array_of["sext"],
                 "chromaticity_name": CHROMATICITY_MONITOR_NAME,
             }
         else:
-            if tunes is None or rf is None:
-                continue
             section |= {
                 "name": CHROMATICITY_MONITOR_NAME,
                 "betatron_tune_name": TUNE_MONITOR_NAME,

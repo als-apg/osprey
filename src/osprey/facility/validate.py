@@ -1908,6 +1908,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
         ROLE_PLANES,
         TOOL_KEYS,
         measurement_groups,
+        tune_references,
     )
 
     for model in sorted(document.get("models", []), key=lambda record: str(record["name"])):
@@ -1976,6 +1977,14 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                         name,
                         f"kind {kind} needs `{slot}`; model {name} does not wire {named}",
                         f"wire {named} in model {name}, or name a channel it wires as `{slot}`",
+                    )
+                elif member == "tune" and tune_references(document, name, str(named)) is None:
+                    yield _measurement_missing(
+                        name,
+                        f"kind {kind} needs `{slot}`; {named} reads one plane and model {name} "
+                        "wires no single reading of the other plane to pair it with",
+                        f"wire the other plane's tune reading in model {name}, or name a reading "
+                        f"of both planes as `{slot}`",
                     )
             for key in TOOL_KEYS[kind]:
                 if key not in measurement:

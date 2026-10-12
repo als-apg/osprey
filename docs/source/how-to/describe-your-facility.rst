@@ -419,8 +419,9 @@ what they use:
 each part (``bpm``, ``hcor``, ``vcor``, ``quad``, ``sext``) and
 ``instruments`` the channel each instrument is read or stepped on (``tune``,
 ``rf``). Each kind needs its own members and step keys, and the build stops
-when the file allows a kind without them, or names a member its model does
-not wire:
+when the file allows a kind without them, names a member its model does
+not wire, or names a ``tune`` reading of one plane that no single reading of
+the other plane pairs with:
 
 .. list-table::
    :header-rows: 1

@@ -211,6 +211,19 @@ def test_an_instrument_the_model_does_not_wire_stops(tmp_path: Path) -> None:
     )
 
 
+def test_a_tune_reading_no_other_plane_reading_pairs_with_stops(tmp_path: Path) -> None:
+    tree = measured_tree()
+    (sr,) = [model for model in tree["models.yaml"] if model["name"] == "SR"]
+    sr["wiring"] = [entry for entry in sr["wiring"] if entry["address"] != "SR:TUNE:Y"]
+    stop = _stop(tmp_path, tree)
+    assert str(stop.format_message()) == (
+        "facility: reference-missing: measurement SR — kind trm needs `instruments.tune`; "
+        "SR:TUNE:X reads one plane and model SR wires no single reading of the other plane "
+        "to pair it with; fix: wire the other plane's tune reading in model SR, or name a "
+        "reading of both planes as `instruments.tune`"
+    )
+
+
 def _with_sextupole_group(tree: dict[str, Any]) -> dict[str, Any]:
     """``tree`` with SR's sextupole SX wired and named ``groups.sext``."""
     tree["records/devices.yaml"].append({"id": "SR/SX", "class": "Sextupole"})
