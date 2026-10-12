@@ -304,11 +304,11 @@ def test_note_takes_prose_positionally():
 
 def test_section_aligns_its_values_into_a_column(capsys):
     install_reporter(PhaseReporter(color=False))
-    section("endpoints", {"web": "http://localhost:8080", "openobserve": "http://localhost:5080"})
+    section("endpoints", {"web": "http://localhost:8080", "postgresql": "http://localhost:5432"})
     assert visible(capsys.readouterr().out) == [
         "endpoints",
-        "  web           http://localhost:8080",
-        "  openobserve   http://localhost:5080",
+        "  web          http://localhost:8080",
+        "  postgresql   http://localhost:5432",
     ]
 
 

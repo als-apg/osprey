@@ -34,6 +34,13 @@ Two things in a render are allowed rather than fixed:
   the login. The scan replaces exactly those strings with a neutral token
   before matching; a self-test proves the redaction neither hides an identity
   elsewhere on the line nor reports one inside the path.
+
+The build also records the account that ran it, as the deployment's host
+identity, in the render and in the names of the telemetry login files. That
+name is a fact about the host too, so every render here runs under the
+placeholder account :data:`BUILD_ACCOUNT` rather than the login of whoever
+runs the suite. Nothing is redacted for it: a maintainer's login that reaches
+a render as shipped text is still reported.
 """
 
 from __future__ import annotations
@@ -101,6 +108,11 @@ CATALOG_ENDPOINTS: dict[str, frozenset[str]] = {
 }
 
 HOST_TOKEN = "<host path>"
+
+#: The account every render here is built as. ``getpass.getuser`` reads the
+#: first of these variables that is set.
+BUILD_ACCOUNT = "builder"
+_ACCOUNT_VARIABLES = ("LOGNAME", "USER", "LNAME", "USERNAME")
 
 
 def _catalog_allowances() -> dict[str, frozenset[str]]:
@@ -190,7 +202,10 @@ def rendered(tmp_path_factory: pytest.TempPathFactory) -> Mapping[str, Render]:
     for preset in ROOT_PRESETS:
         # Named after the preset so persona renders land at build/<persona>.
         repo = tmp_path_factory.mktemp("rendered") / preset
-        _render(repo, preset)
+        with pytest.MonkeyPatch.context() as patch:
+            for variable in _ACCOUNT_VARIABLES:
+                patch.setenv(variable, BUILD_ACCOUNT)
+            _render(repo, preset)
         hits, used = _scan(repo, (str(repo), str(repo.resolve()), sys.executable))
         renders[preset] = Render(repo=repo, hits=hits, used=used)
     return renders

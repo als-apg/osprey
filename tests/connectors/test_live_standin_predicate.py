@@ -97,7 +97,7 @@ class TestNotActive:
 
     def test_ssh_tunnel_to_localhost_without_a_standin_block(self) -> None:
         """A forwarded real gateway is loopback and nothing else — still LIVE."""
-        tunnelled = {"services": {"openobserve": {"port": 5080}}}
+        tunnelled = {"services": {"postgresql": {"port": 5432}}}
 
         assert not live_standin_active(tunnelled, endpoint_host="localhost", endpoint_port=5064)
 
@@ -173,7 +173,7 @@ class TestArchiveBelongsToStandin:
         """The recorder alone proves nothing about which machine it samples."""
         assert not archive_belongs_to_standin(
             {
-                "services": {"openobserve": {"port": 5080}},
+                "services": {"postgresql": {"port": 5432}},
                 "deployed_services": ["archiver_recorder"],
             }
         )

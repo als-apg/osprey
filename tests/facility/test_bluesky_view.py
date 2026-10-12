@@ -255,7 +255,7 @@ def test_a_render_running_a_bluesky_lane_carries_the_view(lane: str) -> None:
     assert bluesky_configured(_inputs([], {lane: {"path": "./services/bluesky"}})) is True
 
 
-@pytest.mark.parametrize("services", [{}, {"openobserve": {"path": "x"}}, {"bluesky": None}])
+@pytest.mark.parametrize("services", [{}, {"telemetry_store": {"path": "x"}}, {"bluesky": None}])
 def test_a_render_without_a_bluesky_lane_does_not(services: dict[str, Any]) -> None:
     assert bluesky_configured(_inputs([], services)) is False
 

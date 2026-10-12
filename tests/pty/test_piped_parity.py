@@ -139,12 +139,12 @@ RECORD_HEAD = re.compile(r"^\s*⚠ shell export disagrees\b")
 ELAPSED = re.compile(r"\((?:\d+\.\d+s|\d+m\d{2}s)\)")
 
 #: The wait a warning reports it sat through before giving up on a service,
-#: in whole seconds (:func:`osprey.deployment.openobserve_provision.provision_ingest_identity`).
+#: in whole seconds (a service that never answered its readiness probe).
 WAITED = re.compile(r"\bwithin \d+s\b")
 
 #: The variable the arming disagreement is about. Interpolated by the exemplar's
 #: compose files, which is what makes the start path compare it at all.
-ARMED_VARIABLE = "ZO_ROOT_USER_PASSWORD"
+ARMED_VARIABLE = "OSPREY_TELEMETRY_DIGEST_TELEMETRY_STORE"
 
 #: The value pinned in the repository's own chain, and the different one exported
 #: into the run. Values are never printed by the warning, so neither is a secret

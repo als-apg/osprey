@@ -153,9 +153,7 @@ def _three_problem_config(root: Path) -> dict:
         "registry": {"url": "registry.example.org/test"},
         # Master switch on: an inert block is asked for no credential at all, so
         # leaving it out would make the telemetry problem below disappear.
-        "claude_code": {
-            "telemetry": {"enabled": True, "openobserve": {"password": "${OBS_PASSWORD}"}}
-        },
+        "claude_code": {"telemetry": {"enabled": True, "endpoint": "${OBS_ENDPOINT}"}},
         "modules": {
             "web_terminals": {
                 "enabled": True,
@@ -188,7 +186,7 @@ def _three_problem_config(root: Path) -> dict:
 def test_three_unmet_preconditions_are_reported_in_one_refusal(tmp_path):
     """The whole point of the pass. Serially, this deployment costs three
     deploy attempts to diagnose; here it costs one."""
-    # A chain that is present but does not carry the telemetry password the
+    # A chain that is present but does not carry the telemetry endpoint the
     # config demands -- the third problem.
     (tmp_path / ".env").write_text("FOO=bar\n", encoding="utf-8")
 
@@ -206,7 +204,7 @@ def test_three_unmet_preconditions_are_reported_in_one_refusal(tmp_path):
     problems = [problem for problem, _remedy in exc.findings]
     assert "unrendered" in problems[0]
     assert "readwrite" in problems[1]
-    assert "OBS_PASSWORD" in problems[2]
+    assert "OBS_ENDPOINT" in problems[2]
 
 
 def test_a_clean_deployment_collects_nothing(tmp_path, monkeypatch):
@@ -220,7 +218,7 @@ def test_a_clean_deployment_collects_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(
         provision, "verify_persona_renders", lambda config, resolved_users, repo_root=None: None
     )
-    (tmp_path / ".env").write_text("OBS_PASSWORD=set\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("OBS_ENDPOINT=set\n", encoding="utf-8")
     config = _three_problem_config(tmp_path)
     web_terminals = config["modules"]["web_terminals"]
     # One persona, rendered, denying the shell.
@@ -723,9 +721,7 @@ def _mint_dependent_config() -> dict:
         "facility": {"prefix": "test"},
         # Master switch on: an inert block is asked for no credential at all, so
         # leaving it out would make the telemetry problem below disappear.
-        "claude_code": {
-            "telemetry": {"enabled": True, "openobserve": {"password": "${OBS_PASSWORD}"}}
-        },
+        "claude_code": {"telemetry": {"enabled": True, "endpoint": "${OBS_ENDPOINT}"}},
         "modules": {
             "web_terminals": {
                 "enabled": True,
@@ -755,7 +751,7 @@ def test_a_fresh_repo_with_no_env_file_is_not_refused_over_what_the_mint_writes(
     monkeypatch.setattr(
         container_lifecycle,
         "_ensure_service_tokens",
-        lambda *a, **k: (tmp_path / ".env").write_text("OBS_PASSWORD=minted\n", encoding="utf-8"),
+        lambda *a, **k: (tmp_path / ".env").write_text("OBS_ENDPOINT=minted\n", encoding="utf-8"),
     )
 
     container_lifecycle._start_stack(_mint_dependent_config(), [], tmp_path, detached=True)
@@ -772,7 +768,7 @@ def test_the_same_repo_is_refused_when_nothing_provides_the_variable(
     (tmp_path / ".env.shared").write_text("SHARED_DEFAULT=1\n", encoding="utf-8")
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
 
-    with pytest.raises(UnmetPreconditionsError, match="OBS_PASSWORD"):
+    with pytest.raises(UnmetPreconditionsError, match="OBS_ENDPOINT"):
         container_lifecycle._start_stack(_mint_dependent_config(), [], tmp_path, detached=True)
 
     assert stubbed_start == []  # nothing was built
@@ -795,7 +791,7 @@ def test_a_pre_rename_secrets_file_is_migrated_before_the_pass_reads_it(
     """
     (tmp_path / ".env.shared").write_text("SHARED_DEFAULT=1\n", encoding="utf-8")
     (tmp_path / ".env").write_text(
-        "OBS_PASSWORD=carried\nCBORG_API_KEY=sk-fresh\n", encoding="utf-8"
+        "OBS_ENDPOINT=carried\nCBORG_API_KEY=sk-fresh\n", encoding="utf-8"
     )
     (tmp_path / ".env.production").write_text("CBORG_API_KEY=sk-stale\n", encoding="utf-8")
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
@@ -819,11 +815,11 @@ def test_a_required_name_written_one_step_above_is_not_refused(
 
     The counterfactual is below: with nothing writing it, the identical start
     refuses on the same name."""
-    _required(tmp_path, "OBS_PASSWORD")
+    _required(tmp_path, "OBS_ENDPOINT")
     monkeypatch.setattr(
         container_lifecycle,
         "_ensure_service_tokens",
-        lambda *a, **k: (tmp_path / ".env").write_text("OBS_PASSWORD=minted\n", encoding="utf-8"),
+        lambda *a, **k: (tmp_path / ".env").write_text("OBS_ENDPOINT=minted\n", encoding="utf-8"),
     )
 
     container_lifecycle._start_stack(_mint_dependent_config(), [], tmp_path, detached=True)

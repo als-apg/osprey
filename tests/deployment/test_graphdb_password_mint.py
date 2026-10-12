@@ -150,7 +150,6 @@ def test_graphdb_deploy_mints_graphdb_password(tmp_path):
     # A graphdb-only deploy must not mint unrelated service tokens.
     assert "ARIEL_DB_PASSWORD" not in env
     assert "MONGO_ROOT_PASSWORD" not in env
-    assert "ZO_ROOT_USER_PASSWORD" not in env
 
 
 def test_graphdb_password_generator_survives_the_neo4j_auth_composite_every_time():
@@ -402,7 +401,7 @@ class TestRegistryAgreement:
         """graphdb is the exception; the mechanism must be inert for the rest.
 
         ``cred_prefix`` defaults to empty and ``str.removeprefix('')`` is the
-        identity, so postgres, mongo and openobserve harvest exactly as before.
+        identity, so postgres and mongo harvest their credentials unchanged.
         Pinned because a stray prefix on one of them would corrupt a credential
         that currently round-trips.
         """

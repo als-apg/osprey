@@ -524,7 +524,7 @@ class TestStubAnswersPlausibly:
         records = [json.loads(line) for line in listing.stdout.splitlines() if line.strip()]
         assert records, "ps saw nothing after a compose up"
         assert all(record["Project"] == "ptyproj" for record in records)
-        assert {record["Service"] for record in records} == {"openobserve"}
+        assert {record["Service"] for record in records} == {"telemetry_store", "telemetry_gateway"}
 
         down = _run_stub([*argv, "-p", "ptyproj", "down"], stub, tmp_path)
         assert down.returncode == 0
