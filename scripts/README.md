@@ -11,6 +11,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `premerge_check.sh` | Pre-merge validation | 1-2 min | Before creating PR |
 | `check_config_keys.py` | Config-key resurrection guard | 2-5s | After touching a `config.yml.j2`, a preset, or config-reading code |
 | `changelog_fragments.py` | Changelog-fragment gate and release fold | < 1s | After touching `src/` or `packages/`; when cutting a release |
+| `plugin_version.py` | Show, bump and check the plugin version | < 1s | After touching `plugins/`, `.claude-plugin/` or `.agents/plugins/` |
 | `cli_tool_inventory.py` | CLI tool inventory of each pinned build | ~2 s plus an npm download | After bumping `_DEFAULT_CLAUDE_CLI_VERSION` or the `claude-agent-sdk` pin |
 | `bpm_polarity_picture.py` | Redraw the example facility's bpm-polarity logbook picture from its model and scenario | ~5 s | After changing the example's SR deck or wiring, the bpm-polarity scenario, or the BPM noise seeds |
 
@@ -79,6 +80,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 - Finds commented-out code
 - Checks for hardcoded secrets
 - Validates that a changelog fragment was added (runs `changelog_fragments.py check`)
+- Validates that a changed plugin tree carries a version bump (runs `plugin_version.py check`)
 - Checks type hints
 - Validates TODO/FIXME comments have issue links
 - Runs code formatters and linters
@@ -194,6 +196,42 @@ a release.
   shallow to find a common ancestor
 
 See `changelog.d/README.md` for the fragment format and the list of types.
+
+---
+
+### plugin_version.py
+
+**Purpose**: Keep the CalVer version shared by the two plugin manifests
+(`plugins/osprey/.claude-plugin/plugin.json` and
+`plugins/osprey/.codex-plugin/plugin.json`) in step, and advanced whenever the
+plugin tree changes.
+
+**What it does**: `show` prints the shared version and refuses when the two
+manifests disagree. `bump` advances `YYYY.M.N` in both (`--set` writes a given
+version). `check --base <ref>` compares the branch against what it merges into:
+when `plugins/`, `.claude-plugin/` or `.agents/plugins/` changed since the merge
+base, the head version must differ from every version the base tip carries. A
+plain branch name such as `main` is read as `origin/main` first, as
+`changelog_fragments.py check` reads it.
+
+**Usage**:
+```bash
+uv run python scripts/plugin_version.py show
+uv run python scripts/plugin_version.py bump
+
+# What the `lint` CI job and premerge_check.sh run
+uv run python scripts/plugin_version.py check --base origin/main
+```
+
+**When to use**: `bump` after touching the plugin tree; CI and
+`./scripts/premerge_check.sh` run `check` for you.
+
+**Exit codes** (`check`):
+- `0`: The plugin tree is untouched, new, or carries a new version
+- `1`: The plugin tree changed without a version bump, or the manifests cannot
+  be read or disagree
+- `2`: Environment problem — the base ref was not found, or the clone is too
+  shallow to find a common ancestor
 
 ---
 

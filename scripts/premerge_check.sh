@@ -102,6 +102,9 @@ echo -e "\n=== CRITICAL ==="
 # `uv run python` here, bare `python3` in CI; the script is stdlib-only either
 # way. It prints its own ✓/✗ lines, so this block only counts the failure.
 if uv run python scripts/changelog_fragments.py check --base "$BASE"; then :; else ERRORS=$((ERRORS + 1)); fi
+# The plugin version gate — the same command the `lint` CI job runs, against
+# this sweep's base: a changed plugin tree must carry a version the base does not.
+if uv run python scripts/plugin_version.py check --base "$BASE"; then :; else ERRORS=$((ERRORS + 1)); fi
 
 # Type hints (fixed: only count functions, not classes; exclude methods)
 # The `|| true` is inside the group so a no-match grep (exit 1) can't abort the

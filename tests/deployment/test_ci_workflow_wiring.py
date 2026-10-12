@@ -7630,6 +7630,22 @@ def test_lint_runs_the_plugin_version_check__mutation_hardcodes_main() -> None:
         test_lint_runs_the_plugin_version_check(mutated)
 
 
+def test_premerge_check_runs_the_plugin_version_check(premerge_source: str) -> None:
+    """The local sweep runs the same check as the lane, against its own base,
+    or it goes green on a branch the lint job then refuses."""
+    assert PLUGIN_VERSION_SCRIPT + ' check --base "$BASE"' in premerge_source
+
+
+def test_premerge_check_runs_the_plugin_version_check__mutation_drops_the_line() -> None:
+    source = _script_source(PREMERGE_SCRIPT)
+    mutated = "\n".join(
+        line for line in source.splitlines() if PLUGIN_VERSION_SCRIPT + " check" not in line
+    )
+    assert mutated != source, "the check invocation moved; this mutation is stale"
+    with pytest.raises(AssertionError):
+        test_premerge_check_runs_the_plugin_version_check(mutated)
+
+
 # ---------------------------------------------------------------------------
 # (j) every dockerbuild-marked module reaches a lane that gates the merge
 # ---------------------------------------------------------------------------
