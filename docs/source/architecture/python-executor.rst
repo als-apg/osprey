@@ -122,10 +122,12 @@ Ten safety layers are applied in sequence:
    rejection.
 
 5. **Approved-call check** (``_approved_call_env``)---before it spawns a
-   ``readwrite`` run of a guarded tool (``execute``, ``execute_file``) whose
-   approval policy asks, the executor reads the record the approval prompt
-   left for this tool call. The call's ``approved_journal_sha256`` and
-   ``approved_target`` must equal what the prompt recorded; without a record,
+   ``readwrite`` run of a guarded tool (``execute``, ``execute_file``,
+   ``pyaml_measure``) whose approval policy asks, the executor reads the
+   record the approval prompt left for this tool call. The call's
+   ``approved_journal_sha256`` and ``approved_target`` must equal what the
+   prompt recorded; for ``pyaml_measure`` the call's ``approved_view_sha256``
+   must equal the recorded view digest as well. Without a record,
    or with a field that differs, nothing is spawned and the result carries
    ``failure_kind: approval_missing``. Only the fields the check confirmed
    reach the subprocess, which evaluates no approval policy itself. A call
