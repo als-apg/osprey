@@ -221,3 +221,23 @@ def test_a_failed_install_mentioning_litellm_fails_closed(monkeypatch, tmp_path)
         "a failed install left a .pth pointing the project venv at the build "
         "environment's site-packages"
     )
+
+
+@pytest.mark.usefixtures("with_uv")
+def test_install_timeout_names_the_mirror_remedy(monkeypatch, tmp_path):
+    """A timed-out install ends with the shared re-run and mirror remedy."""
+
+    def fake_run(cmd, **kwargs):
+        if _is_install(cmd):
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs.get("timeout", 0))
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        _create_project_venv(tmp_path, _profile())
+
+    message = str(excinfo.value)
+    assert message.endswith(build_environment._INSTALL_NETWORK_REMEDY), message
+    assert "UV_INDEX_URL" in message, message
+    assert "PIP_INDEX_URL" in message, message

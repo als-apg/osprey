@@ -794,6 +794,15 @@ def freeze_base_environment(python_path: Path, inherit_exclude: list[str]) -> li
 # and reads as flakiness rather than as a limit set too low.
 _VENV_INSTALL_TIMEOUT_S = 1800
 
+# What an operator can do when the dependency install could not get its
+# packages from the index: every install branch that blames the link ends with it.
+_INSTALL_NETWORK_REMEDY = (
+    "        Re-running the build resumes from what already downloaded — "
+    "completed packages are served from the local cache.\n"
+    "        On a slow or restricted link, point the build at a closer "
+    "package mirror (UV_INDEX_URL, or PIP_INDEX_URL without uv)."
+)
+
 # An interpreter or uv that cannot create the venv fails fast with a nonzero
 # exit, so this cap never decides a failure; it bounds only a process that has
 # hung, and leaves an ordinary creation on a loaded host the room it needs.
@@ -960,11 +969,7 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
                 f"finish within {_VENV_INSTALL_TIMEOUT_S // 60} minutes.\n"
                 "        This install downloads osprey's full dependency tree (over a "
                 "gigabyte on a cold cache), so a slow or interrupted connection is the "
-                "usual cause.\n"
-                "        Re-running the build resumes from what already downloaded — "
-                "completed packages are served from the local cache.\n"
-                "        On a slow or restricted link, point the build at a closer "
-                "package mirror (UV_INDEX_URL, or PIP_INDEX_URL without uv)."
+                "usual cause.\n" + _INSTALL_NETWORK_REMEDY
             ) from e
 
     if result.returncode == 0:
