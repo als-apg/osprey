@@ -59,7 +59,6 @@ services:
       TRIGGERS_YML: /app/triggers.yml
       OSPREY_FACILITY_NAME: ""
       CHANNEL_STRIP_PREFIX: ""
-
       TZ: UTC
       HTTP_PROXY: ${HTTP_PROXY}
       HTTPS_PROXY: ${HTTPS_PROXY}

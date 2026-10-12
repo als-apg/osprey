@@ -100,7 +100,6 @@ def _create_dispatch_dashboard_app() -> FastAPI:
             render_dashboard_html(
                 facility_name="Test Facility",
                 channel_strip_prefix="SR:",
-                telemetry_url="",
             )
         )
 

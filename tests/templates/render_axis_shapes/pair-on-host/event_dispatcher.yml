@@ -57,7 +57,6 @@ services:
       TRIGGERS_YML: /app/triggers.yml
       OSPREY_FACILITY_NAME: ""
       CHANNEL_STRIP_PREFIX: ""
-
       TZ: UTC
     # Bind-mount sources are relative to the compose *project directory*
     # (build/services/), which is the first -f file's location — not this

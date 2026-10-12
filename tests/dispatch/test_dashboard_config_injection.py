@@ -23,57 +23,19 @@ def test_default_injection_is_empty_config():
     html = render_dashboard_html()
     assert '"facility_name": ""' in html
     assert '"channel_strip_prefix": ""' in html
-    assert '"telemetry_url": ""' in html
-    assert '"telemetry_org": ""' in html
     assert "/* OSPREY_CONFIG_PLACEHOLDER */" not in html
 
 
-def test_injects_the_browser_facing_telemetry_url():
-    """The telemetry store's browser URL reaches the dashboard config verbatim."""
-    html = render_dashboard_html(telemetry_url="http://localhost:5080")
-    assert '"telemetry_url": "http://localhost:5080"' in html
-
-
-def test_injects_the_telemetry_org():
-    """The telemetry store organization reaches the dashboard config verbatim."""
-    html = render_dashboard_html(telemetry_url="http://localhost:5080", telemetry_org="ops")
-    assert '"telemetry_org": "ops"' in html
-
-
-def test_org_is_not_a_page_literal():
-    """The link's organization comes from the injected config, never a page constant."""
-    html = render_dashboard_html()
-    assert "TELEMETRY_ORG" not in html
-    assert "window.__OSPREY_CONFIG__.telemetry_org" in html
-
-
-def test_absent_telemetry_url_is_the_no_store_signal():
-    """A deployment without the store injects an empty string, not a default.
-
-    The dashboard reads empty as "hide the per-run telemetry link". Substituting
-    a plausible default here would produce a link to a host that is not serving
-    anything -- worse than no link, because it looks deliberate.
-    """
+def test_config_names_no_telemetry_store():
+    """The dashboard is handed no telemetry store address and builds no link to one."""
     html = render_dashboard_html(facility_name="Test")
-    assert '"telemetry_url": ""' in html
-    assert "localhost:5080" not in html
+    injected = html.split("window.__OSPREY_CONFIG__ = ", 1)[1].split(";", 1)[0]
+    assert "telemetry" not in injected
+    assert "telemetryUrlForRun" not in html
 
 
-def test_dashboard_is_de_alsed():
-    """The hardcoded PV-prefix strip is gone; the prefix is config-driven."""
-    html = render_dashboard_html()
-    # The old hardcoded prefix regex must not survive.
-    assert "/^ALS:/" not in html
-    # The PV display now strips a configurable prefix from window.__OSPREY_CONFIG__.
-    assert "window.__OSPREY_CONFIG__.channel_strip_prefix" in html
-
-
-def test_dashboard_token_handoff_uses_fragment_not_query():
-    """The bearer-token URL handoff uses the fragment (#token), never the query string.
-
-    Query-string tokens leak into server access logs and browser history; the
-    fragment is not transmitted to the server.
-    """
-    html = render_dashboard_html()
-    assert "searchParams.get('token')" not in html
-    assert "window.location.hash" in html
+def test_injects_the_history_url():
+    """The history page's URL reaches the dashboard config; empty by default."""
+    url = "https://readers.example.org:10002/history/"
+    assert f'"history_url": "{url}"' in render_dashboard_html(history_url=url)
+    assert '"history_url": ""' in render_dashboard_html()

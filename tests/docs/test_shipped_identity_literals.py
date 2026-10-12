@@ -261,10 +261,9 @@ DENIED: tuple[Denied, ...] = (
                 # description.
                 "tests/models/test_providers_litellm_delegating.py",
                 # Cases that assert the literal's absence, and so have to spell it.
-                # The third holds the roster of real facility names an invented
+                # The second holds the roster of real facility names an invented
                 # export may not carry, which is that assertion written as a
                 # pattern.
-                "tests/dispatch/test_dashboard_config_injection.py",
                 "tests/registry/test_pyat_specialist_agent.py",
                 "tests/facility/test_mml_fixtures_wellformed.py",
                 # A byte-faithful copy of the shipped plugin manifest, whose author
