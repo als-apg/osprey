@@ -1,0 +1,30 @@
+[
+  {
+    "entry_id": "BLC-DECAY-001",
+    "when": {"days_ago": 380, "time": "02:40:00"},
+    "author": "R. Alvarez",
+    "title": "Partial beam loss during the lifetime study (top-up off)",
+    "text": "Lifetime study on the owl shift with top-up off and manual refills every three quarters of an hour. Around 00:30 the stored current dropped suddenly and stayed low until the next refill. Cause traced to a short RF trip on cavity 2; the interlock cleared on its own and the refill went in normally. The DCCT trace for the shift is attached. No further losses for the rest of the study.",
+    "tags": ["beam-loss", "lifetime", "rf", "dcct"],
+    "categories": ["Operations"],
+    "attachments": [{"plot": "plots/dcct_decay_run.json"}]
+  },
+  {
+    "entry_id": "BLC-DECAY-002",
+    "when": {"days_ago": 377, "time": "14:05:00"},
+    "author": "M. Chen",
+    "title": "Beam dump on vacuum interlock, sector 4",
+    "text": "Lost all stored beam at 13:52 when the sector 4 ion gauge tripped the vacuum interlock. Pressure recovered within ten minutes; refilled from zero and operations resumed at 14:40. Nothing to compare with a partial loss: the current went straight to zero.",
+    "tags": ["beam-dump", "vacuum", "interlock"],
+    "categories": ["Operations"]
+  },
+  {
+    "entry_id": "BLC-DECAY-003",
+    "when": {"days_ago": 372, "time": "09:30:00"},
+    "author": "T. Nakamura",
+    "title": "Injection efficiency check after the lifetime study",
+    "text": "Measured injection efficiency over twenty shots this morning: 71 percent average, 64 percent worst shot, within the usual band. No retuning needed.",
+    "tags": ["injection", "efficiency"],
+    "categories": ["Operations"]
+  }
+]

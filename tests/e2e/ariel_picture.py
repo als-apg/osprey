@@ -23,7 +23,7 @@ agent path. Those tools run in the MCP server Claude Code launches as a
 subprocess, out of reach of pytest's log capture, so that check reads the agent
 trace: no ARIEL tool result carries an error envelope, save ``hybrid_search``
 reporting the qmd sidecar the harness never starts (see
-:func:`_absent_qmd_sidecar`). The log check covers the one step that runs in
+:func:`absent_qmd_sidecar`). The log check covers the one step that runs in
 this process, the seeding.
 
 The second turn asks to open "that entry" in the logbook panel. The operator
@@ -239,7 +239,7 @@ async def _seed_picture_entry(ariel: dict[str, Any], case: PictureCase) -> tuple
         await pool.close()
 
 
-def _logbook_parent_ids(traces: list[Any]) -> set[str]:
+def logbook_parent_ids(traces: list[Any]) -> set[str]:
     """Every id a logbook-search subagent's tool calls can carry as their parent.
 
     A streamed subagent call names the delegating ``Agent`` tool_use id; one
@@ -257,7 +257,7 @@ def _logbook_parent_ids(traces: list[Any]) -> set[str]:
     return ids
 
 
-def _delegated_types(traces: list[Any]) -> set[str]:
+def delegated_types(traces: list[Any]) -> set[str]:
     return {
         str((t.input or {}).get("subagent_type"))
         for t in traces
@@ -265,7 +265,7 @@ def _delegated_types(traces: list[Any]) -> set[str]:
     }
 
 
-def _absent_qmd_sidecar(trace: Any) -> bool:
+def absent_qmd_sidecar(trace: Any) -> bool:
     """Whether *trace* is ``hybrid_search`` reporting the qmd sidecar this harness never starts.
 
     The hybrid module answers through a qmd sidecar the deployment runs as a
@@ -283,7 +283,7 @@ def _absent_qmd_sidecar(trace: Any) -> bool:
     )
 
 
-def _error_envelope(result: str | None) -> bool:
+def error_envelope(result: str | None) -> bool:
     """Whether a tool result is an OSPREY MCP error envelope."""
     if not result:
         return False
@@ -294,6 +294,53 @@ def _error_envelope(result: str | None) -> bool:
     except (TypeError, ValueError):
         return False
     return isinstance(payload, dict) and payload.get("error") is True
+
+
+def assert_viewed_in_logbook_turn(
+    traces: list[Any], attachment_id: str, tool_names: list[str]
+) -> None:
+    """Assert ``attachment_view`` ran on *attachment_id* inside a ``logbook-search`` turn.
+
+    Three facts, each its own message: the view was called with the seeded id,
+    the agent delegated to the logbook subagent at all, and the view's parent is
+    one of that subagent's turns (or the logbook subagent is the only one the
+    agent used, when the harvested transcript cannot name the parent).
+    """
+    views = [
+        t
+        for t in traces
+        if t.name == VIEW_TOOL and (t.input or {}).get("attachment_id") == attachment_id
+    ]
+    assert views, (
+        f"attachment_view was never called with the seeded id {attachment_id}. Tools: {tool_names}"
+    )
+    logbook_ids = logbook_parent_ids(traces)
+    assert logbook_ids, f"the agent never delegated to {LOGBOOK_SUBAGENT}. Tools: {tool_names}"
+    only_logbook = delegated_types(traces) == {LOGBOOK_SUBAGENT}
+    in_logbook_turn = [
+        t
+        for t in views
+        if t.parent_tool_use_id is not None
+        and (t.parent_tool_use_id in logbook_ids or only_logbook)
+    ]
+    assert in_logbook_turn, (
+        f"attachment_view({attachment_id}) ran outside a {LOGBOOK_SUBAGENT} subagent turn: "
+        f"parents {[t.parent_tool_use_id for t in views]}, logbook ids {sorted(logbook_ids)}"
+    )
+
+
+def assert_no_ariel_errors(traces: list[Any]) -> None:
+    """Assert no ARIEL tool result carried an error envelope (an absent qmd sidecar excepted)."""
+    ariel_errors = [
+        t
+        for t in traces
+        if t.name.startswith("mcp__ariel__")
+        and (t.is_error or error_envelope(t.result))
+        and not absent_qmd_sidecar(t)
+    ]
+    assert not ariel_errors, "ARIEL tool results carried errors: " + "; ".join(
+        f"{t.name}: {(t.result or '')[:300]}" for t in ariel_errors
+    )
 
 
 def _trace_excerpt(result: Any, final: str) -> dict[str, Any]:
@@ -362,42 +409,8 @@ async def run_picture_case(
     assert not result.result.is_error, f"the agent turn ended in error: {final}"
 
     traces = result.tool_traces
-    views = [
-        t
-        for t in traces
-        if t.name == VIEW_TOOL and (t.input or {}).get("attachment_id") == attachment_id
-    ]
-    assert views, (
-        f"attachment_view was never called with the seeded id {attachment_id}. "
-        f"Tools: {result.tool_names}"
-    )
-
-    logbook_ids = _logbook_parent_ids(traces)
-    assert logbook_ids, (
-        f"the agent never delegated to {LOGBOOK_SUBAGENT}. Tools: {result.tool_names}"
-    )
-    only_logbook = _delegated_types(traces) == {LOGBOOK_SUBAGENT}
-    in_logbook_turn = [
-        t
-        for t in views
-        if t.parent_tool_use_id is not None
-        and (t.parent_tool_use_id in logbook_ids or only_logbook)
-    ]
-    assert in_logbook_turn, (
-        f"attachment_view({attachment_id}) ran outside a {LOGBOOK_SUBAGENT} subagent turn: "
-        f"parents {[t.parent_tool_use_id for t in views]}, logbook ids {sorted(logbook_ids)}"
-    )
-
-    ariel_errors = [
-        t
-        for t in traces
-        if t.name.startswith("mcp__ariel__")
-        and (t.is_error or _error_envelope(t.result))
-        and not _absent_qmd_sidecar(t)
-    ]
-    assert not ariel_errors, "ARIEL tool results carried errors: " + "; ".join(
-        f"{t.name}: {(t.result or '')[:300]}" for t in ariel_errors
-    )
+    assert_viewed_in_logbook_turn(traces, attachment_id, result.tool_names)
+    assert_no_ariel_errors(traces)
 
     assert case.answer.lower() in final.lower(), (
         f"the answer does not name {case.answer!r}, which only the plot carries: {final!r}"

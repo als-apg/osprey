@@ -1950,7 +1950,10 @@ jobs:
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
-        uv run pytest tests/e2e/tier2/ -v --tb=short
+        # The chart-value-reading benchmark deploys a full stack and runs on the
+        # benchmark board only; this job carries the stack-free tier-2 tests.
+        uv run pytest tests/e2e/tier2/ --ignore=tests/e2e/tier2/test_chart_value_reading.py \
+          -v --tb=short
 
   deploy-e2e:
     name: Deploy E2E Test (build + deploy pipeline)
