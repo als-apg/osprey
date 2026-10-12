@@ -89,6 +89,7 @@ from typing import Any, TextIO
 
 from osprey.runtime.journal import (
     DurableJournal,
+    GuardedRunDirError,
     Journal,
     OspreyRestoreIncomplete,
     OspreyStaleJournal,
@@ -162,10 +163,6 @@ RESTORE_REPORT_TAG = "OSPREY_GUARDED_RUN_RESTORE"
 #: The executor's spelling of "no recorded control target". It names no
 #: machine, so it is never a directory; it resolves to the baseline's name.
 _BASELINE_STAND_IN = "baseline"
-
-
-class GuardedRunDirError(RuntimeError):
-    """The guarded-run directory for a target cannot be resolved or written."""
 
 
 class OspreyJournalChanged(Exception):

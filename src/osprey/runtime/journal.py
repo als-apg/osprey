@@ -33,6 +33,7 @@ This module is stdlib-only at import time.
 
 from __future__ import annotations
 
+import errno
 import json
 import math
 import numbers
@@ -107,6 +108,27 @@ class OspreyWriteFailed(Exception):
         self.channel_address = channel_address
         where = f" to '{channel_address}'" if channel_address else ""
         super().__init__(f"OSPREY write{where} failed: {reason}")
+
+
+class GuardedRunDirError(RuntimeError):
+    """The guarded-run directory for a target cannot be resolved or written."""
+
+
+def _open_no_follow(path: Path, flags: int) -> int:
+    """Open ``path`` with ``flags``, never through a symbolic link at its last component.
+
+    Raises:
+        GuardedRunDirError: ``path`` is a link; nothing was opened or created.
+        OSError: Any other failure to open, unchanged.
+    """
+    try:
+        return os.open(path, flags | os.O_NOFOLLOW | os.O_CLOEXEC, 0o664)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise GuardedRunDirError(
+                f"{path} is a link; the guarded-run directory holds files only"
+            ) from None
+        raise
 
 
 class Journal:
@@ -574,10 +596,14 @@ class DurableJournal:
     """
 
     def __init__(self, path: Path) -> None:
-        """Open (creating when missing) the journal at ``path``; its content is kept."""
+        """Open (creating when missing) the journal at ``path``; its content is kept.
+
+        Raises:
+            GuardedRunDirError: ``path`` is a symbolic link; it is not followed.
+        """
         self.path = path
         created = not path.exists()
-        self._fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o664)
+        self._fd = _open_no_follow(path, os.O_RDWR | os.O_CREAT | os.O_APPEND)
         if created:
             from osprey_connectors.dotenv import _fsync_directory
 

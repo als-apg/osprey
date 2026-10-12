@@ -13,6 +13,7 @@ import osprey.runtime
 from osprey.errors import ChannelLimitsViolationError, ChannelReadFailedError
 from osprey.runtime.journal import (
     DurableJournal,
+    GuardedRunDirError,
     Journal,
     OspreyRestoreIncomplete,
     OspreyStaleJournal,
@@ -193,6 +194,37 @@ def test_a_created_journal_is_group_writable_under_umask_022(tmp_path: Path) -> 
         os.umask(previous)
 
     assert path.stat().st_mode & 0o060 == 0o060
+
+
+def test_a_link_planted_as_the_journal_is_refused(tmp_path: Path) -> None:
+    victim = tmp_path / "victim"
+    victim.write_bytes(b"keep\n")
+    path = tmp_path / "journal"
+    os.symlink(victim, path)
+
+    with pytest.raises(
+        GuardedRunDirError, match="is a link; the guarded-run directory holds files only"
+    ) as refused:
+        DurableJournal(path)
+
+    assert str(path) in str(refused.value)
+    assert victim.read_bytes() == b"keep\n"
+    assert path.is_symlink()
+
+
+def test_a_dangling_link_planted_as_the_journal_is_refused(tmp_path: Path) -> None:
+    named = tmp_path / "absent"
+    path = tmp_path / "journal"
+    os.symlink(named, path)
+
+    with pytest.raises(
+        GuardedRunDirError, match="is a link; the guarded-run directory holds files only"
+    ) as refused:
+        DurableJournal(path)
+
+    assert str(path) in str(refused.value)
+    assert not named.exists()
+    assert path.is_symlink()
 
 
 def test_clear_empties_the_file(tmp_path: Path) -> None:
