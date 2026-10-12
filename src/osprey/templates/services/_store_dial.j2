@@ -1,6 +1,6 @@
 {#
   _store_dial.j2 — where a container running the PROJECT image reaches the
-  stores this deployment runs.
+  stores, and the telemetry gateway, this deployment runs.
 
   The `services.<store>` blocks in config.yml are written for the HOST side: a
   published port on the host's interface. From inside a container on the
@@ -98,6 +98,35 @@
       # container_name; 5432 is its CONTAINER port, never the host publish.
       ARIEL_DATABASE_HOST: ariel-postgres
       ARIEL_DATABASE_PORT: "5432"
+{%- endif %}
+{%- endif -%}
+{%- endmacro %}
+
+{#- `OSPREY_OTEL_GATEWAY_HOST`/`PORT`: the telemetry gateway's address from
+    where this container runs. An emitter that carries the pair posts there;
+    one that carries neither is a host launch and dials the published port
+    itself (`telemetry_config.runtime_gateway_url`), so the pair is what
+    DECLARES a container's network shape and nothing sniffs for it.
+
+    The two arms are `telemetry_config.gateway_address` for `bridge=True` and
+    `bridge=False`, spelled here because a template cannot call it; a test
+    pins the two against each other. Gated on the gateway being deployed: an
+    emitter pointed at a collector someone else runs names it by
+    `claude_code.telemetry.endpoint`, which is correct from anywhere. -#}
+{%- macro telemetry_gateway(deployed_services, on_host, host_address, services, osprey_ports) -%}
+{%- if 'telemetry_gateway' in (deployed_services or []) %}
+{%- if on_host %}
+      # On the host namespace the gateway is reached where it PUBLISHES: the
+      # interface `deployment.bind_address` names (loopback for a wildcard),
+      # on the published port. A port published on one interface does not
+      # answer on loopback, and an exporter drops a failed post silently.
+      OSPREY_OTEL_GATEWAY_HOST: "{{ host_address }}"
+      OSPREY_OTEL_GATEWAY_PORT: "{{ (services.telemetry_gateway | default({}, true)).port | default(osprey_ports.telemetry_gateway, true) }}"
+{%- else %}
+      # The gateway's compose service name, and the port the collector
+      # LISTENS on inside the network, never the host publish.
+      OSPREY_OTEL_GATEWAY_HOST: telemetry_gateway
+      OSPREY_OTEL_GATEWAY_PORT: "4318"
 {%- endif %}
 {%- endif -%}
 {%- endmacro %}

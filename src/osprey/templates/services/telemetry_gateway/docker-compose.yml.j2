@@ -1,0 +1,83 @@
+{#- This file's RENDER is pinned byte for byte by the suites below. Any
+    edit — a reworded comment included — reddens their goldens until they
+    are regenerated in the same change. One command per suite that pins
+    THIS template:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+-#}
+{%- import "services/_network_axis.j2" as net -%}
+{%- import "services/_env_axis.j2" as hostenv -%}
+# The telemetry gateway: an OpenTelemetry Collector between every sender and
+# the telemetry store. A sender posts OTLP/HTTP with its own send-only login;
+# the gateway checks it against the senders' htpasswd file, stamps the login's
+# name on what it received (whatever the sender claimed), and inserts it with
+# the store's insert-only `ingest` account. It also reads the audit ledger
+# under var/audit/ and feeds it to the store the same way.
+#
+# Its Collector configuration is rendered by osprey.deployment.telemetry_gateway
+# into config.yaml beside this file.
+{%- set svc = services.telemetry_gateway | default({}, true) %}
+{%- set gw = osprey_telemetry_gateway %}
+{%- set bind_address = deployment.bind_address | default('127.0.0.1', true) %}
+
+services:
+  telemetry_gateway:
+    image: {{ gw.image }}
+    # container_name is a HOST-GLOBAL docker identifier: namespace it
+    # per-project so two OSPREY projects can run a gateway on one host.
+    container_name: {{ osprey_labels.project_name }}-telemetry-gateway
+    command: {{ gw.command | tojson }}
+    # Container root with every capability dropped except DAC_READ_SEARCH: the
+    # one identity that reads the operator's 0600 htpasswd file and the 0640
+    # ledger files under rootful docker and rootless podman alike, and nothing
+    # more. It writes only to its state volume, which root owns.
+    user: "0:0"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    cap_add: ["DAC_READ_SEARCH"]
+    read_only: true
+    # 256 MiB + 8 × the largest request body + 2 × 100 × the longest ledger
+    # line × R, where R = {{ gw.receivers }} is the number of ledger receivers:
+    # room for a worst-case catch-up, not the working set.
+    # `services.telemetry_gateway.memory` overrides it; a lint refuses a value
+    # below the formula.
+    mem_limit: {{ gw.mem_limit }}
+    # A ledger file that is a symlink to an endless device spins one reader;
+    # one core is the most it can take.
+    cpus: 1
+    # Time for the file readers to finish their batches and checkpoint.
+    stop_grace_period: 30s
+    labels:
+      # Recreates the container when the ingest account or a sender login
+      # changes: the htpasswd file is read once, at start.
+      osprey.telemetry.cred.digest: "${OSPREY_TELEMETRY_DIGEST_TELEMETRY_GATEWAY:-}"
+    restart: unless-stopped
+{%- if 'telemetry_store' in (deployed_services | default([], true)) %}
+    depends_on:
+      telemetry_store:
+        condition: service_started
+{%- endif %}
+    # The store's insert-only account, from its own file at the repo root,
+    # which `osprey build` creates before this file is rendered.
+    env_file:
+      - .env.telemetry-ingest
+    environment:
+      TZ: {{ system.timezone }}
+{{- hostenv.passthrough(svc) }}
+{{- net.ports(svc, entries=[
+      bind_address ~ ':' ~ gw.port ~ ':' ~ gw.otlp_container_port,
+      '127.0.0.1:' ~ gw.metrics_port ~ ':' ~ gw.metrics_container_port
+    ]) }}
+    # Bind-mount sources are relative to the pinned compose project directory,
+    # which is the deployment REPO ROOT. Everything but the state volume is
+    # read-only: the gateway never writes the ledger it reads.
+    volumes:
+      - {{ gw.config_source }}:{{ gw.config_target }}:ro
+      - {{ gw.htpasswd_source }}:{{ gw.htpasswd_target }}:ro
+      - {{ osprey_audit_mount_source }}:{{ gw.audit_target }}:ro
+      - {{ gw.state_volume }}:{{ gw.state_target }}
+{{- net.network(svc) }}
+
+volumes:
+  {{ gw.state_volume }}:
+{{ net.network_declaration(svc) }}

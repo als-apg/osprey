@@ -1,12 +1,13 @@
-"""Local OpenObserve telemetry is ON BY DEFAULT in every preset that deploys a stack.
+"""Local telemetry is ON BY DEFAULT in every preset that deploys a stack.
 
 The framework's stance: the underlying harness already records every prompt,
-response, and API body to disk, so shipping a co-deployed, loopback-bound
-OpenObserve store adds no new exposure — it just makes that data queryable. So
-every bundled preset whose deployment runs services declares the ``openobserve``
-service in its ``config:`` block, lists it in ``deployed_services``, and ships a
-live ``claude_code.telemetry`` block (``enabled: true``) with full content
-capture.
+response, and API body to disk, so shipping a co-deployed telemetry store,
+published on loopback, adds no new exposure — it just makes that data
+queryable. So every bundled preset whose deployment runs services declares the
+``telemetry_store`` and the ``telemetry_gateway`` that feeds it in its
+``config:`` block, lists both in ``deployed_services``, and ships a live
+``claude_code.telemetry`` block (``enabled: true``, ``backend: gateway``) with
+full content capture.
 
 The presets are the source of that posture: the framework template renders only
 derived keys, and a deployment's ``services.*`` / ``claude_code.telemetry.*``
@@ -52,31 +53,36 @@ def _source(preset: str) -> str:
     )
 
 
-def test_openobserve_declared_and_deployed_everywhere():
-    """Every deploying preset declares the service AND lists it in deployed_services."""
+def test_store_and_gateway_declared_and_deployed_everywhere():
+    """Every deploying preset declares both services AND lists both in deployed_services.
+
+    One without the other is a store nothing feeds or a gateway with nowhere to
+    write, so the pair is checked together.
+    """
     for preset in _DEPLOYING_PRESETS:
         cfg = _cfg(preset)
         services = cfg.get("services") or {}
-        assert "openobserve" in services, f"{preset}: openobserve service missing"
         deployed = cfg.get("deployed_services") or []
-        assert "openobserve" in deployed, (
-            f"{preset}: openobserve not in deployed_services={deployed!r}"
-        )
+        for service in ("telemetry_store", "telemetry_gateway"):
+            assert services.get(service, {}).get("path") == f"./services/{service}", (
+                f"{preset}: {service} service missing"
+            )
+            assert service in deployed, f"{preset}: {service} not in deployed_services={deployed!r}"
 
 
-def test_telemetry_live_openobserve_everywhere():
-    """Every deploying preset ships a live telemetry block pointed at openobserve."""
+def test_telemetry_live_gateway_everywhere():
+    """Every deploying preset ships a live telemetry block pointed at the gateway."""
     for preset in _DEPLOYING_PRESETS:
         telemetry = (_cfg(preset).get("claude_code") or {}).get("telemetry")
         assert telemetry is not None, f"{preset}: telemetry block missing"
         assert telemetry.get("enabled") is True, (
             f"{preset}: telemetry not enabled, got {telemetry.get('enabled')!r}"
         )
-        assert telemetry.get("backend") == "openobserve", f"{preset}: backend != openobserve"
+        assert telemetry.get("backend") == "gateway", f"{preset}: backend != gateway"
 
 
 def test_full_content_capture_is_the_default_posture():
-    """The local store is loopback-bound, so all content gates default ON."""
+    """The local store is published on loopback, so all content gates default ON."""
     for preset in _DEPLOYING_PRESETS:
         telemetry = (_cfg(preset).get("claude_code") or {}).get("telemetry") or {}
         for gate in _CONTENT_GATES:
@@ -95,8 +101,8 @@ def test_control_assistant_records_built_in_tool_output():
 def test_retention_bound_declared_everywhere():
     """Growth is bounded by age since a named volume has no size cap."""
     for preset in _DEPLOYING_PRESETS:
-        oo = (_cfg(preset).get("services") or {}).get("openobserve") or {}
-        assert oo.get("retention_days"), f"{preset}: openobserve.retention_days missing"
+        store = (_cfg(preset).get("services") or {}).get("telemetry_store") or {}
+        assert store.get("retention_days"), f"{preset}: telemetry_store.retention_days missing"
 
 
 def test_no_preset_regresses_to_opt_in_wording():
