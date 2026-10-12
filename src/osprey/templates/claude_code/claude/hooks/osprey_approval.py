@@ -2920,8 +2920,9 @@ _APPROVED_NO_JOURNAL = "none"
 _APPROVED_JOURNAL_KEY = "approved_journal_sha256"
 _APPROVED_TARGET_KEY = "approved_target"
 
-#: The most displaced setpoints an approval prompt lists. A journal holding
-#: more is refused: no approval is asked for a journal the prompt cannot list in full.
+#: The most setpoint addresses an approval prompt lists. A journal holding more,
+#: or a measurement stepping more, is refused: no approval is asked for a list
+#: the prompt cannot show in full.
 _JOURNAL_MAX_LISTED = 500
 
 #: Audit reasons of the three guarded-run refusals.
@@ -3271,9 +3272,6 @@ _PYAML_DEFAULT_BY = "magnet"
 _PYAML_GROUP = "group"
 _PYAML_GROUP_MODULATION = "unipolar"
 
-#: How many setpoint addresses the prompt lists before it counts the rest.
-_PYAML_LISTED_SETPOINTS = 20
-
 #: The tool argument that carries the approved view digest.
 _APPROVED_VIEW_KEY = "approved_view_sha256"
 
@@ -3300,8 +3298,9 @@ def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str]:
 
     Raises:
         _GuardedRunRefused: The model has no pyAML view in this render, the
-            view lacks the kind, or the view's bytes differ from the digest
-            the build recorded.
+            view lacks the kind, the view's bytes differ from the digest
+            the build recorded, or the call steps more setpoints than a
+            prompt lists.
     """
     measurement = load_hook_config().get("measurement") or {}
     models = sorted(measurement)
@@ -3362,6 +3361,12 @@ def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str]:
             setpoints.extend(address for address in named if address not in setpoints)
         else:
             setpoints.extend(str(address) for address in groups.get(role) or [])
+    if len(setpoints) > _JOURNAL_MAX_LISTED:
+        raise _GuardedRunRefused(
+            f"pyaml_measure: {kind} on {model} steps {len(setpoints)} setpoints, "
+            "more than an approval prompt lists",
+            _PYAML_VIEW_AUDIT_REASON,
+        )
     by = (tool_input.get("by") or _PYAML_DEFAULT_BY) if kind in _PYAML_BY_KINDS else None
     modulation = tool_input.get("modulation") or (
         _PYAML_GROUP_MODULATION if by == _PYAML_GROUP else _PYAML_DEFAULT_MODULATION
@@ -3384,10 +3389,7 @@ def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str]:
     lines.append(f"pyAML view: {relative}")
     lines.append(f"  sha256 {digest}")
     lines.append(f"Setpoints stepped: {len(setpoints)}")
-    for address in setpoints[:_PYAML_LISTED_SETPOINTS]:
-        lines.append(f"  {_journal_text(address)}")
-    if len(setpoints) > _PYAML_LISTED_SETPOINTS:
-        lines.append(f"  and {len(setpoints) - _PYAML_LISTED_SETPOINTS} more")
+    lines.extend(f"  {_journal_text(address)}" for address in setpoints)
     return lines, digest
 
 

@@ -2494,12 +2494,32 @@ def test_the_measurement_prompt_shows_the_view_and_every_stepping_argument(
     digest = hashlib.sha256(_VIEW_BYTES).hexdigest()
     assert 'Model: SR\nKind: orm\nModulation: "bipolar"\n' in reason
     assert f"pyAML view: {_VIEW_RELATIVE}\n  sha256 {digest}\n" in reason
-    assert "Setpoints stepped: 23\n" in reason
-    for address in _HCOR[:20]:
-        assert f'  "{address}"' in reason
-    assert f'"{_HCOR[20]}"' not in reason
-    assert "  and 3 more" in reason
+    listed = "".join(f'\n  "{address}"' for address in [*_HCOR, *_VCOR])
+    assert f"Setpoints stepped: 23{listed}\n" in reason
+    assert " more" not in reason
     assert _updated(result)["approved_view_sha256"] == digest
+
+
+def test_a_measurement_stepping_more_than_a_prompt_lists_is_denied_unasked(
+    tmp_path, hook_runner, make_config, stamp_dir
+):
+    _plant_view(tmp_path)
+    hcor = [f"SR:HCM:{index:03d}:SP" for index in range(1, 501)]
+    groups = {**_measurement_block()["groups"], "hcor": hcor}
+
+    result = _measure(
+        hook_runner,
+        make_config,
+        tmp_path,
+        {"kind": "orm"},
+        block=_measurement_block(groups=groups),
+        extra={"hook_event_name": "PreToolUse", "tool_use_id": "toolu_pm_many"},
+    )
+
+    assert _denied_reason(result) == (
+        "pyaml_measure: orm on SR steps 501 setpoints, more than an approval prompt lists"
+    )
+    assert not (stamp_dir / "approval_ask_toolu_pm_many.json").exists()
 
 
 def test_the_named_correctors_are_the_ones_listed(tmp_path, hook_runner, make_config):
