@@ -809,21 +809,36 @@ def _service_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
 
     config = _config_block(profile)
     deployed = _dotted(config, "deployed_services")
-    if isinstance(deployed, list) and "openobserve" in deployed:
-        # With no port key the store sits at the layout's openobserve slot in
-        # THIS profile's block, so the base is read from the profile rather
-        # than defaulted: a deployment that moved its base has to be probed
-        # inside its own block, not at whatever holds the framework default.
+    deployed = deployed if isinstance(deployed, list) else []
+    # With no port key a service sits at its layout slot in THIS profile's
+    # block, so the base is read from the profile rather than defaulted: a
+    # deployment that moved its base has to be probed inside its own block, not
+    # at whatever holds the framework default.
+    if "telemetry_store" in deployed:
         port = _as_port(
-            _dotted(config, "services.openobserve.port"),
-            default_port("openobserve", base=_profile_port_base(config)),
+            _dotted(config, "services.telemetry_store.port"),
+            default_port("telemetry_store", base=_profile_port_base(config)),
         )
         probes.append(
             Probe(
                 kind="http",
-                label=f"openobserve: telemetry store on {port}",
+                label=f"telemetry-store: query interface on {port}",
                 port=port,
-                path="/healthz",
+                path="/ping",
+            )
+        )
+    if "telemetry_gateway" in deployed:
+        # The collector answers a bare GET on its receiver with an error page,
+        # so the honest probe is that the port accepts a connection.
+        port = _as_port(
+            _dotted(config, "services.telemetry_gateway.port"),
+            default_port("telemetry_gateway", base=_profile_port_base(config)),
+        )
+        probes.append(
+            Probe(
+                kind="tcp",
+                label=f"telemetry-gateway: OTLP receiver on {port}",
+                port=port,
             )
         )
 
@@ -927,7 +942,7 @@ def _web_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
     # deployment resolves it: the profile's `nginx_port` when it sets one, else
     # the gateway slot of the block the profile's own `deployment.port_base`
     # names. Re-wrapped into the single rendered-config shape the resolver
-    # takes, the same way the openobserve probe above reaches the base.
+    # takes, the same way the telemetry probes above reach the base.
     profile_config = _config_block(profile)
     port_base = _profile_port_base(profile_config)
     probes = [

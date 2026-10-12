@@ -393,9 +393,9 @@ def test_the_endpoints_section_is_the_deploys_own_block(tmp_path, rendered):
     compose.write_text(
         f"""
 services:
-  openobserve:
+  telemetry_gateway:
     ports:
-      - "127.0.0.1:{ports["openobserve"]}:5080"
+      - "127.0.0.1:{ports["telemetry_gateway"]}:4318"
   postgresql:
     ports:
       - "127.0.0.1:{ports["postgres"]}:5432"
@@ -408,9 +408,9 @@ services:
     output = rendered.export_text()
 
     assert deploy_summary.summary_title(config) in output
-    assert output.index("services") < output.index("openobserve")
+    assert output.index("services") < output.index("telemetry_gateway")
     assert output.index("stores") < output.index("postgresql")
-    assert f"http://127.0.0.1:{ports['openobserve']}" in output
+    assert f"127.0.0.1:{ports['telemetry_gateway']}" in output
     assert f"127.0.0.1:{ports['postgres']}" in output
 
 
@@ -474,7 +474,7 @@ class TestNoRuntimeInstalled:
 
     def test_services_declared_still_fails(self, monkeypatch, rendered) -> None:
         """A deployment that needs a runtime and has none is broken, and says so."""
-        result = self._query(monkeypatch, {"deployed_services": ["openobserve"]}, installed=False)
+        result = self._query(monkeypatch, {"deployed_services": ["postgresql"]}, installed=False)
         assert result is None
 
         printed = rendered.export_text()

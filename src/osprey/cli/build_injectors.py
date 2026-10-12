@@ -34,6 +34,7 @@ from osprey.deployment.host_binding import (
     BUNDLED_HOST_BINDINGS,
     LISTENS_KEY,
 )
+from osprey.deployment.telemetry_config import HISTORY_SERVICE, history_page_deployed
 from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import (
     anchored_append,
@@ -395,14 +396,19 @@ def _copy_service_templates(project_path: Path) -> int:
     # under `services:`.  deployed_services come first (preserving prior
     # behavior exactly), then any declared key not already present.  Bundling a
     # declared-but-not-deployed template keeps it inert until deployed, so
-    # opt-in add-ons (e.g. the openobserve telemetry backend) can be turned on
-    # later via a `deployed_services` edit + `osprey up`, no rebuild.
+    # opt-in add-ons can be turned on later via a `deployed_services` edit +
+    # `osprey up`, no rebuild.
     deployed = [str(s) for s in config.get("deployed_services", [])]
     names = list(deployed)
     for declared in services_config:
         name = str(declared)
         if name not in names:
             names.append(name)
+    # The history page is never a deployed_services entry: it is rendered
+    # exactly when the deployment runs the store and signs people in.
+    if history_page_deployed(config) and HISTORY_SERVICE not in names:
+        names.append(HISTORY_SERVICE)
+        deployed.append(HISTORY_SERVICE)
 
     if not names:
         return 0

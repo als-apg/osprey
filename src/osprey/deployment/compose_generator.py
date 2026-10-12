@@ -13,6 +13,7 @@ that answers a question rather than performing a render —
 because its wrong answer is an empty list rather than an error.
 """
 
+import contextlib
 import hashlib
 import json
 import os
@@ -23,7 +24,6 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any
-from urllib.parse import urlsplit
 
 import yaml
 from jinja2 import Environment, FileSystemLoader
@@ -48,6 +48,10 @@ from osprey.deployment.runtime_helper import (
     runtime_env,
 )
 from osprey.deployment.subprocess_capture import run_captured
+from osprey.deployment.telemetry_config import HISTORY_SERVICE, history_page_deployed
+from osprey.deployment.telemetry_store.render import (
+    render_context as telemetry_store_render_context,
+)
 
 # The dev-wheel build, per-process cache, and staging-copy helpers live in
 # wheel_build; the copy helper is invoked here by _stage_dev_wheel_for_context,
@@ -92,6 +96,8 @@ SRC_DIR = "src"
 OUT_SRC_DIR = "repo_src"
 
 TEMPLATE_FILENAME = "docker-compose.yml.j2"
+#: The history page's template directory under ``services/``.
+HISTORY_TEMPLATE_DIR = HISTORY_SERVICE
 COMPOSE_FILE_NAME = "docker-compose.yml"
 
 #: The deployment's one secret store, at the repo root. Compose is pointed at it
@@ -663,9 +669,9 @@ def find_service_config(config, service_name):
     Examples:
         Service discovery::
 
-            >>> config = {'services': {'openobserve': {'path': 'services/openobserve'}}}
-            >>> service_config, template_path = find_service_config(config, 'openobserve')
-            >>> print(template_path)  # 'services/openobserve/docker-compose.yml.j2'
+            >>> config = {'services': {'postgresql': {'path': 'services/postgresql'}}}
+            >>> service_config, template_path = find_service_config(config, 'postgresql')
+            >>> print(template_path)  # 'services/postgresql/docker-compose.yml.j2'
 
     .. seealso::
        :func:`setup_build_dir` : Processes discovered services for deployment
@@ -1197,11 +1203,6 @@ def _resolve_qmd_render_context(config, repo_root):
 #: default, and the base of the ``archive_last_pass`` health threshold.
 ARCHIVE_DEFAULT_INTERVAL_SECONDS = 86400
 
-#: Days of the telemetry store a first archive pass reaches back for when
-#: ``services.openobserve.retention_days`` is unset — the store's own default
-#: retention, since it holds nothing older.
-ARCHIVE_DEFAULT_BACKFILL_DAYS = 14
-
 
 def _resolve_archive_render_context(config):
     """Build the ``osprey_archive`` render context for the archive service template.
@@ -1217,12 +1218,12 @@ def _resolve_archive_render_context(config):
     :param config: Configuration dictionary
     :type config: dict
     :return: ``dest_source``, ``audit_source``, ``terminals``, ``workers``,
-        ``lanes``, ``openobserve``, ``openobserve_org``,
-        ``openobserve_backfill_days`` and ``interval_seconds``
+        ``lanes``, ``telemetry_store``, ``store_url``, ``store_backfill_days``
+        and ``interval_seconds``
     :rtype: dict
     """
     from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
-    from osprey.deployment.openobserve_provision import store_org
+    from osprey.deployment import telemetry_config as tc
     from osprey.deployment.web_terminals.personas import roster_user_names
     from osprey.utils.workspace import ARCHIVE_DIR_RELPATH, AUDIT_DIR_RELPATH
 
@@ -1283,22 +1284,67 @@ def _resolve_archive_render_context(config):
                 }
             )
 
-    openobserve_block = _block("openobserve")
     archive_block = _block("archive")
+    # The store's address from the archive's network shape: its service name on
+    # the bridge, the loopback port it publishes on the host namespace.
+    on_host = archive_block.get("network") == "host"
     return {
         "dest_source": repo_relative_mount_source(ARCHIVE_DIR_RELPATH),
         "audit_source": repo_relative_mount_source(AUDIT_DIR_RELPATH),
         "terminals": terminals,
         "workers": workers,
         "lanes": lanes,
-        "openobserve": "openobserve" in deployed,
-        "openobserve_org": store_org(config),
-        "openobserve_backfill_days": int(
-            openobserve_block.get("retention_days") or ARCHIVE_DEFAULT_BACKFILL_DAYS
-        ),
+        "telemetry_store": tc.STORE_SERVICE in deployed,
+        "store_url": tc.store_url(config, bridge=not on_host),
+        "store_backfill_days": tc.retention_days(config),
         "interval_seconds": int(
             archive_block.get("interval_seconds") or ARCHIVE_DEFAULT_INTERVAL_SECONDS
         ),
+    }
+
+
+#: The port the history page listens on inside its container.
+HISTORY_CONTAINER_PORT = 8000
+
+
+def _resolve_history_render_context(config):
+    """Build the ``osprey_history`` render context for the history page template.
+
+    Computed for every config, so the template renders on its own; the origin
+    and the queueservers are filled in only when the page is deployed
+    (:func:`~osprey.deployment.telemetry_config.history_page_deployed`), the one
+    case where the readers' origin is required to exist.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: ``port``, ``container_port``, ``store_url``, ``external_origin``,
+        ``queueservers``, ``max_days`` and ``url`` (the page's browser URL,
+        ``<readers' origin>/history/``, or ``""``)
+    :rtype: dict
+    """
+    from osprey.deployment import telemetry_config as tc
+
+    deployed = tc.history_page_deployed(config)
+    origin = ""
+    queueservers: list[str] = []
+    if deployed:
+        from osprey.deployment.telemetry_gateway import trusted_on_behalf_of
+        from osprey.deployment.web_terminals.render import reader_origin
+
+        # A deployment that names no readers' origin is refused where the web
+        # tier renders the readers' server; here it renders no origin and so
+        # no dashboard link.
+        with contextlib.suppress(ValueError):
+            origin = reader_origin(config).origin
+        queueservers = list(trusted_on_behalf_of(config)[1])
+    return {
+        "port": tc.history_port(config),
+        "container_port": HISTORY_CONTAINER_PORT,
+        "store_url": tc.store_url(config, bridge=True),
+        "external_origin": origin,
+        "queueservers": queueservers,
+        "max_days": tc.retention_days(config),
+        "url": f"{origin}/history/" if origin else "",
     }
 
 
@@ -1306,7 +1352,7 @@ def _resolve_archive_render_context(config):
 #: ``OSPREY_<KEY>_IMAGE`` compose override that pins each one, mapped to the
 #: suffix its name carries after the project name (the project image itself
 #: carries none). The third-party pins that sit beside these in the same
-#: templates — postgres, mongo, redis, tiled, openobserve, neo4j — are deliberately
+#: templates — postgres, mongo, redis, tiled, neo4j — are deliberately
 #: absent: those are upstream coordinates, and prefixing or re-tagging one
 #: names an image that exists in no registry.
 _OSPREY_IMAGE_SUFFIXES: dict[str, str] = {
@@ -1588,43 +1634,6 @@ def _bluesky_lane_write_posture(services, control_system):
         for key in LANE_KEYS
         if isinstance(services.get(key), dict)
     }
-
-
-def _telemetry_link_host(config):
-    """The host the dashboard's per-run telemetry link names, or ``None``.
-
-    The link is rendered into the dispatcher's compose file and followed in the
-    OPERATOR's browser, which is outside the compose network — so it cannot use
-    the store's compose DNS name, and ``localhost`` is only right when the
-    browser runs on the host that publishes the store. Which host it should name
-    instead is a question this deployment already answers once, for the landing
-    page and for the origin every terminal checks a write against
-    (:func:`~osprey.deployment.web_terminals.render.deployment_external_origin`),
-    so the link is derived from that rather than from a second rule.
-
-    Three outcomes, and the third is deliberate: a store published on loopback
-    is reached at ``localhost`` (a browser reaching that dashboard is on the
-    host anyway); a store published on an interface takes the declared origin's
-    host; and a store published on an interface by a deployment that declares no
-    origin renders nothing at all. An unset variable is already the dashboard's
-    "hide the link" signal, which beats a link that resolves to the operator's
-    own machine.
-
-    :param config: The project config being rendered.
-    :return: The host to render, or ``None`` to emit no variable.
-    :rtype: str | None
-    """
-    from osprey.deployment.qmd_service import is_loopback_bind, resolve_bind_address
-
-    if is_loopback_bind(resolve_bind_address(config)):
-        return "localhost"
-    try:
-        from osprey.deployment.web_terminals.render import deployment_external_origin
-
-        origin = deployment_external_origin(config)
-    except Exception:
-        return None
-    return urlsplit(origin).hostname or None
 
 
 def project_label_values(config):
@@ -2008,11 +2017,33 @@ def _inject_project_metadata(config):
     # publishes: the interface `deployment.bind_address` names, or loopback for
     # a wildcard. One derivation for every template that sets such an address.
     config_with_labels["osprey_host_dial_address"] = _host_dial_address(config)
+    # The telemetry store's compose fragment and server config files render
+    # from one derivation of `services.telemetry_store`.
+    config_with_labels["osprey_telemetry_store"] = telemetry_store_render_context(config)
 
     # The archive service's sources — the volumes it reads, derived from the
     # same roster, worker and lane inputs their owner templates render from —
     # and its two binds. Injected unconditionally, like every derived key here.
     config_with_labels["osprey_archive"] = _resolve_archive_render_context(config)
+    # The history page's ports, store address and origin, and the URL the
+    # dispatch dashboard links a run to (empty when the page is not deployed,
+    # which renders no link).
+    history_context = _resolve_history_render_context(config)
+    config_with_labels["osprey_history"] = history_context
+    config_with_labels["osprey_history_url"] = history_context["url"]
+    # The telemetry gateway's memory limit, published ports, mounts and its
+    # rendered Collector configuration: one derivation for the compose
+    # fragment and the config.yaml beside it.
+    # Its ledger receivers cover every configured identity and every directory
+    # already under var/audit, so a directory keeps its receiver (and its
+    # checkpoint) after its writer leaves the config.
+    from osprey.deployment.telemetry_gateway import gateway_render_context, ledger_receivers
+    from osprey.utils.workspace import AUDIT_DIR_RELPATH
+
+    config_with_labels["osprey_telemetry_gateway"] = gateway_render_context(
+        config,
+        ledger_receivers=ledger_receivers(config, Path(repo_root) / AUDIT_DIR_RELPATH),
+    )
 
     # Every host port this deployment publishes, keyed by slot name
     # (:func:`osprey.port_layout.layout_ports`) — so a template line spells
@@ -2080,21 +2111,6 @@ def _inject_project_metadata(config):
     # names the machine that wrote it. Both are provisioned host-side by
     # :func:`ensure_simulator_log_dirs` before compose runs.
     config_with_labels["osprey_simulator_log_sources"] = simulator_log_mount_sources()
-
-    # The host the dispatcher dashboard's per-run telemetry link names, derived
-    # from the one external-origin authority (:func:`_telemetry_link_host`).
-    # ``None`` renders no variable at all, which the dashboard reads as "hide
-    # the link" — the honest answer for a deployment that publishes the store on
-    # the network but declares no origin a browser can resolve.
-    config_with_labels["osprey_telemetry_host"] = _telemetry_link_host(config)
-
-    # The organization the dashboard's link opens is the one the agent exports
-    # to and the provisioner creates the ingest account in, so it comes from the
-    # same resolver. Injected unconditionally: the template emits it only under
-    # the telemetry gate.
-    from osprey.deployment.openobserve_provision import store_org
-
-    config_with_labels["osprey_telemetry_org"] = store_org(config)
 
     return config_with_labels
 
@@ -2179,7 +2195,7 @@ def _site_image_args_for_context(config, out_dir):
 
     Only build contexts that contain a ``Dockerfile`` get any of it, for the
     reason :func:`_stage_dev_wheel_for_context` applies to the wheel: a
-    pure-image service (postgresql, openobserve) builds nothing, and an arg its
+    pure-image service (postgresql, telemetry_store) builds nothing, and an arg its
     fragment never reads is noise in the render.
 
     :param config: The deployment's raw config.
@@ -2213,7 +2229,7 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
     release under a flag that means "run my local code").
 
     Only build contexts that contain a ``Dockerfile`` get the wheel: pure-image
-    services (postgresql, openobserve) never install it, and a stray wheel in
+    services (postgresql, telemetry_store) never install it, and a stray wheel in
     their context is dead weight that also churns the build-context hash.
 
     :param out_dir: The service's build context directory (already populated
@@ -2230,7 +2246,7 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
         logger.debug("Production mode: Containers will install osprey from PyPI")
         return False
     if not os.path.isfile(os.path.join(out_dir, "Dockerfile")):
-        # Routine and correct: pure-image services (postgresql, openobserve)
+        # Routine and correct: pure-image services (postgresql, telemetry_store)
         # never install osprey. DEBUG, not INFO — at INFO these lines outnumber
         # the ones that carry a decision and bury them.
         logger.debug(
@@ -2761,8 +2777,10 @@ def service_audit_identities(config):
 
     The :data:`FIXED_SERVICE_AUDIT_IDENTITIES` half of the identity set, beside
     :func:`dispatch_worker_audit_identities` (which derives one identity per
-    worker) and the web overlay's per-user identities. Empty when the deployment
-    deploys none of them, so a stack without them provisions nothing.
+    worker) and the web overlay's per-user identities, plus the history page's
+    when :func:`~osprey.deployment.telemetry_config.history_page_deployed`
+    holds. Empty when the deployment deploys none of them, so a stack without
+    them provisions nothing.
 
     :param config: Configuration dictionary
     :type config: dict
@@ -2770,11 +2788,16 @@ def service_audit_identities(config):
     :rtype: list[str]
     """
     deployed = {str(name) for name in (config or {}).get("deployed_services") or []}
-    return [
+    identities = [
         identity
         for service, identity in FIXED_SERVICE_AUDIT_IDENTITIES.items()
         if service in deployed
     ]
+    # The history page is derived from the config rather than deployed by
+    # name, so its identity follows the same predicate that renders it.
+    if history_page_deployed(config):
+        identities.append(HISTORY_SERVICE)
+    return identities
 
 
 #: Filename of the marker the build writes at the root of the control-context
@@ -3994,11 +4017,11 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
             ...     'additional_dirs': ['docs', 'scripts'],
             ... }
             >>> compose_path = setup_build_dir(
-            ...     'services/openobserve/docker-compose.yml.j2',
+            ...     'services/postgresql/docker-compose.yml.j2',
             ...     config,
             ...     container_cfg
             ... )
-            >>> print(compose_path)  # 'build/services/openobserve/docker-compose.yml'
+            >>> print(compose_path)  # 'build/services/postgresql/docker-compose.yml'
 
         Advanced service with custom directory mapping::
 
@@ -4354,6 +4377,27 @@ def _incremental_setup_build_dir(
     return compose_filepath
 
 
+def derived_compose_dirs(config):
+    """Name the services the build renders for *config* without a ``services:`` entry.
+
+    A derived service is decided by the config rather than listed in
+    ``deployed_services``: the history page is rendered exactly when
+    :func:`~osprey.deployment.telemetry_config.history_page_deployed` holds.
+    :func:`prepare_compose_files` renders one compose file per name and
+    :func:`find_existing_compose_files` hands the same files to compose, so the
+    stack ``osprey up`` starts is the stack the build wrote.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: Template directory names under ``services/``, in render order
+    :rtype: list[str]
+    """
+    dirs = []
+    if history_page_deployed(config):
+        dirs.append(HISTORY_TEMPLATE_DIR)
+    return dirs
+
+
 def find_existing_compose_files(config, deployed_services, quiet=False, base=None):
     """Find existing compose files without rebuilding directories.
 
@@ -4383,9 +4427,9 @@ def find_existing_compose_files(config, deployed_services, quiet=False, base=Non
         building a ``-f`` list passes it through.
 
     Example:
-        compose_files = find_existing_compose_files(config, ['openobserve'])
+        compose_files = find_existing_compose_files(config, ['postgresql'])
         # Returns: ['./build/services/docker-compose.yml',
-        #          './build/services/openobserve/docker-compose.yml']
+        #          './build/services/postgresql/docker-compose.yml']
     """
     compose_files = []
     base = Path(base) if base is not None else Path.cwd()
@@ -4416,6 +4460,15 @@ def find_existing_compose_files(config, deployed_services, quiet=False, base=Non
                 logger.warning(
                     f"Compose file not found for service '{service_name}' at {compose_path}"
                 )
+
+    # Derived services are rendered by the build without a deployed_services
+    # entry; the same answer that told the build to write them names them here.
+    for service_dir in derived_compose_dirs(config):
+        compose_path = os.path.join(build_dir, SERVICES_DIR, service_dir, COMPOSE_FILE_NAME)
+        if (base / compose_path).exists():
+            compose_files.append(compose_path)
+        elif not quiet:
+            logger.warning(f"Compose file not found for service '{service_dir}' at {compose_path}")
 
     return compose_files
 
@@ -4728,6 +4781,18 @@ def prepare_compose_files(
             compose_files.append(out)
         else:
             raise RuntimeError(f"Service '{service_name}' not found in configuration")
+
+    # Derived services are never deployed_services entries. Each reads its
+    # settings from the environment its compose file sets, so only the compose
+    # file is rendered: no config copy beside it.
+    for service_dir in derived_compose_dirs(config):
+        derived_template = os.path.join(SERVICES_DIR, service_dir, TEMPLATE_FILENAME)
+        if not os.path.isfile(derived_template):
+            raise RuntimeError(
+                f"Template file {derived_template} not found for service '{service_dir}'"
+            )
+        out_dir = os.path.join(config.get("build_dir", "./build"), SERVICES_DIR, service_dir)
+        compose_files.append(render_template(derived_template, config, out_dir))
 
     deduped = _dedupe_compose_files(compose_files)
     write_labels_override(config.get("build_dir", "./build"), deduped, config)

@@ -345,17 +345,26 @@ def test_probe_group_filter_is_not_named_groups(rendered_verify: str) -> None:
 
 
 def test_health_check_probes_every_deployed_service(rendered_verify: str) -> None:
-    """The three services this facility runs each get a probe.
+    """The services this facility runs each get a probe.
 
-    The exemplar names no ``port_base``, so two of the three are probed at
-    their slots in the default block — the telemetry store at + 50, the
-    facility's own MCP server at the first port of the facility band — and
-    Channel Access at 5064 is the one port a block never moves.
+    The exemplar names no ``port_base``, so all but one are probed at their
+    slots in the default block — the telemetry gateway at + 51, the telemetry
+    store at + 804, the facility's own MCP server at the first port of the
+    facility band — and Channel Access at 5064 is the one port a block never
+    moves. The store is asked for its ``/ping`` page; the gateway's receiver
+    has no page to ask for, so it is probed for an open port.
     """
     assert "probe_tcp  'virtual-accelerator: Channel Access on 5064'  localhost 5064" in (
         rendered_verify
     )
-    assert "'openobserve: telemetry store on 10050'" in rendered_verify
+    assert re.search(
+        r"probe_http\s+'telemetry-store: query interface on 10804'\s+\S*10804/ping",
+        rendered_verify,
+    )
+    assert re.search(
+        r"probe_tcp\s+'telemetry-gateway: OTLP receiver on 10051'\s+localhost 10051",
+        rendered_verify,
+    )
     assert "'facility-mcp: machine status on 10900'" in rendered_verify
 
 

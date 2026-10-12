@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from osprey.deployment import container_lifecycle
+from osprey.deployment import container_lifecycle, telemetry_config
 from osprey.deployment.errors import (
     ArchiverClientMissingError,
     DeploymentPreconditionError,
@@ -3451,7 +3451,12 @@ def test_every_template_on_the_project_image_is_a_project_image_service():
         if "default(osprey_images.worker)" in template.read_text(encoding="utf-8")
     }
 
-    assert on_project_image == set(container_lifecycle._PROJECT_IMAGE_SERVICES)
+    # The history page is derived from the config rather than deployed by name,
+    # so it joins the gate through its predicate (test_history_service.py).
+    assert on_project_image == {
+        *container_lifecycle._PROJECT_IMAGE_SERVICES,
+        telemetry_config.HISTORY_SERVICE,
+    }
 
 
 def test_the_switch_answers_the_build_target_question_too(monkeypatch):
@@ -4730,19 +4735,6 @@ def test_deploy_up_removes_orphan_terminals_before_the_host_port_preflight(
     out = capsys.readouterr().out
     assert "als-web-ariel" in out
     assert "ariel" in out
-
-
-def test_deploy_up_checks_the_store_port_right_after_the_host_port_preflight(monkeypatch, tmp_path):
-    order: list[str] = []
-    _record_web_deploy(monkeypatch, tmp_path, order, {"enabled": True, "image_source": "local"})
-    monkeypatch.setattr(container_lifecycle, "remove_orphan_terminals", lambda config: {})
-    monkeypatch.setattr(
-        container_lifecycle, "_preflight_store_address", lambda config, files: order.append("store")
-    )
-
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-
-    assert order == ["ports", "store", "web_up"]
 
 
 def test_deploy_up_without_web_terminals_reconciles_no_orphans(monkeypatch, tmp_path):
