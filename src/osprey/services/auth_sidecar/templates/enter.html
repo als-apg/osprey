@@ -29,6 +29,11 @@
     cards: list[{"name", "href", "own"}]
       The unlocked terminals, own cards first. `href` is the terminal's mount;
       `own` is false for a card shared with this person, which is tagged.
+
+    next: str
+      Where a successful sign-in returns the browser, already validated by the
+      route; empty when the sign-in goes to the opened terminal. Carried as a
+      hidden field so the form's POST keeps it.
 #}
 {% block title %}Log in{% endblock %}
 {% block style %}
@@ -78,6 +83,9 @@
     <p class="login-error" role="alert">{{ error|e }}</p>
     {%- endif %}
     <form method="post" action="{{ enter_path|e }}">
+      {%- if next %}
+      <input type="hidden" name="next" value="{{ next|e }}">
+      {%- endif %}
       <label class="login-label" for="username">Username</label>
       <input class="login-input" id="username" name="username" type="text"
              value="{{ username|e }}" autocomplete="username" autocapitalize="none"

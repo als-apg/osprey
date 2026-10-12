@@ -48,6 +48,7 @@ from fastapi.responses import RedirectResponse
 
 from ..app import AuthSettings, get_revocation_store, get_session_codec, get_settings
 from ..exceptions import InvalidSessionError
+from ..return_to import acceptable_return_to
 from ..revocation import RevocationStore
 from ..sessions import (
     SESSION_COOKIE_NAME,
@@ -73,8 +74,12 @@ nginx serves the landing page at exactly this path.
 """
 
 
-def _redirect() -> RedirectResponse:
+def _redirect(location: str = LANDING_PATH) -> RedirectResponse:
     """The one response every logout produces, successful or not.
+
+    ``location`` is the landing page unless the logout named a ``return=`` that
+    every return-to rule admits — a same-origin path, or the history page on the
+    readers' origin, which is where a reader's sign-out comes from.
 
     303 rather than 302: the browser must follow it with a ``GET`` regardless of
     how it arrived, and the landing page is a different resource rather than a
@@ -83,7 +88,7 @@ def _redirect() -> RedirectResponse:
     cache, and a replayed logout would skip the revocation while looking like
     it worked.
     """
-    return RedirectResponse(LANDING_PATH, status_code=303, headers={"Cache-Control": "no-store"})
+    return RedirectResponse(location, status_code=303, headers={"Cache-Control": "no-store"})
 
 
 def _set_session_cookie(
@@ -115,9 +120,13 @@ async def logout(
     codec: Annotated[SessionCodec, Depends(get_session_codec)],
     revocations: Annotated[RevocationStore, Depends(get_revocation_store)],
     user: Annotated[list[str] | None, Query()] = None,
+    return_to: Annotated[list[str] | None, Query(alias="return")] = None,
     session_cookie: Annotated[str | None, Cookie(alias=SESSION_COOKIE_NAME)] = None,
 ) -> Response:
     """Lock ``user`` again in this browser's session.
+
+    ``user`` may be a roster card or a signed-in reader's ``reader:<name>``
+    entry; either is one entry of the session, surrendered the same way.
 
     Both parameters are optional so that a malformed request redirects like every
     other logout instead of drawing FastAPI's 422 validation body — a different
@@ -134,13 +143,22 @@ async def logout(
             reads, or this would revoke something nothing checks.
         user: The roster user to log out. Exactly one value acts; none and
             several are no-ops.
+        return_to: Where to send the browser afterwards. Exactly one value
+            that :func:`~osprey.services.auth_sidecar.return_to.acceptable_return_to`
+            admits is honoured; anything else is the landing page.
         session_cookie: The browser's session cookie, if it sent one.
 
     Returns:
-        A 303 to the landing page, carrying a reissued cookie whenever there was
+        A 303 to the validated return-to or the landing page, carrying a reissued cookie whenever there was
         a readable session to reissue.
     """
-    response = _redirect()
+    requested_return = return_to or []
+    location = (
+        acceptable_return_to(requested_return[0], history_origin=settings.history_origin)
+        if len(requested_return) == 1
+        else None
+    )
+    response = _redirect(location or LANDING_PATH)
 
     requested = user or []
     if len(requested) != 1 or not requested[0]:

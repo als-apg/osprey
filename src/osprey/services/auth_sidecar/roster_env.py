@@ -3,7 +3,7 @@
 This is the one definition of the suffix a web-terminal roster username is
 keyed by in ``OSPREY_AUTH_PW_HASH_<SUFFIX>``, ``OSPREY_AUTH_OIDC_SUBJECT_<SUFFIX>``,
 ``OSPREY_AUTH_ROSTER_ROLE_<SUFFIX>``, ``OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>`` and
-``OSPREY_TERMINAL_SECRET_<SUFFIX>``. The deployment layer mints under these
+``OSPREY_TERMINAL_SECRET_<SUFFIX>``, and the history carriers below. The deployment layer mints under these
 names (credential provisioning, render, lint, lifecycle) and the auth sidecar
 reads them, so both import the mapping from here. It also defines the
 stored-hash stem those names start with, for the same reason: both ends import
@@ -23,6 +23,43 @@ PW_HASH_VAR_PREFIX = "OSPREY_AUTH_PW_HASH_"
 
 The one definition the credential writer, the sidecar and lint share.
 """
+
+
+HISTORY_ORIGIN_VAR = "OSPREY_AUTH_HISTORY_ORIGIN"
+"""The readers' origin, ``scheme://host[:port]``, where the history page lives.
+
+A login may return the browser to an absolute URL only under this origin's
+``/history/`` path; every other return-to stays a same-origin path.
+"""
+
+ROSTER_HISTORY_VAR_PREFIX = "OSPREY_AUTH_ROSTER_HISTORY_"
+"""Stem of a roster user's ``history`` value (``own`` or ``all``), completed by
+:func:`env_var_suffix` of the username."""
+
+ROLE_HISTORY_VAR_PREFIX = "OSPREY_AUTH_ROLE_HISTORY_"
+"""Stem of the marker on a role whose ``history`` is ``all``, completed by
+:func:`env_var_suffix` of the role name. Only ``all`` is ever emitted: a role
+without the marker grants nothing beyond its holder's own sessions."""
+
+READERS_VAR = "OSPREY_AUTH_READERS"
+"""Comma-separated name of every configured telemetry reader."""
+
+READER_TABLES_VAR_PREFIX = "OSPREY_AUTH_READER_TABLES_"
+"""Stem of a reader's comma-separated table list, completed by
+:func:`env_var_suffix` of the reader name."""
+
+READER_SUBJECT_VAR_PREFIX = "OSPREY_AUTH_READER_SUBJECT_"
+"""Stem of an external reader's IdP identity, completed by :func:`env_var_suffix`
+of the reader name. Only readers off the roster carry one."""
+
+HISTORY_ALL = "all"
+"""The ``history`` value that widens a person's view to everyone's sessions."""
+
+READER_ENTRY_PREFIX = "reader:"
+"""Session-entry key prefix of a signed-in reader: ``reader:<name>``.
+
+The colon cannot appear in a roster username, so a reader entry never shares a
+key with a card."""
 
 
 def env_var_suffix(username: str) -> str:

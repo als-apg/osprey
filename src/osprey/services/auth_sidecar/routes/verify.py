@@ -58,6 +58,7 @@ from ..identity_headers import (
 )
 from ..passwords import verify_generation_tag
 from ..revocation import RevocationStore
+from ..roster_env import READER_ENTRY_PREFIX
 from ..sessions import SESSION_COOKIE_NAME, SessionCodec, UnlockedUser
 from .recheck import session_role, session_role_source, session_subject
 
@@ -173,6 +174,12 @@ async def verify(
     if not username:
         return _deny(username, "empty user parameter")
 
+    if username.startswith(READER_ENTRY_PREFIX):
+        # A reader entry reaches the history page and nothing else. The roster
+        # check below would refuse it too, since no roster name carries the
+        # prefix's colon; this says so where the decision is made.
+        return _deny(username, "a reader entry opens no terminal")
+
     if not settings.knows_user(username):
         return _deny(username, "user is not on the roster")
 
@@ -204,103 +211,9 @@ async def verify(
         # reached with `None`.
         return _deny(username, "session carries no entry for this user")
 
-    # How this session was admitted must still be something the card's current
-    # rule admits. A roster login names its opener — the roster entry whose
-    # credential proved it — while a login one of the card's ``user:`` or
-    # ``domain:`` principals admitted names the identity that was matched
-    # instead, and the card owner's own login names neither. That story is
-    # minted into the entry and re-tested here against the roster's *current*
-    # rule, so a session minted under a rule an operator has since edited
-    # retires now rather than lapsing: widening a card must not widen the
-    # sessions already outstanding, and narrowing it must not leave a withdrawn
-    # principal — or a written-out owner — holding the card open.
-    if entry.opener and entry.admitted_identity:
-        # Two admission stories in one entry, and no login mints that shape: an
-        # admitted identity is precisely what a session with no roster entry
-        # behind it carries. Refused whole rather than resolved, because each
-        # branch below would read only half of it.
-        return _deny(username, "session names both an opener and an admitted identity")
-
-    if entry.opener:
-        if not settings.shared(username):
-            return _deny(username, "session names an opener but the card is not shared")
-        if ACCESS_ROSTER not in settings.access(username):
-            # The opener is a roster user, and the ``roster`` principal is the
-            # only one that admits a login for being on the roster at all. A
-            # card narrowed to named identities or domains therefore no longer
-            # admits this session, and neither does one whose rule became
-            # unreadable — which admits nobody by design.
-            return _deny(username, "the card no longer admits an opener from the roster")
-    elif entry.admitted_identity:
-        # The rule-admitted path, asked again in full on every subrequest and
-        # against the current settings. That, rather than a remembered answer
-        # from login time, is what makes withdrawing a principal close the card
-        # on the next request; a card with no readable rule admits nobody and
-        # so is refused here too.
-        if not settings.card_admits(username, entry.admitted_identity):
-            return _deny(username, "no principal on the card admits the session's identity")
-    elif not settings.owner_admitted(username):
-        # The own shape: no opener and no admitted identity, because the card's
-        # own credential is what proved this login. It is admitted by the
-        # ``self`` principal and by nothing else here — which an owner-only
-        # card carries trivially, and which ``[self, domain:x]`` carries too, so
-        # sharing a card with a domain does not evict the user whose terminal it
-        # is. A card narrowed to other principals alone, and one whose rule
-        # cannot be read, admit their owner no more than anybody else.
-        return _deny(username, "the card no longer admits its own user")
-
-    if entry.opener and settings.method == "oidc":
-        # Opener re-validation, the shared card's counterpart of the generation
-        # tag: the card stays open only while whoever opened it could still
-        # open it today. Unlike the role, this *is* re-derived on every
-        # subrequest — deliberately, because a shared card multiplies one login
-        # across the whole roster, so an opener taken off the roster or
-        # remapped at the IdP must lose every terminal at once, not at each
-        # session's own expiry.
-        expected = settings.oidc_subject(entry.opener)
-        if expected is None:
-            # Checked explicitly, and first, so the comparison below can never
-            # run against ``None``.
-            return _deny(username, "the opener is no longer a mapped roster user")
-        # Under the claim's own rule, like the login that minted the entry: an
-        # operator re-spelling an `email` mapping in a different case has not
-        # remapped anyone, and must not log the whole roster out of the card.
-        if not same_identity(expected, entry.oidc_subject, claim=settings.oidc_claim):
-            return _deny(username, "the opener's mapped subject has changed")
-
-    if settings.method != "oidc":
-        # Password mode. Written as "not OIDC" rather than "is password" so the
-        # stricter branch is the default one: the guard admits only the two
-        # supported methods, and anything else reaching here must get the tag
-        # check, not skip it.
-        #
-        # In OIDC mode the entry's tag is not consulted at all, whatever it
-        # holds. There is no stored hash to compare it against, and only a
-        # holder of the signing secret could have put a tag there in the first
-        # place — a session that survives that check has already proved more
-        # than the tag could.
-        # On a shared card the session's tag was minted from the *opener's*
-        # hash, so that is the hash the tag is checked against; the card's own
-        # hash — which may exist as a stale leftover from before the card was
-        # shared — is deliberately not consulted. On an own card the opener is
-        # empty and the owner is the username itself, unchanged.
-        hash_owner = entry.opener or username
-        stored = settings.password_hash(hash_owner)
-        if stored is None:
-            # A roster user with no provisioned credential. An individual
-            # denial, not a deployment-wide fault: the other users still
-            # authenticate, so this is a 401 rather than the guard's 503. Two
-            # reasons, one per fault, so the log names whose credential is
-            # missing — the card's own, or its opener's (which also covers an
-            # opener taken off the roster: the hashes are roster-scoped).
-            if hash_owner == username:
-                return _deny(username, "user has no stored credential")
-            return _deny(username, "the opener has no stored credential")
-
-        if not verify_generation_tag(entry.generation_tag, stored):
-            # A tag that no longer matches means the password was rotated under
-            # this session.
-            return _deny(username, "credential generation tag does not match")
+    reason = check_entry(username, entry, settings)
+    if reason is not None:
+        return _deny(username, reason)
 
     return _authorized(username, entry, settings)
 
@@ -444,3 +357,121 @@ def _authorized(username: str, entry: UnlockedUser | None, settings: AuthSetting
             headers[ROLE_SOURCE_HEADER] = source
 
     return Response(status_code=200, headers=headers)
+
+
+def check_entry(username: str, entry: UnlockedUser, settings: AuthSettings) -> str | None:
+    """Whether one unlocked card entry still authorizes, against the current settings.
+
+    ``/verify``'s per-entry checks, shared with ``/verify-history`` so the two
+    answers about one entry can never disagree. The caller has already checked
+    that ``username`` is on the roster, that the cookie verified, that the entry
+    is unexpired and that the session is not revoked.
+
+    Args:
+        username: The roster card the entry unlocks.
+        entry: The entry itself.
+        settings: The deployment's frozen settings.
+
+    Returns:
+        ``None`` when the entry authorizes; otherwise a fixed category string
+        saying why not, for the log and never for the client.
+    """
+    # How this session was admitted must still be something the card's current
+    # rule admits. A roster login names its opener — the roster entry whose
+    # credential proved it — while a login one of the card's ``user:`` or
+    # ``domain:`` principals admitted names the identity that was matched
+    # instead, and the card owner's own login names neither. That story is
+    # minted into the entry and re-tested here against the roster's *current*
+    # rule, so a session minted under a rule an operator has since edited
+    # retires now rather than lapsing: widening a card must not widen the
+    # sessions already outstanding, and narrowing it must not leave a withdrawn
+    # principal — or a written-out owner — holding the card open.
+    if entry.opener and entry.admitted_identity:
+        # Two admission stories in one entry, and no login mints that shape: an
+        # admitted identity is precisely what a session with no roster entry
+        # behind it carries. Refused whole rather than resolved, because each
+        # branch below would read only half of it.
+        return "session names both an opener and an admitted identity"
+
+    if entry.opener:
+        if not settings.shared(username):
+            return "session names an opener but the card is not shared"
+        if ACCESS_ROSTER not in settings.access(username):
+            # The opener is a roster user, and the ``roster`` principal is the
+            # only one that admits a login for being on the roster at all. A
+            # card narrowed to named identities or domains therefore no longer
+            # admits this session, and neither does one whose rule became
+            # unreadable — which admits nobody by design.
+            return "the card no longer admits an opener from the roster"
+    elif entry.admitted_identity:
+        # The rule-admitted path, asked again in full on every subrequest and
+        # against the current settings. That, rather than a remembered answer
+        # from login time, is what makes withdrawing a principal close the card
+        # on the next request; a card with no readable rule admits nobody and
+        # so is refused here too.
+        if not settings.card_admits(username, entry.admitted_identity):
+            return "no principal on the card admits the session's identity"
+    elif not settings.owner_admitted(username):
+        # The own shape: no opener and no admitted identity, because the card's
+        # own credential is what proved this login. It is admitted by the
+        # ``self`` principal and by nothing else here — which an owner-only
+        # card carries trivially, and which ``[self, domain:x]`` carries too, so
+        # sharing a card with a domain does not evict the user whose terminal it
+        # is. A card narrowed to other principals alone, and one whose rule
+        # cannot be read, admit their owner no more than anybody else.
+        return "the card no longer admits its own user"
+
+    if entry.opener and settings.method == "oidc":
+        # Opener re-validation, the shared card's counterpart of the generation
+        # tag: the card stays open only while whoever opened it could still
+        # open it today. Unlike the role, this *is* re-derived on every
+        # subrequest — deliberately, because a shared card multiplies one login
+        # across the whole roster, so an opener taken off the roster or
+        # remapped at the IdP must lose every terminal at once, not at each
+        # session's own expiry.
+        expected = settings.oidc_subject(entry.opener)
+        if expected is None:
+            # Checked explicitly, and first, so the comparison below can never
+            # run against ``None``.
+            return "the opener is no longer a mapped roster user"
+        # Under the claim's own rule, like the login that minted the entry: an
+        # operator re-spelling an `email` mapping in a different case has not
+        # remapped anyone, and must not log the whole roster out of the card.
+        if not same_identity(expected, entry.oidc_subject, claim=settings.oidc_claim):
+            return "the opener's mapped subject has changed"
+
+    if settings.method != "oidc":
+        # Password mode. Written as "not OIDC" rather than "is password" so the
+        # stricter branch is the default one: the guard admits only the two
+        # supported methods, and anything else reaching here must get the tag
+        # check, not skip it.
+        #
+        # In OIDC mode the entry's tag is not consulted at all, whatever it
+        # holds. There is no stored hash to compare it against, and only a
+        # holder of the signing secret could have put a tag there in the first
+        # place — a session that survives that check has already proved more
+        # than the tag could.
+        # On a shared card the session's tag was minted from the *opener's*
+        # hash, so that is the hash the tag is checked against; the card's own
+        # hash — which may exist as a stale leftover from before the card was
+        # shared — is deliberately not consulted. On an own card the opener is
+        # empty and the owner is the username itself, unchanged.
+        hash_owner = entry.opener or username
+        stored = settings.password_hash(hash_owner)
+        if stored is None:
+            # A roster user with no provisioned credential. An individual
+            # denial, not a deployment-wide fault: the other users still
+            # authenticate, so this is a 401 rather than the guard's 503. Two
+            # reasons, one per fault, so the log names whose credential is
+            # missing — the card's own, or its opener's (which also covers an
+            # opener taken off the roster: the hashes are roster-scoped).
+            if hash_owner == username:
+                return "user has no stored credential"
+            return "the opener has no stored credential"
+
+        if not verify_generation_tag(entry.generation_tag, stored):
+            # A tag that no longer matches means the password was rotated under
+            # this session.
+            return "credential generation tag does not match"
+
+    return None

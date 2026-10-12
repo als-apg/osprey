@@ -76,7 +76,18 @@ from .identity_headers import same_domain, same_identity
 from .methods import METHOD_OIDC, METHOD_PASSWORD, SUPPORTED_METHODS
 from .passwords import stored_hash_problem
 from .revocation import RevocationStore
-from .roster_env import PW_HASH_VAR_PREFIX, env_var_suffix, env_var_suffix_collisions
+from .roster_env import (
+    HISTORY_ALL,
+    HISTORY_ORIGIN_VAR,
+    PW_HASH_VAR_PREFIX,
+    READER_SUBJECT_VAR_PREFIX,
+    READER_TABLES_VAR_PREFIX,
+    READERS_VAR,
+    ROLE_HISTORY_VAR_PREFIX,
+    ROSTER_HISTORY_VAR_PREFIX,
+    env_var_suffix,
+    env_var_suffix_collisions,
+)
 from .sessions import SessionCodec
 from .throttle import (
     DEFAULT_FORGET_AFTER,
@@ -282,7 +293,7 @@ _FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 # and *only* that case is skipped: an ImportError raised from inside a module
 # that does exist propagates, so a broken route can never degrade into a
 # silently missing one.
-_ROUTE_MODULES = ("verify", "login", "logout", "oidc", "entry")
+_ROUTE_MODULES = ("verify", "history", "login", "logout", "oidc", "entry")
 _ROUTES_PACKAGE = f"{__package__}.routes"
 
 
@@ -434,6 +445,11 @@ def _access_principals(raw: str | None, var: str) -> frozenset[str]:
     return frozenset(parsed)
 
 
+def _is_history_all(raw: str | None) -> bool:
+    """Whether a history carrier's value is ``all``; anything else is ``own``."""
+    return (raw or "").strip().lower() == HISTORY_ALL
+
+
 def _roster(raw: str | None) -> tuple[str, ...]:
     """Parse the comma-separated roster, dropping blanks and repeats.
 
@@ -524,6 +540,18 @@ class AuthSettings:
             set for one whose rule could not be read, which admits nobody. Use
             :meth:`access` rather than the mapping, so a name off the roster
             answers as an unshared card instead of raising.
+        history_origin: The readers' origin the history page is served on,
+            ``scheme://host[:port]``, or ``""`` when this deployment serves no
+            history page. A login may return to an absolute URL under its
+            ``/history/`` path and nowhere else off this origin.
+        history_all_users: Roster users whose own entry says ``history: all``.
+        history_all_roles: :func:`~osprey.services.auth_sidecar.roster_env.env_var_suffix`
+            of every role marked ``history: all``. Read through
+            :meth:`role_history_all`.
+        readers: Every configured telemetry reader's name, in config order.
+        reader_tables: ``{reader: tables}`` — the tables each reader may read.
+        reader_subjects: ``{reader: IdP identity}`` for the readers that sign in
+            through the provider without a roster entry.
     """
 
     method: str = "none"
@@ -544,6 +572,12 @@ class AuthSettings:
     oidc_claims_in_id_token: bool = False
     oidc_subjects: Mapping[str, str] = field(default_factory=dict)
     roster_access: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    history_origin: str = ""
+    history_all_users: frozenset[str] = frozenset()
+    history_all_roles: frozenset[str] = frozenset()
+    readers: tuple[str, ...] = ()
+    reader_tables: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    reader_subjects: Mapping[str, str] = field(default_factory=dict)
     web_theme: str = ""
     web_app_name: str = ""
     throttle_initial_delay: float = DEFAULT_INITIAL_DELAY
@@ -598,6 +632,27 @@ class AuthSettings:
                 oidc_subjects[user] = subject
             access_var = f"{ENV_ROSTER_ACCESS_PREFIX}{suffix}"
             roster_access[user] = _access_principals(source.get(access_var), access_var)
+        history_all_users = frozenset(
+            user
+            for user in users
+            if _is_history_all(source.get(f"{ROSTER_HISTORY_VAR_PREFIX}{env_var_suffix(user)}"))
+        )
+        history_all_roles = frozenset(
+            name[len(ROLE_HISTORY_VAR_PREFIX) :]
+            for name, value in source.items()
+            if name.startswith(ROLE_HISTORY_VAR_PREFIX)
+            and len(name) > len(ROLE_HISTORY_VAR_PREFIX)
+            and _is_history_all(value)
+        )
+        readers = _roster(source.get(READERS_VAR))
+        reader_tables: dict[str, tuple[str, ...]] = {}
+        reader_subjects: dict[str, str] = {}
+        for reader in readers:
+            suffix = env_var_suffix(reader)
+            reader_tables[reader] = _roster(source.get(f"{READER_TABLES_VAR_PREFIX}{suffix}"))
+            reader_subject = (source.get(f"{READER_SUBJECT_VAR_PREFIX}{suffix}") or "").strip()
+            if reader_subject:
+                reader_subjects[reader] = reader_subject
 
         client_id_var = (
             source.get(ENV_OIDC_CLIENT_ID_ENV) or ""
@@ -627,6 +682,12 @@ class AuthSettings:
             oidc_claims_in_id_token=_flag(source.get(ENV_OIDC_CLAIMS_IN_ID_TOKEN)),
             oidc_subjects=oidc_subjects,
             roster_access=roster_access,
+            history_origin=(source.get(HISTORY_ORIGIN_VAR) or "").strip().rstrip("/"),
+            history_all_users=history_all_users,
+            history_all_roles=history_all_roles,
+            readers=readers,
+            reader_tables=reader_tables,
+            reader_subjects=reader_subjects,
             web_theme=(source.get(ENV_WEB_THEME) or "").strip(),
             web_app_name=(source.get(ENV_WEB_APP_NAME) or "").strip(),
             throttle_initial_delay=_throttle_number(
@@ -892,6 +953,29 @@ class AuthSettings:
     def knows_user(self, user: str) -> bool:
         """Whether ``user`` is on this deployment's roster."""
         return user in self.users
+
+    def user_history_all(self, user: str) -> bool:
+        """Whether ``user``'s own roster entry says ``history: all``."""
+        return user in self.history_all_users
+
+    def role_history_all(self, role: str) -> bool:
+        """Whether the role named ``role`` says ``history: all``.
+
+        ``""`` — no role — never does.
+        """
+        return bool(role) and env_var_suffix(role) in self.history_all_roles
+
+    def knows_reader(self, name: str) -> bool:
+        """Whether ``name`` is a configured telemetry reader now."""
+        return name in self.readers
+
+    def reader_subject(self, name: str) -> str | None:
+        """The IdP identity reader ``name`` signs in as, or ``None`` for none."""
+        return self.reader_subjects.get(name)
+
+    def tables_for_reader(self, name: str) -> tuple[str, ...]:
+        """The tables reader ``name`` may read; empty for a name that is no reader."""
+        return self.reader_tables.get(name, ())
 
 
 def get_settings(request: Request) -> AuthSettings:
