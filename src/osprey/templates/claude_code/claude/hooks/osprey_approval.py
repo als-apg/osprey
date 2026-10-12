@@ -41,6 +41,12 @@ stdin ──► Parse JSON
                  approval section
                           │
                           ▼
+  not a mapping, or enabled
+  not true/false?  ──YES──► DENY (names the fix)
+     │
+    NO
+     │
+     ▼
   enabled: false?  ──YES──► EXIT (allow)
      │
     NO
@@ -61,6 +67,8 @@ Per-tool policies from `approval.tools` in config.yml:
 - **always**: every call requires approval
 - **selective**: content-aware (execute checks write patterns + exec mode)
 - **enabled: false**: global toggle disables all approval
+- **enabled** other than true/false (or an `approval` that is not a mapping):
+  every call is denied with the fix
 - **default_policy**: fail-closed default for unmapped tools
 
 Creates a pre-execution notebook artifact for code review whenever
@@ -2822,6 +2830,19 @@ _RAW_CLIENT_WRITE_REASON = (
 )
 _RAW_CLIENT_WRITE_AUDIT_REASON = "raw_client_write"
 
+#: The deny text for an approval switch that is not true or false, and for an
+#: ``approval`` section that is not a mapping. The hook is deployed standalone,
+#: so it restates the build's sentence (``build_posture_check``) literally.
+_APPROVAL_CONFIG_INVALID_REASON = (
+    "approval.enabled is {value!r}, not true or false; "
+    "set approval.enabled to true or false in profile.yml and rebuild"
+)
+_APPROVAL_SECTION_INVALID_REASON = (
+    "approval is {value!r}, not a mapping; "
+    "set approval.enabled to true or false in profile.yml and rebuild"
+)
+_APPROVAL_CONFIG_INVALID_AUDIT_REASON = "approval_config_invalid"
+
 
 def _code_tokens(code):
     """The source as space-joined code tokens, or ``None`` if it does not tokenize.
@@ -2881,6 +2902,41 @@ def _deny_raw_client_write(hook_input, tool_name, spelling):
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
             "permissionDecisionReason": _RAW_CLIENT_WRITE_REASON.format(spelling=spelling),
+        }
+    }
+    json.dump(output, sys.stdout)
+    sys.exit(0)
+
+
+def _deny_approval_config_invalid(hook_input, tool_name, reason):
+    """Emit the deny for an approval section no reader can trust and exit 0. Does not return.
+
+    A refusal, not an answer to an ask, so it is filed as ``refused``. Both
+    filesystem touches are wrapped and happen before the exit: an unwritable
+    log or audit zone costs a record, never the decision.
+    """
+    try:
+        log_hook(
+            "approval", hook_input, status="deny", detail=_APPROVAL_CONFIG_INVALID_AUDIT_REASON
+        )
+    except Exception:
+        pass  # logging must never cost the deny
+    try:
+        emit_audit(
+            "approval",
+            hook_input,
+            decision=AUDIT_DECISION_REFUSED,
+            subject=tool_name,
+            reason=_APPROVAL_CONFIG_INVALID_AUDIT_REASON,
+            detail=reason,
+        )
+    except Exception:
+        pass  # the audit trail must never cost the deny
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
         }
     }
     json.dump(output, sys.stdout)
@@ -3498,8 +3554,21 @@ def main():
         if spelling is not None:
             _deny_raw_client_write(hook_input, tool_name, spelling)
 
-    # Global toggle — disabled means allow everything
-    if not approval_config.get("enabled", True):
+    # The switch is read only as a bool: a section that is not a mapping, or a
+    # stated switch that is not true or false, allows nothing and asks nobody.
+    if not isinstance(approval_config, dict):
+        _deny_approval_config_invalid(
+            hook_input, tool_name, _APPROVAL_SECTION_INVALID_REASON.format(value=approval_config)
+        )
+    if "enabled" in approval_config and not isinstance(approval_config["enabled"], bool):
+        _deny_approval_config_invalid(
+            hook_input,
+            tool_name,
+            _APPROVAL_CONFIG_INVALID_REASON.format(value=approval_config["enabled"]),
+        )
+
+    # Global toggle — false means allow everything
+    if approval_config.get("enabled", True) is False:
         log_hook("approval", hook_input, status="allow", detail="enabled=false")
         json.dump(build_allow_output(), sys.stdout)
         sys.exit(0)

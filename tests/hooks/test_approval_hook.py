@@ -78,6 +78,159 @@ def test_approval_disabled_passes_all(tmp_path, hook_runner, make_config):
     assert _is_allow(result)  # All tools pass
 
 
+#: The values a hand edit can leave on ``approval.enabled`` that are not a bool.
+NON_BOOL_SWITCHES = [None, "false", 0, "", 1]
+
+#: A write the policy asks about and a read the policy skips: the deny covers both.
+SWITCH_CALLS = [
+    pytest.param(
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        id="write",
+    ),
+    pytest.param("mcp__controls__channel_read", {"channels": ["TEST:PV"]}, id="skip-read"),
+]
+
+
+def _switch_config(make_config, approval):
+    return make_config({"approval": approval, "control_system": {"writes_enabled": True}})
+
+
+def _switch_sentence(value):
+    return (
+        f"approval.enabled is {value!r}, not true or false; "
+        "set approval.enabled to true or false in profile.yml and rebuild"
+    )
+
+
+def _section_sentence(value):
+    return (
+        f"approval is {value!r}, not a mapping; "
+        "set approval.enabled to true or false in profile.yml and rebuild"
+    )
+
+
+def _deny_reason(result):
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "deny"
+    return output["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize(("tool_name", "tool_input"), SWITCH_CALLS)
+@pytest.mark.parametrize("enabled", NON_BOOL_SWITCHES)
+def test_a_non_bool_switch_denies_every_call(
+    tmp_path, hook_runner, make_config, enabled, tool_name, tool_input
+):
+    """A switch that is not true or false asks nobody and allows nothing."""
+    config = _switch_config(make_config, {**DEFAULT_TOOLS_CONFIG, "enabled": enabled})
+
+    result = hook_runner(
+        "osprey_approval.py",
+        tool_name,
+        tool_input,
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert _deny_reason(result) == _switch_sentence(enabled)
+
+
+@pytest.mark.parametrize(("tool_name", "tool_input"), SWITCH_CALLS)
+@pytest.mark.parametrize("section", [None, "disabled"], ids=["bare", "string"])
+def test_a_section_that_is_not_a_mapping_denies_every_call(
+    tmp_path, hook_runner, make_config, section, tool_name, tool_input
+):
+    """A bare ``approval:`` line is a deny with the fix, never a crash."""
+    config = _switch_config(make_config, section)
+
+    result = hook_runner(
+        "osprey_approval.py",
+        tool_name,
+        tool_input,
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert _deny_reason(result) == _section_sentence(section)
+
+
+def test_a_non_bool_switch_deny_files_a_refused_record(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """The deny is a refusal on the audit trail — `refused`, reason `approval_config_invalid`."""
+    from pathlib import Path
+
+    from tests._control_context_fixtures import pin_identity, state_dir_under
+
+    pin_identity(monkeypatch)
+    root = tmp_path / "agent_data"
+    state_dir_under(root).mkdir(parents=True)
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        config_path=_switch_config(make_config, {**DEFAULT_TOOLS_CONFIG, "enabled": "false"}),
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert _deny_reason(result) == _switch_sentence("false")
+    records = [
+        json.loads(line)
+        for path in Path(tmp_path).rglob("hook_approval.jsonl")
+        for line in path.read_text().splitlines()
+        if line.strip()
+    ]
+    assert len(records) == 1
+    assert records[0]["decision"] == "refused"
+    assert records[0]["reason"] == "approval_config_invalid"
+    assert records[0]["subject"] == "mcp__controls__channel_write"
+
+
+def test_a_non_bool_switch_denies_under_dispatch(tmp_path, hook_runner, make_config, monkeypatch):
+    """A headless dispatch run gets the same deny; nobody is there to ask."""
+    monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "TEST:PV", "value": 1.0}]},
+        config_path=_switch_config(make_config, {**DEFAULT_TOOLS_CONFIG, "enabled": 0}),
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert _deny_reason(result) == _switch_sentence(0)
+
+
+@pytest.mark.parametrize("enabled", [*NON_BOOL_SWITCHES, "true"])
+def test_the_hook_spells_the_switch_fault_like_the_build(enabled):
+    """The standalone hook restates the build's sentence; the two never drift."""
+    from osprey.cli.build_posture_check import approval_enabled_fault
+    from tests.hooks.conftest import import_hook
+
+    hook = import_hook("osprey_approval")
+    rendered = {"approval": {**DEFAULT_TOOLS_CONFIG, "enabled": enabled}}
+    assert hook._APPROVAL_CONFIG_INVALID_REASON.format(value=enabled) == approval_enabled_fault(
+        rendered
+    )
+
+
+@pytest.mark.parametrize("section", [None, "disabled"], ids=["bare", "string"])
+def test_the_hook_spells_the_section_fault_like_the_build(section):
+    from osprey.cli.build_posture_check import approval_enabled_fault
+    from tests.hooks.conftest import import_hook
+
+    hook = import_hook("osprey_approval")
+    assert hook._APPROVAL_SECTION_INVALID_REASON.format(value=section) == approval_enabled_fault(
+        {"approval": section}
+    )
+
+
 def test_selective_mode_blocks_write(tmp_path, hook_runner, make_config):
     """Selective mode blocks channel_write (a write operation)."""
     config = make_config(
