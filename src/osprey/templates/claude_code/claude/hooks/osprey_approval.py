@@ -3287,25 +3287,15 @@ def _bound_input(tool_input, binding) -> dict:
 # A measurement runs on the pyAML view the build recorded in the render. The
 # prompt shows the view's path and digest and every stepping argument, and the
 # approved call carries the digest; the sandbox script refuses a view whose bytes
-# differ from it. The names below are the view writer's
+# differ from it. The hook describes a measurement from the block the build
+# wrote and judges no model or kind: a call the block does not map goes to the
+# tool, which refuses it. The names below are the view writer's paths
 # (`osprey.facility.views.pyaml`), restated because this hook is deployed
 # standalone; tests/hooks/test_approval_hook.py pins them.
 
 #: The view's directory under the render, and each model's configuration in it.
 _PYAML_VIEW_ROOT = ("data", "pyaml")
 _PYAML_CONFIGURATION_FILE = "configuration.yaml"
-
-#: The measurement file's group roles; any other member of a kind is an instrument.
-_PYAML_GROUP_ROLES = ("bpm", "hcor", "vcor", "quad", "sext")
-
-#: The groups and instruments each measurement kind needs.
-_PYAML_KIND_MEMBERS = {
-    "orm": ("bpm", "hcor", "vcor"),
-    "dispersion": ("bpm", "hcor", "vcor", "rf"),
-    "trm": ("quad", "tune"),
-    "crm": ("sext", "tune", "rf"),
-    "chromaticity_monitor": ("tune", "rf"),
-}
 
 #: The stepped role the view's RF plant stands for; its setpoints are the block's ``rf``.
 _PYAML_RF = "rf"
@@ -3325,7 +3315,7 @@ _PYAML_GROUP_MODULATION = "unipolar"
 #: The tool argument that carries the approved view digest.
 _APPROVED_VIEW_KEY = "approved_view_sha256"
 
-#: Audit reason of a measurement refused for its view, model or kind.
+#: Audit reason of a measurement refused for its view.
 _PYAML_VIEW_AUDIT_REASON = "pyaml_view_refused"
 
 
@@ -3335,43 +3325,30 @@ def _pyaml_view_path(hook_input, model) -> tuple[str, str]:
     return relative, os.path.join(get_project_dir(hook_input), *relative.split("/"))
 
 
-def _pyaml_lacking(kind, block) -> list[str]:
-    """The groups, else the instruments, a model's view lacks for *kind*."""
-    members = _PYAML_KIND_MEMBERS.get(kind, ())
-    groups = block.get("groups") or {}
-    lacking = [m for m in members if m in _PYAML_GROUP_ROLES and m not in groups]
-    return lacking or [m for m in members if m not in _PYAML_GROUP_ROLES]
-
-
-def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str]:
+def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str] | None:
     """The prompt lines of a measurement and the view digest its call is bound to.
 
+    Returns:
+        ``None`` when the block maps no view for the call's model or no
+        stepped roles for its kind; the tool refuses such a call.
+
     Raises:
-        _GuardedRunRefused: The model has no pyAML view in this render, the
-            view lacks the kind, the view's bytes differ from the digest
-            the build recorded, or the call steps more setpoints than a
-            prompt lists.
+        _GuardedRunRefused: The view's bytes differ from the digest the
+            build recorded, or the call steps more setpoints than a prompt
+            lists.
     """
     measurement = load_hook_config().get("measurement") or {}
     models = sorted(measurement)
     model = tool_input.get("model")
     if model is None and len(models) == 1:
         model = models[0]
-    if model not in measurement:
-        listed = ", ".join(models) or "none"
-        raise _GuardedRunRefused(
-            f"pyaml_measure: model {_journal_text(model)} has no pyAML view in this render; "
-            f"the models that have one: {listed}",
-            _PYAML_VIEW_AUDIT_REASON,
-        )
+    if not isinstance(model, str) or model not in measurement:
+        return None
     block = measurement[model] or {}
     kind = tool_input.get("kind")
-    if kind not in (block.get("kinds") or {}):
-        needed = " and ".join(_pyaml_lacking(kind, block)) or "a measurement file entry"
-        raise _GuardedRunRefused(
-            f"pyaml_measure: {_journal_text(kind)} needs {needed}, which {model} does not have",
-            _PYAML_VIEW_AUDIT_REASON,
-        )
+    stepped = (block.get("kinds") or {}).get(kind) if isinstance(kind, str) else None
+    if not isinstance(stepped, dict):
+        return None
     relative, path = _pyaml_view_path(hook_input, model)
     root = os.path.realpath(os.path.join(get_project_dir(hook_input), *_PYAML_VIEW_ROOT))
     recorded = block.get("view_sha256")
@@ -3393,7 +3370,6 @@ def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str]:
         )
 
     groups = block.get("groups") or {}
-    stepped = (block.get("kinds") or {}).get(kind)
     correctors = tool_input.get("correctors")
     setpoints: list[str] = []
     for role in sorted(stepped):
@@ -3445,10 +3421,14 @@ def _measure_call(hook_input, tool_name, tool_input, read_record):
     """The prompt lines, rewritten input and binding of a measurement, or a deny.
 
     A measurement always runs a guarded run: its binding is the guarded run's
-    plus the view digest, each set over any value the agent supplied.
+    plus the view digest, each set over any value the agent supplied. ``None``
+    when the block does not map the call.
     """
     try:
-        lines, digest = _pyaml_measure_lines(tool_input, hook_input)
+        described = _pyaml_measure_lines(tool_input, hook_input)
+        if described is None:
+            return None
+        lines, digest = described
         guarded_lines, binding = _guarded_run_lines(hook_input, read_record)
     except _GuardedRunRefused as refusal:
         _deny_guarded_run(hook_input, tool_name, refusal)
@@ -3654,9 +3634,12 @@ def main():
         )
         reason_parts.extend(guarded_lines)
     elif short_name == "pyaml_measure":
-        measure_lines, updated_input, binding = _measure_call(
-            hook_input, tool_name, tool_input, read_record
-        )
+        measured = _measure_call(hook_input, tool_name, tool_input, read_record)
+        if measured is None:
+            log_hook("approval", hook_input, status="allow", detail="pyaml_measure_unmapped")
+            json.dump(build_allow_output(), sys.stdout)
+            sys.exit(0)
+        measure_lines, updated_input, binding = measured
         reason_parts.extend(measure_lines)
     elif short_name == "channel_write":
         channel_list = _channel_write_summary(tool_input)

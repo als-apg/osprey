@@ -47,13 +47,15 @@ The measurement file decides which kinds a model takes:
      - the chromaticity
      - the RF, over ``n_step`` points
 
-A kind the file does not list is refused, naming the group or instrument it
-needs. A model solved in a single pass takes ``orm`` alone.
+The tool refuses a kind the file does not list, naming the group or
+instrument the model lacks, or the kinds the file lists when it lacks none;
+such a call is never put to an approver. A model solved in a single pass takes ``orm`` alone.
 
 What a measurement asks
 =======================
 
-Every ``pyaml_measure`` call asks for approval. The prompt shows the model, the
+Every ``pyaml_measure`` call for a kind the model's file lists asks for
+approval. The prompt shows the model, the
 kind, the modulation, the pyAML view's path and digest, and every setpoint the
 call steps. A call that would step more setpoints than a prompt lists (500) is
 refused without asking. When a guarded run on the target was interrupted, the

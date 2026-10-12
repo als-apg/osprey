@@ -2846,32 +2846,43 @@ def test_a_view_whose_bytes_differ_from_the_record_is_denied(tmp_path, hook_runn
     )
 
 
-def test_a_model_without_a_view_is_denied_listing_those_with_one(
-    tmp_path, hook_runner, make_config
-):
-    _plant_view(tmp_path)
-
-    result = _measure(hook_runner, make_config, tmp_path, {"kind": "orm", "model": "LINE"})
-
-    assert _denied_reason(result) == (
-        'pyaml_measure: model "LINE" has no pyAML view in this render; the models that have one: SR'
-    )
-
-
 @pytest.mark.parametrize(
-    ("kind", "needs"),
-    [("crm", "sext"), ("dispersion", "rf")],
+    "tool_input",
+    [
+        {"kind": "crm"},
+        {"kind": "bba"},
+        {"kind": ["orm"]},
+        {"kind": "orm", "model": "LINE"},
+    ],
+    ids=["unlisted-kind", "unknown-kind", "non-string-kind", "model-without-view"],
 )
-def test_a_kind_the_view_lacks_is_denied_naming_what_it_needs(
-    tmp_path, hook_runner, make_config, kind, needs
+def test_a_call_the_block_does_not_map_reaches_the_tool_unasked(
+    tmp_path, hook_runner, make_config, stamp_dir, tool_input
 ):
     _plant_view(tmp_path)
 
-    result = _measure(hook_runner, make_config, tmp_path, {"kind": kind})
-
-    assert (
-        _denied_reason(result) == f'pyaml_measure: "{kind}" needs {needs}, which SR does not have'
+    result = _measure(
+        hook_runner,
+        make_config,
+        tmp_path,
+        tool_input,
+        extra={"hook_event_name": "PreToolUse", "tool_use_id": "toolu_um1"},
     )
+
+    assert _decision(result) == "allow"
+    assert _updated(result) is None
+    assert not (stamp_dir / "approval_ask_toolu_um1.json").exists()
+
+
+def test_the_prompt_lists_only_what_the_blocks_map_steps(tmp_path, hook_runner, make_config):
+    _plant_view(tmp_path)
+    block = _measurement_block(kinds={"orm": {"hcor": "SR_HCM"}})
+
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": "orm"}, block=block)
+
+    listed = "".join(f'\n  "{address}"' for address in _HCOR)
+    assert f"Setpoints stepped: {len(_HCOR)}{listed}" in _reason(result)
+    assert all(address not in _reason(result) for address in _VCOR)
 
 
 @pytest.mark.parametrize("layout", ["host", "container"])
@@ -2954,7 +2965,5 @@ def test_the_hook_restates_the_view_writers_names(hook_module):
     from osprey.facility.views import pyaml as view
 
     approval = hook_module("osprey_approval")
-    assert approval._PYAML_KIND_MEMBERS == view.KIND_MEMBERS
-    assert approval._PYAML_GROUP_ROLES == view.GROUP_ROLES
     assert approval._PYAML_VIEW_ROOT == ("data", view.PYAML_DIR)
     assert approval._PYAML_CONFIGURATION_FILE == view.CONFIGURATION_FILE

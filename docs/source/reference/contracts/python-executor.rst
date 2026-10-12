@@ -74,7 +74,9 @@ tools to the ``python`` server. A render without one registers neither.
 -----------------
 
 Steps setpoints on the control target through pyAML and writes them back. Every
-call asks for approval, and with writes off it is denied like every write tool.
+call for a kind the model's measurement file lists asks for approval; any other
+call reaches the tool unasked and is refused there. With writes off it is denied
+like every write tool.
 The prompt lists every setpoint the call steps; a call stepping more than 500
 is refused without asking.
 
@@ -88,8 +90,8 @@ is refused without asking.
    * - ``kind``
      - *(required)*
      - ``orm``, ``dispersion``, ``trm``, ``crm`` or ``chromaticity_monitor``.
-       A kind the model's measurement file does not allow is refused, naming
-       the group or instrument it needs.
+       A kind the model's measurement file does not list is refused, naming
+       the group or instrument the model lacks, or the kinds the file lists.
    * - ``model``
      - the one model
      - The model measured; may be omitted only when exactly one model has a
