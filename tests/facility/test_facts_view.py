@@ -110,7 +110,8 @@ def test_the_facts_are_the_facility_files(built_control_assistant: BuiltProject)
     }
     assert facts["place_levels"] == ["machine", "sector"]
     assert facts["channel_count"] == len(facility["channels"])
-    assert list(facts["measurement_models"]) == ["SR"]
+    assert list(facts["measurement_models"]) == ["LINE", "SR"]
+    assert facts["measurement_models"]["LINE"]["path"] == "data/pyaml/LINE/configuration.yaml"
     assert facts["measurement_models"]["SR"]["path"] == "data/pyaml/SR/configuration.yaml"
     assert facts["snapshot"] is None
     assert facts["models"] == [
@@ -423,10 +424,11 @@ def test_the_built_context_reads_the_written_facts(built_control_assistant: Buil
     assert ctx["facility_facts"] == facts
     assert ctx["facility_name"] == facts["identity"]["name"]
     assert ctx["pyaml_view_present"] is True
-    (record,) = facts["measurement_models"].values()
+    records = facts["measurement_models"]
     assert ctx["measurement"] == hook_measurement(facts, built_control_assistant.build_dir)
-    assert list(ctx["measurement"]) == ["SR"]
-    assert ctx["measurement"]["SR"]["view_sha256"] == record["sha256"]
+    assert list(ctx["measurement"]) == ["LINE", "SR"]
+    for model, record in records.items():
+        assert ctx["measurement"][model]["view_sha256"] == record["sha256"]
 
 
 def test_the_context_renders_the_builds_page_byte_for_byte(

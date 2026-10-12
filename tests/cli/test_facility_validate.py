@@ -209,6 +209,7 @@ def test_the_views_are_reached_only_through_render_facility_outputs(
             "data/facility_facts.json",
             "data/facility_facts.md",
             "data/graph/facility.ttl",
+            "data/pyaml/LINE/configuration.yaml",
             "data/pyaml/SR/configuration.yaml",
             "data/pyaml/SR/lattice.json",
             "data/pyaml/SR/trm.json",

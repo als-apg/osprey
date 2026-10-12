@@ -73,6 +73,7 @@ def test_the_facility_file_is_written_only_through_render_facility_outputs(
             "data/facility_facts.json",
             "data/facility_facts.md",
             "data/graph/facility.ttl",
+            "data/pyaml/LINE/configuration.yaml",
             "data/pyaml/SR/configuration.yaml",
             "data/pyaml/SR/lattice.json",
             "data/pyaml/SR/trm.json",

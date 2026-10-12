@@ -257,7 +257,7 @@ class TestSolve:
     def test_the_matrix_equals_the_plug_in_called_directly(self, sandbox, sr_render):
         sandbox["render"] = sr_render
 
-        result = _call(correctors=[CORRECTOR_X, CORRECTOR_Y])
+        result = _call(model="SR", correctors=[CORRECTOR_X, CORRECTOR_Y])
 
         facility = json.loads((sr_render / "facility.json").read_text(encoding="utf-8"))
         (record,) = [model for model in facility["models"] if model["name"] == "SR"]
@@ -275,7 +275,7 @@ class TestSolve:
     def test_rows_and_columns_name_their_address_and_device(self, sandbox, sr_render):
         sandbox["render"] = sr_render
 
-        result = _call(correctors=[CORRECTOR_X, CORRECTOR_Y])
+        result = _call(model="SR", correctors=[CORRECTOR_X, CORRECTOR_Y])
 
         assert result["model"] == "SR"
         assert [column["address"] for column in result["columns"]] == [CORRECTOR_X, CORRECTOR_Y]
@@ -288,7 +288,7 @@ class TestSolve:
         from osprey.simulation.engines.calibration import curve_from_record, to_physics
 
         sandbox["render"] = sr_render
-        request = tool.resolve_model_request(None, [CORRECTOR_X], render_root=sr_render)
+        request = tool.resolve_model_request("SR", [CORRECTOR_X], render_root=sr_render)
         facility = json.loads((sr_render / "facility.json").read_text(encoding="utf-8"))
         (record,) = [
             entry for entry in simulator_wiring(facility, "SR") if entry["address"] == CORRECTOR_X
@@ -299,10 +299,11 @@ class TestSolve:
         span = to_physics(curve, 0.5 * width) - to_physics(curve, -0.5 * width)
 
         assert span == pytest.approx(request.corrector_delta, rel=1e-12)
-        assert request.corrector_delta == facility["models"][0]["measurement"][tool.STEP_KEY]
+        (model,) = [entry for entry in facility["models"] if entry["name"] == "SR"]
+        assert request.corrector_delta == model["measurement"][tool.STEP_KEY]
 
     def test_omitted_correctors_are_every_wired_corrector_x_then_y(self, sr_render):
-        request = tool.resolve_model_request(None, None, render_root=sr_render)
+        request = tool.resolve_model_request("SR", None, render_root=sr_render)
 
         planes = [address.split(":")[2] for address in request.correctors]
         assert planes == sorted(planes, key=lambda name: name != "HCM")
@@ -327,7 +328,7 @@ class TestSolveErrors:
         sandbox["render"] = render
 
         with pytest.raises(ToolError) as raised:
-            _call(correctors=[CORRECTOR_X])
+            _call(model="SR", correctors=[CORRECTOR_X])
 
         message = _envelope(raised)["error_message"]
         assert message.startswith("the response of SR has no solve:")
@@ -344,7 +345,7 @@ class TestSolveErrors:
         monkeypatch.setattr(executor, "execute_code", solved)
 
         with pytest.raises(ToolError) as raised:
-            _call(correctors=[CORRECTOR_X])
+            _call(model="SR", correctors=[CORRECTOR_X])
 
         envelope = _envelope(raised)
         assert envelope["error_type"] == "execution_error"
@@ -362,7 +363,7 @@ class TestSolveErrors:
 
         monkeypatch.setattr(at, "find_orbit6", raiser)
         request = tool.resolve_model_request(
-            None, [CORRECTOR_X, CORRECTOR_Y], render_root=sr_render
+            "SR", [CORRECTOR_X, CORRECTOR_Y], render_root=sr_render
         )
         printed = io.StringIO()
 
@@ -391,7 +392,7 @@ class TestRefusals:
             tool.resolve_model_request("ELSEWHERE", None, render_root=sr_render)
 
         assert _envelope(raised)["error_message"] == (
-            "model 'ELSEWHERE' is not a served deck model of this render; the served ones: SR"
+            "model 'ELSEWHERE' is not a served deck model of this render; the served ones: LINE, SR"
         )
 
     @pytest.mark.parametrize(
@@ -407,7 +408,7 @@ class TestRefusals:
         self, sr_render, correctors, fragment
     ):
         with pytest.raises(ToolError) as raised:
-            tool.resolve_model_request(None, correctors, render_root=sr_render)
+            tool.resolve_model_request("SR", correctors, render_root=sr_render)
 
         assert fragment in _envelope(raised)["error_message"]
 

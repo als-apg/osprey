@@ -52,6 +52,7 @@ FACTS = ("data/facility_facts.json", "data/facility_facts.md")
 BLUESKY = "data/bluesky_devices.yml"
 GRAPH = "data/graph/facility.ttl"
 PYAML = (
+    "data/pyaml/LINE/configuration.yaml",
     "data/pyaml/SR/configuration.yaml",
     "data/pyaml/SR/lattice.json",
     "data/pyaml/SR/trm.json",
@@ -410,10 +411,12 @@ def test_an_unserved_model_is_listed_as_not_served(
 
 
 def test_a_deck_keeps_its_suffix(tmp_path: Path, built_control_assistant: BuiltProject) -> None:
+    import at
+
     facility_dir = tmp_path / "facility"
     shutil.copytree(built_control_assistant.facility_dir, facility_dir)
     source = facility_dir / "decks" / "SR.mat"
-    source.write_bytes((facility_dir / "decks" / "SR.json").read_bytes())
+    at.save_lattice(at.load_lattice(str(facility_dir / "decks" / "SR.json")), str(source))
     facility = copy.deepcopy(built_control_assistant.facility)
     (sr,) = [model for model in facility["models"] if model["name"] == "SR"]
     sr["deck"] = "decks/SR.mat"
