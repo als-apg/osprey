@@ -692,30 +692,12 @@ jobs:
       # above is fetch-depth: 0, which is what makes `origin/$BASE_REF` and
       # the `A...B` merge base resolvable; deliberately no fetch here, since a
       # depth-limited one would shallow the clone and break that merge base.
+      # `python3`, not `uv run`: the script is stdlib-only and standalone, so it
+      # still reports when the dependency install is what broke.
       if: ${{ !cancelled() && github.event_name == 'pull_request' }}
       env:
         BASE_REF: ${{ github.event.pull_request.base.ref }}
-      run: |
-        BASE="origin/$BASE_REF"
-        # Captured on its own line so an unresolvable base aborts the step
-        # (bash -e) instead of reading as an empty, untouched plugin tree.
-        CHANGED=$(git diff --name-only "$BASE...HEAD" -- plugins .claude-plugin .agents/plugins)
-        if [ -z "$CHANGED" ]; then
-          echo "plugin tree untouched — no version bump required"; exit 0
-        fi
-        HEAD_VER=$(python3 -c 'import json;print(json.load(open("plugins/osprey/.claude-plugin/plugin.json"))["version"])')
-        # A manifest missing on the base is a new plugin; a manifest that exists
-        # but does not parse is an error, not a free pass.
-        if BASE_JSON=$(git show "$BASE:plugins/osprey/.claude-plugin/plugin.json" 2>/dev/null); then
-          BASE_VER=$(printf %s "$BASE_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin)["version"])')
-        else
-          BASE_VER=NONE
-        fi
-        [ "$BASE_VER" = NONE ] && { echo "new plugin manifest — no bump required"; exit 0; }
-        if [ "$HEAD_VER" = "$BASE_VER" ]; then
-          echo "plugin tree changed without a version bump — run python scripts/plugin_version.py bump"; exit 1
-        fi
-        echo "plugin version $BASE_VER -> $HEAD_VER"
+      run: python3 scripts/plugin_version.py check --base "origin/$BASE_REF"
 
     - name: Run mypy (type checking)
       run: uv run python scripts/mypy_gate.py

@@ -7561,6 +7561,76 @@ def test_premerge_check_runs_the_same_gate__mutation_restores_the_grep() -> None
 
 
 # ---------------------------------------------------------------------------
+# the plugin version gate runs in lint as one call to the script
+# ---------------------------------------------------------------------------
+#
+# One rule, one implementation: the lint step calls the script and states no
+# part of the rule itself. `scripts/plugin_version.py check` decides whether a
+# PR that changes the plugin tree carries a version its base does not; a copy
+# of that rule written inline beside the call is a second answer to the same
+# question, free to drift from the first.
+
+PLUGIN_VERSION_STEP = "Run plugin version-bump gate"
+PLUGIN_VERSION_SCRIPT = "scripts/plugin_version.py"
+
+
+def test_lint_runs_the_plugin_version_check(workflow: dict[str, Any]) -> None:
+    """The step calls ``check`` against the pull request's own base, the base
+    reaches the shell through ``env:`` and never through ``${{ }}`` inside
+    ``run:``, ``!cancelled()`` keeps an earlier failure from hiding a missing
+    bump, and the run line restates no part of the rule."""
+    step = _find_named_step(workflow, LINT_JOB, PLUGIN_VERSION_STEP)
+    run = step["run"]
+    assert PLUGIN_VERSION_SCRIPT + ' check --base "origin/$BASE_REF"' in run
+    assert "${{" not in run, (
+        f"{PLUGIN_VERSION_STEP} interpolates an expression into `run:`: {run!r}"
+    )
+    assert "github.event.pull_request.base.ref" in step["env"]["BASE_REF"]
+    assert "!cancelled()" in step["if"]
+    assert "pull_request" in step["if"]
+    assert "git diff" not in run, f"{PLUGIN_VERSION_STEP} restates the rule inline: {run!r}"
+    assert "json.load" not in run, f"{PLUGIN_VERSION_STEP} restates the rule inline: {run!r}"
+
+
+def test_lint_runs_the_plugin_version_check__mutation_drops_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[LINT_JOB]["steps"]
+    steps[:] = [s for s in steps if s.get("name") != PLUGIN_VERSION_STEP]
+    with pytest.raises(AssertionError):
+        test_lint_runs_the_plugin_version_check(mutated)
+
+
+def test_lint_runs_the_plugin_version_check__mutation_interpolates_the_base_ref_into_run() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, LINT_JOB, PLUGIN_VERSION_STEP)
+    step["run"] = step["run"].replace(
+        '"origin/$BASE_REF"', '"origin/${{ github.event.pull_request.base.ref }}"'
+    )
+    assert "${{" in step["run"], "the run line no longer uses $BASE_REF; this mutation is stale"
+    with pytest.raises(AssertionError):
+        test_lint_runs_the_plugin_version_check(mutated)
+
+
+def test_lint_runs_the_plugin_version_check__mutation_restates_the_rule_inline() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, LINT_JOB, PLUGIN_VERSION_STEP)
+    original = step["run"]
+    step["run"] += '\ngit diff --name-only "origin/$BASE_REF...HEAD" -- plugins'
+    assert step["run"] != original
+    with pytest.raises(AssertionError):
+        test_lint_runs_the_plugin_version_check(mutated)
+
+
+def test_lint_runs_the_plugin_version_check__mutation_hardcodes_main() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, LINT_JOB, PLUGIN_VERSION_STEP)
+    step["run"] = step["run"].replace('"origin/$BASE_REF"', "origin/main")
+    assert "origin/main" in step["run"], "the run line moved; this mutation is stale"
+    with pytest.raises(AssertionError):
+        test_lint_runs_the_plugin_version_check(mutated)
+
+
+# ---------------------------------------------------------------------------
 # (j) every dockerbuild-marked module reaches a lane that gates the merge
 # ---------------------------------------------------------------------------
 #
