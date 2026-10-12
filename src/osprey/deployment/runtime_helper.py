@@ -738,8 +738,10 @@ def runtime_env(
             Never combine with a ``--remove-orphans`` argv.
 
     Returns:
-        A new environment dict with ``COMPOSE_PROJECT_NAME`` and
-        :data:`ENV_DIGEST_VAR` set (and ``COMPOSE_IGNORE_ORPHANS`` when
+        A new environment dict with ``COMPOSE_PROJECT_NAME``,
+        :data:`ENV_DIGEST_VAR`, :data:`CONFIG_DIGEST_VAR` and every
+        ``OSPREY_TELEMETRY_DIGEST_*`` variable of
+        :func:`~osprey.deployment.telemetry_credentials.digest_env` set (and ``COMPOSE_IGNORE_ORPHANS`` when
         requested).
     """
     from osprey.deployment.compose_generator import resolve_project_name, resolve_repo_root
@@ -755,6 +757,13 @@ def runtime_env(
     # same one, and a call site that skipped it would interpolate the label to
     # empty, read as a document change, and recreate the whole stack for nothing.
     env[CONFIG_DIGEST_VAR] = as_built_config_digest(repo_root)
+    # And the same again for the telemetry credential files: one variable per
+    # service that is handed any, each interpolated into that service's
+    # `osprey.telemetry.cred.digest` label, so a credential minted anew
+    # recreates its owners and nothing else.
+    from osprey.deployment.telemetry_credentials import digest_env
+
+    env.update(digest_env(repo_root, config))
     if ignore_orphans:
         env["COMPOSE_IGNORE_ORPHANS"] = "1"
     return env

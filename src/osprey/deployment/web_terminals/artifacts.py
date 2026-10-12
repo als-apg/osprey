@@ -883,6 +883,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         resolve_facility_bundle_dir,
         shared_corpus_gid,
     )
+    from osprey.deployment.telemetry_credentials import sender_digests
     from osprey.utils.facility import facility_name
 
     root = Path(repo_root)
@@ -893,6 +894,9 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     check_open_mode_requirements(config, root)
     return {
         "auth_env_digest": auth_env_digest(root),
+        # The sha256 of each terminal's telemetry login file, by audit
+        # identity; empty without a gateway.
+        "telemetry_cred_digests": sender_digests(root, config),
         "dispatcher_personas": personas_needing_dispatcher_token(config, root),
         "ariel_personas": personas_needing_ariel_password(config, root),
         # Every lane's slice: the render grants each persona one launch token
@@ -1010,7 +1014,20 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
     from osprey.deployment.compose_generator import resolve_repo_root
 
     root = Path(repo_root) if repo_root is not None else resolve_repo_root(config)
-    artifacts = render_web_terminals(config, **resolve_render_inputs(config, root))
+    inputs = resolve_render_inputs(config, root)
+    # Every terminal the overlay is about to name a login file for has one
+    # before the overlay exists: a roster verb can add a terminal between two
+    # starts, and a compose document naming a missing `env_file` fails every
+    # command run against it. After the two refusals above, so a refused
+    # render still writes nothing; the digests are read once the files exist.
+    from osprey.deployment.telemetry_credentials import (
+        ensure_telemetry_credentials,
+        sender_digests,
+    )
+
+    ensure_telemetry_credentials(root, config, reader_keys=False)
+    inputs["telemetry_cred_digests"] = sender_digests(root, config)
+    artifacts = render_web_terminals(config, **inputs)
     dest = web_artifacts_dir(root)
     # Before the first write, never after: a render that raised above must not
     # have removed the snippets the currently-deployed stack is still reading,

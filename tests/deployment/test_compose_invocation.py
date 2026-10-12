@@ -976,7 +976,11 @@ def test_render_output_is_addressed_under_the_build_zone(template: Path) -> None
     for path in _relative_host_paths(template.read_text(encoding="utf-8")):
         if path.startswith(repo_owned):
             continue
-        assert path.startswith(f"./{BUILD_DIR_NAME}/"), f"{template.stem}: {path}"
+        # The zone itself is render output too: a service that reads the whole
+        # render mounts `./build`.
+        assert path == f"./{BUILD_DIR_NAME}" or path.startswith(f"./{BUILD_DIR_NAME}/"), (
+            f"{template.stem}: {path}"
+        )
 
 
 def test_dispatch_worker_env_file_is_the_repos_own_env_chain() -> None:

@@ -40,6 +40,9 @@ services:
       # label makes such an edit a document change. Empty when the invocation
       # did not set the variable (a hand-run `docker compose up`).
       osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+      # The same trigger for this worker's telemetry login file: a login
+      # minted anew recreates this worker and no other service.
+      osprey.telemetry.cred.digest: "${OSPREY_TELEMETRY_DIGEST_DISPATCH_WORKER_1:-}"
     restart: unless-stopped
 
     # Provider auth: the worker's startup hook (inject_provider_env) resolves
@@ -63,6 +66,12 @@ services:
     # the disposable render.
     env_file:
       - ./.env
+      # This worker's telemetry login: its own file at the repo root, one
+      # login and nothing else. The exception to "only files that exist" —
+      # listed whenever the gateway is deployed, because `osprey build`
+      # creates it before this file is rendered, so `status`, `down` and
+      # `logs` resolve it on any built repo.
+      - .env.telemetry-sender.dispatch-worker-1
 
     environment:
       # No :-default (see event_dispatcher compose): fail closed on an unset token.
@@ -155,19 +164,6 @@ services:
       # anything against a project root.
       CONFIG_FILE: /app/golden-project/build/config.yml
       TZ: UTC
-      # OpenObserve telemetry (opt-in): on the host namespace this container's
-      # loopback IS the host's, so the store is reachable at the port it
-      # publishes there — the compose service DNS name resolves to nothing from
-      # here. Declaring the host explicitly is what settles it: the emitter's
-      # own fallback sees a container and would reach for the service name.
-      # Inert unless claude_code.telemetry is enabled with backend: openobserve.
-      #
-      # The variable carries a HOST only. The port half needs no declaration
-      # here: from the host's loopback the store answers on the port it
-      # PUBLISHES, and the emitter reads that from `services.openobserve.port`
-      # in the config this worker already mounts — so moving the store moves
-      # the exporter with it.
-      OSPREY_OTEL_OPENOBSERVE_HOST: localhost
 
       # On the host namespace the store is reached where it PUBLISHES, so this
       # is its host port (`services.mongodb.port_host`), never the 27017 inside
@@ -177,6 +173,12 @@ services:
       OSPREY_ARCHIVER_MONGODB_HOST: localhost
       OSPREY_ARCHIVER_MONGODB_PORT: "10801"
 
+      # On the host namespace the gateway is reached where it PUBLISHES: the
+      # interface `deployment.bind_address` names (loopback for a wildcard),
+      # on the published port. A port published on one interface does not
+      # answer on loopback, and an exporter drops a failed post silently.
+      OSPREY_OTEL_GATEWAY_HOST: "127.0.0.1"
+      OSPREY_OTEL_GATEWAY_PORT: "10051"
     # Bind-mount sources are relative to the pinned compose project directory,
     # which is the deployment REPO ROOT — hence the build/services/ prefix on
     # the render output below.

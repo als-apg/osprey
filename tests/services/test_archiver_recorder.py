@@ -1194,15 +1194,16 @@ def test_the_template_mounts_the_live_project_not_a_staged_config_copy() -> None
     `osprey build`, so a flip would need a rebuild while the service went on
     logging that it does not — the exact dishonesty this feature removes.
 
-    The mount source is `.` — bind sources resolve against the pinned compose
-    project directory, which is the deployment REPO ROOT — and CONFIG_FILE
-    names the as-built render inside it, reached through the directory mount so
-    a host edit is seen on the next poll.
+    The mount source is `./build` — bind sources resolve against the pinned
+    compose project directory, which is the deployment REPO ROOT, and the
+    render is the one directory under it that holds no secret file — and
+    CONFIG_FILE names the as-built config at its root, reached through the
+    directory mount so a host edit is seen on the next poll.
     """
     template = _recorder_template_text()
 
-    assert "- .:/app/project:ro" in template, (
-        "the recorder must mount the deployment repo; a staged copy is "
+    assert "- ./build:/app/project/build:ro" in template, (
+        "the recorder must mount the deployment's render; a staged copy is "
         "rewritten only by `osprey build`, so the enablement poll would re-read "
         "a stale copy and the documented no-rebuild flip would never arrive"
     )
