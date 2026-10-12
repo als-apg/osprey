@@ -233,6 +233,15 @@ class OspreyRunBusy(Exception):
 #: The targets whose run lock this context holds, by name, with their directory.
 _HELD: ContextVar[dict[str, Path] | None] = ContextVar("osprey_guarded_run_held", default=None)
 
+#: The lock file descriptors this process holds a run lock on, with their
+#: target's name. A forked child closes each of them (see
+#: :func:`_drop_held_locks_in_child`).
+_LOCK_FDS: dict[int, str] = {}
+
+#: Whether :func:`_drop_held_locks_in_child` is registered to run in forked children.
+_FORK_HOOK_REGISTERED = False
+_FORK_HOOK_GUARD = threading.Lock()
+
 #: The target and outermost journal of the journaled run open in this context.
 _OPEN: ContextVar[tuple[str, Journal] | None] = ContextVar("osprey_guarded_run_open", default=None)
 
@@ -879,6 +888,32 @@ def _replay_dead_run(path: Path, target: str) -> None:
     _clear_journal(path)
 
 
+def _drop_held_locks_in_child() -> None:
+    """Close, in a forked child, every run lock the parent holds.
+
+    A forked child shares the lock's open file description, so without this a
+    child that outlives a killed holder would keep the target busy under a
+    dead pid. The child also stops seeing those targets as held.
+    """
+    names = set(_LOCK_FDS.values())
+    for fd in list(_LOCK_FDS):
+        with contextlib.suppress(OSError):
+            os.close(fd)
+    _LOCK_FDS.clear()
+    held = _HELD.get()
+    if held and names & held.keys():
+        _HELD.set({name: path for name, path in held.items() if name not in names} or None)
+
+
+def _register_fork_hook() -> None:
+    """Register :func:`_drop_held_locks_in_child` once per process."""
+    global _FORK_HOOK_REGISTERED
+    with _FORK_HOOK_GUARD:
+        if not _FORK_HOOK_REGISTERED:
+            os.register_at_fork(after_in_child=_drop_held_locks_in_child)
+            _FORK_HOOK_REGISTERED = True
+
+
 @contextlib.contextmanager
 def lock(target: str | None) -> Iterator[Path]:
     """Hold *target*'s run lock, restoring a killed run's journal first.
@@ -887,6 +922,10 @@ def lock(target: str | None) -> Iterator[Path]:
     written into the lock file and emptied on release. Under the lock a killed
     run's journal is restored and cleared (see the module docstring) before the
     body runs. Writes in the body are not journaled; see :func:`journaled_run`.
+    A child forked while the lock is held closes its copy of the lock and does
+    not see the target as held; a child started with ``subprocess`` or
+    ``exec`` never inherits it, because the lock's descriptor is not
+    inheritable (PEP 446).
 
     Args:
         target: The target the run is for, or ``None`` for the process's own
@@ -919,7 +958,9 @@ def lock(target: str | None) -> Iterator[Path]:
     directory = guarded_run_dir(name)
     lock_path = directory / LOCK_FILE_NAME
     created = not lock_path.exists()
+    _register_fork_hook()
     fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o664)
+    closed_by_fork = False
     try:
         if created:
             os.fchmod(fd, 0o664)
@@ -928,6 +969,7 @@ def lock(target: str | None) -> Iterator[Path]:
         except BlockingIOError:
             pid, started = _read_holder(fd)
             raise OspreyRunBusy(str(directory), pid, started) from None
+        _LOCK_FDS[fd] = name
         try:
             _write_holder(fd)
             _replay_dead_run(directory / JOURNAL_FILE_NAME, name)
@@ -937,11 +979,15 @@ def lock(target: str | None) -> Iterator[Path]:
             finally:
                 _HELD.reset(token)
         finally:
-            with contextlib.suppress(OSError):
-                os.ftruncate(fd, 0)
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            # Absent only in a forked child, which closed its copy at the fork.
+            closed_by_fork = _LOCK_FDS.pop(fd, None) is None
+            if not closed_by_fork:
+                with contextlib.suppress(OSError):
+                    os.ftruncate(fd, 0)
+                fcntl.flock(fd, fcntl.LOCK_UN)
     finally:
-        os.close(fd)
+        if not closed_by_fork:
+            os.close(fd)
 
 
 @contextlib.contextmanager

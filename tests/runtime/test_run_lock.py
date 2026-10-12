@@ -9,8 +9,10 @@ context where ``guarded_write`` writes. Channels are a dict checked by a real
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import signal
 import stat
 import subprocess
 import sys
@@ -234,6 +236,46 @@ def test_another_process_is_busy_while_the_lock_is_held(repo: Path) -> None:
     assert held.returncode == 3, held.stderr
     assert held.stdout.strip() == str(os.getpid())
     assert free.returncode == 0, free.stderr
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="POSIX fork only")
+def test_a_forked_child_neither_holds_nor_keeps_the_lock(repo: Path) -> None:
+    """A child forked under the hold drops the lock; killing the holder frees it at once."""
+    child = textwrap.dedent(
+        """
+        import os, time
+        from osprey.runtime.guarded_run import _HELD, lock
+
+        with lock("live"):
+            if os.fork() == 0:
+                print(os.getpid(), "live" in (_HELD.get() or {}), flush=True)
+                time.sleep(60)
+                os._exit(0)
+            time.sleep(60)
+        """
+    )
+    holder = subprocess.Popen(
+        [sys.executable, "-c", child], cwd=repo, stdout=subprocess.PIPE, text=True
+    )
+    grandchild: int | None = None
+    try:
+        assert holder.stdout is not None
+        line = holder.stdout.readline().split()
+        assert len(line) == 2, f"the forked child reported nothing (exit {holder.poll()})"
+        grandchild = int(line[0])
+        assert line[1] == "False", "a forked child sees the target as held"
+        holder.kill()
+        holder.wait(timeout=CHILD_TIMEOUT_S)
+
+        with lock("live"):
+            pass
+    finally:
+        if holder.poll() is None:
+            holder.kill()
+            holder.wait(timeout=CHILD_TIMEOUT_S)
+        if grandchild is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(grandchild, signal.SIGKILL)
 
 
 def test_a_readonly_run_raises_before_the_lock(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
