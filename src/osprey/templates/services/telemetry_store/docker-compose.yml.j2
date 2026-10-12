@@ -1,0 +1,68 @@
+{#- This file's RENDER is pinned byte for byte by the suites below. Any
+    edit — a reworded comment included — reddens their goldens until they
+    are regenerated in the same change. One command per suite that pins
+    THIS template:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+      PYTHONPATH=src ./.venv/bin/python tests/deployment/telemetry_store/test_store_render.py
+-#}
+{#- Every value comes from `osprey_telemetry_store`, derived once from
+    `services.telemetry_store` by osprey.deployment.telemetry_store.render, so
+    the server config files beside this one and the checks `osprey up` runs
+    read the same numbers. The image has no environment override: the query
+    page this deployment serves is vouched for per image tag, so the tag comes
+    from the config alone. -#}
+{%- import "services/_env_axis.j2" as hostenv -%}
+{%- set store = osprey_telemetry_store %}
+{#- The env passthrough axis: the host variables `services.telemetry_store.env`
+    names. The store sets no variable of its own, so the block exists only
+    when one is declared. -#}
+{%- set passthrough = hostenv.passthrough(services.telemetry_store | default({}, true)) %}
+# The telemetry store: ClickHouse, holding every OTLP signal and the audit
+# record the gateway feeds it. `osprey up` starts it alone, applies the schema
+# and the accounts, and only then starts the rest of the stack.
+services:
+  telemetry_store:
+    image: {{ store.image }}
+    # container_name is a HOST-GLOBAL docker identifier: namespace it
+    # per-project so two OSPREY projects can run a store on one host.
+    container_name: {{ osprey_labels.project_name }}-telemetry-store
+    labels:
+      # Recreates the store when its admin credential file changes.
+      osprey.telemetry.cred.digest: "${OSPREY_TELEMETRY_DIGEST_TELEMETRY_STORE:-}"
+    restart: unless-stopped
+    # The admin account, created by the image from this file and confined to
+    # loopback inside the container by users.d/zz-osprey-admin.xml. It is the
+    # store's only env_file: no other secret reaches this container.
+    env_file:
+      - {{ store.admin_file }}
+{%- if passthrough %}
+    environment:{{ passthrough }}
+{%- endif %}
+    mem_limit: {{ store.mem_limit }}
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    # Loopback only, whatever deployment.bind_address says: remote readers
+    # reach the store through the readers' origin, never this port.
+    ports:
+      - "127.0.0.1:{{ store.port }}:{{ store.container_port }}"
+    volumes:
+      - telemetry_store_data:/var/lib/clickhouse
+      - ./build/services/telemetry_store/osprey.xml:/etc/clickhouse-server/config.d/osprey.xml:ro
+      - ./build/services/telemetry_store/osprey-defaults.xml:/etc/clickhouse-server/users.d/osprey-defaults.xml:ro
+      - ./build/services/telemetry_store/zz-osprey-admin.xml:/etc/clickhouse-server/users.d/zz-osprey-admin.xml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:{{ store.container_port }}/ping | grep -q Ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks:
+      - osprey-network
+
+volumes:
+  telemetry_store_data:
+
+networks:
+  osprey-network:

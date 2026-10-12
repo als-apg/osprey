@@ -1,0 +1,11 @@
+<clickhouse>
+    <users>
+        <osprey_admin>
+            <networks replace="replace">
+                <ip>::1</ip>
+                <ip>127.0.0.1</ip>
+            </networks>
+            <access_management>1</access_management>
+        </osprey_admin>
+    </users>
+</clickhouse>
