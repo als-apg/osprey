@@ -107,6 +107,7 @@ RETIRED: dict[str, str] = {
     "_with_derived_simulation_file": "7a",
     "allow_unlisted_channels": "3a",
     "als_u_ar": "7d2",
+    "approval_hook_wired": "11a",
     "assign_readbacks": "2",
     "build_tiers": "4a",
     "channel_databases/tiers": "7e",
