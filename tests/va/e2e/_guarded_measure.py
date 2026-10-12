@@ -5,12 +5,13 @@ cases, check B and the chain. Each needs the same pieces, kept here once:
 
 * **The deployment.** A real ``osprey init`` and ``osprey build`` of a repo
   whose only control target is the virtual accelerator on loopback, armed for
-  writes, starting in the built-in ``still`` scenario. The connector table is
+  writes, whose default set -- the built-in ``still`` scenario -- is
+  activated in its state directory as ``osprey up`` activates it. The connector table is
   stated whole, so no block of the preset's that names another machine
   survives into the render: every target the render configures resolves to the
   simulator (:func:`only_simulated_targets`).
-* **The container.** One per deployment, over the build's own data root,
-  published on the port the build was given.
+* **The container.** One per deployment, over the build's own data root and
+  the deployment's state directory, published on the port the build was given.
 * **A session's environment.** The rendered config, an agent-data root and a
   posture session, set the way a session child carries them; the hook, the
   tool and the sandbox the tool spawns all resolve from them.
@@ -214,10 +215,35 @@ class Deployment:
         """The pyAML configuration the build wrote for ``model``."""
         return self.data_root / "pyaml" / model / "configuration.yaml"
 
+    @property
+    def state_dir(self) -> Path:
+        """The simulation state directory: the active set the container serves."""
+        from osprey_connectors.workspace import resolve_simulation_state_dir
+
+        return resolve_simulation_state_dir(self.config, self.repo)
+
     def active_scenarios(self) -> list[str]:
-        """The scenarios the container starts in: the render's default set."""
-        names = (self.config.get("simulation") or {}).get("default_scenarios") or []
+        """The scenarios the container serves, as the state directory records them."""
+        from osprey_connectors.simulation.state import read_active_state
+
+        names, _anchor = read_active_state(self.state_dir)
         return [str(name) for name in names]
+
+    def activate_default_scenarios(self) -> None:
+        """Activate the profile's default set, as ``osprey up`` does on a first start."""
+        from osprey.simulation.apply import activate_default_scenarios
+
+        activate_default_scenarios(self.config, self.repo)
+        assert self.active_scenarios(), "the build activated no scenario"
+        readable_by_anyone(self.state_dir)
+
+
+def readable_by_anyone(root: Path) -> None:
+    """Open ``root``'s tree to the container's user, which is not this process's."""
+    for directory, _subdirs, files in os.walk(root):
+        Path(directory).chmod(0o755)
+        for name in files:
+            (Path(directory) / name).chmod(0o644)
 
 
 def only_simulated_targets(config: Mapping[str, Any]) -> list[str]:
@@ -273,6 +299,7 @@ def deployed(repo: Path, settings: Any, *, prefix: str, probe: str) -> Iterator[
         port = reserve_port()
         build(repo, settings(port))
         deployment = Deployment(repo=repo, port=port)
+        deployment.activate_default_scenarios()
         try:
             with serving(deployment, prefix=prefix, probe=probe):
                 yield deployment
@@ -301,6 +328,12 @@ def serving(deployment: Deployment, *, prefix: str, probe: str) -> Iterator[None
         f"EPICS_CA_SERVER_PORT={port}",
         *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
         *e2e_conftest.data_root_run_args(deployment.data_root),
+        # The active set is a separate mount, read-only: the state is the
+        # deployment's, written on the host.
+        "-v",
+        f"{deployment.state_dir}:/state/simulation:ro",
+        "-e",
+        "VA_STATE_DIR=/state/simulation",
         "-p",
         f"127.0.0.1:{port}:{port}/tcp",
         IMAGE,

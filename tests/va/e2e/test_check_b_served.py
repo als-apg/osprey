@@ -5,8 +5,9 @@ lattice, at the same operating point, taken at the tool's own steps
 (``tests/facility/_model_reference.py``). Each lane here takes one measurement
 through the ``pyaml_measure`` tool against a container, then takes the same
 measurement, with the same arguments, on a replica of the served machine in
-this process: the composite over the view the container serves, which runs
-the same pyAT model on the same deck from the same start values. The tool
+this process: the composite over the view and the active set the container
+serves, which runs the same pyAT model on the same deck from the same start
+values. The tool
 renders the same script for both, so both take the same steps through the
 same view; the comparison and its bands are ``tests/facility/test_check_b.py``.
 
@@ -180,7 +181,9 @@ async def _replicate(
     from osprey_connectors.simulation.view import VIEW_RELPATH
 
     composite = Composite(
-        served.deployment.data_root / VIEW_RELPATH.name, state_dir=None, model_log=False
+        served.deployment.data_root / VIEW_RELPATH.name,
+        state_dir=served.deployment.state_dir,
+        model_log=False,
     )
     _check_b().ReplicaRuntime(composite, _limits(served.deployment)).install(monkeypatch)
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readwrite")

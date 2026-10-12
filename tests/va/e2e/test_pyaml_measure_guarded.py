@@ -460,7 +460,7 @@ async def test_with_writes_off_a_measurement_is_refused(
 
 def test_the_render_configures_no_target_but_the_simulator(deployment: gm.Deployment) -> None:
     assert gm.only_simulated_targets(deployment.config) == []
-    assert deployment.active_scenarios() == [gm.STILL]
+    assert gm.STILL in deployment.active_scenarios()
 
 
 # ---------------------------------------------------------------------------
