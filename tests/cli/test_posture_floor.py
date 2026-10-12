@@ -322,14 +322,15 @@ class TestAskCapable:
         del rendered["approval"]
         assert ask_capable(rendered, "execute")
 
-    @pytest.mark.parametrize(
-        ("enabled", "asks"),
-        [(None, False), ("", False), (0, False), ("false", True), ("no", True), (1, True)],
-    )
-    def test_enabled_reads_as_the_hook_reads_it(self, enabled: Any, asks: bool) -> None:
-        """``approval.enabled`` is taken by truthiness, the expression the hook evaluates."""
+    @pytest.mark.parametrize("enabled", [None, "", 0, "false", "no", 1])
+    def test_a_non_bool_switch_is_not_ask_capable(self, enabled: Any) -> None:
+        """A switch that is not true or false asks nobody; the hook and executor refuse it."""
         rendered = _rendered(approval={**_approval(), "enabled": enabled})
-        assert ask_capable(rendered, "execute") is asks
+        assert ask_capable(rendered, "execute") is False
+
+    @pytest.mark.parametrize("section", [None, "disabled"], ids=["bare", "string"])
+    def test_a_section_that_is_not_a_mapping_is_not_ask_capable(self, section: Any) -> None:
+        assert ask_capable(_rendered(approval=section), "execute") is False
 
 
 class TestApprovalEnabled:

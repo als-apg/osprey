@@ -314,9 +314,11 @@ def effective_policy(rendered: Mapping[str, Any], tool: str) -> str:
 def ask_capable(rendered: Mapping[str, Any], tool: str) -> bool:
     """Whether a call of *tool* is put to a human before it runs.
 
-    True when ``approval.enabled`` is truthy (the hook reads an unstated switch
-    as on, and evaluates the stated one by truthiness) and *tool*'s effective
-    policy is not ``skip``. No hook term: :func:`check_approval_hook_selected`
+    True when ``approval.enabled`` is ``true`` or unstated (the hook reads an
+    unstated switch as on) and *tool*'s effective policy is not ``skip``. A
+    switch that is not a bool, or an ``approval`` that is not a mapping, asks
+    nobody: the approval hook and the executor refuse every call under it
+    (:func:`approval_enabled_fault`). No hook term: :func:`check_approval_hook_selected`
     stops every build whose render asks without selecting the approval hook.
 
     Args:
@@ -326,7 +328,9 @@ def ask_capable(rendered: Mapping[str, Any], tool: str) -> bool:
     Returns:
         ``True`` when a call of *tool* is put to a human.
     """
-    if not _approval_section(rendered).get("enabled", True):
+    if approval_enabled_fault(rendered) is not None:
+        return False
+    if _approval_section(rendered).get("enabled", True) is False:
         return False
     return effective_policy(rendered, tool) != SKIP_POLICY
 
@@ -334,10 +338,10 @@ def ask_capable(rendered: Mapping[str, Any], tool: str) -> bool:
 def check_approval_enabled(rendered: Mapping[str, Any]) -> None:
     """Stop a render whose ``approval.enabled`` is stated and is not true or false.
 
-    The approval hook, :func:`ask_capable` and this build read the switch by
-    truthiness, so an empty line, a quoted ``"false"`` or a number would turn
-    every prompt off, or on, without a word. With this stop they see only a
-    bool or an unstated key, which reads as asking.
+    An empty line, a quoted ``"false"`` or a number is neither on nor off.
+    With this stop the approval hook, :func:`ask_capable` and the executor see
+    only a bool or an unstated key, which reads as asking; a value edited in
+    after the build is refused at run time with the same detail and fix.
 
     Args:
         rendered: The rendered ``config.yml``, read after the injectors.

@@ -1,0 +1,1 @@
+A `config.yml` whose `approval.enabled` is edited after the build to anything but `true` or `false` (or whose `approval` section is left bare) no longer switches approval off: the approval hook denies every call it is wired to and a read-write Python run does not start, both naming the key and the fix.
