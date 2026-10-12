@@ -435,10 +435,11 @@ the image instead of guessing.
 The agent and the server that spawned it are both ``osprey``, so the split
 between them is not a second user but what the server keeps from a process of
 its own uid. Before it serves anything, ``osprey web`` takes its credentials
-— the operator secret, the panel token, the event-dispatcher bearer — out of
-its environment into memory, and on Linux marks itself non-dumpable, so its
+— the operator secret and the event-dispatcher bearer — out of its
+environment into memory, and on Linux marks itself non-dumpable, so its
 exec-time environment and memory are closed to the agent and everything the
-agent runs. The dispatch worker does the same with its bearer. The approval
+agent runs. The panel token is not among them: the agent's own panel tooling
+is handed it by design. The dispatch worker does the same with its bearer. The approval
 prompt the operator answers at the terminal therefore records that a person
 intended a write; what contains agent code is the connector's checks and the
 container, as :doc:`/architecture/safety-chain` lays out.
