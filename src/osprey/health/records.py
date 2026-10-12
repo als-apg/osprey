@@ -51,7 +51,8 @@ _ConfigLoader = Callable[[], "tuple[dict[str, Any] | None, dict[str, Any] | None
 # "config unavailable" skip row when the config could not be loaded/parsed.
 CONFIG_DEPENDENT = frozenset(
     {
-        "openobserve",
+        "telemetry_store",
+        "telemetry_gateway",
         "providers",
         "claude_cli_pinned",
         "model_chat",
@@ -261,10 +262,10 @@ def build_records(
             continue
 
         factory = get_core_category_factory(name)
-        # Four categories take a `cwd`, and the anchor follows the ZONE the
+        # Five categories take a `cwd`, and the anchor follows the ZONE the
         # material they look for lives in — not a house style. Getting it wrong
         # is silent: the check reports a present file as missing.
-        if name in ("file_system", "systemd_unit", "archive"):
+        if name in ("file_system", "systemd_unit", "archive", "telemetry_gateway"):
             # Repo-root things. `file_system`: the `.env`, a `registry_path` the
             # config states relative to project_root, the disk the deployment
             # lives on. `systemd_unit`: `osprey scaffold systemd` writes
@@ -272,13 +273,16 @@ def build_records(
             # it is not build output, so the render zone would never hold it and
             # the row would skip on every deployment that has one. `archive`:
             # the agent-record archive lives in the state zone, `var/archive`.
+            # `telemetry_gateway`: the ledgers it checks live in `var/audit`,
+            # its stored sample in `var/health`, the Collector file it compares
+            # them with under `build/`.
             func = factory(expanded, context=None, cwd=project_path)
         elif name == "channel_finder":
             # NOT the repo root. A channel database is build-owned output, and
             # the rendered config states its path relative to the config's own
             # directory (`<repo>/build`), so anchoring it on the repo root looks
             # one zone too high and reports a present database as missing. The
-            # four categories do not all take the same anchor on purpose.
+            # five categories do not all take the same anchor on purpose.
             func = factory(expanded, context=None, cwd=render_path)
         else:
             func = factory(expanded, context=None)

@@ -41,10 +41,6 @@ _CATEGORY_NAME = "mcp_servers"
 def _in_container() -> bool:
     """Best-effort detection of whether this process runs inside a container.
 
-    Mirrors :func:`osprey.build.claude_code_telemetry._running_in_container` (a
-    copy, not an import, to keep the health package free of a build-layer
-    dependency).
-
     The signal is the runtime's own marker file: ``/.dockerenv`` under Docker,
     ``/run/.containerenv`` under Podman. Probing only the Docker marker
     answered ``False`` inside every Podman container, which is the runtime this
@@ -58,9 +54,8 @@ def _in_container() -> bool:
     writes ``health.auto.mcp.url_key: host_url`` into every render that serves
     web terminals (:mod:`osprey.cli.build_profile_health`), and this detection
     decides only for a render without web terminals. Topology is declared,
-    never sniffed — the same reason
-    :func:`osprey.build.claude_code_telemetry._openobserve_host_override`
-    exists.
+    never sniffed — the same rule
+    :func:`osprey.deployment.telemetry_config.runtime_gateway_url` follows.
     """
     return (
         os.path.exists("/.dockerenv")

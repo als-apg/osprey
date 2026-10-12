@@ -104,18 +104,18 @@ def _ndjson(*containers: dict) -> bytes:
 async def test_running_container_is_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     proc = _FakeProc(
         stdout=json.dumps(
-            [{"Names": ["openobserve"], "State": "running", "Status": "Up 2 hours (healthy)"}]
+            [{"Names": ["telemetry_store"], "State": "running", "Status": "Up 2 hours (healthy)"}]
         ).encode()
     )
     _patch_runtime(monkeypatch, proc=proc)
 
-    result = await run({"container": "openobserve"}, _ctx())
+    result = await run({"container": "telemetry_store"}, _ctx())
 
     assert result.status is Status.OK
     assert result.value == "running"
     assert "healthy" in result.message
     assert result.latency_ms > 0
-    assert result.name == "container.openobserve"
+    assert result.name == "container.telemetry_store"
     assert result.category == "containers"
 
 
@@ -135,10 +135,12 @@ async def test_running_but_unhealthy_is_warning(monkeypatch: pytest.MonkeyPatch)
 
 
 async def test_stopped_container_is_warning(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(stdout=json.dumps([{"Names": ["openobserve"], "State": "exited"}]).encode())
+    proc = _FakeProc(
+        stdout=json.dumps([{"Names": ["telemetry_store"], "State": "exited"}]).encode()
+    )
     _patch_runtime(monkeypatch, proc=proc)
 
-    result = await run({"container": "openobserve"}, _ctx())
+    result = await run({"container": "telemetry_store"}, _ctx())
 
     assert result.status is Status.WARNING
     assert result.value == "exited"
@@ -153,7 +155,7 @@ async def test_missing_container_is_warning_not_deployed(
     )
     _patch_runtime(monkeypatch, proc=proc)
 
-    result = await run({"container": "openobserve"}, _ctx())
+    result = await run({"container": "telemetry_store"}, _ctx())
 
     assert result.status is Status.WARNING
     assert result.value == "not found"
@@ -163,7 +165,7 @@ async def test_missing_container_is_warning_not_deployed(
 async def test_no_runtime_runtimeerror_is_skip(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_runtime(monkeypatch, ps_error=RuntimeError("No container runtime found"))
 
-    result = await run({"container": "openobserve"}, _ctx())
+    result = await run({"container": "telemetry_store"}, _ctx())
 
     assert result.status is Status.SKIP
     assert result.message == "no container runtime available"
@@ -172,7 +174,7 @@ async def test_no_runtime_runtimeerror_is_skip(monkeypatch: pytest.MonkeyPatch) 
 async def test_no_runtime_filenotfound_is_skip(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_runtime(monkeypatch, ps_error=FileNotFoundError("docker"))
 
-    result = await run({"container": "openobserve"}, _ctx())
+    result = await run({"container": "telemetry_store"}, _ctx())
 
     assert result.status is Status.SKIP
     assert result.message == "no container runtime available"
@@ -183,12 +185,12 @@ async def test_docker_ndjson_output_parses(monkeypatch: pytest.MonkeyPatch) -> N
     proc = _FakeProc(
         stdout=_ndjson(
             {"Names": "proj-postgres-1", "State": "exited"},
-            {"Names": "proj-openobserve-1", "State": "running", "Status": "Up (healthy)"},
+            {"Names": "proj-telemetry_store-1", "State": "running", "Status": "Up (healthy)"},
         )
     )
     _patch_runtime(monkeypatch, proc=proc)
 
-    result = await run({"container": "openobserve"}, _ctx())
+    result = await run({"container": "telemetry_store"}, _ctx())
 
     assert result.status is Status.OK
     assert result.value == "running"
@@ -209,7 +211,7 @@ async def test_ps_nonzero_exit_is_warning(monkeypatch: pytest.MonkeyPatch) -> No
     proc = _FakeProc(stdout=b"", returncode=1)
     _patch_runtime(monkeypatch, proc=proc)
 
-    result = await run({"container": "openobserve"}, _ctx())
+    result = await run({"container": "telemetry_store"}, _ctx())
 
     assert result.status is Status.WARNING
     assert "failed" in result.message
@@ -219,7 +221,7 @@ async def test_query_timeout_is_warning(monkeypatch: pytest.MonkeyPatch) -> None
     proc = _FakeProc(hang=True)
     _patch_runtime(monkeypatch, proc=proc)
 
-    result = await run({"container": "openobserve", "timeout_s": 0.05}, _ctx())
+    result = await run({"container": "telemetry_store", "timeout_s": 0.05}, _ctx())
 
     assert result.status is Status.WARNING
     assert "timed out" in result.message
@@ -237,10 +239,12 @@ async def test_custom_name_and_category_flow_through(monkeypatch: pytest.MonkeyP
 
 
 async def test_service_alias_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(stdout=json.dumps([{"Names": ["openobserve"], "State": "running"}]).encode())
+    proc = _FakeProc(
+        stdout=json.dumps([{"Names": ["telemetry_store"], "State": "running"}]).encode()
+    )
     _patch_runtime(monkeypatch, proc=proc)
 
-    result = await run({"service": "openobserve"}, _ctx())
+    result = await run({"service": "telemetry_store"}, _ctx())
 
     assert result.status is Status.OK
 
@@ -271,25 +275,25 @@ async def test_another_deployments_container_is_never_graded(
 ) -> None:
     _serve(
         monkeypatch,
-        _row("other-openobserve", **{PROJECT_LABEL: "other"}),
-        _row("proj-openobserve", "exited", **{PROJECT_LABEL: "proj"}),
+        _row("other-telemetry_store", **{PROJECT_LABEL: "other"}),
+        _row("proj-telemetry_store", "exited", **{PROJECT_LABEL: "proj"}),
     )
-    result = await run({"container": "openobserve"}, _ctx())
+    result = await run({"container": "telemetry_store"}, _ctx())
     assert result.status is Status.WARNING
     assert result.value == "exited"
 
-    _serve(monkeypatch, _row("other-openobserve", **{PROJECT_LABEL: "other"}))
-    result = await run({"container": "openobserve"}, _ctx())
+    _serve(monkeypatch, _row("other-telemetry_store", **{PROJECT_LABEL: "other"}))
+    result = await run({"container": "telemetry_store"}, _ctx())
     assert result.status is Status.WARNING
-    assert result.message == "openobserve: not deployed"
+    assert result.message == "telemetry_store: not deployed"
 
 
 async def test_a_row_of_another_compose_project_is_never_graded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _serve(monkeypatch, _row("stack-openobserve", **{COMPOSE_PROJECT_LABEL: "stack"}))
-    result = await run({"container": "openobserve"}, _ctx())
-    assert result.message == "openobserve: not deployed"
+    _serve(monkeypatch, _row("stack-telemetry_store", **{COMPOSE_PROJECT_LABEL: "stack"}))
+    result = await run({"container": "telemetry_store"}, _ctx())
+    assert result.message == "telemetry_store: not deployed"
 
 
 async def test_the_compose_service_label_names_the_service(
@@ -378,10 +382,10 @@ async def test_the_global_config_is_read_when_the_context_has_none(
     monkeypatch.setattr(container_mod, "get_full_configuration", lambda: {"project_name": "proj"})
     _serve(
         monkeypatch,
-        _row("other-openobserve", **{PROJECT_LABEL: "other"}),
-        _row("proj-openobserve", "exited", **{PROJECT_LABEL: "proj"}),
+        _row("other-telemetry_store", **{PROJECT_LABEL: "other"}),
+        _row("proj-telemetry_store", "exited", **{PROJECT_LABEL: "proj"}),
     )
-    result = await run({"container": "openobserve"}, ProbeContext(runtime=HealthRuntime({})))
+    result = await run({"container": "telemetry_store"}, ProbeContext(runtime=HealthRuntime({})))
     assert result.status is Status.WARNING
     assert result.value == "exited"
 
@@ -391,14 +395,14 @@ async def test_no_config_anywhere_is_skip(monkeypatch: pytest.MonkeyPatch) -> No
         raise FileNotFoundError("No config.yml found in current directory")
 
     monkeypatch.setattr(container_mod, "get_full_configuration", _missing)
-    _serve(monkeypatch, _row("openobserve"))
-    result = await run({"container": "openobserve"}, ProbeContext(runtime=HealthRuntime({})))
+    _serve(monkeypatch, _row("telemetry_store"))
+    result = await run({"container": "telemetry_store"}, ProbeContext(runtime=HealthRuntime({})))
     assert result.status is Status.SKIP
     assert result.message == "config unavailable"
     assert result.details == "cannot tell this deployment's containers from another's"
 
 
-@pytest.mark.parametrize("service", ["openobserve", "postgresql", "archive"])
+@pytest.mark.parametrize("service", ["telemetry_store", "postgresql", "archive"])
 async def test_the_probe_grades_exactly_the_rows_the_rule_claims(
     monkeypatch: pytest.MonkeyPatch, service: str
 ) -> None:
