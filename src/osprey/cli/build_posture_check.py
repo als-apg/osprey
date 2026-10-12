@@ -67,6 +67,7 @@ __all__ = [
     "REQUIRED_ALWAYS",
     "REQUIRED_WITH_APPROVAL_HOOK",
     "REQUIRED_WITH_CONTROLS",
+    "approval_enabled_fault",
     "ask_capable",
     "check_approval_enabled",
     "check_approval_hook_selected",
@@ -244,6 +245,39 @@ def _approval_section(rendered: Mapping[str, Any]) -> Mapping[str, Any]:
     return approval if isinstance(approval, Mapping) else {}
 
 
+#: The remedy for an approval switch that is not true or false.
+_ENABLED_FIX = f"set approval.enabled to true or false in {PROFILE_FILENAME}"
+
+
+def _enabled_detail(value: Any) -> str:
+    """What is wrong with an ``approval.enabled`` that states *value*."""
+    return f"approval.enabled is {value!r}, not true or false"
+
+
+def approval_enabled_fault(rendered: Mapping[str, Any]) -> str | None:
+    """The sentence that refuses a run under a stated approval switch that is not a bool.
+
+    The run-time readers of ``config.yml`` (the approval hook and the Python
+    executor) refuse with it, and the build stops on the same detail and fix,
+    so a hand edit after the build is named the way the build names it. A
+    stated ``approval`` that is not a mapping (a bare ``approval:`` line) is a
+    fault too: it states the section and says nothing a reader can trust.
+
+    Args:
+        rendered: A rendered ``config.yml``, as ``safe_load`` produced it.
+
+    Returns:
+        ``None`` when the switch is unstated, ``true`` or ``false``; else the
+        sentence naming the value and the fix.
+    """
+    if "approval" in rendered and not isinstance(rendered["approval"], Mapping):
+        return f"approval is {rendered['approval']!r}, not a mapping; {_ENABLED_FIX} and rebuild"
+    approval = _approval_section(rendered)
+    if "enabled" not in approval or isinstance(approval["enabled"], bool):
+        return None
+    return f"{_enabled_detail(approval['enabled'])}; {_ENABLED_FIX} and rebuild"
+
+
 def _policy_key(rendered: Mapping[str, Any], tool: str) -> str:
     """The dotted key that supplies *tool*'s approval policy in *rendered*.
 
@@ -321,9 +355,9 @@ def check_approval_enabled(rendered: Mapping[str, Any]) -> None:
         "profile-invalid",
         "approval.enabled",
         [PROFILE_FILENAME],
-        f"set approval.enabled to true or false in {PROFILE_FILENAME}",
+        _ENABLED_FIX,
         record_kind="path",
-        detail=f"approval.enabled is {approval['enabled']!r}, not true or false",
+        detail=_enabled_detail(approval["enabled"]),
     )
 
 

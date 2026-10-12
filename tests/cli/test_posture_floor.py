@@ -43,6 +43,7 @@ from osprey.cli.build_posture_check import (
     REQUIRED_ALWAYS,
     REQUIRED_WITH_APPROVAL_HOOK,
     REQUIRED_WITH_CONTROLS,
+    approval_enabled_fault,
     ask_capable,
     check_approval_enabled,
     check_approval_hook_selected,
@@ -356,6 +357,36 @@ class TestApprovalEnabled:
         message = stop.value.format_message()
         assert "profile.yml" in message
         assert "set approval.enabled to true or false" in message
+
+    @pytest.mark.parametrize("enabled", [None, "", "false", "true", 0, 1])
+    def test_the_fault_sentence(self, enabled: Any) -> None:
+        rendered = _rendered(approval={**_approval(), "enabled": enabled})
+        assert approval_enabled_fault(rendered) == (
+            f"approval.enabled is {enabled!r}, not true or false; "
+            "set approval.enabled to true or false in profile.yml and rebuild"
+        )
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_a_bool_switch_has_no_fault(self, enabled: bool) -> None:
+        assert (
+            approval_enabled_fault(_rendered(approval={**_approval(), "enabled": enabled})) is None
+        )
+
+    def test_an_unstated_switch_has_no_fault(self) -> None:
+        approval = _approval()
+        del approval["enabled"]
+        assert approval_enabled_fault(_rendered(approval=approval)) is None
+        rendered = _rendered()
+        del rendered["approval"]
+        assert approval_enabled_fault(rendered) is None
+
+    @pytest.mark.parametrize("section", [None, "false", ["enabled"]])
+    def test_a_section_that_is_not_a_mapping_is_a_fault(self, section: Any) -> None:
+        """A bare ``approval:`` line reads as ``None``, never as an unstated switch."""
+        assert approval_enabled_fault(_rendered(approval=section)) == (
+            f"approval is {section!r}, not a mapping; "
+            "set approval.enabled to true or false in profile.yml and rebuild"
+        )
 
 
 class TestApprovalHookSelected:
