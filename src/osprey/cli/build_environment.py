@@ -803,6 +803,26 @@ _INSTALL_NETWORK_REMEDY = (
     "package mirror (UV_INDEX_URL, or PIP_INDEX_URL without uv)."
 )
 
+# The installers' own words for "the package index was not reached": uv's
+# first, then pip's. Each appears only when a connection failed.
+_INSTALL_NETWORK_FAILURE_MARKERS = (
+    "error sending request for url",
+    "dns error",
+    "failed to lookup address",
+    "tcp connect error",
+    "nameresolutionerror",
+    "newconnectionerror",
+    "failed to establish a new connection",
+    "temporary failure in name resolution",
+)
+
+
+def _is_network_install_failure(output: str) -> bool:
+    """True when an installer's output says the package index was not reached."""
+    lowered = output.lower()
+    return any(marker in lowered for marker in _INSTALL_NETWORK_FAILURE_MARKERS)
+
+
 # An interpreter or uv that cannot create the venv fails fast with a nonzero
 # exit, so this cap never decides a failure; it bounds only a process that has
 # hung, and leaves an ordinary creation on a loaded host the room it needs.
@@ -976,9 +996,10 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
         logger.info("  ✓ Installed osprey + %d profile deps into project venv", dep_count)
     else:
         output = (result.stdout + result.stderr).strip()
-        raise BuildProfileError(
-            f"Failed to install project dependencies (exit {result.returncode}):\n{output}"
-        )
+        message = f"Failed to install project dependencies (exit {result.returncode}):\n{output}"
+        if _is_network_install_failure(output):
+            message += "\n" + _INSTALL_NETWORK_REMEDY
+        raise BuildProfileError(message)
 
     # --- Record deps in pyproject.toml ---
     # The recorded list is the installed list — same object, no re-derivation.

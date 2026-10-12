@@ -20,6 +20,11 @@ the step that timed out nor anything to do about it.
 Venv creation is bounded the same way, and its timeout is reported the same
 way: as a build error naming the step and the check to run, not as an
 unexpected error.
+
+An install that exits because the package index could not be reached (no DNS,
+a refused connection) is reported with the same remedy as the timeout, after
+the installer's own output; every other install failure reads as that output
+alone.
 """
 
 from __future__ import annotations
@@ -241,3 +246,96 @@ def test_install_timeout_names_the_mirror_remedy(monkeypatch, tmp_path):
     assert message.endswith(build_environment._INSTALL_NETWORK_REMEDY), message
     assert "UV_INDEX_URL" in message, message
     assert "PIP_INDEX_URL" in message, message
+
+
+# Installer output captured from real uv and pip runs against an unresolvable
+# host and a closed port, with --quiet as the build passes it.
+_UV_DNS_FAILURE = (
+    "error: Failed to fetch: `https://no-such-host.invalid/simple/six/`\n"
+    "  Caused by: error sending request for url (https://no-such-host.invalid/simple/six/)\n"
+    "  Caused by: client error (Connect)\n"
+    "  Caused by: dns error\n"
+    "  Caused by: failed to lookup address information: nodename nor servname "
+    "provided, or not known"
+)
+_UV_CONNECTION_REFUSED = (
+    "error: Failed to fetch: `https://127.0.0.1:9/simple/six/`\n"
+    "  Caused by: error sending request for url (https://127.0.0.1:9/simple/six/)\n"
+    "  Caused by: client error (Connect)\n"
+    "  Caused by: tcp connect error\n"
+    "  Caused by: Connection refused (os error 61)"
+)
+_PIP_NAME_RESOLUTION = (
+    "WARNING: Retrying (Retry(total=4, connect=None, read=None, redirect=None, "
+    "status=None)) after connection broken by 'NameResolutionError(\"HTTPSConnection("
+    "host='no-such-host.invalid', port=443): Failed to resolve 'no-such-host.invalid' "
+    "([Errno 8] nodename nor servname provided, or not known)\")': /simple/six/\n"
+    "ERROR: Could not find a version that satisfies the requirement six (from versions: none)\n"
+    "ERROR: No matching distribution found for six"
+)
+
+
+def _failing_install(returncode: int, stderr: str):
+    """A subprocess.run stand-in whose dependency install exits with ``stderr``."""
+
+    def fake_run(cmd, **kwargs):
+        if _is_install(cmd):
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=returncode, stdout="", stderr=stderr
+            )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    return fake_run
+
+
+@pytest.mark.parametrize(
+    ("branch", "returncode", "output"),
+    [
+        ("with_uv", 2, _UV_DNS_FAILURE),
+        ("with_uv", 2, _UV_CONNECTION_REFUSED),
+        ("without_uv", 1, _PIP_NAME_RESOLUTION),
+    ],
+    ids=["uv-dns", "uv-connection-refused", "pip-name-resolution"],
+)
+def test_a_network_install_failure_ends_with_the_mirror_remedy(
+    branch, returncode, output, request, monkeypatch, tmp_path
+):
+    """An install that could not reach the index keeps its output and adds the remedy."""
+    request.getfixturevalue(branch)
+    monkeypatch.setattr(
+        "osprey.cli.build_environment.subprocess.run", _failing_install(returncode, output)
+    )
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        _create_project_venv(tmp_path, _profile())
+
+    message = str(excinfo.value)
+    assert message.startswith(f"Failed to install project dependencies (exit {returncode}):"), (
+        message
+    )
+    assert output in message, message
+    assert message.endswith(build_environment._INSTALL_NETWORK_REMEDY), message
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "error: distribution litellm==1.81.11 is not available",
+        "  × No solution found when resolving dependencies:\n"
+        "  ╰─▶ Because osprey-framework==1.2.3 depends on litellm==1.81.11 and "
+        "litellm==1.81.11 is unavailable, we can conclude that "
+        "osprey-framework==1.2.3 cannot be used.",
+    ],
+    ids=["unavailable-distribution", "no-solution"],
+)
+@pytest.mark.usefixtures("with_uv")
+def test_a_non_network_install_failure_carries_no_mirror_remedy(output, monkeypatch, tmp_path):
+    """An install that reached the index and failed reads as the installer's output alone."""
+    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", _failing_install(1, output))
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        _create_project_venv(tmp_path, _profile())
+
+    message = str(excinfo.value)
+    assert "UV_INDEX_URL" not in message, message
+    assert message == f"Failed to install project dependencies (exit 1):\n{output.strip()}"

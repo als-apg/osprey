@@ -1,0 +1,1 @@
+When the dependency install of `osprey build` cannot reach the package index, the build error now ends with the same advice as the install timeout, after the installer's own output: re-running resumes from the local cache, and `UV_INDEX_URL` (or `PIP_INDEX_URL` without uv) points the build at a closer mirror.
