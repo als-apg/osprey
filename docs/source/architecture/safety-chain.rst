@@ -123,7 +123,7 @@ digest of the view the tool runs on and every setpoint the call steps; a call th
 more setpoints than a prompt can list is refused without asking. The tool then runs in the
 same sandbox as the agent's Python, under the same guards, and each setpoint it moves is an
 ordinary write through the connector --- recorded in a journal first, inside a guarded run
-(:ref:`below <architecture-safety-chain-guarded-run>`). A pyAML write anywhere else,
+(:ref:`Guarded Runs <architecture-safety-chain-guarded-run>`). A pyAML write anywhere else,
 ``execute`` included, is refused. See :doc:`/how-to/measure-with-pyaml`.
 
 A Bluesky plan
