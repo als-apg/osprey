@@ -2059,6 +2059,60 @@ def test_ci_check_also_runs_what_it_deselects__mutation_parallelizes_it(
     assert _missing_ci_check_serial_run(mutated, row) != []
 
 
+#: The written-down copies of the parallel sweep a contributor or a skill copies
+#: by hand. Each must carry the unit lane's marker expression, or the copy runs
+#: the lane-leaving markers under workers that distort them.
+DOCUMENTED_SWEEPS = ("tests/README.md", "CONTRIBUTING.md")
+#: A pytest invocation with xdist workers: a fixed count or ``auto``.
+_DOCUMENTED_XDIST_RE = re.compile(r"(?<!\S)-n\s+(auto|\d+)")
+
+
+def _documented_sweep_lines(source: str) -> list[str]:
+    """Lines that run pytest with workers over ``tests/`` wholesale, or over one
+    area when the line already carries a marker expression."""
+    return [
+        line
+        for line in source.splitlines()
+        if "pytest " in line
+        and _DOCUMENTED_XDIST_RE.search(line)
+        and ("tests/ --ignore=tests/e2e" in line or ("tests/<area>" in line and "-m " in line))
+    ]
+
+
+def _documented_sweeps_missing_terms(source: str, row: LaneLeavingMarker) -> list[str]:
+    """Documented sweeps in *source* that do not hand the row's marker away
+    (empty = all of them do)."""
+    return [
+        line.strip() for line in _documented_sweep_lines(source) if row.deselect_term() not in line
+    ]
+
+
+@pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
+@pytest.mark.parametrize("path", DOCUMENTED_SWEEPS, ids=DOCUMENTED_SWEEPS)
+def test_documented_sweeps_carry_the_lane_expression(path: str, row: LaneLeavingMarker) -> None:
+    """A documented parallel sweep is the command a reader copies, so it hands
+    away every marker the CI lane hands away."""
+    source = _script_source(path)
+    assert _documented_sweep_lines(source), (
+        f"{path} no longer documents a parallel sweep; this pin is stale"
+    )
+    assert _documented_sweeps_missing_terms(source, row) == [], (
+        f"{path} documents a parallel sweep without deselecting the {row.marker!r} marker "
+        f"({row.deselect_term()!r}): {_documented_sweeps_missing_terms(source, row)}"
+    )
+
+
+@pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
+@pytest.mark.parametrize("path", DOCUMENTED_SWEEPS, ids=DOCUMENTED_SWEEPS)
+def test_documented_sweeps_carry_the_lane_expression__mutation_drops_a_term(
+    path: str, row: LaneLeavingMarker
+) -> None:
+    source = _script_source(path)
+    mutated = _drop_the_term(source, row)
+    assert mutated != source, f"no {row.marker!r} deselection in {path}; mutation is stale"
+    assert _documented_sweeps_missing_terms(mutated, row) != []
+
+
 # ---------------------------------------------------------------------------
 # (e) the dockerbuild --ignore guard
 # ---------------------------------------------------------------------------
