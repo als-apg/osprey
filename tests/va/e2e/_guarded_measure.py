@@ -11,7 +11,7 @@ cases, check B and the chain. Each needs the same pieces, kept here once:
   survives into the render: every target the render configures resolves to the
   simulator (:func:`only_simulated_targets`).
 * **The container.** One per deployment, over the build's own data root and
-  the deployment's state directory, published on the port the build was given.
+  the deployment's state directory, published on the Channel Access and pvAccess ports the build was given.
 * **A session's environment.** The rendered config, an agent-data root and a
   posture session, set the way a session child carries them; the hook, the
   tool and the sandbox the tool spawns all resolve from them.
@@ -108,12 +108,15 @@ def reserve_port() -> int:
     raise RuntimeError(f"no free port in {PORT_RANGE}")
 
 
-def isolation_settings(port: int, probe: str, *, approval: bool) -> list[str]:
+def isolation_settings(port: int, pva_port: int, probe: str, *, approval: bool) -> list[str]:
     """The ``osprey set`` arguments of a deployment whose one machine is the simulator.
 
     The connector table is stated whole, so every block the preset carried is
     replaced by one ``virtual_accelerator`` block on ``127.0.0.1:<port>``
-    armed for writes, and the stand-in is switched off. The approval block is
+    armed for writes, and the stand-in is switched off. The build names both of
+    instance 1's protocol ports, Channel Access ``port`` and pvAccess
+    ``pva_port``, which sit outside the deployment's port block, so two
+    deployments on one host collide on neither. The approval block is
     stated, never left to a default: ``approval`` false is a deployment that
     asks nobody, true one whose every guarded tool asks.
     """
@@ -131,6 +134,7 @@ def isolation_settings(port: int, probe: str, *, approval: bool) -> list[str]:
         "config.control_system.writes_enabled=true",
         f"config.control_system.connector={json.dumps(connector)}",
         f"virtual_accelerator.port={port}",
+        f"virtual_accelerator.pva_port={pva_port}",
         "virtual_accelerator.live_standin=null",
         f"config.simulation.default_scenarios=[{STILL}]",
         f"config.approval.enabled={'true' if approval else 'false'}",
@@ -291,17 +295,21 @@ class PortTaken(RuntimeError):
 def deployed(repo: Path, settings: Any, *, prefix: str, probe: str) -> Iterator[Deployment]:
     """Build ``repo`` on a fresh port and serve it; the deployment, while it is served.
 
-    ``settings`` maps a port to the ``osprey set`` arguments of the build. A
-    port taken between the build and the boot is replaced by another and the
-    repo rebuilt, since the port is part of the render.
+    ``settings`` maps the Channel Access and pvAccess ports to the ``osprey set``
+    arguments of the build. A port taken between the build and the boot is
+    replaced, both re-reserved, and the repo rebuilt, since the ports are part
+    of the render.
     """
     for _ in range(PUBLISH_ATTEMPTS):
         port = reserve_port()
-        build(repo, settings(port))
+        pva_port = reserve_port()
+        while pva_port == port:
+            pva_port = reserve_port()
+        build(repo, settings(port, pva_port))
         deployment = Deployment(repo=repo, port=port)
         deployment.activate_default_scenarios()
         try:
-            with serving(deployment, prefix=prefix, probe=probe):
+            with serving(deployment, pva_port=pva_port, prefix=prefix, probe=probe):
                 yield deployment
             return
         except PortTaken:
@@ -310,11 +318,11 @@ def deployed(repo: Path, settings: Any, *, prefix: str, probe: str) -> Iterator[
 
 
 @contextmanager
-def serving(deployment: Deployment, *, prefix: str, probe: str) -> Iterator[None]:
+def serving(deployment: Deployment, *, pva_port: int, prefix: str, probe: str) -> Iterator[None]:
     """Boot one container over ``deployment``'s data root on its port; wait until it serves.
 
-    The published port and the server's own are one number, which also names
-    the container, so a concurrent run cannot remove it.
+    The published ports and the servers' own are the same numbers; the Channel
+    Access port also names the container, so a concurrent run cannot remove it.
     """
     require_image()
     port = deployment.port
@@ -326,6 +334,8 @@ def serving(deployment: Deployment, *, prefix: str, probe: str) -> Iterator[None
         name,
         "-e",
         f"EPICS_CA_SERVER_PORT={port}",
+        "-e",
+        f"EPICS_PVAS_SERVER_PORT={pva_port}",
         *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
         *e2e_conftest.data_root_run_args(deployment.data_root),
         # The active set is a separate mount, read-only: the state is the
@@ -336,6 +346,8 @@ def serving(deployment: Deployment, *, prefix: str, probe: str) -> Iterator[None
         "VA_STATE_DIR=/state/simulation",
         "-p",
         f"127.0.0.1:{port}:{port}/tcp",
+        "-p",
+        f"127.0.0.1:{pva_port}:{pva_port}/tcp",
         IMAGE,
     )
     if started.returncode != 0:

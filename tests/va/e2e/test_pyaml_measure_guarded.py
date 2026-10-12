@@ -91,7 +91,7 @@ def deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[gm.Deployme
     repo = _repo(tmp_path_factory.mktemp("guarded"), "guarded")
     with gm.deployed(
         repo,
-        lambda port: gm.isolation_settings(port, PROBE, approval=True),
+        lambda port, pva_port: gm.isolation_settings(port, pva_port, PROBE, approval=True),
         prefix="osprey-va-e2e-guarded",
         probe=PROBE,
     ) as served:
@@ -104,7 +104,7 @@ def unasked(tmp_path_factory: pytest.TempPathFactory) -> Iterator[gm.Deployment]
     repo = _repo(tmp_path_factory.mktemp("unasked"), "unasked")
     with gm.deployed(
         repo,
-        lambda port: gm.isolation_settings(port, PROBE, approval=False),
+        lambda port, pva_port: gm.isolation_settings(port, pva_port, PROBE, approval=False),
         prefix="osprey-va-e2e-unasked",
         probe=PROBE,
     ) as served:

@@ -120,7 +120,7 @@ def harvested(
     probe = recipes.imported_probe(built.repo)
     with gm.deployed(
         built.repo,
-        lambda port: gm.isolation_settings(port, probe, approval=False),
+        lambda port, pva_port: gm.isolation_settings(port, pva_port, probe, approval=False),
         prefix=f"osprey-va-e2e-check-b-{tree}",
         probe=probe,
     ) as served:
@@ -135,7 +135,7 @@ def example(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Served]:
     repo = init_project(tmp_path_factory.mktemp("check-b-example"), "control-assistant", "example")
     with gm.deployed(
         repo,
-        lambda port: gm.isolation_settings(port, EXAMPLE_PROBE, approval=False),
+        lambda port, pva_port: gm.isolation_settings(port, pva_port, EXAMPLE_PROBE, approval=False),
         prefix="osprey-va-e2e-check-b-example",
         probe=EXAMPLE_PROBE,
     ) as served:
