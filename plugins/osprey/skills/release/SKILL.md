@@ -193,7 +193,7 @@ export ALS_APG_API_KEY=... ALS_APG_BASE_URL=...
 unset CBORG_API_KEY OPENAI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY
 
 # Unit tests
-uv run pytest tests/ --ignore=tests/e2e -m "not pty" -n 4 --dist loadgroup -q
+uv run pytest tests/ --ignore=tests/e2e -m "not pty and not wallclock" -n 4 --dist loadgroup -q
 
 rm -rf .venv-release-test
 ```

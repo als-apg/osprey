@@ -2062,7 +2062,12 @@ def test_ci_check_also_runs_what_it_deselects__mutation_parallelizes_it(
 #: The written-down copies of the parallel sweep a contributor or a skill copies
 #: by hand. Each must carry the unit lane's marker expression, or the copy runs
 #: the lane-leaving markers under workers that distort them.
-DOCUMENTED_SWEEPS = ("tests/README.md", "CONTRIBUTING.md")
+DOCUMENTED_SWEEPS = (
+    "tests/README.md",
+    "CONTRIBUTING.md",
+    "plugins/osprey/skills/release/SKILL.md",
+    "plugins/osprey/skills/test-audit/SKILL.md",
+)
 #: A pytest invocation with xdist workers: a fixed count or ``auto``.
 _DOCUMENTED_XDIST_RE = re.compile(r"(?<!\S)-n\s+(auto|\d+)")
 
