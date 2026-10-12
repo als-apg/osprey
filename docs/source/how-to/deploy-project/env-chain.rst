@@ -104,10 +104,13 @@ What a deploy writes back
 -------------------------
 
 ``osprey up`` also *writes* to ``.env``. On first deploy it mints any missing
-service tokens and passwords (for example ``EVENT_DISPATCHER_TOKEN``,
-``ZO_ROOT_USER_PASSWORD``, or ``ARIEL_DB_PASSWORD``) so no service ever starts
-on a blank or publicly-known credential, appends them under a "Minted by
-deploy" heading, and restricts the file to owner-only permissions.
+service tokens and passwords (for example ``EVENT_DISPATCHER_TOKEN`` or
+``ARIEL_DB_PASSWORD``) so no service ever starts on a blank or publicly-known
+credential, appends them under a "Minted by deploy" heading, and restricts the
+file to owner-only permissions. The telemetry store's accounts are the
+exception: each has its own ``.env.telemetry-<account>`` file at the repo root,
+mode 0600, outside the env chain, so a container is handed only the accounts
+it acts as.
 ``osprey build`` writes nothing into ``.env``: the virtual accelerator reads
 the simulator view the build renders under ``build/data/simulator/``.
 

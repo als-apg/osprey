@@ -387,8 +387,9 @@ The full tool-call record
 The default audit files hold identifiers and never values. With
 ``audit.tool_call.enabled`` on (see :ref:`config-audit-tool-call`), every
 osprey MCP server also files one record per tool call --- reads included --- in
-``var/audit/<identity>/tool_call.jsonl``, and sends the same record to the
-telemetry store as one log line.
+``var/audit/<identity>/tool_call.jsonl``. Where a deployment runs the
+telemetry store, the telemetry gateway reads that file like every other ledger
+file (see :ref:`audit-trail-in-the-store`).
 
 This is the one surface that holds values: the full arguments, the full
 result, and what the tool noted while it ran. It does not use the default
@@ -435,14 +436,35 @@ are saved as a JSON artifact and the record carries
 and hash, leaves ``artifact_id`` ``null`` and names the error type in
 ``artifact_error``.
 
-The telemetry copy goes where the harness's own telemetry goes, as OTLP/HTTP
-JSON to ``<endpoint>/v1/logs``; nothing is sent when telemetry is off or the
-protocol is ``grpc``. Each line's body is the record, and it is searchable by
-``event.name`` = ``osprey.tool_call``, ``session.id`` (the harness's own
-attribute, so the line sits beside its events for the same conversation),
-``tool_use_id``, ``tool_name``, ``osprey.server`` and ``osprey.decision``. The
-file is the authoritative copy: a full send queue or an unreachable endpoint
-costs the telemetry line, never the file line.
+The file is the only copy the tool writes. Nothing the MCP server sends over
+the network carries the record.
+
+.. _audit-trail-in-the-store:
+
+The record in the telemetry store
+=================================
+
+Where ``telemetry_store`` and ``telemetry_gateway`` are deployed, the gateway
+reads every ``*.jsonl`` file under ``var/audit/<identity>/`` --- the tool-call
+record, approvals, preflight checks and every other surface --- into the table
+``telemetry.audit_ledger``. The identity comes from the directory the file is
+in, never from the record, and lands in the ``User`` column; the surface, the
+session ids and the tool-use id land in ``Surface``, ``SessionId``,
+``TerminalSession`` and ``ToolUseId``, so a ledger row joins the agent
+harness's own events in ``telemetry.otel_logs`` on ``(User, SessionId)`` and
+``(User, ToolUseId)``. The ``Body`` column holds the line as the writer wrote
+it; a line over the gateway's size cap is stored once, cut and marked, with its
+leading fields kept.
+
+The files stay authoritative. The feed is at least once: a gateway stopped
+between a stored batch and its acknowledgement stores that batch again on its
+next start, so a query that counts rows de-duplicates on the natural key
+(:ref:`the keys <agent-record-dedup>`). A directory that appears after the last
+``osprey build`` is not read until the next one; ``osprey health`` lists it.
+
+The Tiled catalog a plan lane writes is not part of this record and stays out
+of the store and the archive: it is beamline data, with its own retention and
+backup, not a record of what the agent was asked and did.
 
 .. _audit-trail-identity-ladder:
 

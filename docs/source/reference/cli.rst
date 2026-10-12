@@ -44,6 +44,7 @@ names another one explicitly.
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey archive            # Copy the agent record into var/archive
+   osprey history            # Serve the history page (the history service's entry)
    osprey artifacts          # Artifact gallery
    osprey web                # Launch web terminal
    osprey theme-lab          # Design and preview a theme in the browser
@@ -783,22 +784,44 @@ and then every ``--interval`` seconds.
 ``--interval SECONDS`` -- Seconds between passes under ``--watch``, at least 60
 (environment: ``OSPREY_ARCHIVE_INTERVAL_SECONDS``, default ``86400``).
 
-``--openobserve-url URL`` -- Telemetry store to export completed days of logs
-and traces from; unset, none is exported (environment:
-``OSPREY_ARCHIVE_OPENOBSERVE_URL``). The store is read as the ingest service
-account, ``ZO_INGEST_USER_EMAIL`` and ``ZO_INGEST_SA_TOKEN`` from the
-environment.
+``--store-url URL`` -- HTTP address of the telemetry store to export completed
+days from; unset, none is exported (environment: ``OSPREY_ARCHIVE_STORE_URL``).
+Every store table is exported per arrival day and the store's query log per
+event day, each as one Parquet file under
+``<day>/telemetry/<exported-day>/<table>.parquet`` with a manifest line naming
+its table, day, row count and sha256. The store is read as the ``archive``
+account, with ``OSPREY_TELEMETRY_ARCHIVE_PASSWORD`` from the environment.
 
-``--openobserve-org NAME`` -- Telemetry store organization (environment:
-``OSPREY_ARCHIVE_OPENOBSERVE_ORG``, default ``default``).
-
-``--openobserve-backfill-days N`` -- Most completed days a pass exports
-(environment: ``OSPREY_ARCHIVE_OPENOBSERVE_BACKFILL_DAYS``, default ``14``).
+``--store-backfill-days N`` -- Most completed days a pass exports
+(environment: ``OSPREY_ARCHIVE_STORE_BACKFILL_DAYS``, default ``14``).
 
 Exit codes of ``--once``: ``0`` the pass completed with no errors, ``1`` it
 completed with recorded errors, ``2`` it could not run (the destination is
 missing or unwritable). ``--watch`` exits ``2`` after five passes in a row that
 could not run.
+
+osprey history
+==============
+
+Serve the history page: the across-users view of the agent record, which the
+deployment renders as the ``history`` service when it runs the telemetry store
+and its web terminals sign people in (``auth.method`` of ``password`` or
+``oidc``). Browsers reach it under ``/history/`` on the readers' origin only;
+the command is the service's entry and is not run by hand.
+
+.. code-block:: bash
+
+   osprey history [--host HOST] [--port PORT]
+
+``--host HOST`` -- Interface to listen on (default ``127.0.0.1``; the service
+listens on every interface of its container).
+
+``--port PORT`` -- Port to serve on (default ``8000``).
+
+The page reads the store at ``OSPREY_HISTORY_STORE_URL`` as the ``history``
+account, with ``OSPREY_TELEMETRY_HISTORY_PASSWORD`` from the environment, and
+runs every query as the viewer's own store view user. It admits only requests
+that carry the gate secret nginx presents (``OSPREY_TERMINAL_SECRET_HISTORY``).
 
 osprey chat
 ===========
