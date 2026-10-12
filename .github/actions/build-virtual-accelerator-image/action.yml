@@ -70,11 +70,10 @@ runs:
       # no .git, and without a version the build backend refuses to produce
       # metadata at all.
       #
-      # The tag is `osprey-va-full:latest` exactly, because that is what
-      # every consumer defaults to -- tests/va/e2e/conftest.py's `IMAGE`,
-      # and the `VA_IMAGE` of the modules that read it from the
-      # environment. `OSPREY_VA_E2E_IMAGE` overrides it, and nothing in CI
-      # wants a different image than the fixtures name.
+      # The tag is `osprey-va-full:latest` exactly, because that is the
+      # default of tests/va/e2e/_image.py, the one place the image under
+      # test is read. `OSPREY_VA_E2E_IMAGE` overrides it there, and nothing
+      # in CI sets it.
       run: |
         set -euo pipefail
         staging=/tmp/osprey-va-full-build
