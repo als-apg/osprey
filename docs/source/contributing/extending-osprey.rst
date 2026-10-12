@@ -296,6 +296,11 @@ What a plug-in is given and asked for:
   its ``<code>:SIM:<model>:STATUS`` channel carries the text the module's
   optional ``error_text(exc)`` gives, else the exception's own text, and the
   rest of the namespace is still served.
+- **The contract in code.** ``osprey.simulation.engines.EnginePlugin`` names
+  the five functions above, and ``isinstance(module, EnginePlugin)`` checks a
+  module states them. Its docstring lists the optional functions ---
+  ``error_text``, ``fault_variables``, ``polynomial_kicks``,
+  ``response_matrix`` --- and what a model whose engine lacks each gets.
 
 What the container keeps the same for every engine:
 

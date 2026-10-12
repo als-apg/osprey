@@ -349,8 +349,9 @@ reaches the same module through the same group when it checks the facility
 tree. The shipped ``osprey.simulation.engines.pyat`` is the reference
 implementation of the contract.
 
-1. Write the engine module to the contract ``osprey.simulation.engines.pyat``
-   implements.
+1. Write the engine module to the contract
+   ``osprey.simulation.engines.EnginePlugin`` states;
+   ``osprey.simulation.engines.pyat`` implements it.
 2. Register it under the entry-point group in your package's metadata, and
    install the package where ``osprey build`` runs:
 
