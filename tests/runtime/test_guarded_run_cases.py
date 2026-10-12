@@ -12,7 +12,6 @@ and the test waits on that pipe.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import select
@@ -24,7 +23,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 import osprey.runtime
 import osprey.runtime.guarded_run as guarded_run
@@ -36,22 +34,25 @@ from osprey.runtime.guarded_run import (
     ENV_APPROVED_JOURNAL_SHA256,
     ENV_APPROVED_TARGET,
     GUARDED_RUN_DIR,
-    JOURNAL_FILE_NAME,
     LOCK_FILE_NAME,
     RESTORE_REPORT_TAG,
     OspreyJournalChanged,
     OspreyRunBusy,
-    guarded_run_dir,
     lock,
 )
 from osprey.runtime.journal import OspreyRestoreIncomplete, read_pending_journal
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 from osprey_connectors.workspace import reset_config_cache
+from tests.runtime._guarded_run_fixtures import (
+    GENERATION,
+    approve,
+    digest,
+    journal_path,
+    plant,
+    write_config,
+)
 
 _SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
-
-#: The generation this process is stamped with.
-GENERATION = 4
 
 #: How long a child gets to reach a phase or to finish; a hang guard, never a
 #: statement about speed.
@@ -63,12 +64,6 @@ HOME = {"Q": 3.0, "S": 5.0, "T": 8.0}
 #: Where a child finds the machine and the pipe it announces a phase on.
 ENV_VALUES = "GUARDED_RUN_CASES_VALUES"
 ENV_READY_FD = "GUARDED_RUN_CASES_READY_FD"
-
-#: A deployment on a real control system, whose own target is ``live``.
-LIVE_BASELINE = {"type": "epics", "connector": {"epics": {"gateways": {}}}}
-
-#: An ``approval`` block that puts every tool's call to a human.
-ASKING = {"enabled": True, "default_policy": "always"}
 
 #: Installed as ``sitecustomize`` in every child: ``osprey.runtime`` reads and
 #: writes the machine file before any other code of the child runs.
@@ -203,14 +198,6 @@ class _Machine:
         return None
 
 
-def _write_config(root: Path, approval: dict[str, Any] | None = ASKING) -> None:
-    config: dict[str, Any] = {"control_system": LIVE_BASELINE}
-    if approval is not None:
-        config["approval"] = approval
-    (root / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
-    reset_config_cache()
-
-
 @pytest.fixture(autouse=True)
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """A host deployment repo on a live baseline, entered and stamped ``live``.
@@ -222,7 +209,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     root = tmp_path / "repo"
     (root / "build").mkdir(parents=True)
     (root / "profile.yml").write_text("name: probe\n", encoding="utf-8")
-    _write_config(root)
+    write_config(root)
     site = root / "site"
     site.mkdir()
     (site / "sitecustomize.py").write_text(_SITECUSTOMIZE, encoding="utf-8")
@@ -248,39 +235,6 @@ def machine(repo: Path, monkeypatch: pytest.MonkeyPatch) -> _Machine:
     for name in ("read_channels", "write_channel", "channel_limits"):
         monkeypatch.setattr(osprey.runtime, name, getattr(fake, name))
     return fake
-
-
-def _journal_path(target: str = "live") -> Path:
-    return guarded_run_dir(target) / JOURNAL_FILE_NAME
-
-
-def _plant(values: dict[str, Any], *, generation: int = GENERATION) -> Path:
-    """A journal a killed run on ``live`` left, holding ``values``."""
-    header = {
-        "target": "live",
-        "generation": generation,
-        "identity": "alice",
-        "pid": 4242,
-        "started": "2026-01-01T00:00:00Z",
-    }
-    lines = [{"header": header}] + [{"address": a, "value": v} for a, v in values.items()]
-    path = _journal_path()
-    path.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
-    return path
-
-
-def _digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _approve(monkeypatch: pytest.MonkeyPatch, digest: str, target: str = "live") -> None:
-    """Bind a fresh approved ``execute`` call and enter its lock once, as the wrapper does."""
-    monkeypatch.setattr(guarded_run, "_APPROVED", None)
-    monkeypatch.setenv(ENV_APPROVED_JOURNAL_SHA256, digest)
-    monkeypatch.setenv(ENV_APPROVED_TARGET, target)
-    guarded_run._open_approved_call("execute")
-    with lock(None):
-        pass
 
 
 def _report_lines(*streams: str) -> list[str]:
@@ -425,7 +379,7 @@ def test_another_containers_killed_run_is_busy_while_it_lives_and_restored_after
 
     assert busy.value.pid == other.proc.pid
     assert machine.values["Q"] == 9.0, "the killed run left its setpoint displaced"
-    path = _journal_path()
+    path = journal_path()
     assert path.parent == repo.resolve() / "var" / GUARDED_RUN_DIR / "live"
     pending = read_pending_journal(path)
     assert pending is not None
@@ -433,7 +387,7 @@ def test_another_containers_killed_run_is_busy_while_it_lives_and_restored_after
     assert (pending.target, pending.generation) == ("live", GENERATION - 1)
     assert pending.values == {"Q": 3.0}
 
-    _approve(monkeypatch, _digest(path))
+    approve(monkeypatch, digest(path), enter_lock=True)
 
     assert machine.writes == [("Q", 3.0)]
     assert machine.values == HOME
@@ -446,7 +400,7 @@ def test_a_journal_and_every_stamp_rewritten_after_approval_refuses_the_run(
     repo: Path, machine: _Machine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The digest rides in the approved call; nothing another process rewrites moves it."""
-    path = _plant({"Q": 0.0})
+    path = plant({"Q": 0.0})
     stamps = [
         repo / root / "control_target" / identity / "control_context.json"
         for root, identity in (("agent_data_a", "alice"), ("agent_data_b", "bob"))
@@ -456,7 +410,7 @@ def test_a_journal_and_every_stamp_rewritten_after_approval_refuses_the_run(
         stamp.write_text(
             json.dumps({"schema": 1, "target": "live", "generation": GENERATION}), encoding="utf-8"
         )
-    approved = _digest(path)
+    approved = digest(path)
 
     rewrite = textwrap.dedent(
         """
@@ -478,10 +432,10 @@ def test_a_journal_and_every_stamp_rewritten_after_approval_refuses_the_run(
         timeout=CHILD_TIMEOUT_S,
     )
     rewritten = path.read_bytes()
-    assert _digest(path) != approved
+    assert digest(path) != approved
 
     with pytest.raises(OspreyJournalChanged):
-        _approve(monkeypatch, approved)
+        approve(monkeypatch, approved, enter_lock=True)
 
     assert machine.writes == []
     assert machine.values == HOME
@@ -491,11 +445,11 @@ def test_a_journal_and_every_stamp_rewritten_after_approval_refuses_the_run(
 def test_writes_disabled_keep_the_displaced_entries_and_rearmed_writes_restore_them(
     machine: _Machine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    path = _plant({"Q": 0.0, "S": 5.0, "T": 7.0})
+    path = plant({"Q": 0.0, "S": 5.0, "T": 7.0})
     machine.writes_enabled = False
 
     with pytest.raises(OspreyRestoreIncomplete) as caught:
-        _approve(monkeypatch, _digest(path))
+        approve(monkeypatch, digest(path), enter_lock=True)
 
     assert [(address, left) for address, _reason, left in caught.value.entries] == [
         ("Q", 3.0),
@@ -508,7 +462,7 @@ def test_writes_disabled_keep_the_displaced_entries_and_rearmed_writes_restore_t
     assert machine.values == HOME
 
     machine.writes_enabled = True
-    _approve(monkeypatch, _digest(path))
+    approve(monkeypatch, digest(path), enter_lock=True)
 
     assert machine.writes == [("Q", 0.0), ("T", 7.0)]
     assert machine.values == {"Q": 0.0, "S": 5.0, "T": 7.0}
@@ -518,11 +472,11 @@ def test_writes_disabled_keep_the_displaced_entries_and_rearmed_writes_restore_t
 def test_a_readonly_execute_replays_nothing_from_a_pending_journal(
     repo: Path, machine: _Machine
 ) -> None:
-    path = _plant({"Q": 0.0})
+    path = plant({"Q": 0.0})
     before = path.read_bytes()
 
     metadata = _Execute(repo, "readonly", _TRY_THE_RUN).run(
-        **{ENV_APPROVED_JOURNAL_SHA256: _digest(path), ENV_APPROVED_TARGET: "live"}
+        **{ENV_APPROVED_JOURNAL_SHA256: digest(path), ENV_APPROVED_TARGET: "live"}
     )
 
     assert metadata["success"] is True, metadata.get("traceback")
@@ -548,11 +502,11 @@ def test_a_killed_readwrite_execute_leaves_no_journal(
     finally:
         held.kill()
 
-    path = _journal_path()
+    path = journal_path()
     assert not path.exists() or path.read_bytes() == b""
     assert machine.values["Q"] == 9.0, "a write the killed code made stays as it was written"
 
-    _approve(monkeypatch, APPROVED_NO_JOURNAL)
+    approve(monkeypatch, APPROVED_NO_JOURNAL, enter_lock=True)
 
     assert machine.writes == []
     assert machine.values["Q"] == 9.0
@@ -590,8 +544,8 @@ def test_an_execute_replay_prints_one_restore_line_filed_as_complete(
 ) -> None:
     """The replay before user code reports once, however often the code takes the run."""
     machine.set("Q", 9.0)
-    path = _plant({"Q": 3.0})
-    env = {ENV_APPROVED_JOURNAL_SHA256: _digest(path), ENV_APPROVED_TARGET: "live"}
+    path = plant({"Q": 3.0})
+    env = {ENV_APPROVED_JOURNAL_SHA256: digest(path), ENV_APPROVED_TARGET: "live"}
     execute = _Execute(repo, "readwrite", _TRY_THE_RUN)
 
     metadata = execute.run(**env)
