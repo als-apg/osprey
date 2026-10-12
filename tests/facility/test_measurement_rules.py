@@ -305,3 +305,29 @@ def test_a_kind_is_carried_into_the_facility_file_as_authored(tmp_path: Path) ->
     document, _ = built_document(tmp_path, tree)
     assert _model(document, "SR")["measurement"]["kinds"] == ["trm"]
     assert _model(document, "SR")["measurement"]["quad_delta"] == 0.001
+
+
+def test_the_words_a_measurement_file_may_use_are_the_words_the_view_reads() -> None:
+    """Every kind, group, instrument and step key the schema allows, the view reads; and no other.
+
+    The schema states what a measurement file may say and the pyAML view writer
+    states what it reads; a word one has and the other lacks is either a
+    measurement nobody can run or one nobody can author.
+    """
+    import yaml
+
+    from osprey.facility.views.pyaml import GROUP_ROLES, KIND_MEMBERS, TOOL_KEYS
+
+    schema_path = Path(__file__).resolve().parents[2] / "src/osprey/facility/schema/core.yaml"
+    schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+    measurement = schema["classes"]["Measurement"]["attributes"]
+    kinds = set(schema["enums"]["measurement_kind_enum"]["permissible_values"])
+    groups = set(schema["classes"]["MeasurementGroups"]["attributes"])
+    instruments = set(schema["classes"]["MeasurementInstruments"]["attributes"])
+    keys = set(measurement) - {"kinds", "groups", "instruments"}
+
+    members = {member for needed in KIND_MEMBERS.values() for member in needed}
+    assert kinds == set(KIND_MEMBERS) == set(TOOL_KEYS)
+    assert groups == set(GROUP_ROLES)
+    assert instruments == members - set(GROUP_ROLES)
+    assert keys == {key for needed in TOOL_KEYS.values() for key in needed}
