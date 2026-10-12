@@ -371,20 +371,43 @@ or in ``profile.yml`` — is the same loop every real deployment is grown with.
 Step 10: First Containers — Deploy the Telemetry Store
 -------------------------------------------------------
 
-Everything so far ran container-free. The preset declares exactly one
-containerized service, and this is the deployment lesson:
+Everything so far ran container-free. The preset declares exactly two
+containerized services, the telemetry store and the gateway that feeds it, and
+this is the deployment lesson:
 
 .. code-block:: bash
 
    osprey up -d
 
-This needs a container runtime (Docker or Podman) and starts **OpenObserve**, a
-local telemetry store bound to localhost, with its UI at
-http://localhost:10050 (``deployment.port_base`` + 50). The agent already
-emits its logs and metrics there, so
-``osprey up`` plus ``osprey web`` gives you a queryable record of every
-session out of the box — see :doc:`/how-to/health-and-monitoring/monitor-agent`. Stop the stack
-with ``osprey down``; the agent itself keeps working without it.
+This needs a container runtime (Docker or Podman). It starts the store, bound to
+localhost, and the gateway the agent sends its logs and metrics to; the gateway
+also reads the audit ledger under ``var/audit/`` into the store. The preset names
+one reader, ``operator``: ``osprey up`` writes its key to
+``.env.telemetry-reader.operator`` and prints that file's path and the store's
+query page, http://127.0.0.1:10804/play?user=operator
+(``deployment.port_base`` + 804), never the key itself.
+
+Run ``osprey web``, ask the agent something, then ask the store what it
+recorded. This query lists the newest events and ledger records of the last
+hour:
+
+.. literalinclude:: hello-world-tutorial.sql
+   :language: postgresql
+
+Save it as ``hello-world-tutorial.sql`` in the repo root and send it as
+``operator``:
+
+.. code-block:: bash
+
+   KEY="$(sed -n 's/^password=//p' .env.telemetry-reader.operator)"
+   curl -sS --user "operator:$KEY" --data-binary @hello-world-tutorial.sql \
+     "http://127.0.0.1:10804/?http_wait_end_of_query=1"
+
+Each row names its ``source`` table, the time, the ``User`` it was recorded
+under and the session. Or paste the query into the query page with the key.
+See :doc:`/how-to/health-and-monitoring/monitor-agent` for what the store
+holds and :doc:`/how-to/health-and-monitoring/read-the-record` for readers.
+Stop the stack with ``osprey down``; the agent itself keeps working without it.
 
 The commands you now know are the complete lifecycle, and they are the same
 for a production facility deployment: ``osprey init`` once, then edit →
