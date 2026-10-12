@@ -845,11 +845,15 @@ def _replay_dead_run(path: Path, target: str) -> None:
         OspreyRestoreIncomplete: The restore refused or failed an address; the
             journal now holds exactly those entries.
         ValueError: The journal is unreadable before its last line; it is left.
+        GuardedRunDirError: ``path`` is a symbolic link; nothing is read or
+            written.
     """
     try:
-        raw = path.read_bytes()
+        fd = _open_no_follow(path, os.O_RDONLY)
     except FileNotFoundError:
         return
+    with os.fdopen(fd, "rb") as handle:
+        raw = handle.read()
     pending = parse_pending_journal(raw, path)
     if pending is None:
         _clear_journal(path)

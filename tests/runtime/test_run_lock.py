@@ -315,6 +315,23 @@ def test_a_link_planted_as_the_journal_stops_a_journaled_run(
     assert (guarded_run_dir("live") / LOCK_FILE_NAME).read_bytes() == b""
 
 
+def test_a_link_to_a_well_formed_journal_restores_nothing(
+    tmp_path: Path, channels: _Channels
+) -> None:
+    victim = tmp_path / "victim"
+    plant({"Q": 0.0}).rename(victim)
+    before = victim.read_bytes()
+    os.symlink(victim, journal_path())
+
+    with pytest.raises(GuardedRunDirError, match=LINK_REFUSED) as refused:
+        with lock("live"):
+            pytest.fail("a run whose journal is a link never starts")
+
+    assert str(journal_path()) in str(refused.value)
+    assert channels.writes == []
+    assert victim.read_bytes() == before
+
+
 def test_guarded_write_under_the_lock_alone_is_refused(channels: _Channels) -> None:
     with lock("live"):
         with pytest.raises(OspreyWriteRefused):
