@@ -74,12 +74,13 @@ fi
 # -m "not pty": the real-terminal suite times its own repaints and cannot share
 # the machine with four workers. This script is the fast pre-merge sweep, so it
 # does not re-run the suite serially; ci_check.sh does, and so does CI.
+# A wall-clock budget is deselected for the same reason, and ci_check.sh times it.
 # -n auto sizes the worker pool to this machine; CI pins -n 4 to keep its matrix cells
 # comparable. Override with PYTEST_XDIST_AUTO_NUM_WORKERS=<n>.
 # run_bounded.py exits 124 when the run is still going after its bound, which is
 # reported apart from a failure; `|| tests_rc=$?` keeps `set -e` from exiting here.
 tests_rc=0
-uv run python scripts/run_bounded.py 1800 -- uv run pytest tests/ --ignore=tests/e2e -m "not pty" -n auto --dist loadgroup --maxfail=1 --tb=no -q >/dev/null 2>&1 || tests_rc=$?
+uv run python scripts/run_bounded.py 1800 -- uv run pytest tests/ --ignore=tests/e2e -m "not pty and not wallclock" -n auto --dist loadgroup --maxfail=1 --tb=no -q >/dev/null 2>&1 || tests_rc=$?
 if [ "$tests_rc" -eq 124 ]; then
   echo "✗ Tests still running after 1800 s — run them without -q to see which threads remain"
   ERRORS=$((ERRORS + 1))

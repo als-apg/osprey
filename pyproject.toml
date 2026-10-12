@@ -653,7 +653,7 @@ markers = [
     "real_graph_index: Build test of the channel search index derivation itself — opts out of the conftest stub that builds each corpus once per session and copies it into every render",
     "real_fetch: opt out of the ARIEL attachment fetch fake",
     "real_server_launch: Test of ServerLauncher's own launch — opts out of the conftest stub that keeps companion servers from starting real uvicorn daemon threads in the unit suite",
-    "wallclock: Tests that assert a wall-clock budget. Deselected from every parallel run, whose other workers would distort the clock they read; each runs in a serial step of its own lane, alone.",
+    "wallclock: Tests that assert an absolute wall-clock budget. Deselected from every parallel run, whose other workers would distort the clock they read; each is timed in a serial step that selects this marker. tests/deployment/test_ci_workflow_wiring.py LANE_LEAVING_MARKERS names the step and fails when a marked file has none.",
     "pty: Real-terminal tests that run an osprey verb on a pty and read back the bytes an operator would have seen. POSIX-only (they self-skip elsewhere), and deselected from the parallel lane because they assert on repaint cadence and on a spinner advancing between frames, which three other xdist workers loading the box would distort; they get their own serial CI step instead. Carried per-test, not per-directory: tests/pty/test_stub_coverage.py needs no terminal and stays in the parallel lane.",
 ]
 

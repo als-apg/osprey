@@ -340,8 +340,8 @@ jobs:
       #
       # `not wallclock` hands away every wall-clock budget for the same
       # reason: a budget timed beside three loaded workers measures them. Each
-      # runs in a serial step of the lane that has what it needs — the qmd
-      # panel budget in qmd-sidecar-e2e, whose pytest runs without xdist.
+      # is timed in a serial step that selects the marker: the qmd panel
+      # budget in qmd-sidecar-e2e's "Run the wall-clock budgets serially".
       run: |
         if [ "${{ matrix.python-version }}" = "3.12" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
           COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml --cov-report=term"
@@ -4950,8 +4950,22 @@ jobs:
       # sidecar-container coverage is split across an OKF module and an ARIEL
       # one, and a lane that named a single file would silently stop covering
       # the other the day it moved. `-m dockerbuild` is what keeps the
-      # non-container integration modules (preset-static, build-boot) out.
-      run: uv run pytest tests/integration/ -m dockerbuild -k qmd -v --tb=short
+      # non-container integration modules (preset-static, build-boot) out;
+      # `not wallclock` leaves the time budgets to the step below.
+      run: uv run pytest tests/integration/ -m "dockerbuild and not wallclock" -k qmd -v --tb=short
+
+    - name: Run the wall-clock budgets serially
+      # A budget is timed in a pytest process of its own, with nothing else
+      # loading the runner, and selected by marker alone so a marked test in
+      # this directory cannot be left unrun. A selection that matches nothing
+      # exits non-zero, so an emptied marker cannot go green. The image is the
+      # one built and cached above: the cost is one sidecar start plus the
+      # budget's queries. This cap and the job cap are re-derived together
+      # from observed green runs.
+      timeout-minutes: 15
+      env:
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
+      run: uv run pytest tests/integration/ -m wallclock -v --tb=short
 
     - name: Run the multi-user shared-bundle sidecar E2E
       # The `qmd`-marked half of tests/e2e/test_deploy_lifecycle.py, which the

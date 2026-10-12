@@ -33,11 +33,12 @@ echo "→ Running fast unit tests..."
 # "not pty" alongside "not slow": the real-terminal suite is ~40s on its own and
 # has to run serially (it times its own repaints), which is both halves of what
 # this check exists to avoid. ci_check.sh runs it before you push.
+# A wall-clock budget is deselected for the same reason, and ci_check.sh times it.
 # -n auto sizes the worker pool to this machine; CI pins -n 4 to keep its matrix cells
 # comparable. Override with PYTEST_XDIST_AUTO_NUM_WORKERS=<n>.
 # The bound stops a pytest that outlives its last test (a teardown hang) instead of
 # holding the terminal; 900 s is far above this check's healthy runtime.
-uv run python scripts/run_bounded.py 900 -- uv run pytest tests/ --ignore=tests/e2e -m "not slow and not pty" -n auto --dist loadgroup --maxfail=1 --tb=line -q
+uv run python scripts/run_bounded.py 900 -- uv run pytest tests/ --ignore=tests/e2e -m "not slow and not pty and not wallclock" -n auto --dist loadgroup --maxfail=1 --tb=line -q
 
 echo ""
 echo "✅ Quick checks passed! Safe to commit."
