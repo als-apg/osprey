@@ -5519,10 +5519,18 @@ jobs:
     #     exports twice over — import, build, render — and boots one
     #     container of its own over the result under test_mml_trees_boot.py's
     #     `BOOT_TIMEOUT_S` of 240 s;
+    #   - test_pyaml_measure_guarded.py, which builds the example deployment
+    #     twice — approval on and off — and boots one container over each
+    #     under the `BOOT_TIMEOUT_S` of 240 s in tests/va/e2e/_guarded_measure.py,
+    #     then runs a dozen measurements, five of them killed after their first
+    #     write;
     #   - test_mml_trees_boot.py, which installs a facility export from
     #     scratch for each of its three trees — init, import, emit, set,
     #     validate, build — and boots a container of its own per tree under
     #     that module's own `BOOT_TIMEOUT_S` of 240 s;
+    #   - test_check_b_served.py, which installs the served export and builds
+    #     the example deployment, boots one container over each under the same
+    #     240 s bound, and measures every kind twice, served and in process;
     #   - the real-facility lane on the NSLS-II stand-in, one install of a two-model
     #     export — init, import, set, build — and one boot under that
     #     module's own `BOOT_TIMEOUT_S` of 240 s, capped at 10 minutes.
@@ -5530,7 +5538,7 @@ jobs:
     # the image build is 2–5; the cap is about twice that. It is larger than
     # va-substrate-equivalence-e2e and archiver-world-e2e, and than the switch
     # lane's 30, because that lane runs five modules against containers two of
-    # its own images serve, while this one runs thirteen and boots ten.
+    # its own images serve, while this one runs fifteen and boots fourteen.
     timeout-minutes: 50
 
     steps:
@@ -5600,10 +5608,13 @@ jobs:
       # container, then the put-surface module's one boot and the journal
       # module's two, then the parity module, which reads the session container
       # and boots one of its own, then the chain module, which installs the
-      # two-model tree before its one boot, then the harvested-tree module,
-      # which installs a facility export from scratch before each of its three
-      # boots — so a failure in the cheap set is reported before the expensive
-      # work starts.
+      # two-model tree before its one boot, then the guarded-measurement
+      # module, which builds two deployments and boots one container over
+      # each, then the harvested-tree module, which installs a facility export
+      # from scratch before each of its three boots, then the check-B module,
+      # which installs the served export and builds the example deployment
+      # before one boot each — so a failure in the cheap set is reported
+      # before the expensive work starts.
       run: |
         uv run pytest tests/va/e2e/test_approval_smoke.py tests/va/e2e/test_limits_enforcement.py \
           tests/va/e2e/test_orbit_response.py tests/va/e2e/test_full_sweep.py \
@@ -5611,7 +5622,8 @@ jobs:
           tests/va/e2e/test_sim_apply_va.py \
           tests/va/e2e/test_va_put_surface.py tests/va/e2e/test_planted_journal.py \
           tests/va/e2e/test_substrate_parity.py tests/va/e2e/test_chain_boot.py \
-          tests/va/e2e/test_mml_trees_boot.py \
+          tests/va/e2e/test_pyaml_measure_guarded.py \
+          tests/va/e2e/test_mml_trees_boot.py tests/va/e2e/test_check_b_served.py \
           -v --tb=short --junitxml=junit-va-live-e2e.xml
 
     - name: Run the real-facility lane on the NSLS-II stand-in

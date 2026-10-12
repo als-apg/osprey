@@ -90,3 +90,6 @@ This step is the owner's; no automated change touches those files.
   nominal, which the Middle Layer's simulator derives from the time of day.
 - Update the file counts in `tests/fixtures/mml/spear3/README.md` and
   `tests/fixtures/mml/nsls2/README.md`.
+- Run the `va-live-e2e` job on the change: its run step executes
+  `tests/va/e2e/test_check_b_served.py`, which serves the committed SPEAR3
+  export and holds every measurement kind to pyAT's exact physics.

@@ -82,6 +82,7 @@ def test_runbook_states_the_owner_step(runbook: str) -> None:
     for key in ("_export.exporter", "timestamp", "matlab"):
         assert f"`{key}`" in runbook, key
     assert "file counts" in runbook
+    assert "va-live-e2e" in runbook
 
 
 @pytest.mark.parametrize("readme", FIXTURE_READMES, ids=lambda p: p.parent.name)

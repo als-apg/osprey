@@ -6257,6 +6257,41 @@ def test_chain_boot_module_carries_its_collection_floor__mutation_drops_the_floo
     assert _collected_floor_errors(source.replace(guard, "collected"), guard=guard)
 
 
+# The measurement tools' live proofs run in the same lane as the chain: the
+# guarded runs of `pyaml_measure` and check B. Each is pinned to the run step by
+# path and carries the collection floor the step's comment promises.
+MEASUREMENT_MODULES = (
+    f"{VA_LIVE_SUITE_DIR}/test_pyaml_measure_guarded.py",
+    f"{VA_LIVE_SUITE_DIR}/test_check_b_served.py",
+)
+
+
+@pytest.mark.parametrize("module", MEASUREMENT_MODULES)
+def test_each_measurement_suite_runs_in_the_va_live_run_step(
+    module: str, workflow: dict[str, Any]
+) -> None:
+    assert (REPO_ROOT / module).is_file()
+    named = _va_live_lane_named_files(workflow, VA_LIVE_JOB)
+    assert module in named, f"'{VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB]}' runs {named}"
+
+
+@pytest.mark.parametrize("module", MEASUREMENT_MODULES)
+def test_each_measurement_suite_runs_in_the_va_live_run_step__mutation_drops_it(
+    module: str,
+) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
+    step["run"] = step["run"].replace(f"{module} ", "")
+    with pytest.raises(AssertionError):
+        test_each_measurement_suite_runs_in_the_va_live_run_step(module, mutated)
+
+
+@pytest.mark.parametrize("module", MEASUREMENT_MODULES)
+def test_each_measurement_module_carries_its_collection_floor(module: str) -> None:
+    source = (REPO_ROOT / module).read_text(encoding="utf-8")
+    assert _collected_floor_errors(source, guard=_CHAIN_BOOT_FLOOR_GUARD) == []
+
+
 @pytest.mark.parametrize("job_name", sorted(VA_LIVE_LANE_RUN_STEPS))
 def test_live_va_lane_enables_the_directory_flag(
     job_name: str, workflow: dict[str, Any] | None = None
