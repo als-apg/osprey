@@ -17,6 +17,7 @@ from unittest.mock import patch
 import pytest
 
 from osprey.mcp_server.python_executor.executor import (
+    FAILURE_KIND_APPROVAL_CONFIG_INVALID,
     FAILURE_KIND_APPROVAL_MISSING,
     FAILURE_KIND_SETUP,
     FAILURE_KIND_TIMEOUT,
@@ -165,6 +166,21 @@ async def test_approval_missing_is_an_execution_error_with_its_own_kind():
         "before it started.",
         "Call the tool again so the approval prompt can ask.",
     ]
+
+
+async def test_approval_config_invalid_is_an_execution_error_with_its_own_kind():
+    """A run refused for the deployment's approval switch is not fixed by calling again."""
+    result = _err_result(
+        stderr="not run: approval.enabled is 'false', not true or false; set approval.enabled "
+        "to true or false in profile.yml and rebuild (approval_config_invalid).",
+        failure_kind=FAILURE_KIND_APPROVAL_CONFIG_INVALID,
+    )
+    with pytest.raises(Exception) as exc_info:
+        await _build(result, save_output=False)
+    envelope = assert_error(str(exc_info.value), error_type="execution_error")
+    assert envelope["details"]["kind"] == "approval_config_invalid"
+    assert len(envelope["suggestions"]) == 1
+    assert "calling again will not help" in envelope["suggestions"][0]
 
 
 # ---------------------------------------------------------------------------

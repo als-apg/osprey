@@ -199,6 +199,11 @@ FAILURE_KIND_SWITCH_IN_PROGRESS = "switch_in_progress"
 #: admitted: its tool's approval policy asks, and the approval hook left no
 #: matching record for this call. Nothing ran.
 FAILURE_KIND_APPROVAL_MISSING = "approval_missing"
+#: :attr:`ExecutionResult.failure_kind` for a readwrite run refused because the
+#: rendered ``config.yml`` states an approval switch that is not true or false,
+#: or an ``approval`` section that is not a mapping. Nothing ran, and calling
+#: again cannot help: the fix is in the deployment's profile.
+FAILURE_KIND_APPROVAL_CONFIG_INVALID = "approval_config_invalid"
 #: :attr:`ExecutionResult.failure_kind` for a readwrite run that did not start
 #: because another guarded run holds its control target's lock. Nothing in the
 #: submitted code ran; the error message names the holder's pid and start time.
@@ -291,7 +296,8 @@ class ExecutionResult:
     #: Why a failed run failed, when the sandbox itself is the reason:
     #: :data:`FAILURE_KIND_SETUP`, :data:`FAILURE_KIND_TIMEOUT`,
     #: :data:`FAILURE_KIND_SWITCH_IN_PROGRESS`,
-    #: :data:`FAILURE_KIND_APPROVAL_MISSING` or
+    #: :data:`FAILURE_KIND_APPROVAL_MISSING`,
+    #: :data:`FAILURE_KIND_APPROVAL_CONFIG_INVALID` or
     #: :data:`FAILURE_KIND_GUARDED_RUN_BUSY`. ``None`` for
     #: a run that started and whose own code raised — the only failure the
     #: submitted code can be blamed for. The response builder reads this to
@@ -775,6 +781,15 @@ class _ApprovalMissing(Exception):
     """
 
 
+class _ApprovalConfigInvalid(Exception):
+    """A readwrite call under an approval switch that is not true or false.
+
+    Raised by :func:`_approved_call_env` and turned into an
+    :class:`ExecutionResult` by :func:`_execute_via_local`, before anything
+    is spawned — never seen outside this module.
+    """
+
+
 def _approved_call_stamp(tool_use_id: str | None) -> dict | None:
     """The approval hook's ask stamp for the call *tool_use_id*, or ``None``.
 
@@ -828,11 +843,16 @@ def _approved_call_env(
         _ApprovalMissing: The policy asks and the stamp is missing, names
             another tool, or disagrees with the call, or the call was approved
             for another target than the run's.
+        _ApprovalConfigInvalid: The config states an ``approval.enabled`` that
+            is not true or false, or an ``approval`` that is not a mapping.
     """
     if execution_mode != "readwrite":
         return {}
-    from osprey.cli.build_posture_check import ask_capable
+    from osprey.cli.build_posture_check import approval_enabled_fault, ask_capable
 
+    fault = approval_enabled_fault(osprey_config)
+    if fault is not None:
+        raise _ApprovalConfigInvalid(f"not run: {fault} (approval_config_invalid).")
     if not ask_capable(osprey_config, tool):
         return {}
     from osprey.audit.call import current_tool_use_id
@@ -1116,6 +1136,17 @@ async def _execute_via_local(
             error_message=str(refusal),
             control_target=control_target,
             failure_kind=FAILURE_KIND_APPROVAL_MISSING,
+        )
+    except _ApprovalConfigInvalid as refusal:
+        return ExecutionResult(
+            success=False,
+            stdout="",
+            stderr=str(refusal),
+            execution_method_used=EXECUTION_METHOD_SUBPROCESS,
+            execution_time_seconds=0.0,
+            error_message=str(refusal),
+            control_target=control_target,
+            failure_kind=FAILURE_KIND_APPROVAL_CONFIG_INVALID,
         )
     limits_validator = _load_limits_validator(target=control_target)
 

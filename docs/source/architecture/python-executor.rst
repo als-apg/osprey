@@ -137,7 +137,10 @@ Ten safety layers are applied in sequence:
    prompt recorded; for ``pyaml_measure`` the call's ``approved_view_sha256``
    must equal the recorded view digest as well. Without a record,
    or with a field that differs, nothing is spawned and the result carries
-   ``failure_kind: approval_missing``. Only the fields the check confirmed
+   ``failure_kind: approval_missing``. A stated ``approval.enabled`` that is
+   not ``true`` or ``false`` (or an ``approval`` section that is not a
+   mapping) runs nothing and carries ``failure_kind: approval_config_invalid``.
+   Only the fields the check confirmed
    reach the subprocess, which evaluates no approval policy itself. A call
    that reaches the server without passing the approval hook gets no
    read-write guarded run on a deployment whose policy asks; such a

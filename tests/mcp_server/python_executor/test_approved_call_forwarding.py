@@ -327,6 +327,49 @@ def test_a_readonly_call_carries_nothing(stamps: Path) -> None:
     assert _gate(_ASKING_CONFIG, _BOUND, mode="readonly") == {}
 
 
+#: Approval sections no reader can trust, each with the sentence that refuses it.
+_UNTRUSTED_APPROVAL = [
+    pytest.param(
+        _approval(enabled=value),
+        f"approval.enabled is {value!r}, not true or false; "
+        "set approval.enabled to true or false in profile.yml and rebuild",
+        id=f"enabled={value!r}",
+    )
+    for value in (None, "false", 0)
+] + [
+    pytest.param(
+        {**_ASKING_CONFIG, "approval": section},
+        f"approval is {section!r}, not a mapping; "
+        "set approval.enabled to true or false in profile.yml and rebuild",
+        id=f"section={section!r}",
+    )
+    for section in (None, "disabled")
+]
+
+
+@pytest.mark.parametrize("stamped", [False, True], ids=["no-stamp", "stamp"])
+@pytest.mark.parametrize(("config", "sentence"), _UNTRUSTED_APPROVAL)
+def test_a_non_bool_switch_runs_nothing(
+    stamps: Path, config: dict[str, Any], sentence: str, stamped: bool
+) -> None:
+    """A switch that is not true or false refuses the run, even with a matching stamp."""
+    if stamped:
+        _stamp(stamps, **_BOUND)
+    with pytest.raises(executor._ApprovalConfigInvalid) as refusal:
+        _gate(config, _BOUND)
+    assert str(refusal.value) == f"not run: {sentence} (approval_config_invalid)."
+
+
+@pytest.mark.parametrize(
+    "config", [pytest.param(case.values[0], id=case.id) for case in _UNTRUSTED_APPROVAL]
+)
+def test_a_non_bool_switch_leaves_a_readonly_call_alone(
+    stamps: Path, config: dict[str, Any]
+) -> None:
+    _stamp(stamps, **_BOUND)
+    assert _gate(config, _BOUND, mode="readonly") == {}
+
+
 @pytest.mark.usefixtures("stamps")
 async def test_a_refused_call_spawns_nothing_and_leaves_the_journal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -362,6 +405,41 @@ async def test_a_refused_call_spawns_nothing_and_leaves_the_journal(
     assert "left no record" in (result.error_message or "")
     assert list(folder.iterdir()) == [], "the execution folder is never used"
     assert journal.read_bytes() == before
+
+
+@pytest.mark.usefixtures("stamps")
+async def test_a_non_bool_switch_spawns_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey.audit.call import call_scope
+
+    folder = tmp_path / "exec"
+    folder.mkdir()
+
+    def stamp_target(sandbox_env: dict[str, str]) -> str:
+        sandbox_env["OSPREY_CONTROL_TARGET"] = "live"
+        return "live"
+
+    async def spawn(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("a refused call spawns nothing")
+
+    monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        "osprey.utils.workspace.load_osprey_config", lambda: _approval(enabled="false")
+    )
+    monkeypatch.setattr(executor, "_apply_target_stamp", stamp_target)
+    monkeypatch.setattr(executor.asyncio, "create_subprocess_exec", spawn)
+
+    with call_scope(_CALL_ID, None):
+        result = await executor._execute_via_local(
+            "x = 1\n", "readwrite", {"timeout": 30}, folder, tool="execute", **_BOUND
+        )
+
+    assert result.success is False
+    assert result.failure_kind == executor.FAILURE_KIND_APPROVAL_CONFIG_INVALID
+    assert result.failure_kind == "approval_config_invalid"
+    assert "approval.enabled is 'false'" in (result.error_message or "")
+    assert list(folder.iterdir()) == [], "the execution folder is never used"
 
 
 #: The approved fields a measurement's prompt binds its call to.
