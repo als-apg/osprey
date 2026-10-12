@@ -1,0 +1,1 @@
+Engine plug-ins have a written contract, `osprey.simulation.engines.EnginePlugin`, naming the functions a plug-in states and the optional ones. The model response-matrix tool and the response check of `osprey facility validate` reach a model's engine only through its plug-in and read a request with no solve from what that plug-in declares, so they import no engine library.

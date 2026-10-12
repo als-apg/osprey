@@ -59,7 +59,8 @@ the sign agrees on at least 0.95 of the entries above the floor. Either way a
 judged block needs one entry above the floor. A model passes when every judged
 block of its export passes, and the line names the block nearest its bar.
 
-The engine is imported inside the function that solves.
+The engine is the plug-in the model's ``engine`` names, loaded through its entry
+point.
 """
 
 from __future__ import annotations
@@ -742,6 +743,7 @@ def _monitor_gain(record: Mapping[str, Any]) -> float:
 
 
 def _response(
+    engine: Any,
     deck: Path,
     wiring: Sequence[Mapping[str, Any]],
     settings: Any,
@@ -760,13 +762,9 @@ def _response(
         The response on every monitor whose calibration is not a table, or
         ``None`` when the sweep leaves the deck without a solve.
     """
-    from lume_pyat.exceptions import OrbitSolveError
-
-    from osprey.simulation.engines.pyat import response_matrix
-
     try:
-        rows, matrix = response_matrix(deck, wiring, settings, [address], {address: width})
-    except OrbitSolveError:
+        rows, matrix = engine.response_matrix(deck, wiring, settings, [address], {address: width})
+    except getattr(engine, "SOLVE_ERRORS", ()):
         return None
     per_hardware = width / span
     monitors = {str(record["address"]): record for record in wiring}
@@ -834,6 +832,7 @@ def compare(
         key = (address, width)
         if key not in swept:
             swept[key] = _response(
+                _engine(str(model["engine"])),
                 facility_dir / model["deck"],
                 list(model.get("wiring", [])),
                 model.get("settings"),

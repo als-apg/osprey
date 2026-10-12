@@ -508,6 +508,52 @@ def test_a_corrector_whose_sweep_has_no_solve_leaves_its_column_out(
     assert sum((block.left_out for block in blocks), LeftOut()) == LeftOut(unsolved=2)
 
 
+def test_a_corrector_the_engine_refuses_stays_loud(spear3: Path) -> None:
+    """A corrector the model cannot step stops the check; it is never a column left out."""
+    facility = _facility(spear3)
+    document = build_facility(facility, project_name="scratch")
+    model = next(model for model in document["models"] if model["name"] == "StorageRing")
+
+    with pytest.raises(ValueError):
+        response_check._response(
+            response_check._engine("pyat"),
+            facility / model["deck"],
+            list(model["wiring"]),
+            model.get("settings"),
+            "NOT:A:SETPOINT",
+            1.0e-4,
+            1.0e-4,
+        )
+
+
+def test_a_solve_error_the_engine_does_not_declare_stays_loud(
+    spear3: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The catch follows what the engine declares; it names no engine type."""
+    from lume_pyat.exceptions import OrbitSolveError
+    from lume_pyat.simulator import PyATSimulator
+
+    from osprey.simulation.engines import pyat
+
+    original = PyATSimulator.solve
+    calls = {"count": 0}
+
+    def solve(self: Any) -> Any:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise OrbitSolveError("closed orbit solve raised AtError: lost")
+        return original(self)
+
+    monkeypatch.setattr(PyATSimulator, "solve", solve)
+    monkeypatch.setattr(pyat, "SOLVE_ERRORS", ())
+    facility = _facility(spear3)
+    document = build_facility(facility, project_name="scratch")
+    model = next(model for model in document["models"] if model["name"] == "StorageRing")
+
+    with pytest.raises(OrbitSolveError):
+        compare(facility, document, model)
+
+
 def test_a_monitor_with_a_table_calibration_is_left_out_and_counted(synthetic: Path) -> None:
     """The reading is carried into physics by one slope, which only a straight line has."""
     facility = _facility(synthetic)

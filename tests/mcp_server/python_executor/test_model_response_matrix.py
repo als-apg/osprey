@@ -310,6 +310,34 @@ class TestSolve:
         assert len(request.correctors) == 144
 
 
+#: A plug-in whose solve raises an exception it declares as meaning "no solve".
+REFUSING_ENGINE = textwrap.dedent(
+    """
+    class NoOptics(Exception):
+        pass
+
+
+    SOLVE_ERRORS = (NoOptics,)
+
+
+    def response_matrix(deck, wiring, settings, correctors, step):
+        raise NoOptics("no optics for this deck")
+    """
+)
+
+#: The same plug-in, declaring nothing.
+UNDECLARED_ENGINE = textwrap.dedent(
+    """
+    class NoOptics(Exception):
+        pass
+
+
+    def response_matrix(deck, wiring, settings, correctors, step):
+        raise NoOptics("no optics for this deck")
+    """
+)
+
+
 class TestSolveErrors:
     def test_an_oversized_step_on_a_line_names_the_corrector(self, sandbox, tmp_path):
         sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0)
@@ -333,6 +361,34 @@ class TestSolveErrors:
         message = _envelope(raised)["error_message"]
         assert message.startswith("the response of SR has no solve:")
         assert message.endswith(f"(while stepping {CORRECTOR_X})")
+
+    def test_a_plug_in_declaring_its_solve_error_gets_its_text_back(
+        self, sandbox, tmp_path, monkeypatch
+    ):
+        sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
+        sandbox["seed"] = {"refusing_engine.py": REFUSING_ENGINE}
+        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "refusing_engine")
+
+        with pytest.raises(ToolError) as raised:
+            _call(model=LINE)
+
+        envelope = _envelope(raised)
+        assert envelope["error_type"] == "execution_error"
+        assert envelope["error_message"] == (
+            f"the response of {LINE} has no solve: no optics for this deck"
+        )
+
+    def test_a_solve_error_the_plug_in_does_not_declare_ends_without_a_result(
+        self, sandbox, tmp_path, monkeypatch
+    ):
+        sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
+        sandbox["seed"] = {"refusing_engine.py": UNDECLARED_ENGINE}
+        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "refusing_engine")
+
+        with pytest.raises(ToolError) as raised:
+            _call(model=LINE)
+
+        assert _envelope(raised)["error_message"] == (f"the solve of {LINE} ended without a result")
 
     def test_a_result_line_without_a_matrix_ends_without_a_result(self, sr_render, monkeypatch):
         async def solved(**_: Any) -> executor.ExecutionResult:

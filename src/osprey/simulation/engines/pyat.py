@@ -25,10 +25,12 @@ A wiring record is read by key or by attribute: ``id``, ``address``,
 ``element`` or ``slices`` (each ``element``, ``weight``), the ``engine`` block
 in pyAT's words (``attribute``, ``index``, ``axis``) and ``calibration``
 (``curve``, ``inverse``). Every refusal is a ``FacilityBuildError`` of kind
-``engine-invalid``. A refusal of an element the deck does not hold exactly
+``engine-invalid``; a request with no solve raises one of
+:data:`SOLVE_ERRORS`. A refusal of an element the deck does not hold exactly
 once is an :class:`ElementStop`, whose ``element`` and ``count`` let the build
-name the wiring record that asked for it. pyAT, numpy and the LUME packages
-are imported on first use.
+name the wiring record that asked for it. pyAT, numpy and the LUME models are
+imported on first use; lume-pyat's exceptions, which import nothing, at
+import.
 """
 
 from __future__ import annotations
@@ -41,6 +43,8 @@ from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
+
+from lume_pyat.exceptions import OrbitSolveError
 
 from osprey.facility.errors import FacilityBuildError
 from osprey.simulation.engines.calibration import NoInverse, curve_from_record, field, to_hardware
@@ -55,6 +59,7 @@ __all__ = [
     "POLYNOMIAL_KICK_LENGTH_M",
     "PolynomialKicks",
     "Prepared",
+    "SOLVE_ERRORS",
     "build",
     "error_text",
     "fault_variables",
@@ -72,6 +77,10 @@ SETTINGS_KEYS: frozenset[str] = frozenset({"solve", "twiss_in", "rest_mass_gev"}
 
 #: The ``solve`` values, the first one the default.
 SOLVES: tuple[str, ...] = ("periodic", "single_pass")
+
+# Stand-in until lume-base states SolveError, the base of every LUME engine's no-solve exception.
+#: The exceptions with which this engine says a request has no solve.
+SOLVE_ERRORS: tuple[type[Exception], ...] = (OrbitSolveError,)
 
 #: Each ``twiss_in`` key and the lengths it may take; the first length is
 #: the one ``prepare`` normalises to.
@@ -982,7 +991,6 @@ def response_matrix(
             ``(while stepping <address>)``.
     """
     import numpy as np
-    from lume_pyat.exceptions import OrbitSolveError
     from lume_pyat.simulator import PyATSimulator
 
     from osprey.simulation.engines.pyat_single_pass import SinglePassSimulator
@@ -1245,8 +1253,6 @@ def error_text(exc: BaseException) -> str:
         failed; any other exception's type name and message. Whitespace runs
         collapse to one space.
     """
-    from lume_pyat.exceptions import OrbitSolveError
-
     text = " ".join(str(exc).split())
     if isinstance(exc, OrbitSolveError) and text:
         return text

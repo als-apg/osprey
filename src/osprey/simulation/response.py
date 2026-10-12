@@ -28,13 +28,11 @@ def _thaw(value: Any) -> Any:
     return value
 
 
-def _refusal(exc: Exception) -> bool:
-    """Whether *exc* is the engine refusing the request or a step without a solve."""
-    from lume_pyat.exceptions import OrbitSolveError
-
+def _refusal(exc: Exception, engine: Any) -> bool:
+    """Whether *exc* is *engine* saying the request has no solve, or a request the engine refuses."""
     from osprey.facility.errors import FacilityBuildError
 
-    return isinstance(exc, OrbitSolveError | FacilityBuildError | ValueError)
+    return isinstance(exc, (*getattr(engine, "SOLVE_ERRORS", ()), FacilityBuildError, ValueError))
 
 
 def solve_and_print(payload: Mapping[str, Any]) -> None:
@@ -65,7 +63,7 @@ def solve_and_print(payload: Mapping[str, Any]) -> None:
             dict(payload["steps"]),
         )
     except Exception as exc:
-        if not _refusal(exc):
+        if not _refusal(exc, engine):
             raise
         print(RESULT_TAG, json.dumps({"error": str(exc)}), flush=True)
         return
