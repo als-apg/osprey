@@ -117,18 +117,7 @@ concurrency:
 # Note: This workflow runs tests, linting, docs build, and package checks
 # For documentation deployment to GitHub Pages, see .github/workflows/docs.yml
 
-# Pull openobserve from our ghcr mirror rather than ECR Public. ECR Public
-# rate-limits anonymous pulls per source IP and GitHub-hosted runners share
-# egress IPs, so E2E deploys intermittently died on
-# "toomanyrequests: Rate exceeded". Set at workflow level because the ref is
-# identical in every deploying job; jobs that don't deploy ignore it.
-#
-# The mirror is PRIVATE, so each deploying job also needs the ghcr login step.
-# Populate/refresh it with .github/workflows/mirror-openobserve.yml, which must
-# be re-run whenever the pin in
-# src/osprey/templates/services/openobserve/docker-compose.yml.j2 moves.
 env:
-  OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.92.2
   # ALS-APG endpoint. The probes address the gateway themselves rather than
   # through the provider catalog, so every LLM-touching job (probes and pytest
   # alike) reads its endpoint from here. This line is where a fork's own
@@ -1145,6 +1134,7 @@ jobs:
           tests/interfaces/ariel/test_embedded_nav.py \
           tests/interfaces/ariel/test_display_menu.py \
           tests/interfaces/ariel/test_vocabulary_banner.py \
+          tests/interfaces/history/test_history_page_browser.py \
           tests/interfaces/test_browser_helper.py \
           tests/interfaces/test_lattice_dashboard_browser.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
@@ -1347,13 +1337,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -1424,6 +1407,20 @@ jobs:
         name: agentic-per-preset-${{ matrix.preset }}
         engine: docker
 
+    # Belt-and-suspenders on top of the tutorial test's own try/finally: the
+    # hello-world tutorial test deploys the telemetry store and gateway under
+    # one fixed compose project. Every name here is exact (never a prune, -a
+    # or wildcard) and matches TUTORIAL_PROJECT_NAME in
+    # tests/e2e/test_preset_agentic.py.
+    - name: Clean up any stranded tutorial-stack resources
+      if: always()
+      run: |
+        docker rm -f osprey-e2e-hello-world-tutorial-telemetry-gateway || true
+        docker rm -f osprey-e2e-hello-world-tutorial-telemetry-store || true
+        docker volume rm osprey-e2e-hello-world-tutorial_telemetry_store_data || true
+        docker volume rm osprey-e2e-hello-world-tutorial_gateway-state || true
+        docker network rm osprey-e2e-hello-world-tutorial_osprey-network || true
+
   e2e-tests:
     name: E2E Tests
     runs-on: ubuntu-latest
@@ -1456,13 +1453,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -1544,8 +1534,8 @@ jobs:
           # container images. Exclude them all here to avoid
           # double-execution — and because full-stack deploys leave
           # host-global residue (fixed `<project>-web-<user>`/`<project>-nginx`
-          # container names, the host-global openobserve data volume with
-          # root creds pinned on first init) that breaks later tests sharing
+          # container names, named store volumes whose credentials are
+          # pinned on first init) that breaks later tests sharing
           # this runner. NOTE: "--ignore" means "not in this secret-gated
           # LLM lane," NOT "not tested" — every ignored file below runs in
           # its own job (the deploy-lifecycle jobs run on PRs into main
@@ -1628,7 +1618,8 @@ jobs:
             --ignore=tests/e2e/test_full_chain_auth.py \
             --ignore=tests/e2e/test_jupyter_panel_lifecycle.py \
             --ignore=tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py \
-            --ignore=tests/e2e/test_openobserve_telemetry.py \
+            --ignore=tests/e2e/test_telemetry_store_e2e.py \
+            --ignore=tests/e2e/test_telemetry_access_e2e.py \
             --ignore=tests/e2e/test_sdk_helpers.py \
             --ignore=tests/e2e/test_scripted_model.py \
             --ignore=tests/e2e/claude_code/test_safety_gates_scripted.py \
@@ -1650,26 +1641,121 @@ jobs:
       with:
         name: e2e-tests
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    # E2E_FILTER can run any full-stack module here, so every one is named.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p queue-e2e down || true
+        docker rm -f queue-e2e-telemetry-store || true
+        docker rm -f queue-e2e-telemetry-gateway || true
+        docker volume ls -q --filter "name=^queue-e2e_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-bluesky-deploy down || true
+        docker rm -f osprey-e2e-bluesky-deploy-telemetry-store || true
+        docker rm -f osprey-e2e-bluesky-deploy-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-bluesky-deploy_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-catalog down || true
+        docker rm -f osprey-e2e-catalog-telemetry-store || true
+        docker rm -f osprey-e2e-catalog-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-catalog_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-tiled down || true
+        docker rm -f osprey-e2e-tiled-telemetry-store || true
+        docker rm -f osprey-e2e-tiled-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-tiled_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p panels-proj down || true
+        docker rm -f panels-proj-telemetry-store || true
+        docker rm -f panels-proj-telemetry-gateway || true
+        docker volume ls -q --filter "name=^panels-proj_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p plan-agentic down || true
+        docker rm -f plan-agentic-telemetry-store || true
+        docker rm -f plan-agentic-telemetry-gateway || true
+        docker volume ls -q --filter "name=^plan-agentic_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p orm-roundtrip down || true
+        docker rm -f orm-roundtrip-telemetry-store || true
+        docker rm -f orm-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^orm-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p grid-scan-roundtrip down || true
+        docker rm -f grid-scan-roundtrip-telemetry-store || true
+        docker rm -f grid-scan-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^grid-scan-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p bump-roundtrip down || true
+        docker rm -f bump-roundtrip-telemetry-store || true
+        docker rm -f bump-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^bump-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p preflight-probe down || true
+        docker rm -f preflight-probe-telemetry-store || true
+        docker rm -f preflight-probe-telemetry-gateway || true
+        docker volume ls -q --filter "name=^preflight-probe_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p sandbox-escape down || true
+        docker rm -f sandbox-escape-telemetry-store || true
+        docker rm -f sandbox-escape-telemetry-gateway || true
+        docker volume ls -q --filter "name=^sandbox-escape_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-dispatch down || true
+        docker rm -f osprey-e2e-dispatch-telemetry-store || true
+        docker rm -f osprey-e2e-dispatch-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-dispatch_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-overlay down || true
+        docker rm -f osprey-e2e-overlay-telemetry-store || true
+        docker rm -f osprey-e2e-overlay-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-overlay_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p suproj down || true
+        docker rm -f suproj-telemetry-store || true
+        docker rm -f suproj-telemetry-gateway || true
+        docker volume ls -q --filter "name=^suproj_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-va-substrate down || true
+        docker rm -f osprey-e2e-va-substrate-telemetry-store || true
+        docker rm -f osprey-e2e-va-substrate-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-va-substrate_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p lane-e2e down || true
+        docker rm -f lane-e2e-telemetry-store || true
+        docker rm -f lane-e2e-telemetry-gateway || true
+        docker volume ls -q --filter "name=^lane-e2e_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-telemetry-store down || true
+        docker rm -f osprey-e2e-telemetry-store-telemetry-store || true
+        docker rm -f osprey-e2e-telemetry-store-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-telemetry-store_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-telemetry-access down || true
+        docker rm -f osprey-e2e-telemetry-access-telemetry-store || true
+        docker rm -f osprey-e2e-telemetry-access-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-telemetry-access_" \
+          | xargs -r docker volume rm -f || true
 
 
   e2e-no-model:
     name: Model-Free E2E (the tests/e2e files that reach no gateway)
     runs-on: ubuntu-latest
-    # Every same-repo pull request, and same-repo is the image mirror's
-    # condition rather than a credential's: this lane declares no gateway key,
-    # but the OpenObserve pin at the workflow level is a private package and
-    # the token a fork run holds cannot read it. No `full-ci` label — nothing
-    # here spends model tokens, so there is nothing for a label to protect,
-    # and a lane that only runs on labelled pull requests proves nothing on
-    # the ones that break it.
+    # Every pull request, fork pull requests included: this lane declares no
+    # gateway key and every image it pulls is public (the store from Docker
+    # Hub, the collector from public ghcr), so there is nothing a fork run's
+    # token cannot read. No `full-ci` label — nothing here spends model
+    # tokens, so there is nothing for a label to protect, and a lane that only
+    # runs on labelled pull requests proves nothing on the ones that break it.
     # No actor guard either. The lanes that exclude `dependabot[bot]` do so
     # because they resolve an Actions secret, which a Dependabot run cannot
-    # see; this one resolves none. Its only credential is the run's own
-    # GITHUB_TOKEN, read-only on a Dependabot run — and read-only is the
-    # access reading the mirror takes. Excluding Dependabot here would take
-    # the model-free proof off the pull requests that move the dependency
-    # set, which is where it is worth the most.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # see; this one resolves none. Excluding Dependabot here would take the
+    # model-free proof off the pull requests that move the dependency set,
+    # which is where it is worth the most.
+    if: github.event_name == 'pull_request'
     # Not measured on a runner: no lane has run these files on their own.
     # Sized against tiled-roundtrip-e2e (30), the closest shape here — one
     # compose stack, no image build, no model call — with the step cap under
@@ -1686,13 +1772,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -1729,18 +1808,16 @@ jobs:
         # would select nothing and green it. Every test this step selects
         # carries model_free, and the wiring test holds the two equal.
         #
-        # The telemetry module is named first because it is the only one that
-        # deploys a stack, and xdist hands the first file to the first worker.
+        # The two telemetry modules are named first because they are the only
+        # ones that deploy a stack, and xdist hands the first files to the
+        # first workers; each has its own project name and port base.
         # -n 4 --dist loadfile is the mode these files already run under in
         # the shared lane: loadfile keeps a file's tests on one worker, and
         # the three real-process web-terminal modules each bind an ephemeral
         # port, so nothing here contends for a fixed one.
-        #
-        # --deselect: that one test appends a live agent turn to an otherwise
-        # synthetic round-trip and is gated on the gateway key this lane does
-        # not hold. Selected, it would skip; skipping fails this lane.
         uv run pytest \
-          tests/e2e/test_openobserve_telemetry.py \
+          tests/e2e/test_telemetry_store_e2e.py \
+          tests/e2e/test_telemetry_access_e2e.py \
           tests/e2e/test_sdk_helpers.py \
           tests/e2e/test_scripted_model.py \
           tests/e2e/claude_code/test_safety_gates_scripted.py \
@@ -1752,7 +1829,6 @@ jobs:
           tests/e2e/web_terminals/test_session_restart_e2e.py \
           tests/e2e/web_terminals/test_terminal_auth_e2e.py \
           tests/e2e/web_terminals/test_persona_permissions_scripted.py \
-          --deselect tests/e2e/test_openobserve_telemetry.py::test_live_agent_metric_lands \
           -v --tb=short --durations=15 -n 4 --dist loadfile \
           --junitxml=junit-e2e-no-model.xml
 
@@ -1794,6 +1870,24 @@ jobs:
       with:
         name: e2e-no-model
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    # The two telemetry modules deploy a store each, under their own project.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-telemetry-store down || true
+        docker rm -f osprey-e2e-telemetry-store-telemetry-store || true
+        docker rm -f osprey-e2e-telemetry-store-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-telemetry-store_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-telemetry-access down || true
+        docker rm -f osprey-e2e-telemetry-access-telemetry-store || true
+        docker rm -f osprey-e2e-telemetry-access-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-telemetry-access_" \
+          | xargs -r docker volume rm -f || true
 
 
   channel-finder-benchmarks:
@@ -1997,13 +2091,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -2044,13 +2131,13 @@ jobs:
         uv run osprey build --skip-deps --skip-lifecycle
         ls -la
 
-    - name: osprey up (deploys openobserve for hello-world)
+    - name: osprey up (deploys the telemetry store and gateway for hello-world)
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
         cd hello-world-test
-        # hello-world declares deployed_services: [openobserve], so this
-        # verifies a single-service deploy succeeding end-to-end.
+        # hello-world declares deployed_services: [telemetry_store,
+        # telemetry_gateway], so this verifies that pair deploying end-to-end.
         uv run osprey up -d --dev
 
     # Runs BEFORE the teardown below: the cleanup step deletes the very
@@ -2097,13 +2184,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2160,6 +2240,18 @@ jobs:
       with:
         name: dispatch-deploy-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-dispatch down || true
+        docker rm -f osprey-e2e-dispatch-telemetry-store || true
+        docker rm -f osprey-e2e-dispatch-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-dispatch_" \
+          | xargs -r docker volume rm -f || true
 
 
   single-user-narrowing-e2e:
@@ -2189,13 +2281,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2252,6 +2337,18 @@ jobs:
       with:
         name: single-user-narrowing-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p suproj down || true
+        docker rm -f suproj-telemetry-store || true
+        docker rm -f suproj-telemetry-gateway || true
+        docker volume ls -q --filter "name=^suproj_" \
+          | xargs -r docker volume rm -f || true
 
 
   dispatch-overlay-e2e:
@@ -2283,13 +2380,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2349,6 +2439,18 @@ jobs:
       with:
         name: dispatch-overlay-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-overlay down || true
+        docker rm -f osprey-e2e-overlay-telemetry-store || true
+        docker rm -f osprey-e2e-overlay-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-overlay_" \
+          | xargs -r docker volume rm -f || true
 
 
   bluesky-deploy-e2e:
@@ -2366,13 +2468,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2400,6 +2495,18 @@ jobs:
       with:
         name: bluesky-deploy-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-bluesky-deploy down || true
+        docker rm -f osprey-e2e-bluesky-deploy-telemetry-store || true
+        docker rm -f osprey-e2e-bluesky-deploy-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-bluesky-deploy_" \
+          | xargs -r docker volume rm -f || true
 
 
   bluesky-web-deploy-e2e:
@@ -2421,13 +2528,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2458,6 +2558,18 @@ jobs:
       with:
         name: bluesky-web-deploy-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p panels-proj down || true
+        docker rm -f panels-proj-telemetry-store || true
+        docker rm -f panels-proj-telemetry-gateway || true
+        docker volume ls -q --filter "name=^panels-proj_" \
+          | xargs -r docker volume rm -f || true
 
 
   va-substrate-equivalence-e2e:
@@ -2484,13 +2596,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2521,6 +2626,18 @@ jobs:
       with:
         name: va-substrate-equivalence-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-va-substrate down || true
+        docker rm -f osprey-e2e-va-substrate-telemetry-store || true
+        docker rm -f osprey-e2e-va-substrate-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-va-substrate_" \
+          | xargs -r docker volume rm -f || true
 
 
   orm-roundtrip-e2e:
@@ -2565,13 +2682,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2619,6 +2729,33 @@ jobs:
       with:
         name: orm-roundtrip-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p orm-roundtrip down || true
+        docker rm -f orm-roundtrip-telemetry-store || true
+        docker rm -f orm-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^orm-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p grid-scan-roundtrip down || true
+        docker rm -f grid-scan-roundtrip-telemetry-store || true
+        docker rm -f grid-scan-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^grid-scan-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p bump-roundtrip down || true
+        docker rm -f bump-roundtrip-telemetry-store || true
+        docker rm -f bump-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^bump-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p preflight-probe down || true
+        docker rm -f preflight-probe-telemetry-store || true
+        docker rm -f preflight-probe-telemetry-gateway || true
+        docker volume ls -q --filter "name=^preflight-probe_" \
+          | xargs -r docker volume rm -f || true
 
 
   bluesky-queue-e2e:
@@ -2641,13 +2778,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2678,6 +2808,18 @@ jobs:
       with:
         name: bluesky-queue-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p queue-e2e down || true
+        docker rm -f queue-e2e-telemetry-store || true
+        docker rm -f queue-e2e-telemetry-gateway || true
+        docker volume ls -q --filter "name=^queue-e2e_" \
+          | xargs -r docker volume rm -f || true
 
 
   scan-agentic-e2e:
@@ -2721,13 +2863,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2840,6 +2975,18 @@ jobs:
       with:
         name: scan-agentic-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p plan-agentic down || true
+        docker rm -f plan-agentic-telemetry-store || true
+        docker rm -f plan-agentic-telemetry-gateway || true
+        docker volume ls -q --filter "name=^plan-agentic_" \
+          | xargs -r docker volume rm -f || true
 
 
   archiver-world-e2e:
@@ -2867,10 +3014,10 @@ jobs:
       with:
         fetch-depth: 0
 
-    # No ghcr login step, unlike the orm lane it is otherwise modelled on: the
-    # trimmed stack pulls nothing from ghcr. The VA image builds locally from
+    # No ghcr login step: the trimmed stack pulls nothing from a private
+    # registry. The VA image builds locally from
     # python:3.11-slim, mongodb is mongo:7 from Docker Hub, and the recorder
-    # reuses the VA image — openobserve is not deployed here at all.
+    # reuses the VA image — no telemetry store is deployed here at all.
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -2982,13 +3129,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -3018,6 +3158,18 @@ jobs:
       with:
         name: tiled-roundtrip-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-tiled down || true
+        docker rm -f osprey-e2e-tiled-telemetry-store || true
+        docker rm -f osprey-e2e-tiled-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-tiled_" \
+          | xargs -r docker volume rm -f || true
 
 
   bluesky-catalog-e2e:
@@ -3040,13 +3192,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -3074,6 +3219,18 @@ jobs:
       with:
         name: bluesky-catalog-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-catalog down || true
+        docker rm -f osprey-e2e-catalog-telemetry-store || true
+        docker rm -f osprey-e2e-catalog-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-catalog_" \
+          | xargs -r docker volume rm -f || true
 
 
   bluesky-sandbox-escape-e2e:
@@ -3098,13 +3255,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -3135,6 +3285,18 @@ jobs:
       with:
         name: bluesky-sandbox-escape-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p sandbox-escape down || true
+        docker rm -f sandbox-escape-telemetry-store || true
+        docker rm -f sandbox-escape-telemetry-gateway || true
+        docker volume ls -q --filter "name=^sandbox-escape_" \
+          | xargs -r docker volume rm -f || true
 
 
   nextcloud-talk-bridge-e2e:
@@ -3174,7 +3336,7 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror + Nextcloud Talk fixture)
+    - name: Log in to ghcr (Nextcloud Talk fixture)
       uses: docker/login-action@v4
       with:
         registry: ghcr.io
@@ -4001,16 +4163,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    # The workflow-level OSPREY_OPENOBSERVE_IMAGE points the compose template
-    # at the ghcr mirror; the pull needs this login, exactly as every other
-    # openobserve-deploying lane does.
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -4052,10 +4204,8 @@ jobs:
       run: |
         for case in profile divergent orphan persona; do
           project="osprey-e2e-wb-${case}"
-          docker rm -f "${project}-openobserve" || true
           docker rm -f "${project}-ariel-postgres" || true
           docker compose -p "$project" down || true
-          docker volume rm "${project}_openobserve_data" || true
           docker volume rm "${project}_ariel_postgres_data" || true
         done
 
@@ -4127,7 +4277,11 @@ jobs:
         done
         docker rm -f osprey-e2e-mus-p3-nginx || true
         docker rm -f osprey-e2e-mus-p3-registry || true
+        docker rm -f osprey-e2e-mus-p3-telemetry-store || true
+        docker rm -f osprey-e2e-mus-p3-telemetry-gateway || true
         docker compose -p osprey-e2e-mus-p3 down || true
+        docker volume rm osprey-e2e-mus-p3_telemetry_store_data || true
+        docker volume rm osprey-e2e-mus-p3_gateway-state || true
 
   auth-perimeter-e2e:
     name: Auth Perimeter E2E (real sidecar image + nginx auth_request)
@@ -4344,6 +4498,15 @@ jobs:
     # build_lanes` pins the RELATION (strictly more than either sibling, at both
     # caps), not these numbers; record the first cold wall clock in the PR body
     # so the margin is sized from a measurement rather than from this estimate.
+    # The telemetry store and gateway add no build (public images, a pull
+    # each) and the history service runs the project image already built, so
+    # they cost container starts only: on a developer host the whole module
+    # runs in about 5 minutes with the project image built, 1 minute warm.
+    # The history cases add a second `osprey up` (no build) and six browser
+    # runs; re-measured with them on a developer host: the whole module in
+    # 114 s warm. The cold runner time is still the three image builds, so
+    # both caps stand; `test_full_chain_auth_lane_caps_are_the_measured_ones`
+    # pins them, and moving either is a re-measurement.
     timeout-minutes: 85
     # Same PR scoping as the two auth lanes above: same-repo PRs only, since
     # this drives a real `osprey up` (container and volume lifecycle) against
@@ -4399,6 +4562,11 @@ jobs:
 
     - name: Install osprey
       run: uv sync --extra dev
+
+    # The reader origin's `/play` page and the history page are proved in a
+    # real browser against this lane's stack.
+    - name: Install Playwright chromium
+      run: uv run playwright install chromium --with-deps
 
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
     # `--dev` stages this branch's locally-built wheel into both real images, so
@@ -4461,16 +4629,21 @@ jobs:
       if: always()
       run: |
         docker compose -p osprey-e2e-full-chain-auth down || true
-        for user in alice bob carol kiosk dave; do
+        for user in alice bob carol dave kiosk erin; do
           docker rm -f "osprey-e2e-full-chain-auth-web-${user}" || true
         done
         docker rm -f osprey-e2e-full-chain-auth-auth || true
         docker rm -f osprey-e2e-full-chain-auth-nginx || true
+        docker rm -f osprey-e2e-full-chain-auth-telemetry-store || true
+        docker rm -f osprey-e2e-full-chain-auth-telemetry-gateway || true
+        docker rm -f osprey-e2e-full-chain-auth-history || true
         docker volume ls -q --filter "name=^osprey-e2e-full-chain-auth_" \
           | xargs -r docker volume rm -f || true
         docker rmi -f osprey-e2e-full-chain-auth-auth:local || true
-        docker rmi -f fullchain-operator-operator:local || true
-        docker rmi -f fullchain-probe-probe:local || true
+        docker rmi -f fullchain-operator:local || true
+        docker rmi -f fullchain-probe:local || true
+        # The project image `osprey up` builds, which the history service runs.
+        docker rmi -f osprey-e2e-full-chain-auth:local || true
 
   jupyter-panel-e2e:
     name: Notebook Panel E2E (deployed persona + a kernel that follows the terminal)
@@ -4492,16 +4665,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    # The workflow-level OSPREY_OPENOBSERVE_IMAGE points the compose template
-    # at the ghcr mirror; the pull needs this login, exactly as every other
-    # openobserve-deploying lane does.
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -4557,6 +4720,8 @@ jobs:
       run: |
         docker rm -f osprey-e2e-jnb-web-alice || true
         docker rm -f osprey-e2e-jnb-nginx || true
+        docker rm -f osprey-e2e-jnb-telemetry-store || true
+        docker rm -f osprey-e2e-jnb-telemetry-gateway || true
         docker compose -p osprey-e2e-jnb down || true
         docker volume ls -q --filter "name=^osprey-e2e-jnb_" \
           | xargs -r docker volume rm -f || true
@@ -4663,7 +4828,11 @@ jobs:
         done
         podman rm -f osprey-e2e-mus-p3-nginx || true
         podman rm -f osprey-e2e-mus-p3-registry || true
+        podman rm -f osprey-e2e-mus-p3-telemetry-store || true
+        podman rm -f osprey-e2e-mus-p3-telemetry-gateway || true
         podman compose -p osprey-e2e-mus-p3 down || true
+        podman volume rm osprey-e2e-mus-p3_telemetry_store_data || true
+        podman volume rm osprey-e2e-mus-p3_gateway-state || true
 
   two-shape-boot-e2e:
     name: Two-Shape Boot E2E (bridge + host network axis, podman-compose)
@@ -4772,25 +4941,28 @@ jobs:
         print("✅ compose provider is podman-compose 1.0.6")
         PY
 
-    - name: Pre-flight — ports 21781 and 21791 must be free on the runner
-      # Under the host shape these are REAL binds on the runner, not
-      # publications into a VM as they were on the author's macOS host. If
-      # anything else already holds either port the module's exposure test
-      # reads a foreign socket out of the runner's own /proc/net/tcp and fails
-      # in a way that points at the feature rather than at the runner. Refusing
-      # here costs a second and names the actual cause.
+    - name: Pre-flight — the module's host ports must be free on the runner
+      # 21781 and 21791 are the dispatcher and worker. Under the host shape
+      # these are REAL binds on the runner, not publications into a VM as they
+      # were on the author's macOS host. If anything else already holds either
+      # port the module's exposure test reads a foreign socket out of the
+      # runner's own /proc/net/tcp and fails in a way that points at the
+      # feature rather than at the runner. 18151, 18152 and 18904 are the
+      # telemetry case's gateway, gateway counters and store, published on the
+      # runner's loopback from that case's own port block. Refusing here costs
+      # a second and names the actual cause.
       #
       # Fails open if `ss` is missing: an absent tool is not evidence of a busy
       # port, and the module's own preflight would still refuse below.
       run: |
-        for port in 21781 21791; do
+        for port in 21781 21791 18151 18152 18904; do
           if ss -ltnH "sport = :$port" 2>/dev/null | grep -q .; then
             echo "❌ port $port is already bound on this runner:"
             ss -ltnp "sport = :$port" || true
             exit 1
           fi
         done
-        echo "✅ 21781 and 21791 are free"
+        echo "✅ 21781, 21791, 18151, 18152 and 18904 are free"
 
     - name: Diagnostic — podman's inspect .State schema (health-field spelling)
       # INFORMATIONAL, not protective. The module reads the health field
@@ -4885,8 +5057,13 @@ jobs:
         podman rm -f osprey-e2e-two-shape-event-dispatcher || true
         podman rm -f osprey-e2e-two-shape-dispatch-worker-1 || true
         podman rm -f osprey-e2e-two-shape-schema-probe || true
+        podman rm -f osprey-e2e-two-shape-telemetry-telemetry-store || true
+        podman rm -f osprey-e2e-two-shape-telemetry-telemetry-gateway || true
         podman volume rm osprey-e2e-two-shape_dispatch_workspace_1 || true
+        podman volume rm osprey-e2e-two-shape-telemetry_telemetry_store_data || true
+        podman volume rm osprey-e2e-two-shape-telemetry_gateway-state || true
         podman network rm osprey-e2e-two-shape_osprey-network || true
+        podman network rm osprey-e2e-two-shape-telemetry_osprey-network || true
         podman rmi -f osprey-e2e-two-shape:local || true
         podman rmi -f osprey-e2e-two-shape-dispatch:local || true
 
@@ -5800,17 +5977,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror)
-      # The deployment renders the observability service, and the image it
-      # pulls is the workflow-level `OSPREY_OPENOBSERVE_IMAGE` — a private
-      # mirror. Without the login `osprey up` fails on an unauthorized pull
-      # long after the container work has started.
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -5910,6 +6076,18 @@ jobs:
       with:
         name: va-bluesky-deploy-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p lane-e2e down || true
+        docker rm -f lane-e2e-telemetry-store || true
+        docker rm -f lane-e2e-telemetry-gateway || true
+        docker volume ls -q --filter "name=^lane-e2e_" \
+          | xargs -r docker volume rm -f || true
 
     - name: Clean up the target images
       # The image built here is the only one left to remove: the module tears
