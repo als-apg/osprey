@@ -213,8 +213,8 @@ QUEUE_CONTROL = frozenset(
 # Ports + names for the live stack (the deploy scaffold at the end of this
 # module). Every published port is deliberately outside BOTH the thousand-port
 # block a deployment claims from ``deployment.port_base`` (10000-10999 at the
-# default base — bridge, tiled, panels and openobserve in the services band,
-# postgres and mongodb in the stores band; the VA's Channel Access 5064 is the
+# default base — bridge, tiled, panels and the telemetry gateway in the
+# services band, postgres, mongodb and the telemetry store in the stores band; the VA's Channel Access 5064 is the
 # one port the base does not move) and every sibling e2e module's pinned port,
 # so this module can run on a shared dev machine beside an already-deployed
 # tutorial stack —
@@ -235,8 +235,9 @@ QUEUE_CONTROL = frozenset(
 #               (5064 is _orm_stack's default, which the tutorial holds)
 #   postgres    25432 test_bluesky_queue_e2e · 25433 test_tiled_roundtrip
 #               25434 test_bluesky_web_deploy
-#   openobserve 25080 test_bluesky_queue_e2e · 25081 test_bluesky_deploy
-#               25082 test_tiled_roundtrip · 25083 test_bluesky_web_deploy
+#   telemetry   gateway 24318 / store 28123 test_bluesky_queue_e2e
+#               24319 / 28124 test_bluesky_deploy · 24320 / 28125 test_tiled_roundtrip
+#               24321 / 28126 test_bluesky_web_deploy
 #   mongodb     no sibling pins one — the archiver's Mongo published the
 #               service default, and a tutorial stack deployed on this host
 #               holds it. The preflight refuses to touch any container when a
@@ -251,7 +252,8 @@ PANELS_PORT = 18097
 TILED_PORT = 18193
 VA_CA_PORT = 15066
 POSTGRES_PORT = 25435
-OPENOBSERVE_PORT = 25084
+TELEMETRY_GATEWAY_PORT = 24322
+TELEMETRY_STORE_PORT = 28127
 MONGODB_PORT = 27117
 
 #: Compose project this module deploys under. Container names and locally-built
@@ -3038,8 +3040,8 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 #: policy the headless agent needs. Note the two ALTITUDES, which is the
 #: whole reason this is one dict and not sibling entries:
 #:
-#: - ``services.postgresql.port_host`` / ``services.openobserve.port`` are
-#:   CONFIG keys — those services are in the preset's config template, so a
+#: - ``services.postgresql.port_host`` / ``services.telemetry_gateway.port`` /
+#:   ``services.telemetry_store.port`` are CONFIG keys — those services are in the preset's config template, so a
 #:   dotted key under ``config:`` edits them in place.
 #: - ``bluesky.tiled_port`` / ``bluesky_web.port`` / ``va_archiver.port_host``
 #:   are BUILD-PROFILE keys
@@ -3085,7 +3087,8 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 _EXTRA_CONFIG: dict[str, Any] = {
     "config": {
         "services.postgresql.port_host": POSTGRES_PORT,
-        "services.openobserve.port": OPENOBSERVE_PORT,
+        "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
+        "services.telemetry_store.port": TELEMETRY_STORE_PORT,
         "approval.tools.queue_add": "skip",
         "approval.tools.queue_start": "skip",
         "approval.tools.queue_remove": "skip",

@@ -221,7 +221,7 @@ def _profile_edits() -> dict[str, Any]:
     the bundle also ships — nothing here looks a channel up either way.
 
     That trim is not only about speed. The preset's full stack publishes
-    postgres, openobserve, the bluesky bridge, Tiled and the panels on fixed
+    postgres, the telemetry store, the bluesky bridge, Tiled and the panels on fixed
     host ports, and a developer box running any OSPREY demo stack already holds
     them: the deploy then aborts on a port preflight that has nothing to do with
     archiving. Deploying only what is under test makes this lane runnable

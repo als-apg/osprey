@@ -285,7 +285,7 @@ def merged_profile_edits(extra_config: dict[str, Any]) -> dict[str, Any]:
     """``profile_edits()`` with ``extra_config`` deep-merged into it.
 
     Reaches the keys ``init_args`` has no named parameter for -- e.g. the
-    postgres/openobserve/tiled/panels HOST ports a module must move to run
+    postgres/telemetry/tiled/panels HOST ports a module must move to run
     concurrently with another deployed stack::
 
         merged_profile_edits({"config": {"services.postgresql.port_host": 15433}})
@@ -333,7 +333,7 @@ def init_args(
 
     ``extra_config``, when given, is deep-merged into ``profile_edits()`` --
     the way to reach config keys that have no named parameter here
-    (postgres/openobserve/tiled/panels host ports). Empty or ``None`` is a
+    (postgres/telemetry/tiled/panels host ports). Empty or ``None`` is a
     no-op: the shared pins go out on their own.
 
     ``va_port``/``va_pva_port`` pin the VA's Channel Access and pvAccess host
@@ -363,8 +363,8 @@ def init_args(
         # Every framework port the caller does NOT pin explicitly follows this
         # block (`deployment.port_base`); a caller that actually starts the
         # stack passes its own thousand-port block so the deploy cannot land
-        # on a real deployment's default 10000 block (openobserve, tiled,
-        # live-standin, the stores). Build-only callers may leave it unset —
+        # on a real deployment's default 10000 block (the telemetry gateway,
+        # tiled, live-standin, the stores). Build-only callers may leave it unset —
         # a render binds nothing.
         args += ["--set", f"port_base={port_base}"]
     if provider is not None:

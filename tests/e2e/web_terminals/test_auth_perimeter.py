@@ -343,12 +343,9 @@ def _profile_edits() -> dict[str, Any]:
     service would only add containers and bound ports to a proof about nginx.
 
     Telemetry goes off with them, and for the same reason. The preset ships it
-    enabled against ``backend: openobserve`` with no explicit ``endpoint``, which
-    derives the store's address from THIS deploy — so dropping the store while
-    leaving the block on describes an exporter aimed at a port this lane binds
-    nothing to. It is also refused before it gets there: the ingest token is
-    minted by the store, and preflight will not generate ``.env.users`` for a
-    telemetry block naming a credential no deploy on this config can issue.
+    enabled against ``backend: gateway``, which derives the gateway's address
+    from THIS deploy — so dropping the gateway while leaving the block on
+    describes an exporter aimed at a port this lane binds nothing to.
     """
     return {
         "config": {

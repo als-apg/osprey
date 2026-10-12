@@ -22,18 +22,17 @@ lock the facility out of its own volumes.
 So this file drives the real CLI against a real container runtime:
 
 * **rebuild** (:func:`test_minted_secrets_survive_a_rebuild_and_a_redeploy`)
-  — ``osprey up`` mints ``ZO_ROOT_USER_PASSWORD`` and ``ARIEL_DB_PASSWORD``
-  into ``<repo>/.env`` under their own minted section, and OpenObserve and
-  Postgres both actually authenticate with them. ``build/`` is then deleted
-  outright and re-rendered, the containers are dropped while their volumes are
-  kept, and the redeploy has to bring *fresh* containers up on the *identical*
-  secrets against the *same* volumes — proven by a row written into Postgres
-  before the rebuild still being readable after it. These are exactly the two
-  keys that would otherwise degrade the deployment silently: both compose
-  templates carry an insecure ``${VAR:-default}``, and both stores read their
-  password only when *initializing* a fresh volume, so a re-minted secret does
-  not fail loudly — it locks the facility out of a store that is still happily
-  running on the old one.
+  — ``osprey up`` mints ``ARIEL_DB_PASSWORD`` into ``<repo>/.env`` under its
+  own minted section, and Postgres actually authenticates with it. ``build/``
+  is then deleted outright and re-rendered, the container is dropped while its
+  volume is kept, and the redeploy has to bring a *fresh* container up on the
+  *identical* secret against the *same* volume — proven by a row written into
+  Postgres before the rebuild still being readable after it. This is exactly
+  the kind of key that would otherwise degrade the deployment silently: the
+  compose template carries an insecure ``${VAR:-default}``, and the store
+  reads its password only when *initializing* a fresh volume, so a re-minted
+  secret does not fail loudly — it locks the facility out of a store that is
+  still happily running on the old one.
 
 * **contradicted by the shell**
   (:func:`test_divergent_shell_export_never_overwrites_the_pinned_secret`)
@@ -59,10 +58,8 @@ owns (``osprey-e2e-wb-*`` — the repo DIRECTORY name, which is what the render
 records as ``project_name`` and what compose scopes its resources by), so
 nothing it removes can belong to another stack:
 
-  * containers: ``osprey-e2e-wb-<case>-openobserve`` /
-    ``osprey-e2e-wb-<case>-ariel-postgres``
-  * volumes:    ``osprey-e2e-wb-<case>_openobserve_data`` /
-    ``osprey-e2e-wb-<case>_ariel_postgres_data``
+  * containers: ``osprey-e2e-wb-<case>-ariel-postgres``
+  * volumes:    ``osprey-e2e-wb-<case>_ariel_postgres_data``
 
 Nothing here ever runs ``system prune``, ``volume prune``, ``container
 prune``, ``-a``/``--all`` on a removal, or a wildcard container-name match.
@@ -70,8 +67,8 @@ Every teardown call names one exact resource or uses ``compose -p <project>
 down`` (project-label-scoped, containers/networks only, never ``-v``), and runs
 from a ``finally`` so a failed assertion mid-sequence still cleans up.
 
-Only public upstream images are pulled (``pgvector/pgvector:pg16``,
-``public.ecr.aws/zinclabs/openobserve``) — no image is built here, which is
+Only a public upstream image is pulled (``pgvector/pgvector:pg16``) — no
+image is built here, which is
 what keeps a full run to minutes rather than the tens of minutes a persona or
 project image would cost.
 
@@ -83,7 +80,6 @@ clear error).
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 import re
@@ -91,8 +87,6 @@ import shutil
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -132,9 +126,9 @@ PROJECT_REBUILD = "osprey-e2e-wb-rebuild"
 PROJECT_DIVERGENT = "osprey-e2e-wb-divergent"
 PROJECT_PERSONA = "osprey-e2e-wb-persona"
 
-PORTS_REBUILD = {"postgres": 21432, "openobserve": 21482}
-PORTS_DIVERGENT = {"postgres": 21433, "openobserve": 21483}
-PORTS_PERSONA = {"postgres": 21435, "openobserve": 21485}
+PORTS_REBUILD = {"postgres": 21432}
+PORTS_DIVERGENT = {"postgres": 21433}
+PORTS_PERSONA = {"postgres": 21435}
 # Per-user web-terminal port families for the persona case. Never bound: the
 # persona deploy is driven only as far as its preflight (see that test), so
 # these exist to keep the host-port preflight itself conflict-free.
@@ -147,20 +141,17 @@ PORTS_PERSONA_WEB = {
     "channel_finder": 21650,
 }
 
-# The two secrets under test. Both are *volume-pinned*: OpenObserve and Postgres
-# read their password only when initializing a fresh data volume, so a re-minted
-# value locks the operator out of a store that keeps running on the old one —
-# which is precisely why `.env` has to sit outside everything a build replaces.
-ZO_PASSWORD_VAR = "ZO_ROOT_USER_PASSWORD"
+# The secret under test. It is *volume-pinned*: Postgres reads its password only
+# when initializing a fresh data volume, so a re-minted value locks the operator
+# out of a store that keeps running on the old one — which is precisely why
+# `.env` has to sit outside everything a build replaces.
 DB_PASSWORD_VAR = "ARIEL_DB_PASSWORD"
-OPENOBSERVE_USER = "root@example.com"  # the compose template's non-secret default
 
 # Vars an operator's shell may legitimately export, which ``_effective_value``
 # would then treat as authoritative — stripped from every subprocess so this
 # file's results never depend on the environment it is run from. The divergent-
 # export case re-adds one deliberately.
 _AMBIENT_SECRET_VARS = (
-    ZO_PASSWORD_VAR,
     DB_PASSWORD_VAR,
     "EVENT_DISPATCHER_TOKEN",
     "DISPATCH_WORKER_TOKEN",
@@ -269,12 +260,13 @@ def _needle(text: str) -> str:
 
 
 def _services_edits(ports: dict[str, int]) -> dict[str, Any]:
-    """Profile edits adding a Postgres service beside the preset's OpenObserve.
+    """Profile edits making Postgres the one service the deployment runs.
 
-    Two services, deliberately: they are the two ``_SERVICE_TOKEN_VARS`` entries
-    whose secret initializes a docker volume, and covering both proves the mint
-    is not special-casing one recipe (``ARIEL_DB_PASSWORD`` is hex,
-    ``ZO_ROOT_USER_PASSWORD`` is the four-character-class OpenObserve policy).
+    Postgres is a ``_SERVICE_TOKEN_VARS`` entry whose secret initializes a
+    docker volume, which is the property under test. The preset's telemetry
+    pair is left out, and telemetry switched off with it: its credentials live
+    in files of their own rather than in ``.env``, so it has nothing to say
+    about a minted ``.env`` secret and would only add images to pull.
 
     Dotted leaf keys under ``config:``, the one spelling the profile's config
     block accepts — each names one leaf of the rendered config, leaving the
@@ -286,8 +278,8 @@ def _services_edits(ports: dict[str, int]) -> dict[str, Any]:
             "services.postgresql.database_name": "ariel",
             "services.postgresql.username": "ariel",
             "services.postgresql.port_host": ports["postgres"],
-            "services.openobserve.port": ports["openobserve"],
-            "deployed_services": ["openobserve", "postgresql"],
+            "claude_code.telemetry.enabled": False,
+            "deployed_services": ["postgresql"],
         }
     }
 
@@ -369,13 +361,9 @@ def _pg_container(project_name: str) -> str:
     return f"{project_name}-ariel-postgres"
 
 
-def _openobserve_container(project_name: str) -> str:
-    return f"{project_name}-openobserve"
-
-
-def _volume_names(project_name: str) -> tuple[str, str]:
-    """The two named volumes compose creates for this project's stores."""
-    return (f"{project_name}_openobserve_data", f"{project_name}_ariel_postgres_data")
+def _volume_names(project_name: str) -> tuple[str, ...]:
+    """The named volumes compose creates for this project's store."""
+    return (f"{project_name}_ariel_postgres_data",)
 
 
 def _volume_exists(name: str) -> bool:
@@ -432,55 +420,15 @@ def _wait_for_postgres(project_name: str, password: str, timeout: float) -> None
     )
 
 
-def _openobserve_status(port: int, password: str, path: str = "/api/default/streams") -> int:
-    """HTTP status for a Basic-auth request to OpenObserve; ``0`` if unreachable.
+def _assert_store_authenticates(project_name: str, env: dict[str, str]) -> None:
+    """The store accepts the deploy's secret — and rejects a wrong one.
 
-    ``/api/default/streams`` is an authenticated read: it answers 200 for the
-    root credentials and 401 for anything else, which makes it a real
-    credential check rather than a liveness probe (``/healthz`` answers 200
-    unauthenticated).
-    """
-    token = base64.b64encode(f"{OPENOBSERVE_USER}:{password}".encode()).decode()
-    request = urllib.request.Request(  # localhost only
-        f"http://127.0.0.1:{port}{path}",
-        method="GET",
-        headers={"Authorization": f"Basic {token}"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=5.0) as response:
-            return response.status
-    except urllib.error.HTTPError as exc:
-        return exc.code
-    except (urllib.error.URLError, ConnectionError, OSError):
-        return 0
-
-
-def _wait_for_openobserve(port: int, password: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last = 0
-    while time.monotonic() < deadline:
-        last = _openobserve_status(port, password)
-        if last == 200:
-            return
-        time.sleep(2.0)
-    raise AssertionError(
-        f"openobserve on :{port} never authenticated the deploy's {ZO_PASSWORD_VAR} "
-        f"within {timeout:.0f}s (last HTTP status: {last or 'unreachable'})"
-    )
-
-
-def _assert_stores_authenticate(
-    project_name: str, ports: dict[str, int], env: dict[str, str]
-) -> None:
-    """Both stores accept the deploy's secrets — and reject a wrong one.
-
-    The negative half matters as much as the positive: OpenObserve's compose
-    template carries a publicly-known ``${ZO_ROOT_USER_PASSWORD:-Complexpass#123}``
-    fallback, so a store that answered 200 to *anything* would pass a
-    positive-only check while being wide open.
+    The negative half matters as much as the positive: the compose template
+    carries a publicly-known ``${ARIEL_DB_PASSWORD:-ariel}`` fallback, so a
+    store that accepted *anything* would pass a positive-only check while
+    being wide open.
     """
     _wait_for_postgres(project_name, env[DB_PASSWORD_VAR], SERVICE_READY_TIMEOUT_SEC)
-    _wait_for_openobserve(ports["openobserve"], env[ZO_PASSWORD_VAR], SERVICE_READY_TIMEOUT_SEC)
 
     wrong_pg = _psql(project_name, "not-the-minted-password", "select 1")
     assert wrong_pg.returncode != 0, (
@@ -492,10 +440,6 @@ def _assert_stores_authenticate(
     assert "password authentication failed" in wrong_pg.stderr, (
         f"postgres refused the wrong password for the wrong reason:\n{wrong_pg.stderr}"
     )
-    assert _openobserve_status(ports["openobserve"], "not-the-minted-password") == 401, (
-        "openobserve did not reject a wrong root password — it is likely still "
-        "running on the compose template's public default"
-    )
 
 
 def _teardown_project(project_name: str) -> None:
@@ -506,7 +450,6 @@ def _teardown_project(project_name: str) -> None:
     one exact volume, or is the project-scoped ``compose down`` the guardrail
     allows (label-based, containers/networks only, never ``-v``).
     """
-    _runtime_cli("rm", "-f", _openobserve_container(project_name))
     _runtime_cli("rm", "-f", _pg_container(project_name))
     _runtime_cli("compose", "-p", project_name, "down", timeout=120)
     for volume in _volume_names(project_name):
@@ -535,8 +478,8 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
     1. ``osprey init`` + ``osprey build`` produce the deployment. Its ``.env``
        carries no service secret yet — the deploy is what brings these into
        existence, so a repo that already carried them would prove nothing.
-    2. ``osprey up`` mints both secrets into ``<repo>/.env`` under their own
-       minted section, and both containers authenticate with them (and reject a
+    2. ``osprey up`` mints the secret into ``<repo>/.env`` under its own
+       minted section, and the container authenticates with it (and rejects a
        wrong password).
     3. A row is written into Postgres — the witness that step 6 is talking to
        the same volume, not a fresh one that happens to accept the password.
@@ -545,7 +488,7 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
        secrets zone is not, and the overlay is deliberately NOT passed again —
        everything it configured lives in ``profile.yml`` now, so a deployment
        that comes back with the same ports is the source zone doing its job.
-    5. ``osprey down`` removes the containers and keeps both volumes, so what
+    5. ``osprey down`` removes the containers and keeps the volume, so what
        follows cannot be the step-2 processes still running on the secret they
        were started with.
     6. ``osprey up`` again: FRESH containers, the same volumes, the same
@@ -558,7 +501,7 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
         repo = _init_and_build(tmp_path, project_name, "hello-world", _services_edits(ports))
         env_path = repo / ".env"
         pre_deploy = _env_of(env_path)
-        for var in (ZO_PASSWORD_VAR, DB_PASSWORD_VAR):
+        for var in (DB_PASSWORD_VAR,):
             assert not pre_deploy.get(var), (
                 f"{var} is already in {env_path} before any deploy — this test cannot "
                 "then show that the deploy is what put it there"
@@ -578,10 +521,10 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
         )
 
         minted = _env_of(env_path)
-        for var in (ZO_PASSWORD_VAR, DB_PASSWORD_VAR):
+        for var in (DB_PASSWORD_VAR,):
             assert minted.get(var), f"{var} was not minted into {env_path}"
 
-        _assert_stores_authenticate(project_name, ports, minted)
+        _assert_store_authenticates(project_name, minted)
 
         # -- 3. a witness row, so step 6 proves SAME VOLUME, not just same password
         seeded = _psql(
@@ -593,7 +536,7 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
 
         volumes = _volume_names(project_name)
         assert all(_volume_exists(volume) for volume in volumes), (
-            f"expected both named volumes to exist after the first deploy: {volumes}"
+            f"expected the named volume to exist after the first deploy: {volumes}"
         )
 
         # -- 4. delete the whole render, then rebuild it ----------------------
@@ -611,7 +554,7 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
         assert (repo / "build" / "config.yml").is_file(), "the rebuild rendered nothing"
 
         rebuilt_env = _env_of(env_path)
-        for var in (ZO_PASSWORD_VAR, DB_PASSWORD_VAR):
+        for var in (DB_PASSWORD_VAR,):
             assert rebuilt_env.get(var) == minted[var], (
                 f"{var} did not survive the rebuild: .env came back with a different "
                 "value, so the redeployed stack would be locked out of the volume it "
@@ -626,7 +569,7 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
         # and the authentication assertion in step 6 would re-confirm them
         # rather than prove that a fresh container adopted the re-read value.
         # `osprey down` is compose `down` with no ``-v``, so it removes this
-        # deployment's containers and network and leaves both named volumes —
+        # deployment's containers and network and leaves the named volume —
         # exactly the "same volumes, new containers" state the claim needs.
         down = _run_osprey(["down"], repo)
         assert down.returncode == 0, _fmt("osprey down (between rebuild and redeploy)", down)
@@ -635,7 +578,7 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
             "only, or the redeploy below would meet a fresh store and prove nothing "
             "about the secret surviving"
         )
-        for container in (_pg_container(project_name), _openobserve_container(project_name)):
+        for container in (_pg_container(project_name),):
             assert not _container_exists(container), (
                 f"{container} survived `osprey down`, so the redeploy below would "
                 "reuse the process started in step 2 and the authentication assertion "
@@ -649,7 +592,7 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
             "the redeploy did not run against the volumes the first deploy created"
         )
 
-        _assert_stores_authenticate(project_name, ports, minted)
+        _assert_store_authenticates(project_name, minted)
 
         witness = _psql(project_name, minted[DB_PASSWORD_VAR], "select note from wb_witness")
         assert witness.returncode == 0, _fmt("read the witness row after the rebuild", witness)
@@ -703,7 +646,7 @@ def test_divergent_shell_export_never_overwrites_the_pinned_secret(tmp_path: Pat
         # The volumes exist and answer to the pinned value BEFORE the divergent
         # export, so everything asserted after it is about the export rather
         # than about a store that was never initialized in the first place.
-        _assert_stores_authenticate(project_name, ports, minted)
+        _assert_store_authenticates(project_name, minted)
 
         up2 = _run_osprey(["up", "-d"], repo, extra_env={DB_PASSWORD_VAR: divergent})
         assert up2.returncode == 0, _fmt("osprey up (divergent export)", up2)
@@ -750,7 +693,7 @@ def test_divergent_shell_export_never_overwrites_the_pinned_secret(tmp_path: Pat
         # theoretical one. `_assert_stores_authenticate` re-waits for postgres,
         # which is what covers the container compose recreated on the changed
         # interpolation.
-        _assert_stores_authenticate(project_name, ports, minted)
+        _assert_store_authenticates(project_name, minted)
         rejected = _psql(project_name, divergent, "select 1")
         assert rejected.returncode != 0, (
             "postgres accepted the exported value — the divergence would be harmless, "
@@ -803,7 +746,6 @@ def test_personas_are_rendered_by_the_build_from_this_repos_own_deltas(tmp_path:
     edits = {
         "config": {
             "services.postgresql.port_host": PORTS_PERSONA["postgres"],
-            "services.openobserve.port": PORTS_PERSONA["openobserve"],
             "modules.web_terminals.nginx_port": web["nginx"],
             "modules.web_terminals.web_base_port": web["web"],
             "modules.web_terminals.artifact_base_port": web["artifact"],

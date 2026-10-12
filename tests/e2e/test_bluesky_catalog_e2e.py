@@ -121,13 +121,16 @@ pytestmark = [
 BRIDGE_PORT = 18103
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 
-# OpenObserve ships with every preset and has no profile knob, so the deploy
-# would otherwise publish 5080 -- which a locally running tutorial stack holds.
-# `osprey up`'s host port preflight aborts the WHOLE deploy on one such clash,
-# so leaving it on the default takes every test in this module down at fixture
-# setup. Moved to default + 20000, and one past the queue e2e's 25080 so the
-# two modules can deploy side by side.
-OPENOBSERVE_PORT = 25081
+# The preset deploys the telemetry store and its gateway on their slots in the
+# port block -- which a locally running tutorial stack holds. `osprey up`'s
+# host port preflight aborts the WHOLE deploy on one such clash, so leaving
+# them on the defaults takes every test in this module down at fixture setup.
+# Both are moved to their container port + 20000, offset past the sibling
+# modules' pins so the modules can deploy side by side, and PORT_BASE moves the
+# block itself, which carries the gateway's own metrics port that no key moves.
+TELEMETRY_GATEWAY_PORT = 24324
+TELEMETRY_STORE_PORT = 28129
+PORT_BASE = 22300
 
 # The repo directory name IS the deployment name, and the bridge compose
 # template renders its locally-built image as ``<project>-bluesky-bridge:local``
@@ -337,7 +340,16 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
             "--preset",
             "hello-world",
             "--no-git",
-            *set_pairs({"config": {"services.openobserve.port": OPENOBSERVE_PORT}}),
+            *set_pairs(
+                {
+                    "config": {
+                        "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
+                        "services.telemetry_store.port": TELEMETRY_STORE_PORT,
+                    }
+                }
+            ),
+            "--set",
+            f"port_base={PORT_BASE}",
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
             "--set",

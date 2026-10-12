@@ -191,7 +191,8 @@ PANELS_URL = f"http://localhost:{PANELS_PORT}"
 TILED_PORT = 18191
 VA_CA_PORT = 15064
 POSTGRES_PORT = 25432
-OPENOBSERVE_PORT = 25080
+TELEMETRY_GATEWAY_PORT = 24318
+TELEMETRY_STORE_PORT = 28123
 # The archiver's store, deployed by the preset's `va_archiver:` block.
 MONGODB_PORT = 47017
 
@@ -712,10 +713,10 @@ def _profile_edits() -> dict[str, Any]:
     build (same convention as ``_orm_stack.profile_edits``). The preset's
     ``services:`` block holds the record archive, which runs the same project
     image, so it goes with the dispatch stack: ``services: {}`` is the spelling
-    because a single service cannot be nulled. The two config port
-    keys move ariel-postgres and OpenObserve -- services the preset deploys
-    unconditionally, with no profile knob -- off 5432/5080, which a locally
-    running tutorial deploy routinely holds.
+    because a single service cannot be nulled. The config port keys move
+    ariel-postgres, the telemetry gateway and the telemetry store -- services
+    the preset deploys unconditionally -- off the ports a locally running
+    tutorial deploy routinely holds.
 
     The archiver's MongoDB moves through ``va_archiver.port_host`` instead, and
     that difference is load-bearing: the archiver injector RENDERS
@@ -745,7 +746,8 @@ def _profile_edits() -> dict[str, Any]:
         "services": {},
         "config": {
             "services.postgresql.port_host": POSTGRES_PORT,
-            "services.openobserve.port": OPENOBSERVE_PORT,
+            "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
+            "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             "modules.web_terminals.enabled": False,
         },
         "va_archiver": {

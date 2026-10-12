@@ -298,14 +298,7 @@ GUARD_PROBE_TIMEOUT_SEC = 300
 #: value written — a display label mutates nothing the deployment relies on.
 _CONFIG_PATCH_BODY = json.dumps({"updates": {"web.app_name": "multiuser-e2e"}}).encode()
 
-# ZO_INGEST_SA_TOKEN is present but inert: hello-world renders an OpenObserve
-# telemetry block whose password is `${ZO_INGEST_SA_TOKEN}`, and the deploy
-# preflight statically refuses to generate `.env.users` while that reference is
-# unresolvable — even though the block is disabled and the store is not deployed
-# here. Supplying a value satisfies the resolver and is the documented remedy for
-# a deployment behind an external store; with telemetry off the app never emits,
-# so the value is never used.
-_ENV_CONTENT = "ANTHROPIC_API_KEY=fake-llm-key-value\nZO_INGEST_SA_TOKEN=fake-telemetry-token\n"
+_ENV_CONTENT = "ANTHROPIC_API_KEY=fake-llm-key-value\n"
 
 #: The O3 probe, run by the container's own interpreter inside a per-user
 #: terminal container. Two children, one difference:
@@ -461,11 +454,9 @@ def _render_reference_project(tmp_path: Path, osprey_bin: Path) -> Path:
     """
     ref_repo = tmp_path / PERSONA_PROJECT
     # Telemetry OFF in the persona render too, for the same reason the host
-    # override disables it: hello-world ships it enabled against an OpenObserve
-    # store these lanes do not deploy, so its rendered config.yml would carry
-    # `openobserve.password: ${ZO_INGEST_SA_TOKEN}` — a credential only the store
-    # can issue — and `osprey up` refuses to serve a terminal whose telemetry
-    # names an unresolvable secret. The perimeter lane avoids this with a
+    # override disables it: hello-world ships it enabled against the
+    # deployment's own telemetry gateway, which these lanes do not deploy, so
+    # the exporter would be aimed at a gateway nothing runs. The perimeter lane avoids this with a
     # config-less busybox stub; a real `osprey web` persona must render a config
     # that actually stands up.
     init = _run_osprey(

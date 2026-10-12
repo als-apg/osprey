@@ -128,8 +128,8 @@ pytestmark = [
 # This module's own port block. Every value here is outside BOTH the
 # thousand-port block a deployment claims from ``deployment.port_base``
 # (10000-10999 at the default base, which is where a tutorial stack deployed
-# on the same host publishes bridge, tiled, panels, openobserve, postgres and
-# mongodb; the VA's Channel Access 5064 is the one port the base does not
+# on the same host publishes bridge, tiled, panels, the telemetry gateway and
+# store, postgres and mongodb; the VA's Channel Access 5064 is the one port the base does not
 # move) and every sibling e2e module's pin. Those sibling pins, per service:
 #
 #   bridge      18090 test_bluesky_deploy · 18099 test_va_substrate_equivalence
@@ -147,16 +147,19 @@ pytestmark = [
 #               15066 test_plan_stack_agentic
 #   postgres    25432 test_bluesky_queue_e2e · 25433 test_tiled_roundtrip
 #               25434 test_bluesky_web_deploy · 25435 test_plan_stack_agentic
-#   openobserve 25080 test_bluesky_queue_e2e · 25081 test_bluesky_deploy
-#               25082 test_tiled_roundtrip · 25083 test_bluesky_web_deploy
-#               25084 test_plan_stack_agentic
+#   telemetry   gateway 24318 / store 28123 test_bluesky_queue_e2e
+#               24319 / 28124 test_bluesky_deploy · 24320 / 28125 test_tiled_roundtrip
+#               24321 / 28126 test_bluesky_web_deploy
+#               24322 / 28127 test_plan_stack_agentic
+#               24324 / 28129 test_bluesky_catalog_e2e
 #   mongodb     27117 test_plan_stack_agentic
 # ---------------------------------------------------------------------------
 BRIDGE_PORT = 18110
 TILED_PORT = 18194
 VA_CA_PORT = 15067
 POSTGRES_PORT = 25436
-OPENOBSERVE_PORT = 25085
+TELEMETRY_GATEWAY_PORT = 24323
+TELEMETRY_STORE_PORT = 28128
 MONGODB_PORT = 27118
 QMD_PORT = 28180  # clear of the qmd slot any tutorial stack on the host holds
 
@@ -183,7 +186,8 @@ BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 EXTRA_CONFIG: dict[str, Any] = {
     "config": {
         "services.postgresql.port_host": POSTGRES_PORT,
-        "services.openobserve.port": OPENOBSERVE_PORT,
+        "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
+        "services.telemetry_store.port": TELEMETRY_STORE_PORT,
         "services.qmd.port": QMD_PORT,
         # TOLERANCE_M sits below the seeds' BPM noise and rests on a stack whose
         # monitors read the solved orbit exactly, and the plan settles on and the

@@ -2085,3 +2085,40 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
         # is exact names plus the project-scoped `compose down`).
         _runtime_cli("rm", "-f", QMD_CONTAINER)
         _teardown_all_project_resources()
+
+
+# ---------------------------------------------------------------------------
+# The telemetry gateway under this file's runtime
+# ---------------------------------------------------------------------------
+
+#: The port block the telemetry case publishes on, apart from every other
+#: scenario's ports in this file.
+TELEMETRY_PORT_BASE = 18000
+
+
+def test_deploy_lifecycle_telemetry_gateway_under_the_runtime(tmp_path: Path) -> None:
+    """The gateway reads its files, survives a forced recreate, and inserts by password alone.
+
+    Runs under ``OSPREY_E2E_RUNTIME`` like every case here, so the podman lane
+    decides the same three facts the docker lanes do (``tests/e2e/_telemetry_runtime.py``).
+    The deployment takes this file's project name, so the lane's exact-named
+    cleanup of ``<project>-telemetry-store``/``-gateway`` covers it.
+    """
+    from tests.e2e._telemetry_runtime import run_gateway_runtime_case
+
+    if shutil.which(RUNTIME) is None:
+        pytest.skip(f"{RUNTIME} not available")
+    if _runtime_cli("ps", timeout=10).returncode != 0:
+        pytest.skip(f"{RUNTIME} daemon not responding")
+
+    run_gateway_runtime_case(
+        runtime=RUNTIME,
+        project_name=PROJECT_NAME,
+        port_base=TELEMETRY_PORT_BASE,
+        workdir=tmp_path,
+        osprey_env={
+            "CLAUDECODE": "",
+            "CONTAINER_RUNTIME": RUNTIME,
+            "OSPREY_PIP_SPEC": "osprey-framework==0.0.0+e2e-stub",
+        },
+    )
