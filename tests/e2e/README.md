@@ -93,6 +93,17 @@ build-and-boot checks (Tier 1) and the per-preset agentic lanes (Tier 3) in the 
 pyramid; the benchmark dashboard's own "Tier 0/1" labels for the two matrix lanes
 are a separate numbering.
 
+Tier 2 tests may deploy the real stack when the task needs it. `tier2/test_chart_value_reading.py`
+measures reading a value off a chart: it brings up the virtual accelerator, the MongoDB
+archiver and ARIEL with `osprey up --dev`, plants a recent beam-current dip in the archive and
+a year-old partial loss as a plot on one logbook entry (the bundles under
+`fixtures/chart_value_reading/`), and asks the agent to compare the two. The older loss is
+beyond the archive's retention, so its size can only be read off the picture. It runs on the
+benchmark board (the model matrix) and in no CI lane: the `tier2-model-benchmark` job ignores
+it. Parallel board cells take turns on a host-wide lock, and the images are rebuilt once per
+checked-out revision. Expect ~40 minutes cold and ~5 warm; `E2E_REUSE_IMAGES=1` keeps the
+images between local runs.
+
 ## Test Categories
 
 ### Tutorial Workflows (`test_tutorials.py`)
