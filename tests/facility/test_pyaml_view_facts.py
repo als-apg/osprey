@@ -3,8 +3,8 @@
 ``facility_facts.json`` holds one ``measurement_models`` record per pyAML view
 the render wrote, ``{path, sha256, files}`` of the bytes on disk, and never
 ``facility.json``; the rendered ``hook_config.json`` carries the
-``measurement`` block, ``{kinds, groups, view_sha256}`` per model, with the
-same digest; ``pyaml_view_present`` is true exactly when a view was written.
+``measurement`` block, ``{kinds, groups, rf, view_sha256}`` per model, with
+the same digest; ``pyaml_view_present`` is true exactly when a view was written.
 """
 
 from __future__ import annotations
@@ -15,12 +15,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.facility.views.facts import FACTS_FILE, hook_measurement
-from osprey.facility.views.pyaml import measurement_groups
+from osprey.facility.views.pyaml import KIND_STEPPED, RF_PLANT_TYPE, measurement_groups
 from tests.facility._pyaml_trees import built_document, measured_tree, with_rf
 
 pytest.importorskip("pyaml")
@@ -96,13 +97,13 @@ def test_the_rendered_hook_block_lists_kinds_groups_and_the_same_digest(tmp_path
 
     assert hook_config["measurement"] == {
         "LINE": {
-            "kinds": {"orm": ["LINE_BPM", "LINE_HCM", "LINE_VCM"]},
+            "kinds": {"orm": {"hcor": "LINE_HCM", "vcor": "LINE_VCM"}},
             "groups": measurement_groups(document, "LINE"),
             "rf": [],
             "view_sha256": records["LINE"]["sha256"],
         },
         "SR": {
-            "kinds": {"trm": ["SR_Q"]},
+            "kinds": {"trm": {"quad": "SR_Q"}},
             "groups": measurement_groups(document, "SR"),
             "rf": [],
             "view_sha256": records["SR"]["sha256"],
@@ -127,7 +128,7 @@ def test_one_group_named_for_both_planes_gives_the_block_both_plane_arrays(
     tree["measurement/LINE.yaml"]["groups"]["vcor"] = "LINE/HCM"
     render = _render(tmp_path, tree, {})
     line = hook_measurement(_facts(render), render)["LINE"]
-    assert line["kinds"] == {"orm": ["LINE_BPM", "LINE_HCM_h", "LINE_HCM_v"]}
+    assert line["kinds"] == {"orm": {"hcor": "LINE_HCM_h", "vcor": "LINE_HCM_v"}}
     assert line["groups"] == {
         "bpm": ["LBPM:X", "LBPM:Y"],
         "hcor": ["LCOR:H:SP"],
@@ -141,3 +142,48 @@ def test_the_block_names_the_rf_setpoint_the_views_rf_plant_steps(tmp_path: Path
     block = hook_measurement(_facts(render), render)
     assert block["SR"]["rf"] == ["RF:SP"]
     assert block["LINE"]["rf"] == []
+
+
+def _with_crm(tree: dict[str, Any]) -> dict[str, Any]:
+    """``tree`` with SR's sextupole SX wired, named ``groups.sext`` and ``crm`` listed."""
+    tree["records/devices.yaml"].append({"id": "SR/SX", "class": "Sextupole"})
+    tree["records/channels.yaml"].append(
+        {"id": "SX:SP", "role": "setpoint", "on": {"device": "SR/SX"}}
+    )
+    tree["records/groups.yaml"].append({"id": "SR/S", "members": ["SR/SX"]})
+    (sr,) = [model for model in tree["models.yaml"] if model["name"] == "SR"]
+    sr["wiring"].append(
+        {"address": "SX:SP", "element": "SX", "engine": {"attribute": "PolynomB", "index": 2}}
+    )
+    tree["measurement/SR.yaml"]["groups"]["sext"] = "SR/S"
+    tree["measurement/SR.yaml"]["kinds"] = ["trm", "crm"]
+    tree["measurement/SR.yaml"]["sextu_delta"] = 0.01
+    return tree
+
+
+@pytest.mark.parametrize(
+    "tree", [measured_tree, lambda: _with_crm(with_rf(measured_tree()))], ids=["base", "crm"]
+)
+def test_the_block_lists_each_listed_kind_with_every_role_it_steps(
+    tmp_path: Path, tree: Any
+) -> None:
+    built = tree()
+    render = _render(tmp_path, built, {})
+    block = hook_measurement(_facts(render), render)
+    for model, entry in block.items():
+        listed = built[f"measurement/{model}.yaml"]["kinds"]
+        assert set(entry["kinds"]) == set(listed)
+        for kind, stepped in entry["kinds"].items():
+            assert set(stepped) == set(KIND_STEPPED[kind])
+
+
+def test_the_block_names_the_views_rf_plant_for_a_kind_that_steps_rf(tmp_path: Path) -> None:
+    render = _render(tmp_path, _with_crm(with_rf(measured_tree())), {})
+    configuration = yaml.safe_load(
+        (render / "data" / "pyaml" / "SR" / "configuration.yaml").read_text("utf-8")
+    )
+    (plant,) = [
+        device["name"] for device in configuration["devices"] if device.get("type") == RF_PLANT_TYPE
+    ]
+    block = hook_measurement(_facts(render), render)
+    assert block["SR"]["kinds"]["crm"] == {"rf": plant, "sext": "SR_S"}

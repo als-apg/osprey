@@ -2592,9 +2592,8 @@ def _measurement_block(**changes):
 
     block = {
         "kinds": {
-            "orm": ["SR_BPM", "SR_HCM", "SR_VCM"],
-            "trm": ["SR_QF"],
-            "chromaticity_monitor": [],
+            "orm": {"hcor": "SR_HCM", "vcor": "SR_VCM"},
+            "trm": {"quad": "SR_QF"},
         },
         "groups": {
             "bpm": ["SR:BPM:01:X", "SR:BPM:01:Y"],
@@ -2716,16 +2715,17 @@ def test_a_group_step_with_modulation_omitted_shows_unipolar(tmp_path, hook_runn
 
 _RF = ["SR:RF:FREQ:SP"]
 _SEXTS = ["SR:SF:01:SP", "SR:SF:02:SP", "SR:SD:01:SP"]
+_RF_PLANT = "DEFAULT_RF_PLANT"
 
 
 def _rf_block(**changes):
     block = _measurement_block(
         kinds={
-            "orm": ["SR_BPM", "SR_HCM", "SR_VCM"],
-            "dispersion": ["SR_BPM", "SR_HCM", "SR_VCM"],
-            "trm": ["SR_QF"],
-            "crm": ["SR_S"],
-            "chromaticity_monitor": [],
+            "orm": {"hcor": "SR_HCM", "vcor": "SR_VCM"},
+            "dispersion": {"rf": _RF_PLANT},
+            "trm": {"quad": "SR_QF"},
+            "crm": {"rf": _RF_PLANT, "sext": "SR_S"},
+            "chromaticity_monitor": {"rf": _RF_PLANT},
         },
         groups={
             "bpm": ["SR:BPM:01:X", "SR:BPM:01:Y"],
@@ -2744,7 +2744,7 @@ def _rf_block(**changes):
     ("kind", "stepped"),
     [
         ("dispersion", _RF),
-        ("crm", [*_SEXTS, *_RF]),
+        ("crm", [*_RF, *_SEXTS]),
         ("chromaticity_monitor", _RF),
     ],
 )
@@ -2942,15 +2942,12 @@ def test_the_hook_restates_what_the_tool_steps_and_its_defaults(hook_module):
     from osprey.mcp_server.python_executor.tools import _pyaml_measure_args as tool
 
     approval = hook_module("osprey_approval")
-    assert set(approval._PYAML_STEPPED) == set(tool.KINDS)
-    for kind in tool.KINDS:
-        assert approval._PYAML_STEPPED[kind] == tool.STEPPED[kind], kind
     assert approval._PYAML_BY_KINDS == tool.BY_KINDS
     assert approval._PYAML_DEFAULT_MODULATION == tool.DEFAULT_MODULATION
     assert approval._PYAML_DEFAULT_BY == tool.DEFAULT_BY
     assert approval._PYAML_GROUP == tool.GROUP
     assert approval._PYAML_GROUP_MODULATION == tool.GROUP_MODULATION
-    assert set(approval._PYAML_CORRECTOR_ROLES) <= set(approval._PYAML_STEPPED["orm"])
+    assert approval._PYAML_CORRECTOR_ROLES == tool._CORRECTOR_ROLES
 
 
 def test_the_hook_restates_the_view_writers_names(hook_module):

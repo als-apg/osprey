@@ -3307,17 +3307,11 @@ _PYAML_KIND_MEMBERS = {
     "chromaticity_monitor": ("tune", "rf"),
 }
 
-#: The setpoint groups and instruments each kind steps, in the order the
-#: prompt lists them; ``rf`` is the setpoint the view's RF plant steps.
+#: The stepped role the view's RF plant stands for; its setpoints are the block's ``rf``.
 _PYAML_RF = "rf"
+
+#: The stepped roles whose setpoints ``correctors`` may name.
 _PYAML_CORRECTOR_ROLES = ("hcor", "vcor")
-_PYAML_STEPPED = {
-    "orm": ("hcor", "vcor"),
-    "dispersion": (_PYAML_RF,),
-    "trm": ("quad",),
-    "crm": ("sext", _PYAML_RF),
-    "chromaticity_monitor": (_PYAML_RF,),
-}
 
 #: The kinds that take ``by``, and the request values an omitted argument
 #: takes; ``by`` ``group`` steps once from the present setting, so an omitted
@@ -3399,10 +3393,10 @@ def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str]:
         )
 
     groups = block.get("groups") or {}
-    stepped = _PYAML_STEPPED.get(kind, ())
+    stepped = (block.get("kinds") or {}).get(kind)
     correctors = tool_input.get("correctors")
     setpoints: list[str] = []
-    for role in stepped:
+    for role in sorted(stepped):
         if role == _PYAML_RF:
             rf = [str(address) for address in block.get(_PYAML_RF) or []]
             if not rf:
@@ -3435,13 +3429,11 @@ def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str]:
     if by is not None:
         lines.append(f"By: {_journal_text(by)}")
         if by == _PYAML_GROUP:
-            # The block lists a kind's arrays in the order of its group members.
-            roles = [m for m in _PYAML_KIND_MEMBERS.get(kind, ()) if m in groups]
-            arrays = (block.get("kinds") or {}).get(kind) or []
-            for role, array in zip(roles, arrays, strict=False):
-                if role in stepped:
-                    count = len(groups.get(role) or [])
-                    lines.append(f"  group {array} steps {count} setpoints as one knob")
+            for role, array in sorted(stepped.items()):
+                if role == _PYAML_RF:
+                    continue
+                count = len(groups.get(role) or [])
+                lines.append(f"  group {array} steps {count} setpoints as one knob")
     lines.append(f"pyAML view: {relative}")
     lines.append(f"  sha256 {digest}")
     lines.append(f"Setpoints stepped: {len(setpoints)}")

@@ -54,7 +54,6 @@ __all__ = [
     "GROUP_MODULATION",
     "KINDS",
     "MODULATIONS",
-    "STEPPED",
     "TIMEOUT_KEY",
     "MeasureArgs",
     "resolve_measure_args",
@@ -82,16 +81,6 @@ GROUP_MODULATION = "unipolar"
 
 #: The kinds that take ``correctors``.
 CORRECTOR_KINDS = ("orm",)
-
-#: The setpoints each kind writes: its group roles, and ``rf`` for the setpoint
-#: the view's RF plant steps. The approval prompt lists every one of them.
-STEPPED: dict[str, tuple[str, ...]] = {
-    "orm": ("hcor", "vcor"),
-    "dispersion": ("rf",),
-    "trm": ("quad",),
-    "crm": ("sext", "rf"),
-    "chromaticity_monitor": ("rf",),
-}
 
 #: The group roles whose setpoints ``correctors`` may name.
 _CORRECTOR_ROLES = ("hcor", "vcor")

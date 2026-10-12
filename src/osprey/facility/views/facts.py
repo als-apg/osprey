@@ -386,10 +386,10 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
             ``config.yml``, ``facility.json`` and ``data/``.
 
     Returns:
-        ``{model: {kinds: {kind: [array]}, groups: {group: [address]}, rf:
-        [address], view_sha256}}`` for each pyAML view, sorted by model:
-        ``kinds`` each kind the measurement file allows with the arrays of the
-        groups it needs, ``groups`` each group role with the addresses its
+        ``{model: {kinds: {kind: {role: name}}, groups: {group: [address]},
+        rf: [address], view_sha256}}`` for each pyAML view, sorted by model:
+        ``kinds`` each kind the file lists with the view name of each setpoint
+        role it steps (``rf`` the RF plant), ``groups`` each group role with the addresses its
         array's members stand for, ``bpm`` both planes of each BPM, ``rf`` the
         setpoint each of the view's RF plants steps, empty when it has none.
     """
@@ -399,7 +399,7 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
     import yaml
 
     from osprey.facility import FACILITY_FILE
-    from osprey.facility.views.pyaml import KIND_MEMBERS, RF_PLANT_TYPE, view_names
+    from osprey.facility.views.pyaml import KIND_STEPPED, RF_PLANT_TYPE, view_names
     from pyaml_cs_osprey.catalog import parse_reference
 
     doc = json.loads((render_root / FACILITY_FILE).read_text(encoding="utf-8"))
@@ -416,9 +416,20 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
             for role, group in (measurement.get("groups") or {}).items()
             if names.array_name(str(role), str(group)) in arrays
         }
+        rf: list[str] = []
+        plant = None
+        for device in devices.values():
+            if device.get("type") != RF_PLANT_TYPE:
+                continue
+            plant = str(device["name"])
+            if "masterclock" in device:
+                rf.append(parse_reference(device["masterclock"]).address)
         block[str(model)] = {
             "kinds": {
-                str(kind): [array_of[m] for m in KIND_MEMBERS[str(kind)] if m in array_of]
+                str(kind): {
+                    role: (plant if role == "rf" else array_of[role])
+                    for role in KIND_STEPPED[str(kind)]
+                }
                 for kind in measurement.get("kinds") or []
             },
             "groups": {
@@ -429,11 +440,7 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
                 ]
                 for role, array in array_of.items()
             },
-            "rf": sorted(
-                parse_reference(device["masterclock"]).address
-                for device in devices.values()
-                if device.get("type") == RF_PLANT_TYPE and "masterclock" in device
-            ),
+            "rf": sorted(rf),
             "view_sha256": record.get("sha256"),
         }
     return block

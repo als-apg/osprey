@@ -21,8 +21,9 @@
   compares against a deployment's stale deny list; every other consumer reads
   `write_tools`, which is unchanged.
 
-  `measurement` is each pyAML view's block, `{kinds, groups, view_sha256}` per
-  model, as the build read it from the view; `{}` when the render has none.
+  `measurement` is each pyAML view's block, `{kinds, groups, rf, view_sha256}`
+  per model, as the build read it from the view; `kinds` maps each listed kind
+  to the view name of each setpoint role it steps; `{}` when the render has none.
 -#}
 {%- set server_pfx = [] -%}
 {%- set approval_pfx = [] -%}
