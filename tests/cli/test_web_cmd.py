@@ -1249,13 +1249,12 @@ class TestPreflightAuthSecret:
 
         assert result.exit_code == 0
 
-    def test_credential_error_reported_not_hidden(self, runner, monkeypatch, deployment):
-        """A telemetry-credential failure explains itself instead of vanishing.
+    def test_a_missing_telemetry_login_fails_preflight(self, runner, monkeypatch, deployment):
+        """A launch without its gateway login is a server that refuses at startup.
 
         `ObservabilityCredentialError` subclasses `ValueError`, so the broad
-        skip below would swallow it and leave pre-flight silent about a read
-        that never happened. The launch still proceeds: telemetry credentials
-        say nothing about whether the terminal can authenticate.
+        skip below would swallow it; pre-flight names the variable instead of
+        launching into the refusal.
         """
         from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 
@@ -1264,7 +1263,7 @@ class TestPreflightAuthSecret:
 
         def _raise(*_a, **_kw):
             raise ObservabilityCredentialError(
-                "openobserve.user / openobserve.password are missing or blank"
+                "OSPREY_TELEMETRY_LOGIN is unset or blank", ("OSPREY_TELEMETRY_LOGIN",)
             )
 
         monkeypatch.setattr("osprey.agent_runner.provider_env.load_provider_spec", _raise)
@@ -1276,10 +1275,9 @@ class TestPreflightAuthSecret:
             catch_exceptions=False,
         )
 
-        assert result.exit_code == 0
-        assert "⚠" in result.stderr
-        assert "provider auth check skipped" in result.stderr
-        assert "openobserve.password" in result.stderr
+        assert result.exit_code == 1
+        assert "OSPREY_TELEMETRY_LOGIN" in result.output
+        assert "provider auth check skipped" not in result.output + result.stderr
 
     def test_unrelated_value_error_still_skips_quietly(self, runner, monkeypatch, deployment):
         """The narrow arm must not widen the catch it sits in front of.

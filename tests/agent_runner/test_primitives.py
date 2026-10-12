@@ -378,121 +378,49 @@ def test_e2e_force_inert_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Telemetry credentials a deploy has not issued yet
+# The gateway login an agent spawn needs
 # ---------------------------------------------------------------------------
 
 
-def _telemetry_config(project_dir: Path, password: str) -> None:
-    """Write a config whose telemetry block names ``password`` as its secret.
-
-    Shaped like the block every bundled preset ships: an OpenObserve backend
-    with no explicit endpoint (it derives one) and a user that already has a
-    value, so the password is the only credential a test is varying.
-    """
+def _gateway_config(project_dir: Path) -> None:
+    """Write a config whose telemetry block sends to the deployment's gateway."""
     (project_dir / "config.yml").write_text(
         "claude_code:\n"
         "  provider: anthropic\n"
         "  telemetry:\n"
         "    enabled: true\n"
-        "    backend: openobserve\n"
-        "    openobserve:\n"
-        "      user: ingest@example.com\n"
-        f"      password: {password}\n"
-        "      org: default\n",
+        "    backend: gateway\n",
         encoding="utf-8",
     )
 
 
-class TestTelemetryCredentialNotIssuedYet:
-    """Spawning an agent in a project that has never run ``osprey up``.
+class TestTelemetryLoginAtSpawn:
+    """An agent spawned without its gateway login is refused, never degraded.
 
-    The shipped telemetry block names ``${ZO_INGEST_SA_TOKEN}`` with no
-    fallback, and the store mints that token into the repo's ``.env`` only when
-    a deploy starts it. Resolving the provider resolves telemetry too, so
-    without a carve-out every agent spawned against a built-but-undeployed
-    project dies on a value the operator has no way to supply.
-
-    Same rule as ``osprey chat``: as wide as the store-issued registry and no
-    wider. Every other unresolved credential is an ordinary missing secret and
-    keeps refusing.
+    The gateway refuses an unauthenticated sender, so a run started without the
+    login would drop every record behind a healthy-looking session.
     """
 
     @pytest.fixture(autouse=True)
-    def _no_ambient_store_credentials(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A developer machine that happens to export the token would hide the bug."""
-        monkeypatch.delenv("ZO_INGEST_SA_TOKEN", raising=False)
-        monkeypatch.delenv("OPERATOR_OTLP_SECRET", raising=False)
+    def _host_launch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
+        monkeypatch.delenv("OSPREY_OTEL_GATEWAY_HOST", raising=False)
 
-    def test_the_token_under_test_is_really_store_issued(self) -> None:
-        """Guards every assertion below from passing for the wrong reason."""
-        from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
-
-        assert "ZO_INGEST_SA_TOKEN" in _STORE_ISSUED_VARS
-        assert "OPERATOR_OTLP_SECRET" not in _STORE_ISSUED_VARS
-
-    def test_an_unissued_store_credential_resolves_without_telemetry(self, tmp_path: Path) -> None:
-        _telemetry_config(tmp_path, "${ZO_INGEST_SA_TOKEN}")
-
-        env = provider_env_for_project(tmp_path)
-
-        # Degraded, not deferred: an exporter without its auth header would post
-        # to an auth-gated store and drop every span, so the whole block goes.
-        assert "CLAUDE_CODE_ENABLE_TELEMETRY" not in env
-        assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in env
-        # The provider half of the same read is untouched — the run still routes.
-        assert env["ANTHROPIC_MODEL"]
-
-    def test_the_caller_is_told_which_verb_issues_it(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Silence would read as "this project has no telemetry configured"."""
-        _telemetry_config(tmp_path, "${ZO_INGEST_SA_TOKEN}")
-
-        with caplog.at_level("WARNING", logger="osprey.agent_runner.primitives"):
-            provider_env_for_project(tmp_path)
-
-        assert "ZO_INGEST_SA_TOKEN" in caplog.text
-        assert "osprey up" in caplog.text
-
-    def test_an_operator_supplied_credential_still_raises(self, tmp_path: Path) -> None:
-        """The carve-out reads the registry, not "unresolved" — this one is a
-        real missing secret, and a run started without it would hide a broken
-        pipeline behind a warning."""
+    def test_a_missing_login_raises(self, tmp_path: Path) -> None:
         from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 
-        _telemetry_config(tmp_path, "${OPERATOR_OTLP_SECRET}")
-
-        with pytest.raises(ObservabilityCredentialError):
-            provider_env_for_project(tmp_path)
-
-    def test_a_mixed_refusal_is_not_deferred(self, tmp_path: Path) -> None:
-        """One name in the set the operator does have to supply and the whole set
-        stands refused."""
-        from osprey.build.claude_code_telemetry import ObservabilityCredentialError
-
-        _telemetry_config(tmp_path, "${OPERATOR_OTLP_SECRET}${ZO_INGEST_SA_TOKEN}")
+        _gateway_config(tmp_path)
 
         with pytest.raises(ObservabilityCredentialError) as caught:
             provider_env_for_project(tmp_path)
 
-        assert caught.value.unresolved_vars == ("OPERATOR_OTLP_SECRET", "ZO_INGEST_SA_TOKEN")
+        assert caught.value.unresolved_vars == ("OSPREY_TELEMETRY_LOGIN",)
 
-    def test_a_blank_credential_still_raises(self, tmp_path: Path) -> None:
-        """No variable is named at all, so there is nothing a deploy could issue."""
-        from osprey.build.claude_code_telemetry import ObservabilityCredentialError
-
-        _telemetry_config(tmp_path, '""')
-
-        with pytest.raises(ObservabilityCredentialError):
-            provider_env_for_project(tmp_path)
-
-    def test_a_resolvable_token_keeps_telemetry_on(
+    def test_a_login_keeps_telemetry_on(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The deferral is about absence only — once a deploy has written the
-        token, the same config resolves and the run exports normally."""
-        _telemetry_config(tmp_path, "${ZO_INGEST_SA_TOKEN}")
-        monkeypatch.setenv("ZO_INGEST_SA_TOKEN", "issued-by-the-store")
+        _gateway_config(tmp_path)
+        monkeypatch.setenv("OSPREY_TELEMETRY_LOGIN", "operator:s3cret")
 
         env = provider_env_for_project(tmp_path)
 

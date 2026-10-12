@@ -88,8 +88,8 @@ included — also files one record on the opt-in ``tool_call`` surface
 (:mod:`osprey.audit.tool_call`): the full arguments and result, the control
 target and generation at entry, the approval answer, the facts the tool noted,
 the words the default record got, and the call's duration. It goes to
-``tool_call.jsonl`` and to the telemetry store (:mod:`osprey.audit.otlp`). The
-default record is the same either way.
+``tool_call.jsonl``, which the telemetry gateway reads into the store like every
+other ledger file. The default record is the same either way.
 
 **Nothing here may cost the call it records.** Records go through
 :func:`~osprey.audit.writer.record`, which builds the envelope and appends it
@@ -112,7 +112,7 @@ from typing import TYPE_CHECKING, Any
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.middleware import CallNext, Middleware, MiddlewareContext
 
-from osprey.audit import otlp, posture, tool_call, writer
+from osprey.audit import posture, tool_call, writer
 from osprey.audit.call import (
     DETAIL_FACTS,
     TOOL_USE_ID_META_KEY,
@@ -759,7 +759,6 @@ def _file_tool_call(
             duration_ms=duration_ms,
         )
         writer.append_record(tool_call.SURFACE_TOOL_CALL, full)
-        otlp.emit(full)
     except Exception:
         logger.warning("Could not file the full tool_call record", exc_info=True)
 

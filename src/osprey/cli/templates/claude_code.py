@@ -844,20 +844,20 @@ def build_claude_code_context(
 
     # Model provider resolution for Claude Code
     from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
-    from osprey.build.claude_code_telemetry import openobserve_published_port
+    from osprey.build.claude_code_telemetry import build_gateway_url
 
     api_providers = config.get("api", {}).get("providers", {})
     try:
         # Build time: telemetry credentials may legitimately be the
         # deployment's to supply (the runtime re-resolves them at agent-spawn),
         # so an unresolved ${VAR} omits the auth header instead of aborting.
-        # The store's port is the one this config publishes — never the
+        # The gateway's address is the one this config publishes — never the
         # builder's environment, which a rendered artifact must not bake in.
         model_spec = ClaudeCodeModelResolver.resolve(
             claude_code_config,
             api_providers,
             defer_unresolved_telemetry_creds=True,
-            openobserve_port=openobserve_published_port(config),
+            gateway_url=build_gateway_url(config),
         )
     except ValueError as exc:
         warnings.warn(str(exc), stacklevel=2)

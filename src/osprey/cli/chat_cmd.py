@@ -338,10 +338,6 @@ def chat(
         inject_provider_env,
         load_provider_spec,
     )
-    from osprey.build.claude_code_telemetry import (
-        ObservabilityCredentialError,
-        telemetry_creds_are_store_issued,
-    )
     from osprey.deployment.staleness import BUILD_DIRNAME
 
     repo_root = find_repo_root(repo)
@@ -360,6 +356,13 @@ def chat(
     # afterwards — it has to be taken while the overlay's values are not yet in.
     shell_managed_env = _snapshot_managed_env()
     _overlay_repo_env(repo_root)
+    # Who this session is, to the ledger and to the telemetry gateway alike:
+    # the one name the build recorded, with that name's login.
+    from osprey.build.claude_code_telemetry import export_host_terminal_session
+    from osprey.deployment.telemetry_credentials import export_built_host_identity
+
+    export_built_host_identity(os.environ, repo_root)
+    export_host_terminal_session(os.environ)
 
     config_path = build_dir / "config.yml"
     try:
@@ -379,27 +382,6 @@ def chat(
         spec = load_provider_spec(build_dir)
     except yaml.YAMLError as exc:
         raise _unreadable_config(config_path, exc) from exc
-    except ObservabilityCredentialError as exc:
-        # Keep this arm ahead of any broader one added later: it subclasses
-        # ValueError, so an `except ValueError` below would swallow it whole.
-        #
-        # Resolving the provider also resolves the telemetry block, so an
-        # observability credential that does not exist yet arrives as a failure
-        # to read the provider — and on a deployment that has never run
-        # `osprey up`, the store-issued token in the shipped telemetry block is
-        # exactly that. Drop telemetry for this session and start; the session
-        # is read-oriented, ends when the operator closes it, and losing its
-        # traces is not a reason to withhold the agent. Anything else — a
-        # credential an operator has to set, or one that is simply blank —
-        # keeps raising untouched.
-        if not telemetry_creds_are_store_issued(exc):
-            raise
-        output.warn(
-            "Telemetry is off for this session",
-            f"`osprey up` issues {', '.join(exc.unresolved_vars)} when it starts the "
-            "telemetry store, and this deployment has not been started yet.",
-        )
-        spec = load_provider_spec(build_dir, include_telemetry=False)
 
     if spec is None:
         # No provider configured, so inject_provider_env — the only caller of

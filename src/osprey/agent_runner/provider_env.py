@@ -29,12 +29,13 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from osprey.build.claude_code_telemetry import (
+    GATEWAY_BACKEND,
     TELEMETRY_ENV_VARS,
+    TELEMETRY_LOGIN_ENV,
+    TERMINAL_SESSION_ENV,
     _build_telemetry_env,
-    _openobserve_host_override,
-    _running_in_container,
-    resolve_openobserve_port,
     telemetry_auth_token_env,
+    telemetry_backend,
 )
 from osprey.models.display import CLAUDE_CODE_ALIASES, claude_code_alias_candidates
 from osprey.models.provider_registry import PROVIDER_API_KEYS, get_provider_registry
@@ -622,6 +623,13 @@ def load_provider_spec(
     contract is a synthetic config plus litellm ``api_base``, not a spec — but
     expands and refuses the same way this does.
 
+    A launch on the host sends under the identity the build recorded
+    (``deployment.host_identity``), with the login ``osprey build`` filed for it
+    in the env directory, so every host launcher reads the same login without
+    exporting it first. A rendered container keeps the login its compose file
+    gave it, and a build-time resolution (``defer_unresolved_telemetry_creds``)
+    reads none: a render never carries the login.
+
     Args:
         project_dir: Directory holding the ``config.yml`` to resolve.
         env_dir: Directory holding the deployment's ``.env``, when it is not the
@@ -653,7 +661,12 @@ def load_provider_spec(
     raw = yaml_loader.safe_load((project_dir / "config.yml").read_text()) or {}
 
     # Build an os.environ + .env overlay (.env wins) WITHOUT mutating os.environ.
-    lookup: dict[str, str] = _env_lookup(Path(env_dir) if env_dir is not None else project_dir)
+    env_root = Path(env_dir) if env_dir is not None else project_dir
+    lookup: dict[str, str] = _env_lookup(env_root)
+    if include_telemetry and not defer_unresolved_telemetry_creds:
+        from osprey.deployment.telemetry_credentials import export_host_launch_identity
+
+        export_host_launch_identity(lookup, env_root, raw if isinstance(raw, Mapping) else None)
 
     cfg = resolve_env_vars(raw, environ=lookup)
     cc_config = cfg.get("claude_code", {})
@@ -668,14 +681,37 @@ def load_provider_spec(
         include_telemetry=include_telemetry,
         defer_unresolved_telemetry_creds=defer_unresolved_telemetry_creds,
         environ=lookup,
-        # A runtime launch: the deploy environment's port declaration wins,
-        # else the port this deployment publishes the store on. Resolved only
-        # when telemetry is being built: it is a telemetry input, and a
-        # malformed port must not poison provider resolution for a caller
-        # that asked for none (the dispatch worker's degrade-and-retry relies
-        # on include_telemetry=False never raising a telemetry fault).
-        openobserve_port=resolve_openobserve_port(cfg) if include_telemetry else None,
+        # A runtime launch: the gateway address the deploy environment
+        # declares, else the published port from the host. Resolved only when
+        # telemetry is being built: it is a telemetry input, and a malformed
+        # port must not poison provider resolution for a caller that asked for
+        # none (the dispatch worker's degrade-and-retry relies on
+        # include_telemetry=False never raising a telemetry fault).
+        gateway_url=_runtime_gateway_url(cfg, lookup) if include_telemetry else None,
     )
+
+
+def _runtime_gateway_url(cfg: Mapping[str, Any], lookup: Mapping[str, str]) -> str | None:
+    """The gateway a runtime launch with environment *lookup* posts to, or ``None``.
+
+    ``None`` when the telemetry block is off or names no gateway backend.
+
+    Raises:
+        TelemetryConfigError: When the backend is unknown or the environment's
+            gateway port is not a port.
+    """
+    from osprey.build.claude_code_telemetry import TelemetryConfigError
+    from osprey.deployment.telemetry_config import runtime_gateway_url
+
+    telemetry_cfg = (cfg.get("claude_code") or {}).get("telemetry")
+    if not isinstance(telemetry_cfg, dict) or not telemetry_cfg.get("enabled"):
+        return None
+    if telemetry_backend(telemetry_cfg) != GATEWAY_BACKEND:
+        return None
+    try:
+        return runtime_gateway_url(cfg, lookup)
+    except ValueError as exc:
+        raise TelemetryConfigError(str(exc)) from None
 
 
 @dataclass(frozen=True)
@@ -995,7 +1031,7 @@ class ClaudeCodeModelResolver:
         include_telemetry: bool = True,
         defer_unresolved_telemetry_creds: bool = False,
         environ: Mapping[str, str] | None = None,
-        openobserve_port: int | None = None,
+        gateway_url: str | None = None,
     ) -> ClaudeCodeModelSpec | None:
         """Build a ``ClaudeCodeModelSpec`` from config.
 
@@ -1038,15 +1074,13 @@ class ClaudeCodeModelResolver:
                 :func:`load_provider_spec` passes its ``os.environ`` +
                 project-``.env`` overlay, which is what enables the override on
                 every runtime path.
-            openobserve_port: The port the telemetry store is reached on from
-                where this spec will run — ``services.openobserve.port`` for a
-                build-time render, the deploy environment's declaration or
-                that same key for a runtime launch
-                (:func:`~osprey.build.claude_code_telemetry.resolve_openobserve_port`).
-                Threaded in rather than read here, for the same reason as
-                ``environ``: this method also renders ``settings.json`` at
-                build time. Omitted, the derived endpoint falls back to the
-                store's listen port.
+            gateway_url: The telemetry gateway's OTLP/HTTP base URL from where
+                this spec will run — ``telemetry_config.gateway_url`` for a
+                build-time render, ``telemetry_config.runtime_gateway_url`` for
+                a runtime launch. Threaded in rather than read here, for the
+                same reason as ``environ``. The gateway login
+                (``OSPREY_TELEMETRY_LOGIN``) and the terminal session
+                (``OSPREY_TERMINAL_SESSION``) are read from ``environ``.
 
         Returns:
             Resolved spec, or ``None`` when no provider is configured.
@@ -1223,8 +1257,8 @@ class ClaudeCodeModelResolver:
         _upstream_url = base_url if _needs_proxy else None
 
         # ── Telemetry (absent block == disabled → helper returns {}) ──
-        # Container context is the ONE place fs/env is consulted; the helper
-        # itself stays pure. Telemetry keys are deliberately excluded from
+        # The gateway address, login and terminal session are resolved here
+        # or by the caller; the helper itself stays pure. Telemetry keys are deliberately excluded from
         # MANAGED_ENV_VARS (they are not backend/model selectors).
         # Telemetry is an observability concern, not a provider/model selector.
         # Callers that only read model ids (model-id readers) or that must
@@ -1244,9 +1278,9 @@ class ClaudeCodeModelResolver:
             env_block.update(
                 _build_telemetry_env(
                     telemetry_cfg,
-                    in_container=_running_in_container(),
-                    openobserve_host=_openobserve_host_override(),
-                    openobserve_port=openobserve_port,
+                    gateway_url=gateway_url,
+                    telemetry_login=env_lookup.get(TELEMETRY_LOGIN_ENV),
+                    terminal_session=env_lookup.get(TERMINAL_SESSION_ENV),
                     defer_unresolved_creds=defer_unresolved_telemetry_creds,
                     auth_token=env_lookup.get(token_env) if token_env else None,
                 )

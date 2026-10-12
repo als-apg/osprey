@@ -554,15 +554,16 @@ def _render(repo: Path, name: str = "ops-app", *, complete: bool = True) -> Path
     return project
 
 
-def _persona_config(repo: Path, deployed_services=("openobserve",), **persona_overrides):
+def _persona_config(
+    repo: Path, deployed_services=("telemetry_store", "telemetry_gateway"), **persona_overrides
+):
     """A local-mode config whose single persona 'ops' renders to build/ops-app.
 
     Defaults to the ``build_profile`` ``osprey init`` emits; pass
     ``build_profile=None`` to drop it, or another value to exercise a rejection.
 
-    Deploys the telemetry store by default — the shipped shape, and the only
-    one in which a start issues the ingest token itself. Pass an empty
-    ``deployed_services`` for a config pointed at somebody else's store.
+    Deploys the telemetry store and its gateway by default — the shipped
+    shape. Pass an empty ``deployed_services`` for a config that runs neither.
     """
     persona = {
         "project": "ops-app",
@@ -750,7 +751,7 @@ def test_a_persona_placeholder_resolves_from_the_repo_env(tmp_path, calls, monke
     assert calls == []
 
 
-def _telemetry_render(repo: Path, password_line: str) -> Path:
+def _telemetry_render(repo: Path, telemetry_lines: str) -> Path:
     """A complete render whose model is fine and whose telemetry block varies.
 
     The model is deliberately servable in every one of these: the point is what
@@ -763,29 +764,28 @@ def _telemetry_render(repo: Path, password_line: str) -> Path:
         "  provider: anthropic\n"
         "  default_model: claude-sonnet-5\n"
         "  telemetry:\n"
-        "    enabled: true\n"
-        "    backend: openobserve\n" + password_line,
+        "    enabled: true\n" + telemetry_lines,
         encoding="utf-8",
     )
     return project_path
 
 
 def test_unresolved_observability_credential_is_not_a_model_problem(tmp_path, calls, monkeypatch):
-    """An observability credential nothing on the host resolves is reported as
-    a credential, with the file it belongs in.
+    """A collector token nothing on the host resolves is reported as a
+    credential, with the file it belongs in.
 
     Both failures come out of the same resolve and the credential one is a
     ValueError too, so the general frame would otherwise tell an operator whose
-    store password is unset to go and fix their model — an edit to a profile
+    collector token is unset to go and fix their model — an edit to a profile
     that was never wrong, leaving the actual gap in place.
     """
-    monkeypatch.delenv("OBSERVABILITY_PASSWORD", raising=False)
+    monkeypatch.delenv("OBSERVABILITY_TOKEN", raising=False)
     repo = _repo(tmp_path, "ops")
     project_path = _telemetry_render(
         repo,
-        "    openobserve:\n"
-        "      user: operator@example.com\n"
-        "      password: ${OBSERVABILITY_PASSWORD}\n",
+        "    endpoint: https://collector.example.org:4318\n"
+        "    auth:\n"
+        "      token_env: OBSERVABILITY_TOKEN\n",
     )
 
     with pytest.raises(ValueError) as excinfo:
@@ -795,158 +795,27 @@ def test_unresolved_observability_credential_is_not_a_model_problem(tmp_path, ca
     assert "observability credentials this deployment cannot resolve" in message
     assert str(project_path) in message
     # The variable to set, and the one file that will be read for it -- a name,
-    # never a value, since an unresolved placeholder has none to print.
-    assert "OBSERVABILITY_PASSWORD" in message
-    assert f'echo "OBSERVABILITY_PASSWORD=<value>" >> {repo / ".env"}' in message
-    assert "`osprey up` mints" in message
+    # never a value, since an unset variable has none to print.
+    assert "OBSERVABILITY_TOKEN" in message
+    assert f'echo "OBSERVABILITY_TOKEN=<value>" >> {repo / ".env"}' in message
     # And emphatically not the other remedy.
     assert "Fix the model in this deployment's profile" not in message
     assert isinstance(excinfo.value.__cause__, ObservabilityCredentialError)
     assert calls == []
 
 
-def test_a_blank_observability_credential_names_the_config_keys(tmp_path, calls):
-    """Nothing declared at all: there is no variable name to hand back, so the
-    remedy names the config keys instead of inventing one."""
+def test_a_gateway_render_without_a_login_on_this_host_is_accepted(tmp_path, calls, monkeypatch):
+    """The persona's gateway login reaches its container through that
+    container's own ``env_file``, never this host's environment, so its
+    absence here says nothing about the launch."""
+    monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
+    monkeypatch.delenv("OSPREY_OTEL_GATEWAY_HOST", raising=False)
     repo = _repo(tmp_path, "ops")
-    _telemetry_render(repo, "    openobserve:\n      org: default\n")
+    _telemetry_render(repo, "    backend: gateway\n")
 
-    with pytest.raises(ValueError) as excinfo:
-        persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
+    persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
 
-    message = str(excinfo.value)
-    assert "openobserve.user" in message and "openobserve.password" in message
-    assert str(repo / ".env") in message
-    assert "Fix the model in this deployment's profile" not in message
     assert calls == []
-
-
-def test_a_store_issued_credential_absent_before_the_first_start_is_accepted(
-    tmp_path, calls, monkeypatch, caplog
-):
-    """The deadlock this carve-out exists to prevent.
-
-    The shipped telemetry blocks authenticate as the store's ingest service
-    account, whose token the STORE issues -- and `osprey up` harvests it at the
-    openobserve staging step, which runs AFTER this gate. Refusing here would
-    abort every first start for the absence of a value only that aborted start
-    could have produced, with a remedy ("set it in .env") no operator can
-    carry out.
-    """
-    monkeypatch.delenv("ZO_INGEST_SA_TOKEN", raising=False)
-    repo = _repo(tmp_path, "ops")
-    _telemetry_render(
-        repo,
-        "    openobserve:\n"
-        "      user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}\n"
-        "      password: ${ZO_INGEST_SA_TOKEN}\n",
-    )
-
-    with caplog.at_level("WARNING"):
-        persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
-
-    # Not silent: the operator is told the value is coming and that there is
-    # nothing to do, which is a different statement from "all resolved".
-    assert "ZO_INGEST_SA_TOKEN" in caplog.text
-    assert "Nothing to set by hand." in caplog.text
-    assert calls == []
-
-
-def test_the_carve_out_reads_the_store_issued_registry_not_a_local_list():
-    """Stated against the registry so a var added there is covered here on the
-    same commit, and so this test fails rather than passing vacuously if the
-    registry is ever emptied."""
-    from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
-
-    deploys_them = {"deployed_services": [v.service for v in _STORE_ISSUED_VARS.values()]}
-
-    assert "ZO_INGEST_SA_TOKEN" in _STORE_ISSUED_VARS
-    assert persona_images._all_store_issued(sorted(_STORE_ISSUED_VARS), deploys_them)
-    assert not persona_images._all_store_issued(["NOT_A_STORE_ISSUED_VAR"], deploys_them)
-
-
-def test_the_carve_out_needs_the_deploy_to_actually_run_the_store():
-    """Registered as store-issued is not enough: a deploy that does not run the
-    store issues nothing, so the same variable is an operator requirement there."""
-    from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
-
-    assert not persona_images._all_store_issued(
-        sorted(_STORE_ISSUED_VARS),
-        {"deployed_services": []},
-    )
-
-
-def test_an_external_store_refuses_the_unresolved_ingest_token(tmp_path, calls, monkeypatch):
-    """The refusal an external-store deploy must keep.
-
-    Nothing in a deploy that does not run OpenObserve provisions the ingest
-    token -- `_stage_openobserve_identity` is a no-op there -- so deferring it
-    would build persona images whose telemetry password stays the literal
-    `${ZO_INGEST_SA_TOKEN}`, under a warning telling the operator there was
-    nothing to set. The variable is named, and so is the fact that no start
-    will produce it.
-    """
-    monkeypatch.delenv("ZO_INGEST_SA_TOKEN", raising=False)
-    repo = _repo(tmp_path, "ops")
-    _telemetry_render(
-        repo,
-        "    openobserve:\n"
-        "      user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}\n"
-        "      password: ${ZO_INGEST_SA_TOKEN}\n",
-    )
-
-    with pytest.raises(ValueError) as excinfo:
-        persona_images.verify_persona_renders(
-            _persona_config(repo, deployed_services=()), _PERSONA_USERS, repo_root=repo
-        )
-
-    message = str(excinfo.value)
-    assert "ZO_INGEST_SA_TOKEN" in message
-    assert str(repo / ".env") in message
-    assert "does not run the observability store itself" in message
-    # The store-deploying deploy's remedy would send this operator to run a
-    # start that provisions nothing.
-    assert "`osprey up` mints" not in message
-    assert calls == []
-
-
-def test_a_mixed_set_of_unresolved_credentials_still_refuses(tmp_path, calls, monkeypatch):
-    """Fail-closed, all-or-nothing: one name an operator does have to supply and
-    the refusal stands for the whole set.
-
-    A mixed report told "nothing to do here" would leave the operator to
-    discover the real gap from a container that failed to authenticate.
-    """
-    monkeypatch.delenv("ZO_INGEST_SA_TOKEN", raising=False)
-    monkeypatch.delenv("OBSERVABILITY_USER", raising=False)
-    repo = _repo(tmp_path, "ops")
-    _telemetry_render(
-        repo,
-        "    openobserve:\n"
-        "      user: ${OBSERVABILITY_USER}\n"
-        "      password: ${ZO_INGEST_SA_TOKEN}\n",
-    )
-
-    with pytest.raises(ValueError) as excinfo:
-        persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
-
-    assert "OBSERVABILITY_USER" in str(excinfo.value)
-    assert calls == []
-
-
-def test_the_messages_own_placeholder_token_is_not_reported_as_a_variable():
-    """The credential error's prose carries a literal ``${VAR}`` of its own.
-
-    Left in, it reads as a variable named VAR that the operator is told to set,
-    and -- since this carve-out is all-or-nothing -- it would also veto every
-    store-issued deferral by never being store-issued itself.
-    """
-    message = (
-        "openobserve.password still contains an unresolved '${VAR}': "
-        "'${ZO_INGEST_SA_TOKEN}'. The referenced environment variable is unset."
-    )
-
-    assert persona_images._unresolved_placeholder_names(message) == ["ZO_INGEST_SA_TOKEN"]
 
 
 def test_an_unservable_model_still_gets_the_model_remedy(tmp_path, calls):
@@ -967,10 +836,7 @@ def test_an_unservable_model_still_gets_the_model_remedy(tmp_path, calls):
         "  provider: my-gateway\n"
         "  telemetry:\n"
         "    enabled: true\n"
-        "    backend: openobserve\n"
-        "    openobserve:\n"
-        "      user: operator@example.com\n"
-        "      password: not-a-placeholder\n",
+        "    endpoint: https://collector.example.org:4318\n",
         encoding="utf-8",
     )
 
