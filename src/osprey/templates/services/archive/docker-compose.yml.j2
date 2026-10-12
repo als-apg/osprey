@@ -17,9 +17,9 @@
 # one pass at start, then one every `services.archive.interval_seconds`. A pass
 # copies what changed since the last one — web-terminal and dispatch
 # transcripts, dispatch run records, artifact stores, plan-queue history, the
-# audit ledger — and, when the deployment runs OpenObserve, every completed day
-# of its logs and traces. Every source is mounted read-only; the archive never
-# deletes or rewrites a copy.
+# audit ledger — and, when the deployment runs the telemetry store, every
+# completed day of its tables and query log as Parquet. Every source is mounted
+# read-only; the archive never deletes or rewrites a copy.
 #
 # It runs the PROJECT image (<project>:local) that `osprey up` builds from the
 # project root, and overrides only its entrypoint. OSPREY_WORKER_IMAGE
@@ -52,10 +52,13 @@ services:
     cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
     labels:
       # Content fingerprint of the env chain (runtime_helper's
-      # env_chain_digest, carried in by OSPREY_ENV_DIGEST). The telemetry
-      # store's ingest credentials arrive through the chain, so a rotated token
+      # env_chain_digest, carried in by OSPREY_ENV_DIGEST). A changed chain
       # has to recreate this container.
       osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+{%- if 'telemetry_store' in (deployed_services | default([], true)) %}
+      # The same trigger for the archive's own store account file.
+      osprey.telemetry.cred.digest: "${OSPREY_TELEMETRY_DIGEST_ARCHIVE:-}"
+{%- endif %}
     restart: unless-stopped
     # No `ports:` and no `healthcheck:`: this service opens no socket. Its
     # liveness is the `archive_last_pass` health row reading the archive's own
@@ -77,36 +80,34 @@ services:
         condition: service_started
 {%- endfor %}
 {%- endif %}
-{%- if osprey_env_chain | default([]) %}
+{%- if osprey_env_chain | default([]) or 'telemetry_store' in (deployed_services | default([], true)) %}
 
     # The deployment's env is a CHAIN of files at the repo root, in ASCENDING
-    # precedence; a later entry wins on any key an earlier one also sets. The
-    # telemetry store's ingest credentials (ZO_INGEST_USER_EMAIL,
-    # ZO_INGEST_SA_TOKEN) arrive this way — never on the command line, where
-    # the process list would show them. Only files that exist at render time
-    # are listed.
+    # precedence; a later entry wins on any key an earlier one also sets.
+    # Credentials arrive this way — never on the command line, where the
+    # process list would show them. Only files that exist at render time are
+    # listed.
     env_file:
-{%- for env_chain_file in osprey_env_chain %}
+{%- for env_chain_file in osprey_env_chain | default([]) %}
       - {{ env_chain_file }}
 {%- endfor %}
+{%- if 'telemetry_store' in (deployed_services | default([], true)) %}
+      # The archive's account on the telemetry store: its own file at the
+      # repo root, listed whenever the store is deployed — `osprey build`
+      # creates it before this file is rendered.
+      - .env.telemetry-archive
+{%- endif %}
 {%- endif %}
 
     environment:
       OSPREY_ARCHIVE_SOURCES: /archive/sources
       OSPREY_ARCHIVE_DEST: /archive/dest
       OSPREY_ARCHIVE_INTERVAL_SECONDS: "{{ src.interval_seconds }}"
-{%- if src.openobserve %}
-{%- if on_host %}
-      # On the host namespace this container's loopback IS the host's, so the
-      # store is reached where it publishes.
-      OSPREY_ARCHIVE_OPENOBSERVE_URL: "http://localhost:{{ (services.openobserve | default({}, true)).port | default(osprey_ports.openobserve, true) }}"
-{%- else %}
-      # On the bridge the store answers on its compose service name and its
-      # container port.
-      OSPREY_ARCHIVE_OPENOBSERVE_URL: "http://openobserve:5080"
-{%- endif %}
-      OSPREY_ARCHIVE_OPENOBSERVE_ORG: "{{ src.openobserve_org }}"
-      OSPREY_ARCHIVE_OPENOBSERVE_BACKFILL_DAYS: "{{ src.openobserve_backfill_days }}"
+{%- if src.telemetry_store %}
+      # The store's service name on the bridge; on the host namespace this
+      # container's loopback IS the host's, so the port the store publishes.
+      OSPREY_ARCHIVE_STORE_URL: "{{ src.store_url }}"
+      OSPREY_ARCHIVE_STORE_BACKFILL_DAYS: "{{ src.store_backfill_days }}"
 {%- endif %}
       TZ: {{ system.timezone }}
 {{- hostenv.passthrough(svc) }}

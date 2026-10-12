@@ -213,26 +213,29 @@ def test_the_roster_is_mounted_only_when_the_archive_is_deployed() -> None:
 # ── The telemetry store ─────────────────────────────────────────────────────
 
 
-def test_openobserve_address_follows_the_network_axis() -> None:
-    bridge = _config(deployed=("archive", "openobserve"))
+def test_store_address_follows_the_network_axis() -> None:
+    bridge = _config(deployed=("archive", "telemetry_store"))
     on_host = _config(
-        deployed=("archive", "openobserve"),
-        services={"archive": {"network": "host"}, "openobserve": {"port": 15080}},
+        deployed=("archive", "telemetry_store"),
+        services={
+            "archive": {"network": "host"},
+            "telemetry_store": {"port": 15123, "retention_days": 30},
+        },
     )
 
     bridge_env = _service(_render(bridge))["environment"]
     host_env = _service(_render(on_host))["environment"]
 
-    assert bridge_env["OSPREY_ARCHIVE_OPENOBSERVE_URL"] == "http://openobserve:5080"
-    assert host_env["OSPREY_ARCHIVE_OPENOBSERVE_URL"] == "http://localhost:15080"
-    assert bridge_env["OSPREY_ARCHIVE_OPENOBSERVE_ORG"] == "default"
-    assert bridge_env["OSPREY_ARCHIVE_OPENOBSERVE_BACKFILL_DAYS"] == "14"
+    assert bridge_env["OSPREY_ARCHIVE_STORE_URL"] == "http://telemetry_store:8123"
+    assert host_env["OSPREY_ARCHIVE_STORE_URL"] == "http://127.0.0.1:15123"
+    assert bridge_env["OSPREY_ARCHIVE_STORE_BACKFILL_DAYS"] == "14"
+    assert host_env["OSPREY_ARCHIVE_STORE_BACKFILL_DAYS"] == "30"
 
 
-def test_no_openobserve_variables_without_the_store() -> None:
+def test_no_store_variables_without_the_store() -> None:
     env = _service(_render())["environment"]
 
-    assert not [key for key in env if key.startswith("OSPREY_ARCHIVE_OPENOBSERVE")]
+    assert not [key for key in env if key.startswith("OSPREY_ARCHIVE_STORE")]
     assert env["OSPREY_ARCHIVE_SOURCES"] == "/archive/sources"
     assert env["OSPREY_ARCHIVE_DEST"] == "/archive/dest"
     assert env["OSPREY_ARCHIVE_INTERVAL_SECONDS"] == "86400"
