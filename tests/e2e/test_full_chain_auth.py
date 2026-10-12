@@ -33,7 +33,7 @@ THE DEPLOYMENT THIS BUILDS, AND WHY EACH ROSTER USER IS THERE
 -------------------------------------------------------------
 One ``osprey up --dev`` of a ``hello-world`` render with ``auth.method:
 password``, an ``authorization:`` stanza binding two roles to two personas, and
-a five-entry roster. Every entry earns its place by being the only shape that
+a six-entry roster. Every entry earns its place by being the only shape that
 can prove one thing:
 
 =========  =============  ==========  =========================================
@@ -53,7 +53,19 @@ user       role           persona     what only this entry can prove
 ``dave``   (none)         probe stub  A role the boundary cannot carry refuses
                                       the login 403 instead of poisoning a
                                       header (see FAULT INJECTION below).
+``kiosk``  (none)         probe stub  A shared card (``access: [self,
+                                      roster]``): its sessions are absent from
+                                      an opener's own history view, and a
+                                      sign-in as the card lists nothing.
+``erin``   (none)         probe stub  ``history: all``: the history page shows
+                                      every person's sessions; then removed
+                                      from the roster, which drops her store
+                                      view user on the next ``osprey up``.
 =========  =============  ==========  =========================================
+
+``carol`` is also a store reader (``services.telemetry_store.readers``), so
+the history page shows her the reader's tables until a second ``osprey up``
+withdraws her from the readers and maps her back to her own view.
 
 WHAT THE ACCOUNT HEADER ASSERTIONS HERE DO AND DO NOT PROVE
 -----------------------------------------------------------
@@ -147,16 +159,19 @@ built ONCE for the module and every assertion below runs against it.
 
 CONTAINER-OPS SAFETY: every runtime-mutating call below names an EXACT resource
 this test created — the ``<project>-nginx`` / ``<project>-auth`` / ``<project>-web-
-<user>`` containers, this project's volumes, and the ``:local`` image tags — or
+<user>`` / ``<project>-telemetry-store`` / ``<project>-telemetry-gateway`` /
+``<project>-history`` containers, this project's volumes, and the ``:local`` image tags — or
 is the project-scoped ``compose down`` the deploy lifecycle itself uses. Nothing
 here ever runs a prune, an ``-a``/``--all`` sweep, or a wildcard removal.
 """
 
 from __future__ import annotations
 
+import copy
 import http.cookiejar
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -252,8 +267,14 @@ REAL_USER = "alice"
 HEADER_USER = "bob"
 NO_ROLE_USER = "carol"
 UNSAFE_ROLE_USER = "dave"
+#: A shared card: its ``access`` admits every roster person as an opener, and
+#: its sessions are the card's, not the opener's.
+SHARED_CARD = "kiosk"
+#: The one person whose roster entry carries ``history: all``, and the roster
+#: user the history withdrawal case removes from the roster.
+ALL_USER = "erin"
 #: Declaration order is roster order, and roster order is index order.
-USERS = (REAL_USER, HEADER_USER, NO_ROLE_USER, UNSAFE_ROLE_USER)
+USERS = (REAL_USER, HEADER_USER, NO_ROLE_USER, UNSAFE_ROLE_USER, SHARED_CARD, ALL_USER)
 #: Every entry that authenticates — the whole roster, behind a password wall.
 LOGIN_USERS = USERS
 
@@ -288,6 +309,15 @@ PROBE_IMAGE_TAG = f"{PROBE_PROJECT}:local"
 
 NGINX_C = f"{PROJECT}-nginx"
 AUTH_C = f"{PROJECT}-auth"
+#: The project image ``osprey up`` builds from the project root, which the
+#: history service runs (the render names it; a history case pins that).
+PROJECT_IMAGE_TAG = f"{PROJECT}:local"
+
+STORE_C = f"{PROJECT}-telemetry-store"
+GATEWAY_C = f"{PROJECT}-telemetry-gateway"
+HISTORY_C = f"{PROJECT}-history"
+#: The reader the readers' origin is proven with: no roster person, a key only.
+READER = "ext"
 
 # Two real framework installs; give them room. The step budget in CI is 55
 # minutes (see the module docstring); this is the in-test ceiling below it.
@@ -320,17 +350,8 @@ _UNCARRIABLE_ROLE = "operatör"
 #: one.
 _ENV_AUTH_SEED = f"OSPREY_AUTH_ROSTER_ROLE_{UNSAFE_ROLE_USER.upper()}={_UNCARRIABLE_ROLE}\n"
 
-# ZO_INGEST_SA_TOKEN is present but inert: hello-world renders an OpenObserve
-# telemetry block whose password is `${ZO_INGEST_SA_TOKEN}`, and the deploy
-# preflight statically refuses to generate `.env.users` while that reference is
-# unresolvable — even though the block is disabled and the store is not deployed
-# here. Supplying a value satisfies the resolver and is the documented remedy.
-_ENV_CONTENT = (
-    "ANTHROPIC_API_KEY=fake-llm-key-value\n"
-    "ZO_INGEST_SA_TOKEN=fake-telemetry-token\n"
-    + "".join(
-        f"OSPREY_AUTH_PW_{user.upper()}={password}\n" for user, password in _PASSWORDS.items()
-    )
+_ENV_CONTENT = "ANTHROPIC_API_KEY=fake-llm-key-value\n" + "".join(
+    f"OSPREY_AUTH_PW_{user.upper()}={password}\n" for user, password in _PASSWORDS.items()
 )
 
 #: Served by the probe upstream so a response can be traced to the container
@@ -489,12 +510,9 @@ def _render_reference_project(root: Path, osprey_bin: Path) -> Path:
     """
     root.mkdir(parents=True, exist_ok=True)
     ref_repo = root / TERMINAL_PROJECT
-    # Telemetry OFF in the persona render too, for the same reason the host
-    # override disables it: hello-world ships it enabled against an OpenObserve
-    # store this lane does not deploy, so its rendered config.yml would carry
-    # `openobserve.password: ${ZO_INGEST_SA_TOKEN}` — a credential only the
-    # store can issue — and `osprey up` refuses to serve a terminal whose
-    # telemetry names an unresolvable secret.
+    # Telemetry ON in the persona render too, as in the deployment's own
+    # override: the lane deploys the telemetry store and gateway, and a
+    # terminal's telemetry settings come only from its persona's render.
     init = _run_osprey(
         osprey_bin,
         [
@@ -503,7 +521,7 @@ def _render_reference_project(root: Path, osprey_bin: Path) -> Path:
             "--preset",
             PRESET,
             "--no-git",
-            *set_pairs({"config": {"claude_code.telemetry.enabled": False}}),
+            *set_pairs({"config": {"claude_code.telemetry.enabled": True}}),
         ],
         root,
         timeout=RENDER_TIMEOUT_SEC,
@@ -562,6 +580,39 @@ def _write_terminal_persona_project(root: Path, ref_build: Path) -> Path:
 #: occurrence of a header name, which is what lets the assertions below count
 #: rather than merely look up, and a duplicated forward is a real failure mode
 #: of a location that emits both a clear and a forward for one name.
+#: An agent-authored HTML artifact, as the probe serves it under ``/u/<user>/``:
+#: the history cases open it to prove that a page on the terminals' origin can
+#: neither read a ``/history/`` answer nor make the page run a query. The script
+#: is its own file so no policy on inline script decides the outcome.
+_ARTIFACT_PAGE = (
+    "<!doctype html><html><head><meta charset=utf-8><title>artifact</title></head>"
+    '<body><script src="artifact.js"></script></body></html>'
+)
+#: ``?mode=read`` fetches the target with the browser's cookies and records
+#: whether the answer could be read; ``?mode=embed`` points an iframe and an
+#: image at it.
+_ARTIFACT_SCRIPT = """\
+(function () {
+  var query = new URLSearchParams(location.search);
+  var target = query.get("target");
+  window.__osprey_artifact = "pending";
+  if (query.get("mode") === "read") {
+    fetch(target, {credentials: "include"})
+      .then(function (r) { return r.text(); })
+      .then(function (b) { window.__osprey_artifact = "read:" + b.length; })
+      .catch(function (e) { window.__osprey_artifact = "blocked:" + e.name; });
+    return;
+  }
+  var frame = document.createElement("iframe");
+  frame.src = target;
+  document.body.appendChild(frame);
+  var image = document.createElement("img");
+  image.src = target;
+  document.body.appendChild(image);
+  window.__osprey_artifact = "embedded";
+})();
+"""
+
 _PROBE_SOURCE = f'''\
 """Header-reporting upstream for the full-chain auth e2e lane."""
 
@@ -573,6 +624,8 @@ MARKER = {PROBE_MARKER!r}
 USER = os.environ.get("OSPREY_TERMINAL_USER", "")
 HOST = os.environ.get("OSPREY_TERMINAL_BIND_HOST", "127.0.0.1")
 PORT = int(os.environ.get("OSPREY_TERMINAL_WEB_PORT", "{_WEB_SLOT}"))
+ARTIFACT_PAGE = {_ARTIFACT_PAGE!r}
+ARTIFACT_SCRIPT = {_ARTIFACT_SCRIPT!r}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -588,6 +641,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler's spelling
         if self.path == "/health":
             self._send(200, b"ok", "text/plain")
+            return
+        path = self.path.split("?", 1)[0]
+        if path.endswith("/artifact.html"):
+            self._send(200, ARTIFACT_PAGE.encode("utf-8"), "text/html; charset=utf-8")
+            return
+        if path.endswith("/artifact.js"):
+            self._send(200, ARTIFACT_SCRIPT.encode("utf-8"), "text/javascript")
             return
         names = sorted({{name.lower() for name in self.headers.keys()}})
         payload = {{
@@ -715,8 +775,24 @@ def _roster() -> list[dict[str, Any]]:
             entry["role"] = ROLE_OPERATOR
         elif user == HEADER_USER:
             entry["role"] = ROLE_OBSERVER
+        elif user == SHARED_CARD:
+            # `roster` opens the card to whoever names themselves as its
+            # opener; `self` keeps the card's own credential working too.
+            entry["access"] = ["self", "roster"]
+        elif user == ALL_USER:
+            entry["history"] = "all"
         entries.append(entry)
     return entries
+
+
+def _readers() -> list[dict[str, Any]]:
+    """The store's readers: :data:`READER`, and the roster person ``carol``.
+
+    A reader named for a roster person is how that person reads the history
+    page through the reader's tables rather than as themselves; the history
+    withdrawal case removes her from this list.
+    """
+    return [{"name": READER}, {"name": NO_ROLE_USER, "tables": ["otel_logs"]}]
 
 
 def _profile_edits() -> dict[str, Any]:
@@ -739,20 +815,20 @@ def _profile_edits() -> dict[str, Any]:
     terminator, and here it keeps the lane off certificate management — the TLS
     mount has its own render-level coverage.
 
-    ``deployed_services: []`` drops everything the preset would otherwise
-    deploy: this lane deploys the web tier and nothing else, and a backend
-    service would only add containers and bound ports. Telemetry goes off with
-    them, and for the same reason — the preset ships it aimed at a store this
-    deploy no longer runs, and preflight refuses to generate ``.env.users`` for
-    a telemetry block naming a credential no deploy on this config can issue.
+    ``deployed_services`` names the telemetry store and its gateway and nothing
+    else the preset would deploy: the readers' origin fronts the store, and a
+    backend service would only add containers and bound ports. With the store
+    deployed under sign-on the render also brings the history page. One
+    reader, :data:`READER`, is what the readers' origin is proven with.
     """
     return {
         "config": {
             "container_runtime": RUNTIME,
             "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",
-            "deployed_services": [],
-            "claude_code.telemetry.enabled": False,
+            "deployed_services": ["telemetry_store", "telemetry_gateway"],
+            "claude_code.telemetry.enabled": True,
+            "services.telemetry_store.readers": _readers(),
             PORT_BASE_CONFIG_KEY: PORT_BASE,
             "modules.web_terminals": {
                 "enabled": True,
@@ -817,8 +893,24 @@ def _add_persona_catalog(repo: Path, terminal_path: Path, probe_path: Path) -> N
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
 
-def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
+def _shared_card_credential() -> str:
+    """The ``.env.auth`` line that lets the shared card sign in as itself.
+
+    A password deployment mints no credential for a shared card — its own
+    sign-in is an identity-provider mapping, and no lane here runs a provider —
+    so the one history case about a sign-in AS a shared card writes the card's
+    hash by hand, the way an operator maintains this file (and the way
+    ``dave``'s role is injected). Provisioning keeps an entry it finds.
+    """
+    from osprey.services.auth_sidecar.passwords import hash_password
+
+    return f"OSPREY_AUTH_PW_HASH_{SHARED_CARD.upper()}={hash_password(_PASSWORDS[SHARED_CARD])}\n"
+
+
+def _make_repo(tmp_path: Path, osprey_bin: Path, edits: dict[str, Any] | None = None) -> Path:
     """``init`` + persona catalog + ``build`` — the repo this lane deploys.
+
+    *edits* replaces :func:`_profile_edits` for a render this lane only reads.
 
     ``--skip-deps``/``--skip-lifecycle`` keep the render off the network and
     quick: nothing here runs the deployment's own venv, only its containers.
@@ -838,7 +930,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
 
     init = _run_osprey(
         osprey_bin,
-        ["init", str(repo), "--preset", PRESET, "--no-git", *set_pairs(_profile_edits())],
+        ["init", str(repo), "--preset", PRESET, "--no-git", *set_pairs(edits or _profile_edits())],
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,
     )
@@ -892,7 +984,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
     # The fault injection, written BEFORE the first `osprey up`: provisioning
     # appends the hashes and the session key to whatever is already here.
     env_auth_path = repo / ".env.auth"
-    env_auth_path.write_text(_ENV_AUTH_SEED, encoding="utf-8")
+    env_auth_path.write_text(_ENV_AUTH_SEED + _shared_card_credential(), encoding="utf-8")
     os.chmod(env_auth_path, 0o600)
     return repo
 
@@ -908,9 +1000,11 @@ def _teardown() -> None:
         _runtime_cli("rm", "-f", _web_container(user))
     _runtime_cli("rm", "-f", AUTH_C)
     _runtime_cli("rm", "-f", NGINX_C)
+    for name in (STORE_C, GATEWAY_C, HISTORY_C):
+        _runtime_cli("rm", "-f", name)
     _runtime_cli("compose", "-p", PROJECT_NAME, "down", timeout=90)
     remove_project_volumes(PROJECT_NAME, runtime=RUNTIME)
-    for tag in (AUTH_IMAGE_TAG, TERMINAL_IMAGE_TAG, PROBE_IMAGE_TAG):
+    for tag in (AUTH_IMAGE_TAG, TERMINAL_IMAGE_TAG, PROBE_IMAGE_TAG, PROJECT_IMAGE_TAG):
         _runtime_cli("rmi", "-f", tag, timeout=60)
 
 
@@ -1357,11 +1451,13 @@ def test_a_password_login_reaches_that_users_own_terminal(deployment: dict[str, 
 
 @pytest.mark.usefixtures("deployment")
 def test_a_sign_in_without_a_card_reaches_that_users_own_terminal() -> None:
-    """The card-less entry through nginx: the form, then a redirect to the one card.
+    """The card-less entry through nginx: the form, then the cards it opened.
 
-    This roster shares no card, so a verified credential opens exactly the
-    person's own terminal, and the answer is a redirect there rather than a
-    list.
+    This roster shares one card with every roster person (``kiosk``), so a
+    verified credential opens the person's own terminal AND the shared one, and
+    the answer is the list of both — own card first — with a session that
+    already reaches the person's own terminal through nginx. The one-card
+    redirect is the sidecar's own unit case.
     """
     status, _, page = _request("/auth/enter", headers=_navigation())
     assert status == 200, f"sign-in page not served (got {status})\n{page[:300]}"
@@ -1371,7 +1467,7 @@ def test_a_sign_in_without_a_card_reaches_that_users_own_terminal() -> None:
     body = urllib.parse.urlencode(
         {"username": REAL_USER, "password": _PASSWORDS[REAL_USER]}
     ).encode()
-    status, headers, page = _request(
+    status, _, page = _request(
         "/auth/enter",
         method="POST",
         data=body,
@@ -1382,12 +1478,16 @@ def test_a_sign_in_without_a_card_reaches_that_users_own_terminal() -> None:
         },
         opener=client,
     )
-    assert status == LOGIN_ACCEPTED, (
-        f"sign-in for {REAL_USER!r} was not accepted (got {status})\n{page[:300]}\n{_logs(AUTH_C)}"
+    assert status == 200, (
+        f"sign-in for {REAL_USER!r} did not list its cards (got {status})\n"
+        f"{page[:300]}\n{_logs(AUTH_C)}"
     )
-    location = {name.lower(): value for name, value in headers.items()}.get("location")
-    assert location == f"/u/{REAL_USER}/"
+    own, shared = f'href="/u/{REAL_USER}/"', f'href="/u/{SHARED_CARD}/"'
+    assert own in page and shared in page, page[:1500]
+    assert page.index(own) < page.index(shared), "the person's own card is not listed first"
     assert SESSION_COOKIE_NAME in {cookie.name for cookie in jar}
+    status, _, page = _request(f"/u/{REAL_USER}/", headers=_navigation(), opener=client)
+    assert status == 200, f"the card-less session does not reach /u/{REAL_USER}/ ({status})"
 
 
 def test_the_upstream_receives_exactly_one_of_each_identity_header(
@@ -1975,3 +2075,887 @@ def test_the_shared_guard_refuses_a_render_that_never_happened(tmp_path: Path) -
 
     with pytest.raises(AssertionError, match="rendered no config"):
         _orm_stack.assert_off_default_block(repo, "some-e2e-lane")
+
+
+# ---------------------------------------------------------------------------
+# The readers' origin: the store's query endpoint and /play behind real nginx
+# ---------------------------------------------------------------------------
+#
+# These mean something only through nginx: the header allowlist, the appended
+# `http_wait_end_of_query=1`, the 404 for every other store page and the log
+# format are all the readers' server's. Every case name carries
+# `reader_origin` or `play`.
+
+#: Rows the refused-result cases read: more than the result-row cap.
+READER_ORIGIN_ROWS = 1_500
+#: Requests `/play` sends to the query endpoint for one run of one query.
+PLAY_REQUESTS_PER_RUN = 1
+
+
+def _store_sql(query: str) -> str:
+    """Run *query* as the store's admin account, inside the store container."""
+    result = _exec(STORE_C, "clickhouse-client", "--format", "TSV", "-q", query, timeout=120)
+    assert result.returncode == 0, _fmt(f"store query {query[:80]!r}", result)
+    return result.stdout
+
+
+def _rendered_config(repo: Path) -> dict[str, Any]:
+    return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="module")
+def reader_origin(deployment: dict[str, Any]) -> dict[str, Any]:
+    """The readers' origin, the reader's key, and rows enough to pass the result cap."""
+    from osprey.deployment import telemetry_config as tc
+    from osprey.deployment import telemetry_credentials as creds
+
+    repo: Path = deployment["repo"]
+    config = _rendered_config(repo)
+    key = None
+    for line in (repo / creds.reader_file(READER)).read_text(encoding="utf-8").splitlines():
+        name, sep, value = line.partition("=")
+        if sep and name.strip() == creds.READER_KEY:
+            key = value.strip().strip("'\"")
+    assert key, f"{creds.reader_file(READER)} holds no key"
+    case = f"reader-origin-{os.getpid()}-{int(time.time())}"
+    _store_sql(
+        "INSERT INTO telemetry.otel_logs (Timestamp, ServiceName, Body, ResourceAttributes, "
+        f"LogAttributes) SELECT now64(9), 'e2e', 'row', map('osprey.user', '{REAL_USER}'), "
+        f"map('e2e.case', '{case}') FROM numbers({READER_ORIGIN_ROWS})"
+    )
+    return {
+        "origin": f"http://127.0.0.1:{tc.reader_port(config)}",
+        "key": key,
+        "case": case,
+        "repo": repo,
+    }
+
+
+def _reader_post(
+    origin: dict[str, Any],
+    query: str,
+    *,
+    query_string: str = "",
+    headers: dict[str, str] | None = None,
+    body: Any = None,
+) -> tuple[int, str]:
+    """POST *query* to the readers' query endpoint with the reader's Basic login."""
+    import base64
+
+    import httpx
+
+    auth = base64.b64encode(f"{READER}:{origin['key']}".encode()).decode()
+    url = f"{origin['origin']}/telemetry/" + (f"?{query_string}" if query_string else "")
+    response = httpx.post(
+        url,
+        content=body if body is not None else query.encode(),
+        headers={"Authorization": f"Basic {auth}", **(headers or {})},
+        timeout=60,
+    )
+    return response.status_code, response.text
+
+
+def test_reader_origin_forwards_only_the_allowlisted_headers_to_the_store(
+    reader_origin: dict[str, Any],
+) -> None:
+    tag = f"allowlist-{int(time.time() * 1000)}"
+    status, text = _reader_post(
+        reader_origin,
+        f"SELECT currentUser(), currentDatabase(), '{tag}'",
+        headers={
+            "X-ClickHouse-Format": "JSONEachRow",
+            "X-ClickHouse-Database": "system",
+            "X-ClickHouse-Quota": "someone-else",
+            "X-Forwarded-For": "203.0.113.9",
+            "User-Agent": f"ua-{tag}",
+        },
+    )
+    assert status == 200, text[:300]
+    assert text.strip().split("\t") == [READER, "telemetry", tag], text[:300]
+    _store_sql("SYSTEM FLUSH LOGS")
+    logged = _store_sql(
+        "SELECT http_user_agent, forwarded_for, quota_key FROM system.query_log "
+        f"WHERE type = 'QueryFinish' AND user = '{READER}' AND query LIKE '%{tag}%' "
+        "AND query NOT LIKE '%query_log%'"
+    ).splitlines()
+    assert logged, "the reader's query left no query_log row"
+    for row in logged:
+        agent, forwarded, quota_key = (row.split("\t") + ["", "", ""])[:3]
+        assert tag not in agent, f"User-Agent reached the store: {row!r}"
+        assert "203.0.113.9" not in forwarded, f"X-Forwarded-For reached the store: {row!r}"
+        assert quota_key == "", f"X-ClickHouse-Quota reached the store: {row!r}"
+
+
+def test_reader_origin_takes_a_chunked_post(reader_origin: dict[str, Any]) -> None:
+    def chunks() -> Iterator[bytes]:
+        yield b"SELECT 40 "
+        yield b"+ 2"
+
+    status, text = _reader_post(reader_origin, "", body=chunks())
+    assert status == 200, text[:300]
+    assert text.strip() == "42"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/telemetry/play/",
+        "/telemetry/dashboard",
+        "/telemetry/clickstack",
+        "/telemetry/webterminal",
+        "/landing.html",
+        "/js/uplot.js",
+    ],
+)
+def test_reader_origin_answers_404_for_every_other_store_page(
+    reader_origin: dict[str, Any], path: str
+) -> None:
+    import httpx
+
+    response = httpx.get(
+        f"{reader_origin['origin']}{path}",
+        auth=(READER, reader_origin["key"]),
+        timeout=30,
+        follow_redirects=False,
+    )
+    assert response.status_code == 404, f"{path}: {response.status_code}"
+
+
+@pytest.mark.parametrize(
+    "query_string",
+    [
+        "wait_end_of_query=0",
+        "%77ait_end_of_query=0",
+        "wait%5Fend_of_query=0",
+        "http_wait_end_of_query=0",
+    ],
+)
+def test_reader_origin_keeps_a_refused_result_non_200_whatever_wait_end_of_query_is_sent(
+    reader_origin: dict[str, Any], query_string: str
+) -> None:
+    status, text = _reader_post(
+        reader_origin,
+        "SELECT Body FROM telemetry.otel_logs "
+        f"WHERE LogAttributes['e2e.case'] = '{reader_origin['case']}'",
+        query_string=query_string,
+    )
+    assert status != 200, f"{query_string}: a refused result answered 200 ({len(text)} bytes)"
+    assert "TOO_MANY_ROWS_OR_BYTES" in text or "SETTING_CONSTRAINT_VIOLATION" in text, text[:300]
+
+
+def _play_result(body: str) -> str:
+    """The result text of one `/play` answer.
+
+    `/play` asks for an `EventStream` framing: its result rows arrive as
+    base64 `data:` lines of `event: data` blocks, beside `log` and `progress`
+    blocks. A plain (unframed) answer is returned as it is.
+    """
+    import base64
+
+    if not body.startswith("event:"):
+        return body
+    parts: list[str] = []
+    for block in body.split("\n\n"):
+        lines = block.strip().splitlines()
+        if lines and lines[0] == "event: data":
+            payload = "".join(line[len("data:") :].strip() for line in lines[1:])
+            parts.append(base64.b64decode(payload).decode())
+    return "".join(parts)
+
+
+def test_play_opens_from_a_bare_bookmark_runs_and_downloads_queries_as_the_reader_without_a_csp_violation(
+    reader_origin: dict[str, Any],
+) -> None:
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+    from playwright.sync_api import sync_playwright
+
+    origin = reader_origin["origin"]
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            # Installed before any document loads, so a violation during the
+            # page's own load is counted too.
+            page.add_init_script(
+                "window.__osprey_csp = [];"
+                "document.addEventListener('securitypolicyviolation', e => "
+                "window.__osprey_csp.push(e.violatedDirective + ' ' + e.blockedURI));"
+            )
+            # The page also posts its own probes (server status, completions)
+            # to the same endpoint; a run's requests are the ones whose body
+            # is the query typed in.
+            endpoint_requests: list[str | None] = []
+            page.on(
+                "request",
+                lambda request: (
+                    endpoint_requests.append(request.post_data)
+                    if urllib.parse.urlsplit(request.url).path == "/telemetry/"
+                    and request.method == "POST"
+                    else None
+                ),
+            )
+            page.goto(f"{origin}/telemetry/play", wait_until="load")
+            healed = urllib.parse.urlsplit(page.url)
+            assert healed.path == "/telemetry/play", page.url
+            assert urllib.parse.parse_qs(healed.query).get("url") == [f"{origin}/telemetry/"], (
+                page.url
+            )
+
+            page.fill("#user", READER)
+            page.fill("#password", reader_origin["key"])
+
+            def run(query: str) -> str:
+                endpoint_requests.clear()
+                page.fill("#query", query)
+                with page.expect_response(
+                    lambda r: (
+                        urllib.parse.urlsplit(r.url).path == "/telemetry/"
+                        and r.request.method == "POST"
+                        and r.request.post_data == query
+                    )
+                ) as answer:
+                    page.click("#run")
+                assert answer.value.status == 200, answer.value.text()[:300]
+                page.wait_for_timeout(500)
+                posts = [body for body in endpoint_requests if body == query]
+                assert len(posts) == PLAY_REQUESTS_PER_RUN, endpoint_requests
+                return _play_result(answer.value.text())
+
+            assert READER in run("SELECT currentUser()")
+            assert run("SELECT currentUser() AS who FORMAT TSV").strip() == READER
+
+            # Download re-runs the shown query as a form POST that names the
+            # file through `http_response_headers`; the file is the result.
+            download_statuses: list[int] = []
+            page.on(
+                "response",
+                lambda response: (
+                    download_statuses.append(response.status)
+                    if "http_response_headers" in urllib.parse.urlsplit(response.url).query
+                    else None
+                ),
+            )
+            page.click("#download-div")
+            page.select_option("#download-format", "TSV")
+            try:
+                with page.expect_download(timeout=30_000) as download_info:
+                    page.click("#download-button", no_wait_after=True)
+            except PlaywrightTimeoutError:
+                # A blocked URI carries the key as a parameter; only its path is shown.
+                blocked = [v.split("?", 1)[0] for v in page.evaluate("window.__osprey_csp")]
+                raise AssertionError(
+                    f"Download produced no file: answers {download_statuses}, "
+                    f"CSP violations {blocked}"
+                ) from None
+            download = download_info.value
+            assert download.failure() is None, download.failure()
+            assert download_statuses == [200], download_statuses
+            assert download.suggested_filename == "result.tsv", download.suggested_filename
+            assert Path(download.path()).read_text(encoding="utf-8").strip() == READER
+
+            violations = page.evaluate("window.__osprey_csp")
+            assert violations == [], violations
+        finally:
+            browser.close()
+
+
+def _headers_setting(headers: dict[str, str]) -> str:
+    """*headers* as an `http_response_headers` URL parameter, encoded once."""
+    value = "{" + ",".join(f"'{name}':'{text}'" for name, text in headers.items()) + "}"
+    return "http_response_headers=" + urllib.parse.quote(value, safe="")
+
+
+def test_reader_origin_drops_the_headers_a_query_names_for_the_browser(
+    reader_origin: dict[str, Any],
+) -> None:
+    import httpx
+
+    named = {
+        "Set-Cookie": "osprey_session=planted; Path=/",
+        "Refresh": "0; url=https://example.org/",
+        "Location": "https://example.org/",
+        "Link": "<https://example.org/>; rel=preload",
+        "Clear-Site-Data": '"cookies"',
+        "Access-Control-Allow-Credentials": "true",
+        "X-Accel-Redirect": "/telemetry/play",
+        "Content-Disposition": "attachment; filename=named.tsv",
+    }
+    response = httpx.post(
+        f"{reader_origin['origin']}/telemetry/?{_headers_setting(named)}",
+        content=b"SELECT 40 + 2 FORMAT TSV",
+        auth=(READER, reader_origin["key"]),
+        timeout=60,
+        follow_redirects=False,
+    )
+    assert response.status_code == 200, response.text[:300]
+    assert response.text.strip() == "42", response.text[:300]
+    reached = {name for name in named if name in response.headers} - {"Content-Disposition"}
+    assert not reached, f"headers a query named reached the browser: {sorted(reached)}"
+    # What Download needs still arrives.
+    assert response.headers.get("Content-Disposition") == named["Content-Disposition"]
+
+
+def test_reader_origin_and_the_store_log_no_password(reader_origin: dict[str, Any]) -> None:
+    """A Download-shaped request carries the key as a URL parameter; no log keeps it."""
+    import httpx
+
+    key = reader_origin["key"]
+    # The request `/play`'s Download sends: the account and key in the address,
+    # the file named through `http_response_headers`. Sent here, so the case
+    # holds whatever order the cases run in.
+    download = httpx.post(
+        f"{reader_origin['origin']}/telemetry/?"
+        + urllib.parse.urlencode({"user": READER, "password": key})
+        + "&"
+        + _headers_setting({"Content-Disposition": "attachment; filename=result.tsv"}),
+        content=b"SELECT currentUser() FORMAT TSV",
+        timeout=60,
+    )
+    assert download.status_code == 200, download.text[:300]
+    assert download.text.strip() == READER, download.text[:300]
+
+    leaked = {}
+    for name in (NGINX_C, STORE_C, GATEWAY_C):
+        log = _logs(name)
+        if "password=" in log or key in log:
+            leaked[name] = "container log"
+    _store_sql("SYSTEM FLUSH LOGS")
+    # Both needles go in hex, so this query's own log line carries neither.
+    logged = _store_sql(
+        "SELECT count() FROM system.query_log WHERE arrayExists(field -> "
+        f"position(field, unhex('{b'password='.hex()}')) > 0 "
+        f"OR position(field, unhex('{key.encode().hex()}')) > 0, "
+        "[query, http_referer, http_user_agent, quota_key, toString(Settings)])"
+    ).strip()
+    if logged != "0":
+        leaked[STORE_C + " query_log"] = f"{logged} rows"
+    # No shell: the needles are arguments, which no log this case reads records.
+    files = _exec(
+        STORE_C,
+        "grep",
+        "-rlF",
+        "-e",
+        "password=",
+        "-e",
+        key,
+        "/var/log/clickhouse-server",
+    )
+    assert files.returncode in (0, 1), _fmt("grep the store's log files", files)
+    if files.stdout.strip():
+        leaked[STORE_C + " files"] = files.stdout.strip()
+    assert not leaked, leaked
+
+
+# ---------------------------------------------------------------------------
+# The history page: `/history/` on the readers' origin, behind real nginx
+# ---------------------------------------------------------------------------
+#
+# The sidecar maps one sign-in to one store view user, nginx forwards that
+# answer with the page's gate secret, and the page runs every query as the view
+# user. These cases mean something only with all three real. Every case name
+# carries `history`; the withdrawal cases run last because they change the
+# deployment with a second `osprey up`.
+
+HISTORY_PATH = "/history/"
+#: The history page's store account: every page query in `query_log` is its.
+HISTORY_ACCOUNT = "history"
+#: The ledger directory the page's own audit records land in.
+HISTORY_IDENTITY = "history"
+#: How long a just-written audit record or a just-run page query may take to
+#: become readable (the store flushes `query_log` on request; the ledger file
+#: is appended by another process).
+HISTORY_SETTLE_SEC = 15.0
+_PERSON_RE = re.compile(r'<strong class="person">([^<]*)</strong>')
+
+
+def _auth_none_edits() -> dict[str, Any]:
+    """This lane's edits with sign-on off: no `auth.method`, no roles."""
+    edits = copy.deepcopy(_profile_edits())
+    web_terminals = edits["config"]["modules.web_terminals"]
+    web_terminals["auth"] = {"method": "none"}
+    web_terminals.pop("authorization")
+    for entry in web_terminals["users"]:
+        entry.pop("role", None)
+    return edits
+
+
+def _rendered_services(repo: Path) -> dict[str, dict[str, Any]]:
+    """Every compose service the render wrote under ``build/``, by name."""
+    services: dict[str, dict[str, Any]] = {}
+    for path in sorted((repo / "build").rglob("*.yml")):
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError:
+            continue
+        if isinstance(document, dict) and isinstance(document.get("services"), dict):
+            services.update(document["services"])
+    return services
+
+
+def _reader_server_block(repo: Path) -> str:
+    """The readers' ``server`` block of the nginx config *repo*'s render produces.
+
+    Rendered from ``build/config.yml`` through the function ``osprey up`` writes
+    the deployed file with, so the auth-none case reads exactly what a deploy
+    of that render would serve without deploying it.
+    """
+    from osprey.deployment import telemetry_config as tc
+    from osprey.deployment.web_terminals.render import render_web_terminals
+
+    config = _rendered_config(repo)
+    port = tc.reader_port(config)
+    text = render_web_terminals(config)["nginx/nginx.conf"]
+    for start in (m.start() for m in re.finditer(r"(?m)^server \{", text)):
+        depth, end = 0, start
+        for index in range(start, len(text)):
+            if text[index] == "{":
+                depth += 1
+            elif text[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    end = index + 1
+                    break
+        block = text[start:end]
+        if re.search(rf"(?m)^\s*listen {port}\b", block):
+            return block
+    raise AssertionError(f"no rendered server block listens on the readers' port {port}")
+
+
+@pytest.fixture(scope="module")
+def history_page(deployment: dict[str, Any]) -> dict[str, Any]:
+    """The two origins and one prompt session per person, seeded in the store."""
+    from osprey.deployment import telemetry_config as tc
+
+    repo: Path = deployment["repo"]
+    config = _rendered_config(repo)
+    nonce = f"{os.getpid()}-{int(time.time())}"
+    sessions = {
+        user: f"hist-{nonce}-{user}" for user in (REAL_USER, HEADER_USER, NO_ROLE_USER, SHARED_CARD)
+    }
+    for user, session in sessions.items():
+        _store_sql(
+            "INSERT INTO telemetry.otel_logs (Timestamp, ServiceName, Body, ResourceAttributes, "
+            f"LogAttributes) VALUES (now64(9), 'e2e', 'prompt', map('osprey.user', '{user}', "
+            f"'terminal.session', '{session}'), map('session.id', '{session}', 'event.name', "
+            f"'user_prompt', 'prompt', 'a prompt from {user}'))"
+        )
+    return {
+        "repo": repo,
+        "reader": f"http://127.0.0.1:{tc.reader_port(config)}",
+        "reader_port": tc.reader_port(config),
+        "history_port": tc.history_port(config),
+        "terminal": f"http://127.0.0.1:{HOST_PORTS['nginx']}",
+        "sessions": sessions,
+    }
+
+
+def _history_sign_in(
+    page_info: dict[str, Any],
+    user: str,
+    client: urllib.request.OpenerDirector | None = None,
+) -> urllib.request.OpenerDirector:
+    """Sign *user* in on the terminals' entry page, returning to ``/history/``.
+
+    The browser a signed-out visitor is sent to: the card-less password form,
+    with the history page as ``next``. Pass *client* to add a second person to
+    the same browser.
+    """
+    from osprey.services.auth_sidecar.routes.entry import ENTRY_PATH
+
+    if client is None:
+        client, _ = _browser()
+    target = page_info["reader"] + HISTORY_PATH
+    body = urllib.parse.urlencode(
+        {"username": user, "password": _PASSWORDS[user], "next": target}
+    ).encode()
+    status, headers, page = _request(
+        ENTRY_PATH,
+        method="POST",
+        data=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Origin": page_info["terminal"],
+            **_navigation(),
+        },
+        opener=client,
+    )
+    location = {name.lower(): value for name, value in headers.items()}.get("location")
+    assert status == LOGIN_ACCEPTED and location == target, (
+        f"sign-in for {user!r} answered {status} -> {location!r}\n{page[:300]}\n{_logs(AUTH_C)}"
+    )
+    return client
+
+
+def _history_get(
+    page_info: dict[str, Any], client: urllib.request.OpenerDirector | None, target: str
+) -> tuple[int, str]:
+    """A navigation to *target* on the readers' origin with *client*'s cookies."""
+    status, _, body = _request(
+        target, headers=_navigation(), port=page_info["reader_port"], opener=client
+    )
+    return status, body
+
+
+def _viewing_as(body: str) -> str | None:
+    match = _PERSON_RE.search(body)
+    return match.group(1) if match else None
+
+
+def _store_now() -> str:
+    return _store_sql("SELECT toString(now64(6))").strip()
+
+
+def _history_queries(person: str, since: str) -> list[str]:
+    """The ``log_comment`` of every page query for *person* since *since*."""
+    _store_sql("SYSTEM FLUSH LOGS")
+    return _store_sql(
+        "SELECT log_comment FROM system.query_log "
+        f"WHERE user = '{HISTORY_ACCOUNT}' AND startsWith(log_comment, '{person}:') "
+        f"AND event_time_microseconds >= toDateTime64('{since}', 6) "
+        "AND positionCaseInsensitive(query, 'EXECUTE AS') > 0"
+    ).splitlines()
+
+
+def _settled(read: Any, ready: Any, timeout: float = HISTORY_SETTLE_SEC) -> Any:
+    """Re-read until *ready* holds for the result or *timeout* passes; return the last read."""
+    deadline = time.monotonic() + timeout
+    value = read()
+    while not ready(value) and time.monotonic() < deadline:
+        time.sleep(0.5)
+        value = read()
+    return value
+
+
+def test_history_is_404_under_auth_method_none_by_render(tmp_path: Path) -> None:
+    """Without sign-on there is no history service, and nginx answers `/history/` 404.
+
+    A render, not a second deployment (owner ruling F2): the compose set carries
+    no ``history`` service, and the readers' server has no ``/history/``
+    location, so the request falls to its catch-all ``return 404``.
+    """
+    repo = _make_repo(tmp_path, _find_osprey_console_script(), edits=_auth_none_edits())
+
+    services = _rendered_services(repo)
+    assert "telemetry_store" in services, sorted(services)
+    assert "history" not in services, sorted(services)
+    server = _reader_server_block(repo)
+    assert "/history" not in server, server
+    assert "verify-history" not in server, server
+    assert re.search(r"location / \{\s*return 404;\s*\}", server), server
+
+
+def test_history_service_runs_the_project_image_the_render_names(
+    deployment: dict[str, Any],
+) -> None:
+    """The page runs the project image, the tag the lane's cleanup removes."""
+    repo: Path = deployment["repo"]
+    image = str(_rendered_services(repo)["history"]["image"])
+    match = re.fullmatch(r"\$\{OSPREY_WORKER_IMAGE:-(.+)\}", image)
+    tag = match.group(1) if match else image
+    assert tag == PROJECT_IMAGE_TAG, image
+    assert _container_image(HISTORY_C) == tag, _logs(HISTORY_C)
+    # The location the auth-none case finds absent is present here.
+    assert "location /history/" in _reader_server_block(repo)
+
+
+def test_history_a_forged_header_call_from_a_web_container_is_refused_and_recorded(
+    history_page: dict[str, Any],
+) -> None:
+    """A terminal calling the page past nginx gets 401, filed under `history`."""
+    repo: Path = history_page["repo"]
+
+    def refusals() -> list[dict[str, Any]]:
+        return [
+            record
+            for record in _ledger_records(repo, HISTORY_IDENTITY)
+            if record.get("surface") == "web_auth" and record.get("decision") == "refused"
+        ]
+
+    before = len(refusals())
+    forged = {
+        "X-Osprey-History-Person": REAL_USER,
+        "X-Osprey-History-Scope": "all",
+        "X-Osprey-History-View": "view__all",
+        "X-Osprey-History-Tables": "otel_logs,otel_traces,audit_ledger",
+        "X-Osprey-History-Entry": REAL_USER,
+        "X-Osprey-History-Choices": f"{REAL_USER}={REAL_USER}",
+        "X-Osprey-Terminal-Secret": "forged-history-gate-secret",
+        SUBJECT_HEADER: REAL_USER,
+    }
+    script = (
+        "import urllib.error, urllib.request\n"
+        f"request = urllib.request.Request('http://127.0.0.1:{history_page['history_port']}/', "
+        f"headers={forged!r})\n"
+        "try:\n"
+        "    print(urllib.request.urlopen(request, timeout=10).status)\n"
+        "except urllib.error.HTTPError as error:\n"
+        "    print(error.code)\n"
+    )
+    result = _exec(_web_container(HEADER_USER), "python3", "-c", script)
+    assert result.returncode == 0, _fmt("forged history call", result)
+    assert result.stdout.strip() == "401", _fmt("forged history call", result)
+
+    seen = _settled(refusals, lambda records: len(records) > before)
+    assert len(seen) > before, (
+        f"no web_auth refusal under {HISTORY_IDENTITY!r} "
+        f"({_subdir_listing(repo, HISTORY_IDENTITY)})\n{_logs(HISTORY_C)}"
+    )
+    assert all(record.get("actor") == HISTORY_IDENTITY for record in seen[before:]), seen[before:]
+
+
+def test_history_an_unauthenticated_visit_signs_in_on_the_terminals_and_returns_to_the_page(
+    history_page: dict[str, Any],
+) -> None:
+    from playwright.sync_api import sync_playwright
+
+    from osprey.services.auth_sidecar.routes.entry import ENTRY_PATH
+
+    target = f"{history_page['reader']}/history/session/{history_page['sessions'][REAL_USER]}"
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.goto(target, wait_until="load")
+            landed = urllib.parse.urlsplit(page.url)
+            assert f"{landed.scheme}://{landed.netloc}" == history_page["terminal"], page.url
+            assert landed.path == ENTRY_PATH, page.url
+
+            page.fill("#username", REAL_USER)
+            page.fill("#password", _PASSWORDS[REAL_USER])
+            with page.expect_navigation(url=target):
+                page.click("button.login-submit")
+            assert page.url == target
+            assert page.locator("strong.person").inner_text() == REAL_USER
+            assert page.locator("section.transcript").count() == 1, page.content()[:2000]
+        finally:
+            browser.close()
+
+
+def test_history_a_two_person_console_shows_each_person_their_own_scope(
+    history_page: dict[str, Any],
+) -> None:
+    """Both people in one browser: each selector shows that person's own sessions,
+    and with no selector the last sign-in is shown, again after a re-login."""
+    sessions = history_page["sessions"]
+    client = _history_sign_in(history_page, REAL_USER)
+    _history_sign_in(history_page, HEADER_USER, client)
+
+    for person, other in ((REAL_USER, HEADER_USER), (HEADER_USER, REAL_USER)):
+        status, body = _history_get(history_page, client, f"{HISTORY_PATH}?as={person}")
+        assert status == 200, body[:400]
+        assert _viewing_as(body) == person, body[:400]
+        assert "scope-own" in body
+        assert sessions[person] in body, f"{person}'s own session is not listed"
+        assert sessions[other] not in body, f"{other}'s session is listed for {person}"
+
+    status, body = _history_get(history_page, client, HISTORY_PATH)
+    assert status == 200 and _viewing_as(body) == HEADER_USER, body[:400]
+
+    _history_sign_in(history_page, REAL_USER, client)
+    status, body = _history_get(history_page, client, HISTORY_PATH)
+    assert status == 200 and _viewing_as(body) == REAL_USER, body[:400]
+    assert sessions[HEADER_USER] not in body
+
+
+def _browser_sign_in(page: Any, history_page: dict[str, Any], user: str) -> None:
+    """Sign *user* in in a real browser the way a signed-out visitor is: via the page."""
+    target = history_page["reader"] + HISTORY_PATH
+    page.goto(target, wait_until="load")
+    page.fill("#username", user)
+    page.fill("#password", _PASSWORDS[user])
+    with page.expect_navigation(url=target):
+        page.click("button.login-submit")
+
+
+def _artifact_url(history_page: dict[str, Any], user: str, mode: str) -> str:
+    query = urllib.parse.urlencode({"mode": mode, "target": history_page["reader"] + HISTORY_PATH})
+    return f"{history_page['terminal']}/u/{user}/artifact.html?{query}"
+
+
+def test_history_an_artifact_under_u_cannot_read_a_history_response(
+    history_page: dict[str, Any],
+) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            _browser_sign_in(page, history_page, HEADER_USER)
+            page.goto(_artifact_url(history_page, HEADER_USER, "read"), wait_until="load")
+            page.wait_for_function(
+                "window.__osprey_artifact && window.__osprey_artifact !== 'pending'",
+                timeout=15_000,
+            )
+            outcome = page.evaluate("window.__osprey_artifact")
+            assert outcome.startswith("blocked:"), f"the artifact read the history page: {outcome}"
+        finally:
+            browser.close()
+
+
+def test_history_an_iframe_and_an_image_from_an_artifact_run_no_query(
+    history_page: dict[str, Any],
+) -> None:
+    from playwright.sync_api import sync_playwright
+
+    reader_history = history_page["reader"] + HISTORY_PATH
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            _browser_sign_in(page, history_page, HEADER_USER)
+            # Every request the browser sent for the page, by kind, and the
+            # ones that came back (an image the browser refuses to decode ends
+            # as a failed request, after nginx has answered it).
+            sent: list[str] = []
+            done: list[str] = []
+            page.on(
+                "request",
+                lambda request: (
+                    sent.append(request.resource_type) if request.url == reader_history else None
+                ),
+            )
+            for event in ("requestfinished", "requestfailed"):
+                page.on(
+                    event,
+                    lambda request: (
+                        done.append(request.resource_type)
+                        if request.url == reader_history
+                        else None
+                    ),
+                )
+            since = _store_now()
+            page.goto(_artifact_url(history_page, HEADER_USER, "embed"), wait_until="load")
+            embeds = _settled(lambda: sorted(done), lambda seen: len(seen) >= 2)
+            assert sorted(sent) == ["document", "image"] and embeds == sorted(sent), (
+                f"the artifact's iframe and image never reached /history/: sent {sent}, "
+                f"done {embeds}"
+            )
+            ran = _history_queries(HEADER_USER, since)
+            assert ran == [], f"embedding /history/ ran {len(ran)} page queries: {embeds}"
+
+            # The positive control: the same browser opening the page runs them.
+            since = _store_now()
+            page.goto(reader_history, wait_until="load")
+            ran = _settled(lambda: _history_queries(HEADER_USER, since), bool)
+            assert ran, "opening /history/ ran no page query; the count above proves nothing"
+        finally:
+            browser.close()
+
+
+def test_history_a_shared_card_session_is_absent_from_the_openers_own_view_and_present_under_all(
+    history_page: dict[str, Any],
+) -> None:
+    sessions = history_page["sessions"]
+    opener = _history_sign_in(history_page, REAL_USER)
+    for entry in (REAL_USER, SHARED_CARD):
+        status, body = _history_get(history_page, opener, f"{HISTORY_PATH}?as={entry}")
+        assert status == 200, body[:400]
+        assert _viewing_as(body) == REAL_USER, f"as={entry}: {body[:400]}"
+        assert sessions[REAL_USER] in body
+        assert sessions[SHARED_CARD] not in body, f"the shared card's session shows as={entry}"
+
+    viewer = _history_sign_in(history_page, ALL_USER)
+    status, body = _history_get(history_page, viewer, HISTORY_PATH)
+    assert status == 200, body[:400]
+    assert _viewing_as(body) == ALL_USER and "scope-all" in body, body[:400]
+    assert sessions[SHARED_CARD] in body and sessions[REAL_USER] in body
+
+
+def test_history_a_sign_in_as_a_shared_card_without_all_lists_nothing(
+    history_page: dict[str, Any],
+) -> None:
+    client = _history_sign_in(history_page, SHARED_CARD)
+    status, body = _history_get(history_page, client, HISTORY_PATH)
+    assert status == 403, f"{status}: {body[:400]}"
+    listed = [session for session in history_page["sessions"].values() if session in body]
+    assert listed == [], listed
+
+
+def _view_user_rows(view: str) -> dict[str, str]:
+    """How many store rows still name *view*: the user, its grants, its policies."""
+    return {
+        "users": _store_sql(f"SELECT count() FROM system.users WHERE name = '{view}'").strip(),
+        "grants": _store_sql(
+            f"SELECT count() FROM system.grants WHERE user_name = '{view}'"
+        ).strip(),
+        "role_grants": _store_sql(
+            f"SELECT count() FROM system.role_grants WHERE user_name = '{view}'"
+        ).strip(),
+        "row_policies": _store_sql(
+            f"SELECT count() FROM system.row_policies WHERE has(apply_to_list, '{view}')"
+        ).strip(),
+    }
+
+
+@pytest.fixture(scope="module")
+def history_withdrawal(deployment: dict[str, Any], history_page: dict[str, Any]) -> dict[str, Any]:
+    """``carol`` leaves ``readers[]`` and ``erin`` the roster, then a real ``osprey up``.
+
+    ``carol``'s browser is signed in before and kept open across it. What held
+    before is asserted here, so the cases after it compare against a state
+    that was real.
+    """
+    repo: Path = deployment["repo"]
+    sessions = history_page["sessions"]
+
+    carol = _history_sign_in(history_page, NO_ROLE_USER)
+    since = _store_now()
+    status, body = _history_get(history_page, carol, HISTORY_PATH)
+    assert status == 200 and "scope-reader" in body, body[:400]
+    assert sessions[REAL_USER] in body, "the reader's tables do not show alice's session"
+    reader_view = f"{NO_ROLE_USER}:view__reader_{NO_ROLE_USER}"
+    assert set(_settled(lambda: _history_queries(NO_ROLE_USER, since), bool)) == {reader_view}
+    removed_view = f"view_{ALL_USER}"
+    assert _view_user_rows(removed_view)["users"] == "1", "the roster user's view user is absent"
+
+    profile_path = repo / "profile.yml"
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    config = profile["config"]
+    readers_key = "services.telemetry_store.readers"
+    config[readers_key] = [r for r in config[readers_key] if r["name"] != NO_ROLE_USER]
+    # `osprey init` writes the profile's config as flat dotted keys.
+    users_key = "modules.web_terminals.users"
+    config[users_key] = [u for u in config[users_key] if u["name"] != ALL_USER]
+    profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+
+    osprey_bin = _find_osprey_console_script()
+    build = _run_osprey(
+        osprey_bin,
+        ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
+        repo,
+        timeout=RENDER_TIMEOUT_SEC,
+    )
+    assert build.returncode == 0, _fmt("osprey build (history withdrawal)", build)
+    up = _run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
+    assert up.returncode == 0, _fmt("osprey up --dev (history withdrawal)", up)
+    _wait_for_health(AUTH_READY_TIMEOUT_SEC)
+    return {"carol": carol, "removed_view": removed_view}
+
+
+def test_history_a_reader_withdrawn_from_readers_is_back_in_their_own_scope_after_up(
+    history_page: dict[str, Any], history_withdrawal: dict[str, Any]
+) -> None:
+    sessions = history_page["sessions"]
+    carol = history_withdrawal["carol"]
+
+    def answer() -> tuple[int, str]:
+        return _history_get(history_page, carol, HISTORY_PATH)
+
+    since = _store_now()
+    status, body = _settled(answer, lambda reply: reply[0] == 200)
+    assert status == 200, body[:400]
+    assert _viewing_as(body) == NO_ROLE_USER and "scope-own" in body, body[:400]
+    assert sessions[NO_ROLE_USER] in body
+    assert sessions[REAL_USER] not in body, "the withdrawn reader still sees alice's session"
+    own_view = f"{NO_ROLE_USER}:view_{NO_ROLE_USER}"
+    assert set(_settled(lambda: _history_queries(NO_ROLE_USER, since), bool)) == {own_view}
+
+
+def test_history_a_removed_roster_users_view_user_and_policies_are_gone_after_up(
+    history_withdrawal: dict[str, Any],
+) -> None:
+    gone = _view_user_rows(history_withdrawal["removed_view"])
+    assert gone == {"users": "0", "grants": "0", "role_grants": "0", "row_policies": "0"}, gone
+    # The same reads see a view user that stayed.
+    assert _view_user_rows(f"view_{REAL_USER}")["users"] == "1"
