@@ -893,7 +893,9 @@ def test_every_always_resolving_consumer_is_refused_the_same_way():
     not only the bluesky one the hole was found in."""
     cases = {
         "postgresql": {"ariel": {"search_modules": {}}},
-        "openobserve": {"claude_code": {"telemetry": {"enabled": True, "backend": "openobserve"}}},
+        "telemetry_gateway": {
+            "claude_code": {"telemetry": {"enabled": True, "backend": "gateway"}}
+        },
         # Switched on by the connector block a VA is configured from, and
         # naming no gateway address of its own — the shape that has to be
         # refused, since the fill would send the client to loopback.
@@ -971,7 +973,7 @@ def test_a_deploying_render_may_name_a_service_it_does_not_run():
         },
     ]
     for config in external:
-        assert reach_errors({**config, "deployed_services": ["openobserve"]}) == [], config
+        assert reach_errors({**config, "deployed_services": ["telemetry_store"]}) == [], config
 
 
 def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():

@@ -418,12 +418,10 @@ def _ariel_on(config: Mapping[str, Any]) -> bool:
 
 
 def _telemetry_on(config: Mapping[str, Any]) -> bool:
+    from osprey.build.claude_code_telemetry import GATEWAY_BACKEND
+
     telemetry = as_dict(as_dict(as_dict(config).get("claude_code")).get("telemetry"))
-    return (
-        bool(telemetry.get("enabled"))
-        and telemetry.get("backend") == "openobserve"
-        and not telemetry.get("endpoint")
-    )
+    return bool(telemetry.get("enabled")) and telemetry.get("backend") == GATEWAY_BACKEND
 
 
 def _bluesky_server_on(config: Mapping[str, Any]) -> bool:
@@ -975,25 +973,41 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         names_external=_ariel_database_named,
         note="resolve_ariel_dsn derives the DSN from the block on loopback",
     ),
-    "openobserve": ReachContract(
-        service="openobserve",
+    "telemetry_gateway": ReachContract(
+        service="telemetry_gateway",
         consumers=(
             Consumer(
                 name="agent telemetry (OTLP exporter)",
                 switch_key="claude_code.telemetry.enabled",
                 is_on=_telemetry_on,
-                # The endpoint always derives (host from context, port from the
-                # block or the listen port); the projection keeps the port the
-                # host's.
+                # The gateway address always derives (host from where the
+                # launch runs, port from the block or the port base); the
+                # projection keeps the port the host's.
                 resolves=_always,
                 dial=_telemetry_dial,
             ),
         ),
-        projected=(ProjectedKey("services.openobserve.port", gate=_telemetry_on),),
-        # Every container emits as the one ingest account, by design (the
-        # compose template's ZO_INGEST_SA_TOKEN note): ungated.
-        credentials=(CredentialGrant("ZO_INGEST_SA_TOKEN", None),),
-        note="the exporter posts to the published port on loopback",
+        projected=(ProjectedKey("services.telemetry_gateway.port", gate=_telemetry_on),),
+        # Each sender authenticates with the login in its own
+        # `.env.telemetry-sender.<identity>` env_file, never a granted
+        # compose-environment credential.
+        note="the exporter posts to the gateway's published port",
+    ),
+    "telemetry_store": ReachContract(
+        service="telemetry_store",
+        no_client_reach=True,
+        note=(
+            "only the gateway, the archive pass and the history page query it; "
+            "nothing in a persona container dials the store"
+        ),
+    ),
+    "history": ReachContract(
+        service="history",
+        no_client_reach=True,
+        note=(
+            "browsers reach the history page through the readers' origin; "
+            "nothing in a persona container dials it"
+        ),
     ),
     "bluesky": ReachContract(
         service="bluesky",

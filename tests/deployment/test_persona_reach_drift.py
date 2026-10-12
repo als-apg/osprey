@@ -60,12 +60,12 @@ from click.testing import CliRunner
 pytestmark = pytest.mark.slow
 
 # Moved host ports — each distinct from the shipped default it replaces
-# (bluesky and openobserve on their layout slots, virtual_accelerator on the
+# (bluesky and the telemetry gateway on their layout slots, virtual_accelerator on the
 # Channel Access port), so a client that keeps its compiled-in default is
 # distinguishable from one that follows.
 MOVED_BLUESKY_PORT = 18090
 MOVED_VA_PORT = 15064
-MOVED_OPENOBSERVE_PORT = 15080
+MOVED_GATEWAY_PORT = 15051
 
 
 @pytest.fixture(scope="module")
@@ -76,7 +76,7 @@ def moved_port_stack(tmp_path_factory) -> Path:
     _build_persona_stack``, with one twist: between ``init`` and ``build`` the
     hosting ``profile.yml`` is edited to move every port under test — the
     top-level ``bluesky.port`` and ``virtual_accelerator.port`` blocks, and the
-    ``config:`` dotted key ``services.openobserve.port``. The build renders the
+    ``config:`` dotted key ``services.telemetry_gateway.port``. The build renders the
     host project at ``build/`` and one attached project per catalog persona
     beside it at ``build/<repo>-<persona>``.
     """
@@ -92,7 +92,7 @@ def moved_port_stack(tmp_path_factory) -> Path:
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
     profile.setdefault("bluesky", {})["port"] = MOVED_BLUESKY_PORT
     profile.setdefault("virtual_accelerator", {})["port"] = MOVED_VA_PORT
-    profile.setdefault("config", {})["services.openobserve.port"] = MOVED_OPENOBSERVE_PORT
+    profile.setdefault("config", {})["services.telemetry_gateway.port"] = MOVED_GATEWAY_PORT
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
     built = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
@@ -153,26 +153,20 @@ def _dial_port_va(persona_dir: Path, persona_cfg: dict, monkeypatch) -> int:
         reset_config_cache()
 
 
-def _dial_port_telemetry(_persona_dir: Path, persona_cfg: dict, monkeypatch) -> int:
+def _dial_port_telemetry(_persona_dir: Path, persona_cfg: dict, _monkeypatch) -> int:
     """The OTLP port the persona's agent launch exports to — via the real resolver.
 
-    The port is resolved the way the launch path resolves it
-    (``resolve_openobserve_port``): the deploy environment's declaration, else
-    the port the persona's own config publishes the store on. The environment
-    is cleared because the per-user compose declares a host and no port.
+    Resolved the way the launch path resolves it
+    (``telemetry_config.runtime_gateway_url``) from an environment that names
+    no gateway address, so the port is the one the persona's own config says
+    the gateway publishes on.
     """
-    from osprey.build.claude_code_telemetry import (
-        OPENOBSERVE_PORT_ENV_VAR,
-        _resolve_telemetry_endpoint,
-        resolve_openobserve_port,
-    )
+    from osprey.build.claude_code_telemetry import _resolve_telemetry_endpoint
+    from osprey.deployment.telemetry_config import runtime_gateway_url
 
-    monkeypatch.delenv(OPENOBSERVE_PORT_ENV_VAR, raising=False)
     endpoint = _resolve_telemetry_endpoint(
         persona_cfg["claude_code"]["telemetry"],
-        in_container=True,
-        openobserve_host=None,
-        openobserve_port=resolve_openobserve_port(persona_cfg),
+        gateway_url=runtime_gateway_url(persona_cfg, {}),
     )
     return urlsplit(endpoint).port or 80
 
@@ -205,8 +199,8 @@ CLIENTS = [
     _Client(
         client="telemetry OTLP endpoint",
         persona="readonly",
-        host_key="openobserve.port",
-        moved_port=MOVED_OPENOBSERVE_PORT,
+        host_key="telemetry_gateway.port",
+        moved_port=MOVED_GATEWAY_PORT,
         dial_port=_dial_port_telemetry,
     ),
 ]
