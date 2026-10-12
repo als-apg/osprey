@@ -6550,8 +6550,8 @@ VA_CACHE_KEY_PREFIX = "va-full-buildx-"
 VA_CACHE_MEMBER_GLOB = "'packages/*/pyproject.toml'"
 #: The fixture constant the built tag has to agree with, read from source
 #: rather than restated, for the reason the xdist pairing is read from source.
-VA_E2E_CONFTEST = REPO_ROOT / "tests" / "va" / "e2e" / "conftest.py"
-VA_E2E_IMAGE_CONSTANT = "IMAGE"
+VA_E2E_IMAGE_OWNER = REPO_ROOT / "tests" / "va" / "e2e" / "_image.py"
+VA_E2E_IMAGE_CONSTANT = "DEFAULT_IMAGE"
 
 
 def _load_action_yml(path: Path) -> dict[str, Any]:
@@ -6898,14 +6898,13 @@ def test_every_lane_builds_after_the_shared_builder__mutation_moves_a_bench_buil
 def test_the_action_builds_the_tag_the_live_fixtures_boot(va_image_action: dict[str, Any]) -> None:
     """A pairing, not a second copy of a string.
 
-    ``tests/va/e2e/conftest.py`` assigns ``IMAGE`` as a literal with no
-    environment override, and every module in that directory boots what it
-    names — so a tag that drifts on either side leaves four lanes building an
-    image nothing starts. Read from source rather than imported: that conftest
-    executes ``scripts/va/sweep_check.py`` through ``importlib`` at import
-    time, which is exactly what this module's other source-reading pins avoid.
+    ``tests/va/e2e/_image.py`` assigns ``DEFAULT_IMAGE`` as a literal, and
+    every module that boots the image boots it unless ``OSPREY_VA_E2E_IMAGE``
+    names another, which nothing in CI sets — so a tag that drifts on either
+    side leaves four lanes building an image nothing starts. Read from source,
+    as this module's other pins read theirs.
     """
-    image = _module_constant(VA_E2E_CONFTEST, VA_E2E_IMAGE_CONSTANT)
+    image = _module_constant(VA_E2E_IMAGE_OWNER, VA_E2E_IMAGE_CONSTANT)
     _sole_step_whose_script(
         va_image_action["runs"]["steps"],
         f"--tag {image}",

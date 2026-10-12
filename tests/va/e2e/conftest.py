@@ -59,6 +59,11 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+# Re-exported: the modules of this directory read the image under test and its
+# remedy as ``e2e_conftest.IMAGE`` and ``e2e_conftest.IMAGE_REMEDY``.
+from tests.va.e2e._image import IMAGE as IMAGE
+from tests.va.e2e._image import IMAGE_REMEDY as IMAGE_REMEDY
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # import-time required because scripts/ is not a package: sweep_check.py is
@@ -74,7 +79,6 @@ _spec.loader.exec_module(sweep_check)
 ENV_FLAG = "OSPREY_VA_E2E_ENABLE"
 E2E_ENABLED = os.environ.get(ENV_FLAG) == "1"
 
-IMAGE = "osprey-va-full:latest"
 # Per-process, so two concurrent runs cannot force-remove each other's live
 # container -- see the module docstring. Everything that creates, inspects or
 # removes the container uses this one name.
