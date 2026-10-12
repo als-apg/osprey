@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Refused{% endblock %}
+{% block main %}
+<p class="notice refused">The store refused this view: <strong>{{ refusal }}</strong></p>
+<nav class="paging"><a class="back" href="{{ viewer.href('/') }}">sessions</a></nav>
+{% endblock %}
