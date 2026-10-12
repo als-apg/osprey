@@ -296,6 +296,48 @@ PROTECTED_CASES = [
 ]
 
 
+class TestGetProtectedKeys:
+    """``GET /api/config`` names the protected leaves of the sections it serves.
+
+    The Form view renders those leaves read-only and never puts them in an
+    Apply body; the list is the same segment-path walk the write gates use, so
+    the panel cannot offer a control the gate refuses.
+    """
+
+    def test_get_lists_the_protected_leaves_of_the_form_sections(self, client):
+        body = client.get("/api/config").json()
+
+        protected = body["protected"]
+        assert isinstance(protected, list)
+        assert all(isinstance(key, str) for key in protected)
+        assert protected == sorted(protected)
+        assert "approval.enabled" in protected
+        assert "control_system.type" in protected
+        assert protected == sorted(
+            ".".join(key_path) for key_path in protected_view("config.yml", body["sections"])
+        )
+
+    def test_get_protected_omits_the_exempt_and_the_unprotected(self, client):
+        protected = client.get("/api/config").json()["protected"]
+
+        assert "hooks.debug" not in protected
+        assert COSMETIC_KEY not in protected
+
+    @pytest.mark.parametrize(
+        "key,value,listed,status",
+        [
+            pytest.param("approval.enabled", False, True, 403, id="listed"),
+            pytest.param(COSMETIC_KEY, "claude-sonnet-5", False, 200, id="unlisted"),
+        ],
+    )
+    def test_get_protected_agrees_with_the_patch_gate(self, client, key, value, listed, status):
+        protected = client.get("/api/config").json()["protected"]
+
+        assert (key in protected) is listed
+        resp = client.patch("/api/config", json={"updates": {key: value}})
+        assert resp.status_code == status
+
+
 class TestPatchProtectedKeys:
     """``PATCH /api/config`` refuses the protected set before touching disk."""
 
