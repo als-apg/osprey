@@ -37,6 +37,7 @@ the rest are unit tests of the two merges and cost nothing.
 from __future__ import annotations
 
 import copy
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -162,10 +163,7 @@ def built_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     Invoked exactly as the fixture freeze invoked it — same verbs, same fixed
     project name, same ``*_API_KEY``-stripped environment — so what it renders
-    is comparable to what was frozen. The build passes ``--skip-deps``: the
-    project venv is not part of any render and the search indexes are written
-    in-process, so the install is minutes of CI for nothing compared here.
-    No source directories are prepended to
+    is comparable to what was frozen. No source directories are prepended to
     ``PYTHONPATH``: the CLI imports OSPREY as installed, which is the tree under
     test. A subprocess, so the in-process index stub ``tests/conftest.py``
     installs does not reach it: every render's search index here is the one
@@ -193,7 +191,9 @@ def built_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     assert result.returncode == 0, f"osprey init refused the cell:\n{_failure_reason(result)}"
 
     project: Path = scratch / PROJECT_NAME
-    result = _run_cli(["build", "--skip-deps"], cwd=project, env=env)
+    result = _run_cli(["build"], cwd=project, env=env)
+    # Every reader of this project reads its rendered files, never the venv.
+    shutil.rmtree(project / "build" / ".venv", ignore_errors=True)
     assert result.returncode == 0, f"osprey build refused the cell:\n{_failure_reason(result)}"
     return project
 
@@ -252,7 +252,9 @@ def external_store_render(tmp_path_factory: pytest.TempPathFactory) -> dict[str,
     assert result.returncode == 0, f"osprey init refused the profile:\n{_failure_reason(result)}"
 
     project: Path = scratch / PROJECT_NAME
-    result = _run_cli(["build", "--skip-deps"], cwd=project, env=env)
+    result = _run_cli(["build"], cwd=project, env=env)
+    # Only the rendered config is read, never the venv.
+    shutil.rmtree(project / "build" / ".venv", ignore_errors=True)
     assert result.returncode == 0, (
         "osprey build refused an attached profile that names an external graph store:\n"
         f"{_failure_reason(result)}"
