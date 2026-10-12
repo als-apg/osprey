@@ -1278,30 +1278,42 @@ if not _execution_dir.exists():
         ).strip()
 
     def _get_approved_call(self) -> str:
-        """Bind a readwrite run to the call the approval hook passed; empty when readonly.
+        """Bind a readwrite run to its approved call and take its target's lock.
 
-        Runs first inside the user-code ``try``, so whatever it raises is the
-        run's recorded failure and the user code never starts.
+        Empty when readonly: a readonly run takes no lock. Runs first inside
+        the user-code ``try``, so whatever it raises is the run's recorded
+        failure and the user code never starts.
         :func:`osprey.runtime.guarded_run._open_approved_call` takes the
         approved journal digest and target out of the environment and keeps
-        them, with :attr:`tool`, for every guarded run the code takes; when the
-        call carries a digest it restores the approved journal now, whether or
-        not the code takes a guarded run. An interpreter that cannot import
-        ``osprey.runtime`` cannot take a guarded run either: it binds nothing.
+        them, with :attr:`tool`, for every guarded run the code takes. The
+        control target's :func:`~osprey.runtime.guarded_run.lock` is then
+        entered and held until the run's record is saved (see
+        :meth:`_get_cleanup_and_export`); its entry restores a killed run's
+        journal under the bound call's rules, and another holder makes it raise
+        :class:`~osprey.runtime.guarded_run.OspreyRunBusy`. The entered context
+        is kept in ``_osprey_run_lock``, set only once the entry succeeded. An
+        interpreter that cannot import ``osprey.runtime`` cannot take a guarded
+        run either: it binds nothing and takes no lock.
         """
         if self.execution_mode != "readwrite":
             return ""
         return textwrap.indent(
             textwrap.dedent(
                 f"""
-                # The approval hook's binding of this call, read before user code.
+                # The approval hook's binding of this call, read before user code,
+                # and the control target's lock, held until the record is saved.
                 try:
                     from osprey.runtime.guarded_run import _open_approved_call as _osprey_bind
+                    from osprey.runtime.guarded_run import lock as _osprey_lock
                 except ImportError:
-                    _osprey_bind = None
+                    _osprey_bind = _osprey_lock = None
                 if _osprey_bind is not None:
                     _osprey_bind({self.tool!r})
-                del _osprey_bind
+                    _osprey_entering = _osprey_lock(None)
+                    _osprey_entering.__enter__()
+                    _osprey_run_lock = _osprey_entering
+                    del _osprey_entering
+                del _osprey_bind, _osprey_lock
                 """
             ).strip(),
             "        ",
@@ -1363,6 +1375,10 @@ if not _execution_dir.exists():
         Everything the executor reads is on disk or already flushed to the
         pipes by then, so the abrupt exit costs nothing; the exit code stays 0
         because the outcome is read from the record, not from the status.
+        A readwrite run's control-target lock (see :meth:`_get_approved_call`)
+        is released just before that exit, once every persistence step has
+        run, so no other guarded run starts on the target before this run's
+        record is saved.
 
         An interrupted run takes the same way out. The executor cancels a run
         with ``SIGINT``; the prologue in :meth:`_get_imports` restores the
@@ -1560,6 +1576,13 @@ if not _execution_dir.exists():
                 traceback.print_exc()
                 _osprey_exit_status = 1
             finally:
+                # A readwrite run's lock is released once its record is saved.
+                _osprey_held_lock = globals().get('_osprey_run_lock')
+                if _osprey_held_lock is not None:
+                    try:
+                        _osprey_held_lock.__exit__(None, None, None)
+                    except BaseException:
+                        traceback.print_exc()
                 # Leave without interpreter shutdown: a control-system client's
                 # shutdown hooks can block or crash the process, and everything
                 # the executor reads is persisted or flushed by now.

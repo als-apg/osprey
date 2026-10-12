@@ -384,6 +384,8 @@ def test_failed_install_aborts_the_whole_wrapper_before_user_code(tmp_path, monk
 
 
 def test_whole_readwrite_wrapper_runs_clean_with_the_block(tmp_path):
+    # A readwrite run holds its control target's lock, kept under a deployment repo.
+    (tmp_path / "profile.yml").write_text("name: probe\n", encoding="utf-8")
     script = tmp_path / "wrapped_script.py"
     script.write_text(
         ExecutionWrapper(execution_mode="readwrite").create_wrapper(

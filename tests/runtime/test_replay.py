@@ -161,6 +161,13 @@ def _approve(
     guarded_run._open_approved_call(tool)
 
 
+def _start(monkeypatch: pytest.MonkeyPatch, digest: str | None, target: str | None) -> None:
+    """Bind an ``execute`` call and enter its lock once, as the wrapper does before user code."""
+    _approve(monkeypatch, digest, target)
+    with lock(None):
+        pass
+
+
 def _reports(text: str) -> list[dict[str, Any]]:
     prefix = RESTORE_REPORT_TAG + " "
     return [
@@ -179,9 +186,9 @@ def test_an_approved_digest_restores_another_identitys_run_before_user_code(
 ) -> None:
     path = _plant({"Q": 0.0, "S": 5.0}, generation=GENERATION - 1, identity="bob")
 
-    _approve(monkeypatch, _digest(path), "live")
+    _start(monkeypatch, _digest(path), "live")
 
-    assert channels.writes == [("Q", 0.0)], "restored at bind time, before any user code"
+    assert channels.writes == [("Q", 0.0)], "restored on entry, before any user code"
     assert path.read_bytes() == b""
     (report,) = _reports(capsys.readouterr().err)
     assert report["restored"] == ["Q"] and report["unchanged"] == ["S"]
@@ -209,7 +216,7 @@ def test_a_digest_mismatch_writes_nothing_and_leaves_the_journal(
     before = path.read_bytes()
 
     with pytest.raises(OspreyJournalChanged):
-        _approve(monkeypatch, approved, "live")
+        _start(monkeypatch, approved, "live")
 
     assert channels.writes == []
     assert path.read_bytes() == before
@@ -236,7 +243,7 @@ def test_another_target_than_the_approved_one_refuses_before_any_write(
     before = path.read_bytes()
 
     with pytest.raises(OspreyWriteRefused, match="approved for target 'va'"):
-        _approve(monkeypatch, _digest(path), "va")
+        _start(monkeypatch, _digest(path), "va")
 
     assert channels.writes == []
     assert path.read_bytes() == before
@@ -287,7 +294,7 @@ def test_a_call_carrying_only_the_digest_replays_under_it(
 ) -> None:
     path = _plant({"Q": 0.0}, generation=GENERATION - 1)
 
-    _approve(monkeypatch, _digest(path), None)
+    _start(monkeypatch, _digest(path), None)
 
     assert channels.writes == [("Q", 0.0)]
     assert path.read_bytes() == b""
@@ -406,7 +413,7 @@ def test_an_incomplete_replay_keeps_exactly_the_entries_left_displaced(
     monkeypatch.setattr(osprey.runtime, "write_channel", refuse_q)
 
     with pytest.raises(OspreyRestoreIncomplete) as caught:
-        _approve(monkeypatch, approved, "live")
+        _start(monkeypatch, approved, "live")
 
     assert caught.value.entries == (
         ("Q", "outside the band", 3.0),
@@ -436,7 +443,7 @@ def test_a_rewrite_never_follows_a_link_planted_in_the_journal_directory(
 
     monkeypatch.setattr(osprey.runtime, "write_channel", refuse_q)
     with pytest.raises(OspreyRestoreIncomplete):
-        _approve(monkeypatch, _digest(path), "live")
+        _start(monkeypatch, _digest(path), "live")
 
     assert victim.read_text(encoding="utf-8") == "untouched"
     assert planted.is_symlink()
@@ -460,11 +467,11 @@ def test_a_rewritten_journal_restores_the_rest_on_the_next_approved_run(
 
     monkeypatch.setattr(osprey.runtime, "write_channel", refuse_q)
     with pytest.raises(OspreyRestoreIncomplete):
-        _approve(monkeypatch, _digest(path), "live")
+        _start(monkeypatch, _digest(path), "live")
 
     monkeypatch.setattr(osprey.runtime, "write_channel", original)
     monkeypatch.setattr(guarded_run, "_APPROVED", None)
-    _approve(monkeypatch, _digest(path), "live")
+    _start(monkeypatch, _digest(path), "live")
 
     assert channels.values == {"Q": 0.0, "S": 4.0}
     assert path.read_bytes() == b""

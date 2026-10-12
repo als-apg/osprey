@@ -295,7 +295,7 @@ def test_sigint_mid_run_tool_persists_report(
 
 def test_sigint_mid_load_persists_metadata(child: Callable[..., _Child]) -> None:
     """SIGINT while the script loads: the record says so and the child exits itself."""
-    run = child(_LOAD_CODE)
+    run = child(_LOAD_CODE, deployment=True)
     run.interrupt_at("load")
     out, err = run.drain()
 
@@ -311,7 +311,7 @@ def test_sigint_mid_load_persists_metadata(child: Callable[..., _Child]) -> None
 
 def test_sigint_mid_load_with_inherited_sig_ign(child: Callable[..., _Child]) -> None:
     """A child started with SIGINT ignored still honours it: the prologue restores it."""
-    run = child(_LOAD_CODE, inherit_sig_ign=True)
+    run = child(_LOAD_CODE, inherit_sig_ign=True, deployment=True)
     run.interrupt_at("load")
     out, _err = run.drain()
 
@@ -330,7 +330,7 @@ def test_sigint_plain_script_skips_blocking_atexit(child: Callable[..., _Child])
             time.sleep(0.01)
         """
     )
-    run = child(code)
+    run = child(code, deployment=True)
     run.interrupt_at("work")
     run.drain()
 

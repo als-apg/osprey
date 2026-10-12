@@ -734,17 +734,15 @@ def _open_approved_call(tool: str) -> None:
     The approved digest and target the executor confirmed are taken out of
     the environment (:data:`ENV_APPROVED_JOURNAL_SHA256`,
     :data:`ENV_APPROVED_TARGET`) and kept in this module as given, so nothing
-    user code later sets in the environment changes them. When the call
-    carries an approved digest the
-    target's lock is taken and released once, which restores the approved
-    journal whether or not the code itself takes the guarded run.
+    user code later sets in the environment changes them. Nothing is restored
+    here: the wrapper then takes the target's :func:`lock` for the whole run,
+    and that entry restores the approved journal.
 
     Args:
         tool: The guarded tool's short name.
 
     Raises:
         RuntimeError: A call is already bound in this process.
-        Exception: Whatever :func:`lock` raises.
     """
     global _APPROVED
     if _APPROVED is not None:
@@ -752,9 +750,6 @@ def _open_approved_call(tool: str) -> None:
     digest = os.environ.pop(ENV_APPROVED_JOURNAL_SHA256, "").strip() or None
     target = os.environ.pop(ENV_APPROVED_TARGET, "").strip() or None
     _APPROVED = _ApprovedCall(tool=tool, journal_sha256=digest, target=target)
-    if digest is not None:
-        with lock(None):
-            pass
 
 
 def _check_approved_call(target: str) -> None:

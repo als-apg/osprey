@@ -123,18 +123,19 @@ _DISPLACE_AND_WAIT = textwrap.dedent(
     """
 ) + textwrap.indent(_ANNOUNCE_AND_WAIT, "    ")
 
-#: User code of a readwrite ``execute``: take the run, write ``Q``, stay inside.
-_WRITE_UNDER_THE_LOCK_AND_WAIT = textwrap.dedent(
-    """
+#: User code of a readwrite ``execute``: write ``Q`` under the run's lock, stay inside.
+_WRITE_UNDER_THE_LOCK_AND_WAIT = (
+    textwrap.dedent(
+        """
     import os, signal
 
     import osprey.runtime
-    from osprey.runtime.guarded_run import lock
 
-    with lock(None):
-        osprey.runtime.write_channel("Q", 9.0)
+    osprey.runtime.write_channel("Q", 9.0)
     """
-) + textwrap.indent(_ANNOUNCE_AND_WAIT, "    ")
+    )
+    + _ANNOUNCE_AND_WAIT
+)
 
 #: User code that takes the run on this process's own target and names its directory.
 _TAKE_THE_RUN = textwrap.dedent(
@@ -273,11 +274,13 @@ def _digest(path: Path) -> str:
 
 
 def _approve(monkeypatch: pytest.MonkeyPatch, digest: str, target: str = "live") -> None:
-    """Bind a fresh approved ``execute`` call to this process, as the wrapper does."""
+    """Bind a fresh approved ``execute`` call and enter its lock once, as the wrapper does."""
     monkeypatch.setattr(guarded_run, "_APPROVED", None)
     monkeypatch.setenv(ENV_APPROVED_JOURNAL_SHA256, digest)
     monkeypatch.setenv(ENV_APPROVED_TARGET, target)
     guarded_run._open_approved_call("execute")
+    with lock(None):
+        pass
 
 
 def _report_lines(*streams: str) -> list[str]:
@@ -550,8 +553,6 @@ def test_a_killed_readwrite_execute_leaves_no_journal(
     assert machine.values["Q"] == 9.0, "a write the killed code made stays as it was written"
 
     _approve(monkeypatch, APPROVED_NO_JOURNAL)
-    with lock(None):
-        pass
 
     assert machine.writes == []
     assert machine.values["Q"] == 9.0
@@ -596,7 +597,8 @@ def test_an_execute_replay_prints_one_restore_line_filed_as_complete(
     metadata = execute.run(**env)
 
     assert metadata["success"] is True, metadata.get("traceback")
-    assert metadata["_results"] == {"seen": HOME, "refusal": None}
+    assert metadata["_results"]["seen"] == HOME
+    assert metadata["_results"]["refusal"].startswith("OspreyRunBusy"), "the run holds the lock"
     assert path.read_bytes() == b""
     assert len(_report_lines(metadata["stdout"], metadata["stderr"])) == 1
 

@@ -36,6 +36,8 @@ def _run_wrapper(
 ) -> tuple[subprocess.CompletedProcess, Path]:
     execution_folder = tmp_path / "exec"
     execution_folder.mkdir()
+    # A readwrite run holds its control target's lock, kept under a deployment repo.
+    (tmp_path / "profile.yml").write_text("name: probe\n", encoding="utf-8")
     script = execution_folder / "wrapped_script.py"
     script.write_text(
         ExecutionWrapper(execution_mode=mode).create_wrapper(user_code, execution_folder),
