@@ -472,6 +472,11 @@ Verify the latest commit on `main` is the release-notes merge.
 
 ## Step 6: Tag and push
 
+Before the first tag whose tree contains a new workspace member: register a
+PyPI pending trusted publisher for it (this repository, workflow `release.yml`,
+environment `pypi`) — without it PyPI refuses that wheel and the tag lands
+half-published.
+
 Tags can be pushed directly; branch protection covers branches, not tags:
 
 ```bash
