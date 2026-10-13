@@ -123,12 +123,14 @@ __all__ = [
     "OspreyJournalChanged",
     "OspreyRunBusy",
     "RestoreReport",
+    "abort_requested",
     "approval_asks",
     "guarded_run_dir",
     "guarded_run_target",
     "journaled_run",
     "lock",
     "read_run_journal",
+    "request_abort",
     "restore_reports",
     "restore_writes",
 ]
@@ -1252,6 +1254,31 @@ def _end_open_run() -> None:
             _end_run(run, None, aborted=True)
 
 
+def request_abort() -> bool:
+    """Ask the open guarded run to stop, as a Ctrl-C does.
+
+    Safe to call from a ``SIGINT`` handler: it takes no lock, so it never waits
+    on a write another thread holds.
+
+    Returns:
+        ``True`` when a run is open and is now marked, ``False`` when none is.
+    """
+    run = _run_state.STATE.run
+    if run is None:
+        return False
+    run.abort_requested = True
+    return True
+
+
+def abort_requested() -> bool:
+    """Whether a guarded run is open and has been asked to stop.
+
+    Every tool callback of the run reads this, in any thread; it takes no lock.
+    """
+    run = _run_state.STATE.run
+    return run is not None and run.abort_requested
+
+
 @contextlib.contextmanager
 def journaled_run(target: str | None, *, deadline_guard: bool = False) -> Iterator[Journal]:
     """Hold *target*'s run lock with its durable journal open.
@@ -1283,7 +1310,9 @@ def journaled_run(target: str | None, *, deadline_guard: bool = False) -> Iterat
     other, runs under the outer one and prints nothing; whatever escapes it
     stops the whole run: later guarded writes are refused, and the outer
     run's exit restores, reports the run as aborted and raises that error,
-    even when its own code ended cleanly.
+    even when its own code ended cleanly. A stop request
+    (:func:`request_abort`) marks the open run, so every thread of the run
+    reads it through :func:`abort_requested` until the run ends.
 
     Args:
         target: The target the run is for, or ``None`` for the process's own

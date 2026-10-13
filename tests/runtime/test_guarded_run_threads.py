@@ -36,8 +36,10 @@ from osprey.runtime.guarded_run import (
     LOCK_FILE_NAME,
     RESTORE_REPORT_TAG,
     OspreyRunBusy,
+    abort_requested,
     journaled_run,
     lock,
+    request_abort,
     restore_reports,
 )
 from osprey.runtime.journal import OspreyWriteRefused, guarded_write, read_pending_journal
@@ -481,6 +483,29 @@ def test_a_child_forked_inside_a_run_leaves_the_parents_journal(repo: Path) -> N
     assert done.stdout.splitlines() == ["child left the run", "parent True True"], done.stdout
     (report,) = _tagged(done.stderr)
     assert report["aborted"] is False, "only the parent's own exit reported"
+
+
+def test_an_abort_request_is_a_field_of_the_open_run(
+    channels: _Channels,  # noqa: ARG001 - the run reads its channels
+) -> None:
+    assert request_abort() is False, "no run is open to mark"
+    assert abort_requested() is False
+
+    marked: list[bool] = []
+    with journaled_run(None):
+        assert abort_requested() is False
+
+        def ask() -> None:
+            marked.append(request_abort())
+
+        assert _Thread(ask).join() is None
+        seen = abort_requested()
+    assert marked == [True]
+    assert seen is True, "a request from a helper thread is the run's"
+    assert abort_requested() is False, "the request ends with its run"
+
+    with journaled_run(None):
+        assert abort_requested() is False, "a later run starts clear"
 
 
 def test_the_run_state_is_one_object_no_module_binds() -> None:

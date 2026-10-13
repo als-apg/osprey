@@ -7,8 +7,11 @@ the run starts sees the same answers as the code that started it.
 
 Two invariants hold:
 
-- Every fact of the guarded run is a field of :data:`STATE`, read and changed
-  with :data:`LOCK` held.
+- Every fact of the guarded run is a field of :data:`STATE`. Each is read and
+  changed with :data:`LOCK` held, except the run's abort request
+  (:attr:`OpenRun.abort_requested`): a ``SIGINT`` handler never waits on a
+  lock, so that one flag is a single attribute write or read on the
+  :class:`OpenRun` taken once from ``STATE.run``.
 - :data:`STATE` and :data:`LOCK` are spelled ``_run_state.STATE`` and
   ``_run_state.LOCK`` at the moment of use and never bound by an import, so a
   forked child (:func:`reset_in_child`) and a test can replace them.
@@ -80,6 +83,10 @@ class OpenRun:
         deadline_guard: The run is guarded by the execution deadline.
         stopped_by: What escaped a run opened inside this one, ``None`` while
             nothing has; once set, the run accepts no further guarded write.
+        abort_requested: A Ctrl-C asked the whole run to stop; every tool
+            callback of the run, in any thread, reads it. Set and read without
+            :data:`LOCK`. It lives and dies with this run, so a later run
+            starts clear.
     """
 
     target: str
@@ -87,6 +94,7 @@ class OpenRun:
     durable: DurableJournal
     deadline_guard: bool
     stopped_by: BaseException | None = None
+    abort_requested: bool = False
 
 
 @dataclass
