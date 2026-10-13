@@ -23,7 +23,9 @@ from osprey.deployment.compose_generator import (
     guarded_run_relpath,
 )
 from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.runtime.guarded_run import GUARDED_RUN_DIR
 from osprey.utils.workspace import AUDIT_DIR_RELPATH
+from osprey_connectors.workspace import STATE_DIR_NAME
 from tests.templates.test_render_defaults_golden import (
     TEMPLATES,
     _default_context,
@@ -54,7 +56,7 @@ def _assert_shared(path: Path) -> None:
 def test_each_configured_target_is_provisioned(tmp_path: Path) -> None:
     gid = ensure_guarded_run_dirs(tmp_path, {"control_system": LIVE_AND_VA})
 
-    root = tmp_path / "var" / "guarded_run"
+    root = tmp_path / STATE_DIR_NAME / GUARDED_RUN_DIR
     _assert_shared(root)
     assert sorted(path.name for path in root.iterdir()) == ["live", "va"]
     for target in root.iterdir():
@@ -65,7 +67,7 @@ def test_each_configured_target_is_provisioned(tmp_path: Path) -> None:
 def test_a_deployment_without_a_control_system_gets_its_baseline(tmp_path: Path) -> None:
     ensure_guarded_run_dirs(tmp_path, {})
 
-    assert [path.name for path in (tmp_path / "var" / "guarded_run").iterdir()] == ["va"]
+    assert [path.name for path in (tmp_path / STATE_DIR_NAME / GUARDED_RUN_DIR).iterdir()] == ["va"]
 
 
 def test_the_build_path_provisions_it(tmp_path: Path) -> None:
@@ -79,7 +81,7 @@ def test_the_build_path_provisions_it(tmp_path: Path) -> None:
 
     _ensure_agent_data_structure(config)
 
-    _assert_shared(tmp_path / "var" / "guarded_run" / "va")
+    _assert_shared(tmp_path / STATE_DIR_NAME / GUARDED_RUN_DIR / "va")
 
 
 def _guarded_run_mounts(service: dict[str, Any]) -> list[str]:
