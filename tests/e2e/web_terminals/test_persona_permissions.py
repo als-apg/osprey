@@ -1,4 +1,4 @@
-"""Launched-agent permissions-acceptance test (Task 5.3, epic multi-user-support-p4).
+"""Persona permissions: the config diff and the permitted-tool positive control.
 
 Phase 4 lets a user be a distinct **persona** with its own rendered project
 (``modules.web_terminals.personas.<name>.project_path`` — see
@@ -7,13 +7,10 @@ Per-persona permission enforcement rides the *existing* render pipeline:
 each persona project's own ``config.yml``'s ``claude_code.permissions``
 renders into that project's own ``.claude/settings.json`` at build time
 (``src/osprey/cli/templates/claude_code.py`` -> ``settings.json.j2``).
-There is no separate per-persona permission merge point to unit-test — the
-only thing left to prove is that this pipeline actually produces different,
-*enforced* behavior for two personas whose ``config.yml`` differ by a single
-permission entry, in a real launched agent. Rendered-file assertions are not
-enforcement evidence (an unwired or dead code path can still render a
-plausible-looking ``settings.json``); only a live agent run proves the
-Claude Code CLI's own permission engine honors it.
+There is no separate per-persona permission merge point to unit-test.
+Rendered-file assertions are not enforcement evidence (an unwired or dead
+code path can still render a plausible-looking ``settings.json``); only a
+launched agent shows the Claude Code CLI's own permission engine honoring it.
 
 This module builds two minimal deployment repos that stand in for two
 personas' projects and differ in the render's ``config.yml`` by exactly one
@@ -27,8 +24,14 @@ tool:
   already puts ``facility_description`` in ``permissions_allow``, so it is
   permitted with no config change at all.
 
+It holds two tests: a check that the two rendered configs differ by exactly
+that one ``deny`` entry, and a live run showing persona B's agent can call
+the tool. Persona A's refusal is enforced and asserted in
+test_persona_permissions_scripted.py, where a scripted call reaches the
+permission engine on every run.
+
 ``facility_description`` (``src/osprey/mcp_server/workspace/tools/
-facility_description.py``) was chosen as the swing tool because it takes no
+facility_description.py``) is the swing tool because it takes no
 arguments, has no side effects, and carries no ``hooks_pre``/``hooks_post``
 of its own — the ONLY mechanism in play is the ``claude_code.permissions``
 allow/deny entry itself, not the writes-check kill switch, the limits hook,
@@ -44,14 +47,10 @@ test built on that helper would pass even if per-persona permission
 rendering were completely unwired — a meaningless green run. This file
 therefore uses ONLY ``run_sdk_query_with_hooks`` (~line 693), which sets
 ``permission_mode="default"`` and exercises the CLI's real permission
-engine (the same one that decides whether a denied tool call is refused
-before any hook or callback runs).
+engine.
 
 Strict per Task 5.3: this is a safety acceptance test, so no ``@flaky``
 reruns anywhere in this module.
-
-The refusal cases live in test_persona_permissions_scripted.py, where a scripted call reaches the
-gate on every run.
 """
 
 from __future__ import annotations
@@ -83,8 +82,8 @@ def test_persona_configs_differ_by_exactly_one_permission_entry(
     """Sanity guard on the fixture setup itself (not the enforcement claim).
 
     Confirms the two rendered ``config.yml``'s ``claude_code.permissions``
-    blocks differ by exactly the one swing-tool ``deny`` entry, so the two
-    behavioral tests are actually isolating a single-tool permission
+    blocks differ by exactly the one swing-tool ``deny`` entry, so the permitted-tool
+    test here and the scripted deny test isolate a single-tool permission
     difference rather than an incidental drift between the two builds.
 
     Stated as a difference rather than as persona A's whole ``deny`` list: a
