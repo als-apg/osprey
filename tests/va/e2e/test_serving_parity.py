@@ -233,6 +233,13 @@ CONTAINER_TRUTH = "osprey-va-e2e-parity-truth"
 
 BOOT_TIMEOUT_S = 120.0
 
+#: Bounds on one boot-probe attempt: the worker's own connection timeout, and
+#: the subprocess timeout that kills a worker wedged inside libca. Both sit far
+#: inside the boot deadline, so one wedged attempt is retried, not mistaken for
+#: a container that never served.
+PROBE_CONNECT_S = 2.0
+PROBE_ATTEMPT_S = 15.0
+
 # Device ids claimed by this module alone. The rest of this directory works on
 # HCM 01-03; nothing here touches those, and nothing there touches these.
 REFERENCE_SP = "SR:MAG:HCM:11:CURRENT:SP"
@@ -406,7 +413,11 @@ def _serving(prefix: str, *, seeded: bool):
         last_attempt = "no read completed"
         while time.monotonic() < deadline:
             try:
-                if accelerator.value(REFERENCE_RB) is not None:
+                probe = accelerator.call(
+                    {"op": "read", "addresses": [REFERENCE_RB], "timeout": PROBE_CONNECT_S},
+                    timeout=PROBE_ATTEMPT_S,
+                )
+                if probe["channels"][REFERENCE_RB]["value"] is not None:
                     break
                 last_attempt = f"{REFERENCE_RB} read back as None"
             except Exception as exc:  # not up yet is the expected case
