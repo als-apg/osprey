@@ -81,6 +81,29 @@ _WRITE_SENTINEL = textwrap.dedent(
     """
 )
 
+#: User code whose helper thread writes ``Q`` inside a journaled run it never leaves.
+_LEAVE_A_THREAD_INSIDE_A_RUN = textwrap.dedent(
+    """
+    import threading
+
+    import osprey.runtime
+    from osprey.runtime.guarded_run import journaled_run
+    from osprey.runtime.journal import guarded_write
+
+    _wrote = threading.Event()
+    _never = threading.Event()
+
+    def _tool():
+        with journaled_run(None):
+            guarded_write(["Q"], lambda: osprey.runtime.write_channel("Q", 7.0), lambda exc: exc)
+            _wrote.set()
+            _never.wait()
+
+    threading.Thread(target=_tool).start()
+    results = {"wrote": _wrote.wait(30)}
+    """
+)
+
 
 def _lock_path(sandbox: _Sandbox) -> Path:
     return sandbox.root / "var" / "guarded_run" / "live" / LOCK_FILE_NAME
@@ -201,3 +224,23 @@ def test_an_approved_journal_is_restored_on_entry_and_the_lock_stays_held(
     assert sandbox.journal.read_bytes() == b""
     (report,) = metadata["restore_reports"]
     assert report["restored"] == ["Q"]
+
+
+def test_a_thread_left_inside_a_run_is_restored_before_the_record(tmp_path: Path) -> None:
+    sandbox = _Sandbox(tmp_path / "repo", {"Q": 3.0}, {})
+
+    metadata = _run(sandbox, "readwrite", _LEAVE_A_THREAD_INSIDE_A_RUN)
+
+    assert metadata["success"] is True, metadata.get("traceback")
+    assert metadata["_results"] == {"wrote": True}
+    (report,) = metadata["restore_reports"]
+    assert report["aborted"] is True
+    assert report["restored"] == ["Q"]
+    assert sandbox.values() == {"Q": 3.0}
+    assert sandbox.journal.read_bytes() == b""
+    fd = os.open(_lock_path(sandbox), os.O_RDWR)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)

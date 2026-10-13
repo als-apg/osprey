@@ -1389,7 +1389,8 @@ if not _execution_dir.exists():
         A readwrite run's control-target lock (see :meth:`_get_approved_call`)
         is released just before that exit, once every persistence step has
         run, so no other guarded run starts on the target before this run's
-        record is saved.
+        record is saved. A journaled run still open when the script's code has
+        ended is restored before the record is written.
 
         An interrupted run takes the same way out. The executor cancels a run
         with ``SIGINT``; the prologue in :meth:`_get_imports` restores the
@@ -1534,6 +1535,12 @@ if not _execution_dir.exists():
                 # executor to file. Read only when the run loaded the runtime.
                 _osprey_guarded_run = sys.modules.get("osprey.runtime.guarded_run")
                 if _osprey_guarded_run is not None:
+                    # A run a thread of the script left open is ended and
+                    # restored here, so its report is in the record.
+                    try:
+                        _osprey_guarded_run._end_open_run()
+                    except BaseException:
+                        traceback.print_exc()
                     try:
                         execution_metadata["restore_reports"] = _osprey_guarded_run.restore_reports()
                     except Exception:
