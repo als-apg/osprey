@@ -102,6 +102,27 @@ describe('applySettings: raw mode PUT', () => {
 });
 
 /**
+ * A raw-mode case must not leak raw mode into the next one: setup leaves the
+ * panel in form mode, where Apply with no changes sends nothing.
+ */
+describe('panel setup: a known mode per case', () => {
+  test('a raw-mode case leaves the next setup in form mode', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(notOkResponse()));
+    vi.stubGlobal('fetch', fetchMock);
+    /** @type {HTMLElement} */ (
+      document.querySelector('.settings-mode-btn[data-mode="raw"]')
+    ).click();
+
+    setUpPanel();
+    /** @type {HTMLElement} */ (document.querySelector('.settings-confirm-btn')).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(document.querySelector('.settings-status')?.textContent).toBe('No changes to apply');
+  });
+});
+
+/**
  * The apply-button gate: dialog by default, waived by "don't ask again",
  * re-shown (pre-ticked) by Shift. The waiver is recorded only when the
  * operator confirms, under the persona-scoped key (bare here: single-user).
