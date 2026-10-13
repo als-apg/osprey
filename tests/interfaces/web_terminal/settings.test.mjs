@@ -390,9 +390,6 @@ describe('form mode: protected keys', () => {
         : notOkResponse(),
     ));
     vi.stubGlobal('fetch', fetchMock);
-    /** @type {HTMLElement} */ (
-      document.querySelector('.settings-mode-btn[data-mode="form"]')
-    ).click();
     await openFormAt('claude_code.default_model');
 
     const model = control('claude_code.default_model');
