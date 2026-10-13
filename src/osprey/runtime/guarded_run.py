@@ -21,6 +21,12 @@ launched. A process carries the target it was stamped with; an unstamped
 process, and the executor's ``baseline`` stand-in for "no recorded target", are
 on the deployment's own baseline target, and resolve to its name.
 
+A process has one guarded run. The lock it holds, the journaled run it has
+open, the call it was approved for and the reports it filed belong to the
+process, not to the thread that took them, and are kept in one place behind
+one lock (:mod:`osprey.runtime._run_state`): a thread or task the run starts
+runs under it and journals into the same journal.
+
 :func:`lock` takes the target's lock without blocking and records its holder
 (pid, start time) in the lock file; a second run on the target, from this or
 any other process, raises :class:`OspreyRunBusy` before it starts. Under the
@@ -82,11 +88,11 @@ import sys
 import threading
 import time
 from collections.abc import Iterator
-from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
 
+from osprey.runtime import _run_state
 from osprey.runtime.journal import (
     DurableJournal,
     GuardedRunDirError,
@@ -96,8 +102,8 @@ from osprey.runtime.journal import (
     OspreyWriteFailed,
     OspreyWriteRefused,
     PendingJournal,
-    _journaled_level,
     _open_no_follow,
+    active_journals,
     parse_pending_journal,
     read_map,
 )
@@ -184,31 +190,6 @@ class OspreyJournalChanged(Exception):
         )
 
 
-@dataclass(frozen=True)
-class _ApprovedCall:
-    """The tool call this process runs for, as the approval hook bound it.
-
-    Attributes:
-        tool: The guarded tool's short name, as ``approval.tools`` keys it.
-        journal_sha256: The approved journal digest, :data:`APPROVED_NO_JOURNAL`
-            when the prompt listed none, ``None`` when the call carries none.
-        target: The approved control target, ``None`` when the call carries none.
-    """
-
-    tool: str
-    journal_sha256: str | None
-    target: str | None
-
-
-#: The call bound by :func:`_open_approved_call`; ``None`` in a process no
-#: guarded tool started. Process-wide, so a thread user code starts sees it.
-_APPROVED: _ApprovedCall | None = None
-
-#: Every report :func:`_print_report` printed in this process, as JSON objects,
-#: in print order.
-_REPORTS: list[dict[str, Any]] = []
-
-
 class OspreyRunBusy(Exception):
     """Another guarded run holds the target's run lock; this run did not start.
 
@@ -228,20 +209,9 @@ class OspreyRunBusy(Exception):
         super().__init__(f"another guarded run is live under {root} (pid {who}, since {since})")
 
 
-#: The targets whose run lock this context holds, by name, with their directory.
-_HELD: ContextVar[dict[str, Path] | None] = ContextVar("osprey_guarded_run_held", default=None)
-
-#: The lock file descriptors this process holds a run lock on, with their
-#: target's name. A forked child closes each of them (see
-#: :func:`_drop_held_locks_in_child`).
-_LOCK_FDS: dict[int, str] = {}
-
 #: Whether :func:`_drop_held_locks_in_child` is registered to run in forked children.
 _FORK_HOOK_REGISTERED = False
 _FORK_HOOK_GUARD = threading.Lock()
-
-#: The target and outermost journal of the journaled run open in this context.
-_OPEN: ContextVar[tuple[str, Journal] | None] = ContextVar("osprey_guarded_run_open", default=None)
 
 
 def guarded_run_target(target: str | None) -> str:
@@ -675,11 +645,17 @@ def _stamped_generation() -> int | None:
         return None
 
 
-def _write_holder(fd: int) -> None:
-    """Record this process as the holder in the lock file ``fd`` it has locked."""
-    holder = json.dumps({"pid": os.getpid(), "started": _utc_now()}).encode("utf-8")
+def _write_holder(fd: int) -> str:
+    """Record this process as the holder in the lock file ``fd`` it has locked.
+
+    Returns:
+        The ``started`` time the record holds.
+    """
+    started = _utc_now()
+    holder = json.dumps({"pid": os.getpid(), "started": started}).encode("utf-8")
     os.ftruncate(fd, 0)
     os.pwrite(fd, holder, 0)
+    return started
 
 
 def _read_holder(fd: int) -> tuple[int | None, str | None]:
@@ -740,7 +716,7 @@ def _open_approved_call(tool: str) -> None:
     Called once by the sandbox wrapper of a readwrite run, before user code.
     The approved digest and target the executor confirmed are taken out of
     the environment (:data:`ENV_APPROVED_JOURNAL_SHA256`,
-    :data:`ENV_APPROVED_TARGET`) and kept in this module as given, so nothing
+    :data:`ENV_APPROVED_TARGET`) and kept in the process's run state as given, so nothing
     user code later sets in the environment changes them. Nothing is restored
     here: the wrapper then takes the target's :func:`lock` for the whole run,
     and that entry restores the approved journal.
@@ -751,12 +727,13 @@ def _open_approved_call(tool: str) -> None:
     Raises:
         RuntimeError: A call is already bound in this process.
     """
-    global _APPROVED
-    if _APPROVED is not None:
-        raise RuntimeError("a guarded tool call is already bound to this process")
-    digest = os.environ.pop(ENV_APPROVED_JOURNAL_SHA256, "").strip() or None
-    target = os.environ.pop(ENV_APPROVED_TARGET, "").strip() or None
-    _APPROVED = _ApprovedCall(tool=tool, journal_sha256=digest, target=target)
+    with _run_state.LOCK:
+        state = _run_state.STATE
+        if state.approved is not None:
+            raise RuntimeError("a guarded tool call is already bound to this process")
+        digest = os.environ.pop(ENV_APPROVED_JOURNAL_SHA256, "").strip() or None
+        target = os.environ.pop(ENV_APPROVED_TARGET, "").strip() or None
+        state.approved = _run_state.ApprovedCall(tool=tool, journal_sha256=digest, target=target)
 
 
 def _check_approved_call(target: str) -> None:
@@ -769,7 +746,8 @@ def _check_approved_call(target: str) -> None:
     Raises:
         OspreyWriteRefused: The approved target is not the run's.
     """
-    call = _APPROVED
+    with _run_state.LOCK:
+        call = _run_state.STATE.approved
     if call is None or call.target is None:
         return
     if call.target != target:
@@ -784,7 +762,8 @@ def _print_report(report: RestoreReport, stream: TextIO | None = None) -> None:
     The line goes to *stream*, stderr when not given. The report is appended to
     what :func:`restore_reports` returns.
     """
-    _REPORTS.append(json.loads(report.to_json()))
+    with _run_state.LOCK:
+        _run_state.STATE.reports.append(json.loads(report.to_json()))
     out = sys.stderr if stream is None else stream
     print(f"{RESTORE_REPORT_TAG} {report.to_json()}", file=out, flush=True)
 
@@ -796,7 +775,8 @@ def restore_reports() -> list[dict[str, Any]]:
     call returns. The sandbox wrapper hands the list to the executor in the run's
     execution record.
     """
-    return copy.deepcopy(_REPORTS)
+    with _run_state.LOCK:
+        return copy.deepcopy(_run_state.STATE.reports)
 
 
 def _left_displaced(report: RestoreReport) -> list[str]:
@@ -858,7 +838,8 @@ def _replay_dead_run(path: Path, target: str) -> None:
     if pending is None:
         _clear_journal(path)
         return
-    call = _APPROVED
+    with _run_state.LOCK:
+        call = _run_state.STATE.approved
     digest = None if call is None else call.journal_sha256
     if digest is not None:
         if digest == APPROVED_NO_JOURNAL or hashlib.sha256(raw).hexdigest() != digest:
@@ -891,20 +872,23 @@ def _replay_dead_run(path: Path, target: str) -> None:
 
 
 def _drop_held_locks_in_child() -> None:
-    """Close, in a forked child, every run lock the parent holds.
+    """Close, in a forked child, the run lock and the journal the parent holds.
 
     A forked child shares the lock's open file description, so without this a
     child that outlives a killed holder would keep the target busy under a
-    dead pid. The child also stops seeing those targets as held.
+    dead pid. The child then starts from a run state that holds nothing and has
+    no run open, so leaving the parent's run block touches neither the parent's
+    lock nor its journal. :data:`_run_state.LOCK` is not taken here: another
+    thread of the parent may have held it at the fork.
     """
-    names = set(_LOCK_FDS.values())
-    for fd in list(_LOCK_FDS):
+    state = _run_state.STATE
+    if state.hold is not None:
         with contextlib.suppress(OSError):
-            os.close(fd)
-    _LOCK_FDS.clear()
-    held = _HELD.get()
-    if held and names & held.keys():
-        _HELD.set({name: path for name, path in held.items() if name not in names} or None)
+            os.close(state.hold.fd)
+    if state.run is not None:
+        with contextlib.suppress(OSError):
+            state.run.durable.close()
+    _run_state.reset_in_child()
 
 
 def _register_fork_hook() -> None:
@@ -916,6 +900,28 @@ def _register_fork_hook() -> None:
             _FORK_HOOK_REGISTERED = True
 
 
+def _release(hold: _run_state.Hold) -> None:
+    """Release *hold*, ending a journaled run still open under it first.
+
+    Does nothing when *hold* is not the one this process holds: a forked child
+    closed its copy at the fork.
+    """
+    with _run_state.LOCK:
+        state = _run_state.STATE
+        if state.hold is not hold:
+            return
+        try:
+            _end_open_run()
+        finally:
+            try:
+                with contextlib.suppress(OSError):
+                    os.ftruncate(hold.fd, 0)
+                fcntl.flock(hold.fd, fcntl.LOCK_UN)
+            finally:
+                state.hold = None
+                os.close(hold.fd)
+
+
 @contextlib.contextmanager
 def lock(target: str | None) -> Iterator[Path]:
     """Hold *target*'s run lock, restoring a killed run's journal first.
@@ -924,10 +930,14 @@ def lock(target: str | None) -> Iterator[Path]:
     written into the lock file and emptied on release. Under the lock a killed
     run's journal is restored and cleared (see the module docstring) before the
     body runs. Writes in the body are not journaled; see :func:`journaled_run`.
-    A child forked while the lock is held closes its copy of the lock and does
-    not see the target as held; a child started with ``subprocess`` or
-    ``exec`` never inherits it, because the lock's descriptor is not
-    inheritable (PEP 446).
+    The lock is held by this process, not by the thread that took it: a
+    thread or task the body starts runs under it. A process holds one run
+    lock at a time; asking again, from any thread, is busy like any second
+    run, and asking for another target is refused. Releasing the lock ends a
+    journaled run still open under it, restored and reported as aborted. A
+    child forked while the lock is held closes its copy of the lock and holds
+    nothing; a child started with ``subprocess`` or ``exec`` never inherits
+    it, because the lock's descriptor is not inheritable (PEP 446).
 
     Args:
         target: The target the run is for, or ``None`` for the process's own
@@ -940,6 +950,7 @@ def lock(target: str | None) -> Iterator[Path]:
         OspreyWriteRefused: This is a readonly run, or the bound call was not
             approved for this target (see :func:`_check_approved_call`); no
             lock was taken.
+        RuntimeError: This process holds the run lock on another target.
         GuardedRunDirError: The guarded-run directory cannot be resolved, or the
             lock or the journal is a link.
         OspreyRunBusy: Another guarded run holds the target's lock.
@@ -958,39 +969,45 @@ def lock(target: str | None) -> Iterator[Path]:
         raise OspreyWriteRefused(_READONLY_REASON)
     name = guarded_run_target(target)
     _check_approved_call(name)
-    directory = guarded_run_dir(name)
-    lock_path = directory / LOCK_FILE_NAME
-    created = not lock_path.exists()
     _register_fork_hook()
-    fd = _open_no_follow(lock_path, os.O_RDWR | os.O_CREAT)
-    closed_by_fork = False
-    try:
-        if created:
-            os.fchmod(fd, 0o664)
+    with _run_state.LOCK:
+        held = _run_state.STATE.hold
+        if held is not None and held.target != name:
+            raise RuntimeError(
+                f"this process holds the run lock on {held.target}; it cannot take one on {name}"
+            )
+        directory = guarded_run_dir(name)
+        lock_path = directory / LOCK_FILE_NAME
+        created = not lock_path.exists()
+        fd = _open_no_follow(lock_path, os.O_RDWR | os.O_CREAT)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            pid, started = _read_holder(fd)
-            raise OspreyRunBusy(str(directory), pid, started) from None
-        _LOCK_FDS[fd] = name
-        try:
-            _write_holder(fd)
-            _replay_dead_run(directory / JOURNAL_FILE_NAME, name)
-            token = _HELD.set({**(_HELD.get() or {}), name: directory})
+            if created:
+                os.fchmod(fd, 0o664)
             try:
-                yield directory
-            finally:
-                _HELD.reset(token)
-        finally:
-            # Absent only in a forked child, which closed its copy at the fork.
-            closed_by_fork = _LOCK_FDS.pop(fd, None) is None
-            if not closed_by_fork:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pid, started = _read_holder(fd)
+                raise OspreyRunBusy(str(directory), pid, started) from None
+            try:
+                started = _write_holder(fd)
+            except BaseException:
                 with contextlib.suppress(OSError):
                     os.ftruncate(fd, 0)
-                fcntl.flock(fd, fcntl.LOCK_UN)
-    finally:
-        if not closed_by_fork:
+                raise
+        except BaseException:
             os.close(fd)
+            raise
+        hold = _run_state.Hold(target=name, directory=directory, fd=fd, started=started)
+        _run_state.STATE.hold = hold
+        try:
+            _replay_dead_run(directory / JOURNAL_FILE_NAME, name)
+        except BaseException:
+            _release(hold)
+            raise
+    try:
+        yield directory
+    finally:
+        _release(hold)
 
 
 @contextlib.contextmanager
@@ -1018,12 +1035,15 @@ def _sigint_ignored() -> Iterator[None]:
 def _restore_escaped(
     durable: DurableJournal,
     journal: Journal,
-    exc: BaseException,
+    exc: BaseException | None,
     *,
     target: str,
     deadline_guard: bool,
 ) -> None:
     """Restore what a journaled run displaced before *exc* escaped it.
+
+    *exc* is ``None`` when the run is ended by the release of its lock, with
+    nothing escaping it.
 
     Hangs the report on *exc* as ``restore_report``, clears the durable journal
     when every entry is back or rewrites it to hold exactly the refused and
@@ -1048,8 +1068,9 @@ def _restore_escaped(
             )
         return
     report.deadline_guard = deadline_guard or getattr(exc, "deadline_guard", False) is True
-    with contextlib.suppress(AttributeError, TypeError):
-        exc.restore_report = report  # type: ignore[attr-defined]
+    if exc is not None:
+        with contextlib.suppress(AttributeError, TypeError):
+            exc.restore_report = report  # type: ignore[attr-defined]
     with contextlib.suppress(Exception):  # the journal stays for the next run to restore
         left = _left_displaced(report)
         if left:
@@ -1063,16 +1084,68 @@ def _restore_escaped(
         _print_report(report)
 
 
+def _end_run(run: _run_state.OpenRun, exc: BaseException | None, *, aborted: bool = False) -> bool:
+    """End *run*: the one exit path of a journaled guarded run.
+
+    Runs with :data:`_run_state.LOCK` held for its whole body, so a guarded
+    write in flight on another thread finishes first and none is accepted
+    after. Restores what the run displaced when *exc* escaped it, when a run
+    opened inside it was stopped (``stopped_by``), or when *aborted*; else
+    clears the durable journal and reports ``aborted: false``. Either way it
+    closes the durable journal and leaves the process with no run open.
+
+    Returns:
+        Whether this call ended the run; ``False`` when it had already ended,
+        or in a forked child.
+    """
+    with _run_state.LOCK:
+        state = _run_state.STATE
+        if state.run is not run:
+            return False
+        try:
+            escaped = exc if exc is not None else run.stopped_by
+            with _sigint_ignored():
+                if escaped is not None or aborted:
+                    _restore_escaped(
+                        run.durable,
+                        run.journal,
+                        escaped,
+                        target=run.target,
+                        deadline_guard=run.deadline_guard,
+                    )
+                else:
+                    run.durable.clear()
+                    _print_report(RestoreReport(aborted=False, deadline_guard=run.deadline_guard))
+        finally:
+            state.run = None
+            run.durable.close()
+        return True
+
+
+def _end_open_run() -> None:
+    """End the journaled run still open, restored and reported as aborted; else nothing."""
+    with _run_state.LOCK:
+        run = _run_state.STATE.run
+        if run is not None:
+            _end_run(run, None, aborted=True)
+
+
 @contextlib.contextmanager
 def journaled_run(target: str | None, *, deadline_guard: bool = False) -> Iterator[Journal]:
     """Hold *target*'s run lock with its durable journal open.
 
     The only context in which :func:`osprey.runtime.journal.guarded_write`
     writes, and the one place a guarded run's displaced setpoints are put
-    back. The lock is taken as :func:`lock` takes it, unless this context
+    back. The lock is taken as :func:`lock` takes it, unless this process
     already holds it, and then the run goes on under it. The durable journal
     gets this run's header (target, generation, identity, pid, started) and one
     fsync'd line per address before that address is first written.
+
+    The run is this process's, not the opening thread's: a thread or task it
+    starts that opens a journaled run on the same target runs under this one
+    and writes into its journal. A guarded write is ordered against the run's
+    end: one in flight finishes before the restore starts, and none is
+    accepted after the run has ended.
 
     The outermost run's exit path ignores ``SIGINT`` (on the main thread) and
     prints exactly one :data:`RESTORE_REPORT_TAG` line, on stderr. A clean exit
@@ -1084,8 +1157,11 @@ def journaled_run(target: str | None, *, deadline_guard: bool = False) -> Iterat
     propagates. When the restore itself cannot run, no tagged line is printed:
     one ``restore not attempted: <reason>`` line on stderr names the journal,
     which is left for the next guarded run on the target. A journaled run
-    opened inside another one on the same target runs under the outer one and
-    prints nothing; whatever escapes it ends the outer run.
+    opened inside another one on the same target, from this thread or any
+    other, runs under the outer one and prints nothing; whatever escapes it
+    stops the whole run: later guarded writes are refused, and the outer
+    run's exit restores, reports the run as aborted and raises that error,
+    even when its own code ended cleanly.
 
     Args:
         target: The target the run is for, or ``None`` for the process's own
@@ -1097,45 +1173,66 @@ def journaled_run(target: str | None, *, deadline_guard: bool = False) -> Iterat
         The run's outermost journal.
 
     Raises:
-        RuntimeError: A journaled run on another target is open in this context.
-        Exception: Whatever :func:`lock` raises, and whatever escapes the run.
+        RuntimeError: A journaled run on another target is open in this
+            process, or this call already has a journal level pushed.
+        Exception: Whatever :func:`lock` raises, whatever escapes the run, and
+            whatever escaped a run opened inside it.
     """
     name = guarded_run_target(target)
-    open_run = _OPEN.get()
-    if open_run is not None:
-        open_target, open_journal = open_run
-        if open_target != name:
-            raise RuntimeError(
-                f"a journaled run on {open_target} is open; it cannot nest one on {name}"
-            )
-        yield open_journal
-        return
     from osprey_connectors.identity import acting_identity
 
     with contextlib.ExitStack() as stack:
-        held = _HELD.get() or {}
-        directory = held[name] if name in held else stack.enter_context(lock(name))
-        durable = DurableJournal(directory / JOURNAL_FILE_NAME)
-        stack.callback(durable.close)
-        durable.start(
-            target=name,
-            generation=_stamped_generation(),
-            identity=acting_identity(),
-            pid=os.getpid(),
-            started=_utc_now(),
-        )
-        journal = Journal(sink=durable.record)
-        try:
-            with _journaled_level(journal):
-                token = _OPEN.set((name, journal))
+        with _run_state.LOCK:
+            joined = _run_state.STATE.run
+            if joined is not None:
+                if joined.target != name:
+                    raise RuntimeError(
+                        f"a journaled run on {joined.target} is open; it cannot nest one on {name}"
+                    )
+            else:
+                if active_journals():
+                    raise RuntimeError(
+                        "a journaled guarded run must be the outermost journal level"
+                    )
+                held = _run_state.STATE.hold
+                directory = (
+                    held.directory
+                    if held is not None and held.target == name
+                    else stack.enter_context(lock(name))
+                )
+                durable = DurableJournal(directory / JOURNAL_FILE_NAME)
                 try:
-                    yield journal
-                finally:
-                    _OPEN.reset(token)
+                    durable.start(
+                        target=name,
+                        generation=_stamped_generation(),
+                        identity=acting_identity(),
+                        pid=os.getpid(),
+                        started=_utc_now(),
+                    )
+                except BaseException:
+                    durable.close()
+                    raise
+                run = _run_state.OpenRun(
+                    target=name,
+                    journal=Journal(sink=durable.record),
+                    durable=durable,
+                    deadline_guard=deadline_guard,
+                )
+                _run_state.STATE.run = run
+        if joined is not None:
+            try:
+                yield joined.journal
+            except BaseException as exc:
+                with _run_state.LOCK:
+                    if joined.stopped_by is None:
+                        joined.stopped_by = exc
+                raise
+            return
+        try:
+            yield run.journal
         except BaseException as exc:
-            with _sigint_ignored():
-                _restore_escaped(durable, journal, exc, target=name, deadline_guard=deadline_guard)
+            _end_run(run, exc)
             raise
-        with _sigint_ignored():
-            durable.clear()
-            _print_report(RestoreReport(aborted=False, deadline_guard=deadline_guard))
+        _end_run(run, None)
+        if run.stopped_by is not None:
+            raise run.stopped_by

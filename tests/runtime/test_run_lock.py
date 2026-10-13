@@ -224,11 +224,12 @@ def test_a_forked_child_neither_holds_nor_keeps_the_lock(repo: Path) -> None:
     child = textwrap.dedent(
         """
         import os, time
-        from osprey.runtime.guarded_run import _HELD, lock
+        import osprey.runtime._run_state as _run_state
+        from osprey.runtime.guarded_run import lock
 
         with lock("live"):
             if os.fork() == 0:
-                print(os.getpid(), "live" in (_HELD.get() or {}), flush=True)
+                print(os.getpid(), _run_state.STATE.hold is None, flush=True)
                 time.sleep(60)
                 os._exit(0)
             time.sleep(60)
@@ -243,7 +244,7 @@ def test_a_forked_child_neither_holds_nor_keeps_the_lock(repo: Path) -> None:
         line = holder.stdout.readline().split()
         assert len(line) == 2, f"the forked child reported nothing (exit {holder.poll()})"
         grandchild = int(line[0])
-        assert line[1] == "False", "a forked child sees the target as held"
+        assert line[1] == "True", "a forked child sees the target as held"
         holder.kill()
         holder.wait(timeout=CHILD_TIMEOUT_S)
 

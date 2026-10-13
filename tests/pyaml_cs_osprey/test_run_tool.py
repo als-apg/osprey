@@ -37,7 +37,6 @@ from osprey.runtime.guarded_run import (
     JOURNAL_FILE_NAME,
     GuardedRunDirError,
     OspreyRunBusy,
-    lock,
 )
 from osprey.runtime.guarded_run import RESTORE_REPORT_TAG as RUNTIME_REPORT_TAG
 from osprey.runtime.journal import active_journals, read_pending_journal
@@ -100,30 +99,39 @@ class TestGuardedRun:
         assert read_pending_journal(journal_path) is None
 
     def test_a_second_run_on_the_target_is_busy_and_never_calls_the_tool(
-        self, machine: _Machine
+        self, machine: _Machine, guarded_repo: Path
     ) -> None:
         """Another holder of the target's lock refuses the run before the tool starts."""
-        taken = threading.Event()
-        release = threading.Event()
+        child = textwrap.dedent(
+            """
+            import sys
+            from osprey.runtime.guarded_run import lock
 
-        def holder() -> None:
             with lock("live"):
-                taken.set()
-                release.wait(CHILD_TIMEOUT_S)
-
-        thread = threading.Thread(target=holder)
-        thread.start()
+                print("held", flush=True)
+                sys.stdin.readline()
+            """
+        )
+        holder = subprocess.Popen(
+            [sys.executable, "-c", child],
+            cwd=guarded_repo,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        called: list[str] = []
         try:
-            assert taken.wait(CHILD_TIMEOUT_S)
-            called: list[str] = []
+            assert holder.stdout is not None and holder.stdin is not None
+            assert holder.stdout.readline().strip() == "held", f"exit {holder.poll()}"
             with pytest.raises(OspreyRunBusy) as info:
                 run_tool(lambda: called.append("ran"))
         finally:
-            release.set()
-            thread.join(CHILD_TIMEOUT_S)
+            if holder.stdin is not None:
+                holder.stdin.close()
+            holder.wait(timeout=CHILD_TIMEOUT_S)
         assert called == []
-        assert info.value.pid == os.getpid()
-        assert f"(pid {os.getpid()}, since " in str(info.value)
+        assert info.value.pid == holder.pid
+        assert f"(pid {holder.pid}, since " in str(info.value)
         assert machine.writes == []
 
     def test_no_guarded_run_directory_raises_before_the_tool(

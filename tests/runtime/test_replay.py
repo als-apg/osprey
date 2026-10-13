@@ -52,6 +52,7 @@ from tests.runtime._guarded_run_fixtures import (
     digest,
     journal_path,
     plant,
+    reset_run_state,
     write_config,
 )
 
@@ -96,7 +97,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv(ENV_APPROVED_JOURNAL_SHA256, raising=False)
     monkeypatch.delenv(ENV_APPROVED_TARGET, raising=False)
-    monkeypatch.setattr(guarded_run, "_APPROVED", None)
+    reset_run_state(monkeypatch)
     return root
 
 
@@ -482,7 +483,7 @@ def test_restore_reports_hands_out_a_copy_its_caller_cannot_reach_into(
 ) -> None:
     import io
 
-    monkeypatch.setattr(guarded_run, "_REPORTS", [])
+    reset_run_state(monkeypatch)
     guarded_run._print_report(guarded_run.RestoreReport(restored=["Q"]), io.StringIO())
 
     handed = guarded_run.restore_reports()

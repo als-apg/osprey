@@ -25,7 +25,6 @@ from typing import Any
 import pytest
 
 import osprey.runtime
-import osprey.runtime.guarded_run as guarded_run
 from osprey.errors import ChannelWriteBlockedError
 from osprey.mcp_server.python_executor import executor
 from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
@@ -49,6 +48,7 @@ from tests.runtime._guarded_run_fixtures import (
     digest,
     journal_path,
     plant,
+    reset_run_state,
     write_config,
 )
 
@@ -223,7 +223,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
         ENV_APPROVED_TARGET,
     ):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(guarded_run, "_APPROVED", None)
+    reset_run_state(monkeypatch)
     yield root
     reset_config_cache()
 

@@ -31,6 +31,7 @@ from osprey.runtime.guarded_run import (
 from osprey.runtime.journal import OspreyWriteRefused, guarded_write, read_pending_journal
 from osprey_connectors.dotenv import atomic_replace
 from osprey_connectors.workspace import reset_config_cache
+from tests.runtime._guarded_run_fixtures import reset_run_state
 
 #: The RF frequency the restore cases start from, in Hz.
 F0 = 500.0e6
@@ -67,7 +68,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv(ENV_CONTROL_TARGET, "live")
     monkeypatch.setenv(ENV_CONTROL_TARGET_GENERATION, "1")
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    monkeypatch.setattr(guarded_run, "_APPROVED", None)
+    reset_run_state(monkeypatch)
     yield root
     reset_config_cache()
 

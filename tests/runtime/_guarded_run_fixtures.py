@@ -1,5 +1,8 @@
 """Shared fixtures of the guarded-run tests: a deployment config, a planted journal, a bound call.
 
+Every test that binds a call or reads the reports starts from a fresh run state
+(:func:`reset_run_state`), the one place the process's guarded run is kept.
+
 A planted journal is written by the product's own writer
 (:class:`~osprey.runtime.journal.DurableJournal`), so its bytes are the bytes a
 killed run leaves; :func:`plant_raw` is only for content that writer never
@@ -9,6 +12,7 @@ produces.
 from __future__ import annotations
 
 import hashlib
+import threading
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -16,6 +20,7 @@ from typing import Any
 import pytest
 import yaml
 
+import osprey.runtime._run_state as _run_state
 import osprey.runtime.guarded_run as guarded_run
 from osprey.runtime.guarded_run import (
     ENV_APPROVED_JOURNAL_SHA256,
@@ -35,6 +40,18 @@ ASKING = {"enabled": True, "default_policy": "always"}
 
 #: A deployment on a real control system, whose own target is ``live``.
 LIVE_BASELINE = {"type": "epics", "connector": {"epics": {"gateways": {}}}}
+
+
+def reset_run_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give this test a fresh run state and lock, put back when it ends."""
+    monkeypatch.setattr(_run_state, "LOCK", threading.RLock())
+    monkeypatch.setattr(_run_state, "STATE", _run_state.RunState())
+
+
+@pytest.fixture
+def fresh_run_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fresh run state for the test: no call bound, nothing held, no report filed."""
+    reset_run_state(monkeypatch)
 
 
 def write_config(root: Path, approval: dict[str, Any] | None = ASKING) -> None:
@@ -100,7 +117,7 @@ def approve(
     ``None`` hands the sandbox no such field. With ``enter_lock`` the call's lock
     is entered once, as the wrapper does before user code runs.
     """
-    monkeypatch.setattr(guarded_run, "_APPROVED", None)
+    reset_run_state(monkeypatch)
     if digest is not None:
         monkeypatch.setenv(ENV_APPROVED_JOURNAL_SHA256, digest)
     if target is not None:
