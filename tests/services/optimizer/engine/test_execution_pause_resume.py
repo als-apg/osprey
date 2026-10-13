@@ -96,7 +96,7 @@ def simulate_background_worker(
             # start_optimization propagates the outcome (no swallow): success
             # returns the results dir, a cancel raises CancellationError — exactly
             # what the wrapping JobLifecycle.__exit__ classifies in production.
-            service.start_optimization(config, apply_best_point=False)
+            service.start_optimization(config.model_copy(update={"on_complete": "hold"}))
 
         return f"completed:{len(iterations)}"
     except CancellationError:

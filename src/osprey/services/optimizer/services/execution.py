@@ -16,7 +16,7 @@ from osprey.services.optimizer.events import (
 )
 from osprey.services.optimizer.models.config import OptimizationConfig
 from osprey.services.optimizer.models.enums import JobStatus
-from osprey.services.optimizer.models.exceptions import CancellationError
+from osprey.services.optimizer.models.exceptions import CancellationError, RestoreFailedError
 from osprey.services.optimizer.models.types import BestPoint
 
 from ..optimization.best_point import build_best_point
@@ -48,6 +48,8 @@ class InitialStateResult:
 
     initial_point: dict[str, float]
     env_metadata: dict[str, Any]
+    start_values: dict[str, float]
+    """The tuned variables' values before the run moved anything: what a restore writes."""
 
 
 class ExecutionService:
@@ -117,6 +119,48 @@ class ExecutionService:
             return best_point
 
         return apply_best_point_fn
+
+    def _restore_initial_values(
+        self, config: OptimizationConfig, start_values: dict[str, float], reason: str
+    ) -> None:
+        """Write the run's starting values back to the machine it drove.
+
+        Only the variables this run tuned, through the same checked connector
+        every other write took, and not cancellable: an operator who cancels
+        asked for the run to stop, not for the machine to be left mid-search.
+        A readonly run wrote nothing, so there is nothing to undo.
+        """
+        if config.execution_mode == "readonly":
+            logger.info("Readonly run: nothing to restore after %s", reason)
+            return
+        if not start_values:
+            logger.info("No variables were tuned; nothing to restore after %s", reason)
+            return
+        logger.info(
+            "Restoring %d starting value(s) after %s: %s", len(start_values), reason, start_values
+        )
+        _, env = resolve_environment(config, EnvironmentRegistry().load_environment)
+        with env:
+            env.set_variables(start_values)
+        logger.info("Starting values restored")
+
+    def _restore_or_raise(
+        self,
+        config: OptimizationConfig,
+        start_values: dict[str, float],
+        reason: str,
+        cause: BaseException | None,
+    ) -> None:
+        """Restore, turning a failed restore into the job's outcome."""
+        try:
+            self._restore_initial_values(config, start_values, reason)
+        except Exception as restore_exc:
+            logger.exception("Restoring the starting values after %s failed", reason)
+            ended = "finished" if cause is None else f"ended by {reason}"
+            raise RestoreFailedError(
+                f"The run {ended}, and writing its starting values back failed: {restore_exc}. "
+                "Some, all or none of them were written; check the machine before the next run."
+            ) from (cause or restore_exc)
 
     def _get_cancellation_token(self) -> CancellationToken:
         """Get or create cancellation token for run control.
@@ -219,7 +263,11 @@ class ExecutionService:
 
         initial_objective = initial_point.get(objective_name)
         logger.info("Captured initial state with objective: %s", initial_objective)
-        return InitialStateResult(initial_point=initial_point, env_metadata=env_metadata)
+        return InitialStateResult(
+            initial_point=initial_point,
+            env_metadata=env_metadata,
+            start_values=active_initial_values,
+        )
 
     def _setup_event_handling(
         self, on_event: EventCallback | None, log_handler: LogCaptureHandler
@@ -326,14 +374,18 @@ class ExecutionService:
         config: OptimizationConfig,
         *,
         on_event: EventCallback | None = None,
-        apply_best_point: bool = True,
     ) -> Path | None:
         """Start and run optimization.
 
-        Does domain work only (results path, partial-results-on-cancel) and lets
-        the outcome propagate: returns the results dir on success, re-raises on
-        cancel/error. The wrapping ``JobLifecycle.__exit__`` is the single owner
-        of terminal status — this method no longer writes it.
+        Does domain work only (results path, partial-results-on-cancel, what the
+        machine is left at) and lets the outcome propagate: returns the results
+        dir on success, re-raises on cancel/error. The wrapping
+        ``JobLifecycle.__exit__`` is the single owner of terminal status — this
+        method does not write it.
+
+        What the machine is left at is the config's: ``on_complete`` when the run
+        finishes, ``on_abort`` when it is cancelled or fails after its starting
+        values were measured (before that, nothing was moved).
 
         Returns:
             Path to the results directory on success.
@@ -341,6 +393,8 @@ class ExecutionService:
         Raises:
             CancellationError: if the run was cancelled; partial results are saved
                 first so the lifecycle classifies it as CANCELLED, not ERROR.
+            RestoreFailedError: if writing the starting values back failed; the
+                original cancel or failure is its ``__cause__``.
             Exception: any other failure, propagated verbatim. Optimizer-backend
                 failures already arrive as ``OptimizerError`` from the adapter.
         """
@@ -349,6 +403,7 @@ class ExecutionService:
         output_dir: Path | None = None
         results_dir: Path | None = None
         log_handler: LogCaptureHandler | None = None
+        start_values: dict[str, float] | None = None
         try:
             with capture_logs() as log_handler:
                 token = self._get_cancellation_token()
@@ -362,6 +417,7 @@ class ExecutionService:
                 token.reset()
 
                 initial_state = self._measure_initial_state(config)
+                start_values = initial_state.start_values
 
                 if self._specific_run_dir:
                     save_early_results(
@@ -392,16 +448,26 @@ class ExecutionService:
                     writer=ParquetResultWriter(),
                     output_dir=output_dir,
                     apply_fn=self._create_apply_fn(config),
-                    apply_best_point=apply_best_point,
+                    apply_best_point=config.on_complete == "apply_best",
                     check_cancellation=token.check_cancellation,
                     wait_if_paused=token.wait_if_paused,
                 )
+                if config.on_complete == "restore":
+                    self._restore_or_raise(config, start_values, "completion", None)
 
                 self._writer.set_last_results_path(results_dir)
 
-        except CancellationError:
+        except CancellationError as exc:
             if output_dir:
                 results_dir = self._save_partial_results(config, output_dir)
+            if start_values is not None and config.on_abort == "restore":
+                self._restore_or_raise(config, start_values, "cancellation", exc)
+            raise
+        except RestoreFailedError:
+            raise
+        except Exception as exc:
+            if start_values is not None and config.on_abort == "restore":
+                self._restore_or_raise(config, start_values, f"failure ({exc})", exc)
             raise
         finally:
             self._save_logs_to_file(results_dir, log_handler)

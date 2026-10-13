@@ -244,7 +244,9 @@ def _run_service(
                     results_dir=tmp_path / "results",
                     control_key=control_key,
                 )
-                service.start_optimization(config, apply_best_point=False, on_event=on_event)
+                service.start_optimization(
+                    config.model_copy(update={"on_complete": "hold"}), on_event=on_event
+                )
         except CancellationError:
             pass  # JobLifecycle.__exit__ already recorded CANCELLED — mirror the process boundary.
 

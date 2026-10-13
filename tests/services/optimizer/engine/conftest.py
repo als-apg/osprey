@@ -415,7 +415,7 @@ def fake_initial_state(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         ExecutionService,
         "_measure_initial_state",
-        lambda self, config: InitialStateResult(initial_point={}, env_metadata={}),
+        lambda self, config: InitialStateResult(initial_point={}, env_metadata={}, start_values={}),
     )
 
 

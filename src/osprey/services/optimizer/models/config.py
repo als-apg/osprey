@@ -13,6 +13,12 @@ ControlTarget: TypeAlias = Literal["va", "standin", "live"]
 ExecutionMode: TypeAlias = Literal["readonly"]
 """``readonly`` takes writes away from a target; it never grants them."""
 
+OnAbort: TypeAlias = Literal["restore", "hold"]
+"""What a cancelled or failed run leaves: its starting values, or the last point it tried."""
+
+OnComplete: TypeAlias = Literal["apply_best", "restore", "hold"]
+"""What a finished run leaves: its best point, its starting values, or the last point it tried."""
+
 
 def machine_config(
     target: ControlTarget, execution_mode: ExecutionMode | None = None
@@ -139,6 +145,20 @@ class OptimizationConfig(BaseModel):
     )
     execution_mode: ExecutionMode | None = Field(
         default=None, description="readonly: the run may read but every write is refused."
+    )
+    on_abort: OnAbort = Field(
+        default="restore",
+        description=(
+            "On cancel or failure: 'restore' writes back the values the run started from; "
+            "'hold' leaves the machine at the last point the run tried."
+        ),
+    )
+    on_complete: OnComplete = Field(
+        default="apply_best",
+        description=(
+            "On completion: 'apply_best' writes the best point found; 'restore' writes back "
+            "the starting values; 'hold' leaves the last point tried."
+        ),
     )
 
     objective_name: str | None = Field(

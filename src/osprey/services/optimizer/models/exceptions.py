@@ -114,3 +114,12 @@ class MachineSettingsError(ALSTuningError):
     def __init__(self, message: str, *, failures: list[str]) -> None:
         super().__init__(message)
         self.failures = failures
+
+
+class RestoreFailedError(ALSTuningError):
+    """A run ended (cancelled, failed, or finished with ``on_complete: restore``)
+    and writing its starting values back failed.
+
+    Classified as ERROR, never CANCELLED: the machine is not where the operator
+    was promised it would be, and the job's outcome must say so.
+    """

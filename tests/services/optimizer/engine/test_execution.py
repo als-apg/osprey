@@ -845,7 +845,8 @@ def test_start_optimization_propagates_optimizer_error_verbatim(
 ) -> None:
     """A backend failure arrives already translated (OptimizerError) and the
     service re-raises it verbatim — no re-wrapping, message intact."""
-    config = _config(environment_name="env")
+    # Holding the last point isolates propagation from the default restore.
+    config = _config(environment_name="env", on_abort="hold")
 
     monkeypatch.setattr(exec_service, "_resolve_output_dir", lambda c: tmp_path)
     monkeypatch.setattr(exec_service, "_get_cancellation_token", lambda: MagicMock())
@@ -918,7 +919,9 @@ class TestExecutionEndToEnd:
         with mock_plugin_env:
             resolve_draft_config(config, mock_plugin_env)
 
-        result_path = exec_service.start_optimization(config, apply_best_point=False)
+        result_path = exec_service.start_optimization(
+            config.model_copy(update={"on_complete": "hold"})
+        )
 
         assert result_path is not None
         assert result_path.exists()
