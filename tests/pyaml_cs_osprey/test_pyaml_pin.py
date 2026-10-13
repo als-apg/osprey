@@ -1,10 +1,14 @@
-"""The framework and the pyAML backend pin the same pyAML version.
+"""What holds about the pyAML release OSPREY pins.
 
 ``osprey-framework`` declares ``accelerator-middle-layer`` directly, next to
 ``pyaml-cs-osprey``, because the framework's own code imports pyAML.
 ``pyaml-cs-osprey`` declares the same package for its control-system backend.
 The two specifiers must be string-equal: a drift between them would let one
 package be built and tested against a pyAML the other refuses.
+
+The release's ``MeasurementTool.save`` cannot write a measurement holding numpy
+values as JSON, which is why the measurement script carries its own writer; the
+last test fails on the first pinned release that can.
 """
 
 from __future__ import annotations
@@ -12,6 +16,7 @@ from __future__ import annotations
 import pathlib
 import tomllib
 
+import pytest
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
@@ -46,4 +51,32 @@ def test_framework_pin_equals_member_specifier() -> None:
     assert framework == member, (
         f"{AML_PACKAGE} pins differ: framework pyproject.toml has {framework!r}, "
         f"packages/pyaml-cs-osprey/pyproject.toml has {member!r}"
+    )
+
+
+def test_pyaml_save_still_refuses_numpy_values(tmp_path: pathlib.Path) -> None:
+    import numpy as np
+    from pyaml.tuning_tools.measurement_tool import MeasurementTool
+
+    class Tool(MeasurementTool):
+        def measure(self) -> bool:
+            self._init_measure()
+            self.latest_measurement.update({"fit": np.array([1.5, -2.5]), "n_step": np.int64(5)})
+            return True
+
+    tool = Tool("canary")
+    tool.measure()
+    try:
+        tool.save(tmp_path / "measurement.json", with_type="json")
+    except TypeError as exc:
+        assert "not JSON serializable" in str(exc), (
+            f"the pinned pyAML's save raised a TypeError that is not the JSON gap: {exc}"
+        )
+        return
+    pytest.fail(
+        "the pinned pyAML saves a measurement holding numpy arrays and scalars as JSON: the "
+        "measurement script calls tool.save(path, with_type='json'), and plain() and save() in "
+        "osprey/mcp_server/python_executor/tools/_pyaml_measure_script.py go with "
+        "test_a_measurement_holding_arrays_is_saved_as_json_lists, this test and its row in "
+        "tests/infrastructure/test_stand_in_canaries.py"
     )

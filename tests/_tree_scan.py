@@ -1,7 +1,8 @@
-"""Reading the test tree as a fact about the suite.
+"""Reading the source tree as a fact about the suite.
 
 Some invariants are properties of the tree rather than of any run: that a
-container is built in one place, that a superseded import path is unused. A
+container is built in one place, that a superseded import path is unused, that
+every stand-in for an upstream gap has a canary. A
 host with no container engine skips every test that could prove them by
 running, so they are read off the source instead, which works wherever the
 suite is collected.
@@ -35,3 +36,24 @@ def python_sources(exempt: Path) -> list[tuple[str, str]]:
             continue
         found.append((str(path.relative_to(TESTS_ROOT)), path.read_text(encoding="utf-8")))
     return found
+
+
+def product_sources(root: Path) -> list[tuple[str, str]]:
+    """Every Python file of the shipped code under ``root`` with its text.
+
+    The shipped code is ``root/src`` and each ``root/packages/*/src``.
+
+    Args:
+        root: The repository root, or a stand-in tree laid out like it.
+
+    Returns:
+        Pairs of path relative to ``root`` (POSIX form) and file text, sorted
+        by path.
+    """
+    found: list[tuple[str, str]] = []
+    for source in [root / "src", *sorted((root / "packages").glob("*/src"))]:
+        for path in source.rglob("*.py"):
+            if "__pycache__" in path.parts:
+                continue
+            found.append((path.relative_to(root).as_posix(), path.read_text(encoding="utf-8")))
+    return sorted(found)
