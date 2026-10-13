@@ -166,10 +166,7 @@ def _assert_limits_readable_if_writable() -> None:
 
     limits_key = posture.key("enabled")
 
-    from osprey_connectors.control_system._limits_validator import (
-        LIMITS_DATABASE_CONFIG_KEY,
-        LimitsValidator,
-    )
+    from osprey_connectors.control_system import LIMITS_DATABASE_CONFIG_KEY, LimitsValidator
 
     try:
         configured = LimitsValidator.configured_database_path()

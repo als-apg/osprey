@@ -21,7 +21,7 @@ Eight claims, in the order a deployment makes them true:
   than a declared window.
 * **The seam is invisible.** Where seeded history ends and recorded reality
   begins, the step in every fidelity partition is attributable to noise — the
-  threshold quoted from :func:`~osprey.simulation.procedural.deviation_bound`
+  threshold quoted from :func:`~osprey_connectors.simulation._procedural.deviation_bound`
   per channel, never a constant embedded here.
 * **A scenario apply stays bounded.** Activating an eventful scenario rewrites
   event windows, not the archive; the document count is asked to stay inside a
@@ -80,7 +80,7 @@ from typing import Any
 
 import pytest
 
-from osprey.simulation.procedural import DEFAULT_NOISE_LEVEL, deviation_bound
+from osprey_connectors.simulation._procedural import DEFAULT_NOISE_LEVEL, deviation_bound
 from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [
@@ -494,7 +494,7 @@ def _connector(world: DeployedArchiverWorld):
     surfacing it are different claims, and only the second one is what an
     operator experiences.
     """
-    from osprey.connectors.archiver.mongodb_archiver_connector import MongoDBArchiverConnector
+    from osprey_connectors.archiver._mongodb_archiver_connector import MongoDBArchiverConnector
 
     store = world.store
     connector = MongoDBArchiverConnector()
@@ -594,7 +594,7 @@ def _seed_anchor(world: DeployedArchiverWorld) -> datetime:
     test can put its window ACROSS the seam rather than wherever the clock
     happens to be when it runs.
     """
-    from osprey.simulation.archiver_seed import MANIFEST_ID
+    from osprey_connectors.simulation._archiver_seed import MANIFEST_ID
 
     with _collection(world) as collection:
         manifest = collection.find_one({"_id": MANIFEST_ID})
@@ -803,7 +803,7 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
     # no sweep intervenes the bracket collapses to the old exact comparison.
     def oldest_held() -> datetime:
         with _collection(archiver_world) as collection:
-            from osprey.simulation.archiver_seed import oldest_sample
+            from osprey_connectors.simulation._archiver_seed import oldest_sample
 
             oldest = oldest_sample(collection)
         assert oldest is not None, "the seeded store reports no oldest sample"

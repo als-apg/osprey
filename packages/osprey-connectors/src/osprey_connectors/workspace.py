@@ -12,6 +12,33 @@ from typing import Any
 
 from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
 
+__all__ = [
+    "ARCHIVE_DIR_RELPATH",
+    "AUDIT_DIR_RELPATH",
+    "BUILD_DIR_NAME",
+    "DEFAULT_AGENT_DATA_BASE_DIR",
+    "IMAGE_DIR_NAME",
+    "RENDERED_CONFIG_RELPATH",
+    "RUNTIME_DATA_DIR_NAME",
+    "STATE_DIR_NAME",
+    "STATE_ZONE_DIRS",
+    "agent_data_base_dir",
+    "anchored_path",
+    "container_image_context",
+    "deployment_env_chain",
+    "load_osprey_config",
+    "rendered_config_path",
+    "repo_root_for_agent_data",
+    "repo_root_for_config",
+    "reset_config_cache",
+    "resolve_config_path",
+    "resolve_path",
+    "resolve_project_root",
+    "resolve_shared_data_root",
+    "resolve_simulation_state_dir",
+    "resolve_workspace_root",
+]
+
 logger = logging.getLogger("osprey_connectors.workspace")
 
 #: Zone directory names inside a deployment repo. ``build/`` is the render zone,

@@ -24,6 +24,11 @@ if TYPE_CHECKING:
     # make pandas a hard dependency of the lean control-system import chain.
     from osprey_connectors.archiver._base import ArchiverConnector
 
+__all__ = [
+    "ConnectorFactory",
+    "register_builtin_connectors",
+]
+
 logger = get_logger("connector_factory")
 
 

@@ -531,8 +531,8 @@ async def test_the_recorders_ca_environment_is_left_as_it_stands(
     """The compose entry hands the recorder its gateway in ``EPICS_CA_*``; the
     connector it samples through must not rewrite that with a gateway block
     written for the agent's side of the network."""
-    from osprey.connectors.control_system.epics_connector import EPICSConnector
     from osprey.services.archiver_recorder import recorder
+    from osprey_connectors.control_system._epics_connector import EPICSConnector
     from tests.connectors._epics_fakes import install_fake_aioca
 
     install_fake_aioca(monkeypatch)

@@ -177,7 +177,7 @@ from osprey.mcp_server.control_system.target_banner import (
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey_connectors import posture_store
-from osprey_connectors.control_system._base import is_readonly_run
+from osprey_connectors.control_system import is_readonly_run
 from osprey_connectors.types import (
     WRITES_ENABLED_KEY,
     baseline_target,

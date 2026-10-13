@@ -27,26 +27,33 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 from osprey.connectors.types import MOCK, MONGODB_ARCHIVER, resolve_archiver_type
 from osprey.port_layout import default_port, resolve_port_base
-from osprey.simulation.engine import (
-    ACTIVE_SCENARIOS_FILENAME,
-    DEFAULT_SCENARIO,
-    SimulationEngine,
-    resolve_active_scenarios,
-    resolve_state_dir,
-)
-from osprey.simulation.machine import load_narratives, parse_machine, read_machine_json
 from osprey.utils.config import get_facility_timezone, load_config
 from osprey.utils.logger import get_logger
 from osprey.utils.relative_time import resolve_relative_timestamp
-from osprey_connectors.simulation._engine import resolve_simulation_file
+from osprey_connectors.simulation import (
+    ACTIVE_SCENARIOS_FILENAME,
+    DEFAULT_SCENARIO,
+    SimulationEngine,
+    load_narratives,
+    parse_machine,
+    read_machine_json,
+    resolve_active_scenarios,
+    resolve_simulation_file,
+    resolve_state_dir,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Iterator, Mapping, Sequence
     from zoneinfo import ZoneInfo
 
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
-    from osprey.simulation.archiver_seed import SeedKnobs
-    from osprey.simulation.machine import BpmErrorSpec, PlotSpec, Scenario, ScenarioLogEntry
+    from osprey_connectors.simulation import (
+        BpmErrorSpec,
+        PlotSpec,
+        Scenario,
+        ScenarioLogEntry,
+        SeedKnobs,
+    )
 
 logger = get_logger("simulation_apply")
 
@@ -418,7 +425,7 @@ def demo_narrative_logbook(
     The key names a directory laid out like a simulation ``scenarios/`` tree:
     one subdirectory per scenario, each with a ``logbook.json`` and the pictures
     its entries attach. Only the narratives are read (see
-    :func:`~osprey.simulation.machine.load_narratives`), so a deployment with no
+    :func:`~osprey_connectors.simulation.load_narratives`), so a deployment with no
     simulation can document the same incidents a simulated one does. ``nominal``
     comes first and the rest follow by name, the order a composed active set
     narrates in.
@@ -648,7 +655,7 @@ def archiver_collection(store: dict):
     _require_pymongo()
     from pymongo import MongoClient
 
-    from osprey.connectors.archiver.mongodb_archiver_connector import mongo_client_kwargs
+    from osprey_connectors.archiver import mongo_client_kwargs
 
     client: Any = MongoClient(
         **mongo_client_kwargs(
@@ -833,7 +840,7 @@ def _event_instants(
 ) -> list[float]:
     """Every instant one event fires at, inside ``[horizon_start, anchor]``."""
     if "at_time" in event:
-        from osprey.simulation.series import daily_occurrences
+        from osprey_connectors.simulation import daily_occurrences
 
         if tz is None:
             tz = get_facility_timezone()
@@ -843,7 +850,7 @@ def _event_instants(
 
 def _anchored_instant(event: Mapping[str, Any], anchor: float, tz: ZoneInfo | None) -> float:
     """An ``at_offset`` or ``at_when`` event's instant, in the facility zone by default."""
-    from osprey.simulation.series import anchored_instant
+    from osprey_connectors.simulation import anchored_instant
 
     return anchored_instant(dict(event), anchor, tz if tz is not None else get_facility_timezone())
 
@@ -929,7 +936,7 @@ def seed_archiver(
         ValueError: If an active scenario positions an archiver event by window
             fraction, which stored history cannot represent.
     """
-    from osprey.simulation.archiver_seed import MANIFEST_ID, SeedKnobs
+    from osprey_connectors.simulation import MANIFEST_ID, SeedKnobs
 
     store = archiver_store_config(config, project_dir)
     if store is None:
@@ -1078,7 +1085,7 @@ def _archive_start(collection, manifest: dict, anchor_s: float, knobs: SeedKnobs
     archive reaches writes into the history that exists instead of describing
     history that does not.
     """
-    from osprey.simulation.archiver_seed import oldest_sample
+    from osprey_connectors.simulation import oldest_sample
 
     oldest = oldest_sample(collection)
     if oldest is not None:
@@ -1116,7 +1123,7 @@ def _ledger_entries(windows: dict[str, tuple[float, float]]) -> list[dict]:
 
 def _write_ledger(collection, windows: dict[str, tuple[float, float]], anchor_s: float) -> None:
     """Record the windows a later apply has to recompute over."""
-    from osprey.simulation.archiver_seed import MANIFEST_ID
+    from osprey_connectors.simulation import MANIFEST_ID
 
     collection.update_one(
         {"_id": MANIFEST_ID},
@@ -1216,7 +1223,7 @@ def _rewrite_documents(
         retention. A document whose values and expiry are already correct is not
         rewritten and not counted, so re-applying the set in force reports zero.
     """
-    from osprey.simulation.archiver_seed import tier_expiry
+    from osprey_connectors.simulation import tier_expiry
 
     if not spans:
         return 0, 0
@@ -1564,7 +1571,7 @@ def compute_scenario_physics_env(
             (see :func:`_config_file`).
         names: Scenario names to activate (``nominal`` is always implicit),
             resolved the same nominal-first, deduped way
-            :meth:`~osprey.simulation.engine.SimulationEngine.set_active_scenarios`
+            :meth:`~osprey_connectors.simulation.SimulationEngine.set_active_scenarios`
             resolves them.
 
     Returns:
@@ -1639,7 +1646,7 @@ def render_scenario_physics_env(
 
     The deploy-time counterpart to :func:`apply_scenarios`'s telemetry/logbook
     half (FR5). A scenario's optional ``physics`` block (see
-    :class:`~osprey.simulation.machine.PhysicsFault`) is deploy-time-only -- a
+    :class:`~osprey_connectors.simulation._machine.PhysicsFault`) is deploy-time-only -- a
     physics fault applies once at VA container boot, and hot-swapping it needs
     a restart, unlike ``overrides``/``archiver`` -- so it is rendered here into
     the repo's ``.env`` as ``VA_BPM_ERRORS``/
@@ -1659,7 +1666,7 @@ def render_scenario_physics_env(
             render supplies ``config.yml``.
         names: Scenario names to activate (``nominal`` is always implicit),
             resolved the same nominal-first, deduped way
-            :meth:`~osprey.simulation.engine.SimulationEngine.set_active_scenarios`
+            :meth:`~osprey_connectors.simulation.SimulationEngine.set_active_scenarios`
             resolves them.
         env_path: ``.env`` path to write into (defaults to
             ``project_dir/.env``, injectable for tests).

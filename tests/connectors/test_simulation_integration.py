@@ -12,9 +12,9 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
 from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
+from osprey_connectors.control_system._mock_connector import MockConnector
 
 TEST_MACHINE = {
     "name": "TestRig",
@@ -82,7 +82,7 @@ def state_dir(tmp_path, monkeypatch):
     ``tmp_path`` keeps a developer's active ``osprey sim`` scenario out of the
     results and the working tree untouched.
     """
-    from osprey.simulation import engine as engine_module
+    from osprey_connectors.simulation import _engine as engine_module
 
     path = tmp_path / "_agent_data" / "simulation"
     path.mkdir(parents=True, exist_ok=True)

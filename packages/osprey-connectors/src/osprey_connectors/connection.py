@@ -42,6 +42,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+__all__ = [
+    "ENV_NAME_RE",
+    "read_ca_bundle",
+    "read_connection_settings",
+    "read_credential_env_names",
+]
+
 LoginKind = Literal["token", "password"]
 
 #: Every login form the shape defines.

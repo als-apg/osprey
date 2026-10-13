@@ -8,8 +8,6 @@ what gets passed to ``connect()``.
 
 import pytest
 
-from osprey.connectors.control_system.epics_connector import EPICSConnector
-from osprey.connectors.control_system.va_connector import VirtualAcceleratorConnector
 from osprey.connectors.factory import (
     ConnectorFactory,
     isolated_connector_registries,
@@ -18,6 +16,8 @@ from osprey.connectors.factory import (
 from osprey.connectors.types import VIRTUAL_ACCELERATOR
 from osprey.registry.base import ConnectorRegistration, RegistryConfig
 from osprey.registry.initializers import initialize_connectors
+from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors.control_system._va_connector import VirtualAcceleratorConnector
 from tests.connectors._epics_fakes import fake_aioca  # noqa: F401 - fixture, used by name
 
 
@@ -70,7 +70,7 @@ class TestRegistryResolution:
                 ConnectorRegistration(
                     name=VIRTUAL_ACCELERATOR,
                     connector_type="control_system",
-                    module_path="osprey.connectors.control_system.va_connector",
+                    module_path="osprey_connectors.control_system._va_connector",
                     class_name="VirtualAcceleratorConnector",
                     description="Virtual Accelerator connector for PyAT-backed soft-IOC simulations",
                 ),
@@ -94,7 +94,7 @@ class TestRegistryResolution:
         registration = va_registrations[0]
         assert registration.connector_type == "control_system"
         assert registration.class_name == "VirtualAcceleratorConnector"
-        assert registration.module_path == "osprey.connectors.control_system.va_connector"
+        assert registration.module_path == "osprey_connectors.control_system._va_connector"
 
 
 class TestConfigBlockRouting:

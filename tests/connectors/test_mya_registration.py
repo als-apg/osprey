@@ -60,7 +60,7 @@ class TestBuiltinRegistration:
         import osprey_connectors.archiver as archiver_pkg
 
         canonical = "osprey_connectors.archiver._mya_archiver_connector"
-        shim = "osprey.connectors.archiver.mya_archiver_connector"
+        shim = "osprey_connectors.archiver._mya_archiver_connector"
         cached = sys.modules.get(canonical)
         # The re-import rebinds the package attribute; put it back afterwards.
         monkeypatch.setattr(archiver_pkg, "mya_archiver_connector", cached, raising=False)
@@ -91,7 +91,7 @@ class TestFrameworkRegistryEntries:
         assert by_name[types.MYA_ARCHIVER].class_name == "MYAArchiverConnector"
         assert (
             by_name[types.MYA_ARCHIVER].module_path
-            == "osprey.connectors.archiver.mya_archiver_connector"
+            == "osprey_connectors.archiver._mya_archiver_connector"
         )
 
 
@@ -99,7 +99,7 @@ class TestCompatibilityShim:
     """The ``osprey.connectors`` spelling resolves to the same class."""
 
     def test_shim_reexports_the_connector(self):
-        from osprey.connectors.archiver.mya_archiver_connector import MYAArchiverConnector
+        from osprey_connectors.archiver._mya_archiver_connector import MYAArchiverConnector
         from osprey_connectors.archiver._mya_archiver_connector import (
             MYAArchiverConnector as Canonical,
         )

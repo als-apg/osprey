@@ -34,7 +34,7 @@ def test_axis_is_non_increasing_and_ends_at_zero() -> None:
 
 
 def test_spec_parses_with_the_bundle_loader() -> None:
-    from osprey.simulation.machine import parse_plot_spec
+    from osprey_connectors.simulation._machine import parse_plot_spec
 
     spec = parse_plot_spec(fixture.build_plot_spec(), "beam-loss fixture")
     assert spec.filename == "dcct_decay_run.png"
@@ -131,7 +131,7 @@ def test_recent_bundle_steps_match_the_constant() -> None:
 
 
 def test_installed_bundles_load_as_narratives(tmp_path: Path) -> None:
-    from osprey.simulation.machine import PlotSpec, load_narratives
+    from osprey_connectors.simulation._machine import PlotSpec, load_narratives
 
     scenarios = tmp_path / "scenarios"
     fixture.install_bundles(scenarios)
@@ -148,8 +148,8 @@ def test_installed_bundles_load_as_narratives(tmp_path: Path) -> None:
 def test_spec_renders_to_a_png(tmp_path: Path) -> None:
     from datetime import UTC, datetime
 
-    from osprey.simulation.machine import parse_plot_spec
     from osprey.simulation.plots import render_plot_spec
+    from osprey_connectors.simulation._machine import parse_plot_spec
 
     spec = parse_plot_spec(fixture.build_plot_spec(), "beam-loss fixture")
     png = render_plot_spec(spec, datetime(2025, 10, 3, 2, 40, tzinfo=UTC))

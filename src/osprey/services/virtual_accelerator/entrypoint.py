@@ -140,7 +140,7 @@ from osprey.services.virtual_accelerator.model.fault_bounds import (
     MAX_CORR_GAIN_FACTOR,
 )
 from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb
-from osprey.simulation.engine import SimulationEngine
+from osprey_connectors.simulation import SimulationEngine
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from lume.model import LUMEModel

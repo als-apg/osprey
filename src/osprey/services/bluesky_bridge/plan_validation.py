@@ -73,7 +73,7 @@ from osprey.services.python_executor.analysis.pattern_detection import (
     detect_control_system_operations,
 )
 from osprey.utils.workspace import load_osprey_config
-from osprey_connectors.ipc._host import scrub_epics_env
+from osprey_connectors.ipc import scrub_epics_env
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.plan_validation")
 

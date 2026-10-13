@@ -419,7 +419,7 @@ def stage_va_project(root: Path) -> VaProject:
     A plain function rather than the fixture body so a caller can stage the
     repo and drive ``osprey sim apply`` at it without a pytest session.
     """
-    from osprey.simulation.engine import resolve_state_dir
+    from osprey_connectors.simulation._engine import resolve_state_dir
     from tests.cli._lifecycle_build import stub_build
     from tests.fixtures.lifecycle_repo import build_exemplar_repo
 

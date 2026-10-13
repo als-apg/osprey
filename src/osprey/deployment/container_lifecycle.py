@@ -5189,7 +5189,7 @@ def _standin_seed_transform(config: dict, project_dir: Path, addresses: Sequence
         addresses in it, so the recorded fingerprint describes what the store
         actually holds rather than what the spec asked for.
     :returns: ``(value_transform, transform_fingerprint)`` for
-        :func:`~osprey_connectors.simulation._archiver_seed.seed_base`, both
+        :func:`~osprey_connectors.simulation.seed_base`, both
         ``None`` when the archive is not the stand-in's or the stand-in perturbs
         none of the seeded channels — in which case the seed and its fingerprint
         are byte-identical to a deployment without one.
@@ -5305,9 +5305,12 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
         load_machine_json_channels,
         load_manifest_file,
     )
-    from osprey.simulation.engine import SimulationEngine, resolve_state_dir
-    from osprey.simulation.machine import read_machine_json
-    from osprey_connectors.simulation._engine import resolve_simulation_file
+    from osprey_connectors.simulation import (
+        SimulationEngine,
+        read_machine_json,
+        resolve_simulation_file,
+        resolve_state_dir,
+    )
 
     env = parse_dotenv_file(project_dir / ".env") if (project_dir / ".env").is_file() else {}
     named = (env.get("VA_CHANNELS_FILE") or os.environ.get("VA_CHANNELS_FILE") or "").strip()
@@ -5389,7 +5392,7 @@ def _reapply_active_scenarios(config: dict, project_dir: Path, engine) -> None:
     :raises RuntimeError: if the re-apply fails, naming the command that fixes it.
     """
     from osprey.simulation.apply import apply_scenarios, persisted_scenario_anchor
-    from osprey.simulation.engine import DEFAULT_SCENARIO
+    from osprey_connectors.simulation import DEFAULT_SCENARIO
 
     if engine is None:
         logger.debug("No machine model in this project; no scenarios to re-apply after the reseed")
@@ -5501,7 +5504,7 @@ def _wait_for_archiver_store(
 
 
 def _seed_progress_reporter():
-    """A :func:`~osprey.simulation.archiver_seed.seed_base` progress callback.
+    """A :func:`~osprey_connectors.simulation.seed_base` progress callback.
 
     Each firing becomes a step line under the verb's open phase, so a first
     deploy's multi-minute seed reports as it goes instead of stalling silently.
@@ -5605,7 +5608,7 @@ def _stage_archiver_store(
     :raises RuntimeError: if the store cannot be reached or authenticated.
     """
     from osprey.simulation.apply import archiver_collection
-    from osprey.simulation.archiver_seed import (
+    from osprey_connectors.simulation import (
         SeedKnobs,
         SeedState,
         compare_fingerprint,
@@ -5940,7 +5943,7 @@ def _stage_ariel_store(
     if seeded:
         _report_step(f"logbook seeded: {seeded} entries")
     elif scenarios_activated:
-        from osprey.simulation.engine import DEFAULT_SCENARIO
+        from osprey_connectors.simulation import DEFAULT_SCENARIO
 
         faults = " ".join(name for name in scenarios_activated if name != DEFAULT_SCENARIO)
         logger.warning(

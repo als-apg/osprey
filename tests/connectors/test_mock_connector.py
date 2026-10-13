@@ -13,9 +13,9 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
 from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
+from osprey_connectors.control_system._mock_connector import MockConnector
 
 
 def _config_with_writes_enabled(key, default=None):
@@ -461,7 +461,7 @@ class TestMockArchiverReproducibility:
         script = textwrap.dedent("""
             import asyncio, json
             from datetime import datetime
-            from osprey.connectors.archiver.mock_archiver_connector import (
+            from osprey_connectors.archiver._mock_archiver_connector import (
                 MockArchiverConnector,
             )
 
@@ -510,7 +510,7 @@ def _captured_sigmas():
         sigmas.append(scale)
         return real_normal(loc, scale, *args, **kwargs)
 
-    with patch("osprey.connectors.control_system.mock_connector.np.random.normal", recorder):
+    with patch("osprey_connectors.control_system._mock_connector.np.random.normal", recorder):
         yield sigmas
 
 

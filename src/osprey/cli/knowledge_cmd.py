@@ -1074,7 +1074,7 @@ def _assign_directions(graph_model: Any, limits: Path | None) -> tuple[Any, Any]
         LimitsFileMissing,
         resolve_and_assign,
     )
-    from osprey_connectors.control_system._limits_validator import LIMITS_DATABASE_CONFIG_KEY
+    from osprey_connectors.control_system import LIMITS_DATABASE_CONFIG_KEY
 
     try:
         return resolve_and_assign(graph_model, limits)

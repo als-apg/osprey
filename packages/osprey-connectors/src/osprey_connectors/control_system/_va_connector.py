@@ -11,11 +11,9 @@ from typing import Any
 
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.logger import get_logger
+from osprey_connectors.types import DEFAULT_VA_PORT
 
 logger = get_logger("va_connector")
-
-#: Channel Access port the shipped Virtual Accelerator soft-IOC serves on.
-DEFAULT_VA_PORT = 5064
 
 
 def resolve_va_gateway_port(config_path: str | None = None) -> Any:

@@ -32,7 +32,9 @@ def _r(x, y) -> float:
 
 def _freeze_now(monkeypatch, epoch: float) -> None:
     """Freeze the engine module's wall clock without touching stdlib time."""
-    monkeypatch.setattr("osprey.simulation.engine.time", SimpleNamespace(time=lambda: epoch))
+    monkeypatch.setattr(
+        "osprey_connectors.simulation._engine.time", SimpleNamespace(time=lambda: epoch)
+    )
 
 
 @pytest.fixture

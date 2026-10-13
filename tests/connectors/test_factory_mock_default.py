@@ -16,9 +16,9 @@ import logging
 import pytest
 
 from osprey.connectors import types
-from osprey.connectors.control_system.mock_connector import MockConnector
 from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey.services.python_executor.execution.control import get_execution_control_config
+from osprey_connectors.control_system._mock_connector import MockConnector
 
 FACTORY_LOGGER = "connector_factory"
 EXECUTION_CONTROL_LOGGER = "execution_control"

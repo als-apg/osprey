@@ -20,12 +20,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.control_system._mock_connector import MockConnector
 
-_DOOCS_LIMITS_PATCH = "osprey.connectors.control_system.doocs_connector.LimitsValidator.from_config"
-_DOOCS_TZ_PATCH = "osprey.connectors.control_system.doocs_connector.get_facility_timezone"
-_TANGO_LIMITS_PATCH = "osprey.connectors.control_system.tango_connector.LimitsValidator.from_config"
-_TANGO_TZ_PATCH = "osprey.connectors.control_system.tango_connector.get_facility_timezone"
+_DOOCS_LIMITS_PATCH = (
+    "osprey_connectors.control_system._doocs_connector.LimitsValidator.from_config"
+)
+_DOOCS_TZ_PATCH = "osprey_connectors.control_system._doocs_connector.get_facility_timezone"
+_TANGO_LIMITS_PATCH = (
+    "osprey_connectors.control_system._tango_connector.LimitsValidator.from_config"
+)
+_TANGO_TZ_PATCH = "osprey_connectors.control_system._tango_connector.get_facility_timezone"
 
 VALUE_SENT = 5.0
 
@@ -78,7 +82,7 @@ async def _run_doocs(_monkeypatch) -> WriteRun:
         patch(_DOOCS_TZ_PATCH, return_value=UTC),
         patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
     ):
-        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+        from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
         await conn.connect({})
@@ -104,7 +108,7 @@ async def _run_tango(_monkeypatch) -> WriteRun:
         patch(_TANGO_TZ_PATCH, return_value=UTC),
         patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
     ):
-        from osprey.connectors.control_system.tango_connector import TangoConnector
+        from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
         await conn.connect({})

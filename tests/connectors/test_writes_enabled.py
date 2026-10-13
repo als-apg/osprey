@@ -139,7 +139,7 @@ class TestMockWritesDisabledViaBaseClass:
 
     def test_mock_has_no_enable_writes_attr(self):
         """MockConnector must not carry an _enable_writes attribute."""
-        from osprey.connectors.control_system.mock_connector import MockConnector
+        from osprey_connectors.control_system._mock_connector import MockConnector
 
         connector = MockConnector()
         assert not hasattr(connector, "_enable_writes")
@@ -147,7 +147,7 @@ class TestMockWritesDisabledViaBaseClass:
     @pytest.mark.asyncio
     async def test_write_blocked_full_path(self):
         """Full path: MockConnector with writes_enabled=false blocks writes."""
-        from osprey.connectors.control_system.mock_connector import MockConnector
+        from osprey_connectors.control_system._mock_connector import MockConnector
 
         connector = MockConnector()
         with patch("osprey.utils.config.get_config_value", return_value=False):
@@ -167,7 +167,7 @@ class TestMockWritesDisabledViaBaseClass:
         No limits database and a noise-free confirming read, so the fleet
         default resolves to a confirmed write.
         """
-        from osprey.connectors.control_system.mock_connector import MockConnector
+        from osprey_connectors.control_system._mock_connector import MockConnector
 
         connector = MockConnector()
         with patch(

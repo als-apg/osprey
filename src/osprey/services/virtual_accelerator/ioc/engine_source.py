@@ -7,7 +7,7 @@ plain read-only record with no wired write behavior -- GOLDEN references,
 STATUS flags, temperatures, pressures, and any other channel with no lattice
 physics and no SP->RB echo pairing. This module is their only value source:
 on each poll tick it reads the effective value for every partition-(c)
-address through the SAME :class:`~osprey.simulation.engine.SimulationEngine`
+address through the SAME :class:`~osprey_connectors.simulation.SimulationEngine`
 used by the mock connector (never a second implementation -- see the module
 docstring on ``engine.py``), and pushes it onto the record with ``.set()``.
 
@@ -41,7 +41,7 @@ import numpy as np
 
 from osprey.connectors.channel_taxonomy import ChannelKind, classify_channel
 from osprey.services.virtual_accelerator.manifest import PARTITION_STATIC_NOISY, RECORD_TYPE_BINARY
-from osprey.simulation.engine import SimulationEngine, engine_serves
+from osprey_connectors.simulation import SimulationEngine, engine_serves
 
 ACTIVE_SCENARIOS_FILENAME = "active_scenarios"
 #: Seconds between telemetry ticks when ``VA_POLL_INTERVAL_S`` is unset. The

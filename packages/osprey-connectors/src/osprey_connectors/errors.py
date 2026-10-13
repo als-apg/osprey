@@ -14,6 +14,17 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from osprey_connectors.control_system._base import WriteOutcome
 
+__all__ = [
+    "RAW_CLIENT_WRITE_MARKER",
+    "BuildProfileError",
+    "ChannelLimitsViolationError",
+    "ChannelWriteBlockedError",
+    "ChannelWriteFailedError",
+    "ConfigurationError",
+    "RegistryError",
+    "raw_client_write_message",
+]
+
 
 class ChannelLimitsViolationError(Exception):
     """Raised when a channel write violates configured safety limits.

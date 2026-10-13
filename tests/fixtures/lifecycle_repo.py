@@ -3223,7 +3223,7 @@ refuse, and forcing it risks the whole ring's vacuum.
 """
 
 #: Each channel is a mapping carrying exactly one of ``value`` or ``expr`` --
-#: the schema ``osprey.simulation.machine.parse_machine`` enforces, and the one
+#: the schema ``osprey_connectors.simulation._machine.parse_machine`` enforces, and the one
 #: the shipped presets are written in. A bare number here would look like a
 #: reasonable shorthand and is not: the parser rejects it, so the exemplar would
 #: name a simulation model that no engine can load.

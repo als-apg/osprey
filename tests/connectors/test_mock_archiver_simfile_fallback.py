@@ -41,7 +41,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector, _anchor
+from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector, _anchor
 
 ARCHIVER_LOGGER = "mock_archiver_connector"
 

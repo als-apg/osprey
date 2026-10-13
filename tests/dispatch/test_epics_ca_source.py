@@ -714,7 +714,7 @@ class TestConnect:
     @pytest.mark.asyncio
     async def test_the_dispatchers_ca_environment_is_left_as_it_stands(self, monkeypatch) -> None:
         """``dispatch.env`` hands the gateway over; a gateway block would rewrite it."""
-        from osprey.connectors.control_system.epics_connector import EPICSConnector
+        from osprey_connectors.control_system._epics_connector import EPICSConnector
         from tests.connectors._epics_fakes import install_fake_aioca
 
         install_fake_aioca(monkeypatch)

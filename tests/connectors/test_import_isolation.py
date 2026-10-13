@@ -45,7 +45,7 @@ def _run_clean(code: str) -> None:
 
 def test_control_system_chain_imports_without_heavy_deps():
     code = (
-        "import osprey.connectors.control_system.epics_connector;"
+        "import osprey_connectors.control_system._epics_connector;"
         "import osprey.connectors.control_system.limits_validator;"
         "import osprey.errors, osprey.utils.config, osprey.utils.logger;"
         "import osprey.simulation, sys;"

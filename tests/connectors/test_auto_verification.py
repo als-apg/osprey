@@ -12,7 +12,7 @@ import json
 from unittest.mock import patch
 
 from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.control_system._mock_connector import MockConnector
 from tests.connectors._write_fakes import writes_enabled_config
 
 

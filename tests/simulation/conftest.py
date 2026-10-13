@@ -81,7 +81,7 @@ class StubCollection:
     @property
     def manifest(self) -> dict[str, Any] | None:
         """The manifest document, or ``None`` when none was written."""
-        from osprey.simulation.archiver_seed import MANIFEST_ID
+        from osprey_connectors.simulation._archiver_seed import MANIFEST_ID
 
         return self._by_id.get(MANIFEST_ID)
 
@@ -186,7 +186,7 @@ def _isolate_ambient_state_dir(monkeypatch, state_dir):
     ``active_scenarios`` into the working tree. Every engine here lands in its
     own tmp dir instead.
     """
-    from osprey.simulation import engine as engine_module
+    from osprey_connectors.simulation import _engine as engine_module
 
     monkeypatch.setattr(engine_module, "default_state_dir", lambda: state_dir)
 

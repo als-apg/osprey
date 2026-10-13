@@ -48,7 +48,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system._base import is_readonly_run
+from osprey_connectors.control_system import is_readonly_run
 
 if TYPE_CHECKING:
     from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
@@ -2558,7 +2558,7 @@ def _row_selected_role(config: Any, target: str, writes_enabled: bool) -> str | 
     """The gateway role a connector would select for *target* under this posture.
 
     The reachability collapse keys on it, so it is derived through
-    :func:`~osprey_connectors.ipc._verification.derive_endpoints`
+    :func:`~osprey_connectors.ipc.derive_endpoints`
     — the function the connector-host child's own selection is verified against
     — with the recorded effective posture rather than the configured one. A
     role derived from config alone would name the write gateway for a target the
@@ -2571,7 +2571,7 @@ def _row_selected_role(config: Any, target: str, writes_enabled: bool) -> str | 
     if config is _UNREADABLE_SECTION:
         return None
     try:
-        from osprey_connectors.ipc._verification import derive_endpoints
+        from osprey_connectors.ipc import derive_endpoints
 
         return derive_endpoints(config, target, writes_enabled=writes_enabled).selected_role
     except Exception:  # an underivable target selects no role

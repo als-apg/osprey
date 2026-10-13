@@ -142,3 +142,31 @@ def test_the_simulation_package_reexports_the_engine_class():
     import osprey_connectors.simulation
 
     assert osprey.simulation.SimulationEngine is osprey_connectors.simulation.SimulationEngine
+
+
+#: Paths that aliased a module now private to its package, removed with it. The
+#: concrete connectors are built through the factory from their type names.
+REMOVED = (
+    "osprey.connectors.control_system.epics_connector",
+    "osprey.connectors.control_system.mock_connector",
+    "osprey.connectors.control_system.va_connector",
+    "osprey.connectors.control_system.doocs_connector",
+    "osprey.connectors.control_system.tango_connector",
+    "osprey.connectors.archiver.epics_archiver_connector",
+    "osprey.connectors.archiver.mock_archiver_connector",
+    "osprey.connectors.archiver.mongodb_archiver_connector",
+    "osprey.connectors.archiver.doocs_archiver_connector",
+    "osprey.connectors.archiver.mya_archiver_connector",
+    "osprey.simulation.engine",
+    "osprey.simulation.machine",
+    "osprey.simulation.series",
+    "osprey.simulation.expressions",
+    "osprey.simulation.procedural",
+    "osprey.simulation.archiver_seed",
+)
+
+
+@pytest.mark.parametrize("path", REMOVED)
+def test_a_removed_path_is_gone(path):
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module(path)

@@ -41,6 +41,13 @@ from rich.logging import RichHandler
 
 from osprey_connectors.config import get_config_value
 
+__all__ = [
+    "ComponentLogger",
+    "configure_logging",
+    "get_logger",
+    "set_handler_console",
+]
+
 
 class ComponentLogger:
     """

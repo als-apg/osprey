@@ -45,6 +45,30 @@ if TYPE_CHECKING:
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
+__all__ = [
+    "DEFAULT_EXECUTION_TIMEOUT_SECONDS",
+    "EXECUTION_METHOD_SUBPROCESS",
+    "RUNTIME_WRITE_PATH_KEYS",
+    "ConfigBuilder",
+    "config_anchored_at",
+    "default_config_path",
+    "dotenv_shell_overrides",
+    "get_agent_dir",
+    "get_config_builder",
+    "get_config_value",
+    "get_facility_timezone",
+    "get_full_configuration",
+    "is_unresolved_placeholder",
+    "load_config",
+    "load_project_config",
+    "load_project_dotenv",
+    "localize_facility",
+    "mapping_or_empty",
+    "resolve_env_vars",
+    "resolve_execution_method",
+    "to_facility_iso",
+]
+
 # Use standard logging (not get_logger) to avoid circular imports with logger.py
 # The short name 'CONFIG' enables easy filtering: quiet_logger(['registry', 'CONFIG'])
 logger = logging.getLogger("CONFIG")

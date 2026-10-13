@@ -153,7 +153,5 @@ def quiet_logger(logger_name: str | list[str]):
 
 
 __all__ = [
-    "LoggerFilter",
-    "suppress_logger_level",
     "quiet_logger",
 ]

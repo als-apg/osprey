@@ -47,7 +47,7 @@ from p4p.server import Server
 from p4p.server.thread import SharedPV
 
 from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system._epics_connector import EPICSConnector
 from tests.connectors._epics_fakes import (
     install_fake_aioca,
     writes_enabled,  # noqa: F401 - fixture, used by name

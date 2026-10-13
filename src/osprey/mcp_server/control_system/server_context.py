@@ -63,7 +63,7 @@ from osprey.mcp_server.control_system.connector_host_manager import (
 )
 from osprey_connectors import control_context
 from osprey_connectors.config import mapping_or_empty
-from osprey_connectors.ipc._proxy import ConnectorHostProxy
+from osprey_connectors.ipc import ConnectorHostProxy
 from osprey_connectors.types import configured_targets, target_writes_enabled
 
 __all__ = [
@@ -370,7 +370,7 @@ class ControlSystemContext:
 
         The two are not related by inheritance — the proxy mirrors the
         connector's call surface deliberately rather than subclassing it (see
-        :class:`~osprey_connectors.ipc._proxy.ConnectorHostProxy`) — so the
+        :class:`~osprey_connectors.ipc.ConnectorHostProxy`) — so the
         return type names both.
         """
         return await self._get_connector("control_system")

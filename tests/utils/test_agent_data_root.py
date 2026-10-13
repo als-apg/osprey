@@ -293,7 +293,7 @@ class TestScenarioStateMountPoint:
 
     def test_matches_what_the_engine_resolves(self, project: Path) -> None:
         """The pre-created mount point and the runtime write target are one path."""
-        from osprey.simulation.engine import resolve_state_dir
+        from osprey_connectors.simulation._engine import resolve_state_dir
 
         config: dict[str, Any] = {
             "project_root": str(project),

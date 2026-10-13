@@ -56,6 +56,55 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+__all__ = [
+    "CHANNEL_ACCESS_TYPES",
+    "CLI_CONTROL_SYSTEM_TYPES",
+    "CONTROL_TARGETS",
+    "DEFAULT_VA_PORT",
+    "DOOCS",
+    "DOOCS_ARCHIVER",
+    "EPICS",
+    "EPICS_ARCHIVER",
+    "INVENTED_HISTORY_TYPES",
+    "LIMITS_CHECKING_LEAF",
+    "LIMITS_LEAVES",
+    "LIVE_STANDIN",
+    "MOCK",
+    "MOCK_ARCHIVER",
+    "MONGODB_ARCHIVER",
+    "MYA_ARCHIVER",
+    "SET_CONTROL_SYSTEM_TYPES",
+    "SIMULATED_TYPES",
+    "STANDIN_TYPES",
+    "TANGO",
+    "TARGET_LIVE",
+    "TARGET_STANDIN",
+    "TARGET_VA",
+    "TYPE_WRITES_ENABLED_LEAF",
+    "VIRTUAL_ACCELERATOR",
+    "WRITES_ENABLED_KEY",
+    "LimitsPosture",
+    "any_armed_target_checks_limits",
+    "any_target_writes_enabled",
+    "archiver_settings_errors",
+    "archiver_settings_key",
+    "baseline_target",
+    "configured_targets",
+    "incomplete_limits_blocks",
+    "resolve_archiver_settings",
+    "resolve_archiver_type",
+    "resolve_control_system_type",
+    "resolve_target",
+    "session_posture",
+    "switch_capable",
+    "target_configured",
+    "target_limits_posture",
+    "target_writes_enabled",
+    "target_writes_enabled_key",
+    "type_limits_posture",
+    "type_writes_enabled",
+]
+
 logger = logging.getLogger("osprey_connectors.types")
 
 #: Config shapes the second-real-block warning has already been said about, so
@@ -77,6 +126,12 @@ TANGO = "tango"
 #: thing ``live`` can mean, and the stand-in gets its own
 #: ``control_system.connector.live_standin`` block to be configured from.
 LIVE_STANDIN = "live_standin"
+
+#: Channel Access port the shipped Virtual Accelerator soft-IOC serves on. It is
+#: here rather than only in the VA connector because the deployment layer fills
+#: the same default when it dials the VA, and it must not import a concrete
+#: connector (and the EPICS client stack behind it) to learn one integer.
+DEFAULT_VA_PORT = 5064
 
 # -- Archiver connector types --
 MOCK_ARCHIVER = "mock_archiver"
@@ -143,7 +198,7 @@ TYPE_WRITES_ENABLED_LEAF = "writes_enabled"
 #: Types that serve a machine nobody has to be careful around. They are the
 #: reason ``live`` cannot simply be "whatever the config selects": a deployment
 #: whose baseline is one of these has not yet said what its real machine is.
-_SIMULATED_TYPES = (MOCK, VIRTUAL_ACCELERATOR)
+SIMULATED_TYPES = (MOCK, VIRTUAL_ACCELERATOR)
 
 #: Types that serve the live stand-in. Reachable only through the ``standin``
 #: target: a stand-in is a machine in its own right, so it is never a candidate
@@ -1404,7 +1459,7 @@ def _live_type(section: Any) -> str:
     raises, and a baseline that *is* one, beside a second real block no target
     can reach, is warned about.
     """
-    never_live = _SIMULATED_TYPES + STANDIN_TYPES
+    never_live = SIMULATED_TYPES + STANDIN_TYPES
     baseline = resolve_control_system_type(section)
     if baseline not in never_live:
         _report_second_real_block(section, baseline, never_live)

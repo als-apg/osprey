@@ -51,6 +51,14 @@ historical import path costs no second implementation.
 import getpass
 import os
 
+__all__ = [
+    "AUDIT_IDENTITY_ENV",
+    "IDENTITY_ENV_LADDER",
+    "TERMINAL_USER_ENV",
+    "acting_identity",
+    "usable_identity",
+]
+
 #: The multi-user deployment's per-container user name. Spelled locally rather
 #: than imported from ``interfaces.common_middleware``, which owns the same
 #: constant for URL-prefix purposes: importing it would cost this module its
@@ -85,7 +93,7 @@ _PATH_SEPARATORS: tuple[str, ...] = ("/", "\\", "\0")
 _RESERVED_NAMES: tuple[str, ...] = (".", "..")
 
 
-def _usable(value: str | None) -> str:
+def usable_identity(value: str | None) -> str:
     """Return *value* stripped, or ``""`` if it cannot serve as an identity.
 
     A rung must produce a value that works for *both* uses or it has not
@@ -128,7 +136,7 @@ def acting_identity() -> str:
     audit record. Every failure lands on :data:`UNKNOWN_IDENTITY`.
     """
     for env_name in IDENTITY_ENV_LADDER:
-        candidate = _usable(os.environ.get(env_name))
+        candidate = usable_identity(os.environ.get(env_name))
         if candidate:
             return candidate
 
@@ -137,4 +145,4 @@ def acting_identity() -> str:
     except Exception:  # an unnamed account must not cost the record
         return UNKNOWN_IDENTITY
 
-    return _usable(local_account) or UNKNOWN_IDENTITY
+    return usable_identity(local_account) or UNKNOWN_IDENTITY

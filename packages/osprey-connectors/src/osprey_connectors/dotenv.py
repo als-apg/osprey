@@ -16,6 +16,35 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+__all__ = [
+    "BUILD_DERIVED_BANNER",
+    "BUILD_DERIVED_KEYS",
+    "DEPLOY_MINTED_BANNER",
+    "ENV_AUTH_BANNER",
+    "ENV_CHAIN_APPLIED_ENV",
+    "ENV_CHAIN_FILENAMES",
+    "ENV_LOCAL_FILENAME",
+    "ENV_SHARED_FILENAME",
+    "ENV_USERS_BANNER",
+    "VA_LATTICE_DEFAULT",
+    "VA_LATTICE_KEY",
+    "append_profile_env",
+    "atomic_write",
+    "chain_files",
+    "compose_unsafe_vars",
+    "compose_unsafe_vars_in_chain",
+    "dotenv_line_var",
+    "env_file_lock",
+    "env_lock_path",
+    "format_env_line",
+    "merge_chain",
+    "parse_dotenv_file",
+    "parse_dotenv_text",
+    "replace_profile_env_value",
+    "resolved_va_lattice",
+    "write_env_merged",
+]
+
 
 def parse_dotenv_file(path: Path) -> dict[str, str]:
     """Parse a ``.env`` file into a dict of environment variables.

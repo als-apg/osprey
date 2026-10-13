@@ -13,12 +13,12 @@ from dataclasses import MISSING, asdict, fields
 from pathlib import Path
 from typing import Any, get_type_hints
 
-from osprey.connectors.control_system import base as base_module
 from osprey.connectors.control_system.base import (
     ChannelMetadata,
     ChannelWriteResult,
     WriteOutcome,
 )
+from osprey_connectors.control_system import _base as base_module
 
 
 class TestChannelWriteResultShape:

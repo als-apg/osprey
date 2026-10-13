@@ -19,21 +19,24 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.epics_connector import EPICSConnector
-from osprey.connectors.control_system.limits_validator import (
+from osprey.connectors.control_system.limits_validator import ChannelLimitsConfig, LimitsValidator
+from osprey.errors import ChannelLimitsViolationError
+from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors.control_system._limits_validator import (
     DEFAULT_STEP_READ_TIMEOUT_SECONDS,
-    ChannelLimitsConfig,
-    LimitsValidator,
     step_read_timeout_seconds,
 )
-from osprey.connectors.control_system.mock_connector import MockConnector
-from osprey.errors import ChannelLimitsViolationError
+from osprey_connectors.control_system._mock_connector import MockConnector
 from tests.connectors._epics_fakes import FakeChannel, ca_connector, ca_reading
 
-_DOOCS_LIMITS_PATCH = "osprey.connectors.control_system.doocs_connector.LimitsValidator.from_config"
-_DOOCS_TZ_PATCH = "osprey.connectors.control_system.doocs_connector.get_facility_timezone"
-_TANGO_LIMITS_PATCH = "osprey.connectors.control_system.tango_connector.LimitsValidator.from_config"
-_TANGO_TZ_PATCH = "osprey.connectors.control_system.tango_connector.get_facility_timezone"
+_DOOCS_LIMITS_PATCH = (
+    "osprey_connectors.control_system._doocs_connector.LimitsValidator.from_config"
+)
+_DOOCS_TZ_PATCH = "osprey_connectors.control_system._doocs_connector.get_facility_timezone"
+_TANGO_LIMITS_PATCH = (
+    "osprey_connectors.control_system._tango_connector.LimitsValidator.from_config"
+)
+_TANGO_TZ_PATCH = "osprey_connectors.control_system._tango_connector.get_facility_timezone"
 
 CURRENT = 10.0
 
@@ -108,7 +111,7 @@ async def test_the_doocs_connector_reads_with_doocs4py():
         patch(_DOOCS_LIMITS_PATCH, return_value=None),
         patch(_DOOCS_TZ_PATCH, return_value=UTC),
     ):
-        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+        from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
         await conn.connect({})
@@ -135,7 +138,7 @@ async def test_the_tango_connector_reads_with_its_device_proxy():
         patch(_TANGO_LIMITS_PATCH, return_value=None),
         patch(_TANGO_TZ_PATCH, return_value=UTC),
     ):
-        from osprey.connectors.control_system.tango_connector import TangoConnector
+        from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
         await conn.connect({})

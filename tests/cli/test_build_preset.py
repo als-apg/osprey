@@ -212,7 +212,7 @@ def test_ariel_standalone_narrates_every_control_assistant_scenario(
     """
     import osprey
     from osprey.simulation.apply import demo_narrative_logbook
-    from osprey.simulation.machine import parse_machine, read_machine_json
+    from osprey_connectors.simulation._machine import parse_machine, read_machine_json
 
     templates = pathlib.Path(osprey.__file__).parent / "templates" / "apps"
     own = sorted(

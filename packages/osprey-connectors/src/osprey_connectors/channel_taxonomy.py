@@ -24,7 +24,10 @@ control connector and the Virtual Accelerator's engine source) call.
 
 from dataclasses import dataclass
 
-__all__ = ["POSITION_NOISE_SCALE", "ChannelKind", "classify_channel"]
+__all__ = [
+    "ChannelKind",
+    "classify_channel",
+]
 
 POSITION_NOISE_SCALE = 0.005
 """Absolute noise floor for the ``position`` kind, in mm.

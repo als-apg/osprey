@@ -54,6 +54,7 @@ __all__ = [
     "LiveCollision",
     "TargetDerivation",
     "Verification",
+    "config_writes_enabled",
     "connector_block",
     "derive_endpoints",
     "live_collision",
@@ -159,7 +160,7 @@ def connector_block(config: Any, connector_type: str) -> Any:
     return _sub(_section(config, "control_system"), "connector").get(connector_type)
 
 
-def _config_writes_enabled(config: Any, target: str) -> bool:
+def config_writes_enabled(config: Any, target: str) -> bool:
     """Whether this config arms writes for *target*, as the connector reads it.
 
     Per connector type, through the resolver rather than off the section: the
@@ -266,7 +267,7 @@ def derive_endpoints(
     connector_type = resolve_target(control_system, target)
 
     if writes_enabled is None:
-        writes_enabled = _config_writes_enabled(config, target)
+        writes_enabled = config_writes_enabled(config, target)
     if readonly_run is None:
         readonly_run = is_readonly_run()
 
