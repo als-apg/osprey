@@ -261,7 +261,7 @@ class ExecutionService:
             return None
 
         objective = config.objective_name
-        if objective not in data.columns:
+        if objective is None or objective not in data.columns:
             logger.warning(
                 "Objective '%s' not in partial data columns; skipping best_point", objective
             )

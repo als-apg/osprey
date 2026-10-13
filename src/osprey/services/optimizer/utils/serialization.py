@@ -1,12 +1,12 @@
 import pickle
-from typing import Any
+from typing import Any, cast
 
 import polars as pl
 
 
 def serialize_dataframe(df: pl.DataFrame) -> bytes:
     """Serialize a Polars DataFrame to bytes."""
-    return df.write_ipc(None).getvalue()
+    return cast(bytes, df.write_ipc(None).getvalue())
 
 
 def deserialize_dataframe(data: bytes) -> pl.DataFrame:

@@ -4,6 +4,7 @@ from typing import Any
 
 from osprey.services.optimizer.api.job_tracker import JobLifecycle
 from osprey.services.optimizer.config.logging import setup_logging
+from osprey.services.optimizer.models.config import OptimizationConfig
 from osprey.services.optimizer.services.execution import ExecutionService
 
 logger = logging.getLogger(__name__)
@@ -17,12 +18,10 @@ def run_optimization_process(
     logger.info("Starting background optimization process %s", job_id)
 
     with JobLifecycle(job_id):
-        # config_dict is a dump of OptimizationConfig; build_cli_config re-applies
-        # its defaults and validators.
+        # config_dict is a dump of OptimizationConfig; validating it again
+        # re-applies its defaults and validators.
         try:
-            from osprey.services.optimizer.cli.config import build_cli_config
-
-            config = build_cli_config(file_data={}, env_data={}, arg_data=config_dict)
+            config = OptimizationConfig.model_validate(config_dict)
         except Exception:
             logger.exception("Invalid configuration passed to optimization process")
             raise

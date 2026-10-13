@@ -8,7 +8,7 @@ can't drift on direction handling or finite filtering.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 
 import polars as pl
 
@@ -63,7 +63,10 @@ def best_finite_row(
     finite = data.filter(finite_filter(objective_name))
     if finite.is_empty():
         return None
-    return finite.sort(objective_name, descending=(direction == "MAXIMIZE")).row(0, named=True)
+    return cast(
+        dict[str, Any],
+        finite.sort(objective_name, descending=(direction == "MAXIMIZE")).row(0, named=True),
+    )
 
 
 def best_feasible_row(

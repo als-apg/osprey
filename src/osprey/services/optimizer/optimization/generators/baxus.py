@@ -608,7 +608,7 @@ class BAxUSGenerator(ExpectedImprovementGenerator, StateOwner):  # type: ignore[
             )
             if self.sobol_draws:
                 self._sobol.fast_forward(self.sobol_draws)  # type: ignore[no-untyped-call]
-        z = 2.0 * self._sobol.draw(1).to(dtype=torch.double).numpy() - 1.0
+        z: np.ndarray = 2.0 * self._sobol.draw(1).to(dtype=torch.double).numpy() - 1.0
         self.sobol_draws += 1
         return z
 

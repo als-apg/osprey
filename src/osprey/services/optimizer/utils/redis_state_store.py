@@ -10,8 +10,8 @@ from __future__ import annotations
 from typing import Any, TypeVar
 
 import polars as pl
-from redis import Redis
 
+from osprey.services.optimizer.utils.redis_client import BytesRedis
 from osprey.services.optimizer.utils.serialization import (
     deserialize_dataframe,
     deserialize_obj,
@@ -60,10 +60,10 @@ class RedisStateStore:
     """
 
     def __init__(self) -> None:
-        self._redis_client: Redis[bytes] | None = None
+        self._redis_client: BytesRedis | None = None
         self._redis_key_prefix = ""
 
-    def set_redis_client(self, client: Redis[bytes], key_prefix: str) -> None:
+    def set_redis_client(self, client: BytesRedis, key_prefix: str) -> None:
         """Set Redis client and key prefix for state persistence.
 
         Args:
@@ -73,7 +73,7 @@ class RedisStateStore:
         self._redis_client = client
         self._redis_key_prefix = key_prefix
 
-    def _require_redis_client(self) -> Redis[bytes]:
+    def _require_redis_client(self) -> BytesRedis:
         """Return the Redis client or raise if not initialized."""
         if self._redis_client is None:
             raise RuntimeError(

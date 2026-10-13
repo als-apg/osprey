@@ -2,9 +2,20 @@ from __future__ import annotations
 
 import os
 from functools import cache
-from typing import Literal, overload
+from typing import Literal, TypeAlias, overload
 
 from redis import Redis
+
+# redis-py 8 types one client class for both decodings. These names keep, at
+# each call site, which client a value came from: a StrRedis decodes responses
+# to str, a BytesRedis leaves them bytes.
+StrRedis: TypeAlias = Redis
+BytesRedis: TypeAlias = Redis
+
+
+def as_str(value: bytes | str | None) -> str | None:
+    """A StrRedis response as the ``str`` it is (bytes only from a BytesRedis)."""
+    return value.decode() if isinstance(value, bytes) else value
 
 
 def get_redis_url() -> str:
@@ -13,30 +24,30 @@ def get_redis_url() -> str:
 
 
 @cache
-def _str_client() -> Redis[str]:
+def _str_client() -> StrRedis:
     """The process-wide decode_responses=True client (created once)."""
     return Redis.from_url(get_redis_url(), decode_responses=True)
 
 
 @cache
-def _binary_client() -> Redis[bytes]:
+def _binary_client() -> BytesRedis:
     """The process-wide decode_responses=False client (created once)."""
     return Redis.from_url(get_redis_url(), decode_responses=False)
 
 
 @overload
-def get_redis_client(binary: Literal[False] = False) -> Redis[str]: ...
+def get_redis_client(binary: Literal[False] = False) -> StrRedis: ...
 
 
 @overload
-def get_redis_client(binary: Literal[True]) -> Redis[bytes]: ...
+def get_redis_client(binary: Literal[True]) -> BytesRedis: ...
 
 
 @overload
-def get_redis_client(binary: bool) -> Redis[str] | Redis[bytes]: ...
+def get_redis_client(binary: bool) -> StrRedis | BytesRedis: ...
 
 
-def get_redis_client(binary: bool = False) -> Redis[str] | Redis[bytes]:
+def get_redis_client(binary: bool = False) -> StrRedis | BytesRedis:
     """Get or create a Redis client instance.
 
     Args:

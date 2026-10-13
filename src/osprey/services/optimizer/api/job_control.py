@@ -73,7 +73,7 @@ def load_stored_config(job_id: str, *, missing_status: int, missing_detail: str)
     Callers pass their contract's status/wording (read: 404, start: 409) and
     parse the returned raw JSON themselves.
     """
-    raw = _redis_client.get_redis_client(binary=False).get(config_key(job_id))
+    raw = _redis_client.as_str(_redis_client.get_redis_client(binary=False).get(config_key(job_id)))
     if raw is None:
         raise HTTPException(status_code=missing_status, detail=missing_detail)
     return raw

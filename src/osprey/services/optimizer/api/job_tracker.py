@@ -9,7 +9,6 @@ import traceback
 from types import TracebackType
 
 from pydantic import BaseModel, ValidationError
-from redis import Redis
 from redis.commands.core import Script
 
 from osprey.services.optimizer.core.state import TERMINAL_STATE_TTL_SECONDS
@@ -24,6 +23,7 @@ from osprey.services.optimizer.utils.job_keys import (
     job_scan_pattern,
     meta_key,
 )
+from osprey.services.optimizer.utils.redis_client import StrRedis, as_str
 from osprey.services.optimizer.utils.redis_state_store import (
     CREATED_STATE_TTL_SECONDS,
     RUNNING_STATE_TTL_SECONDS,
@@ -119,7 +119,7 @@ class JobTracker:
     def __init__(self) -> None:
         self._scripts: dict[str, Script] = {}
 
-    def _get_redis(self) -> Redis[str]:
+    def _get_redis(self) -> StrRedis:
         """The shared JSON/string Redis client.
 
         No instance-level cache: ``get_redis_client`` is already memoized per
@@ -211,7 +211,7 @@ class JobTracker:
             The active job_id or None if no job is active.
         """
         redis = self._get_redis()
-        active_job_id = redis.get(ACTIVE_JOB_KEY)
+        active_job_id = as_str(redis.get(ACTIVE_JOB_KEY))
         if not active_job_id:
             return None
 
@@ -234,7 +234,7 @@ class JobTracker:
         (and clears a dangling pointer).
         """
         redis = self._get_redis()
-        job_id = redis.get(CURRENT_JOB_KEY)
+        job_id = as_str(redis.get(CURRENT_JOB_KEY))
         if not job_id:
             return None
         if not self.job_exists(job_id):
@@ -244,7 +244,7 @@ class JobTracker:
 
     def get_current_environment(self) -> str | None:
         """Return the shared current-environment pointer, or None if unset."""
-        return self._get_redis().get(CURRENT_ENVIRONMENT_KEY)
+        return as_str(self._get_redis().get(CURRENT_ENVIRONMENT_KEY))
 
     def set_current_environment_if_idle(self, name: str) -> bool:
         """Atomically set the pointer iff no job is active. False if one is."""

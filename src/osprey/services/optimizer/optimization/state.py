@@ -6,11 +6,11 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 import polars as pl
-from redis import Redis
 
 from osprey.services.optimizer.core.state import JobStateBase, wire_state
 from osprey.services.optimizer.models.protocols import JobStateReader, JobStateWriter
 from osprey.services.optimizer.models.types import DIRECTIONS, Direction
+from osprey.services.optimizer.utils.redis_client import BytesRedis
 from osprey.services.optimizer.utils.redis_state_store import _truncate_repr
 from osprey.services.optimizer.utils.serialization import (
     deserialize_obj,
@@ -271,7 +271,7 @@ class OptimizationStateReader(JobStateReader, Protocol):
 class OptimizationStateWriter(OptimizationStateReader, JobStateWriter, Protocol):
     """Protocol for writing optimization state (extends reader + JobStateWriter)."""
 
-    def set_redis_client(self, client: Redis[bytes], key_prefix: str) -> None: ...
+    def set_redis_client(self, client: BytesRedis, key_prefix: str) -> None: ...
     def set_last_results_path(self, path: Path | None) -> None: ...
     def set_data(self, data: pl.DataFrame | None) -> None: ...
     def set_total_evaluations(self, total: int | None) -> None: ...

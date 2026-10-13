@@ -590,6 +590,37 @@ jobs:
           tests/utils/test_timeseries.py \
           -v --tb=short
 
+  optimizer:
+    name: Optimizer service (engine + real Redis)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The optimizer's search stack (xopt, torch, botorch) is the `optimizer`
+    # extra, installed only in its service image, so the `test` lanes leave its
+    # engine suite out (tests/services/optimizer/conftest.py). This lane installs
+    # the extra, and a redis-server for the tests that exercise the job lock and
+    # status compare-and-set through real Lua scripts.
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install redis-server
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends redis-server
+
+    - name: Install dependencies
+      run: uv sync --extra dev --extra optimizer
+
+    - name: Run the optimizer suite
+      # -n 2: the runners have two CPUs, and each worker starts its own redis-server.
+      run: uv run pytest tests/services/optimizer -v --tb=short -n 2 --timeout=600
+
   lint:
     name: Lint and Code Quality + Tier 0 config-key guard
     runs-on: ubuntu-latest

@@ -6,11 +6,12 @@ import logging
 import time
 from typing import TypedDict
 
-from redis import Redis
+from redis.typing import EncodableT, FieldT
 
 from osprey.services.optimizer.models.exceptions import CancellationError
 from osprey.services.optimizer.utils import redis_client as _redis_client
 from osprey.services.optimizer.utils.job_keys import cancellation_key
+from osprey.services.optimizer.utils.redis_client import StrRedis, as_str
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +28,13 @@ class CancellationState(TypedDict):
 class CancellationToken:
     """Thread-safe cancellation token using Redis for cross-process coordination."""
 
-    _redis_client: Redis[str]
+    _redis_client: StrRedis
 
     def __init__(
         self,
         poll_interval: float = 0.2,
         *,
-        redis_client: Redis[str],
+        redis_client: StrRedis,
         redis_key: str,
     ) -> None:
         """Initialize cancellation token.
@@ -65,12 +66,16 @@ class CancellationToken:
 
     def _read_state(self) -> CancellationState:
         client = self._redis_client
-        data: dict[str, str] = client.hgetall(self._redis_key)
+        data = {as_str(k): as_str(v) for k, v in client.hgetall(self._redis_key).items()}
+
+        def field(name: str) -> int:
+            return int(data.get(name) or 0)
+
         return {
-            "cancelled": bool(int(data.get("cancelled", 0))),
-            "paused": bool(int(data.get("paused", 0))),
-            "waiting": bool(int(data.get("waiting", 0))),
-            "poll_count": int(data.get("poll_count", 0)),
+            "cancelled": bool(field("cancelled")),
+            "paused": bool(field("paused")),
+            "waiting": bool(field("waiting")),
+            "poll_count": field("poll_count"),
         }
 
     def _write_state(
@@ -83,7 +88,7 @@ class CancellationToken:
     ) -> None:
         client = self._redis_client
 
-        mapping: dict[str | bytes, float] = {"timestamp": time.time()}
+        mapping: dict[FieldT, EncodableT] = {"timestamp": time.time()}
 
         if cancelled is not None:
             mapping["cancelled"] = int(cancelled)
