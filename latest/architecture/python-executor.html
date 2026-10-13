@@ -682,8 +682,14 @@ client at all, so they are refused in <code class="docutils literal notranslate"
 <code class="docutils literal notranslate"><span class="pre">check_output</span></code>, <code class="docutils literal notranslate"><span class="pre">os.system</span></code>, <code class="docutils literal notranslate"><span class="pre">os.popen</span></code>, and the <code class="docutils literal notranslate"><span class="pre">os.exec*</span></code>,
 <code class="docutils literal notranslate"><span class="pre">os.spawn*</span></code> and <code class="docutils literal notranslate"><span class="pre">posix_spawn</span></code> families. This is what stops a
 shelled-out <code class="docutils literal notranslate"><span class="pre">caput</span></code>.</p></li>
-<li><p>Loading a shared library — <code class="docutils literal notranslate"><span class="pre">ctypes.CDLL</span></code> and friends, which could
-otherwise open <code class="docutils literal notranslate"><span class="pre">libca</span></code> directly.</p></li>
+<li><p>Loading a shared library — <code class="docutils literal notranslate"><span class="pre">ctypes.CDLL</span></code> and every class or loader
+built on it, which could otherwise open <code class="docutils literal notranslate"><span class="pre">libca</span></code> directly.</p></li>
+<li><p>Resolving a Channel Access put symbol (<code class="docutils literal notranslate"><span class="pre">ca_array_put</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ca_array_put_callback</span></code>, <code class="docutils literal notranslate"><span class="pre">ca_sg_array_put</span></code>) on any library handle,
+including the <code class="docutils literal notranslate"><span class="pre">libca</span></code> handle <code class="docutils literal notranslate"><span class="pre">epicscorelibs</span></code> loaded before the run, which
+aioca keeps reading through. Building a function pointer by hand from
+<code class="docutils literal notranslate"><span class="pre">ctypes</span></code> internals stays open: it constructs an immutable C type the guard
+cannot patch.</p></li>
 </ul>
 <p><code class="docutils literal notranslate"><span class="pre">os.fork</span></code> is deliberately left working: forking alone cannot start a new
 program, and the <code class="docutils literal notranslate"><span class="pre">exec</span></code> half of every fork-and-exec is already refused.</p>
