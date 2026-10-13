@@ -219,6 +219,22 @@ async def test_validate_plan_waits_for_the_dry_run_it_asked_for(
     assert m.call_args.kwargs["timeout"] >= dry_run_timeout + _DRY_RUN_GRACE_SECONDS
 
 
+async def test_validate_plan_refuses_a_dry_run_past_the_ceiling(tmp_path, monkeypatch):
+    """The dry run bounds the bridge's wait and the tool's request alike, so
+    a caller may not name one longer than the ceiling; refused before any
+    request is made."""
+    from osprey.services.bluesky_bridge.models import DRY_RUN_TIMEOUT_CEILING_SECONDS
+
+    monkeypatch.chdir(tmp_path)
+    initialize_server_context()
+
+    with patch(f"{_MOD}._http_post_json") as m:
+        with assert_raises_error(error_type="invalid_dry_run_timeout") as ctx:
+            await _validate_fn()(name="tiny", dry_run_timeout=DRY_RUN_TIMEOUT_CEILING_SECONDS + 1)
+    assert not m.called
+    assert str(int(DRY_RUN_TIMEOUT_CEILING_SECONDS)) in ctx["envelope"]["error_message"]
+
+
 async def test_validate_plan_unknown_name_maps_to_error_envelope(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     initialize_server_context()
@@ -417,6 +433,16 @@ def test_write_session_plan_rejects_a_retired_category_key(client: TestClient):
     )
     assert resp.status_code == 422
     assert "category" in resp.text
+
+
+def test_validate_session_plan_refuses_a_dry_run_past_the_ceiling(client: TestClient):
+    from osprey.services.bluesky_bridge.models import DRY_RUN_TIMEOUT_CEILING_SECONDS
+
+    resp = client.post(
+        "/plans/validate",
+        json={"name": "whatever", "dry_run_timeout": DRY_RUN_TIMEOUT_CEILING_SECONDS + 1},
+    )
+    assert resp.status_code == 422
 
 
 def test_validate_unknown_session_plan_is_404(client: TestClient):
