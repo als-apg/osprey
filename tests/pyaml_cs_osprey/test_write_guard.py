@@ -19,7 +19,6 @@ from pyaml.accelerator import Accelerator
 
 import osprey.runtime
 from osprey.runtime.guarded_run import (
-    JOURNAL_FILE_NAME,
     GuardedRunDirError,
     journaled_run,
     lock,
@@ -27,6 +26,7 @@ from osprey.runtime.guarded_run import (
 from osprey.runtime.journal import pop_journal, push_journal, read_pending_journal
 from pyaml_cs_osprey.errors import OspreyReadFailed, OspreyWriteRefused
 from pyaml_cs_osprey.run_tool import run_tool
+from tests._guarded_run import journal_at
 from tests.pyaml_cs_osprey.conftest import DictConnector
 
 MAGNET = "QF_001"
@@ -138,7 +138,7 @@ class TestRunToolWrites:
     def test_the_set_is_journaled_before_it_is_written(
         self, sr: Accelerator, connector: _CountingConnector, guarded_repo: Path
     ) -> None:
-        journal_path = guarded_repo / "var" / "guarded_run" / "live" / JOURNAL_FILE_NAME
+        journal_path = journal_at(guarded_repo)
         journaled: list[dict[str, Any]] = []
 
         def tool() -> None:

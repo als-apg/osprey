@@ -28,10 +28,10 @@ from pyaml.common.constants import Action
 
 import osprey.runtime
 import pyaml_cs_osprey.measure as measure_mod
-from osprey.runtime.guarded_run import JOURNAL_FILE_NAME
 from osprey.runtime.journal import active_journals
 from pyaml_cs_osprey.measure import RESPONSE_MATRIX_DATA, StepMeasurement
 from pyaml_cs_osprey.run_tool import run_tool
+from tests._guarded_run import guarded_root, journal_at
 from tests.pyaml_cs_osprey.conftest import DictConnector
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -247,7 +247,7 @@ def _home() -> Any:
 
 def _files_under(root: Path) -> set[Path]:
     """Every file under ``root`` but the guarded-run state."""
-    state = root / "var" / "guarded_run"
+    state = guarded_root(root)
     return {p for p in root.rglob("*") if p.is_file() and state not in p.parents}
 
 
@@ -275,7 +275,7 @@ class TestEveryPath:
     def test_every_displaced_address_is_journaled_once_before_its_first_write(
         self, kind: str, sr: Accelerator, connector: ModelConnector, guarded_repo: Path
     ) -> None:
-        journal_path = guarded_repo / "var" / "guarded_run" / "live" / JOURNAL_FILE_NAME
+        journal_path = journal_at(guarded_repo)
         at_first_put: dict[str, list[str]] = {}
 
         def look(address: str) -> None:
@@ -404,7 +404,7 @@ def test_a_run_killed_after_its_first_write_is_restored_by_the_next_run(
 
     assert report.aborted is False
     assert connector.setpoints() == _home()
-    journal = guarded_repo / "var" / "guarded_run" / "live" / JOURNAL_FILE_NAME
+    journal = journal_at(guarded_repo)
     assert journal.read_text() == ""
 
 

@@ -26,8 +26,8 @@ from pathlib import Path
 from typing import Any
 
 import osprey.runtime.guarded_run as guarded_run
-from osprey.runtime.guarded_run import LOCK_FILE_NAME
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
+from tests._guarded_run import lock_at
 from tests.mcp_server.python_executor.test_approved_call_forwarding import (
     _SRC_ROOT,
     CHILD_TIMEOUT_S,
@@ -106,7 +106,7 @@ _LEAVE_A_THREAD_INSIDE_A_RUN = textwrap.dedent(
 
 
 def _lock_path(sandbox: _Sandbox) -> Path:
-    return sandbox.root / "var" / "guarded_run" / "live" / LOCK_FILE_NAME
+    return lock_at(sandbox.root)
 
 
 def _run(

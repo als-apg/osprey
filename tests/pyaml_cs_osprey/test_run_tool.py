@@ -33,19 +33,19 @@ from pyaml_test_lattice import lattices
 import osprey.runtime
 import pyaml_cs_osprey.run_tool as run_tool_mod
 from osprey.errors import ChannelReadFailedError
+from osprey.runtime.guarded_run import RESTORE_REPORT_TAG as RUNTIME_REPORT_TAG
 from osprey.runtime.guarded_run import (
-    JOURNAL_FILE_NAME,
     GuardedRunDirError,
     OspreyRunBusy,
     lock,
 )
-from osprey.runtime.guarded_run import RESTORE_REPORT_TAG as RUNTIME_REPORT_TAG
 from osprey.runtime.journal import active_journals, read_pending_journal
 from osprey_connectors.control_system.limits_validator import ChannelLimitsConfig
 from pyaml_cs_osprey.catalog import parse_reference
 from pyaml_cs_osprey.device import OspreyDevice
 from pyaml_cs_osprey.errors import OspreyWriteRefused
 from pyaml_cs_osprey.run_tool import REPORT_TAG, RestoreReport, run_tool
+from tests._guarded_run import journal_at
 from tests.pyaml_cs_osprey.conftest import FakeRuntime as _Machine
 
 LATTICE = Path(lattices["fodo_1gev_6d.json"])
@@ -86,7 +86,7 @@ class TestGuardedRun:
         self, machine: _Machine, guarded_repo: Path
     ) -> None:
         """While the tool runs, the run's durable journal already holds the old value."""
-        journal_path = guarded_repo / "var" / "guarded_run" / "live" / JOURNAL_FILE_NAME
+        journal_path = journal_at(guarded_repo)
         seen: list[dict[str, Any]] = []
 
         def tool() -> None:
@@ -139,7 +139,7 @@ class TestGuardedRun:
         self, machine: _Machine, guarded_repo: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A tool run from a helper thread journals and restores under the caller's lock."""
-        journal_path = guarded_repo / "var" / "guarded_run" / "live" / JOURNAL_FILE_NAME
+        journal_path = journal_at(guarded_repo)
         seen: list[dict[str, Any]] = []
         errors: list[BaseException] = []
 

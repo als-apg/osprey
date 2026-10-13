@@ -44,6 +44,7 @@ from osprey.runtime.journal import OspreyWriteRefused, guarded_write, read_pendi
 from tests._guarded_run import (
     GENERATION,
     fresh_run_state,  # noqa: F401 - used through pytestmark
+    guarded_root,
     journal_path,
     write_config,
 )
@@ -241,7 +242,7 @@ def test_a_lock_on_another_target_is_refused_while_one_is_held(repo: Path) -> No
             with lock("va"):
                 pytest.fail("a second target's lock is never taken")
 
-    assert not (repo / "var" / "guarded_run" / "va").exists(), "nothing was opened for va"
+    assert not (guarded_root(repo) / "va").exists(), "nothing was opened for va"
     with lock("va"):
         pass
 
