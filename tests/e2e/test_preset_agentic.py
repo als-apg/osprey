@@ -28,6 +28,7 @@ from tests.e2e.sdk_helpers import (
     enable_writes_in_project,
     init_project,
     is_claude_code_available,
+    judge_result_preview,
     render_dir,
     run_sdk_query,
     run_sdk_query_with_hooks,
@@ -52,7 +53,7 @@ def _to_workflow_result(query: str, sdk_result: SDKWorkflowResult) -> WorkflowRe
     for t in sdk_result.tool_traces:
         trace_lines.append(f"TOOL: {t.name}  input={t.input}")
         if t.result:
-            preview = t.result[:300] + ("…" if len(t.result) > 300 else "")
+            preview = judge_result_preview(t.result)
             trace_lines.append(f"  result: {preview}")
     return WorkflowResult(
         query=query,

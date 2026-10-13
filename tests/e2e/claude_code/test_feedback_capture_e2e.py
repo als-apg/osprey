@@ -13,6 +13,7 @@ import pytest
 
 from tests.e2e.sdk_helpers import (
     agent_data_dir,
+    assert_agent_ran,
     combined_text,
     init_project,
     render_dir,
@@ -158,7 +159,9 @@ async def test_feedback_hook_is_silent(feedback_project):
     print(f"  text blocks: {len(result.text_blocks)}")
 
     # -- Assertions --
-    assert result.result is not None, "No ResultMessage received from SDK"
+    assert_agent_ran(result)
+    if not [t for t in result.tool_traces if "channel-finder" in t.name]:
+        pytest.skip("the model never called the channel finder; the capture hook never fired")
 
     # Hook-internal keywords that should never appear in agent output
     hook_keywords = [

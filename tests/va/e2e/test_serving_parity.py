@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -187,14 +188,22 @@ def _worker(request: dict) -> dict:
 
 
 if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
-    print(json.dumps(_worker(json.loads(sys.argv[2])), default=str), flush=True)
-    # Leave through ``os._exit`` for the reason every other bare-pyepics child
-    # in this directory does: a normal exit runs pyepics' ``finalize_libca``
-    # atexit hook, which can wedge in ``ca_context_destroy`` after the channels
-    # above were used. The answer is already on stdout; a wedged exit would
-    # only hold the parent's ``subprocess.run`` until its timeout, which is
-    # longer than the boot deadline, so one wedge reads as a boot that never
-    # served.
+    # Leave through ``os._exit`` on every path, for the reason every other
+    # bare-pyepics child in this directory does: a normal exit runs pyepics'
+    # ``finalize_libca`` atexit hook, which can wedge in ``ca_context_destroy``
+    # after Channel Access was used. A wedged exit holds the parent's
+    # ``subprocess.run`` until its timeout, which is longer than the boot
+    # deadline, so one wedge reads as a boot that never served. That includes
+    # the failing path: a read of an address not served yet is the ordinary
+    # answer during a boot, and it has used Channel Access just the same.
+    try:
+        print(json.dumps(_worker(json.loads(sys.argv[2])), default=str), flush=True)
+    except BaseException:
+        import traceback
+
+        traceback.print_exc()
+        sys.stderr.flush()
+        os._exit(1)
     sys.stdout.flush()
     os._exit(0)
 
@@ -735,6 +744,41 @@ class TestSeededReadoutDivergence:
         divergence is a property of the served namespace rather than something
         a particular write sequence produced."""
         assert va.orbit[REFERENCE_RB] == truth_orbit[REFERENCE_RB] == REFERENCE_CURRENT
+
+
+def test_a_worker_that_fails_leaves_as_promptly_as_one_that_answers() -> None:
+    """A read of an address nothing serves is the worker's ordinary answer
+    while a container is still booting, so that failure must return to the
+    boot loop at once and carry its own error. An exit that ran libca's
+    teardown instead would hold the loop for longer than the boot deadline and
+    turn one early read into a container that never served.
+
+    No container: the name server is a port nothing listens on.
+    """
+    with socket.socket() as unused:
+        unused.bind(("127.0.0.1", 0))
+        port = unused.getsockname()[1]
+    environment = {
+        **os.environ,
+        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
+        "EPICS_CA_AUTO_ADDR_LIST": "NO",
+    }
+    request = {"op": "read", "addresses": ["PARITY:NOT:SERVED"], "timeout": 1.0}
+
+    started = time.monotonic()
+    result = subprocess.run(
+        [sys.executable, __file__, "--worker", json.dumps(request)],
+        capture_output=True,
+        text=True,
+        timeout=120.0,
+        env=environment,
+    )
+    elapsed = time.monotonic() - started
+
+    assert result.returncode != 0
+    assert "never connected to PARITY:NOT:SERVED" in result.stderr
+    # The connect timeout is 1 s; libca's teardown alone is tens of seconds.
+    assert elapsed < 15.0, f"the failed worker took {elapsed:.1f}s to leave"
 
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:

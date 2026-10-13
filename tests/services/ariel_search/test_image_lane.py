@@ -25,7 +25,11 @@ from tests.services.ariel_search.llama_stub import MODEL
 
 DIMS = 1024
 TABLE = image_table_name(MODEL, DIMS)
-BOUND_S = image_lane.IMAGE_QUERY_TIMEOUT_S + 1.5
+#: The lane's own deadline plus room for a loaded CI runner to wake the event
+#: loop late. Well under a doubled timeout, so a lane that waits a provider
+#: out, or uses a looser deadline, still fails the bound.
+LANE_DEADLINE_S = image_lane.IMAGE_QUERY_TIMEOUT_S + 1
+BOUND_S = LANE_DEADLINE_S + 3.0
 
 
 #: Query-embed p95 under bulk picture embedding on native amd64, with the
@@ -99,6 +103,7 @@ class _FakeImageProvider:
         self.health = HealthResult(True, "ok", None)
         self.error: Exception | None = None
         self.release = threading.Event()
+        self.returned = threading.Event()
         self.sleep_s = 0.0
 
     def check_embedding_health(self, api_key, base_url, model_id=None, timeout=10.0):
@@ -123,11 +128,14 @@ class _FakeImageProvider:
                 "timeout": timeout,
             }
         )
-        if self.sleep_s:
-            self.release.wait(self.sleep_s)
-        if self.error is not None:
-            raise self.error
-        return [[1.0] + [0.0] * ((dimensions or 4) - 1)]
+        try:
+            if self.sleep_s:
+                self.release.wait(self.sleep_s)
+            if self.error is not None:
+                raise self.error
+            return [[1.0] + [0.0] * ((dimensions or 4) - 1)]
+        finally:
+            self.returned.set()
 
 
 @pytest.fixture
@@ -310,6 +318,7 @@ class TestProviderBounds:
         elapsed = time.monotonic() - started
         assert hits is None
         assert fake_provider.embed_calls[0]["timeout"] == 5
+        assert not fake_provider.returned.is_set()
         assert elapsed < BOUND_S
         assert image_lane.last_unavailable_reason() == "unreachable"
 
