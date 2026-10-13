@@ -229,7 +229,7 @@ async def test_validate_plan_refuses_a_dry_run_past_the_ceiling(tmp_path, monkey
     initialize_server_context()
 
     with patch(f"{_MOD}._http_post_json") as m:
-        with assert_raises_error(error_type="invalid_dry_run_timeout") as ctx:
+        with assert_raises_error(error_type="validation_error") as ctx:
             await _validate_fn()(name="tiny", dry_run_timeout=DRY_RUN_TIMEOUT_CEILING_SECONDS + 1)
     assert not m.called
     assert str(int(DRY_RUN_TIMEOUT_CEILING_SECONDS)) in ctx["envelope"]["error_message"]

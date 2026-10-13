@@ -187,7 +187,7 @@ async def validate_plan(
     """
     if not 0 < dry_run_timeout <= DRY_RUN_TIMEOUT_CEILING_SECONDS:
         return make_error(
-            "invalid_dry_run_timeout",
+            "validation_error",
             f"dry_run_timeout must be more than 0 and at most "
             f"{DRY_RUN_TIMEOUT_CEILING_SECONDS:.0f} seconds, got {dry_run_timeout}",
             [
