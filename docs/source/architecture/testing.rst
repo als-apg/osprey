@@ -10,9 +10,9 @@ OSPREY is a harness around an agent that can reach a machine, so the suite has t
 prove several different things: that the code is correct, that the presets it ships
 build and boot, that the simulated machine behaves like one, that an agent with a
 real model does the job, and that the whole thing comes up as containers the way a
-facility runs it. This page is the inventory: what tests exist, which CI tier and
-lane each belongs to, what the markers do, how a fault is staged for the agent to
-find, and what the benchmarks measure. How to run the suites and the fixture house
+facility runs it. This page is the inventory: what tests exist, how a fault is staged
+for the agent to find, which CI tier and lane each test belongs to, what the
+markers do, and what the benchmarks measure. How to run the suites and the fixture house
 style are in the repository's ``tests/README.md`` and ``tests/e2e/README.md``.
 
 .. raw:: html
@@ -86,6 +86,140 @@ the probes the facility declares, readable in the browser's SYSTEM panel, from t
 command line or by a CI job. ``osprey audit`` turns an agent on a built profile and
 reports the safety risks it finds in permissions, hooks and server configuration.
 Both are documented under :doc:`/how-to/health-and-monitoring/index`.
+
+Scenarios: how a fault is staged
+================================
+
+A scenario is what makes an agentic test more than a smoke test. The agent is given
+an operator's question and a machine with a fault in it, and has to find the fault
+from the instruments, the history and the logbook, the way an operator would. The
+machinery that stages the fault is the same one a facility uses to run demos and
+training sessions on the :doc:`Virtual Accelerator <virtual-accelerator>`.
+
+.. raw:: html
+   :file: ../_diagrams/testing-scenario-pipeline.html
+
+**The bundle.** A simulated machine is one ``machine.json`` that defines every
+channel with its baseline, noise, bounds and slow texture, and one directory per
+scenario under ``data/simulation/scenarios/<name>/``. The scenario's ``scenario.json``
+says how the machine departs from nominal: ``overrides`` replace live values;
+``archiver`` events place a step, a ramp or a spike on a channel's history; a
+``drivers`` block with ``couple`` and ``noise`` gives several channels one shared
+slow cause, so that a cavity's temperature, reflected power and frequency move
+together the way they do when one cooling manifold is blocked; and a ``physics``
+block seeds lattice faults into the Virtual Accelerator, a BPM with inverted
+polarity or a corrector at half gain. An optional ``logbook.json`` carries the
+narrative, entries with authors, tags and attached plots, dated in days ago rather
+than on a calendar. The exact schema, every rule and every refusal are in the
+:doc:`/reference/contracts/simulation-bundle`.
+
+**Composition and one clock.** ``osprey sim apply <names>`` activates a set.
+``nominal`` is always active and always first; the other names keep their order.
+No two active scenarios may touch one channel, so two faults compose only when they
+are about different instruments, and the shipped pair that both script the beam
+current is refused rather than composed order-dependently. Apply fixes one anchor
+time, T0, and resolves everything against it: an archiver event placed with
+``at_when`` and the logbook entry that narrates it land on the same instant, a
+recurring ``at_time`` event fires at that time of day on every date in the window
+read, and a relative ``at_offset`` counts from T0. A test freezes T0 with ``--now``
+so a run is reproducible.
+
+**What apply writes.** Four things, in this order, and nothing if any check
+refuses. The active set goes into ``var/agent_data/simulation/active_scenarios``,
+written whole by rename, which every reader re-reads when it changes. A stored
+archive, the deployment's memory, is rewritten so that history shows the fault and
+switching away leaves nothing behind. The ARIEL logbook is purged and reseeded from
+the active scenarios' own entries, plots drawn first so a picture of the week before
+an entry carries that week's dates. And a ``physics`` block is rendered into the
+deployment's ``.env`` as ``VA_BPM_ERRORS`` and ``VA_CORR_GAIN``, which the Virtual
+Accelerator reads when its container is created, so a lattice fault takes effect at
+the next ``osprey up`` rather than at the next poll.
+
+**Two substrates, one engine.** The mock connector composes live reads and
+synthesized history from the bundle in process. The Virtual Accelerator container
+mounts the same ``data/simulation/`` and the same state directory, polls the state
+file about once a second, and drives every channel that has no lattice physics and no
+setpoint echo from the same ``SimulationEngine`` class the mock uses; there is no
+second implementation. The two differ in one visible way. On the mock, applying a
+scenario clears the values written during the session. On the Virtual Accelerator a
+setpoint lives in the IOC's own record and survives a switch, because a real machine
+does not forget its setpoints when the world changes; only the engine-composed
+channels refresh. ``tests/va/e2e/test_scenario_reload.py`` proves that a switch
+reaches the running IOC within its documented bound.
+
+**How a scenario test is built.** The prompt is what an operator would say and
+nothing more: *"We lost about 5 mA of beam yesterday around 14:32. Did the vacuum do
+anything weird around then?"* No channel names, no time-window shape, no hint which
+subsystem to look at. The test builds its repo at build tier 3 so every simulated
+instrument is discoverable, calls ``activate_scenarios`` so telemetry and narrative
+are seeded against one clock, and then closes the cheap route to a right answer: the
+bundle's ``description`` names the fault outright and the agent's working directory
+is the render, so the main agent loses ``Bash``, ``Glob`` and ``Grep`` for the run,
+and a physics scenario's bundle is deleted from both trees once its fault is
+materialized in the container's environment. A telemetry scenario's bundle cannot
+be deleted, because it *is* the live overlay, so those tests rely on the withheld
+tools alone. Grading is the two layers every agentic test uses: the floor checks the
+trace, that a channel-finder call and an archiver read on a vacuum gauge happened,
+and the judge checks the prose, that the answer commits to sector 7 rather than to
+"a gauge somewhere". The scenario tests carry ``flaky(reruns=2)`` to absorb the rare
+stochastic bail-out.
+
+**The contract comes first.** Every shipped bundle's statistical signature is pinned
+under ``tests/simulation/``, deterministically and without a model: the SR07 gauge
+is the single sector anti-correlated with the beam current and leads the runner-up
+by a wide margin; the cavity's reflected power tracks its temperature; the three
+excursions land on the days the logbook narrates. When a scenario test regresses,
+run those first. If they pass, the data substrate is sound and the miss is the
+agent's; fix the preset's agent context or tool descriptions. If they fail, fix the
+bundle, never the prompt.
+
+.. list-table:: The shipped bundles (``control_assistant`` preset)
+   :header-rows: 1
+   :widths: 18 36 22 24
+
+   * - Scenario
+     - The fault
+     - Mechanism
+     - Staged by
+   * - ``nominal``
+     - None. Carries the ambient logbook, including decoy entries that mention a
+       Sector 4 vacuum spike and "Sector 7" in a magnet context, weeks back.
+     - always active
+     - every apply
+   * - ``vacuum-burst``
+     - A Sector-7 pressure spike with a coincident 5 mA beam loss at 14:32:08,
+       recurring daily. Pure telemetry, no logbook.
+     - ``archiver`` events, ``at_time``
+     - ``test_vacuum_burst_scenario.py``
+   * - ``rf-thermal``
+     - Three CAVITY01 thermal excursions from a blocked cooling manifold, the
+       last a beam dump four days back; a three-entry logbook arc from trip to
+       repair. Telemetry and narrative must converge on one cavity.
+     - ``archiver`` events, ``at_when``, ``logbook.json`` with plots
+     - ``test_rf_cavity_correlation_scenario.py``
+   * - ``rf-thermal-live``
+     - Live thermal wander on cavity 01: one slow driver moves body
+       temperature, reflected power and frequency together, with drifting
+       gain.
+     - ``drivers``, ``couple``, ``noise``
+     - ``test_scenario_drivers.py`` pins the correlation bands
+   * - ``bpm-polarity``
+     - BPM 17's horizontal readback is inverted. The orbit is right; only the
+       reading lies, so single-channel telemetry never shows it.
+     - ``physics``, applied at Virtual Accelerator boot
+     - ``osprey sim apply`` on a Virtual Accelerator deployment; the render
+       step is pinned by ``test_scenario_physics_render.py``
+   * - ``orm-dual-fault``
+     - Two faults at once, each invisible to single-channel telemetry: the
+       inverted BPM and corrector HCM01 at half gain. Only an orbit-response
+       measurement resolves both.
+     - ``physics``
+     - as above
+
+A bundle need not ship with a preset. The Tier 2 chart-reading task carries its own
+two bundles under ``tests/e2e/fixtures/`` and plants them into a stack it deploys,
+one a recent beam-current dip in the archive and one a year-old loss that survives
+only as a plot on a logbook entry, so the answer can be read only off the picture.
 
 Tiers
 =====
@@ -256,140 +390,6 @@ unmarked test at matrix start and as a unit test.
 
 There is no ``e2e`` marker: the directory is the selector, and ``pytest tests/e2e/``
 is how the suite is named.
-
-Scenarios: how a fault is staged
-================================
-
-A scenario is what makes an agentic test more than a smoke test. The agent is given
-an operator's question and a machine with a fault in it, and has to find the fault
-from the instruments, the history and the logbook, the way an operator would. The
-machinery that stages the fault is the same one a facility uses to run demos and
-training sessions on the :doc:`Virtual Accelerator <virtual-accelerator>`.
-
-.. raw:: html
-   :file: ../_diagrams/testing-scenario-pipeline.html
-
-**The bundle.** A simulated machine is one ``machine.json`` that defines every
-channel with its baseline, noise, bounds and slow texture, and one directory per
-scenario under ``data/simulation/scenarios/<name>/``. The scenario's ``scenario.json``
-says how the machine departs from nominal: ``overrides`` replace live values;
-``archiver`` events place a step, a ramp or a spike on a channel's history; a
-``drivers`` block with ``couple`` and ``noise`` gives several channels one shared
-slow cause, so that a cavity's temperature, reflected power and frequency move
-together the way they do when one cooling manifold is blocked; and a ``physics``
-block seeds lattice faults into the Virtual Accelerator, a BPM with inverted
-polarity or a corrector at half gain. An optional ``logbook.json`` carries the
-narrative, entries with authors, tags and attached plots, dated in days ago rather
-than on a calendar. The exact schema, every rule and every refusal are in the
-:doc:`/reference/contracts/simulation-bundle`.
-
-**Composition and one clock.** ``osprey sim apply <names>`` activates a set.
-``nominal`` is always active and always first; the other names keep their order.
-No two active scenarios may touch one channel, so two faults compose only when they
-are about different instruments, and the shipped pair that both script the beam
-current is refused rather than composed order-dependently. Apply fixes one anchor
-time, T0, and resolves everything against it: an archiver event placed with
-``at_when`` and the logbook entry that narrates it land on the same instant, a
-recurring ``at_time`` event fires at that time of day on every date in the window
-read, and a relative ``at_offset`` counts from T0. A test freezes T0 with ``--now``
-so a run is reproducible.
-
-**What apply writes.** Four things, in this order, and nothing if any check
-refuses. The active set goes into ``var/agent_data/simulation/active_scenarios``,
-written whole by rename, which every reader re-reads when it changes. A stored
-archive, the deployment's memory, is rewritten so that history shows the fault and
-switching away leaves nothing behind. The ARIEL logbook is purged and reseeded from
-the active scenarios' own entries, plots drawn first so a picture of the week before
-an entry carries that week's dates. And a ``physics`` block is rendered into the
-deployment's ``.env`` as ``VA_BPM_ERRORS`` and ``VA_CORR_GAIN``, which the Virtual
-Accelerator reads when its container is created, so a lattice fault takes effect at
-the next ``osprey up`` rather than at the next poll.
-
-**Two substrates, one engine.** The mock connector composes live reads and
-synthesized history from the bundle in process. The Virtual Accelerator container
-mounts the same ``data/simulation/`` and the same state directory, polls the state
-file about once a second, and drives every channel that has no lattice physics and no
-setpoint echo from the same ``SimulationEngine`` class the mock uses; there is no
-second implementation. The two differ in one visible way. On the mock, applying a
-scenario clears the values written during the session. On the Virtual Accelerator a
-setpoint lives in the IOC's own record and survives a switch, because a real machine
-does not forget its setpoints when the world changes; only the engine-composed
-channels refresh. ``tests/va/e2e/test_scenario_reload.py`` proves that a switch
-reaches the running IOC within its documented bound.
-
-**How a scenario test is built.** The prompt is what an operator would say and
-nothing more: *"We lost about 5 mA of beam yesterday around 14:32. Did the vacuum do
-anything weird around then?"* No channel names, no time-window shape, no hint which
-subsystem to look at. The test builds its repo at build tier 3 so every simulated
-instrument is discoverable, calls ``activate_scenarios`` so telemetry and narrative
-are seeded against one clock, and then closes the cheap route to a right answer: the
-bundle's ``description`` names the fault outright and the agent's working directory
-is the render, so the main agent loses ``Bash``, ``Glob`` and ``Grep`` for the run,
-and a physics scenario's bundle is deleted from both trees once its fault is
-materialized in the container's environment. A telemetry scenario's bundle cannot
-be deleted, because it *is* the live overlay, so those tests rely on the withheld
-tools alone. Grading is the two layers every agentic test uses: the floor checks the
-trace, that a channel-finder call and an archiver read on a vacuum gauge happened,
-and the judge checks the prose, that the answer commits to sector 7 rather than to
-"a gauge somewhere". The scenario tests carry ``flaky(reruns=2)`` to absorb the rare
-stochastic bail-out.
-
-**The contract comes first.** Every shipped bundle's statistical signature is pinned
-under ``tests/simulation/``, deterministically and without a model: the SR07 gauge
-is the single sector anti-correlated with the beam current and leads the runner-up
-by a wide margin; the cavity's reflected power tracks its temperature; the three
-excursions land on the days the logbook narrates. When a scenario test regresses,
-run those first. If they pass, the data substrate is sound and the miss is the
-agent's; fix the preset's agent context or tool descriptions. If they fail, fix the
-bundle, never the prompt.
-
-.. list-table:: The shipped bundles (``control_assistant`` preset)
-   :header-rows: 1
-   :widths: 18 36 22 24
-
-   * - Scenario
-     - The fault
-     - Mechanism
-     - Staged by
-   * - ``nominal``
-     - None. Carries the ambient logbook, including decoy entries that mention a
-       Sector 4 vacuum spike and "Sector 7" in a magnet context, weeks back.
-     - always active
-     - every apply
-   * - ``vacuum-burst``
-     - A Sector-7 pressure spike with a coincident 5 mA beam loss at 14:32:08,
-       recurring daily. Pure telemetry, no logbook.
-     - ``archiver`` events, ``at_time``
-     - ``test_vacuum_burst_scenario.py``
-   * - ``rf-thermal``
-     - Three CAVITY01 thermal excursions from a blocked cooling manifold, the
-       last a beam dump four days back; a three-entry logbook arc from trip to
-       repair. Telemetry and narrative must converge on one cavity.
-     - ``archiver`` events, ``at_when``, ``logbook.json`` with plots
-     - ``test_rf_cavity_correlation_scenario.py``
-   * - ``rf-thermal-live``
-     - Live thermal wander on cavity 01: one slow driver moves body
-       temperature, reflected power and frequency together, with drifting
-       gain.
-     - ``drivers``, ``couple``, ``noise``
-     - ``test_scenario_drivers.py`` pins the correlation bands
-   * - ``bpm-polarity``
-     - BPM 17's horizontal readback is inverted. The orbit is right; only the
-       reading lies, so single-channel telemetry never shows it.
-     - ``physics``, applied at Virtual Accelerator boot
-     - ``osprey sim apply`` on a Virtual Accelerator deployment; the render
-       step is pinned by ``test_scenario_physics_render.py``
-   * - ``orm-dual-fault``
-     - Two faults at once, each invisible to single-channel telemetry: the
-       inverted BPM and corrector HCM01 at half gain. Only an orbit-response
-       measurement resolves both.
-     - ``physics``
-     - as above
-
-A bundle need not ship with a preset. The Tier 2 chart-reading task carries its own
-two bundles under ``tests/e2e/fixtures/`` and plants them into a stack it deploys,
-one a recent beam-current dip in the archive and one a year-old loss that survives
-only as a plot on a logbook entry, so the answer can be read only off the picture.
 
 Benchmarks
 ==========
