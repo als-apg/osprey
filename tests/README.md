@@ -22,13 +22,16 @@ pytest tests/ --ignore=tests/e2e -m "not pty and not wallclock" -n 4 --dist load
 pytest tests/ --ignore=tests/e2e
 ```
 
-The `pty` and `wallclock` markers are run serially by `scripts/ci_check.sh`
-and by their own CI steps.
+The `pty` and `wallclock` markers are run serially by `scripts/ci_check.sh`,
+by `scripts/gate.sh` and by their own CI steps.
+
+`scripts/gate.sh` is the one local spelling of the merge gate: anything that
+gates a branch calls it and adds nothing to its marker expression.
 
 Both must pass. Parallel is the real gate; serial is the one that gives you
 readable output when something is wrong.
 
-The three helper scripts already use the parallel invocation, so you normally
+The four helper scripts already use the parallel invocation, so you normally
 just run one of them:
 
 | Script | What it is for |
@@ -36,6 +39,7 @@ just run one of them:
 | `scripts/quick_check.sh` | Fast loop while working; skips `@pytest.mark.slow` |
 | `scripts/premerge_check.sh` | Quiet pass/fail before opening a PR |
 | `scripts/ci_check.sh` | Full CI mirror, with coverage |
+| `scripts/gate.sh full` | The merge gate: lint, types, the parallel sweep, each serial step, JS tests. `fast <paths>` runs the same over named tests |
 
 Each script bounds its pytest runs with `scripts/run_bounded.py`, which exits
 124 when a run passes its bound. A run that outlives its last test prints the

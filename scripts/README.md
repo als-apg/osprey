@@ -9,6 +9,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `quick_check.sh` | Fast pre-commit validation | < 30s | Before every commit |
 | `ci_check.sh` | Full CI replication | 2-3 min | Before pushing |
 | `premerge_check.sh` | Pre-merge validation | 1-2 min | Before creating PR |
+| `gate.sh` | The merge gate: `full`, or `fast <paths>` | as long as the suite | Before a merge; called by automation that gates a branch |
 | `check_config_keys.py` | Config-key resurrection guard | 2-5s | After touching a `config.yml.j2`, a preset, or config-reading code |
 | `changelog_fragments.py` | Changelog-fragment gate and release fold | < 1s | After touching `src/` or `packages/`; when cutting a release |
 | `plugin_version.py` | Show, bump and check the plugin version | < 1s | After touching `plugins/`, `.claude-plugin/` or `.agents/plugins/` |
