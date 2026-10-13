@@ -135,7 +135,10 @@ saved is the one the run left in its own execution folder under the script's
 fixed name; a run that names any other file saves nothing, answers
 ``data_file`` as ``null`` and says why in ``data_file_refused``. A stopped
 run carries its ``remainder`` and the ``restore`` report, taken from the run's
-execution record and never from a line the script printed.
+execution record and never from a line the script printed. A refusal means no
+setpoint moved; a completed run whose result cannot be read answers
+``execution_error`` with the saved measurement named in ``details.data_file``,
+never a refusal.
 
 ``model_response_matrix``
 -------------------------

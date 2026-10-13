@@ -215,7 +215,7 @@ def test_a_completed_orm_is_named_by_address_and_device(gated, monkeypatch):
     assert saved == [answer]
 
 
-def _completed_orm_line(data_file: str) -> str:
+def _completed_orm_line(data_file: str, observables: list[list[str]] | None = None) -> str:
     return _line(
         kind="orm",
         model="SR",
@@ -225,7 +225,9 @@ def _completed_orm_line(data_file: str) -> str:
         deltas={"SCOR:H:SP": 1e-5},
         delta_limited_by=None,
         shape=[2, 1],
-        observables=[["SR_BPM1", "x"], ["SR_BPM1", "y"]],
+        observables=observables
+        if observables is not None
+        else [["SR_BPM1", "x"], ["SR_BPM1", "y"]],
         variables=["SCOR:H:SP"],
         data_file=data_file,
     )
@@ -316,6 +318,55 @@ def test_a_run_without_a_result_line_still_notes_its_writes(gated):
         _error(kind="orm", correctors=["SCOR:H:SP"])
 
     assert call.facts["channels"] == ["SCOR:H:SP"]
+
+
+_PLANE_LESS = [["SR_BPM1", ""], ["SR_BPM1", "y"]]
+
+
+def test_a_completed_run_whose_result_is_unreadable_names_its_saved_data(gated, tmp_path):
+    folder = tmp_path / "execution"
+    folder.mkdir()
+    measured = folder / "pyaml_measure_orm.json"
+    measured.write_text("{}", encoding="utf-8")
+    line = _completed_orm_line(str(measured.resolve()), observables=_PLANE_LESS)
+    gated.result = _result(line, execution_folder=folder)
+
+    envelope = _error(kind="orm", correctors=["SCOR:H:SP"])
+
+    assert envelope["error_type"] == "execution_error"
+    assert "ended without a usable result" in envelope["error_message"]
+    assert str(measured.resolve()) in envelope["error_message"]
+    assert envelope["details"]["data_file"] == str(measured.resolve())
+    assert "Nothing was stepped" not in json.dumps(envelope)
+
+
+def test_a_failed_exit_after_the_run_saved_its_data_names_it(gated, tmp_path):
+    folder = tmp_path / "execution"
+    folder.mkdir()
+    measured = folder / "pyaml_measure_orm.json"
+    measured.write_text("{}", encoding="utf-8")
+    line = _completed_orm_line(str(measured.resolve()), observables=_PLANE_LESS)
+    gated.result = _result(
+        line, "Traceback: the script failed", success=False, execution_folder=folder
+    )
+
+    envelope = _error(kind="orm", correctors=["SCOR:H:SP"])
+
+    assert envelope["error_type"] == "execution_error"
+    assert envelope["details"]["data_file"] == str(measured.resolve())
+    assert "Nothing was stepped" not in json.dumps(envelope)
+
+
+@pytest.mark.parametrize("success", [True, False])
+def test_a_run_that_saved_nothing_names_no_data_file(gated, tmp_path, success):
+    folder = tmp_path / "execution"
+    folder.mkdir()
+    gated.result = _result("", "the script failed", success=success, execution_folder=folder)
+
+    envelope = _error(kind="orm", correctors=["SCOR:H:SP"])
+
+    assert envelope["error_type"] == "execution_error"
+    assert "data_file" not in envelope["details"]
 
 
 def _stopped_line() -> str:

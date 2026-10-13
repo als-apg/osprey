@@ -149,18 +149,30 @@ def _description(args: MeasureArgs) -> str:
     return text
 
 
-def _raise_unparsed(exec_result: Any, error: MeasureResultError) -> NoReturn:
-    """Raise the envelope for a run that left no usable result line."""
+def _raise_unparsed(
+    exec_result: Any, error: MeasureResultError, kind: str, folder: Path | None
+) -> NoReturn:
+    """Raise the envelope for a run that left no usable result line.
+
+    The script saves its measurement only after the run completed, so a saved
+    file in the run's folder means the setpoints moved and the data is kept:
+    the envelope names that file and never reads as a refusal.
+    """
     from osprey.mcp_server.python_executor.tools._response_builder import (
         SUBSYSTEM,
         _raise_failure,
     )
 
-    payload = {"tool": TOOL_NAME, "parse_error": str(error)}
+    payload: dict[str, Any] = {"tool": TOOL_NAME, "parse_error": str(error)}
+    saved = _measurement_file(kind, folder)
+    message = f"The measurement script ended without a usable result: {error}"
+    if saved is not None and saved.is_file():
+        payload["data_file"] = str(saved)
+        message = f"{message.rstrip('.')}. The measurement completed; its data is saved at {saved}."
     if exec_result.success:
         make_error(
             "execution_error",
-            f"The measurement script ended without a usable result: {error}",
+            message,
             ["Report this; the measurement script and its parser disagree."],
             details={**payload, "subsystem": SUBSYSTEM, "kind": "script_error"},
         )
@@ -309,7 +321,7 @@ async def pyaml_measure(
     try:
         result = parse_measure_result(exec_result.stdout, exec_result.restore_reports, args.kind)
     except MeasureResultError as error:
-        _raise_unparsed(exec_result, error)
+        _raise_unparsed(exec_result, error, args.kind, exec_result.execution_folder)
 
     if "refused" in result:
         make_error(
