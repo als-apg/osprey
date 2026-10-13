@@ -1536,6 +1536,12 @@ def dump_agent_transcript(
         # Test ids carry ``[]`` from parametrisation and ``/`` from paths.
         safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in name) or "transcript"
         target = target_dir / f"{safe}.json"
+        # A name dumped before in this run gets a numbered file: a rerun must
+        # not erase the attempt it is retrying, which is the one worth reading.
+        attempt = 2
+        while target.exists():
+            target = target_dir / f"{safe}.{attempt}.json"
+            attempt += 1
         target.write_text(
             json.dumps(_transcript_payload(name, result, render), indent=2, default=str),
             encoding="utf-8",

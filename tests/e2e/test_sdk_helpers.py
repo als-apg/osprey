@@ -498,3 +498,23 @@ async def test_every_sdk_run_disallows_the_one_shot_floor(tmp_path, monkeypatch,
     assert "Bash" in seen["disallowed_tools"]
     for name in ONE_SHOT_DISALLOWED_TOOLS:
         assert name in seen["disallowed_tools"], name
+
+
+# ---------------------------------------------------------------------------
+# A rerun must not erase the attempt it is retrying.
+# ---------------------------------------------------------------------------
+
+
+def test_transcript_dump_keeps_every_attempt(tmp_path, monkeypatch):
+    """Two dumps under one name leave two files, the first untouched: the
+    attempt a rerun retries is the one worth reading."""
+    monkeypatch.setenv("OSPREY_CI_DIAG_DIR", str(tmp_path))
+
+    first = dump_agent_transcript("orbit_response", _result_with_a_long_tool_result(10))
+    second = dump_agent_transcript("orbit_response", _result_with_a_long_tool_result(20))
+
+    assert first is not None and second is not None
+    assert first != second
+    assert first.parent == second.parent
+    assert len(json.loads(first.read_text())["tool_traces"][0]["result"]) == 10
+    assert len(json.loads(second.read_text())["tool_traces"][0]["result"]) == 20
