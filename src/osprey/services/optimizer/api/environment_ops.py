@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from osprey.services.optimizer.api.job_tracker import JobTracker
 
 from osprey.services.optimizer.models.api import EnvironmentDetails, EnvironmentStatusResponse
+from osprey.services.optimizer.models.config import ControlTarget, ExecutionMode, machine_config
 from osprey.services.optimizer.models.exceptions import ConnectionError as ALSConnectionError
 from osprey.services.optimizer.models.exceptions import TimeoutError as ALSTimeoutError
 from osprey.services.optimizer.models.exceptions import VariableOutOfBoundsError
@@ -45,14 +46,16 @@ def environment_details(name: str, registry: EnvironmentRegistry) -> Environment
         return EnvironmentDetails.from_environment(name, env)
 
 
-def probe_environment_health(name: str, registry: EnvironmentRegistry) -> EnvironmentStatusResponse:
-    """Probe an environment's connectivity — the single health probe.
+def probe_environment_health(
+    name: str, registry: EnvironmentRegistry, target: ControlTarget
+) -> EnvironmentStatusResponse:
+    """Probe an environment's connectivity on one target — the single health probe.
 
     404 for an unknown name; any other probe failure degrades to
     ``connected=None`` with the error message rather than a 5xx.
     """
     try:
-        env = lookup_environment(name, registry)
+        env = lookup_environment(name, registry, machine_config(target))
         with env:
             connected = env.check_connection()
         return EnvironmentStatusResponse(name=name, connected=connected, message=None)
@@ -63,69 +66,70 @@ def probe_environment_health(name: str, registry: EnvironmentRegistry) -> Enviro
         return EnvironmentStatusResponse(name=name, connected=None, message=str(e))
 
 
-def is_sim_environment(env: str) -> bool:
-    """True for simulator environments (no real-hardware safety gating).
+def is_sim_target(target: ControlTarget) -> bool:
+    """True for the virtual accelerator, which no real-hardware safety gate applies to.
 
-    Name-based sim classification is the contract the reliability spec assumes:
-    it gates restore-token safety and the health probe.
+    It gates restore-token safety and the health probe. The stand-in is not a
+    simulator here: it is where an operator rehearses real-machine behaviour.
     """
-    return env.endswith("_sim")
+    return target == "va"
 
 
-def _environment_connected(name: str, registry: EnvironmentRegistry) -> bool:
-    return probe_environment_health(name, registry).connected is True
+def _environment_connected(name: str, registry: EnvironmentRegistry, target: ControlTarget) -> bool:
+    return probe_environment_health(name, registry, target).connected is True
 
 
-def _assert_selected(name: str, tracker: "JobTracker") -> None:
-    if name != tracker.get_current_environment():  # fail-closed: unset -> reject
-        raise HTTPException(
-            status_code=status.HTTP_412_PRECONDITION_FAILED,
-            detail=f"Environment '{name}' is not the current environment.",
-        )
-
-
-def _assert_healthy(name: str, registry: EnvironmentRegistry, override_unhealthy: bool) -> None:
-    if is_sim_environment(name) or override_unhealthy:
+def _assert_healthy(
+    name: str, registry: EnvironmentRegistry, target: ControlTarget, override_unhealthy: bool
+) -> None:
+    if is_sim_target(target) or override_unhealthy:
         return
-    if not _environment_connected(name, registry):
+    if not _environment_connected(name, registry, target):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Environment '{name}' is not reachable; pass override_unhealthy to proceed.",
+            detail=f"Environment '{name}' is not reachable on '{target}'; pass override_unhealthy to proceed.",
         )
 
 
 def guard_environment_write(
-    name: str, tracker: "JobTracker", registry: EnvironmentRegistry, *, override_unhealthy: bool
+    name: str,
+    target: ControlTarget,
+    tracker: "JobTracker",
+    registry: EnvironmentRegistry,
+    *,
+    override_unhealthy: bool,
 ) -> None:
     """Point-in-time precondition for a manual hardware write.
 
-    Requires no active job, name==current, and healthy-or-override. NOT a lock
-    held across the EPICS write — a job may claim the slot after this returns;
-    that residual same-env race is the accepted best-effort behavior (a write
-    only ever targets its own name).
+    Requires no active job, and the environment healthy on ``target`` (or the
+    override). NOT a lock held across the write — a job may claim the slot after
+    this returns; that residual race is the accepted best-effort behavior. Whether
+    ``target`` may be written at all is the connector's decision, on every put.
     """
     if tracker.get_active_job() is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A job is active; manual writes are locked.",
         )
-    _assert_selected(name, tracker)
-    _assert_healthy(name, registry, override_unhealthy)
+    _assert_healthy(name, registry, target, override_unhealthy)
 
 
 def guard_environment_start(
-    name: str, tracker: "JobTracker", registry: EnvironmentRegistry, *, override_unhealthy: bool
+    name: str, target: ControlTarget, registry: EnvironmentRegistry, *, override_unhealthy: bool
 ) -> None:
-    """Point-in-time precondition for a job start: name==current and healthy-or-override.
+    """Point-in-time precondition for a job start: the environment healthy on its target.
 
     The active-slot claim (claim_active_job) enforces the single-running-job
     rule, so this does not check the active-job lock.
     """
-    # Claim-window subtlety: a concurrent switch between this guard and the active-slot
-    # claim can leave current != running job.env; this is benign because the job drives
-    # its own immutable config env and manual writes are 409-locked during the job.
-    _assert_selected(name, tracker)
-    _assert_healthy(name, registry, override_unhealthy)
+    _assert_healthy(name, registry, target, override_unhealthy)
+
+
+def machine_env_config(
+    target: ControlTarget, execution_mode: ExecutionMode | None
+) -> dict[str, Any]:
+    """Environment config for a call that reaches ``target``."""
+    return machine_config(target, execution_mode)
 
 
 def lookup_environment(

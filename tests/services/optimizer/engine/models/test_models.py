@@ -498,7 +498,12 @@ class TestValidationHelpers:
 
 class TestRestoreResponse:
     def test_roundtrips(self) -> None:
-        r = RestoreResponse(environment="als_injector", restored={"v1": 1.5, "v2": 3.0}, count=2)
+        r = RestoreResponse(
+            environment="als_injector",
+            control_target="live",
+            restored={"v1": 1.5, "v2": 3.0},
+            count=2,
+        )
         assert r.environment == "als_injector"
         assert r.restored == {"v1": 1.5, "v2": 3.0}
         assert r.count == 2

@@ -34,16 +34,18 @@ def restore_overrides(
     """Install the registry + tracker overrides shared by the restore-flow tests.
 
     Writes a run dir under ``tmp_path`` for ``env_name`` (complete unless
-    ``with_initial=False``, which omits the initial snapshot) and yields
+    ``with_initial=False``, which omits the initial snapshot). The run records the
+    virtual accelerator as its target when ``env_name`` ends in ``_sim`` and the
+    live machine otherwise, keeping these tests' sim/real cases. Yields
     ``(client, run_id, recorded)`` where ``recorded`` accumulates ``set_variables``
     writes. Clears the dependency overrides on exit.
     """
     monkeypatch.chdir(tmp_path)
-    run_id = make_run_dir(tmp_path, env_name=env_name, with_initial=with_initial)
+    target = "va" if env_name.endswith("_sim") else "live"
+    run_id = make_run_dir(tmp_path, env_name=env_name, with_initial=with_initial, target=target)
     registry, recorded = recording_registry()
     tracker = MagicMock(spec=JobTracker)
     tracker.get_active_job.return_value = None
-    tracker.get_current_environment.return_value = env_name
     app.dependency_overrides[get_environment_registry] = lambda: registry
     app.dependency_overrides[get_job_tracker] = lambda: tracker
     try:
@@ -334,8 +336,9 @@ def test_restore_preview_returns_tuned_values_without_writing(
     assert body["preview_token"] == second.json()["preview_token"]  # stable across calls
     # Preview shape (RestorePreviewResponse), not HistoricalRunDetails — the latter
     # would carry config/data_records and lack environment/values/count.
-    assert set(body) == {"environment", "values", "count", "preview_token"}
+    assert set(body) == {"environment", "control_target", "values", "count", "preview_token"}
     assert body["environment"] == "test_env"
+    assert body["control_target"] == "va"
     assert body["values"] == {"v1": 1.5, "v2": 3.0}  # objective dropped
     assert body["count"] == 2
     # The GET endpoint has no environment-registry dependency, so it cannot
@@ -371,6 +374,7 @@ def test_restore_preview_incomplete_snapshot_returns_409(
         json.dumps(
             {
                 "environment_name": "test_env",
+                "control_target": "va",
                 "objective_name": "charge_ltb",
                 "variables": ["v1", "v2"],
             }

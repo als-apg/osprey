@@ -214,14 +214,14 @@ class TestEvaluateEnvironmentEndpoint:
     ("method", "path", "json_body", "params", "expected_status"),
     [
         pytest.param("get", "/environments/unknown/status", None, None, 404, id="status"),
-        # Guarded write routes: current-environment check fires before load_environment, so
-        # "nope" != current ("als_injector_sim") returns 412 instead of 404.
+        # Guarded write routes: on the simulator the guard probes nothing, so the
+        # unknown name reaches load_environment and is a 404 like the reads.
         pytest.param(
             "put",
             "/environments/nope/variables",
             {"variables": {"x": 1.0}},
             None,
-            412,
+            404,
             id="set_variables",
         ),
         pytest.param(
@@ -240,7 +240,7 @@ class TestEvaluateEnvironmentEndpoint:
             "/environments/nope/evaluate",
             {"variables": {"var1": 1.0}, "observables": ["obs1"]},
             None,
-            412,
+            404,
             id="evaluate",
         ),
     ],

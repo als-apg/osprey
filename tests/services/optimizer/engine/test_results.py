@@ -52,14 +52,14 @@ def _save(output_dir: Path, **overrides: Any) -> Path:
     defaults: dict[str, Any] = {
         "data": pl.DataFrame({"x": [1.0]}),
         "best_point": {"x": 1.0},
-        "config": OptimizationConfig(environment_name="env", n_iterations=1),
+        "config": OptimizationConfig(environment_name="env", control_target="va", n_iterations=1),
     }
     return save_optimization_results(output_dir=output_dir, **{**defaults, **overrides})
 
 
 @pytest.fixture
 def config() -> OptimizationConfig:
-    return OptimizationConfig(environment_name="test_env", n_iterations=5)
+    return OptimizationConfig(environment_name="test_env", control_target="va", n_iterations=5)
 
 
 @pytest.fixture

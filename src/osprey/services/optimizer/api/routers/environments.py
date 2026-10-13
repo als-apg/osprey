@@ -5,13 +5,14 @@ Provides endpoints for discovering environments and reading/writing variables.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Query, status
 
-from osprey.services.optimizer.api.current_environment_ops import (
-    build_current_environment_response,
-    select_environment,
+from osprey.services.optimizer.api.dependencies import (
+    Machine,
+    get_environment_registry,
+    get_job_tracker,
+    require_machine,
 )
-from osprey.services.optimizer.api.dependencies import get_environment_registry, get_job_tracker
 from osprey.services.optimizer.api.environment_ops import (
     apply_variables_to_environment,
     environment_details,
@@ -25,8 +26,6 @@ from osprey.services.optimizer.api.environment_ops import (
 )
 from osprey.services.optimizer.api.job_tracker import JobTracker
 from osprey.services.optimizer.models.api import (
-    CurrentEnvironmentRequest,
-    CurrentEnvironmentResponse,
     EnvironmentDetails,
     EnvironmentInfo,
     EnvironmentStatusResponse,
@@ -48,29 +47,6 @@ def list_environments(
     return registry.list_environments()
 
 
-@router.get("/current", response_model=CurrentEnvironmentResponse)
-def get_current_environment(
-    response: Response,
-    registry: EnvironmentRegistry = Depends(get_environment_registry),
-    tracker: JobTracker = Depends(get_job_tracker),
-) -> CurrentEnvironmentResponse:
-    """Return the shared current-environment pointer (name + details + health)."""
-    response.headers["Cache-Control"] = "no-store"
-    return build_current_environment_response(tracker, registry)
-
-
-@router.put("/current", response_model=CurrentEnvironmentResponse)
-def set_current_environment(
-    body: CurrentEnvironmentRequest,
-    response: Response,
-    registry: EnvironmentRegistry = Depends(get_environment_registry),
-    tracker: JobTracker = Depends(get_job_tracker),
-) -> CurrentEnvironmentResponse:
-    """Switch the shared current environment (rejected while a job is active)."""
-    response.headers["Cache-Control"] = "no-store"
-    return select_environment(body.name, tracker, registry)
-
-
 @router.get("/{name}", response_model=EnvironmentDetails)
 def get_environment_details(
     name: str,
@@ -83,22 +59,26 @@ def get_environment_details(
 @router.get("/{name}/status", response_model=EnvironmentStatusResponse)
 def check_environment_status(
     name: str,
+    machine: Machine = Depends(require_machine),
     registry: EnvironmentRegistry = Depends(get_environment_registry),
 ) -> EnvironmentStatusResponse:
-    """Check if the environment is reachable."""
-    return probe_environment_health(name, registry)
+    """Check if the environment is reachable on the named target."""
+    return probe_environment_health(name, registry, machine.target)
 
 
 @router.put("/{name}/variables", status_code=status.HTTP_204_NO_CONTENT)
 def set_environment_variables(
     name: str,
     body: SetVariablesRequest,
+    machine: Machine = Depends(require_machine),
     registry: EnvironmentRegistry = Depends(get_environment_registry),
     tracker: JobTracker = Depends(get_job_tracker),
 ) -> None:
-    """Apply variable settings to an environment."""
-    guard_environment_write(name, tracker, registry, override_unhealthy=body.override_unhealthy)
-    env = load_environment(name, registry)
+    """Apply variable settings to an environment on the named target."""
+    guard_environment_write(
+        name, machine.target, tracker, registry, override_unhealthy=body.override_unhealthy
+    )
+    env = load_environment(name, registry, machine.env_config())
     apply_variables_to_environment(env, name, body.variables)
 
 
@@ -106,6 +86,7 @@ def set_environment_variables(
 def get_environment_variables(
     name: str,
     names: Annotated[list[str], Query()],
+    machine: Machine = Depends(require_machine),
     registry: EnvironmentRegistry = Depends(get_environment_registry),
 ) -> dict[str, PVReading]:
     """Get current variable readings from an environment.
@@ -113,7 +94,7 @@ def get_environment_variables(
     Each reading carries the native value plus connected/timestamp metadata;
     an unreachable PV comes back as a reading with ``connected: false``.
     """
-    env = load_environment(name, registry)
+    env = load_environment(name, registry, machine.env_config())
     with env:
         validate_variable_names(names, env)
         with read_errors(name, "get variables"):
@@ -124,6 +105,7 @@ def get_environment_variables(
 def get_environment_observables(
     name: str,
     names: Annotated[list[str], Query()],
+    machine: Machine = Depends(require_machine),
     registry: EnvironmentRegistry = Depends(get_environment_registry),
 ) -> dict[str, PVReading]:
     """Read current observable readings from the environment.
@@ -131,7 +113,7 @@ def get_environment_observables(
     Observables are objective measurements; each crosses the wire as a native
     :class:`PVReading`.
     """
-    env = load_environment(name, registry)
+    env = load_environment(name, registry, machine.env_config())
     with env:
         validate_observable_names(names, env)
         with read_errors(name, "get observables"):
@@ -142,6 +124,7 @@ def get_environment_observables(
 def get_environment_pvs(
     name: str,
     names: Annotated[list[str], Query()],
+    machine: Machine = Depends(require_machine),
     registry: EnvironmentRegistry = Depends(get_environment_registry),
 ) -> dict[str, PVReading]:
     """Raw caget of arbitrary PV names through the env's CA context.
@@ -165,7 +148,7 @@ def get_environment_pvs(
       typically means the worker is wedged or never started).
     - **500** — anything else unexpected.
     """
-    env = load_environment(name, registry)
+    env = load_environment(name, registry, machine.env_config())
     with read_errors(name, "read PVs"), env:
         return env.read_pvs(names)
 
@@ -174,12 +157,15 @@ def get_environment_pvs(
 def evaluate_environment(
     name: str,
     body: EvaluateRequest,
+    machine: Machine = Depends(require_machine),
     registry: EnvironmentRegistry = Depends(get_environment_registry),
     tracker: JobTracker = Depends(get_job_tracker),
 ) -> EvaluateResponse:
-    """Atomically set variables and read observables in a single shot-gated transaction."""
-    guard_environment_write(name, tracker, registry, override_unhealthy=body.override_unhealthy)
-    env = load_environment(name, registry)
+    """Set variables and read observables in one transaction, on the named target."""
+    guard_environment_write(
+        name, machine.target, tracker, registry, override_unhealthy=body.override_unhealthy
+    )
+    env = load_environment(name, registry, machine.env_config())
     with env:
         validate_observable_names(body.observables, env)
         validate_variable_names(list(body.variables.keys()), env)

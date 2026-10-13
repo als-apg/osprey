@@ -370,17 +370,33 @@ def client(mock_registry: MagicMock) -> "Generator[TestClient, None, None]":
     test_archiver_endpoint) define their own local ``client`` fixture, which
     wins by pytest's local-over-conftest resolution.
     """
+    from fastapi import Query
     from fastapi.testclient import TestClient
 
-    from osprey.services.optimizer.api.dependencies import get_environment_registry, get_job_tracker
+    from osprey.services.optimizer.api.dependencies import (
+        Machine,
+        get_environment_registry,
+        get_job_tracker,
+        require_machine,
+    )
     from osprey.services.optimizer.api.job_tracker import JobTracker
     from osprey.services.optimizer.api.main import app
+    from osprey.services.optimizer.models.config import ControlTarget, ExecutionMode
 
     tracker = MagicMock(spec=JobTracker)
     tracker.get_active_job.return_value = None
-    tracker.get_current_environment.return_value = "als_injector_sim"
+
+    # Production has no default target (test_machine_target.py pins that); these
+    # tests predate targets, so a request that names none reaches the simulator.
+    def machine_defaulting_to_va(
+        target: ControlTarget = Query(default="va"),
+        execution_mode: ExecutionMode | None = Query(default=None),
+    ) -> Machine:
+        return Machine(target=target, execution_mode=execution_mode)
+
     app.dependency_overrides[get_environment_registry] = lambda: mock_registry
     app.dependency_overrides[get_job_tracker] = lambda: tracker
+    app.dependency_overrides[require_machine] = machine_defaulting_to_va
     with TestClient(app) as test_client:
         yield test_client
 
@@ -698,11 +714,12 @@ def make_blocking_import(module_name: str, message: str = "") -> Callable[..., A
     return _blocking
 
 
-def make_run_dir(tmp_path: Path, *, with_initial: bool = True, env_name: str = "test_env") -> str:
+def make_run_dir(
+    tmp_path: Path, *, with_initial: bool = True, env_name: str = "test_env", target: str = "va"
+) -> str:
     """Write a fake ``results/<env>/<ts>/`` run dir with config + optional snapshot.
 
-    Shared by the results-router restore tests (``test_results_api.py``) and the
-    current-env restore-guard tests (``test_current_environment.py``).
+    Shared by the results-router restore tests (``test_results_api.py``).
     """
     run_dir = tmp_path / "results" / env_name / "2025-01-15_10-30-00"
     run_dir.mkdir(parents=True)
@@ -710,6 +727,7 @@ def make_run_dir(tmp_path: Path, *, with_initial: bool = True, env_name: str = "
         json.dumps(
             {
                 "environment_name": env_name,
+                "control_target": target,
                 "objective_name": "charge_ltb",
                 "variables": ["v1", "v2"],
             }
@@ -725,8 +743,7 @@ def make_run_dir(tmp_path: Path, *, with_initial: bool = True, env_name: str = "
 def recording_registry() -> tuple[MagicMock, dict[str, float]]:
     """Return an ``EnvironmentRegistry`` mock whose ``set_variables`` records writes.
 
-    Shared by the results-router restore tests (``test_results_api.py``) and the
-    current-env restore-guard tests (``test_current_environment.py``).
+    Shared by the results-router restore tests (``test_results_api.py``).
     """
     recorded: dict[str, float] = {}
     mock_env = MagicMock()

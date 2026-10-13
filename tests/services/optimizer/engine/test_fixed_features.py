@@ -190,7 +190,9 @@ class TestModelBundleSaving:
             save_optimization_results(
                 data=pl.DataFrame({"x": [1.0, 2.0], "obj": [0.1, 0.2]}),
                 best_point={"x": 2.0},
-                config=OptimizationConfig(environment_name="test_env", n_iterations=5),
+                config=OptimizationConfig(
+                    environment_name="test_env", control_target="va", n_iterations=5
+                ),
                 output_dir=tmp_path / "results",
                 metadata=ResultMetadata(model=rf, model_variables=None),
             )
@@ -223,6 +225,7 @@ class TestOrchestrationCurrentEnvValues:
 
         config = OptimizationConfig(
             environment_name="test_env",
+            control_target="va",
             objective_name="charge_ltb",
             variables=["var_a"],
             variable_overrides={"var_a": VariableOverride(min=0.0, max=10.0, step_size=0.1)},
@@ -247,6 +250,7 @@ class TestOrchestrationCurrentEnvValues:
 
         config = OptimizationConfig(
             environment_name="test_env",
+            control_target="va",
             objective_name="charge_ltb",
             variables=["test_var"],
             variable_overrides={"test_var": VariableOverride(min=0.0, max=1.0, step_size=0.1)},

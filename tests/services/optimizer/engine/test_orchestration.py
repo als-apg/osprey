@@ -23,7 +23,11 @@ from osprey.services.optimizer.models.exceptions import ConnectionError as ALSCo
 from osprey.services.optimizer.models.protocols import PVReading
 from osprey.services.optimizer.optimization.runner import PhaseResult
 from osprey.services.optimizer.services.draft_resolution import resolve_draft_config
-from osprey.services.optimizer.services.orchestration import OptimizationEngine, RunnerServices
+from osprey.services.optimizer.services.orchestration import (
+    OptimizationEngine,
+    RunnerServices,
+    resolve_environment,
+)
 from osprey.services.optimizer.services.plugin_registry import EnvironmentRegistry
 
 from ._fakes import FakeInjectorEnvironment
@@ -37,6 +41,7 @@ def _config(**overrides: Any) -> OptimizationConfig:
         "algorithm": AlgorithmType.RANDOM,
         "n_iterations": 5,
         "environment_name": "als_injector",
+        "control_target": "va",
         "environment_config": {},
     }
     defaults.update(overrides)
@@ -109,7 +114,10 @@ def test_optimization_engine_uses_factory(patched_engine_collaborators: MagicMoc
 
     result = engine.run()
 
-    mock_factory.assert_called_once_with("test_plugin", {"foo": "bar"})
+    # The job's target rides into the environment config beside its own keys.
+    mock_factory.assert_called_once_with(
+        "test_plugin", {"foo": "bar", "control_target": "va", "execution_mode": None}
+    )
     assert result.data is mock_data
 
 
@@ -133,13 +141,17 @@ class TestOptimizationEngineValidation:
             ),
             pytest.param(
                 MagicMock(return_value=_env_efficiency_only()),
-                OptimizationConfig(environment_name="test_env", objective_name="nonexistent"),
+                OptimizationConfig(
+                    environment_name="test_env", control_target="va", objective_name="nonexistent"
+                ),
                 "not found in environment",
                 id="objective_not_in_observables",
             ),
             pytest.param(
                 MagicMock(return_value=_env_efficiency_only()),
-                OptimizationConfig(environment_name="test_env", objective_name=None),
+                OptimizationConfig(
+                    environment_name="test_env", control_target="va", objective_name=None
+                ),
                 "objective_name must be set",
                 id="missing_objective",
             ),
@@ -151,6 +163,7 @@ class TestOptimizationEngineValidation:
                 ),
                 OptimizationConfig(
                     environment_name="test_env",
+                    control_target="va",
                     objective_name="charge_ltb",
                     variables=["var_a", "ghost_var"],
                 ),
@@ -161,6 +174,7 @@ class TestOptimizationEngineValidation:
                 MagicMock(return_value=make_mock_environment()),
                 OptimizationConfig(
                     environment_name="test_env",
+                    control_target="va",
                     objective_name="charge_ltb",
                     variables=["test_var"],
                     constraints={
@@ -172,7 +186,9 @@ class TestOptimizationEngineValidation:
             ),
             pytest.param(
                 MagicMock(return_value=make_mock_environment()),
-                OptimizationConfig(environment_name="test_env", objective_name="charge_ltb"),
+                OptimizationConfig(
+                    environment_name="test_env", control_target="va", objective_name="charge_ltb"
+                ),
                 "not resolved",
                 id="run_rejects_unresolved_config",
             ),
@@ -407,3 +423,12 @@ class TestOptimizationEngineValidation:
         bus.subscribe_all(callback)
         for event_type in EventType:
             assert callback in bus._subscribers[event_type], f"{event_type} not subscribed"
+
+
+def test_a_config_without_a_target_never_reaches_the_factory() -> None:
+    """The worker's own refusal: no target named, no environment built."""
+    config = _config(control_target=None)
+    factory = MagicMock()
+    with pytest.raises(ValueError, match="control_target"):
+        resolve_environment(config, factory)
+    factory.assert_not_called()

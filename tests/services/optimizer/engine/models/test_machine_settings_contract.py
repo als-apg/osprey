@@ -24,6 +24,7 @@ def test_protocol_default_check_machine_settings_is_noop() -> None:
 def _resolved_config() -> OptimizationConfig:
     return OptimizationConfig(
         environment_name="e",
+        control_target="va",
         objective_name="obj",
         variables=["a"],
         variable_overrides={"a": VariableOverride(min=0.0, max=1.0, step_size=0.1)},
@@ -35,7 +36,7 @@ def test_require_resolved_passes_on_materialized_config() -> None:
 
 
 def test_require_resolved_rejects_unset_variables() -> None:
-    cfg = OptimizationConfig(environment_name="e", objective_name="obj")
+    cfg = OptimizationConfig(environment_name="e", control_target="va", objective_name="obj")
     with pytest.raises(ValueError, match="variables"):
         cfg.require_resolved()
 

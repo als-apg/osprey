@@ -12,7 +12,7 @@ from osprey.services.optimizer.events import (
     OptimizationStartedData,
     emit_event,
 )
-from osprey.services.optimizer.models.config import OptimizationConfig
+from osprey.services.optimizer.models.config import OptimizationConfig, machine_config
 from osprey.services.optimizer.models.protocols import EnvironmentFactory, EnvironmentProtocol
 from osprey.services.optimizer.models.types import BestPoint
 
@@ -55,7 +55,15 @@ def resolve_environment(
     environment_name = config.environment_name
     if environment_name is None:
         raise ValueError("environment_name must be set in config")
-    env = factory(environment_name, config.environment_config or {})
+    if config.control_target is None:
+        # The API refuses such a start; this is the worker's own refusal, so a
+        # config that reached it some other way still never picks a machine.
+        raise ValueError("control_target must be set in config (va, standin or live)")
+    env_config = {
+        **(config.environment_config or {}),
+        **machine_config(config.control_target, config.execution_mode),
+    }
+    env = factory(environment_name, env_config)
     return environment_name, env
 
 

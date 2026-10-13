@@ -189,7 +189,9 @@ class TestEventLoopNotStarved:
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as ac:
                 slow = asyncio.create_task(
-                    ac.get("/environments/sim/variables", params={"names": ["var1"]})
+                    ac.get(
+                        "/environments/sim/variables", params={"names": ["var1"], "target": "va"}
+                    )
                 )
                 # Wait until the blocking read is actually in-flight (in the threadpool).
                 await asyncio.to_thread(started.wait, 5)

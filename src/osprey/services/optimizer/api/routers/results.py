@@ -8,7 +8,7 @@ import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import TypeVar
+from typing import TypeVar, cast, get_args
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -16,7 +16,7 @@ from osprey.services.optimizer.api.dependencies import get_environment_registry,
 from osprey.services.optimizer.api.environment_ops import (
     apply_variables_to_environment,
     guard_environment_write,
-    is_sim_environment,
+    is_sim_target,
     load_environment,
 )
 from osprey.services.optimizer.api.job_tracker import JobTracker
@@ -26,6 +26,7 @@ from osprey.services.optimizer.models.api import (
     RestoreResponse,
     ResultInfo,
 )
+from osprey.services.optimizer.models.config import ControlTarget, machine_config
 from osprey.services.optimizer.results import (
     build_run_details,
     load_results,
@@ -81,11 +82,13 @@ def _load_run_or_404(run_id: str, loader: Callable[[str], _T]) -> _T:
         ) from e
 
 
-def _resolve_restore_values(run_id: str) -> tuple[str, dict[str, float]]:
-    """Load a run, validate its initial snapshot, return (environment, tuned values).
+def _resolve_restore_values(run_id: str) -> tuple[str, ControlTarget, dict[str, float]]:
+    """Load a run, validate its initial snapshot, return (environment, target, tuned values).
 
-    Raises the same 404/409 HTTPExceptions the restore endpoint surfaces. Performs
-    no machine write — shared by restore (POST) and restore-preview (GET).
+    The target is the one the run itself drove: its starting values belong to
+    that machine and to no other. Raises the same 404/409 HTTPExceptions the
+    restore endpoint surfaces. Performs no machine write — shared by restore
+    (POST) and restore-preview (GET).
     """
     _data, _best, config = _load_run_or_404(run_id, load_results)
 
@@ -95,6 +98,7 @@ def _resolve_restore_values(run_id: str) -> tuple[str, dict[str, float]]:
     if not isinstance(snapshot, dict):
         snapshot = None
     environment_name = cfg.get("environment_name")
+    target = cfg.get("control_target")
     tuned = cfg.get("variables")
     if not snapshot:
         raise HTTPException(
@@ -105,6 +109,11 @@ def _resolve_restore_values(run_id: str) -> tuple[str, dict[str, float]]:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Run '{run_id}' config is missing environment or variables",
+        )
+    if target not in get_args(ControlTarget):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Run '{run_id}' config does not record the control target it ran on",
         )
 
     missing = [name for name in tuned if name not in snapshot]
@@ -128,7 +137,7 @@ def _resolve_restore_values(run_id: str) -> tuple[str, dict[str, float]]:
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Run '{run_id}' snapshot has non-numeric or non-finite values for: {', '.join(unusable)}",
         )
-    return environment_name, restore_values
+    return environment_name, cast(ControlTarget, target), restore_values
 
 
 def _restore_token(values: dict[str, float]) -> str:
@@ -159,17 +168,18 @@ def restore_run_initial(
     registry: EnvironmentRegistry = Depends(get_environment_registry),
     tracker: JobTracker = Depends(get_job_tracker),
 ) -> RestoreResponse:
-    """Restore a run's tuned variables to their initial (run-start) values.
+    """Restore a run's tuned variables to their initial (run-start) values, on the
+    target the run drove.
 
-    Real (non-sim) environments require ``confirm_token`` to match the hash of the
-    values a prior ``restore-preview`` returned (spec D1). Sim environments are
-    exempt and proceed with no token (spec D2).
+    A run on a real target (standin, live) requires ``confirm_token`` to match the
+    hash of the values a prior ``restore-preview`` returned; a run on the virtual
+    accelerator proceeds with no token.
     """
-    environment_name, restore_values = _resolve_restore_values(f"{env}/{timestamp}")
+    environment_name, target, restore_values = _resolve_restore_values(f"{env}/{timestamp}")
     guard_environment_write(
-        environment_name, tracker, registry, override_unhealthy=override_unhealthy
+        environment_name, target, tracker, registry, override_unhealthy=override_unhealthy
     )
-    if not is_sim_environment(environment_name):
+    if not is_sim_target(target):
         expected = _restore_token(restore_values)
         if confirm_token != expected:
             raise HTTPException(
@@ -179,10 +189,13 @@ def restore_run_initial(
                     "GET restore-preview first and resubmit its preview_token as confirm_token"
                 ),
             )
-    environment = load_environment(environment_name, registry)
+    environment = load_environment(environment_name, registry, machine_config(target))
     apply_variables_to_environment(environment, environment_name, restore_values)
     return RestoreResponse(
-        environment=environment_name, restored=restore_values, count=len(restore_values)
+        environment=environment_name,
+        control_target=target,
+        restored=restore_values,
+        count=len(restore_values),
     )
 
 
@@ -190,9 +203,10 @@ def restore_run_initial(
 @router.get("/{env}/{timestamp}/restore-preview", response_model=RestorePreviewResponse)
 def preview_run_restore(env: str, timestamp: str) -> RestorePreviewResponse:
     """Return the values a Restore would write, without writing them."""
-    environment_name, restore_values = _resolve_restore_values(f"{env}/{timestamp}")
+    environment_name, target, restore_values = _resolve_restore_values(f"{env}/{timestamp}")
     return RestorePreviewResponse(
         environment=environment_name,
+        control_target=target,
         values=restore_values,
         count=len(restore_values),
         preview_token=_restore_token(restore_values),

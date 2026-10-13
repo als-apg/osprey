@@ -25,7 +25,7 @@ _JC = "osprey.services.optimizer.api.job_control"
 
 
 def _config() -> OptimizationConfig:
-    return OptimizationConfig(environment_name="sim", objective_name="obj")
+    return OptimizationConfig(environment_name="sim", control_target="va", objective_name="obj")
 
 
 def _registry_with_sim() -> MagicMock:
@@ -69,6 +69,7 @@ def test_create_persists_resolved_config_and_registers_created(seam_redis_mock: 
     without claiming the active slot."""
     cfg = OptimizationConfig(
         environment_name="sim",
+        control_target="va",
         objective_name="obj",
         constraints={"loss": ConstraintSpec(type=ConstraintType.LESS_THAN, value=0.25)},
     )
@@ -149,7 +150,7 @@ def test_create_survives_direction_lookup_failure(seam_redis_mock: MagicMock) ->
             id="missing_environment_name",
         ),
         pytest.param(
-            OptimizationConfig(environment_name="sim", objective_name=None),
+            OptimizationConfig(environment_name="sim", control_target="va", objective_name=None),
             _registry_with_sim(),
             "objective_name is required",
             id="missing_objective_name",
@@ -273,7 +274,7 @@ def _registry_with_only_sim_name() -> MagicMock:
     [
         pytest.param(
             JobStatus.RUNNING,
-            OptimizationConfig(environment_name="sim", objective_name="obj"),
+            OptimizationConfig(environment_name="sim", control_target="va", objective_name="obj"),
             _registry_with_sim(),
             409,
             "expected status 'created'",
@@ -289,7 +290,7 @@ def _registry_with_only_sim_name() -> MagicMock:
         ),
         pytest.param(
             JobStatus.CREATED,
-            OptimizationConfig(environment_name="ghost", objective_name="obj"),
+            OptimizationConfig(environment_name="ghost", control_target="va", objective_name="obj"),
             _registry_with_only_sim_name(),
             422,
             "Unknown environment",
@@ -332,7 +333,7 @@ def test_failed_update_keeps_prior_config(seam_redis_mock: MagicMock) -> None:
 
 
 def test_read_config_returns_stored_config() -> None:
-    cfg = OptimizationConfig(environment_name="sim", objective_name="obj")
+    cfg = OptimizationConfig(environment_name="sim", control_target="va", objective_name="obj")
     with patch(f"{_JC}._redis_client.get_redis_client") as redis_f:
         redis = MagicMock()
         redis.get.return_value = cfg.model_dump_json()
@@ -356,7 +357,7 @@ def test_read_config_404_when_missing() -> None:
 def test_update_config_writes_refreshes_ttl_and_materializes_direction() -> None:
     """The web pushes config via PUT->update; that path rewrites the config,
     refreshes the CREATED TTL, and records the objective direction too."""
-    cfg = OptimizationConfig(environment_name="sim", objective_name="obj")
+    cfg = OptimizationConfig(environment_name="sim", control_target="va", objective_name="obj")
     tracker = MagicMock()
     with (
         patch(f"{_OL}.get_optimization_reader") as reader_f,

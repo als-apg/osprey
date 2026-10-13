@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from pydantic import ConfigDict as PydanticConfigDict
 
-from .config import VariableOverride
+from .config import ControlTarget, VariableOverride
 from .enums import AlgorithmType, EnvironmentType, JobType
 from .protocols import EnvironmentProtocol, ObservableMetadata, PVReading, VariableMetadata
 from .state import OptimizationState
@@ -60,20 +60,6 @@ class EnvironmentStatusResponse(BaseModel):
     name: str
     connected: bool | None
     message: str | None = None
-
-
-class CurrentEnvironmentResponse(BaseModel):
-    """The server-side 'current environment' pointer (name + details + health)."""
-
-    name: str | None = None
-    details: EnvironmentDetails | None = None
-    status: EnvironmentStatusResponse | None = None
-
-
-class CurrentEnvironmentRequest(BaseModel):
-    """Body for setting the current environment pointer."""
-
-    name: str
 
 
 class SetVariablesRequest(BaseModel):
@@ -262,6 +248,7 @@ class RestoreResponse(BaseModel):
     """Response for ``POST /results/{run_id}/restore``."""
 
     environment: str
+    control_target: ControlTarget
     restored: dict[str, float]
     count: int
 
@@ -270,6 +257,7 @@ class RestorePreviewResponse(BaseModel):
     """Response for ``GET /results/{run_id}/restore-preview`` (no write performed)."""
 
     environment: str
+    control_target: ControlTarget
     values: dict[str, float]
     count: int
     preview_token: str

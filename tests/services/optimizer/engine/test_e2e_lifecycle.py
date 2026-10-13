@@ -51,6 +51,7 @@ def _make_config(n_iterations: int = N_ITERATIONS) -> OptimizationConfig:
         environment_config={},
         objective_name="charge_ltb",
         environment_name="test_plugin",
+        control_target="va",
         variables=["LN______MASTPH_AC00", "LN______AS2_PH_AC00"],
     )
     env = EnvironmentRegistry().load_environment("test_plugin", config.environment_config or {})

@@ -45,11 +45,6 @@ ACTIVE_JOB_KEY = "api:active_job"
 # here, including a CREATED draft. get_current_job self-heals a vanished target.
 CURRENT_JOB_KEY = "api:current_job"
 
-# Shared "current environment" pointer: the single environment all clients work
-# in. Lives outside the job namespace like the other api:* pointers. Switching is
-# Lua-guarded against ACTIVE_JOB_KEY so it cannot move while a job drives hardware.
-CURRENT_ENVIRONMENT_KEY = "api:current_environment"
-
 # Atomic single-active-slot claim. KEYS[1]=ACTIVE_JOB_KEY, KEYS[2]=meta_key.
 # ARGV[1]=job_id, ARGV[2]=running-meta JSON, ARGV[3]=ttl seconds.
 # Only writes the RUNNING meta if the NX claim on the active slot succeeds, so a
@@ -60,20 +55,6 @@ if redis.call('SET', KEYS[1], ARGV[1], 'NX') then
     return 1
 end
 return 0
-"""
-
-# Set the current-environment pointer iff no job holds the active slot.
-# KEYS[1]=ACTIVE_JOB_KEY, KEYS[2]=CURRENT_ENVIRONMENT_KEY, ARGV[1]=env name.
-# Returns 1 if set, 0 if a job is active. One round-trip closes the
-# check-to-write window a read-then-SET would leave open. NB: raw GET, no
-# self-heal — a lingering active key (crashed worker) makes a switch reject
-# until get_active_job() reaps it; erring toward reject is the safe direction.
-_SET_CURRENT_ENV_LUA = """
-if redis.call('GET', KEYS[1]) then
-    return 0
-end
-redis.call('SET', KEYS[2], ARGV[1])
-return 1
 """
 
 # Heartbeat: a running job re-applies RUNNING_STATE_TTL_SECONDS across its whole
@@ -241,18 +222,6 @@ class JobTracker:
             redis.delete(CURRENT_JOB_KEY)
             return None
         return job_id
-
-    def get_current_environment(self) -> str | None:
-        """Return the shared current-environment pointer, or None if unset."""
-        return as_str(self._get_redis().get(CURRENT_ENVIRONMENT_KEY))
-
-    def set_current_environment_if_idle(self, name: str) -> bool:
-        """Atomically set the pointer iff no job is active. False if one is."""
-        result = self._script(_SET_CURRENT_ENV_LUA)(
-            keys=[ACTIVE_JOB_KEY, CURRENT_ENVIRONMENT_KEY],
-            args=[name],
-        )
-        return bool(result == 1)
 
     def get_job(self, job_id: str) -> JobMeta | None:
         """Get job metadata.

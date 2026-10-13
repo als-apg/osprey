@@ -42,6 +42,7 @@ def _config(**overrides: Any) -> OptimizationConfig:
     """Build an ``OptimizationConfig`` with this file's recurring defaults, overridden as needed."""
     defaults: dict[str, Any] = {
         "environment_name": "test_plugin",
+        "control_target": "va",
         "objective_name": "charge_ltb",
         "algorithm": AlgorithmType.RANDOM,
     }

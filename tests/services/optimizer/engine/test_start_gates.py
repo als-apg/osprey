@@ -29,14 +29,14 @@ def _resolved_config(fake_env: FakeInjectorEnvironment) -> OptimizationConfig:
     # inside its own bounds) to get a config that legitimately passes the drift
     # check, rather than one that "passes" only because the fake omits most vars.
     fake_env.set_variables({name: meta.min_value for name, meta in VARIABLES.items()})
-    cfg = OptimizationConfig(environment_name="fake", objective_name="obj")
+    cfg = OptimizationConfig(environment_name="fake", control_target="va", objective_name="obj")
     with fake_env:
         resolve_draft_config(cfg, fake_env)
     return cfg
 
 
 def test_unresolved_config_is_409(fake_env: FakeInjectorEnvironment) -> None:
-    cfg = OptimizationConfig(environment_name="fake", objective_name="obj")
+    cfg = OptimizationConfig(environment_name="fake", control_target="va", objective_name="obj")
     with pytest.raises(HTTPException) as excinfo:
         run_start_gates(cfg, fake_env, env_name="fake")
     assert excinfo.value.status_code == 409

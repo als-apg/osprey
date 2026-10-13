@@ -10,7 +10,11 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from osprey.services.optimizer.api.dependencies import get_environment_registry
+from osprey.services.optimizer.api.dependencies import (
+    Machine,
+    get_environment_registry,
+    require_machine,
+)
 from osprey.services.optimizer.api.environment_ops import (
     load_environment,
     read_errors,
@@ -82,6 +86,7 @@ def get_environment_template_defaults(
 @router.get("/{name}/initial-bounds", response_model=InitialBoundsResponse)
 def get_environment_initial_bounds(
     name: str,
+    machine: Machine = Depends(require_machine),
     registry: EnvironmentRegistry = Depends(get_environment_registry),
 ) -> InitialBoundsResponse:
     """Resolve initial bounds for the cockpit table.
@@ -93,7 +98,7 @@ def get_environment_initial_bounds(
     readback is unavailable (NaN) fall back to the safety range as well — the
     operator can still see the table while connectivity is being investigated.
     """
-    env = load_environment(name, registry)
+    env = load_environment(name, registry, machine.env_config())
     template_config = registry.get_template_defaults(name) or {}
     raw_overrides = template_config.get("variable_overrides") or {}
     overrides: dict[str, VariableOverride] = {

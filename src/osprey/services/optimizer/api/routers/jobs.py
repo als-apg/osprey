@@ -9,7 +9,6 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from osprey.services.optimizer.api.current_environment_ops import read_job_environment_name
 from osprey.services.optimizer.api.dependencies import (
     get_environment_registry,
     get_job_tracker,
@@ -27,7 +26,7 @@ from osprey.services.optimizer.api.optimization_lifecycle import (
 from osprey.services.optimizer.api.optimization_status import build_optimization_response
 from osprey.services.optimizer.api.start_gates import run_start_gates
 from osprey.services.optimizer.models.api import CurrentJobRequest, CurrentJobResponse, JobResponse
-from osprey.services.optimizer.models.config import OptimizationConfig
+from osprey.services.optimizer.models.config import OptimizationConfig, machine_config
 from osprey.services.optimizer.models.enums import JobStatus, JobType
 from osprey.services.optimizer.optimization.state import get_optimization_writer
 from osprey.services.optimizer.services.plugin_registry import EnvironmentRegistry
@@ -218,18 +217,24 @@ def start_job(
     registry: EnvironmentRegistry = Depends(get_environment_registry),
     _meta: JobMeta = Depends(require_job_meta),  # 404 for an unknown job
 ) -> JobResponse:
-    """Start a CREATED job's worker."""
-    env_name = read_job_environment_name(job_id)
-    if env_name is None:
+    """Start a CREATED job's worker on the target its config names."""
+    config = read_optimization_config(job_id)  # 404 when no config is stored
+    env_name = config.environment_name
+    target = config.control_target
+    if env_name is None or target is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Job {job_id} not found or has no config.",
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Job {job_id} cannot start: its config must name an environment_name and a "
+                "control_target (va, standin or live)."
+            ),
         )
-    guard_environment_start(env_name, tracker, registry, override_unhealthy=override_unhealthy)
-    config = read_optimization_config(job_id)
-    run_start_gates(
-        config, load_environment(env_name, registry, config.environment_config), env_name=env_name
-    )
+    guard_environment_start(env_name, target, registry, override_unhealthy=override_unhealthy)
+    env_config = {
+        **(config.environment_config or {}),
+        **machine_config(target, config.execution_mode),
+    }
+    run_start_gates(config, load_environment(env_name, registry, env_config), env_name=env_name)
     return start_optimization_job(job_id, tracker, registry)
 
 

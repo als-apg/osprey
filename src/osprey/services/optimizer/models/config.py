@@ -1,11 +1,24 @@
-"""Configuration models for tuning scripts."""
+"""Configuration models for optimization runs."""
 
-from typing import Any
+from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .enums import AlgorithmType, ConstraintType, SurrogateModelType
 from .types import Direction, require_finite, require_finite_positive, validate_min_le_max
+
+ControlTarget: TypeAlias = Literal["va", "standin", "live"]
+"""Which machine a call reaches: the virtual accelerator, the stand-in, or the real one."""
+
+ExecutionMode: TypeAlias = Literal["readonly"]
+"""``readonly`` takes writes away from a target; it never grants them."""
+
+
+def machine_config(
+    target: ControlTarget, execution_mode: ExecutionMode | None = None
+) -> dict[str, Any]:
+    """The environment-config keys that point an environment at one machine."""
+    return {"control_target": target, "execution_mode": execution_mode}
 
 
 class VariableOverride(BaseModel):
@@ -116,6 +129,17 @@ class OptimizationConfig(BaseModel):
 
     environment_name: str | None = None
     environment_config: dict[str, Any] | None = None
+
+    control_target: ControlTarget | None = Field(
+        default=None,
+        description=(
+            "The machine the run drives: va, standin or live. Required to start a run; "
+            "there is no default, so a run never lands on a machine nobody named."
+        ),
+    )
+    execution_mode: ExecutionMode | None = Field(
+        default=None, description="readonly: the run may read but every write is refused."
+    )
 
     objective_name: str | None = Field(
         default=None,

@@ -144,6 +144,7 @@ def make_gate_config(**overrides: Any) -> OptimizationConfig:
     """A resolved single-variable config that passes the start gates."""
     return OptimizationConfig(
         environment_name="als_injector_sim",
+        control_target="va",
         objective_name="obs1",
         variables=["var1"],
         variable_overrides={"var1": VariableOverride(min=0.0, max=10.0, step_size=0.1)},
@@ -155,14 +156,13 @@ def make_gate_config(**overrides: Any) -> OptimizationConfig:
 def created_job_client(
     job_id: str, config: OptimizationConfig, registry: MagicMock
 ) -> Generator[tuple[TestClient, MagicMock]]:
-    """Seed a real-Redis CREATED optimization job (meta + status + stored config,
-    with the current-environment pointer claimed) and yield ``(client, launch)`` —
+    """Seed a real-Redis CREATED optimization job (meta + status + stored config)
+    and yield ``(client, launch)`` —
     a client wired to that tracker and *registry*, plus the stubbed spawn seam.
     Flushes on exit."""
     tracker = JobTracker()
     redis = tracker._get_redis()
     redis.flushdb()
-    tracker.set_current_environment_if_idle("als_injector_sim")
     tracker.register_created_job(job_id, job_type=JobType.OPTIMIZATION)
     get_optimization_writer(job_id).set_status(JobStatus.CREATED)
     redis.set(config_key(job_id), config.model_dump_json())
@@ -492,9 +492,7 @@ class TestStartJob:
         self, client: TestClient, mock_job_tracker: MagicMock
     ) -> None:
         mock_job_tracker.get_job.return_value = job_meta()
-        mock_job_tracker.get_current_environment.return_value = "als_injector_sim"
         with (
-            patch(f"{_JOBS}.read_job_environment_name", return_value="als_injector_sim"),
             # This test targets only the type-based dispatch; start_gates coverage
             # (machine-check + drift) lives in test_start_gates.py and the 412
             # endpoint test below, so the config/gate seams are stubbed out here.
@@ -512,6 +510,9 @@ class TestStartJob:
             # construction to succeed, not the MagicMock the bare config double
             # would otherwise supply.
             read_cfg.return_value.environment_config = {}
+            read_cfg.return_value.environment_name = "als_injector_sim"
+            read_cfg.return_value.control_target = "va"
+            read_cfg.return_value.execution_mode = None
             resp = client.post("/jobs/test-job-id/start")
         assert resp.status_code == 200
         assert resp.json()["status"] == "running"
@@ -522,10 +523,31 @@ class TestStartJob:
         )
 
     def test_start_missing_job_404(self, client: TestClient, mock_job_tracker: MagicMock) -> None:
-        with patch(f"{_JOBS}.read_job_environment_name", return_value=None):
+        no_config = MagicMock()
+        no_config.get.return_value = None
+        with patch(
+            "osprey.services.optimizer.api.job_control._redis_client.get_redis_client",
+            return_value=no_config,
+        ):
             resp = client.post("/jobs/missing/start")
         assert resp.status_code == 404
-        assert "not found or has no config" in resp.json()["detail"]
+        assert "No stored config" in resp.json()["detail"]
+
+    @pytest.mark.parametrize("missing", ["control_target", "environment_name"])
+    def test_start_without_a_target_or_environment_is_refused(
+        self, client: TestClient, mock_job_tracker: MagicMock, missing: str
+    ) -> None:
+        """A run never lands on a machine nobody named: 409 before any guard runs."""
+        mock_job_tracker.get_job.return_value = job_meta()
+        config = make_gate_config().model_copy(update={missing: None})
+        with (
+            patch(f"{_JOBS}.read_optimization_config", return_value=config),
+            patch(f"{_JOBS}.start_optimization_job") as start,
+        ):
+            resp = client.post("/jobs/test-job-id/start")
+        assert resp.status_code == 409
+        assert "control_target" in resp.json()["detail"]
+        start.assert_not_called()
 
     def test_contended_start_preserves_created_job_then_succeeds(self, redis_server: str) -> None:
         """A1/A2: with the slot occupied, starting a CREATED job 409s and leaves
@@ -533,9 +555,6 @@ class TestStartJob:
         real_tracker = JobTracker()
         redis = real_tracker._get_redis()
         redis.flushdb()
-
-        # Seed the current-environment pointer so guard_environment_start passes.
-        real_tracker.set_current_environment_if_idle("als_injector_sim")
 
         # Occupy the slot with a foreign RUNNING job.
         redis.set(ACTIVE_JOB_KEY, "holder")
@@ -547,6 +566,7 @@ class TestStartJob:
         get_optimization_writer(created).set_status(JobStatus.CREATED)
         config = OptimizationConfig(
             environment_name="als_injector_sim",
+            control_target="va",
             objective_name="charge_gtl",
         )
         redis.set(config_key(created), config.model_dump_json())
@@ -619,7 +639,10 @@ class TestStartJob:
         ):
             test_client.post(f"/jobs/{job_id}/start")
 
-        registry.load_environment.assert_called_once_with("als_injector_sim", env_config)
+        # The job's target rides into the gate environment beside its own config.
+        registry.load_environment.assert_called_once_with(
+            "als_injector_sim", {**env_config, "control_target": "va", "execution_mode": None}
+        )
 
 
 class TestPauseResumeOnJobs:
@@ -1195,7 +1218,9 @@ class TestUpdateJobConfig:
         # covers the GET route wiring + parse, not FastAPI echoing a mock's return.
         # (The pure-function read path is also covered by
         # test_read_config_returns_stored_config in test_api_optimization_lifecycle.)
-        stored = OptimizationConfig(environment_name="sim", objective_name="obj")
+        stored = OptimizationConfig(
+            environment_name="sim", control_target="va", objective_name="obj"
+        )
         seam_redis_mock.get.return_value = stored.model_dump_json()
         with patch("osprey.services.optimizer.api.routers.jobs._require_optimization"):
             resp = client.get("/jobs/j1/config")
@@ -1235,23 +1260,14 @@ class TestCurrentJob:
         mock_job_tracker.set_current_job.assert_not_called()
 
 
-def test_start_rejected_when_job_env_not_current_412(
-    client: TestClient, mock_job_tracker: MagicMock, monkeypatch: pytest.MonkeyPatch
+def _stub_optimization_start(
+    monkeypatch: pytest.MonkeyPatch, mock_job_tracker: MagicMock, *, target: str = "va"
 ) -> None:
-    mock_job_tracker.get_current_environment.return_value = "als_injector_sim"
-    monkeypatch.setattr(
-        "osprey.services.optimizer.api.routers.jobs.read_job_environment_name",
-        lambda job_id: "als_injector",
-    )
-    resp = client.post("/jobs/job-1/start")
-    assert resp.status_code == 412
-
-
-def _stub_optimization_start(monkeypatch: pytest.MonkeyPatch, mock_job_tracker: MagicMock) -> None:
-    """Make an optimization start succeed past the guards under test."""
+    """Make an optimization start on ``target`` succeed past the guards under test."""
     mock_job_tracker.get_job.return_value = job_meta("job-1")
     jobs = "osprey.services.optimizer.api.routers.jobs"
-    monkeypatch.setattr(f"{jobs}.read_optimization_config", lambda job_id: MagicMock())
+    config = make_gate_config().model_copy(update={"control_target": target})
+    monkeypatch.setattr(f"{jobs}.read_optimization_config", lambda job_id: config)
     monkeypatch.setattr(f"{jobs}.load_environment", lambda *a, **k: MagicMock())
     monkeypatch.setattr(f"{jobs}.run_start_gates", lambda *a, **k: None)
     monkeypatch.setattr(
@@ -1262,33 +1278,30 @@ def _stub_optimization_start(monkeypatch: pytest.MonkeyPatch, mock_job_tracker: 
     )
 
 
-def test_start_allows_when_job_env_matches_current(
+def test_start_on_the_simulator_skips_the_health_probe(
     client: TestClient, mock_job_tracker: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    mock_job_tracker.get_current_environment.return_value = "als_injector_sim"
+    def probe(*_args: Any) -> bool:
+        raise AssertionError("the simulator is never health-probed")
+
     monkeypatch.setattr(
-        "osprey.services.optimizer.api.routers.jobs.read_job_environment_name",
-        lambda job_id: "als_injector_sim",
+        "osprey.services.optimizer.api.environment_ops._environment_connected", probe
     )
-    _stub_optimization_start(monkeypatch, mock_job_tracker)
+    _stub_optimization_start(monkeypatch, mock_job_tracker, target="va")
     resp = client.post("/jobs/job-1/start")
-    assert resp.status_code == 200  # sim env, guard passes, the start dispatches
+    assert resp.status_code == 200
 
 
 def test_start_override_unhealthy_query_param_bypasses_503(
     client: TestClient, mock_job_tracker: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``?override_unhealthy=true`` must reach guard_environment_start: an unhealthy
-    non-sim env 503s a plain start, but the query param lets the start proceed."""
-    mock_job_tracker.get_current_environment.return_value = "als_injector"
+    real target 503s a plain start, but the query param lets the start proceed."""
     monkeypatch.setattr(
-        "osprey.services.optimizer.api.routers.jobs.read_job_environment_name",
-        lambda job_id: "als_injector",
+        "osprey.services.optimizer.api.environment_ops._environment_connected",
+        lambda n, r, t: False,
     )
-    monkeypatch.setattr(
-        "osprey.services.optimizer.api.environment_ops._environment_connected", lambda n, r: False
-    )
-    _stub_optimization_start(monkeypatch, mock_job_tracker)
+    _stub_optimization_start(monkeypatch, mock_job_tracker, target="live")
 
     # Without the override the unhealthy non-sim env refuses the start.
     resp = client.post("/jobs/job-1/start")

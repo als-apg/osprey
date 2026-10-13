@@ -27,7 +27,7 @@ def fake_env_disconnected() -> FakeInjectorEnvironment:
 
 
 def test_resolves_all_variables_when_selection_unset(fake_env: FakeInjectorEnvironment) -> None:
-    cfg = OptimizationConfig(environment_name="fake", objective_name="obj")
+    cfg = OptimizationConfig(environment_name="fake", control_target="va", objective_name="obj")
     with fake_env:
         resolve_draft_config(cfg, fake_env)
     assert cfg.variables == list(fake_env.variables.keys())
@@ -47,6 +47,7 @@ def test_window_override_centers_on_current_readback(fake_env: FakeInjectorEnvir
     fake_env.set_variables({_WINDOW_VAR: 5.0})
     cfg = OptimizationConfig(
         environment_name="fake",
+        control_target="va",
         objective_name="obj",
         variables=[_WINDOW_VAR],
         variable_overrides={_WINDOW_VAR: VariableOverride(window_abs=1.0)},
@@ -61,7 +62,9 @@ def test_window_override_centers_on_current_readback(fake_env: FakeInjectorEnvir
 
 
 def test_unknown_variable_raises_value_error(fake_env: FakeInjectorEnvironment) -> None:
-    cfg = OptimizationConfig(environment_name="fake", objective_name="obj", variables=["nope"])
+    cfg = OptimizationConfig(
+        environment_name="fake", control_target="va", objective_name="obj", variables=["nope"]
+    )
     with fake_env, pytest.raises(ValueError, match="nope"):
         resolve_draft_config(cfg, fake_env)
 
@@ -69,6 +72,6 @@ def test_unknown_variable_raises_value_error(fake_env: FakeInjectorEnvironment) 
 def test_unreadable_active_readback_raises_connection_error(
     fake_env_disconnected: FakeInjectorEnvironment,
 ) -> None:
-    cfg = OptimizationConfig(environment_name="fake", objective_name="obj")
+    cfg = OptimizationConfig(environment_name="fake", control_target="va", objective_name="obj")
     with fake_env_disconnected, pytest.raises(ALSConnectionError):
         resolve_draft_config(cfg, fake_env_disconnected)
