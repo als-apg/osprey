@@ -80,7 +80,7 @@ PROBE_SCRIPT = textwrap.dedent(
     f"""
     import json
 
-    from osprey_connectors.control_system.mock_connector import MockConnector
+    from osprey_connectors.control_system._mock_connector import MockConnector
     from osprey_connectors.factory import ConnectorFactory
 
     # See the module docstring: the class is substituted, the type keys are not.

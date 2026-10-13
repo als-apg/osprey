@@ -63,7 +63,7 @@ import pytest
 from osprey.connectors.control_system.base import ChannelValue, WriteOutcome
 from osprey.connectors.control_system.epics_connector import EPICSConnector
 from osprey.connectors.control_system.mock_connector import MockConnector
-from osprey_connectors.ipc import frames
+from osprey_connectors.ipc import _frames as frames
 from tests.connectors._epics_fakes import FakeAioca, FakeChannel, ca_connector, ca_reading
 
 # The one value every scenario writes, and the value a channel that did not

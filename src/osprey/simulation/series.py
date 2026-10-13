@@ -6,7 +6,7 @@ checker reads in place of that substitution.
 
 import sys
 
-from osprey_connectors.simulation import series as _mod
-from osprey_connectors.simulation.series import *  # noqa: F403
+from osprey_connectors.simulation import _series as _mod
+from osprey_connectors.simulation._series import *  # noqa: F403
 
 sys.modules[__name__] = _mod

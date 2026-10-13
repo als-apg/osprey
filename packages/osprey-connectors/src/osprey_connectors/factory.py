@@ -16,13 +16,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from osprey_connectors import types
-from osprey_connectors.control_system.base import ControlSystemConnector
+from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     # Import only for annotations: pulling in the archiver base eagerly would
     # make pandas a hard dependency of the lean control-system import chain.
-    from osprey_connectors.archiver.base import ArchiverConnector
+    from osprey_connectors.archiver._base import ArchiverConnector
 
 logger = get_logger("connector_factory")
 
@@ -443,16 +443,16 @@ def register_builtin_connectors() -> None:
     # to leave it out of _BUILTIN_ARCHIVERS, which broke convergence: a registry
     # holding the other built-ins satisfied the early return above and never
     # healed the missing mongodb_archiver entry.
-    from osprey_connectors.archiver.doocs_archiver_connector import DOOCSArchiverConnector
-    from osprey_connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
-    from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
-    from osprey_connectors.archiver.mongodb_archiver_connector import MongoDBArchiverConnector
-    from osprey_connectors.archiver.mya_archiver_connector import MYAArchiverConnector
-    from osprey_connectors.control_system.doocs_connector import DOOCSConnector
-    from osprey_connectors.control_system.epics_connector import EPICSConnector
-    from osprey_connectors.control_system.mock_connector import MockConnector
-    from osprey_connectors.control_system.tango_connector import TangoConnector
-    from osprey_connectors.control_system.va_connector import VirtualAcceleratorConnector
+    from osprey_connectors.archiver._doocs_archiver_connector import DOOCSArchiverConnector
+    from osprey_connectors.archiver._epics_archiver_connector import EPICSArchiverConnector
+    from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
+    from osprey_connectors.archiver._mongodb_archiver_connector import MongoDBArchiverConnector
+    from osprey_connectors.archiver._mya_archiver_connector import MYAArchiverConnector
+    from osprey_connectors.control_system._doocs_connector import DOOCSConnector
+    from osprey_connectors.control_system._epics_connector import EPICSConnector
+    from osprey_connectors.control_system._mock_connector import MockConnector
+    from osprey_connectors.control_system._tango_connector import TangoConnector
+    from osprey_connectors.control_system._va_connector import VirtualAcceleratorConnector
 
     control_systems: list[tuple[str, type[ControlSystemConnector]]] = [
         (types.MOCK, MockConnector),

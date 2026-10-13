@@ -5,7 +5,7 @@ read-only view of it, and a simulator IOC serving the *same* channel names, say
 — cannot hold them in one address space: a Channel Access client reads its
 environment once, process-wide, and pins the process to one gateway for its
 lifetime. :class:`ConnectorHostPool` gives each target a
-:mod:`connector-host child <osprey_connectors.ipc.host>` of its own and hands
+:mod:`connector-host child <osprey_connectors.ipc._host>` of its own and hands
 the caller a connector-shaped object per target, so a caller can drive any
 number of targets from one process without knowing any of that.
 
@@ -58,8 +58,8 @@ target switch runs:
 
 The child's post-connect report is then verified against what this process
 derives the child should have done
-(:func:`~osprey_connectors.ipc.verification.derive_endpoints` and
-:func:`~osprey_connectors.ipc.verification.verify_host_report`, the same
+(:func:`~osprey_connectors.ipc._verification.derive_endpoints` and
+:func:`~osprey_connectors.ipc._verification.verify_host_report`, the same
 check the controls MCP server's target switch runs), and the report must name
 the target and connector type this process resolved. A child that fails any of
 it is stopped before the caller sees anything.
@@ -126,7 +126,7 @@ An error the
 *connector* raised in a healthy child — a :class:`ConnectionError` for a channel
 that cannot be reached, say — is passed through unchanged and leaves the child
 in place. The two are told apart by origin
-(:func:`~osprey_connectors.ipc.proxy.raised_by_child`), never by timing.
+(:func:`~osprey_connectors.ipc._proxy.raised_by_child`), never by timing.
 
 Event-loop affinity
 -------------------
@@ -167,24 +167,24 @@ from typing import Any
 
 from osprey_connectors import posture_store
 from osprey_connectors.config import resolve_env_vars
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     is_readonly_run,
 )
-from osprey_connectors.ipc.launch import (
+from osprey_connectors.ipc._launch import (
     DEFAULT_TERMINATE_GRACE_S,
     AttributedReader,
     host_env,
     spawn_host,
     terminate_host,
 )
-from osprey_connectors.ipc.proxy import (
+from osprey_connectors.ipc._proxy import (
     ChildUnresponsiveError,
     ConnectorHostProxy,
     raised_by_child,
 )
-from osprey_connectors.ipc.verification import (
+from osprey_connectors.ipc._verification import (
     TargetDerivation,
     connector_block,
     derive_endpoints,
@@ -951,7 +951,7 @@ class PooledConnector:
 
     Bound to a pool key, not to a process: every call goes to the key's current
     child, starting a fresh one if the last one was lost. The call surface
-    mirrors :class:`~osprey_connectors.control_system.base.ControlSystemConnector`
+    mirrors :class:`~osprey_connectors.control_system._base.ControlSystemConnector`
     for the methods it offers; writes are guarded and limit-checked in the child,
     exactly as they would be in-process.
     """

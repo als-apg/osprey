@@ -40,8 +40,8 @@ from osprey.mcp_server.control_system.connector_host_manager import (
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import posture_store
-from osprey_connectors.control_system.base import ChannelValue
-from osprey_connectors.ipc.verification import derive_endpoints
+from osprey_connectors.control_system._base import ChannelValue
+from osprey_connectors.ipc._verification import derive_endpoints
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
 
 # The live-child half runs on the switch harness's fixture connector: a mock

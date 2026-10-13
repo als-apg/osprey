@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Any
 
 from osprey_connectors.config import get_facility_timezone
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
@@ -22,8 +22,8 @@ from osprey_connectors.control_system.base import (
     WriteOutcome,
     values_match,
 )
-from osprey_connectors.control_system.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
-from osprey_connectors.control_system.limits_validator import LimitsValidator
+from osprey_connectors.control_system._call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
+from osprey_connectors.control_system._limits_validator import LimitsValidator
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import DOOCS
 
@@ -201,7 +201,7 @@ class DOOCSConnector(ControlSystemConnector):
         DOOCS has no acknowledgement of its own — ``set()`` either returns or
         raises — so a confirmed write is the value sent followed by one fresh
         read of the same property, compared with
-        :func:`~osprey_connectors.control_system.base.values_match`. DOOCS
+        :func:`~osprey_connectors.control_system._base.values_match`. DOOCS
         reports no enum labels and no alarm state, so the comparison gets no
         label and the alarm fields stay unset.
 

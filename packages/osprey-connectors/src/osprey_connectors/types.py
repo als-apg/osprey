@@ -1105,7 +1105,7 @@ def any_armed_target_checks_limits(section: Any) -> bool:
 
     ``enabled`` alone decides the limits half, because that is the leaf that
     decides whether a validator exists at all —
-    :meth:`~osprey_connectors.control_system.limits_validator.LimitsValidator._from_posture`
+    :meth:`~osprey_connectors.control_system._limits_validator.LimitsValidator._from_posture`
     builds none for anything else, and a target with no validator consults no
     database. ``allow_unlisted_channels`` governs what a built validator does
     with a channel the database omits, which is a different question.

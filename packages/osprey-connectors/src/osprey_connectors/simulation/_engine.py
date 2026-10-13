@@ -34,8 +34,8 @@ import numpy as np
 
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
-from osprey_connectors.simulation.expressions import ExpressionError, evaluate_channel
-from osprey_connectors.simulation.machine import (
+from osprey_connectors.simulation._expressions import ExpressionError, evaluate_channel
+from osprey_connectors.simulation._machine import (
     DEFAULT_SCENARIO,
     DriverCoupling,
     NoiseOverride,
@@ -46,7 +46,7 @@ from osprey_connectors.simulation.machine import (
     parse_machine,
     read_machine_json,
 )
-from osprey_connectors.simulation.series import (
+from osprey_connectors.simulation._series import (
     apply_events,
     channel_key_bytes,
     clamp,
@@ -150,7 +150,7 @@ def _texture_offset(
     validates the vocabulary and ``"wander"`` is the only kind defined today.
 
     Args:
-        channel_key: Channel key from :func:`osprey_connectors.simulation.series.channel_key_bytes`.
+        channel_key: Channel key from :func:`osprey_connectors.simulation._series.channel_key_bytes`.
         texture: The channel's declared texture parameters.
         t_abs_s: Absolute epoch seconds — array (synthesis) or scalar (live).
 
@@ -170,7 +170,7 @@ def _coupling_offset(
 
     Each term is ``gain * (1 + gain_wander(t)) * driver(t)``. The driver is a
     :func:`wander` stack keyed by the driver's name alone
-    (:func:`~osprey_connectors.simulation.series.driver_key_bytes`), so every
+    (:func:`~osprey_connectors.simulation._series.driver_key_bytes`), so every
     channel coupled to it sees the identical driver value at a given ``t`` —
     that shared term is the correlation. The optional gain envelope is keyed by
     channel *and* driver, so each coupling's strength drifts independently,
@@ -229,7 +229,7 @@ def _apply_signal_model(
     series, so folding it in earlier would leave every stepped plateau dead
     flat. It needs absolute time (that is what makes overlapping windows agree),
     so non-epoch timestamps skip it — same precedent as anchored events in
-    :func:`osprey_connectors.simulation.series.apply_events`.
+    :func:`osprey_connectors.simulation._series.apply_events`.
 
     Both noise terms are keyed draws addressed by (channel, epoch millisecond),
     never by an RNG stream position, so any two windows agree pointwise on

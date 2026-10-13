@@ -1403,7 +1403,7 @@ def effective_writes(
     # Imported here, not at module scope: ``control_system.base`` is the
     # reference monitor that calls back into this module, and the two must not
     # import each other at load time.
-    from osprey_connectors.control_system.base import is_readonly_run
+    from osprey_connectors.control_system._base import is_readonly_run
 
     if is_readonly_run():
         return False

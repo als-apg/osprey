@@ -83,7 +83,7 @@ target the deployment has moved off.
 Why the launch handshake bypasses the proxy
 -------------------------------------------
 ``init`` and ``spawn_probe`` are *supervisor* methods, not connector methods,
-and :class:`~osprey_connectors.ipc.proxy.ConnectorHostProxy` deliberately
+and :class:`~osprey_connectors.ipc._proxy.ConnectorHostProxy` deliberately
 exposes only the connector surface. The handshake is spoken here on the child's
 raw pipes with the public frame codec, and the proxy is constructed only once
 the child has proven itself — so a child that fails to launch never becomes a
@@ -94,7 +94,7 @@ Attributing a killed child's outstanding requests
 When the drain deadline expires, the requests still in flight on child A have
 to fail, and they have to say *why*. The proxy fails them with whatever ended
 its read stream, so this module hands it a reader wrapper
-(:class:`~osprey_connectors.ipc.launch.AttributedReader`) that can be told the retirement reason before the
+(:class:`~osprey_connectors.ipc._launch.AttributedReader`) that can be told the retirement reason before the
 kill; the resulting :class:`ConnectionError` then names the switch rather than
 an anonymous end-of-pipe.
 """
@@ -124,12 +124,12 @@ from osprey.mcp_server.control_system.target_eligibility import (
     endpoint_is_live_standin,
 )
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
-from osprey_connectors.control_system.base import is_readonly_run
-from osprey_connectors.ipc import frames
-from osprey_connectors.ipc.launch import CHILD_MODULE, AttributedReader, host_env, spawn_host
-from osprey_connectors.ipc.launch import terminate_host as _terminate_host
-from osprey_connectors.ipc.proxy import ConnectorHostProxy
-from osprey_connectors.ipc.verification import (
+from osprey_connectors.control_system._base import is_readonly_run
+from osprey_connectors.ipc import _frames as frames
+from osprey_connectors.ipc._launch import CHILD_MODULE, AttributedReader, host_env, spawn_host
+from osprey_connectors.ipc._launch import terminate_host as _terminate_host
+from osprey_connectors.ipc._proxy import ConnectorHostProxy
+from osprey_connectors.ipc._verification import (
     ROLE_READ_ONLY,
     ROLE_WRITE_ACCESS,
     Endpoint,

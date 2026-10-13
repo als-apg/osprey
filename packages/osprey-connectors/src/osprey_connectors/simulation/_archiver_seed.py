@@ -8,7 +8,7 @@ a two-tier grid reaching back the configured retention, in the schema
 
 The values are not this module's invention. Every channel is synthesized by the
 same code that answers a live archiver query — ``SimulationEngine`` for the
-channels a machine model describes, :mod:`osprey_connectors.simulation.procedural` for the
+channels a machine model describes, :mod:`osprey_connectors.simulation._procedural` for the
 rest — evaluated at each document's own absolute timestamp. That is the whole
 reason those generators are pure functions of ``(channel, epoch seconds)``: a
 document written here at time T holds exactly what a query for T would compute,
@@ -57,13 +57,13 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from osprey_connectors.logger import get_logger
-from osprey_connectors.simulation.engine import SimulationEngine, engine_serves
-from osprey_connectors.simulation.procedural import (
+from osprey_connectors.simulation._engine import SimulationEngine, engine_serves
+from osprey_connectors.simulation._procedural import (
     DEFAULT_NOISE_LEVEL,
     baseline_value,
     generate_series,
 )
-from osprey_connectors.simulation.series import epoch_seconds_array
+from osprey_connectors.simulation._series import epoch_seconds_array
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pymongo.collection import Collection
@@ -409,7 +409,7 @@ def synthesize_documents(
         engine: The machine model's engine, or ``None`` when the project has
             none and every channel is procedural.
         boot_values: ``{address: value}`` from the machine model, threaded into
-            :func:`~osprey_connectors.simulation.procedural.baseline_value` so procedural
+            :func:`~osprey_connectors.simulation._procedural.baseline_value` so procedural
             channels anchor where the VA boots them.
         noise_level: Relative noise for the procedural channels.
         value_transform: Called once per channel with ``(address, values)``

@@ -11,7 +11,7 @@ one place nobody could read it.
 This is the same gate, run where the file is cheap to fix. It IS the bridge's
 read, not a mirror of it: the same posture readers, and the one resolver and
 loader every reader of the key shares
-(:meth:`~osprey_connectors.control_system.limits_validator.LimitsValidator.load_configured_database`),
+(:meth:`~osprey_connectors.control_system._limits_validator.LimitsValidator.load_configured_database`),
 anchored on the render's own ``config.yml`` — so a file the build accepts is
 a file the bridge starts on, and a file the bridge refuses is refused here
 first. A missing file is the bridge's refusal too, and stays one here: the
@@ -83,7 +83,7 @@ def limits_database_errors(render_dir: Path) -> list[str]:
         return []
     target, writes_key, limits_key = armed
 
-    from osprey_connectors.control_system.limits_validator import (
+    from osprey_connectors.control_system._limits_validator import (
         LimitsValidator,
         mapping_config_lookup,
     )

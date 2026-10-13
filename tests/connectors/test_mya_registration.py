@@ -35,7 +35,7 @@ class TestBuiltinRegistration:
 
     def test_mya_archiver_registers_as_builtin_archiver(self):
         """`archiver.type: mya_archiver` must resolve without a dotted path."""
-        from osprey_connectors.archiver.mya_archiver_connector import MYAArchiverConnector
+        from osprey_connectors.archiver._mya_archiver_connector import MYAArchiverConnector
 
         with isolated_connector_registries(clear=True):
             register_builtin_connectors()
@@ -59,7 +59,7 @@ class TestBuiltinRegistration:
 
         import osprey_connectors.archiver as archiver_pkg
 
-        canonical = "osprey_connectors.archiver.mya_archiver_connector"
+        canonical = "osprey_connectors.archiver._mya_archiver_connector"
         shim = "osprey.connectors.archiver.mya_archiver_connector"
         cached = sys.modules.get(canonical)
         # The re-import rebinds the package attribute; put it back afterwards.
@@ -100,7 +100,7 @@ class TestCompatibilityShim:
 
     def test_shim_reexports_the_connector(self):
         from osprey.connectors.archiver.mya_archiver_connector import MYAArchiverConnector
-        from osprey_connectors.archiver.mya_archiver_connector import (
+        from osprey_connectors.archiver._mya_archiver_connector import (
             MYAArchiverConnector as Canonical,
         )
 

@@ -5,7 +5,7 @@ Defines the typed model a ``machine.json`` parses into — :class:`SimChannel`
 :class:`Scenario` (override set plus archiver event scripts) — and the
 validation that turns the decoded JSON into that model. All schema errors
 (bad types, unknown references, reference cycles, malformed events) are raised
-here at load time, so the runtime :class:`~osprey_connectors.simulation.engine.SimulationEngine`
+here at load time, so the runtime :class:`~osprey_connectors.simulation._engine.SimulationEngine`
 can assume a well-formed model.
 
 :func:`read_machine_json` decodes the file, and :func:`parse_machine` is the
@@ -23,7 +23,7 @@ from typing import Any
 
 from osprey_connectors.logger import get_logger
 from osprey_connectors.relative_time import RelativeTimestamp
-from osprey_connectors.simulation.expressions import (
+from osprey_connectors.simulation._expressions import (
     ExpressionError,
     compile_expression,
     extract_channel_refs,

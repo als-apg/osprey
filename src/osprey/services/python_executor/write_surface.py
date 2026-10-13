@@ -147,7 +147,7 @@ _CLIENT_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("pvaccess.PvaMirrorServer", ("update", "updateUnchecked")),
     ("pvaccess.CaIoc", ("putField", "dbpf", "iocInit", "start")),
     # --- DOOCS (doocs4py). The client the shipped DOOCS connector writes
-    # through (``osprey_connectors.control_system.doocs_connector``), so a
+    # through (``osprey_connectors.control_system._doocs_connector``), so a
     # readonly script on a DOOCS deployment can reach the machine with the one
     # library that deployment is guaranteed to have.
     ("doocs4py", ("set",)),

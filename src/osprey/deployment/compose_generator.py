@@ -72,7 +72,7 @@ from osprey.utils.logger import get_logger
 # validator that enforces it: the bind source on the host, the mount target in
 # the container and every refusal that names the key back to the operator all
 # read it from there.
-from osprey_connectors.control_system.limits_validator import LIMITS_DATABASE_CONFIG_KEY
+from osprey_connectors.control_system._limits_validator import LIMITS_DATABASE_CONFIG_KEY
 
 logger = get_logger("deployment.compose")
 

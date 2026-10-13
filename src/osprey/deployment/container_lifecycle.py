@@ -5189,7 +5189,7 @@ def _standin_seed_transform(config: dict, project_dir: Path, addresses: Sequence
         addresses in it, so the recorded fingerprint describes what the store
         actually holds rather than what the spec asked for.
     :returns: ``(value_transform, transform_fingerprint)`` for
-        :func:`~osprey_connectors.simulation.archiver_seed.seed_base`, both
+        :func:`~osprey_connectors.simulation._archiver_seed.seed_base`, both
         ``None`` when the archive is not the stand-in's or the stand-in perturbs
         none of the seeded channels — in which case the seed and its fingerprint
         are byte-identical to a deployment without one.
@@ -5307,7 +5307,7 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     )
     from osprey.simulation.engine import SimulationEngine, resolve_state_dir
     from osprey.simulation.machine import read_machine_json
-    from osprey_connectors.simulation.engine import resolve_simulation_file
+    from osprey_connectors.simulation._engine import resolve_simulation_file
 
     env = parse_dotenv_file(project_dir / ".env") if (project_dir / ".env").is_file() else {}
     named = (env.get("VA_CHANNELS_FILE") or os.environ.get("VA_CHANNELS_FILE") or "").strip()

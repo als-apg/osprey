@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 from osprey_connectors.channel_taxonomy import classify_channel
 from osprey_connectors.config import get_facility_timezone
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
@@ -80,7 +80,7 @@ class MockConnector(ControlSystemConnector):
         self._noise_level = config.get("noise_level", 0.01)
 
         # Initialize limits validator for automatic validation and confirm policy
-        from osprey_connectors.control_system.limits_validator import LimitsValidator
+        from osprey_connectors.control_system._limits_validator import LimitsValidator
 
         self._limits_validator = LimitsValidator.from_config(connector_type=self._connector_type)
         if self._limits_validator:

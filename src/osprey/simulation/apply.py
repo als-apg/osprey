@@ -38,7 +38,7 @@ from osprey.simulation.machine import load_narratives, parse_machine, read_machi
 from osprey.utils.config import get_facility_timezone, load_config
 from osprey.utils.logger import get_logger
 from osprey.utils.relative_time import resolve_relative_timestamp
-from osprey_connectors.simulation.engine import resolve_simulation_file
+from osprey_connectors.simulation._engine import resolve_simulation_file
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Iterator, Mapping, Sequence

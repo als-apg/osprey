@@ -13,7 +13,7 @@ There are two sources, in priority order:
    truth.  A channel is writable when the defaults-merged entry in
    ``channel_limits.json`` says so, which is the same rule the runtime write
    path applies (see
-   :meth:`osprey_connectors.control_system.limits_validator.LimitsValidator._load_limits_database`).
+   :meth:`osprey_connectors.control_system._limits_validator.LimitsValidator._load_limits_database`).
    This is authoritative: the demo machine marks the twelve gate valves'
    ``CONTROL:OPEN`` / ``CONTROL:CLOSE`` channels ``writable: false`` even though
    they read like commands, and the graph must agree with the control system
@@ -47,7 +47,7 @@ from typing import Any
 # ``osprey_connectors.config``; importing from the real module keeps the two
 # connector-side helpers below spelled from one place.
 from osprey_connectors.config import default_config_path, get_config_value
-from osprey_connectors.control_system.limits_validator import (
+from osprey_connectors.control_system._limits_validator import (
     LIMITS_DATABASE_CONFIG_KEY,
     LimitsValidator,
 )
@@ -242,7 +242,7 @@ def assign_directions(
         DirectionConflictError: If a signal group's members do not share one
             limits-derived direction.
         ValueError: If the limits file is unreadable (see
-            :meth:`~osprey_connectors.control_system.limits_validator.LimitsValidator.writable_addresses`).
+            :meth:`~osprey_connectors.control_system._limits_validator.LimitsValidator.writable_addresses`).
     """
     if limits_path is None:
         directions: dict[tuple[str, str, str], str] = {

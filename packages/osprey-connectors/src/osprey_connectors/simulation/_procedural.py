@@ -1,6 +1,6 @@
 """Absolute-time procedural synthesis for channels the machine model omits.
 
-The data-driven :class:`~osprey_connectors.simulation.engine.SimulationEngine` serves only
+The data-driven :class:`~osprey_connectors.simulation._engine.SimulationEngine` serves only
 the channels a project's ``machine.json`` declares. Everything else in the
 served namespace — 1,872 of the control-assistant preset's 2,908 channels — has
 no model, and the Virtual Accelerator falls back to the shared channel taxonomy for
@@ -40,7 +40,7 @@ Three properties are contracts, not preferences:
   the bare baseline, exactly as the VA serves it.
 
 Callers must convert timestamps with
-:func:`osprey_connectors.simulation.series.epoch_seconds_array`, the same helper
+:func:`osprey_connectors.simulation._series.epoch_seconds_array`, the same helper
 :meth:`SimulationEngine.synthesize_series` uses. Deriving epoch seconds some
 other way (integer-nanosecond division, say) agrees only to within a float ULP,
 and the texture terms are continuous functions of that input — so a second
@@ -56,7 +56,7 @@ from types import MappingProxyType
 import numpy as np
 
 from osprey_connectors.channel_taxonomy import classify_channel
-from osprey_connectors.simulation.series import channel_key_bytes, keyed_normals, wander
+from osprey_connectors.simulation._series import channel_key_bytes, keyed_normals, wander
 
 __all__ = [
     "DEFAULT_NOISE_LEVEL",
@@ -122,7 +122,7 @@ class KindShape:
     """One PV kind's texture, in multiples of that channel's noise sigma.
 
     The two terms play different roles and are both needed. ``drift`` is a
-    :func:`~osprey_connectors.simulation.series.wander` stack — quasi-random, band-limited,
+    :func:`~osprey_connectors.simulation._series.wander` stack — quasi-random, band-limited,
     individualized per channel by its key — which is what stops a whole family
     of channels from moving in lockstep. ``cycle`` is a single deterministic
     period carrying the kind's *recognizable* signature: the sawtooth of beam
@@ -306,7 +306,7 @@ def generate_series(
     Args:
         channel: Channel name; keys every stochastic term and picks the kind.
         t_abs_s: Absolute epoch seconds — any shape, or a scalar. Pass values
-            produced by :func:`osprey_connectors.simulation.series.epoch_seconds_array`
+            produced by :func:`osprey_connectors.simulation._series.epoch_seconds_array`
             (see the module docstring on why the conversion route is pinned).
         noise_level: Relative noise fraction, floored per kind by
             :meth:`~osprey_connectors.channel_taxonomy.ChannelKind.noise_sigma` so a
@@ -360,7 +360,7 @@ def deviation_bound(
     retuning a kind cannot silently invalidate the assertion.
 
     The bound is structural, not statistical, for the shape terms —
-    :func:`~osprey_connectors.simulation.series.wander`'s weights are positive and sum to
+    :func:`~osprey_connectors.simulation._series.wander`'s weights are positive and sum to
     one, and the cycle term is a bounded sinusoid or sawtooth — and covers
     ``noise_sigmas`` of the unbounded Gaussian term on top.
 

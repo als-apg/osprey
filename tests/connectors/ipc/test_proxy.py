@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
@@ -37,8 +37,8 @@ from osprey_connectors.errors import (
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
 )
-from osprey_connectors.ipc import frames
-from osprey_connectors.ipc.proxy import (
+from osprey_connectors.ipc import _frames as frames
+from osprey_connectors.ipc._proxy import (
     CHILD,
     ChildUnresponsiveError,
     ConnectorHostProxy,
@@ -861,7 +861,7 @@ def test_the_import_closure_never_reaches_a_control_system_client():
         [str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src")]
     )
     probe = (
-        "import osprey_connectors.ipc.pool, os, sys; "
+        "import osprey_connectors.ipc._pool, os, sys; "
         "loaded = [m for m in ('epics', 'pyepics', 'p4p') if m in sys.modules]; "
         "env = [k for k in os.environ if k.startswith(('EPICS_', 'PYEPICS_'))]; "
         "print(loaded, env); "

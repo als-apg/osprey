@@ -20,7 +20,7 @@ can say *why* rather than merely *no*.
 
 **VERIFICATION** is answered after the connector-host child has connected, by
 comparing what the child says it did against what
-:func:`~osprey_connectors.ipc.verification.derive_endpoints` derived it should
+:func:`~osprey_connectors.ipc._verification.derive_endpoints` derived it should
 do. It is positive and role-aware: not "nothing looked wrong" but "the child
 configured exactly this host, this port, this mode, for exactly the role the
 derivation selected". A mismatch names the field, the expected value and the
@@ -33,12 +33,12 @@ somewhere the config never described — the failure mode where every layer
 reports success and the tool calls land on the wrong machine.
 
 Both are computed from the same inputs the connector itself uses. The
-derivation and the verification live in :mod:`osprey_connectors.ipc.verification`,
+derivation and the verification live in :mod:`osprey_connectors.ipc._verification`,
 shared with the library's
-:class:`~osprey_connectors.ipc.pool.ConnectorHostPool`: it restates
+:class:`~osprey_connectors.ipc._pool.ConnectorHostPool`: it restates
 ``EPICSConnector.connect()``'s gateway selection and environment derivation
 *positively* — the role it would pick given the target's own write posture and
-:func:`~osprey_connectors.control_system.base.is_readonly_run`, and the
+:func:`~osprey_connectors.control_system._base.is_readonly_run`, and the
 CA/PVA mode each gateway would produce — rather than re-deciding it, so this
 module and the process it describes cannot disagree about where a target lands,
 which port it lands on, or whether it may be written to once there.
@@ -93,7 +93,7 @@ the deployment's control-context record (read through
 child reads it on every write and on its own gateway selection, so a parent
 that derived the *configured* posture would derive ``write_access`` for a
 target the child has just connected to on ``read_only`` — and
-:func:`~osprey_connectors.ipc.verification.verify_child_report`, doing its
+:func:`~osprey_connectors.ipc._verification.verify_child_report`, doing its
 job, would abort the switch on a
 disagreement that is nobody's misconfiguration.
 
@@ -115,9 +115,9 @@ from typing import Any
 
 from osprey.audit.posture import posture_session
 from osprey_connectors import posture_store
-from osprey_connectors.control_system.base import is_readonly_run
+from osprey_connectors.control_system._base import is_readonly_run
 from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_for_target
-from osprey_connectors.ipc.verification import (
+from osprey_connectors.ipc._verification import (
     Endpoint,
     TargetDerivation,
     _config_writes_enabled,

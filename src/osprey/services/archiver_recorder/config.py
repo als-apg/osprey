@@ -54,7 +54,7 @@ from osprey.mcp_server.control_system.target_eligibility import endpoint_is_live
 # service does not already pay — it pulls in `osprey_connectors` and the standard
 # library and nothing else, no Channel Access stack, no PVA, no Mongo driver.
 from osprey_connectors.connection import read_connection_settings
-from osprey_connectors.ipc.verification import derive_endpoints
+from osprey_connectors.ipc._verification import derive_endpoints
 
 # Whose past the store holds, decided in one place for the recorder's compose
 # entry, this enablement gate and the deploy-time archive seed alike. A guard
@@ -372,7 +372,7 @@ def _recorded_target_is_standin(config: dict[str, Any]) -> bool:
     reads the ``standin`` target — its own ``control_system.connector.live_standin``
     block — never the facility's authored ``epics`` block, which always means
     the real machine. The endpoint is derived by
-    :func:`~osprey_connectors.ipc.verification.derive_endpoints`
+    :func:`~osprey_connectors.ipc._verification.derive_endpoints`
     and judged by
     :func:`~osprey.mcp_server.control_system.target_eligibility.endpoint_is_live_standin`,
     the same step the roster's label is minted through, so a recorder cannot

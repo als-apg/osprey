@@ -21,8 +21,8 @@ import threading
 from typing import Any
 from unittest.mock import patch
 
-from osprey_connectors.control_system.ca_loop import get_ca_loop
-from osprey_connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system._ca_loop import get_ca_loop
+from osprey_connectors.control_system._epics_connector import EPICSConnector
 
 RESULT_MARKER = "__RESULT__"
 ATEXIT_MARKER = "__ATEXIT__"

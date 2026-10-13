@@ -2,7 +2,7 @@
 
 import pytest
 
-from osprey_connectors.control_system.call_timeout import (
+from osprey_connectors.control_system._call_timeout import (
     DEFAULT_TIMEOUT_S,
     call_timeout_s,
     refuse_renamed_timeout_keys,

@@ -1,11 +1,11 @@
 """Starting, stopping and listening to connector-host children.
 
-Every supervisor of :mod:`osprey_connectors.ipc.host` children needs the same
+Every supervisor of :mod:`osprey_connectors.ipc._host` children needs the same
 four things — how the child is launched, what environment it is handed, how it
 is put down, and how the requests still in flight on a child that was put down
 learn why — and this module is where they are spelled once. The controls MCP
 server's single-child manager and the library's multi-target
-:class:`~osprey_connectors.ipc.pool.ConnectorHostPool` both use them.
+:class:`~osprey_connectors.ipc._pool.ConnectorHostPool` both use them.
 
 Nothing here imports a control-system client library, and nothing here sets an
 ``EPICS_*`` variable: a supervisor is by definition a process that talks to the
@@ -23,7 +23,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
-from osprey_connectors.ipc.host import EPICS_ENV_PREFIXES
+from osprey_connectors.ipc._host import EPICS_ENV_PREFIXES
 
 __all__ = [
     "CHILD_MODULE",
@@ -37,7 +37,7 @@ __all__ = [
 #: The child is always this module, run with ``-m``. No arguments: everything
 #: the child needs arrives on the wire, so nothing about a deployment shows up
 #: in ``ps``.
-CHILD_MODULE = "osprey_connectors.ipc.host"
+CHILD_MODULE = "osprey_connectors.ipc._host"
 
 #: How long a child gets between ``SIGTERM`` and ``SIGKILL``.
 DEFAULT_TERMINATE_GRACE_S = 2.0

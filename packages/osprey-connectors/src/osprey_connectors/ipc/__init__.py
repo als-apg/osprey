@@ -1,13 +1,13 @@
 """Inter-process plumbing for the connector-host child.
 
 The child process owns the control-system client library; the parent talks to
-it over a pipe pair. :mod:`osprey_connectors.ipc.frames` holds the wire format
+it over a pipe pair. :mod:`osprey_connectors.ipc._frames` holds the wire format
 both sides speak — a pure codec, with no process management in it —
-and :mod:`osprey_connectors.ipc.exceptions` holds the typed-exception registry
+and :mod:`osprey_connectors.ipc._exceptions` holds the typed-exception registry
 that codec uses, so a failure crosses the boundary with its fields intact.
 """
 
-from osprey_connectors.ipc.exceptions import (
+from osprey_connectors.ipc._exceptions import (
     CHANNEL_LIMITS_VIOLATION_FIELDS,
     CHANNEL_WRITE_BLOCKED_FIELDS,
     EXCEPTION_SPECS,
@@ -17,7 +17,7 @@ from osprey_connectors.ipc.exceptions import (
     exception_fields,
     reconstruct_exception,
 )
-from osprey_connectors.ipc.frames import (
+from osprey_connectors.ipc._frames import (
     ErrorFrame,
     FrameDecodeError,
     FrameEncodeError,

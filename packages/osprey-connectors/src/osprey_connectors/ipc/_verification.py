@@ -1,9 +1,9 @@
 """What a connector-host child should connect to, and whether it did.
 
-Two pure questions every supervisor of :mod:`osprey_connectors.ipc.host`
+Two pure questions every supervisor of :mod:`osprey_connectors.ipc._host`
 children asks, answered once for all of them — the controls MCP server's target
 switch and the library's multi-target
-:class:`~osprey_connectors.ipc.pool.ConnectorHostPool` alike:
+:class:`~osprey_connectors.ipc._pool.ConnectorHostPool` alike:
 
 **Derivation** (:func:`derive_endpoints`) restates
 ``EPICSConnector.connect()``'s gateway selection *positively*, from config
@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from osprey_connectors.config import config_flag
-from osprey_connectors.control_system.base import is_readonly_run
+from osprey_connectors.control_system._base import is_readonly_run
 from osprey_connectors.types import (
     MOCK,
     STANDIN_TYPES,
@@ -242,7 +242,7 @@ def derive_endpoints(
             so a caller (or a test) can derive the endpoints of a posture other
             than the configured one.
         readonly_run: Whether this is a readonly executor run. Defaults to
-            :func:`~osprey_connectors.control_system.base.is_readonly_run`.
+            :func:`~osprey_connectors.control_system._base.is_readonly_run`.
         config_path: The project config an unset virtual-accelerator gateway
             port is filled from — the file the child reads, so the port derived
             here is the port it connects to. ``None`` reads ``CONFIG_FILE``,
@@ -280,7 +280,7 @@ def derive_endpoints(
         # Imported here: the connector module is only needed for this one
         # type, and the derivation should not load a connector to answer for
         # every other one.
-        from osprey_connectors.control_system.va_connector import fill_gateway_ports
+        from osprey_connectors.control_system._va_connector import fill_gateway_ports
 
         block = fill_gateway_ports(block, config_path)
 

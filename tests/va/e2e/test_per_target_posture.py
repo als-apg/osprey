@@ -124,7 +124,7 @@ from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.mcp_server.python_executor.tools import _execution_gates as execution_gates
 from osprey.mcp_server.python_executor.tools import python_execute as python_execute_module
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system.base import ChannelValue
+from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA
 from tests.fixtures.control_context import context_for, publish_reachability
 from tests.mcp_server.conftest import get_tool_fn

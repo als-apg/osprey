@@ -13,7 +13,7 @@ carries one. It is derived, in priority order:
 
 1. **The channel limits file**, when one is configured and readable -- the
    deployment's enforced writability ground truth, read through
-   :class:`~osprey_connectors.control_system.limits_validator.LimitsValidator`
+   :class:`~osprey_connectors.control_system._limits_validator.LimitsValidator`
    so that "writable" means here exactly what it means to the runtime write
    path that refuses the write, defaults block included. This is the same
    priority order, and the same authority, that the knowledge graph's
@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.utils.logger import get_logger
-from osprey_connectors.control_system.limits_validator import (
+from osprey_connectors.control_system._limits_validator import (
     LIMITS_DATABASE_CONFIG_KEY,
     LimitsValidator,
     mapping_config_lookup,
@@ -66,7 +66,7 @@ def resolve_limits_path(config: Mapping[str, Any]) -> Path | None:
 
     A relative ``database_path`` is authored beside the config it appears in --
     the rule
-    :meth:`~osprey_connectors.control_system.limits_validator.LimitsValidator.resolve_database_path`
+    :meth:`~osprey_connectors.control_system._limits_validator.LimitsValidator.resolve_database_path`
     applies at runtime and
     :func:`~osprey.deployment.compose_generator.resolve_limits_mount` applies at
     render -- so it is anchored on the recorded ``config_dir`` when the build
@@ -95,7 +95,7 @@ def _load_writable_addresses(limits_path: Path) -> frozenset[str] | None:
     """Read the addresses a limits file declares writable, defaults-merged.
 
     Delegates to
-    :meth:`~osprey_connectors.control_system.limits_validator.LimitsValidator.writable_addresses`
+    :meth:`~osprey_connectors.control_system._limits_validator.LimitsValidator.writable_addresses`
     rather than re-reading the JSON, so the ``defaults`` block, the metadata
     keys and the per-entry validation are applied by the same code the write
     path applies them with.

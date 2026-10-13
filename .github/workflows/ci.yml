@@ -842,8 +842,8 @@ jobs:
         uv pip install --python /tmp/lean-check/bin/python dist/osprey_connectors-*.whl
         /tmp/lean-check/bin/python -c "
         import importlib, pkgutil, sys
-        import osprey_connectors.control_system.epics_connector
-        import osprey_connectors.control_system.limits_validator
+        import osprey_connectors.control_system._epics_connector
+        import osprey_connectors.control_system._limits_validator
         import osprey_connectors.errors, osprey_connectors.config, osprey_connectors.logger
         import osprey_connectors.simulation
         bad = sorted({m.split('.')[0] for m in sys.modules} & {'litellm','openai','anthropic','fastapi','playwright','osprey'})

@@ -21,7 +21,7 @@ import numpy as np
 
 from osprey_connectors.logger import get_logger
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
-from osprey_connectors.simulation.expressions import ExpressionError
+from osprey_connectors.simulation._expressions import ExpressionError
 
 logger = get_logger("simulation_series")
 

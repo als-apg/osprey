@@ -137,7 +137,7 @@ def _dial_port_va(persona_dir: Path, persona_cfg: dict, monkeypatch) -> int:
     persona's own rendered connector block and the persona's own rendered
     ``config.yml`` as the ambient config (``CONFIG_FILE``).
     """
-    from osprey_connectors.control_system.va_connector import fill_gateway_ports
+    from osprey_connectors.control_system._va_connector import fill_gateway_ports
     from osprey_connectors.workspace import reset_config_cache
 
     monkeypatch.setenv("CONFIG_FILE", str(persona_dir / "config.yml"))

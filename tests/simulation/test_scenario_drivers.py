@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from osprey.simulation import SimulationEngine
-from osprey_connectors.simulation.machine import DriverCoupling, NoiseOverride, TextureSpec
+from osprey_connectors.simulation._machine import DriverCoupling, NoiseOverride, TextureSpec
 
 T0 = 1_790_000_000.0
 DRIVER = {"kind": "wander", "amplitude": 1.0, "period_s": 300.0}

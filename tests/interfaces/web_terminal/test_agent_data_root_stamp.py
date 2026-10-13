@@ -23,7 +23,7 @@ mean anything:
   the hook's fail-closed rules are written on the assumption that the halves
   arrive together.
 * **Survival.** The stamp has to reach the processes that read it, which sit
-  behind two deliberate scrubs. ``osprey_connectors.ipc.launch.host_env()`` drops the
+  behind two deliberate scrubs. ``osprey_connectors.ipc._launch.host_env()`` drops the
   EPICS family and is otherwise allow-by-default, so its test here is a
   regression pin: the day it grows a prefix rule, the connector-host child
   silently resolves a different directory from its parent. The execution
@@ -70,7 +70,7 @@ from osprey.interfaces.web_terminal.pty_manager import env_fingerprint
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey_connectors import posture_store
-from osprey_connectors.ipc.launch import host_env
+from osprey_connectors.ipc._launch import host_env
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"

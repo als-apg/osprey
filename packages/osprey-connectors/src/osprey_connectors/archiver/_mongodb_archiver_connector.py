@@ -15,12 +15,12 @@ from typing import Any
 
 import pandas as pd
 
+from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
     aggregate_long_frame,
     resolve_processing,
     utc_window,
 )
-from osprey_connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.logger import get_logger
 

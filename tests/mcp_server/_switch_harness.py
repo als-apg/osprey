@@ -47,7 +47,7 @@ REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-conne
 #: The mock connector by dotted path: what lets a test *serve* ``live`` from a
 #: real child on a machine with no Channel Access, which is what nearly every
 #: test here does — hence this module's default.
-SERVED_LIVE_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
+SERVED_LIVE_TYPE = "osprey_connectors.control_system._mock_connector.MockConnector"
 #: A Channel Access type, for the tests that need ``live`` to read as a real
 #: machine rather than be served by one. Nothing is spawned from it.
 CA_LIVE_TYPE = EPICS
@@ -98,8 +98,8 @@ gateway does to a put.
 import asyncio
 import os
 
-from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
-from osprey_connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._mock_connector import MockConnector
 
 REFUSE_CHANNEL = "FIXTURE:REFUSE"
 SLOW_CHANNEL = "FIXTURE:SLOW"

@@ -9,7 +9,7 @@ containerized PyAT-backed soft-IOC as their control system.
 
 from typing import Any
 
-from osprey_connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("va_connector")

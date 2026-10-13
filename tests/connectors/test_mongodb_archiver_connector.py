@@ -917,7 +917,7 @@ class TestUrlWithoutDocker:
 
     @pytest.mark.asyncio
     async def test_the_route_is_logged_once_per_process(self, monkeypatch, caplog):
-        from osprey_connectors.archiver import mongodb_archiver_connector as module
+        from osprey_connectors.archiver import _mongodb_archiver_connector as module
 
         monkeypatch.setattr(module, "_ROUTE_LOGGED", False)
         monkeypatch.setattr(module.logger, "propagate", True, raising=False)

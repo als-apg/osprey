@@ -11,7 +11,7 @@ rather than papered over.
 
 That is what this file is for, and every test in it drives the full parent side:
 the real :class:`ControlSystemContext` on a switch-capable config, the real
-``ConnectorHostManager``, real ``python -m osprey_connectors.ipc.host``
+``ConnectorHostManager``, real ``python -m osprey_connectors.ipc._host``
 children, and the real MCP tools where a tool is the thing under test.
 
 Two targets, no containers and no EPICS
@@ -71,13 +71,13 @@ from osprey.mcp_server.control_system.tools.channel_read import channel_read
 from osprey.mcp_server.control_system.tools.control_target import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system.base import ChannelValue
-from osprey_connectors.control_system.va_connector import fill_gateway_ports
+from osprey_connectors.control_system._base import ChannelValue
+from osprey_connectors.control_system._va_connector import fill_gateway_ports
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
-from osprey_connectors.ipc import frames
-from osprey_connectors.ipc.proxy import ConnectorHostProxy
-from osprey_connectors.ipc.verification import derive_endpoints
+from osprey_connectors.ipc import _frames as frames
+from osprey_connectors.ipc._proxy import ConnectorHostProxy
+from osprey_connectors.ipc._verification import derive_endpoints
 from tests.fixtures.control_context import context_for
 from tests.integration._mock_pair_connectors import (
     BATCH_CHANNELS,

@@ -114,7 +114,7 @@ def test_the_page_names_the_loaders_vocabulary() -> None:
     """
     from dataclasses import fields
 
-    from osprey_connectors.simulation.machine import (
+    from osprey_connectors.simulation._machine import (
         _ATTACHMENT_KEYS,
         _COUPLING_KEYS,
         _DRIVER_KEYS,

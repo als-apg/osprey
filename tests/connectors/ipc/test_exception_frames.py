@@ -10,7 +10,7 @@ reads — never merely that a round trip "didn't raise".
 import pytest
 
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
-from osprey_connectors.ipc import exceptions
+from osprey_connectors.ipc import _exceptions as exceptions
 
 
 def _round_trip(exc: BaseException) -> BaseException:

@@ -112,7 +112,7 @@ def _load_project_engine(repo: Path | None):
     """
     from osprey.connectors.types import MOCK
     from osprey.simulation.engine import SimulationEngine, resolve_state_dir
-    from osprey_connectors.simulation.engine import resolve_simulation_file
+    from osprey_connectors.simulation._engine import resolve_simulation_file
 
     repo_root, config = _resolve_deployment(repo)
     machine_path, active_type, type_key, mock_key = resolve_simulation_file(config, repo_root)
@@ -281,7 +281,7 @@ def apply_command(
         write_scenario_physics_env,
     )
     from osprey.simulation.engine import resolve_active_scenarios
-    from osprey_connectors.simulation.engine import resolve_simulation_file
+    from osprey_connectors.simulation._engine import resolve_simulation_file
 
     seed_logbook = not (no_seed or no_seed_logbook)
     seed_archive = not (no_seed or no_seed_archiver)

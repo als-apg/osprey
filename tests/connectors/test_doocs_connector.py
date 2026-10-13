@@ -20,7 +20,7 @@ from osprey.connectors.control_system.base import (
     ChannelWriteResult,
     WriteOutcome,
 )
-from osprey_connectors.ipc import frames
+from osprey_connectors.ipc import _frames as frames
 
 # --------------------------------------------------------------------------------------
 # Helpers to build mock doocs4py objects

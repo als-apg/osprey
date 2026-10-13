@@ -12,18 +12,18 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
+from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
     aggregate_long_frame,
     resolve_processing,
     utc_window,
 )
-from osprey_connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import engine_serves
-from osprey_connectors.simulation.engine import resolve_simulation_file
-from osprey_connectors.simulation.procedural import generate_series
-from osprey_connectors.simulation.series import epoch_seconds_array
+from osprey_connectors.simulation._engine import resolve_simulation_file
+from osprey_connectors.simulation._procedural import generate_series
+from osprey_connectors.simulation._series import epoch_seconds_array
 
 if TYPE_CHECKING:
     import numpy as np
@@ -144,7 +144,7 @@ class MockArchiverConnector(ArchiverConnector):
                   the project root). Engine-known channels are synthesized from
                   the machine model; without it, every channel goes through the
                   shared procedural generator
-                  (:mod:`osprey_connectors.simulation.procedural`), whose baselines are the
+                  (:mod:`osprey_connectors.simulation._procedural`), whose baselines are the
                   ones the Virtual Accelerator serves. Unset, it is derived from
                   the control system's own ``simulation_file`` so live reads and
                   archived history come from one machine model.

@@ -27,7 +27,7 @@ from osprey.port_layout import (
     default_port,
     resolve_port_base,
 )
-from osprey_connectors.control_system.call_timeout import refuse_renamed_timeout_keys
+from osprey_connectors.control_system._call_timeout import refuse_renamed_timeout_keys
 from osprey_connectors.types import SET_CONTROL_SYSTEM_TYPES
 
 from .build_profile_archiver import parse_va_archiver_block

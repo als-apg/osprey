@@ -2,7 +2,7 @@
 EPICS control system connector: Channel Access through aioca, PVAccess through p4p.
 
 Every Channel Access call runs on the process's one CA event loop
-(:mod:`osprey_connectors.control_system.ca_loop`), whichever loop or thread
+(:mod:`osprey_connectors.control_system._ca_loop`), whichever loop or thread
 the connector was called from.
 """
 
@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Any
 
 from osprey_connectors.config import config_flag, get_facility_timezone
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
@@ -24,9 +24,9 @@ from osprey_connectors.control_system.base import (
     is_readonly_run,
     values_match,
 )
-from osprey_connectors.control_system.ca_loop import CaLoop, current_ca_env, get_ca_loop
-from osprey_connectors.control_system.call_timeout import call_timeout_s
-from osprey_connectors.control_system.limits_validator import (
+from osprey_connectors.control_system._ca_loop import CaLoop, current_ca_env, get_ca_loop
+from osprey_connectors.control_system._call_timeout import call_timeout_s
+from osprey_connectors.control_system._limits_validator import (
     DEFAULT_STEP_READ_TIMEOUT_SECONDS,
     c_numeral,
     step_read_timeout_seconds,
@@ -736,7 +736,7 @@ class EPICSConnector(ControlSystemConnector):
             logger.debug(f"PVA routing enabled for {len(self._pva_channel_globs)} glob pattern(s)")
 
         # Initialize limits validator for automatic validation and confirm policy
-        from osprey_connectors.control_system.limits_validator import LimitsValidator
+        from osprey_connectors.control_system._limits_validator import LimitsValidator
 
         self._limits_validator = LimitsValidator.from_config(connector_type=self._connector_type)
         if self._limits_validator:

@@ -76,7 +76,7 @@ from typing import Any
 
 from osprey.mcp_server.control_system import target_state
 from osprey.utils.seconds import positive_seconds
-from osprey_connectors.ipc.verification import MODE_NAME_SERVER, Endpoint, derive_endpoints
+from osprey_connectors.ipc._verification import MODE_NAME_SERVER, Endpoint, derive_endpoints
 from osprey_connectors.types import configured_targets
 
 logger = logging.getLogger(__name__)
@@ -195,7 +195,7 @@ class EndpointProber:
 
         Args:
             config: The full rendered config mapping, as
-                :func:`~osprey_connectors.ipc.verification.derive_endpoints`
+                :func:`~osprey_connectors.ipc._verification.derive_endpoints`
                 takes it.
             targets: The control targets to probe. Defaults to the targets this
                 deployment configures

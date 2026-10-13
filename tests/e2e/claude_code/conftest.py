@@ -154,7 +154,7 @@ def safety_project_writes_off(tmp_path_factory):
 #: deployment's real machine while still needing no hardware. It is the same
 #: device ``tests/mcp_server/test_switch_lifecycle.py`` uses to make a mock
 #: deployment switch-capable.
-MIXED_RENDER_LIVE_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
+MIXED_RENDER_LIVE_TYPE = "osprey_connectors.control_system._mock_connector.MockConnector"
 
 
 @pytest.fixture(scope="module")
