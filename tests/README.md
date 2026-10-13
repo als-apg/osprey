@@ -564,6 +564,11 @@ Checklist for a new test area:
       marker, or a ratio against a baseline measured in the same process seconds
       earlier (`tests/services/channel_finder/graph_index/test_scale.py`); an
       absolute bound asserted beside xdist workers measures the workers.
+      The JS lane follows the same rule: vitest's `testTimeout` and
+      `hookTimeout` in `vitest.config.js` are one hang bound sized like
+      pytest's `--timeout`, never a speed budget, and no test or invocation
+      lowers it (pinned by `tests/deployment/test_vitest_hang_bound.py`); a JS
+      time budget takes one of the two shapes above.
 - [ ] **Both gates pass**: serially, and under `-n 4 --dist loadgroup`. Passing
       one is not evidence for the other.
 
