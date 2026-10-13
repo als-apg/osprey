@@ -196,6 +196,29 @@ async def test_validate_plan_posts_name_and_sample_args(tmp_path, monkeypatch):
     assert data["passed"] is True
 
 
+@pytest.mark.parametrize("dry_run_timeout", [30.0, 90.0])
+async def test_validate_plan_waits_for_the_dry_run_it_asked_for(
+    tmp_path, monkeypatch, dry_run_timeout
+):
+    """The request outlives the dry run it commissions.
+
+    The bridge drives the dry run for ``dry_run_timeout`` plus its grace and
+    only then uploads a pass, so a request capped below that reports the
+    bridge unreachable while the bridge is still validating -- and then goes
+    on to pass and upload a plan the agent was told failed.
+    """
+    from osprey.services.bluesky_bridge.plan_validation import _DRY_RUN_GRACE_SECONDS
+
+    monkeypatch.chdir(tmp_path)
+    initialize_server_context()
+
+    body = {"passed": True, "reasons": [], "content_hash": "deadbeef"}
+    with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
+        await _validate_fn()(name="tiny", dry_run_timeout=dry_run_timeout)
+
+    assert m.call_args.kwargs["timeout"] >= dry_run_timeout + _DRY_RUN_GRACE_SECONDS
+
+
 async def test_validate_plan_unknown_name_maps_to_error_envelope(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     initialize_server_context()
