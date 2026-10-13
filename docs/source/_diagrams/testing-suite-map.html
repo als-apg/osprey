@@ -1,0 +1,95 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 352" role="img" aria-labelledby="testing-suite-map-title testing-suite-map-desc">
+  <title id="testing-suite-map-title">The OSPREY test suite: six families, what each proves, when each runs</title>
+  <desc id="testing-suite-map-desc">Six columns, left to right: the unit suite in process on every push; the static and boot tiers 0 and 1 on every push; the machine, simulation contracts and the Virtual Accelerator on real EPICS, on every push; the agent with a real model behind the full-ci label; the container stacks, one lane per stack, on every pull request; and the benchmark board where the model is on trial, on demand. A strip below names what a red means in each family, and a last strip names the checks a deployed facility runs on itself.</desc>
+  <defs>
+    <marker id="testing-suite-map-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- zones -->
+  <rect class="zone" x="6" y="36" width="788" height="214" rx="8"/>
+  <text class="te" x="18" y="26">GATES A PULL REQUEST · A RED BLOCKS THE MERGE</text>
+  <text class="te" x="812" y="26">MEASURES · NEVER GATES</text>
+
+  <!-- column 1 · unit -->
+  <rect class="mask" x="18" y="52" width="146" height="128" rx="6"/>
+  <rect class="nb" x="18" y="52" width="146" height="128" rx="6"/>
+  <text class="tn" x="91" y="74" text-anchor="middle">the code</text>
+  <text class="ts" x="91" y="92" text-anchor="middle">tests/ · in process</text>
+  <text class="ts" x="91" y="106" text-anchor="middle">no model, no service</text>
+  <text class="ts" x="91" y="120" text-anchor="middle">4 workers, then pty and</text>
+  <text class="ts" x="91" y="134" text-anchor="middle">wall_clock alone</text>
+  <text class="ta" x="91" y="164" text-anchor="middle">every push</text>
+
+  <!-- column 2 · static + boot -->
+  <rect class="mask" x="176" y="52" width="146" height="128" rx="6"/>
+  <rect class="nb" x="176" y="52" width="146" height="128" rx="6"/>
+  <text class="tn" x="249" y="74" text-anchor="middle">the presets</text>
+  <text class="ts" x="249" y="92" text-anchor="middle">tests/integration</text>
+  <text class="ts" x="249" y="106" text-anchor="middle">Tier 0 · YAML and skills</text>
+  <text class="ts" x="249" y="120" text-anchor="middle">Tier 1 · build + boot</text>
+  <text class="ts" x="249" y="134" text-anchor="middle">every MCP server</text>
+  <text class="ta" x="249" y="164" text-anchor="middle">every push</text>
+
+  <!-- column 3 · the machine -->
+  <rect class="mask" x="334" y="52" width="146" height="128" rx="6"/>
+  <rect class="nb" x="334" y="52" width="146" height="128" rx="6"/>
+  <text class="tn" x="407" y="74" text-anchor="middle">the machine</text>
+  <text class="ts" x="407" y="92" text-anchor="middle">tests/simulation · va</text>
+  <text class="ts" x="407" y="106" text-anchor="middle">scenario contracts</text>
+  <text class="ts" x="407" y="120" text-anchor="middle">VA on a real CA wire</text>
+  <text class="ts" x="407" y="134" text-anchor="middle">no model</text>
+  <text class="ta" x="407" y="164" text-anchor="middle">every push</text>
+
+  <!-- column 4 · the agent -->
+  <rect class="mask" x="492" y="52" width="146" height="128" rx="6"/>
+  <rect class="nb-foc" x="492" y="52" width="146" height="128" rx="6"/>
+  <text class="tn" x="565" y="74" text-anchor="middle">the agent</text>
+  <text class="ts" x="565" y="92" text-anchor="middle">tests/e2e · real model</text>
+  <text class="ts" x="565" y="106" text-anchor="middle">a built deployment repo</text>
+  <text class="ts" x="565" y="120" text-anchor="middle">trace floor + LLM judge</text>
+  <text class="ts" x="565" y="134" text-anchor="middle">Tier 3 · scenarios</text>
+  <text class="ta ta-acc" x="565" y="164" text-anchor="middle">full-ci label</text>
+
+  <!-- column 5 · the stacks -->
+  <rect class="mask" x="650" y="52" width="132" height="128" rx="6"/>
+  <rect class="nb" x="650" y="52" width="132" height="128" rx="6"/>
+  <text class="tn" x="716" y="74" text-anchor="middle">the stacks</text>
+  <text class="ts" x="716" y="92" text-anchor="middle">tests/e2e · containers</text>
+  <text class="ts" x="716" y="106" text-anchor="middle">one CI lane per stack</text>
+  <text class="ts" x="716" y="120" text-anchor="middle">dockerbuild · qmd</text>
+  <text class="ts" x="716" y="134" text-anchor="middle">no model</text>
+  <text class="ta" x="716" y="164" text-anchor="middle">every PR</text>
+
+  <!-- column 6 · the board -->
+  <rect class="mask" x="812" y="52" width="136" height="128" rx="6"/>
+  <rect class="nb-ext" x="812" y="52" width="136" height="128" rx="6"/>
+  <text class="tn" x="880" y="74" text-anchor="middle">the board</text>
+  <text class="ts" x="880" y="92" text-anchor="middle">scripts/benchmark</text>
+  <text class="ts" x="880" y="106" text-anchor="middle">the e2e suite x models</text>
+  <text class="ts" x="880" y="120" text-anchor="middle">capability · harness lane</text>
+  <text class="ts" x="880" y="134" text-anchor="middle">Tier 2 tasks</text>
+  <text class="ta" x="880" y="164" text-anchor="middle">on demand</text>
+
+  <!-- what a red means -->
+  <line class="divider" x1="18" y1="196" x2="948" y2="196"/>
+  <text class="te" x="18" y="212">A RED MEANS</text>
+  <text class="ta" x="91" y="236" text-anchor="middle">the change</text>
+  <text class="ta" x="249" y="236" text-anchor="middle">a preset drifted</text>
+  <text class="ta" x="407" y="236" text-anchor="middle">the bundle or the VA</text>
+  <text class="ta ta-acc" x="565" y="236" text-anchor="middle">the agent or its prompt</text>
+  <text class="ta" x="716" y="236" text-anchor="middle">the image or compose</text>
+  <text class="ta ta-warn" x="880" y="236" text-anchor="middle">the model, not the change</text>
+
+  <!-- in deployment -->
+  <rect class="mask" x="18" y="272" width="930" height="56" rx="6"/>
+  <rect class="nb-st" x="18" y="272" width="930" height="56" rx="6"/>
+  <text class="te" x="34" y="290">IN DEPLOYMENT · THE FACILITY TESTS ITSELF</text>
+  <text class="ts" x="34" y="312">osprey health — diagnostics over config, environment, containers and services, plus the facility's own probes · osprey audit — an agent reads the built profile for safety risks</text>
+  <text class="ta" x="932" y="290" text-anchor="end">every run · on request</text>
+
+  <text class="ta" x="480" y="346" text-anchor="middle">a tier numbers the cost of a proof; a lane is one CI job; a marker moves a test between lanes</text>
+</svg>
+</div>

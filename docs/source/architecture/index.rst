@@ -78,10 +78,9 @@ architecture of their own, and how all of it is tested:
       :link-type: doc
       :shadow: md
 
-      Five rings that gate a change — the code, the hooks, the machine, the
-      model, the stack — and the two uses of the same machinery that judge
-      the model on the benchmark board and the facility's deployment in
-      production.
+      The inventory of the suite — what each family of tests proves, the CI
+      tiers and markers, how a scenario stages a fault for the agent to find,
+      and what the benchmarks measure.
 
 .. seealso::
 

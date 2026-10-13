@@ -1,0 +1,103 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 372" role="img" aria-labelledby="testing-scenario-pipeline-title testing-scenario-pipeline-desc">
+  <title id="testing-scenario-pipeline-title">How a scenario becomes a fault the agent can find</title>
+  <desc id="testing-scenario-pipeline-desc">A scenario bundle on the left holds the fault: channel overrides, archiver events, shared drivers, lattice physics and a logbook narrative. osprey sim apply composes the active set with nominal, fixes one anchor time, and writes four things: the active-scenarios state file, the stored archive, the ARIEL logbook and the Virtual Accelerator's .env. Two substrates read the state file through one simulation engine: the mock connector in process, and the Virtual Accelerator container polling every second. Below, the testing strip: contract tests pin the bundle's statistical signature without a model before a scenario test puts an agent in front of it with a bare prompt, the answer key concealed, and a trace floor plus judge.</desc>
+  <defs>
+    <marker id="testing-scenario-pipeline-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <!-- edges first -->
+  <line class="e" x1="214" y1="110" x2="262" y2="110" marker-end="url(#testing-scenario-pipeline-arr)"/>
+  <line class="e" x1="462" y1="110" x2="520" y2="70" marker-end="url(#testing-scenario-pipeline-arr)"/>
+  <line class="e" x1="462" y1="110" x2="520" y2="110" marker-end="url(#testing-scenario-pipeline-arr)"/>
+  <line class="e" x1="462" y1="110" x2="520" y2="150" marker-end="url(#testing-scenario-pipeline-arr)"/>
+  <line class="e-dash e" x1="462" y1="110" x2="520" y2="190" marker-end="url(#testing-scenario-pipeline-arr)"/>
+  <!-- state file to the two substrates -->
+  <line class="e-acc" x1="640" y1="82" x2="770" y2="82" marker-end="url(#testing-scenario-pipeline-arr)"/>
+  <line class="e-acc" x1="640" y1="82" x2="770" y2="150" marker-end="url(#testing-scenario-pipeline-arr)"/>
+  <line class="e-acc e-dash" x1="640" y1="190" x2="770" y2="162" marker-end="url(#testing-scenario-pipeline-arr)"/>
+
+  <!-- the bundle -->
+  <text class="te" x="18" y="36">THE BUNDLE · scenarios/&lt;name&gt;/</text>
+  <rect class="mask" x="18" y="46" width="196" height="128" rx="6"/>
+  <rect class="nb-in" x="18" y="46" width="196" height="128" rx="6"/>
+  <text class="tn" x="34" y="68">scenario.json</text>
+  <text class="ts" x="34" y="86">overrides · live values</text>
+  <text class="ts" x="34" y="100">archiver · step, ramp, spike</text>
+  <text class="ts" x="34" y="114">drivers + couple · one cause</text>
+  <text class="ts" x="34" y="128">physics · lattice faults</text>
+  <text class="tn" x="34" y="150">logbook.json</text>
+  <text class="ts" x="34" y="166">entries + plots · days ago</text>
+
+  <!-- apply -->
+  <text class="te" x="262" y="36">OSPREY SIM APPLY &lt;names&gt;</text>
+  <rect class="mask" x="262" y="46" width="200" height="128" rx="6"/>
+  <rect class="nb-foc" x="262" y="46" width="200" height="128" rx="6"/>
+  <text class="tn" x="362" y="70" text-anchor="middle">compose</text>
+  <text class="ts" x="362" y="88" text-anchor="middle">nominal first, then the names</text>
+  <text class="ts" x="362" y="102" text-anchor="middle">no channel touched twice</text>
+  <text class="tn" x="362" y="126" text-anchor="middle">one clock · T0</text>
+  <text class="ts" x="362" y="144" text-anchor="middle">events, history and entries</text>
+  <text class="ts" x="362" y="158" text-anchor="middle">all resolve against it</text>
+
+  <!-- the four writes -->
+  <text class="te" x="520" y="36">WHAT IT WRITES</text>
+  <rect class="mask" x="520" y="56" width="120" height="28" rx="4"/>
+  <rect class="nb" x="520" y="56" width="120" height="28" rx="4"/>
+  <text class="ts" x="580" y="74" text-anchor="middle">active_scenarios</text>
+  <rect class="mask" x="520" y="96" width="120" height="28" rx="4"/>
+  <rect class="nb" x="520" y="96" width="120" height="28" rx="4"/>
+  <text class="ts" x="580" y="114" text-anchor="middle">stored archive</text>
+  <rect class="mask" x="520" y="136" width="120" height="28" rx="4"/>
+  <rect class="nb" x="520" y="136" width="120" height="28" rx="4"/>
+  <text class="ts" x="580" y="154" text-anchor="middle">ARIEL logbook</text>
+  <rect class="mask" x="520" y="176" width="120" height="28" rx="4"/>
+  <rect class="nb-st" x="520" y="176" width="120" height="28" rx="4"/>
+  <text class="ts" x="580" y="194" text-anchor="middle">.env · VA_BPM_ERRORS</text>
+  <text class="ta" x="650" y="74">live reads, by rename</text>
+  <text class="ta" x="650" y="114">rewritten at T0</text>
+  <text class="ta" x="650" y="154">purged, reseeded</text>
+  <text class="ta" x="650" y="208">physics · next osprey up</text>
+
+  <!-- two substrates, one engine -->
+  <text class="te" x="770" y="36">TWO SUBSTRATES · ONE ENGINE</text>
+  <rect class="mask" x="770" y="56" width="178" height="52" rx="6"/>
+  <rect class="nb" x="770" y="56" width="178" height="52" rx="6"/>
+  <text class="tn" x="859" y="76" text-anchor="middle">mock connector</text>
+  <text class="ts" x="859" y="94" text-anchor="middle">in process · writes reset</text>
+  <rect class="mask" x="770" y="124" width="178" height="80" rx="6"/>
+  <rect class="nb" x="770" y="124" width="178" height="80" rx="6"/>
+  <text class="tn" x="859" y="144" text-anchor="middle">Virtual Accelerator</text>
+  <text class="ts" x="859" y="162" text-anchor="middle">a container on real EPICS</text>
+  <text class="ts" x="859" y="176" text-anchor="middle">polls the state file · 1 s</text>
+  <text class="ts" x="859" y="190" text-anchor="middle">setpoints survive a switch</text>
+
+  <!-- the testing strip -->
+  <line class="divider" x1="18" y1="232" x2="948" y2="232"/>
+  <text class="te" x="18" y="250">HOW A SCENARIO IS TESTED</text>
+  <line class="e" x1="318" y1="300" x2="346" y2="300" marker-end="url(#testing-scenario-pipeline-arr)"/>
+  <line class="e" x1="646" y1="300" x2="674" y2="300" marker-end="url(#testing-scenario-pipeline-arr)"/>
+  <rect class="mask" x="18" y="262" width="300" height="76" rx="6"/>
+  <rect class="nb" x="18" y="262" width="300" height="76" rx="6"/>
+  <text class="tn" x="34" y="284">1 · contract tests pin the signature</text>
+  <text class="ts" x="34" y="302">tests/simulation · no model · every push</text>
+  <text class="ts" x="34" y="316">the correlation, the peak, the days it lands on</text>
+  <text class="ta" x="34" y="330">red here: fix the bundle, never the prompt</text>
+  <rect class="mask" x="346" y="262" width="300" height="76" rx="6"/>
+  <rect class="nb-foc" x="346" y="262" width="300" height="76" rx="6"/>
+  <text class="tn" x="362" y="284">2 · the agent is put in front of it</text>
+  <text class="ts" x="362" y="302">a bare operator prompt · no channel names</text>
+  <text class="ts" x="362" y="316">answer key concealed · Bash, Glob, Grep withheld</text>
+  <text class="ta ta-acc" x="362" y="330">tests/e2e · a real model · the benchmark board</text>
+  <rect class="mask" x="674" y="262" width="274" height="76" rx="6"/>
+  <rect class="nb" x="674" y="262" width="274" height="76" rx="6"/>
+  <text class="tn" x="690" y="284">3 · graded in two layers</text>
+  <text class="ts" x="690" y="302">floor: the tool trace — did it read the gauge?</text>
+  <text class="ts" x="690" y="316">judge: the prose — did it name sector 7?</text>
+  <text class="ta" x="690" y="330">both dry-verifiable offline</text>
+
+  <text class="ta" x="480" y="362" text-anchor="middle">the narrative the agent searches and the telemetry it reads describe one machine, against one clock</text>
+</svg>
+</div>
