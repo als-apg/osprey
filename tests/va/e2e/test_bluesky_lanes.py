@@ -367,7 +367,7 @@ def live_endpoint():
         pytest.skip("VA e2e disabled")
     inspected = _docker("image", "inspect", e2e_conftest.IMAGE, timeout=60)
     if inspected.returncode != 0:
-        pytest.skip(f"{e2e_conftest.IMAGE} is not built on this host")
+        pytest.skip(f"{e2e_conftest.IMAGE} is not built on this host. {e2e_conftest.IMAGE_REMEDY}")
 
     port = _free_port()
     name = f"{LIVE_ENDPOINT_PREFIX}-{port}"
