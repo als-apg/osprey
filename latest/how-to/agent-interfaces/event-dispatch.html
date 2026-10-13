@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 12, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 13, 2026"/>
   </head>
   
   
@@ -1091,7 +1091,9 @@ profile’s <code class="docutils literal notranslate"><span class="pre">.env</s
 <li><p><code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> — guards <strong>inbound</strong> webhook and write endpoints,
 and the MCP transport at <code class="docutils literal notranslate"><span class="pre">/mcp</span></code> that <code class="docutils literal notranslate"><span class="pre">manual_fire</span></code> arrives on. Send it as
 <code class="docutils literal notranslate"><span class="pre">Authorization:</span> <span class="pre">Bearer</span> <span class="pre">&lt;token&gt;</span></code>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">DISPATCH_WORKER_TOKEN</span></code> — guards the <strong>dispatcher → worker</strong> calls.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DISPATCH_WORKER_TOKEN</span></code> — guards the <strong>dispatcher → worker</strong> calls. The
+worker takes it out of its environment into memory when it starts, so the
+runs it launches do not inherit it.</p></li>
 </ul>
 <p>Anything that drives the pipeline from outside holds both. A <a class="reference internal" href="chat-bridges/index.html"><span class="doc">chat bridge</span></a>, for instance, fires its trigger at the dispatcher with
 <code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> and then collects the finished answer and its files

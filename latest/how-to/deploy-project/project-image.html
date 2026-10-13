@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 12, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 13, 2026"/>
   </head>
   
   
@@ -936,6 +936,17 @@ to whatever the base image hands out, and the image states the pair in
 <code class="docutils literal notranslate"><span class="pre">OSPREY_RUNTIME_UID</span></code>. Anything outside the container that has to agree with
 it — the multi-user stack’s per-user volume seeding, for one — reads it out of
 the image instead of guessing.</p>
+<p>The agent and the server that spawned it are both <code class="docutils literal notranslate"><span class="pre">osprey</span></code>, so the split
+between them is not a second user but what the server keeps from a process of
+its own uid. Before it serves anything, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> takes its credentials
+— the operator secret and the event-dispatcher bearer — out of its
+environment into memory, and on Linux marks itself non-dumpable, so its
+exec-time environment and memory are closed to the agent and everything the
+agent runs. The panel token is not among them: the agent’s own panel tooling
+is handed it by design. The dispatch worker does the same with its bearer. The approval
+prompt the operator answers at the terminal therefore records that a person
+intended a write; what contains agent code is the connector’s checks and the
+container, as <a class="reference internal" href="../../architecture/safety-chain.html"><span class="doc">Safety Chain</span></a> lays out.</p>
 <section id="what-the-entrypoint-does">
 <h3>What the entrypoint does<a class="headerlink" href="#what-the-entrypoint-does" title="Link to this heading">#</a></h3>
 <p>There is no <code class="docutils literal notranslate"><span class="pre">USER</span></code> instruction. <code class="docutils literal notranslate"><span class="pre">ENTRYPOINT</span></code> is the <code class="docutils literal notranslate"><span class="pre">build/entrypoint.sh</span></code>
