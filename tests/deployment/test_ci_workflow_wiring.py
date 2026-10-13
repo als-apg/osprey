@@ -43,7 +43,7 @@ import shlex
 import subprocess
 import sys
 import tomllib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -7001,6 +7001,38 @@ def _module_constant(path: Path, name: str) -> str:
     raise AssertionError(f"{path} has no module-level `{name}` assignment")
 
 
+def _action_step_scripts(source: str) -> list[dict[str, Any]]:
+    loaded = yaml.safe_load(source)
+    assert isinstance(loaded, dict), "the action parsed to no mapping"
+    return list(loaded["runs"]["steps"])
+
+
+def _tag_the_build_action_builds(source: str) -> str:
+    """The word after the sole ``--tag`` in the build action's step scripts."""
+    steps = _action_step_scripts(source)
+    build = _sole_step_whose_script(steps, "--tag ", "builds the image under a `--tag`")
+    tags = re.findall(r"--tag\s+(\S+)", str(steps[build]["run"]))
+    assert len(tags) == 1, f"expected one `--tag <word>` in the build step; found {tags}"
+    return tags[0]
+
+
+def _tag_the_remove_action_removes(source: str) -> str:
+    """The one fixed word of the removal loop, ahead of the caller's extra tags."""
+    script = "\n".join(str(step.get("run", "")) for step in _action_step_scripts(source))
+    loops = re.findall(r"^\s*for tag in (.*) \$EXTRA_TAGS; do$", script, flags=re.MULTILINE)
+    assert len(loops) == 1, f"expected one `for tag in <tag> $EXTRA_TAGS; do` line; found {loops}"
+    words = loops[0].split()
+    assert len(words) == 1, f"the loop removes exactly one fixed tag; found {words}"
+    return words[0]
+
+
+def _tag_the_developer_builder_defaults_to(source: str) -> str:
+    """The literal of the script's sole top-level ``IMAGE="<tag>"`` line."""
+    tags = re.findall(r'^IMAGE="([^"$]+)"$', source, flags=re.MULTILINE)
+    assert len(tags) == 1, f'expected one top-level `IMAGE="<tag>"` line; found {tags}'
+    return tags[0]
+
+
 VA_IMAGE_ACTION = "./.github/actions/build-virtual-accelerator-image"
 VA_IMAGE_ACTION_YML = (
     REPO_ROOT / ".github" / "actions" / "build-virtual-accelerator-image" / "action.yml"
@@ -7028,6 +7060,13 @@ VA_E2E_IMAGE_CONSTANT = "DEFAULT_IMAGE"
 VA_IMAGE_TAG = _module_constant(VA_E2E_IMAGE_OWNER, VA_E2E_IMAGE_CONSTANT)
 #: The developer build that ``IMAGE_REMEDY`` in the owner module names.
 VA_BUILD_SCRIPT = REPO_ROOT / "scripts" / "va" / "build_and_boot_check.sh"
+#: Every file outside Python that builds or removes the image, and how its tag
+#: is read from its own source text.
+VA_TAG_SITES: dict[str, tuple[Path, Callable[[str], str]]] = {
+    "build-action": (VA_IMAGE_ACTION_YML, _tag_the_build_action_builds),
+    "remove-action": (VA_REMOVE_ACTION_YML, _tag_the_remove_action_removes),
+    "build-script": (VA_BUILD_SCRIPT, _tag_the_developer_builder_defaults_to),
+}
 
 
 def _load_action_yml(path: Path) -> dict[str, Any]:
@@ -7362,32 +7401,51 @@ def test_every_lane_builds_after_the_shared_builder__mutation_moves_a_bench_buil
         test_every_lane_builds_after_the_shared_builder(mutated)
 
 
-def test_the_action_builds_the_tag_the_live_fixtures_boot(va_image_action: dict[str, Any]) -> None:
+@pytest.mark.parametrize("site", sorted(VA_TAG_SITES))
+def test_every_image_site_names_the_tag_the_live_fixtures_boot(
+    site: str, source: str | None = None
+) -> None:
     """A pairing, not a second copy of a string.
 
     ``tests/va/e2e/_image.py`` assigns ``DEFAULT_IMAGE`` as a literal, and
     every module that boots the image boots it unless ``OSPREY_VA_E2E_IMAGE``
-    names another, which nothing in CI sets — so a tag that drifts on either
-    side leaves four lanes building an image nothing starts. Read from source,
-    as this module's other pins read theirs.
+    names another, which nothing in CI sets. The build action, the removal
+    action and the developer build script each name that tag in their own
+    language, so a tag that drifts on any side leaves lanes building an image
+    nothing starts, removing one nobody built, or a developer reproducing a
+    lane against the wrong image. Each is read from source, as this module's
+    other pins read theirs, and a site that stops naming a tag fails too.
     """
+    path, read = VA_TAG_SITES[site]
+    text = path.read_text(encoding="utf-8") if source is None else source
     image = _module_constant(VA_E2E_IMAGE_OWNER, VA_E2E_IMAGE_CONSTANT)
-    _sole_step_whose_script(
-        va_image_action["runs"]["steps"],
-        f"--tag {image}",
-        f"builds the `{VA_E2E_IMAGE_CONSTANT}` the live fixtures boot ({image})",
+    tag = read(text)
+    assert tag == image, (
+        f"{path.relative_to(REPO_ROOT)} names {tag!r}, but the live fixtures boot "
+        f"`{VA_E2E_IMAGE_CONSTANT}` = {image!r} from tests/va/e2e/_image.py."
     )
 
 
-def test_the_action_builds_the_tag_the_live_fixtures_boot__mutation_builds_a_tag_no_fixture_boots() -> (
-    None
-):
-    mutated = copy.deepcopy(_load_va_image_action())
-    steps = mutated["runs"]["steps"]
-    build = _sole_step_whose_script(steps, f"--tag {VA_IMAGE_TAG}", "builds the image")
-    steps[build]["run"] = steps[build]["run"].replace(VA_IMAGE_TAG, "osprey-va-full:experiment")
+@pytest.mark.parametrize("site", sorted(VA_TAG_SITES))
+def test_every_image_site_names_the_tag_the_live_fixtures_boot__mutation_names_a_tag_no_fixture_boots(
+    site: str,
+) -> None:
+    path, _ = VA_TAG_SITES[site]
+    mutated = path.read_text(encoding="utf-8").replace(VA_IMAGE_TAG, "osprey-va-full:experiment")
     with pytest.raises(AssertionError):
-        test_the_action_builds_the_tag_the_live_fixtures_boot(mutated)
+        test_every_image_site_names_the_tag_the_live_fixtures_boot(site, mutated)
+
+
+@pytest.mark.parametrize("site", sorted(VA_TAG_SITES))
+def test_every_image_site_names_the_tag_the_live_fixtures_boot__mutation_names_no_tag(
+    site: str,
+) -> None:
+    path, _ = VA_TAG_SITES[site]
+    mutated = "\n".join(
+        line for line in path.read_text(encoding="utf-8").splitlines() if VA_IMAGE_TAG not in line
+    )
+    with pytest.raises(AssertionError):
+        test_every_image_site_names_the_tag_the_live_fixtures_boot(site, mutated)
 
 
 @pytest.fixture()
