@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import secrets
 import tempfile
 import threading
 from collections.abc import Iterator, Mapping
@@ -414,7 +415,7 @@ def atomic_write(path: Path, text: str) -> None:
     atomic_replace(path, text.encode("utf-8"), mode=ENV_FILE_MODE)
 
 
-def atomic_replace(path: Path, data: bytes, *, mode: int) -> None:
+def atomic_replace(path: Path, data: bytes, *, mode: int, dir_fd: int | None = None) -> None:
     """Replace the file at ``path`` with ``data``, whole or not at all.
 
     ``data`` goes into a temporary file in the same directory, created here
@@ -422,8 +423,13 @@ def atomic_replace(path: Path, data: bytes, *, mode: int) -> None:
     someone planted; it is given ``mode`` (whatever the umask), synced, and
     renamed over ``path``, and the directory is synced after the rename. A
     reader sees the old file or the new one, never a mix. When anything fails,
-    the temporary file is removed and the exception propagates.
+    the temporary file is removed and the exception propagates. With ``dir_fd``
+    the temporary file and the rename are relative to that open directory and
+    ``path`` only names the file in it.
     """
+    if dir_fd is not None:
+        _atomic_replace_under(dir_fd, path.name, data, mode=mode)
+        return
     fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         try:
@@ -439,6 +445,34 @@ def atomic_replace(path: Path, data: bytes, *, mode: int) -> None:
         Path(temporary).unlink(missing_ok=True)
         raise
     _fsync_directory(path.parent)
+
+
+def _atomic_replace_under(dir_fd: int, name: str, data: bytes, *, mode: int) -> None:
+    """:func:`atomic_replace` of the file ``name`` in the open directory ``dir_fd``."""
+    temporary = f".{name}.{secrets.token_hex(8)}.tmp"
+    fd = os.open(
+        temporary,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+        0o600,
+        dir_fd=dir_fd,
+    )
+    try:
+        try:
+            os.fchmod(fd, mode)
+            view = memoryview(data)
+            while view:
+                view = view[os.write(fd, view) :]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(temporary, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    except BaseException:
+        try:
+            os.unlink(temporary, dir_fd=dir_fd)
+        except FileNotFoundError:
+            pass
+        raise
+    os.fsync(dir_fd)
 
 
 def format_env_line(key: str, value: str) -> str:

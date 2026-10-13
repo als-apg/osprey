@@ -234,6 +234,29 @@ class TestAtomicReplace:
         assert path.read_bytes() == b"data"
         assert path.stat().st_mode & 0o777 == mode
 
+    def test_a_replace_under_an_open_directory_never_leaves_it(self, tmp_path: Path) -> None:
+        opened = tmp_path / "opened"
+        opened.mkdir()
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        fd = os.open(opened, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            moved = tmp_path / "moved"
+            opened.rename(moved)
+            opened.symlink_to(elsewhere, target_is_directory=True)
+            previous = os.umask(0o077)
+            try:
+                atomic_replace(opened / "f", b"new\n", mode=0o664, dir_fd=fd)
+            finally:
+                os.umask(previous)
+        finally:
+            os.close(fd)
+
+        assert (moved / "f").read_bytes() == b"new\n"
+        assert (moved / "f").stat().st_mode & 0o777 == 0o664
+        assert [p.name for p in moved.iterdir()] == ["f"]
+        assert list(elsewhere.iterdir()) == []
+
 
 #: Seconds a child may take to import, run and exit.
 CHILD_TIMEOUT_S = 60.0
