@@ -1,8 +1,8 @@
 """The tuning simulator's injector physics as an in-process environment.
 
-No EPICS IOC, so nothing announces the ALS PV names it models on any network:
+No EPICS IOC, so nothing announces the facility PV names it models on any network:
 the engine calls the physics directly. Test and benchmark use only; the names
-and ranges are the ALS injector's, which is why this is not shipped code.
+and ranges are one real injector's, which is why this is not shipped code.
 
 Built against whichever engine package it is given, so one definition serves
 OSPREY's port and tuning_scripts itself in the parity benchmark.
@@ -28,7 +28,7 @@ INITIAL_VALUES: dict[str, float] = {
 #: The phase_tuning_sim template's variables: the five RF phases.
 PHASE_VARIABLES = tuple(INITIAL_VALUES)
 
-#: The ALS plugin's step sizes for them (tuning_scripts_als_plugin/constants.py).
+#: The injector plugin's step sizes for them (tuning_scripts_als_plugin/constants.py).
 STEP_SIZES: dict[str, float] = {
     "LN______MASTPH_AC00": 0.01,
     "LN______AS2_PH_AC00": 0.01,

@@ -22,7 +22,7 @@ from ._injector_data import VARIABLES
 
 def _resolved_config(fake_env: FakeInjectorEnvironment) -> OptimizationConfig:
     # FakeInjectorEnvironment defaults every unset readback to 0.0, which lies
-    # outside the safety range of most of the ~49 real ALS variables (e.g.
+    # outside the safety range of most of the ~49 real injector variables (e.g.
     # EG______BIAS___AC01 is [40, 60]). With no `variables=` restriction, all of
     # them resolve active and default-None overrides resolve to each variable's
     # full safety range -- so seed every setpoint to its own `min_value` (always

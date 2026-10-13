@@ -214,7 +214,7 @@ c = 299792458.0  # Speed of light [m/s]
 m_e_eV = 511000.0  # Electron mass [eV]
 
 
-# ALS Hardware Parameters
+# Injector hardware parameters
 
 # Frequencies
 F_SHB1 = 124.914e6

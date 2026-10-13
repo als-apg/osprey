@@ -1,4 +1,4 @@
-"""Logging configuration for ALS injector optimization."""
+"""Logging configuration for the optimizer service."""
 
 import logging
 import sys

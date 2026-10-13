@@ -131,10 +131,10 @@ app = FastAPI(title="OSPREY Optimizer API", lifespan=lifespan)
 # headers, and preflight OPTIONS (no body) is handled by CORS before the cap.
 app.add_middleware(BodySizeLimitMiddleware)
 
-_cors_raw = os.environ.get(
-    "APEX_CORS_ORIGINS",
-    "http://localhost:8088,http://localhost:8080",
-)
+# No cross-origin client by default: OSPREY's web panels reach this service
+# through the web terminal's same-origin proxy. A deployment that serves its
+# own UI from elsewhere lists that origin here.
+_cors_raw = os.environ.get("OPTIMIZER_CORS_ORIGINS", "")
 _cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,

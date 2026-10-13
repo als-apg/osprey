@@ -1,4 +1,4 @@
-"""Protocol definitions for ALS injector optimization.
+"""Protocol definitions for the optimizer service.
 
 This module defines abstract interfaces (protocols) for key components,
 enabling dependency inversion and better testability.

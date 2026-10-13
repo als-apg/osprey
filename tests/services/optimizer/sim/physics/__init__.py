@@ -1,1 +1,1 @@
-"""ALS injector physics from tuning_scripts_simulator, without its EPICS IOC (test-only)."""
+"""Injector physics from tuning_scripts_simulator, without its EPICS IOC (test-only)."""

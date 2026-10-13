@@ -1,4 +1,4 @@
-"""Verbatim copy of the ALS injector VARIABLES/OBSERVABLES metadata.
+"""Verbatim copy of a real injector's VARIABLES/OBSERVABLES metadata.
 
 App-test-local so app_tests need not import the als_plugin package. Only
 the metadata *data* is copied - no behavior. Keep field values in sync with

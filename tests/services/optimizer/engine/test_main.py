@@ -275,11 +275,11 @@ class TestBodySizeLimit:
                 content=f'{{"environment_name": "{big}"}}',
                 headers={
                     "content-type": "application/json",
-                    "origin": "http://localhost:8088",
+                    "origin": "http://panel.example.org",
                 },
             )
         assert resp.status_code == 413
-        assert resp.headers["access-control-allow-origin"] == "http://localhost:8088"
+        assert resp.headers["access-control-allow-origin"] == "http://panel.example.org"
 
     def test_preflight_options_unaffected(self) -> None:
         # OPTIONS preflight (no body) is handled by CORS, not 413'd by the cap.
@@ -287,12 +287,12 @@ class TestBodySizeLimit:
             resp = client.options(
                 "/optimizations",
                 headers={
-                    "origin": "http://localhost:8088",
+                    "origin": "http://panel.example.org",
                     "access-control-request-method": "POST",
                 },
             )
         assert resp.status_code == 200
-        assert resp.headers["access-control-allow-origin"] == "http://localhost:8088"
+        assert resp.headers["access-control-allow-origin"] == "http://panel.example.org"
 
     def test_non_numeric_content_length_passes_through(self) -> None:
         # A non-integer Content-Length can't be range-checked, so the middleware lets

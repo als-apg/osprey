@@ -1,5 +1,10 @@
 """Pytest fixtures for test configuration."""
 
+import os
+
+# The CORS tests need one allowed origin, read when the app module is imported.
+os.environ.setdefault("OPTIMIZER_CORS_ORIGINS", "http://panel.example.org")
+
 import json
 import logging
 import re
@@ -30,7 +35,7 @@ if TYPE_CHECKING:
     from ._fakes import FakeInjectorEnvironment, MockEnvironment
 
 
-# tuning_scripts ran these tests with the ALS plugin installed. Here the same
+# tuning_scripts ran these tests with its injector plugin installed. Here the same
 # names are served by this suite's own fake, registered as entry points, so the
 # tests that load "als_injector_sim" through the real registry still do.
 _FAKE_PLUGINS = ("als_injector", "als_injector_sim")
@@ -308,7 +313,7 @@ def test_variable_bounds() -> dict[str, list[float]]:
 @pytest.fixture
 def fake_env() -> "FakeInjectorEnvironment":
     """Shared FakeInjectorEnvironment for tests that just need a fully wired fake
-    env (draft resolution, start gates, orchestration) — not asserting on ALS
+    env (draft resolution, start gates, orchestration) — not asserting on injector
     physics."""
     from ._fakes import FakeInjectorEnvironment
 
@@ -320,7 +325,7 @@ def mock_plugin_env(monkeypatch: pytest.MonkeyPatch) -> "FakeInjectorEnvironment
     """Patch EnvironmentRegistry.load_environment to return a fake env.
 
     Shared across execution/orchestration/e2e tests that use the env only as a
-    generic collaborator (bounds/variables/observables), never asserting on ALS
+    generic collaborator (bounds/variables/observables), never asserting on injector
     physics, so the fake satisfies them.
     """
     from ._fakes import FakeInjectorEnvironment
@@ -337,7 +342,7 @@ def mock_plugin_env(monkeypatch: pytest.MonkeyPatch) -> "FakeInjectorEnvironment
 def mock_env() -> "MockEnvironment":
     """Lightweight controllable endpoint-test double (var1/obs1 fixed data).
 
-    Distinct from ``fake_env`` (the high-fidelity ALS sim). Used by the
+    Distinct from ``fake_env`` (the high-fidelity injector sim). Used by the
     environment/results/run-config API tests to assert exact numbers and drive
     every ``read_pvs`` PVReading shape.
     """

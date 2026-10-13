@@ -1,4 +1,4 @@
-"""Legacy Mock simulator for ALS injector optimization testing."""
+"""Legacy mock simulator for injector optimization testing."""
 
 import numpy as np
 import numpy.typing as npt
@@ -37,7 +37,7 @@ VariableInputs = dict[str, float]
 
 
 class LegacyInjectorSimulator:
-    """Complex mock function simulating the ALS injector behavior (Legacy implementation).
+    """Complex mock function simulating the injector's behavior (Legacy implementation).
 
     This creates a multi-modal optimization landscape with:
     - Multiple local optima (justifying the 5 independent BO runs)

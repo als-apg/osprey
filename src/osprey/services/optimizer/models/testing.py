@@ -1,4 +1,4 @@
-"""Variable-value builders shared by the app, ALS-plugin and simulator test suites.
+"""Variable-value builders shared by the engine, environment-plugin and simulator test suites.
 
 Each package owns its own ``VARIABLES`` table and exposes it to tests as a
 ``test_variable_bounds`` fixture (``{name: [min, max]}``). The tables differ;

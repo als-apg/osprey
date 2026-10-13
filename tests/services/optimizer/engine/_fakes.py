@@ -1,8 +1,8 @@
 """App-test-local fake environment (app + models only — no sibling imports).
 
 Replaces `ALSInjectorSimulationEnvironment` for tests that drive app
-orchestration and need only *an* environment, not real ALS physics. Exposes
-the real ALS variable/observable NAMES and bounds (via _injector_data) so
+orchestration and need only *an* environment, not real injector physics. Exposes
+the real injector variable/observable NAMES and bounds (via _injector_data) so
 existing test bodies and shared fixtures work unchanged.
 """
 
@@ -137,7 +137,7 @@ class MockEnvironment(EnvironmentProtocol):
     ``obs1``/``obs_faulted`` observables returning fixed values) so API-router
     tests can assert exact numbers and exercise every ``read_pvs`` PVReading
     shape (waveform, enum, disconnected, NaN, scalar). ``FakeInjectorEnvironment``
-    is the high-fidelity ALS sim (49 real variables, computed observables) used
+    is the high-fidelity injector sim (49 real variables, computed observables) used
     by orchestration/e2e tests; use that when a test needs realistic physics,
     this when a test needs a small, predictable environment to drive HTTP
     endpoints.

@@ -40,7 +40,7 @@ def _registry_with_sim() -> MagicMock:
     resolved_env = registry.load_environment.return_value
     resolved_env.observables = {"obj": observable}
     # _resolve_draft_or_422 resolves the draft against this same env, so it needs
-    # real variable metadata and a readable get_variables (real ALS VARIABLES; a
+    # real variable metadata and a readable get_variables (the real injector VARIABLES; a
     # fixed, connected readback per variable).
     resolved_env.variables = VARIABLES
     resolved_env.get_variables.side_effect = lambda names: {n: PVReading(value=0.0) for n in names}

@@ -1,6 +1,6 @@
 """Optimizer service: Xopt-driven tuning jobs behind a FastAPI job API.
 
-Ported from tuning_scripts (git.als.lbl.gov/gmartino/tuning_scripts @ 1bac27a1).
+Ported from tuning_scripts at commit 1bac27a1.
 The heavy search stack (xopt, torch, botorch) is the ``optimizer`` extra and is
 imported only below this package, never by ``osprey`` itself.
 

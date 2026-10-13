@@ -1,11 +1,11 @@
-"""Custom exceptions for ALS injector optimization."""
+"""Custom exceptions for the optimizer service."""
 
 import functools
 from collections.abc import Callable
 
 
 class ALSTuningError(Exception):
-    """Base exception for ALS tuning errors."""
+    """Base exception for optimizer errors."""
 
     pass
 
