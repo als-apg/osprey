@@ -137,7 +137,24 @@ class CompositeObservable(_ObservableBase):
     """Names of observables this computed observable depends on."""
 
 
-ObservableMetadata = Annotated[PVObservable | CompositeObservable, Field(discriminator="kind")]
+class ReducedObservable(_ObservableBase):
+    """Observable reduced to one number from many channels (e.g. orbit RMS over BPMs).
+
+    Computed in the service from one batched read; the reading is unconnected
+    (value ``None``) when any channel fails to read, so a partial read never
+    becomes an objective value.
+    """
+
+    kind: Literal["reduce"] = "reduce"
+    reduce: Literal["rms", "mean", "max"]
+    """Reduction over the channel values: root mean square, mean, or maximum."""
+    channels: list[str] = Field(min_length=1)
+    """Channels read for every evaluation of this observable."""
+
+
+ObservableMetadata = Annotated[
+    PVObservable | CompositeObservable | ReducedObservable, Field(discriminator="kind")
+]
 """Discriminated-union alias for observable metadata."""
 
 
