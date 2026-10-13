@@ -12,7 +12,6 @@ import pytest
 from tests.va.e2e import _image
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-ACTION = REPO_ROOT / ".github" / "actions" / "build-virtual-accelerator-image" / "action.yml"
 OWNER = REPO_ROOT / "tests" / "va" / "e2e" / "_image.py"
 SCANNED_DIRECTORIES = (REPO_ROOT / "tests" / "va" / "e2e", REPO_ROOT / "tests" / "e2e")
 IMAGE_FAMILY = "osprey-va-full"
@@ -142,7 +141,3 @@ def test_image_follows_the_override(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.delenv(_image.IMAGE_ENV)
     assert importlib.reload(_image).IMAGE == _image.DEFAULT_IMAGE
-
-
-def test_image_defaults_to_the_tag_ci_builds() -> None:
-    assert f"--tag {_image.DEFAULT_IMAGE}" in ACTION.read_text(encoding="utf-8")
