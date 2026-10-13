@@ -6,7 +6,8 @@ fakes that record what they are handed, and ``osprey.runtime.channel_limits``
 answers from a dict; the facts record, the digests, the copy and the reference
 grammar are the real ones. One case runs the real ``run_tool`` in a throwaway
 deployment repo, to show a stopped measurement ends the script with its result
-and one restore line.
+and one restore line. The round-trip cases hand the script's stdout and the
+run's restore reports, as the execution record carries them, to the parser.
 """
 
 from __future__ import annotations
@@ -30,13 +31,16 @@ import osprey.runtime
 import pyaml_cs_osprey.measure as measure_module
 import pyaml_cs_osprey.run_tool as run_tool_module
 from osprey.facility.views.facts import measurement_records
+from osprey.mcp_server.python_executor.executor import _record_reports
 from osprey.mcp_server.python_executor.tools import _pyaml_measure_script as script_module
+from osprey.mcp_server.python_executor.tools._pyaml_measure_result import parse_measure_result
 from osprey.mcp_server.python_executor.tools._pyaml_measure_script import (
     DELTA_BASES,
     RESULT_TAG,
     MeasureScript,
     build_measure_script,
 )
+from osprey.runtime import guarded_run
 from osprey.runtime.guarded_run import RESTORE_REPORT_TAG
 from pyaml_cs_osprey.run_tool import RestoreReport, run_tool
 from tests.pyaml_cs_osprey.conftest import FakeRuntime, guarded_repo  # noqa: F401
@@ -211,6 +215,11 @@ class FakeHolder:
             sextu_delta=SEXTU_DELTA,
             chromaticity_monitor=self.monitor,
         )
+        self.crm.latest_measurement = {
+            "matrix": [[1.0], [2.0]],
+            "observable_names": ["CHROMATICITY_MONITOR.x", "CHROMATICITY_MONITOR.y"],
+            "variable_names": list(SEXTS),
+        }
         self.magnets = SimpleNamespace(get=self.arrays.__getitem__)
         self.rf = SimpleNamespace(get=lambda name: self.rf_plant)
         self.bpms = SimpleNamespace(get=lambda name: FakeArray([FakeMagnet("SR_BPM01")]))
@@ -225,6 +234,14 @@ class FakeStep:
 
     built: list[tuple[str, dict[str, Any]]] = []
 
+    #: The observables each constructor's measurement names, as pyAML writes them.
+    OBSERVABLES = {
+        "orm": ["SR_BPM01.x", "SR_BPM01.y"],
+        "dispersion": ["SR_BPM01.x", "SR_BPM01.y"],
+        "trm": ["BETATRON_TUNE.x", "BETATRON_TUNE.y"],
+        "crm": ["CHROMATICITY_MONITOR.x", "CHROMATICITY_MONITOR.y"],
+    }
+
     def __init__(self, kind: str, kwargs: dict[str, Any]) -> None:
         self.kind = kind
         self.kwargs = kwargs
@@ -232,7 +249,7 @@ class FakeStep:
         variables = list(kwargs.get("correctors") or kwargs.get("groups") or ["DEFAULT_RF_PLANT"])
         self.latest_measurement = {
             "matrix": [[0.1] * len(variables), [0.2] * len(variables)],
-            "observable_names": ["BETATRON_TUNE.x", "BETATRON_TUNE.y"],
+            "observable_names": list(FakeStep.OBSERVABLES[kind]),
             "variable_names": variables,
         }
 
@@ -303,7 +320,7 @@ def limits(monkeypatch: pytest.MonkeyPatch) -> dict[str, float]:
     return steps
 
 
-def _run(
+def _execute(
     render: Path,
     execution: Path,
     capsys: pytest.CaptureFixture[str],
@@ -313,9 +330,8 @@ def _run(
     by: str | None = None,
     correctors: list[str] | None = None,
     approved: str | None = None,
-    stderr: list[str] | None = None,
-) -> dict[str, Any]:
-    """Execute the rendered script; its one result line. ``stderr`` gets what it printed there."""
+) -> pytest.CaptureResult[str]:
+    """Execute the rendered script; what it printed to stdout and stderr."""
     source = build_measure_script(
         MeasureScript(
             kind=kind,
@@ -332,13 +348,39 @@ def _run(
         )
     )
     exec(compile(source, "pyaml_measure", "exec"), {"_execution_dir": str(execution)})
-    captured = capsys.readouterr()
+    return capsys.readouterr()
+
+
+def _run(
+    render: Path,
+    execution: Path,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    stderr: list[str] | None = None,
+    **request: Any,
+) -> dict[str, Any]:
+    """Execute the rendered script; its one result line. ``stderr`` gets what it printed there."""
+    captured = _execute(render, execution, capsys, **request)
     if stderr is not None:
         stderr.append(captured.err)
     lines = [line for line in captured.out.splitlines() if line.startswith(RESULT_TAG + " ")]
     assert len(lines) == 1, lines
     result: dict[str, Any] = json.loads(lines[0][len(RESULT_TAG) + 1 :])
     return result
+
+
+def _round_trip(
+    render: Path, execution: Path, capsys: pytest.CaptureFixture[str], **request: Any
+) -> dict[str, Any]:
+    """Execute the rendered script; the result the parser reads from its stdout and record.
+
+    The reports are the ones this run added to ``guarded_run.restore_reports()``,
+    filed and read back as the execution record carries them.
+    """
+    before = len(guarded_run.restore_reports())
+    captured = _execute(render, execution, capsys, **request)
+    record = json.loads(json.dumps({"restore_reports": guarded_run.restore_reports()[before:]}))
+    return parse_measure_result(captured.out, _record_reports(record), request["kind"])
 
 
 pytestmark = pytest.mark.usefixtures("holder", "limits", "runs")
@@ -574,14 +616,8 @@ def test_a_group_crm_without_its_matrix_is_refused(render, execution, capsys, ru
 # --- a stopped measurement, through the real run_tool ----------------------------
 
 
-def test_a_stopped_measurement_ends_with_its_result_and_one_restore_line(
-    render,
-    execution,
-    capsys,
-    holder,
-    guarded_repo,  # noqa: ARG001, F811 - the guarded run needs its repo
-    monkeypatch,
-):
+def _stop_after_the_first_magnet(holder: FakeHolder, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """The real ``run_tool`` over a trm whose measurement stops after its first magnet."""
     monkeypatch.setattr(run_tool_module, "run_tool", REAL_RUN_TOOL)
     machine = FakeRuntime(dict.fromkeys(QUADS, 0.0)).install(
         monkeypatch, ("read_channels", "write_channel", "channel_limits")
@@ -594,6 +630,18 @@ def test_a_stopped_measurement_ends_with_its_result_and_one_restore_line(
 
     holder.trm.on_measure = stop_after_the_first_magnet
     holder.trm.outcome = False
+    return machine
+
+
+def test_a_stopped_measurement_ends_with_its_result_and_one_restore_line(
+    render,
+    execution,
+    capsys,
+    holder,
+    guarded_repo,  # noqa: ARG001, F811 - the guarded run needs its repo
+    monkeypatch,
+):
+    machine = _stop_after_the_first_magnet(holder, monkeypatch)
 
     stderr: list[str] = []
 
@@ -703,3 +751,152 @@ def test_a_measurement_holding_arrays_is_saved_as_json_lists(render, execution, 
         "chromaticity": [1.5, -2.5],
         "n_step": 5,
     }
+
+
+# --- the printed line, read back by the parser --------------------------------------
+
+BPM_PLANES = [["SR_BPM01", "x"], ["SR_BPM01", "y"]]
+
+
+@pytest.mark.parametrize(
+    ("request_", "observables", "variables", "expected"),
+    [
+        pytest.param(
+            {"kind": "orm"},
+            BPM_PLANES,
+            list(H_NAMES + V_NAMES),
+            {
+                "deltas": dict.fromkeys(H_NAMES + V_NAMES, CORRECTOR_DELTA),
+                "delta_limited_by": None,
+            },
+            id="orm-bipolar",
+        ),
+        pytest.param(
+            {"kind": "orm", "modulation": "unipolar"},
+            BPM_PLANES,
+            list(H_NAMES + V_NAMES),
+            {
+                "deltas": dict.fromkeys(H_NAMES + V_NAMES, CORRECTOR_DELTA),
+                "delta_limited_by": None,
+            },
+            id="orm-unipolar",
+        ),
+        pytest.param(
+            {"kind": "dispersion"},
+            BPM_PLANES,
+            ["DEFAULT_RF_PLANT"],
+            {
+                "deltas": {"DEFAULT_RF_PLANT": FREQUENCY_DELTA},
+                "rf_span_hz": FREQUENCY_DELTA,
+                "rf_limited_by": None,
+            },
+            id="dispersion-bipolar",
+        ),
+        pytest.param(
+            {"kind": "dispersion", "modulation": "unipolar"},
+            BPM_PLANES,
+            ["DEFAULT_RF_PLANT"],
+            {
+                "deltas": {"DEFAULT_RF_PLANT": FREQUENCY_DELTA},
+                "rf_span_hz": FREQUENCY_DELTA,
+                "rf_limited_by": None,
+            },
+            id="dispersion-unipolar",
+        ),
+        pytest.param(
+            {"kind": "trm", "by": "magnet"},
+            [["BETATRON_TUNE", "x"], ["BETATRON_TUNE", "y"]],
+            list(QUADS),
+            {"deltas": dict.fromkeys(QUADS, QUAD_DELTA), "by": "magnet"},
+            id="trm-magnet",
+        ),
+        pytest.param(
+            {"kind": "trm", "modulation": "unipolar", "by": "group"},
+            [["BETATRON_TUNE", "x"], ["BETATRON_TUNE", "y"]],
+            ["SR_QF"],
+            {"deltas": {"SR_QF": pytest.approx(QUAD_DELTA / 2)}, "delta_basis": DELTA_BASES[0]},
+            id="trm-group",
+        ),
+        pytest.param(
+            {"kind": "crm", "by": "magnet"},
+            [["CHROMATICITY_MONITOR", "x"], ["CHROMATICITY_MONITOR", "y"]],
+            list(SEXTS),
+            {
+                "deltas": dict.fromkeys(SEXTS, SEXTU_DELTA),
+                "e_delta_used": pytest.approx(1.0e-3),
+                "rf_span_hz": pytest.approx(1000.0),
+            },
+            id="crm-magnet",
+        ),
+    ],
+)
+def test_each_kinds_printed_result_is_one_the_parser_accepts(
+    render, execution, capsys, request_, observables, variables, expected
+):
+    result = _round_trip(render, execution, capsys, **request_)
+
+    assert result["completed"] is True
+    assert result["model"] == MODEL
+    assert result["sha256"] == _sha((render / VIEW_PATH).read_bytes())
+    assert result["modulation"] == request_.get("modulation", "bipolar")
+    assert result["observables"] == observables
+    assert result["variables"] == variables
+    assert result["shape"] == [len(observables), len(variables)]
+    assert Path(result["data_file"]).is_file()
+    for name, value in expected.items():
+        assert result[name] == value, name
+
+
+def test_the_chromaticity_monitors_printed_result_is_one_the_parser_accepts(
+    render, execution, capsys
+):
+    result = _round_trip(render, execution, capsys, kind="chromaticity_monitor")
+
+    assert result["completed"] is True
+    assert result["chromaticity"] == [1.5, -2.5]
+    assert result["e_delta_used"] == pytest.approx(1.0e-3)
+    assert result["rf_limited_by"] is None
+    assert Path(result["data_file"]).is_file()
+    assert not {"observables", "variables", "deltas"} & set(result)
+
+
+@pytest.mark.parametrize("planes", [["H", "V"], ["h", "v"], ["x", "y"]])
+def test_every_plane_spelling_pyaml_uses_reads_back_as_x_and_y(
+    render, execution, capsys, holder, planes
+):
+    holder.orm.latest_measurement["observable_planes"] = planes
+
+    result = _round_trip(render, execution, capsys, kind="orm")
+
+    assert result["observables"] == BPM_PLANES
+
+
+def test_a_stopped_measurements_printed_result_and_recorded_report_reach_the_parser(
+    render,
+    execution,
+    capsys,
+    holder,
+    guarded_repo,  # noqa: ARG001, F811 - the guarded run needs its repo
+    monkeypatch,
+):
+    machine = _stop_after_the_first_magnet(holder, monkeypatch)
+
+    result = _round_trip(render, execution, capsys, kind="trm", by="magnet")
+
+    assert result["completed"] is False
+    assert result["remainder"] == [QUADS[1]]
+    assert result["deltas"] == dict.fromkeys(QUADS, QUAD_DELTA)
+    assert result["restore"]["aborted"] is True
+    assert sorted(result["restore"]["restored"]) == sorted(QUADS)
+    assert not {"observables", "data_file"} & set(result)
+    assert machine.values == dict.fromkeys(QUADS, 0.0)
+
+
+def test_a_refusals_printed_line_reads_back_as_the_refusal(render, execution, capsys, runs):
+    result = _round_trip(render, execution, capsys, kind="crm", modulation="unipolar", by="group")
+
+    assert result == {
+        "kind": "crm",
+        "refused": "crm by group needs crm.json, which the pyAML view of SR does not have",
+    }
+    assert runs == []
