@@ -265,8 +265,13 @@ def test_the_fixture_points_the_run_at_the_endpoint_with_the_dummy_token(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "another-real-looking-key")
     model = scripted_model([[GLOB]])
     assert os.environ["OSPREY_E2E_PROXY_BASE_URL"] == model.base_url
-    assert os.environ["ALS_APG_API_KEY"] == SCRIPTED_AUTH_TOKEN
-    assert os.environ["ANTHROPIC_API_KEY"] == SCRIPTED_AUTH_TOKEN
+    # Names only: a failure must not print what the variables hold.
+    still_own = [
+        variable
+        for variable in ("ALS_APG_API_KEY", "ANTHROPIC_API_KEY")
+        if os.environ.get(variable) != SCRIPTED_AUTH_TOKEN
+    ]
+    assert still_own == []
 
 
 def test_the_fixture_leaves_no_provider_a_key_of_its_own(monkeypatch, scripted_model):
@@ -287,7 +292,8 @@ def test_the_fixture_leaves_no_provider_a_key_of_its_own(monkeypatch, scripted_m
         if variable and os.environ.get(variable) != SCRIPTED_AUTH_TOKEN
     )
     assert still_own == []
-    assert "ANTHROPIC_AUTH_TOKEN" not in os.environ
+    still_set = [name for name in ("ANTHROPIC_AUTH_TOKEN",) if name in os.environ]
+    assert still_set == []
 
 
 def test_the_fixture_holds_against_a_key_the_launch_resolves_itself(monkeypatch, scripted_model):
@@ -312,6 +318,22 @@ def test_the_fixture_holds_against_a_key_the_launch_resolves_itself(monkeypatch,
         "CBORG_API_KEY",
     ]
     assert launch["ANTHROPIC_BASE_URL"] == resolved["ANTHROPIC_BASE_URL"]
+
+
+def test_the_fixture_carries_no_operator_headers_into_a_run(monkeypatch, scripted_model):
+    """Request headers an operator configured reach neither the shell nor the launch."""
+    import os
+
+    from tests.e2e import sdk_helpers
+
+    monkeypatch.setenv("ANTHROPIC_CUSTOM_HEADERS", "x-dummy: dummy")
+    resolved = {"ANTHROPIC_CUSTOM_HEADERS": "x-dummy: dummy", "TZ": "UTC"}
+    monkeypatch.setattr(sdk_helpers, "sdk_env", lambda *args, **kwargs: dict(resolved))
+    scripted_model([[GLOB]])
+    # Names only: a failure must not print the environment.
+    still_set = [name for name in ("ANTHROPIC_CUSTOM_HEADERS",) if name in os.environ]
+    assert still_set == []
+    assert sorted(sdk_helpers.sdk_env(None)) == ["TZ"]
 
 
 def test_the_fixture_overrides_a_session_proxy(monkeypatch, scripted_model):

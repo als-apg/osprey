@@ -161,7 +161,8 @@ class ScriptedModel:
 def _handler_for(model: ScriptedModel) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
-        # Stopping the server joins the handler threads, so no connection may be held open.
+        # A connection a client holds open is dropped, so no handler thread outlives its
+        # request for long.
         timeout = 30
 
         def log_message(self, format: str, *args: Any) -> None:

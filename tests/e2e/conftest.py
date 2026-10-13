@@ -319,10 +319,15 @@ def scripted_model(monkeypatch):
     every chat provider's key variable, ``ANTHROPIC_AUTH_TOKEN`` — which no
     provider reads its key from and the CLI would present as it stands — is
     removed, and every credential in the environment a launch resolves is
-    replaced by the scripted token. Teardown checks the result: every recorded
-    request presented the scripted token and the endpoint refused nothing.
+    replaced by the scripted token. Request headers an operator configures
+    (``ANTHROPIC_CUSTOM_HEADERS``) can carry a secret in a header the endpoint
+    does not read, so a scripted run carries none: the variable is removed from
+    the shell environment and from the environment a launch resolves. Teardown
+    checks the result: every recorded request presented the scripted token and
+    the endpoint refused nothing.
     """
     from osprey.models.provider_registry import PROVIDER_API_KEYS
+    from osprey.models.spend_attribution import CUSTOM_HEADERS_ENV
     from tests.e2e import sdk_helpers
     from tests.e2e.scripted_model import SCRIPTED_AUTH_TOKEN, ScriptedModel
 
@@ -334,6 +339,7 @@ def scripted_model(monkeypatch):
             return {
                 name: SCRIPTED_AUTH_TOKEN if name in credential_variables else value
                 for name, value in resolve_launch_env(*args, **kwargs).items()
+                if name != CUSTOM_HEADERS_ENV
             }
 
         return _launch_env
@@ -348,6 +354,7 @@ def scripted_model(monkeypatch):
         for variable in key_variables:
             monkeypatch.setenv(variable, SCRIPTED_AUTH_TOKEN)
         monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+        monkeypatch.delenv(CUSTOM_HEADERS_ENV, raising=False)
         monkeypatch.setattr(sdk_helpers, "sdk_env", _scripted(sdk_helpers.sdk_env))
         return model
 
