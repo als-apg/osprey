@@ -222,3 +222,59 @@ def test_pool_section_turns_fresh_reads_on_in_every_connector_block():
     assert out["connector"]["epics"] == {"timeout": 5, "fresh_reads": True}
     assert out["connector"]["virtual_accelerator"] == {"fresh_reads": True}
     assert "fresh_reads" not in section["connector"]["epics"]  # the caller's section is untouched
+
+
+# -- channel limits --------------------------------------------------------------
+
+
+class _Limit:
+    def __init__(self, min_value=None, max_value=None, writable=True):
+        self.min_value, self.max_value, self.writable = min_value, max_value, writable
+
+
+def _limited(limits, target="va"):
+    return ConnectorEnvironment(
+        {"spec": SPEC, "control_target": target}, limits_lookup=lambda t: limits
+    )
+
+
+def test_variable_ranges_narrow_to_the_channel_limits():
+    env = _limited({"VCM1:SP": _Limit(-5.0, 20.0)})
+    assert (env.variables["VCM1"].min_value, env.variables["VCM1"].max_value) == (-5.0, 12.0)
+    assert (env.variables["VCM2"].min_value, env.variables["VCM2"].max_value) == (-12.0, 12.0)
+
+
+def test_a_write_outside_the_narrowed_range_is_refused_before_any_write(fake):
+    env = ConnectorEnvironment(
+        {"spec": SPEC, "control_target": "va"},
+        interface_factory=lambda t, m: fake,
+        limits_lookup=lambda t: {"VCM1:SP": _Limit(-5.0, 5.0)},
+    )
+    with pytest.raises(VariableOutOfBoundsError):
+        env.set_variables({"VCM1": 8.0})
+    assert fake.writes == []
+
+
+def test_a_read_only_setpoint_is_refused():
+    with pytest.raises(ValueError, match="read-only"):
+        _limited({"VCM1:SP": _Limit(writable=False)})
+
+
+def test_a_range_that_misses_the_channel_limits_is_refused():
+    with pytest.raises(ValueError, match="does not meet"):
+        _limited({"VCM1:SP": _Limit(20.0, 30.0)})
+
+
+def test_unlisted_channels_and_no_limits_leave_the_ranges_alone():
+    assert _limited({})._all_variables == _limited(None)._all_variables == SPEC.variable_metadata()
+
+
+def test_the_limits_asked_for_are_the_targets():
+    asked = []
+
+    def lookup(target):
+        asked.append(target)
+
+    ConnectorEnvironment({"spec": SPEC, "control_target": "live"}, limits_lookup=lookup)
+    ConnectorEnvironment({"spec": SPEC}, limits_lookup=lookup)
+    assert asked == ["live", None]  # None: the most restrictive across targets

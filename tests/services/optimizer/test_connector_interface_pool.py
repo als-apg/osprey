@@ -120,3 +120,17 @@ def test_an_environment_evaluates_through_the_pool(project):
     env = ConnectorEnvironment({"spec": spec, "control_target": "live"})
     out = env.evaluate({"KNOB:POS:SP": 0.25}, ["knob_abs"])
     assert out["knob_abs"].value == pytest.approx(0.25)
+
+
+def test_an_environment_wider_than_the_limits_database_is_narrowed_to_it(project):
+    project()
+    spec = EnvironmentFile.model_validate(
+        {
+            "name": "wide",
+            "variables": {"KNOB:POS:SP": {"min": -50, "max": 50}},
+            "observables": {"knob": {"channel": "KNOB:POS:SP"}},
+        }
+    )
+    env = ConnectorEnvironment({"spec": spec, "control_target": "live"})
+    meta = env.variables["KNOB:POS:SP"]
+    assert (meta.min_value, meta.max_value) == (-5.0, 5.0)

@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from osprey.services.optimizer.models.enums import EnvironmentType
@@ -43,6 +43,71 @@ logger = logging.getLogger(__name__)
 
 _READBACK_POLL_S = 0.1
 _SETTLE_POLL_S = 0.2
+
+LimitsLookup = Callable[[str | None], Mapping[str, Any] | None]
+"""Per-channel limits for a target (``None``: the most restrictive across targets),
+or ``None`` when limits checking is off. Entries carry ``min_value``,
+``max_value`` and ``writable``, as ``ChannelLimitsConfig`` does."""
+
+
+def deployment_limits(target: str | None) -> Mapping[str, Any] | None:
+    """The deployment's channel limits for ``target``, from its config."""
+    from osprey_connectors.control_system.limits_validator import LimitsValidator
+
+    validator = (
+        LimitsValidator.from_config(target=target)
+        if target is not None
+        else LimitsValidator.from_config_most_restrictive()
+    )
+    return None if validator is None else validator.limits
+
+
+def within_channel_limits(
+    variables: dict[str, VariableMetadata], limits: Mapping[str, Any] | None
+) -> dict[str, VariableMetadata]:
+    """Each variable's range narrowed to its setpoint channel's limits.
+
+    The environment file says what the optimizer may explore; the limits
+    database says what the channel may ever be set to. A run must satisfy both,
+    so the range it sees is their intersection, and a request outside it fails
+    when the job is created rather than at its first write. A channel the
+    database marks read-only, or a range that does not meet the limits at all,
+    is a misconfigured environment and is refused outright. Unlisted channels
+    are left to the connector, whose policy decides them on every put.
+    """
+    if not limits:
+        return variables
+    out: dict[str, VariableMetadata] = {}
+    for name, meta in variables.items():
+        entry = limits.get(meta.setpoint_pv)
+        if entry is None:
+            out[name] = meta
+            continue
+        if not getattr(entry, "writable", True):
+            raise ValueError(
+                f"Variable {name!r}: its setpoint {meta.setpoint_pv} is read-only in the "
+                "channel limits database"
+            )
+        lo = getattr(entry, "min_value", None)
+        hi = getattr(entry, "max_value", None)
+        new_min = meta.min_value if lo is None else max(meta.min_value, lo)
+        new_max = meta.max_value if hi is None else min(meta.max_value, hi)
+        if new_min > new_max:
+            raise ValueError(
+                f"Variable {name!r}: the environment's range [{meta.min_value}, {meta.max_value}] "
+                f"does not meet the channel limits [{lo}, {hi}] of {meta.setpoint_pv}"
+            )
+        if (new_min, new_max) != (meta.min_value, meta.max_value):
+            logger.info(
+                "%s narrowed to the channel limits: [%s, %s] -> [%s, %s]",
+                name,
+                meta.min_value,
+                meta.max_value,
+                new_min,
+                new_max,
+            )
+        out[name] = meta.model_copy(update={"min_value": new_min, "max_value": new_max})
+    return out
 
 
 def reduce_values(kind: str, values: list[float]) -> float:
@@ -73,12 +138,17 @@ class ConnectorEnvironment:
         config: dict[str, Any],
         *,
         interface_factory: Callable[[str, str | None], InterfaceProtocol] | None = None,
+        limits_lookup: LimitsLookup = deployment_limits,
     ) -> None:
         spec = config.get("spec")
         if not isinstance(spec, EnvironmentFile):
             raise TypeError("ConnectorEnvironment needs its EnvironmentFile under config['spec']")
         self._spec = spec
-        self._all_variables = spec.variable_metadata()
+        self._target: str | None = config.get("control_target")
+        self._mode: str | None = config.get("execution_mode")
+        self._all_variables = within_channel_limits(
+            spec.variable_metadata(), limits_lookup(self._target)
+        )
         self._observables = spec.observable_metadata()
 
         active = config.get("variables")
@@ -93,8 +163,6 @@ class ConnectorEnvironment:
             raise ValueError(f"Unknown default objective {objective!r}")
         self._default_objective = objective or self.available_objectives[0]
 
-        self._target: str | None = config.get("control_target")
-        self._mode: str | None = config.get("execution_mode")
         self._interface_factory = interface_factory
         self._interface: InterfaceProtocol | None = None
 
