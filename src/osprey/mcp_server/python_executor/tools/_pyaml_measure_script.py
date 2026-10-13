@@ -549,6 +549,7 @@ def plan(holder, copy_dir):
     return monitor, (monitor.measure, {}), [KIND], fields, None
 
 
+# Stand-in until pyAML's MeasurementTool.save writes numpy arrays and scalars as JSON; plain() and save() go with it.
 def plain(value):
     """A numpy value as the JSON value it holds."""
     if isinstance(value, np.ndarray):
