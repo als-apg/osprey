@@ -19,11 +19,18 @@ import pytest
 from osprey.runtime.journal import DurableJournal
 from tests._control_context_fixtures import write_control_context, write_server_report
 from tests._guarded_run import (
+    JOURNAL_FILE_NAME,
     LINKED_DIRECTORY_REFUSAL,
     PLANTED_REFUSAL,
     PLANTED_REFUSED,
+    STARTED,
+    guarded_dir,
+    journal_at,
     link_directory,
+    lock_at,
+    plant_at,
     plant_kind,
+    plant_raw_at,
 )
 
 # Default hook_config matching the original hard-coded OSPREY_PREFIXES
@@ -2095,33 +2102,6 @@ sys.stdin.read()
 """
 
 
-def _guarded_dir(repo_root, target):
-    directory = repo_root / "var" / "guarded_run" / target
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory
-
-
-def _plant_journal(repo_root, target, entries, *, identity="operator", pid=4242, tail=b""):
-    """Write a killed run's journal for *target*; return its raw bytes."""
-    import json
-
-    lines = [
-        {
-            "header": {
-                "target": target,
-                "generation": 1,
-                "identity": identity,
-                "pid": pid,
-                "started": "2026-10-01T08:00:00Z",
-            }
-        },
-        *({"address": address, "value": value} for address, value in entries),
-    ]
-    raw = b"".join(json.dumps(line).encode("utf-8") + b"\n" for line in lines) + tail
-    (_guarded_dir(repo_root, target) / "run.journal").write_bytes(raw)
-    return raw
-
-
 def _run_guarded(hook_runner, make_config, tmp_path, tool_input, *, tool="execute", config=None):
     return hook_runner(
         "osprey_approval.py",
@@ -2144,7 +2124,13 @@ def _updated(result):
 def test_a_pending_journal_is_listed_and_bound_to_the_call(tmp_path, hook_runner, make_config):
     import hashlib
 
-    raw = _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5), ("SR:QD:SP", -0.25)])
+    raw = plant_at(
+        tmp_path,
+        "va",
+        [("SR:QF:SP", 1.5), ("SR:QD:SP", -0.25)],
+        identity="operator",
+        generation=1,
+    ).read_bytes()
     tool_input = {
         "code": "print(1)",
         "execution_mode": "readwrite",
@@ -2157,7 +2143,7 @@ def test_a_pending_journal_is_listed_and_bound_to_the_call(tmp_path, hook_runner
     assert _decision(result) == "ask"
     reason = _reason(result)
     assert (
-        '"operator"\'s interrupted run (pid 4242, started "2026-10-01T08:00:00Z") left 2 '
+        f'"operator"\'s interrupted run (pid 4242, started "{STARTED}") left 2 '
         "setpoints displaced; approving this call restores them first\n"
         '  recorded on "va", generation 1\n'
         '  "SR:QF:SP" = 1.5\n'
@@ -2173,7 +2159,7 @@ def test_a_pending_journal_is_listed_and_bound_to_the_call(tmp_path, hook_runner
 
 def test_the_listing_names_every_displaced_setpoint(tmp_path, hook_runner, make_config):
     entries = [(f"SR:C{index:02d}:SP", float(index)) for index in range(21)]
-    _plant_journal(tmp_path, "va", entries)
+    plant_at(tmp_path, "va", entries, identity="operator", generation=1)
 
     result = _run_guarded(
         hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
@@ -2188,8 +2174,8 @@ def test_the_listing_names_every_displaced_setpoint(tmp_path, hook_runner, make_
 
 def test_a_journal_longer_than_a_prompt_lists_is_denied(tmp_path, hook_runner, make_config):
     entries = [(f"SR:C{index:03d}:SP", float(index)) for index in range(501)]
-    raw = _plant_journal(tmp_path, "va", entries)
-    path = tmp_path / "var" / "guarded_run" / "va" / "run.journal"
+    raw = plant_at(tmp_path, "va", entries, identity="operator", generation=1).read_bytes()
+    path = journal_at(tmp_path, "va")
 
     result = _run_guarded(
         hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
@@ -2208,11 +2194,12 @@ _HOSTILE = "SR\u009bQF\u202e:\u200bSP\n = 9"
 
 
 def test_journal_text_renders_as_one_printable_line_each(tmp_path, hook_runner, make_config):
-    _plant_journal(
+    plant_at(
         tmp_path,
         "va",
         [(_HOSTILE, 1.0), (_HOSTILE.replace("\u200b", ""), 2.0)],
         identity=_HOSTILE,
+        generation=1,
     )
 
     result = _run_guarded(
@@ -2231,8 +2218,10 @@ def test_journal_text_renders_as_one_printable_line_each(tmp_path, hook_runner, 
 
 
 def test_the_listing_names_the_target_its_header_records(tmp_path, hook_runner, make_config):
-    raw = _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5)])
-    path = tmp_path / "var" / "guarded_run" / "va" / "run.journal"
+    raw = plant_at(
+        tmp_path, "va", [("SR:QF:SP", 1.5)], identity="operator", generation=1
+    ).read_bytes()
+    path = journal_at(tmp_path, "va")
     path.write_bytes(raw.replace(b'"target": "va"', b'"target": "live"', 1))
 
     result = _run_guarded(
@@ -2253,7 +2242,7 @@ def test_the_listing_names_the_target_its_header_records(tmp_path, hook_runner, 
 )
 def test_no_pending_record_binds_none(tmp_path, hook_runner, make_config, content):
     if content is not None:
-        (_guarded_dir(tmp_path, "va") / "run.journal").write_bytes(content)
+        plant_raw_at(tmp_path, "va", content)
 
     result = _run_guarded(
         hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
@@ -2266,7 +2255,7 @@ def test_no_pending_record_binds_none(tmp_path, hook_runner, make_config, conten
 
 
 def test_execute_file_carries_the_binding(tmp_path, hook_runner, make_config):
-    _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5)])
+    plant_at(tmp_path, "va", [("SR:QF:SP", 1.5)], identity="operator", generation=1)
 
     result = _run_guarded(
         hook_runner,
@@ -2286,7 +2275,7 @@ def test_execute_file_carries_the_binding(tmp_path, hook_runner, make_config):
 def test_a_readonly_call_keeps_its_prompt_and_carries_no_binding(
     tmp_path, hook_runner, make_config, tool
 ):
-    _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5)])
+    plant_at(tmp_path, "va", [("SR:QF:SP", 1.5)], identity="operator", generation=1)
 
     result = _run_guarded(
         hook_runner,
@@ -2303,8 +2292,8 @@ def test_a_readonly_call_keeps_its_prompt_and_carries_no_binding(
 
 def test_selective_readwrite_lists_the_recorded_targets_journal(tmp_path, hook_runner, make_config):
     _write_session_state(tmp_path, "live")
-    _plant_journal(tmp_path, "live", [("SR:QF:SP", 1.5)])
-    _plant_journal(tmp_path, "va", [("SR:QD:SP", 2.0)])
+    plant_at(tmp_path, "live", [("SR:QF:SP", 1.5)], identity="operator", generation=1)
+    plant_at(tmp_path, "va", [("SR:QD:SP", 2.0)], identity="operator", generation=1)
 
     result = _run_guarded(
         hook_runner,
@@ -2328,7 +2317,8 @@ def held_lock(tmp_path):
     holders = []
 
     def hold(content):
-        lock_path = _guarded_dir(tmp_path, "va") / "run.lock"
+        guarded_dir(tmp_path, "va")
+        lock_path = lock_at(tmp_path, "va")
         child = subprocess.Popen(
             [sys.executable, "-c", _LOCK_HOLDER, str(lock_path), content],
             stdin=subprocess.PIPE,
@@ -2372,7 +2362,8 @@ def test_a_held_lock_with_no_holder_record_names_it_unknown(
 
 
 def test_a_free_lock_is_left_empty(tmp_path, hook_runner, make_config):
-    lock_path = _guarded_dir(tmp_path, "va") / "run.lock"
+    guarded_dir(tmp_path, "va")
+    lock_path = lock_at(tmp_path, "va")
 
     _run_guarded(
         hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
@@ -2382,8 +2373,9 @@ def test_a_free_lock_is_left_empty(tmp_path, hook_runner, make_config):
 
 
 def test_an_unreadable_journal_is_denied(tmp_path, hook_runner, make_config):
-    path = _guarded_dir(tmp_path, "va") / "run.journal"
-    path.write_bytes(b'{"header": {"target": "va"}}\nnot json\n{"address": "A", "value": 1}\n')
+    path = plant_raw_at(
+        tmp_path, "va", b'{"header": {"target": "va"}}\nnot json\n{"address": "A", "value": 1}\n'
+    )
 
     result = _run_guarded(
         hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
@@ -2415,7 +2407,7 @@ def _planted_victim(tmp_path):
 @pytest.mark.parametrize("kind", PLANTED_REFUSED)
 def test_a_planted_journal_name_is_denied_by_name(kind, tmp_path, hook_runner, make_config):
     victim, before = _planted_victim(tmp_path)
-    path = _guarded_dir(tmp_path, "va") / "run.journal"
+    path = guarded_dir(tmp_path, "va") / JOURNAL_FILE_NAME
     plant_kind(path, kind, victim)
 
     result = _run_guarded(
@@ -2432,7 +2424,8 @@ def test_a_planted_journal_name_is_denied_by_name(kind, tmp_path, hook_runner, m
 @pytest.mark.parametrize("kind", PLANTED_REFUSED)
 def test_a_planted_lock_name_is_denied_by_name(kind, tmp_path, hook_runner, make_config):
     victim, before = _planted_victim(tmp_path)
-    path = _guarded_dir(tmp_path, "va") / "run.lock"
+    guarded_dir(tmp_path, "va")
+    path = lock_at(tmp_path, "va")
     plant_kind(path, kind, victim)
 
     result = _run_guarded(
@@ -2447,10 +2440,10 @@ def test_a_planted_lock_name_is_denied_by_name(kind, tmp_path, hook_runner, make
 
 
 def test_a_linked_target_directory_is_denied_by_name(tmp_path, hook_runner, make_config):
-    level = _guarded_dir(tmp_path, "va")
-    _killed_run_journal(level / "run.journal")
+    level = guarded_dir(tmp_path, "va")
+    _killed_run_journal(level / JOURNAL_FILE_NAME)
     real = link_directory(level)
-    before = (real / "run.journal").read_bytes()
+    before = (real / JOURNAL_FILE_NAME).read_bytes()
 
     result = _run_guarded(
         hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
@@ -2459,22 +2452,22 @@ def test_a_linked_target_directory_is_denied_by_name(tmp_path, hook_runner, make
     assert _decision(result) == "deny"
     assert _reason(result) == f"{level} {LINKED_DIRECTORY_REFUSAL}"
     assert _updated(result) is None
-    assert (real / "run.journal").read_bytes() == before
-    assert sorted(entry.name for entry in real.iterdir()) == ["run.journal"]
+    assert (real / JOURNAL_FILE_NAME).read_bytes() == before
+    assert sorted(entry.name for entry in real.iterdir()) == [JOURNAL_FILE_NAME]
 
 
 def test_a_dispatch_run_with_a_pending_journal_is_denied(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
     monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
-    _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5)])
+    plant_at(tmp_path, "va", [("SR:QF:SP", 1.5)], identity="operator", generation=1)
 
     result = _run_guarded(
         hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
     )
 
     assert _decision(result) == "deny"
-    assert str(tmp_path / "var" / "guarded_run" / "va" / "run.journal") in _reason(result)
+    assert str(journal_at(tmp_path, "va")) in _reason(result)
 
 
 def test_a_dispatch_run_with_no_pending_journal_still_asks(
@@ -2556,7 +2549,7 @@ def _approved(mapping):
 def test_the_ask_stamp_carries_the_approved_fields_of_the_envelope(
     tmp_path, hook_runner, make_config, stamp_dir, tool, config, tool_input
 ):
-    _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5)])
+    plant_at(tmp_path, "va", [("SR:QF:SP", 1.5)], identity="operator", generation=1)
     agent_input = {
         **tool_input,
         "approved_journal_sha256": "agent-chosen",
@@ -2903,7 +2896,9 @@ def test_a_planted_journal_is_listed_in_the_measurement_prompt(tmp_path, hook_ru
     import hashlib
 
     _plant_view(tmp_path)
-    raw = _plant_journal(tmp_path, "va", [("SR:QF:01:SP", 1.5)])
+    raw = plant_at(
+        tmp_path, "va", [("SR:QF:01:SP", 1.5)], identity="operator", generation=1
+    ).read_bytes()
 
     result = _measure(hook_runner, make_config, tmp_path, {"kind": "trm"})
 
