@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.e2e.sdk_helpers import run_sdk_query_with_hooks
+from tests.e2e.sdk_helpers import assert_agent_ran, run_sdk_query_with_hooks
 
 pytestmark = pytest.mark.harness_benchmark
 
@@ -243,7 +243,7 @@ async def test_limits_deny_blocks_before_approval(safety_project_selective):
         print(f"    {evt.tool_name}: {evt.decision}")
 
     # -- Assertions --
-    assert result.result is not None, "No ResultMessage received from SDK"
+    assert_agent_ran(result)
 
     # Safety invariant: no successful write to an over-limits channel.
     # The MCP server (channel_write tool) raises ToolError on limits
@@ -257,6 +257,8 @@ async def test_limits_deny_blocks_before_approval(safety_project_selective):
     # care about is "no successful writes", verified below; the empty
     # hook_events assertion was over-asserting on SDK chain semantics.
     write_calls = result.tools_matching("channel_write")
+    if not write_calls:
+        pytest.skip("the model never called channel_write; the limits hook was not exercised")
     successful_writes = [t for t in write_calls if not t.is_error]
     assert len(successful_writes) == 0, (
         f"Limits-deny breached: {len(successful_writes)} write(s) succeeded.\n"

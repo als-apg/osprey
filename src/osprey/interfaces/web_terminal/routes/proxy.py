@@ -45,7 +45,6 @@ import ipaddress
 import json
 import logging
 import mimetypes
-import os
 import re
 from pathlib import Path
 from urllib.parse import ParseResult, urljoin, urlparse, urlunsplit
@@ -1432,9 +1431,9 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     # The event-dispatcher dashboard endpoints and its MCP transport are both
     # bearer-gated. Inject the dispatcher token server-side for the EVENTS panel
     # only, so the browser never holds it (and other panels are unaffected). The
-    # web-terminal process picks up EVENT_DISPATCHER_TOKEN from the project .env
-    # via load_dotenv, and it is stripped from every agent child environment —
-    # which is what makes this process the single point that can open either.
+    # token is read from the credential holder, which took it out of this
+    # process's environment at population — so no child this process spawns
+    # inherits it, and this process is the single point that can open either.
     #
     # Gated on the one question every injection site in this function asks —
     # :func:`_backend_earns_credentials` — rather than on the id string. A
@@ -1443,7 +1442,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     # to whatever host an off-box `events` panel names; a shared bearer token
     # leaving the machine is the same failure as the operator secret leaving it.
     if panel_id == _EVENTS_PANEL_ID and _backend_earns_credentials(request, panel_id, backend_url):
-        token = os.environ.get("EVENT_DISPATCHER_TOKEN", "")
+        token = get_web_credentials(request.app).dispatcher_token
         if token:
             fwd_headers["authorization"] = f"Bearer {token}"
 

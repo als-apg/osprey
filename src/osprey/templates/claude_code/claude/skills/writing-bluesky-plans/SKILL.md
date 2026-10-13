@@ -255,6 +255,13 @@ to all of them: no mock is built for it, so the dry run fails with a `KeyError`
 naming the devices that *were* built. If a plan cannot find its channels, the
 missing annotation is the first thing to check.
 
+**The channels a plan can name are the queue worker's devices**, which
+`list_devices` reads — not every address the channel finder knows. The dry run
+builds a mock for whatever `sample_args` name, so validation says nothing about
+whether those channels exist in the worker; the pre-enqueue check does, and it
+refuses a plan that names a device the worker never built. Choose the channels
+a plan moves and reads from `list_devices` before you validate with them.
+
 ---
 
 ## Stamp the run: `scan_metadata`

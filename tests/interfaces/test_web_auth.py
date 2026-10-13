@@ -14,6 +14,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
+import sys
 import threading
 import time
 from types import SimpleNamespace
@@ -2295,3 +2297,111 @@ class TestAnnouncedOriginFollowsTheConfiguredOne:
         url = web_auth.mint_and_announce("127.0.0.1", 8765)
 
         assert url.startswith("http://127.0.0.1:8765/?token=")
+
+
+# --------------------------------------------------------------------------- #
+# The holder's memory, and the dispatcher-side carriers it takes over
+# --------------------------------------------------------------------------- #
+
+_LINUX = sys.platform.startswith("linux")
+
+#: The event dispatcher's bearer, which the terminal's proxy injects on the
+#: EVENTS panel hop. Spelled as a literal here, as the deploy ``.env`` spells it.
+_DISPATCHER_TOKEN_ENV = "EVENT_DISPATCHER_TOKEN"
+
+#: The dispatcher-to-worker bearer. The web server has no use for it; it only
+#: has to be gone from ``os.environ`` before any agent is spawned.
+_WORKER_TOKEN_ENV = "DISPATCH_WORKER_TOKEN"
+
+
+@pytest.fixture(autouse=True)
+def _no_dispatcher_carriers(monkeypatch: pytest.MonkeyPatch):
+    """Start every test below with neither dispatcher-side carrier set."""
+    monkeypatch.delenv(_DISPATCHER_TOKEN_ENV, raising=False)
+    monkeypatch.delenv(_WORKER_TOKEN_ENV, raising=False)
+
+
+class TestProcessMemoryGuard:
+    """Population closes the holder's memory to same-uid peers."""
+
+    @pytest.mark.skipif(not _LINUX, reason="PR_SET_DUMPABLE is Linux")
+    def test_population_makes_the_process_non_dumpable(self) -> None:
+        """After the holder is built, the kernel reports the process non-dumpable.
+
+        The flag is put back to its default first so the assertion is about
+        what population did, not about an earlier test in this worker.
+        """
+        from osprey.utils import sensitive_env
+
+        assert sensitive_env._prctl(sensitive_env.PR_SET_DUMPABLE, 1) == 0
+
+        get_web_credentials()
+
+        assert sensitive_env._prctl(sensitive_env.PR_GET_DUMPABLE, 0) == 0
+
+
+class TestDispatcherTokenCarrier:
+    """The dispatcher bearer leaves ``os.environ`` at population and lives in the holder."""
+
+    def test_dispatcher_token_moves_from_environ_into_the_holder(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(_DISPATCHER_TOKEN_ENV, "dispatcher-bearer-value")
+
+        credentials = get_web_credentials()
+
+        assert credentials.dispatcher_token == "dispatcher-bearer-value"
+        assert _DISPATCHER_TOKEN_ENV not in os.environ
+
+    def test_blank_dispatcher_token_is_no_credential(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An unset compose variable interpolates to blank; blank must never inject."""
+        monkeypatch.setenv(_DISPATCHER_TOKEN_ENV, "   ")
+
+        assert get_web_credentials().dispatcher_token == ""
+
+    def test_absent_dispatcher_token_is_empty(self) -> None:
+        assert get_web_credentials().dispatcher_token == ""
+
+    def test_mint_and_announce_republishes_the_dispatcher_token_for_the_child(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A launcher re-publishes it as it does the operator secret, and the close removes it.
+
+        Under ``--reload`` and ``--detach`` the process that populated is not
+        the process that serves, and the environment is the only thing that
+        crosses that boundary; the serving process pops it at its own
+        population, and the direct-serve shape closes it at app construction.
+        """
+        monkeypatch.setenv(_DISPATCHER_TOKEN_ENV, "dispatcher-bearer-value")
+
+        web_auth.mint_and_announce("127.0.0.1", 8080)
+        assert os.environ.get(_DISPATCHER_TOKEN_ENV) == "dispatcher-bearer-value"
+
+        web_auth.close_env_carriers()
+        assert _DISPATCHER_TOKEN_ENV not in os.environ
+
+    def test_mint_and_announce_publishes_no_dispatcher_token_when_none_is_held(self) -> None:
+        web_auth.mint_and_announce("127.0.0.1", 8080)
+
+        assert _DISPATCHER_TOKEN_ENV not in os.environ
+
+
+class TestWorkerTokenCarrier:
+    """The worker bearer is dropped from ``os.environ`` wherever the holder closes carriers."""
+
+    def test_population_drops_the_worker_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(_WORKER_TOKEN_ENV, "worker-bearer-value")
+
+        get_web_credentials()
+
+        assert _WORKER_TOKEN_ENV not in os.environ
+
+    def test_close_env_carriers_drops_the_worker_token(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        get_web_credentials()
+        monkeypatch.setenv(_WORKER_TOKEN_ENV, "worker-bearer-value")
+
+        web_auth.close_env_carriers()
+
+        assert _WORKER_TOKEN_ENV not in os.environ

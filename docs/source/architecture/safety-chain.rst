@@ -297,6 +297,18 @@ escape in a notebook (``!python -c …``), which starts a fresh interpreter with
 These are **cooperative bypasses**: the block keeps honest code on the checked path, and it is
 not a sandbox. See :ref:`python-executor-armed-block` and :ref:`connector-write-door`.
 
+**The approval prompt attributes a write to a person; it does not contain code already running
+in the container.** The prompt is answered at the terminal, and the terminal's server runs in
+the same container, as the same user, as the agent and everything the agent runs. What keeps
+that code from answering in the operator's name is that the server's credentials are out of
+its reach: they leave the environment before any agent is spawned, and the server closes its
+own memory to other processes of its user, the measure an SSH agent takes for the keys it holds;
+the dispatch worker does the same. What the prompt cannot do is stand in for the checks above
+against code that has its own way to a write --- the cooperative bypasses, or the container's
+network reach to the control system. Those are the connector's checks and the deployment's
+network to close. The mechanical boundaries of record are the connector's mediation and the
+containers themselves; the prompt is the record that a person intended the write.
+
 The name the control system sees
 --------------------------------
 
