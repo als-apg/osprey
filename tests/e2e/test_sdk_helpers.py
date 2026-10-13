@@ -18,10 +18,13 @@ from osprey.agent_runner.primitives import SDKWorkflowResult, ToolTrace
 from osprey.agent_runner.project_paths import claude_project_dir
 from tests.e2e.sdk_helpers import (
     HOOK_ATTACHMENT_PREFIX,
+    JUDGE_RESULT_CHARS,
+    ONE_SHOT_DISALLOWED_TOOLS,
     TRANSCRIPT_SUBDIR,
     HookEvent,
     _bind_approval_policy,
     _log_query_timing,
+    assert_agent_ran,
     dump_agent_transcript,
     e2e_budget_cap,
     e2e_budget_scale,
@@ -32,14 +35,18 @@ pytestmark = pytest.mark.model_free
 
 # ---------------------------------------------------------------------------
 # The agent-transcript dump. Its whole reason to exist is that the judge sees
-# tool results previewed at 300 characters, so the property worth pinning is
+# tool results previewed at JUDGE_RESULT_CHARS, so the property worth pinning is
 # that the artifact is NOT truncated — a dump that inherited the same limit
 # would look like coverage while answering nothing.
 # ---------------------------------------------------------------------------
 
 
-def _result_with_a_long_tool_result(size: int = 5000):
-    """One trace whose result is far longer than the judge's 300-char preview."""
+# Twice the judge's preview, so a dump that inherited the preview's cut fails.
+_LONG_RESULT_CHARS = 2 * JUDGE_RESULT_CHARS
+
+
+def _result_with_a_long_tool_result(size: int = _LONG_RESULT_CHARS):
+    """One trace whose result is far longer than the judge's preview."""
     return SDKWorkflowResult(
         text_blocks=["I measured the ring.", "The response is linear."],
         tool_traces=[
@@ -71,8 +78,8 @@ def test_transcript_dump_keeps_tool_results_whole(tmp_path, monkeypatch):
     """The payload must carry the full tool result, not a preview.
 
     This is the defect the dump exists to close: `_to_workflow_result` cuts
-    every result to 300 characters before the judge sees it, and a
-    `get_run_data` body spends that budget on `run_uid` and `columns`.
+    every result to `JUDGE_RESULT_CHARS` before the judge sees it, so a long
+    `get_run_data` body is never seen whole.
     """
     monkeypatch.setenv("OSPREY_CI_DIAG_DIR", str(tmp_path))
 
@@ -81,7 +88,7 @@ def test_transcript_dump_keeps_tool_results_whole(tmp_path, monkeypatch):
     assert target is not None
     assert target == tmp_path / TRANSCRIPT_SUBDIR / "orbit_response.json"
     payload = json.loads(target.read_text(encoding="utf-8"))
-    assert len(payload["tool_traces"][0]["result"]) == 5000
+    assert len(payload["tool_traces"][0]["result"]) == _LONG_RESULT_CHARS
     assert payload["response"] == "I measured the ring.\nThe response is linear."
     # No render, no hook stdout: the six plan-stack dump sites that call this
     # without one must keep exactly the payload they had.
@@ -456,3 +463,97 @@ def test_an_infinite_budget_scale_sends_no_cap_and_passes_every_cost_ceiling(mon
     assert e2e_budget_cap(2.0) is None
     assert math.isinf(e2e_budget_scale())
     assert 1e6 < 0.5 * e2e_budget_scale()
+
+
+# ---------------------------------------------------------------------------
+# assert_agent_ran: a deny test may only pass on a session that actually ran.
+# ---------------------------------------------------------------------------
+
+
+def _ended(*, is_error: bool, tool_calls: int, text: str = "") -> SDKWorkflowResult:
+    return SDKWorkflowResult(
+        tool_traces=[
+            ToolTrace(name="mcp__controls__channel_read", input={}) for _ in range(tool_calls)
+        ],
+        result=SimpleNamespace(is_error=is_error, result=text),
+    )
+
+
+def test_a_session_that_errored_before_any_tool_call_never_ran():
+    with pytest.raises(AssertionError, match="never ran.*Not logged in"):
+        assert_agent_ran(_ended(is_error=True, tool_calls=0, text="Not logged in"))
+
+
+def test_a_session_without_a_result_message_fails():
+    with pytest.raises(AssertionError, match="No ResultMessage"):
+        assert_agent_ran(SDKWorkflowResult())
+
+
+@pytest.mark.parametrize(
+    ("is_error", "tool_calls"),
+    [(False, 0), (True, 3), (False, 2)],
+    ids=["text-refusal", "turn-cap", "ordinary-run"],
+)
+def test_a_session_that_ran_passes(is_error, tool_calls):
+    assert_agent_ran(_ended(is_error=is_error, tool_calls=tool_calls))
+
+
+# ---------------------------------------------------------------------------
+# A one-shot SDK session is never re-invoked, so a tool that ends the turn
+# expecting a later wake-up strands the run with its work half done.
+# ---------------------------------------------------------------------------
+
+
+def test_the_one_shot_floor_is_the_scheduling_subset_of_the_headless_denies():
+    """Every name is one the pinned CLI lists (the conformance test holds that
+    for READ_ONLY_DENIED_BUILTINS), and the floor names scheduling only."""
+    from osprey.agent_runner.tool_names import READ_ONLY_DENIED_BUILTINS
+
+    assert "ScheduleWakeup" in ONE_SHOT_DISALLOWED_TOOLS
+    assert set(ONE_SHOT_DISALLOWED_TOOLS) <= set(READ_ONLY_DENIED_BUILTINS)
+    assert "Bash" not in ONE_SHOT_DISALLOWED_TOOLS
+
+
+@pytest.mark.parametrize("runner", ["run_sdk_query", "run_sdk_query_with_hooks"])
+async def test_every_sdk_run_disallows_the_one_shot_floor(tmp_path, monkeypatch, runner):
+    """Both runners add the floor under whatever the caller disallowed."""
+    from tests.e2e import sdk_helpers
+
+    (tmp_path / "build").mkdir()
+    seen: dict = {}
+
+    class _Options:
+        def __init__(self, **kwargs):
+            seen.update(kwargs)
+            raise RuntimeError("stop here: the options are what the test reads")
+
+    monkeypatch.setattr(sdk_helpers, "ClaudeAgentOptions", _Options)
+    monkeypatch.setattr(sdk_helpers, "resolve_default_model", lambda render: "m")
+    monkeypatch.setattr(sdk_helpers, "project_agent_cli_path", lambda render: "claude")
+    monkeypatch.setattr(sdk_helpers, "sdk_env", lambda render: {})
+    with pytest.raises(RuntimeError, match="stop here"):
+        await getattr(sdk_helpers, runner)(tmp_path, "hello", disallowed_tools=["Bash"])
+
+    assert "Bash" in seen["disallowed_tools"]
+    for name in ONE_SHOT_DISALLOWED_TOOLS:
+        assert name in seen["disallowed_tools"], name
+
+
+# ---------------------------------------------------------------------------
+# A rerun must not erase the attempt it is retrying.
+# ---------------------------------------------------------------------------
+
+
+def test_transcript_dump_keeps_every_attempt(tmp_path, monkeypatch):
+    """Two dumps under one name leave two files, the first untouched: the
+    attempt a rerun retries is the one worth reading."""
+    monkeypatch.setenv("OSPREY_CI_DIAG_DIR", str(tmp_path))
+
+    first = dump_agent_transcript("orbit_response", _result_with_a_long_tool_result(10))
+    second = dump_agent_transcript("orbit_response", _result_with_a_long_tool_result(20))
+
+    assert first is not None and second is not None
+    assert first != second
+    assert first.parent == second.parent
+    assert len(json.loads(first.read_text())["tool_traces"][0]["result"]) == 10
+    assert len(json.loads(second.read_text())["tool_traces"][0]["result"]) == 20

@@ -57,6 +57,7 @@ from osprey.mcp_server.dispatch_worker import (
     run_stats,
     sdk_runner,
 )
+from osprey.mcp_server.dispatch_worker.credentials import WORKER_TOKEN_ENV, worker_credentials
 from osprey.mcp_server.dispatch_worker.input_files_policy import (
     InputFilesError,
     sanitize_filename,
@@ -441,11 +442,11 @@ def _start_retention_sweep() -> asyncio.Task | None:
 
 
 def _verify_token(credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme)) -> None:
-    expected = os.environ.get("DISPATCH_WORKER_TOKEN", "")
+    expected = worker_credentials().worker_token
     if not expected:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="DISPATCH_WORKER_TOKEN is not configured",
+            detail=f"{WORKER_TOKEN_ENV} is not configured",
         )
     # Constant-time comparison to avoid leaking the token via timing, matching
     # the dispatcher's _check_auth / WebhookSource._handle — over bytes, so a

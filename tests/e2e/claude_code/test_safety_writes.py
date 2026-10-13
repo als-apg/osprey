@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.e2e.sdk_helpers import run_sdk_query_with_hooks
+from tests.e2e.sdk_helpers import assert_agent_ran, run_sdk_query_with_hooks
 
 pytestmark = pytest.mark.harness_benchmark
 
@@ -122,7 +122,7 @@ async def test_write_over_limits_denied(safety_project):
         print(f"    result preview: {result_preview}")
 
     # -- Assertions --
-    assert result.result is not None, "No ResultMessage received from SDK"
+    assert_agent_ran(result)
 
     # Tool-trace assertion: the limits hook must produce zero successful
     # write tool results. Either the model didn't call channel_write (it
@@ -137,6 +137,8 @@ async def test_write_over_limits_denied(safety_project):
     # safety invariant ("no successful writes") is what matters and is
     # also enforced server-side in the channel_write MCP tool.
     write_calls = result.tools_matching("channel_write")
+    if not write_calls:
+        pytest.skip("the model never called channel_write; the limits hook was not exercised")
     successful_writes = [t for t in write_calls if not t.is_error]
     assert len(successful_writes) == 0, (
         f"Limits hook breached: {len(successful_writes)} write(s) succeeded.\n"
@@ -190,13 +192,15 @@ async def test_write_to_readonly_denied(safety_project):
         print(f"    result preview: {result_preview}")
 
     # -- Assertions --
-    assert result.result is not None, "No ResultMessage received from SDK"
+    assert_agent_ran(result)
 
     # Tool-trace assertion: no successful write to a read-only channel.
     # See test_write_over_limits_denied for the rationale (and the note
     # on Claude Code 2.1.27 hook chain semantics — hook_events may be
     # non-empty even when the limits hook denies).
     write_calls = result.tools_matching("channel_write")
+    if not write_calls:
+        pytest.skip("the model never called channel_write; the read-only check was not exercised")
     successful_writes = [t for t in write_calls if not t.is_error]
     assert len(successful_writes) == 0, (
         f"Read-only protection breached: {len(successful_writes)} write(s) succeeded.\n"

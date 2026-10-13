@@ -25,6 +25,7 @@ Same conventions as ``read_tools.py``: ``async def``, JSON string return
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 
@@ -35,6 +36,8 @@ from osprey.mcp_server.bluesky.server_context import _http_post_json, bridge_err
 from osprey.mcp_server.bluesky.tools.draft import _plans_panel_id
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity
+from osprey.services.bluesky_bridge.models import DRY_RUN_TIMEOUT_CEILING_SECONDS
+from osprey.services.bluesky_bridge.plan_validation import _DRY_RUN_GRACE_SECONDS
 
 logger = logging.getLogger("osprey.mcp_server.bluesky.tools.authoring")
 
@@ -138,6 +141,11 @@ async def write_plan(
 # ---------------------------------------------------------------------------
 # Tool 2: validate a session-tier plan file
 # ---------------------------------------------------------------------------
+#: Seconds the validate request allows, past the dry run and its grace, for the
+#: upload of a passing plan into the queue worker's namespace.
+_UPLOAD_MARGIN_SECONDS = 15.0
+
+
 @mcp.tool()
 async def validate_plan(
     name: str,
@@ -163,7 +171,8 @@ async def validate_plan(
             generator and mock devices (e.g. device names, point counts).
             Omit only for a `PARAMS` with no required fields.
         dry_run_timeout: Seconds the dry-run subprocess is given to drive the
-            plan to completion.
+            plan to completion, at most ``DRY_RUN_TIMEOUT_CEILING_SECONDS``
+            (300); a sample run that needs longer should sleep less.
 
     Returns:
         JSON ``{"passed", "reasons", "content_hash", "upload"}``. ``reasons``
@@ -176,8 +185,26 @@ async def validate_plan(
         an upload lands, so ``reason``/``detail`` are what to relay if a later
         queue_add is refused with ``session_plan_not_in_namespace``.
     """
+    if not 0 < dry_run_timeout <= DRY_RUN_TIMEOUT_CEILING_SECONDS:
+        return make_error(
+            "validation_error",
+            f"dry_run_timeout must be more than 0 and at most "
+            f"{DRY_RUN_TIMEOUT_CEILING_SECONDS:.0f} seconds, got {dry_run_timeout}",
+            [
+                "The dry run bounds how long the bridge and this call wait; give the "
+                "sample run less to sleep through rather than more time."
+            ],
+        )
     payload = {"name": name, "sample_args": sample_args, "dry_run_timeout": dry_run_timeout}
-    status, resp_body = await anyio.to_thread.run_sync(_http_post_json, "/plans/validate", payload)
+    # The request outlives the work it commissions: the bridge drives the dry
+    # run for ``dry_run_timeout`` plus its grace, and only then uploads a pass.
+    # Capped below that, the client reports the bridge unreachable while the
+    # bridge is still validating, then passes and uploads a plan the agent was
+    # told had failed.
+    request_timeout = dry_run_timeout + _DRY_RUN_GRACE_SECONDS + _UPLOAD_MARGIN_SECONDS
+    status, resp_body = await anyio.to_thread.run_sync(
+        functools.partial(_http_post_json, "/plans/validate", payload, timeout=request_timeout)
+    )
     if status == 404:
         return make_error(
             "unknown_session_plan",

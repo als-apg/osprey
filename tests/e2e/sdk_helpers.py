@@ -674,6 +674,20 @@ def activate_scenarios(repo: Path, *names: str, now=None):
 # anything worth reading in the first place.
 SCENARIO_INTEGRITY_DISALLOWED_TOOLS = ["Bash", "Glob", "Grep"]
 
+# A one-shot SDK session ends with its turn and nothing re-invokes it. A tool
+# that ends the turn expecting a later wake-up, or that schedules work for a
+# session that will not exist, strands the run with its work half done: the
+# agent is told it will be called back and never is. These are the scheduling
+# names of the headless deny floor (``READ_ONLY_DENIED_BUILTINS``), so the
+# pinned CLI lists every one of them; both runners below add them under
+# whatever a caller disallows.
+ONE_SHOT_DISALLOWED_TOOLS = ["ScheduleWakeup", "CronCreate", "Workflow"]
+
+
+def _with_one_shot_floor(disallowed_tools: list[str] | None) -> list[str]:
+    """The caller's ``disallowed_tools`` with :data:`ONE_SHOT_DISALLOWED_TOOLS` under it."""
+    return list(dict.fromkeys([*ONE_SHOT_DISALLOWED_TOOLS, *(disallowed_tools or [])]))
+
 
 def conceal_scenario_ground_truth(repo: Path, *scenarios: str) -> None:
     """Delete the named scenarios' definition bundles from the deployment repo.
@@ -988,6 +1002,22 @@ def _harvest_subagent_traces(
                         matched.is_error = bool(block.get("is_error"))
 
 
+def assert_agent_ran(result: SDKWorkflowResult) -> None:
+    """Fail when the agent session ended in error before its first tool call.
+
+    A deny test passes when nothing forbidden succeeded, and a session that
+    never ran (no credentials — ``Not logged in`` — or an unreachable
+    upstream) meets that without the gate being reached. Such a session ends
+    ``is_error`` with no tool calls. A session that hits its turn cap ends
+    ``is_error`` too but has tool calls, and a model that refuses in text alone
+    ends without error; both did run, so neither fails here.
+    """
+    assert result.result is not None, "No ResultMessage received from SDK"
+    assert result.tool_traces or not result.result.is_error, (
+        f"The agent never ran: {result.result.result}"
+    )
+
+
 def e2e_budget_scale() -> float:
     """Per-query budget multiplier for the model under test.
 
@@ -1077,7 +1107,7 @@ async def run_sdk_query(
         env=sdk_env(render),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
-        disallowed_tools=disallowed_tools or [],
+        disallowed_tools=_with_one_shot_floor(disallowed_tools),
         resume=resume,
     )
 
@@ -1309,7 +1339,7 @@ async def run_sdk_query_with_hooks(
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
         can_use_tool=_can_use_tool,
-        disallowed_tools=disallowed_tools or [],
+        disallowed_tools=_with_one_shot_floor(disallowed_tools),
     )
 
     workflow = HookObservedResult()
@@ -1432,6 +1462,25 @@ def hook_attachments(result: SDKWorkflowResult, render: Path) -> list[dict[str, 
 # ---------------------------------------------------------------------------
 
 
+#: How much of one tool result the LLM judge reads. A ``get_run_figure`` or
+#: ``get_run_data`` payload carries its measured values thousands of characters
+#: in (past the run id, columns and axis labels), so a short preview hands the
+#: judge a response whose numbers it cannot check.
+JUDGE_RESULT_CHARS = 8000
+
+
+def judge_result_preview(text: str) -> str:
+    """One tool result as the LLM judge reads it: on one line, cut at
+    :data:`JUDGE_RESULT_CHARS`.
+
+    Whitespace is collapsed so that a result is one line of the execution
+    trace; the judge's excerpt keeps the first and last 50 trace lines, and a
+    multi-line result would otherwise push other tool calls out of it.
+    """
+    flat = " ".join(text.split())
+    return flat[:JUDGE_RESULT_CHARS] + ("…" if len(flat) > JUDGE_RESULT_CHARS else "")
+
+
 #: Sub-directory of ``OSPREY_CI_DIAG_DIR`` that transcripts are written to.
 #: Separate from the records :mod:`tests.ci_diagnostics` keeps in the same
 #: directory, so a per-worker event log and a per-test transcript can never
@@ -1445,13 +1494,12 @@ def _transcript_payload(
     """The serialisable form of one agent run — deliberately UNTRUNCATED.
 
     Truncation is the whole reason this exists. ``_to_workflow_result``
-    previews every tool result at 300 characters before the judge ever sees
-    it, and a ``get_run_data`` payload spends its first 300 characters on
-    ``run_uid`` and ``columns``, so not one measured value survives into the
-    judge's view. When the judge then reports that a response's numbers
-    "cannot be verified from the execution trace", nothing anywhere records
-    what the tools actually returned, and the verdict text is left as the only
-    account of a response nobody can re-read.
+    previews every tool result (:func:`judge_result_preview`) before the judge
+    ever sees it, so a result longer than the preview is never seen whole.
+    When the judge then reports that a response's numbers "cannot be verified
+    from the execution trace", nothing anywhere records what the tools
+    actually returned, and the verdict text is left as the only account of a
+    response nobody can re-read.
 
     ``mcp_server_status`` is included because it is the infra-vs-model
     discriminator: a tool the agent never called means one thing if the
@@ -1522,6 +1570,12 @@ def dump_agent_transcript(
         # Test ids carry ``[]`` from parametrisation and ``/`` from paths.
         safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in name) or "transcript"
         target = target_dir / f"{safe}.json"
+        # A name dumped before in this run gets a numbered file: a rerun must
+        # not erase the attempt it is retrying, which is the one worth reading.
+        attempt = 2
+        while target.exists():
+            target = target_dir / f"{safe}.{attempt}.json"
+            attempt += 1
         target.write_text(
             json.dumps(_transcript_payload(name, result, render), indent=2, default=str),
             encoding="utf-8",

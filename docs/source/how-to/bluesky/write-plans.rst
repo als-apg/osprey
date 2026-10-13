@@ -155,6 +155,13 @@ recorded and never written. The name is what a plan and the agent refer to, and
 it is also the column heading in the run's data, so each name may appear only
 once across both lists.
 
+A plan the agent writes during a session names channels from this same set.
+``list_devices`` reads it, and the pre-enqueue check refuses a plan that names
+a device the file does not declare — validation builds a mock for whatever the
+sample arguments name, so it says nothing about what the worker has. The
+channel finder answers for the whole facility; this file answers for the queue
+worker, and a plan's channels come from here.
+
 When a plan drives a settable, the write is followed by a poll of the readback
 until it reaches the demand. Two profile keys bound that wait:
 ``bluesky.settle_timeout_s`` (default 5.0 seconds) is how long the poll runs
