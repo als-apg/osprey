@@ -58,9 +58,21 @@ function notOkResponse() {
   };
 }
 
-beforeEach(() => {
+/**
+ * Mount the panel and put it in form mode through its own switch. The mode
+ * lives at module scope and outlives a remount, so every case starts from the
+ * mode the DOM's default button names.
+ */
+function setUpPanel() {
   mountFixture();
   initSettings();
+  /** @type {HTMLElement} */ (
+    document.querySelector('.settings-mode-btn[data-mode="form"]')
+  ).click();
+}
+
+beforeEach(() => {
+  setUpPanel();
 });
 
 afterEach(() => {
