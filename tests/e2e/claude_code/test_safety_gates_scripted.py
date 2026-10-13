@@ -306,3 +306,37 @@ async def test_channel_write_is_refused_on_live_when_only_va_is_armed(
     assert "active target (live)" in (refused.result or "")
     assert_no_callback(result, WRITE)
     assert_untouched(reading(before, CORRECTOR), reading(after, CORRECTOR), 5.0)
+
+
+# ---------------------------------------------------------------------------
+# A refusal holds when the call is repeated, and is per call within a turn
+# ---------------------------------------------------------------------------
+
+
+async def test_a_repeated_forbidden_write_is_refused_each_time(safety_project, scripted_model):
+    """The same over-limit write in two consecutive turns is refused twice."""
+    _, result = await drive(
+        safety_project,
+        scripted_model,
+        [[read(SETPOINT)], [write(SETPOINT, 999.0)], [write(SETPOINT, 999.0)], [read(SETPOINT)]],
+    )
+    before, first, second, after = result.tool_traces
+    for refused in (first, second):
+        assert_hook_refused(refused, own=LIMITS_REASON, other=WRITES_REASON)
+    assert_no_callback(result, WRITE)
+    assert_untouched(reading(before, SETPOINT), reading(after, SETPOINT), 999.0)
+
+
+async def test_a_forbidden_write_beside_an_allowed_read_refuses_only_the_write(
+    safety_project, scripted_model
+):
+    """A read and a forbidden write in one turn: the read answers, the write is refused."""
+    _, result = await drive(
+        safety_project, scripted_model, [[read(SETPOINT), write(READBACK, 1.0)], [read(READBACK)]]
+    )
+    by_name = {t.name: t for t in result.tool_traces[:2]}
+    assert set(by_name) == {READ, WRITE}
+    assert reading(by_name[READ], SETPOINT) < 100.0
+    assert_hook_refused(by_name[WRITE], own=LIMITS_REASON, other=WRITES_REASON)
+    assert_no_callback(result, WRITE)
+    assert abs(reading(result.tool_traces[2], READBACK) - 1.0) > 100.0
