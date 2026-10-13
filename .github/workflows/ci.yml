@@ -190,7 +190,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.11', '3.12']
+        python-version: ['3.11', '3.12', '3.14']
         os: [ubuntu-latest, macos-latest]
         # Each cell runs as two jobs. `cli` is tests/cli alone; `rest` is
         # everything else. Measured on the per-test event logs of a full run,
@@ -226,7 +226,12 @@ jobs:
         # coverage cell: same interpreter, different OS, so a failure isolates
         # to the OS. 3.11 stays covered on ubuntu, and on macOS everywhere
         # except pull requests.
-        exclude: ${{ fromJSON(github.event_name == 'pull_request' && '[{"python-version":"3.11","os":"macos-latest"}]' || '[]') }}
+        #
+        # 3.14 runs on ubuntu only, on every event. It is in the matrix for the
+        # interpreter's own removals -- behaviour 3.11 and 3.12 only warn about
+        # and 3.14 raises on -- and those do not depend on the OS. A third macOS
+        # cell would put a main-push run at 6 macOS jobs against the ceiling of 5.
+        exclude: ${{ fromJSON(github.event_name == 'pull_request' && '[{"python-version":"3.11","os":"macos-latest"},{"python-version":"3.14","os":"macos-latest"}]' || '[{"python-version":"3.14","os":"macos-latest"}]') }}
 
     steps:
     - name: Checkout repository
