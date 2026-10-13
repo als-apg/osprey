@@ -575,7 +575,9 @@ profile's ``.env`` and rebuild:
 - ``EVENT_DISPATCHER_TOKEN`` — guards **inbound** webhook and write endpoints,
   and the MCP transport at ``/mcp`` that ``manual_fire`` arrives on. Send it as
   ``Authorization: Bearer <token>``.
-- ``DISPATCH_WORKER_TOKEN`` — guards the **dispatcher → worker** calls.
+- ``DISPATCH_WORKER_TOKEN`` — guards the **dispatcher → worker** calls. The
+  worker takes it out of its environment into memory when it starts, so the
+  runs it launches do not inherit it.
 
 Anything that drives the pipeline from outside holds both. A :doc:`chat bridge
 <chat-bridges/index>`, for instance, fires its trigger at the dispatcher with
