@@ -25,7 +25,9 @@ the number it bounds -- the big index against the demo matrix, and the median
 matrix shape against the unfiltered scan the matrix opens with -- and host load
 divides out. The build budgets and the cold-search budget stay absolute: they
 are coarse enough that contention does not reach them, and there is no cheaper
-thing in the same process to measure them against.
+thing in the same process to measure them against. Those four carry the
+``wallclock`` marker, so the benchmark job times them in a serial invocation of
+their own, apart from the rest of the module.
 
 The whole module is therefore marked ``channel_finder_benchmark`` as well as
 ``slow``: it is deselected from CI's unit lane and runs on demand, in the
@@ -635,6 +637,7 @@ class TestHundredThousandBindings:
         assert row_count == SECTION_COUNT * len(_FAMILIES) * ORDINAL_COUNT
         assert row_count == 100_000
 
+    @pytest.mark.wallclock
     def test_writing_a_hundred_thousand_rows_stays_inside_its_budget(self, built):
         index_path, row_count, elapsed = built
 
@@ -721,6 +724,7 @@ class TestDemoCorpusOverTheParityMatrix:
     def demo_text(self, demo_path: Path) -> str:
         return demo_path.read_text(encoding="utf-8")
 
+    @pytest.mark.wallclock
     def test_parsing_the_demo_corpus_alone_stays_inside_its_budget(self, demo_text: str):
         started = time.perf_counter()
         parse_corpus(demo_text)
@@ -733,6 +737,7 @@ class TestDemoCorpusOverTheParityMatrix:
             f"parsing the demo corpus took {elapsed:.2f} s, budget {DEMO_PARSE_SECONDS} s"
         )
 
+    @pytest.mark.wallclock
     def test_building_the_demo_corpus_stays_inside_its_budget(self, demo_build: tuple[Path, float]):
         _, elapsed = demo_build
 
@@ -784,6 +789,7 @@ class TestDemoCorpusOverTheParityMatrix:
 
         assert len(statements) == STATEMENTS_PER_SEARCH, statements
 
+    @pytest.mark.wallclock
     def test_the_first_search_after_opening_answers_at_once(self, demo_index_path: Path):
         index = _open(demo_index_path)
         try:

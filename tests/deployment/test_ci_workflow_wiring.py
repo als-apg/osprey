@@ -200,6 +200,8 @@ class SerialHost:
     #: parallel lane deselects the marker everywhere and nothing else runs it.
     path: str
     #: The literal on the step's pytest line that picks the marker back up.
+    #: A step may hold other pytest lines beside that one; each of them
+    #: deselects the marker.
     select: str
 
 
@@ -246,6 +248,13 @@ LANE_LEAVING_MARKERS = (
                 "qmd-sidecar-e2e",
                 "Run the wall-clock budgets serially",
                 "tests/integration/",
+                "-m wallclock",
+            ),
+            # On demand: the module is slow, so no per-PR step collects it.
+            SerialHost(
+                "channel-finder-benchmarks",
+                "Search-index scale guard (no LLM, no store)",
+                "tests/services/channel_finder/graph_index/test_scale.py",
                 "-m wallclock",
             ),
         ),
@@ -1100,10 +1109,12 @@ def test_every_boot_smoke_test_runs_in_one_cell__mutation_hides_the_case_in_a_cl
 #:    that is gated on a single matrix cell. libca is process-global and not
 #:    thread-safe, so a shared xdist worker is precisely what they cannot have,
 #:    and the gate — not a path in a run step — is what proves they ran;
-#:  * the search-index scale guard holds latency budgets taken on a workstation
-#:    that four workers sharing a runner miss by design, so it runs alone in the
-#:    on-demand benchmark job. The `channel_finder_benchmark` marker text in
-#:    pyproject.toml states the same rule from the other side.
+#:  * the search-index scale guard is `slow` and runs on demand, alone in the
+#:    benchmark job, so the lane ignores the module by path. Its absolute
+#:    budgets are not held by that ignore: they carry the `wallclock` marker,
+#:    and the marker's row in LANE_LEAVING_MARKERS names the benchmark step as
+#:    their serial host. The `channel_finder_benchmark` marker text in
+#:    pyproject.toml states the on-demand rule from the other side.
 UNIT_LANE_IGNORE_EXEMPTIONS = frozenset(
     {
         "tests/va/test_apply_fault.py",
@@ -1718,12 +1729,21 @@ def test_every_marked_file_lives_where_a_serial_step_looks__mutation_strays(
 def _check_host(wf: dict[str, Any], host: SerialHost) -> None:
     commands = _host_invocations(wf, host)
     assert commands, f"'{host.step}' must invoke pytest"
+    host_lines = [run for run in commands if host.select in run]
+    assert host_lines, (
+        f"'{host.step}' must select the marker with {host.select!r}, so unmarked "
+        f"files under {host.path} are not run a second time here; got: {commands!r}"
+    )
+    deselect = f"not {host.select.removeprefix('-m ')}"
     for run in commands:
+        if run not in host_lines:
+            assert deselect in run, (
+                f"'{host.step}' holds a pytest line beside its host line that does not "
+                f"carry {deselect!r}, so it times the marked tests among the others; "
+                f"got: {run!r}"
+            )
+    for run in host_lines:
         assert host.path.rstrip("/") in run, f"'{host.step}' must select {host.path}; got: {run!r}"
-        assert host.select in run, (
-            f"'{host.step}' must select the marker with {host.select!r}, so unmarked "
-            f"files under {host.path} are not run a second time here; got: {run!r}"
-        )
         assert not _XDIST_WORKERS_RE.search(run), (
             f"'{host.step}' runs pytest with xdist workers; the marked tests read the "
             f"machine and must not compete with each other"
@@ -1778,6 +1798,20 @@ def test_marker_runs_in_its_own_serial_step__mutation_drops_the_select(host: Ser
     step["run"] = original.replace(f" {host.select}", "")
     assert step["run"] != original, "marker selection not found; mutation is stale"
     with pytest.raises(AssertionError):
+        _check_host(mutated, host)
+
+
+def test_marker_runs_in_its_own_serial_step__mutation_neighbour_line_drops_the_term() -> None:
+    """A host step may run the rest of its module on a line of its own; that
+    line without the term times the budgets a second time, among the others."""
+    row = _row("wallclock")
+    host = next(h for h in row.hosts if h.job == BENCHMARKS_JOB)
+    mutated = _load_workflow()
+    step = _find_named_step(mutated, host.job, host.step)
+    original = step["run"]
+    step["run"] = original.replace(f' -m "{row.deselect_term()}"', "")
+    assert step["run"] != original, "neighbour-line deselection not found; mutation is stale"
+    with pytest.raises(AssertionError, match="beside its host line"):
         _check_host(mutated, host)
 
 

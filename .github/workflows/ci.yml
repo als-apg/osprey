@@ -1839,12 +1839,18 @@ jobs:
       # The unit lane ignores this module by path: its budgets are held to a
       # workstation's numbers, and four xdist workers on a four-vCPU runner
       # miss them by ~7x on both corpora at once — the box, not the code (see
-      # the module docstring). It runs here instead, serially and alone.
+      # the module docstring). It runs here instead, serially and alone, in
+      # two invocations: the first runs everything but the absolute budgets,
+      # the second is the serial host of the module's wallclock-marked
+      # budgets and times them with nothing else in the process. Each
+      # invocation builds the project and the hundred-thousand-row index for
+      # itself, which is a cost only an on-demand job can carry.
       # Placed ahead of the probe below deliberately: a DuckDB latency
       # measurement needs no API key, and gating it on one would mean an
       # unreachable proxy silently takes the scale guard down with it.
       run: |
-        uv run pytest tests/services/channel_finder/graph_index/test_scale.py -v --tb=short
+        uv run pytest tests/services/channel_finder/graph_index/test_scale.py -m "not wallclock" -v --tb=short
+        uv run pytest tests/services/channel_finder/graph_index/test_scale.py -m wallclock -v --tb=short
 
     - name: Pre-flight LLM endpoint reachability check
       env:
