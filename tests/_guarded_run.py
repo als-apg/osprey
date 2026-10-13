@@ -30,15 +30,20 @@ import osprey.runtime.guarded_run as guarded_run
 from osprey.runtime.guarded_run import (
     ENV_APPROVED_JOURNAL_SHA256,
     ENV_APPROVED_TARGET,
+    GUARDED_RUN_DIR,
     JOURNAL_FILE_NAME,
+    LOCK_FILE_NAME,
     guarded_run_dir,
     lock,
 )
 from osprey.runtime.journal import DurableJournal
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.workspace import STATE_DIR_NAME, reset_config_cache
 
 #: The generation this process is stamped with.
 GENERATION = 4
+
+#: The start time every planted journal's header records.
+STARTED = "2026-01-01T00:00:00Z"
 
 #: An ``approval`` block that puts every tool's call to a human.
 ASKING = {"enabled": True, "default_policy": "always"}
@@ -94,6 +99,55 @@ def journal_path(target: str = "live") -> Path:
     return guarded_run_dir(target) / JOURNAL_FILE_NAME
 
 
+def guarded_root(root: Path) -> Path:
+    """The guarded-run directory under the project ``root``; creates nothing."""
+    return root / STATE_DIR_NAME / GUARDED_RUN_DIR
+
+
+def guarded_dir(root: Path, target: str) -> Path:
+    """``target``'s guarded-run directory under the project ``root``, created."""
+    level = guarded_root(root) / target
+    level.mkdir(parents=True, exist_ok=True)
+    return level
+
+
+def journal_at(root: Path, target: str = "live") -> Path:
+    """The journal file of ``target``'s guarded run under the project ``root``; creates nothing."""
+    return guarded_root(root) / target / JOURNAL_FILE_NAME
+
+
+def lock_at(root: Path, target: str = "live") -> Path:
+    """The lock file of ``target``'s guarded run under the project ``root``; creates nothing."""
+    return guarded_root(root) / target / LOCK_FILE_NAME
+
+
+def _write_journal(
+    path: Path,
+    target: str,
+    entries: Iterable[tuple[str, Any]],
+    *,
+    identity: str,
+    pid: int,
+    generation: int,
+    started: str,
+) -> Path:
+    """Write at ``path`` what a killed run on ``target`` leaves, with the product's writer."""
+    journal = DurableJournal(path)
+    try:
+        journal.start(
+            target=target,
+            generation=generation,
+            identity=identity,
+            pid=pid,
+            started=started,
+        )
+        for address, value in entries:
+            journal.record(address, value)
+    finally:
+        journal.close()
+    return journal.path
+
+
 def plant(
     values: dict[str, Any],
     *,
@@ -102,26 +156,65 @@ def plant(
     identity: str = "alice",
 ) -> Path:
     """A journal a killed run on ``target`` left, holding ``values``."""
-    journal = DurableJournal(journal_path(target))
-    try:
-        journal.start(
-            target=target,
-            generation=generation,
-            identity=identity,
-            pid=4242,
-            started="2026-01-01T00:00:00Z",
-        )
-        for address, value in values.items():
-            journal.record(address, value)
-    finally:
-        journal.close()
-    return journal.path
+    return _write_journal(
+        journal_path(target),
+        target,
+        values.items(),
+        identity=identity,
+        pid=4242,
+        generation=generation,
+        started=STARTED,
+    )
+
+
+def plant_at(
+    root: Path,
+    target: str,
+    entries: Iterable[tuple[str, Any]],
+    *,
+    identity: str = "alice",
+    pid: int = 4242,
+    generation: int = GENERATION,
+    started: str = STARTED,
+) -> Path:
+    """A journal a killed run on ``target`` under the project ``root`` left, holding ``entries``.
+
+    Args:
+        root: The project root whose state zone holds the guarded-run directory.
+        target: The control target the run was on.
+        entries: ``(address, value)`` pairs, in the order the run displaced them.
+        identity: The account the run's header records.
+        pid: The process id the run's header records.
+        generation: The generation the run's header records.
+        started: The start time the run's header records.
+
+    Returns:
+        The journal's path.
+    """
+    guarded_dir(root, target)
+    return _write_journal(
+        journal_at(root, target),
+        target,
+        entries,
+        identity=identity,
+        pid=pid,
+        generation=generation,
+        started=started,
+    )
 
 
 def plant_raw(lines: Iterable[str], *, target: str = "live") -> Path:
     """A journal on ``target`` holding exactly ``lines``, for content the writer never produces."""
     path = journal_path(target)
     path.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+    return path
+
+
+def plant_raw_at(root: Path, target: str, raw: bytes) -> Path:
+    """A journal on ``target`` under ``root`` holding exactly ``raw``, for content the writer never produces."""
+    guarded_dir(root, target)
+    path = journal_at(root, target)
+    path.write_bytes(raw)
     return path
 
 
