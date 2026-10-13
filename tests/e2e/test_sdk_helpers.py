@@ -18,6 +18,7 @@ from osprey.agent_runner.primitives import SDKWorkflowResult, ToolTrace
 from osprey.agent_runner.project_paths import claude_project_dir
 from tests.e2e.sdk_helpers import (
     HOOK_ATTACHMENT_PREFIX,
+    ONE_SHOT_DISALLOWED_TOOLS,
     TRANSCRIPT_SUBDIR,
     HookEvent,
     _bind_approval_policy,
@@ -490,3 +491,64 @@ def test_a_session_without_a_result_message_fails():
 )
 def test_a_session_that_ran_passes(is_error, tool_calls):
     assert_agent_ran(_ended(is_error=is_error, tool_calls=tool_calls))
+
+
+# ---------------------------------------------------------------------------
+# A one-shot SDK session is never re-invoked, so a tool that ends the turn
+# expecting a later wake-up strands the run with its work half done.
+# ---------------------------------------------------------------------------
+
+
+def test_the_one_shot_floor_is_the_scheduling_subset_of_the_headless_denies():
+    """Every name is one the pinned CLI lists (the conformance test holds that
+    for READ_ONLY_DENIED_BUILTINS), and the floor names scheduling only."""
+    from osprey.agent_runner.tool_names import READ_ONLY_DENIED_BUILTINS
+
+    assert "ScheduleWakeup" in ONE_SHOT_DISALLOWED_TOOLS
+    assert set(ONE_SHOT_DISALLOWED_TOOLS) <= set(READ_ONLY_DENIED_BUILTINS)
+    assert "Bash" not in ONE_SHOT_DISALLOWED_TOOLS
+
+
+@pytest.mark.parametrize("runner", ["run_sdk_query", "run_sdk_query_with_hooks"])
+async def test_every_sdk_run_disallows_the_one_shot_floor(tmp_path, monkeypatch, runner):
+    """Both runners add the floor under whatever the caller disallowed."""
+    from tests.e2e import sdk_helpers
+
+    (tmp_path / "build").mkdir()
+    seen: dict = {}
+
+    class _Options:
+        def __init__(self, **kwargs):
+            seen.update(kwargs)
+            raise RuntimeError("stop here: the options are what the test reads")
+
+    monkeypatch.setattr(sdk_helpers, "ClaudeAgentOptions", _Options)
+    monkeypatch.setattr(sdk_helpers, "resolve_default_model", lambda render: "m")
+    monkeypatch.setattr(sdk_helpers, "project_agent_cli_path", lambda render: "claude")
+    monkeypatch.setattr(sdk_helpers, "sdk_env", lambda render: {})
+    with pytest.raises(RuntimeError, match="stop here"):
+        await getattr(sdk_helpers, runner)(tmp_path, "hello", disallowed_tools=["Bash"])
+
+    assert "Bash" in seen["disallowed_tools"]
+    for name in ONE_SHOT_DISALLOWED_TOOLS:
+        assert name in seen["disallowed_tools"], name
+
+
+# ---------------------------------------------------------------------------
+# A rerun must not erase the attempt it is retrying.
+# ---------------------------------------------------------------------------
+
+
+def test_transcript_dump_keeps_every_attempt(tmp_path, monkeypatch):
+    """Two dumps under one name leave two files, the first untouched: the
+    attempt a rerun retries is the one worth reading."""
+    monkeypatch.setenv("OSPREY_CI_DIAG_DIR", str(tmp_path))
+
+    first = dump_agent_transcript("orbit_response", _result_with_a_long_tool_result(10))
+    second = dump_agent_transcript("orbit_response", _result_with_a_long_tool_result(20))
+
+    assert first is not None and second is not None
+    assert first != second
+    assert first.parent == second.parent
+    assert len(json.loads(first.read_text())["tool_traces"][0]["result"]) == 10
+    assert len(json.loads(second.read_text())["tool_traces"][0]["result"]) == 20

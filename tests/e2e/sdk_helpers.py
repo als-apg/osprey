@@ -674,6 +674,20 @@ def activate_scenarios(repo: Path, *names: str, now=None):
 # anything worth reading in the first place.
 SCENARIO_INTEGRITY_DISALLOWED_TOOLS = ["Bash", "Glob", "Grep"]
 
+# A one-shot SDK session ends with its turn and nothing re-invokes it. A tool
+# that ends the turn expecting a later wake-up, or that schedules work for a
+# session that will not exist, strands the run with its work half done: the
+# agent is told it will be called back and never is. These are the scheduling
+# names of the headless deny floor (``READ_ONLY_DENIED_BUILTINS``), so the
+# pinned CLI lists every one of them; both runners below add them under
+# whatever a caller disallows.
+ONE_SHOT_DISALLOWED_TOOLS = ["ScheduleWakeup", "CronCreate", "Workflow"]
+
+
+def _with_one_shot_floor(disallowed_tools: list[str] | None) -> list[str]:
+    """The caller's ``disallowed_tools`` with :data:`ONE_SHOT_DISALLOWED_TOOLS` under it."""
+    return list(dict.fromkeys([*ONE_SHOT_DISALLOWED_TOOLS, *(disallowed_tools or [])]))
+
 
 def conceal_scenario_ground_truth(repo: Path, *scenarios: str) -> None:
     """Delete the named scenarios' definition bundles from the deployment repo.
@@ -1093,7 +1107,7 @@ async def run_sdk_query(
         env=sdk_env(render),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
-        disallowed_tools=disallowed_tools or [],
+        disallowed_tools=_with_one_shot_floor(disallowed_tools),
         resume=resume,
     )
 
@@ -1325,7 +1339,7 @@ async def run_sdk_query_with_hooks(
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
         can_use_tool=_can_use_tool,
-        disallowed_tools=disallowed_tools or [],
+        disallowed_tools=_with_one_shot_floor(disallowed_tools),
     )
 
     workflow = HookObservedResult()
@@ -1538,6 +1552,12 @@ def dump_agent_transcript(
         # Test ids carry ``[]`` from parametrisation and ``/`` from paths.
         safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in name) or "transcript"
         target = target_dir / f"{safe}.json"
+        # A name dumped before in this run gets a numbered file: a rerun must
+        # not erase the attempt it is retrying, which is the one worth reading.
+        attempt = 2
+        while target.exists():
+            target = target_dir / f"{safe}.{attempt}.json"
+            attempt += 1
         target.write_text(
             json.dumps(_transcript_payload(name, result, render), indent=2, default=str),
             encoding="utf-8",

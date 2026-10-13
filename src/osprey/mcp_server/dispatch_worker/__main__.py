@@ -19,10 +19,16 @@ def main() -> None:
     base: a hand-started worker on a host running two deployments must not bind
     the other one's port.
     """
+    from osprey.mcp_server.dispatch_worker.credentials import worker_credentials
     from osprey.utils.logger import configure_logging
     from osprey.utils.workspace import load_osprey_config
 
     configure_logging()
+
+    # Settle the bearer before anything is served or spawned: this pops it out
+    # of ``os.environ`` into the holder and closes the process memory to the
+    # runs this worker is about to start. See ``credentials``.
+    worker_credentials()
 
     port = os.environ.get("DISPATCH_WORKER_PORT") or default_port(
         "worker", 1, base=resolve_port_base(load_osprey_config())

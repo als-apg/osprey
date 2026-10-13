@@ -3198,11 +3198,15 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     #
     # Correctors and BPMs come from the deployment repo's own channel roster —
     # the same channel database the build materializes for the deployed channel
-    # finder, and never a hardcoded preset channel. The default 4+4 slice is
-    # deliberate:
-    # these scenarios ask for a measurement on a healthy stack, so no particular
-    # device has to be in range, and a small device count keeps a real run to
-    # seconds rather than minutes.
+    # finder, and never a hardcoded preset channel. The correctors are a small
+    # slice: these scenarios ask for a measurement on a healthy stack, so no
+    # particular device has to be in range, and every corrector a plan drives
+    # adds a sweep to a real run. The BPMs are the roster's whole monitor set,
+    # as a production build derives them: reading one more channel per point
+    # costs nothing, and a worker that knows fewer monitors than the channel
+    # finder hands the agent a facility that disagrees with itself — a plan
+    # authored from the finder's answer is then refused at enqueue for naming
+    # monitors the worker never built.
     correctors: dict[str, tuple[str, str]] = {}
     bpms: dict[str, str] = {}
 
@@ -3210,7 +3214,7 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         nonlocal correctors, bpms
         records = _orm_stack.roster_records(repo)
         correctors = _orm_stack.select_correctors(records)
-        bpms = _orm_stack.select_bpms(records)
+        bpms = _orm_stack.select_bpms(records, count=None)
         _orm_stack.write_devices_file(repo, correctors=correctors, bpms=bpms)
 
     repo = _orm_stack.build_project_subprocess(

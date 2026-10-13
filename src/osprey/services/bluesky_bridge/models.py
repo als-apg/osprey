@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PlanSessionWriteRequest(BaseModel):
@@ -42,6 +42,13 @@ class PlanSessionWriteRequest(BaseModel):
     body: str
 
 
+#: The longest dry run a validate request may commission, in seconds. The
+#: bridge waits this long for the dry-run subprocess and the validate tool's
+#: request waits for the bridge, so the caller's choice bounds both; a value
+#: past it is refused rather than honoured.
+DRY_RUN_TIMEOUT_CEILING_SECONDS = 300.0
+
+
 class PlanValidateRequest(BaseModel):
     """Request body for `POST /plans/validate`: validate a session plan by name.
 
@@ -59,4 +66,4 @@ class PlanValidateRequest(BaseModel):
 
     name: str
     sample_args: dict[str, Any] | None = None
-    dry_run_timeout: float = 30.0
+    dry_run_timeout: float = Field(default=30.0, gt=0, le=DRY_RUN_TIMEOUT_CEILING_SECONDS)
