@@ -1631,6 +1631,7 @@ jobs:
             --ignore=tests/e2e/web_terminals/test_loopback_chokepoint.py \
             --ignore=tests/e2e/web_terminals/test_session_restart_e2e.py \
             --ignore=tests/e2e/web_terminals/test_terminal_auth_e2e.py \
+            --ignore=tests/e2e/web_terminals/test_persona_permissions_scripted.py \
             --ignore=tests/e2e/tier2
         fi
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -1742,6 +1743,7 @@ jobs:
           tests/e2e/web_terminals/test_loopback_chokepoint.py \
           tests/e2e/web_terminals/test_session_restart_e2e.py \
           tests/e2e/web_terminals/test_terminal_auth_e2e.py \
+          tests/e2e/web_terminals/test_persona_permissions_scripted.py \
           --deselect tests/e2e/test_openobserve_telemetry.py::test_live_agent_metric_lands \
           -v --tb=short --durations=15 -n 4 --dist loadfile \
           --junitxml=junit-e2e-no-model.xml
