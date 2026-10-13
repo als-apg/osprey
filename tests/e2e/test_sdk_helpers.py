@@ -24,6 +24,7 @@ from tests.e2e.sdk_helpers import (
     HookEvent,
     _bind_approval_policy,
     _log_query_timing,
+    assert_agent_ran,
     dump_agent_transcript,
     e2e_budget_cap,
     e2e_budget_scale,
@@ -462,6 +463,39 @@ def test_an_infinite_budget_scale_sends_no_cap_and_passes_every_cost_ceiling(mon
     assert e2e_budget_cap(2.0) is None
     assert math.isinf(e2e_budget_scale())
     assert 1e6 < 0.5 * e2e_budget_scale()
+
+
+# ---------------------------------------------------------------------------
+# assert_agent_ran: a deny test may only pass on a session that actually ran.
+# ---------------------------------------------------------------------------
+
+
+def _ended(*, is_error: bool, tool_calls: int, text: str = "") -> SDKWorkflowResult:
+    return SDKWorkflowResult(
+        tool_traces=[
+            ToolTrace(name="mcp__controls__channel_read", input={}) for _ in range(tool_calls)
+        ],
+        result=SimpleNamespace(is_error=is_error, result=text),
+    )
+
+
+def test_a_session_that_errored_before_any_tool_call_never_ran():
+    with pytest.raises(AssertionError, match="never ran.*Not logged in"):
+        assert_agent_ran(_ended(is_error=True, tool_calls=0, text="Not logged in"))
+
+
+def test_a_session_without_a_result_message_fails():
+    with pytest.raises(AssertionError, match="No ResultMessage"):
+        assert_agent_ran(SDKWorkflowResult())
+
+
+@pytest.mark.parametrize(
+    ("is_error", "tool_calls"),
+    [(False, 0), (True, 3), (False, 2)],
+    ids=["text-refusal", "turn-cap", "ordinary-run"],
+)
+def test_a_session_that_ran_passes(is_error, tool_calls):
+    assert_agent_ran(_ended(is_error=is_error, tool_calls=tool_calls))
 
 
 # ---------------------------------------------------------------------------

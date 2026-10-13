@@ -1002,6 +1002,22 @@ def _harvest_subagent_traces(
                         matched.is_error = bool(block.get("is_error"))
 
 
+def assert_agent_ran(result: SDKWorkflowResult) -> None:
+    """Fail when the agent session ended in error before its first tool call.
+
+    A deny test passes when nothing forbidden succeeded, and a session that
+    never ran (no credentials — ``Not logged in`` — or an unreachable
+    upstream) meets that without the gate being reached. Such a session ends
+    ``is_error`` with no tool calls. A session that hits its turn cap ends
+    ``is_error`` too but has tool calls, and a model that refuses in text alone
+    ends without error; both did run, so neither fails here.
+    """
+    assert result.result is not None, "No ResultMessage received from SDK"
+    assert result.tool_traces or not result.result.is_error, (
+        f"The agent never ran: {result.result.result}"
+    )
+
+
 def e2e_budget_scale() -> float:
     """Per-query budget multiplier for the model under test.
 
