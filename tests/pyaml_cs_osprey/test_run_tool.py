@@ -37,6 +37,7 @@ from osprey.runtime.guarded_run import (
     JOURNAL_FILE_NAME,
     GuardedRunDirError,
     OspreyRunBusy,
+    lock,
 )
 from osprey.runtime.guarded_run import RESTORE_REPORT_TAG as RUNTIME_REPORT_TAG
 from osprey.runtime.journal import active_journals, read_pending_journal
@@ -133,6 +134,48 @@ class TestGuardedRun:
         assert info.value.pid == holder.pid
         assert f"(pid {holder.pid}, since " in str(info.value)
         assert machine.writes == []
+
+    def test_run_tool_from_a_thread_runs_under_the_callers_lock(
+        self, machine: _Machine, guarded_repo: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A tool run from a helper thread journals and restores under the caller's lock."""
+        journal_path = guarded_repo / "var" / "guarded_run" / "live" / JOURNAL_FILE_NAME
+        seen: list[dict[str, Any]] = []
+        errors: list[BaseException] = []
+
+        def tool() -> None:
+            machine.set("A", 5.0)
+            pending = read_pending_journal(journal_path)
+            assert pending is not None
+            seen.append(dict(pending.values))
+
+        def failing() -> None:
+            machine.set("B", 7.0)
+            raise RuntimeError("the tool failed")
+
+        def worker(method: Callable[[], None]) -> Callable[[], None]:
+            def run() -> None:
+                try:
+                    run_tool(method)
+                except BaseException as exc:  # surfaced by the assertion
+                    errors.append(exc)
+
+            return run
+
+        with lock("live"):
+            for method in (tool, failing):
+                thread = threading.Thread(target=worker(method))
+                thread.start()
+                thread.join(CHILD_TIMEOUT_S)
+                assert not thread.is_alive()
+
+        assert seen == [{"A": 1.0}], "the address is journaled before the write"
+        assert [type(exc) for exc in errors] == [RuntimeError]
+        assert errors[0].restore_report.restored == ["B"]  # type: ignore[attr-defined]
+        assert machine.values == {"A": 5.0, "B": 2.0, "C": 3.0}
+        reports = _tagged(capsys.readouterr().err)
+        assert [report["aborted"] for report in reports] == [False, True]
+        assert read_pending_journal(journal_path) is None
 
     def test_no_guarded_run_directory_raises_before_the_tool(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

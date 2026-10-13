@@ -16,7 +16,8 @@ moved as it leaves, hangs the report on the exception and prints the run's one
 tagged line, ``OSPREY_GUARDED_RUN_RESTORE <json>``, on stderr. A run that
 completes prints the same line with ``aborted: false``. A ``run_tool`` nested in
 another runs inside the outer guarded run, so a stop in it ends the outer run
-too, restored and reported once.
+too, restored and reported once. From a helper thread it runs under the
+process's run: the guarded run belongs to the process, not to a thread.
 
 Inside the python_executor sandbox the executor exports the absolute time at which
 it kills the script (``OSPREY_EXECUTION_DEADLINE``, Unix seconds). When the tool
@@ -323,7 +324,9 @@ def run_tool(
     ``run_tool`` nested in another, or in a journaled run opened by its caller,
     runs under the outer run's lock and journal and prints nothing; a stop in
     it, a ``False`` return included, ends the outer run, which restores and
-    reports once.
+    reports once. From a helper thread it runs under the process's run: it
+    journals into the run held or opened elsewhere in the process, or opens
+    one under the lock the process holds.
 
     When ``OSPREY_EXECUTION_DEADLINE`` is set and the method has a ``callback``
     parameter, the method receives a chained callback that also stops the tool
