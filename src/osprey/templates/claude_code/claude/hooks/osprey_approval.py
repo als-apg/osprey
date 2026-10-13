@@ -117,11 +117,13 @@ blocks; the control target still comes only from the record. A single-lane
 deployment has nothing to address and renders exactly what it always did.
 """
 
+import errno
 import hashlib
 import io
 import json
 import os
 import re
+import stat
 import sys
 import time
 import tokenize
@@ -2955,7 +2957,9 @@ def _deny_approval_config_invalid(hook_input, tool_name, reason):
 #
 # The names below are the runtime's (`osprey.runtime.guarded_run`,
 # `osprey_connectors.workspace`), restated because this hook is deployed
-# standalone; tests/hooks/test_guarded_run_constants_drift.py pins them.
+# standalone, and so is the way the two files are opened
+# (`osprey.runtime.journal._open_dir`, `_open_regular`);
+# tests/hooks/test_guarded_run_constants_drift.py pins them.
 
 #: The repo's state zone and the guarded-run directory under it.
 _STATE_DIR_NAME = "var"
@@ -3089,28 +3093,190 @@ def _holder_text(raw: bytes) -> tuple[str, str]:
     )
 
 
-def _guarded_run_holder(directory: str) -> tuple[str, str] | None:
-    """The holder of *directory*'s run lock as ``(pid, started)`` text, ``None`` when free.
+class _GuardedRunNotRegular(Exception):
+    """A guarded-run name is not what the runtime would open; the text is the runtime's refusal."""
 
-    The lock is tried without blocking and released at once; the hook never
-    writes a holder record, so a run that starts while it looks is never told
-    the hook holds its target. A directory that does not exist holds no lock.
-    When the holder releases between the failed try and the read, the emptied
-    file reads as ``unknown`` for both fields.
+
+#: What every refusal of a name in a guarded-run directory ends with.
+_GUARDED_FILES_ONLY = "the guarded-run directory holds files only"
+
+#: The mode a lock created here gets, whatever the umask.
+_GUARDED_FILE_MODE = 0o664
+
+
+def _guarded_open_dir(repo_root: str, target: str) -> int | None:
+    """Open *target*'s guarded-run directory under *repo_root*, ``None`` when there is none.
+
+    ``<repo_root>/var`` is opened as named; ``guarded_run`` and *target* are
+    opened relative to their parent's descriptor, never through a link. A
+    directory that does not exist holds no lock and no journal.
+
+    Returns:
+        The directory's descriptor, which the caller closes.
 
     Raises:
+        _GuardedRunNotRegular: ``guarded_run`` or *target* is a link or not a
+            directory.
+        OSError: A level exists but cannot be opened.
+    """
+    where = os.path.join(repo_root, _STATE_DIR_NAME)
+    try:
+        parent = os.open(where, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return None
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    for name in (_GUARDED_RUN_DIR, target):
+        where = os.path.join(where, name)
+        try:
+            fd = os.open(name, flags, dir_fd=parent)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            # The open has failed; this only words the refusal.
+            is_link = False
+            try:
+                is_link = stat.S_ISLNK(os.lstat(name, dir_fd=parent).st_mode)
+            except OSError:
+                pass
+            if is_link:
+                raise _GuardedRunNotRegular(
+                    f"{where} is a link; a guarded-run directory is never a link"
+                ) from None
+            if exc.errno == errno.ENOTDIR:
+                raise _GuardedRunNotRegular(f"{where} is not a directory") from None
+            raise
+        finally:
+            os.close(parent)
+        parent = fd
+    return parent
+
+
+def _guarded_open_regular(
+    name: str, flags: int, *, dir_fd: int, where: str, create: bool = False
+) -> tuple[int, bool]:
+    """Open the lock or the journal *name* in the open directory *dir_fd*, as the runtime does.
+
+    The body of the runtime's ``osprey.runtime.journal._open_regular``: a link
+    at *name* is not followed, the open never waits for the other end of a
+    FIFO, and the descriptor is accepted only when it is a regular file with
+    exactly one name, checked on the descriptor before anything reads or
+    writes it.
+
+    Returns:
+        ``(fd, created)``: the blocking, close-on-exec descriptor and whether
+        this call created the file.
+
+    Raises:
+        _GuardedRunNotRegular: *name* is a link, has more than one hard link,
+            is not a regular file, or was replaced while it was opened.
+        FileNotFoundError: There is no *name* and *create* is not set.
+        OSError: Any other failure to open, unchanged.
+    """
+    flags |= os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+    replaced = False
+    while True:
+        created = False
+        try:
+            if create:
+                for last in (False, True):
+                    try:
+                        fd = os.open(
+                            name, flags | os.O_CREAT | os.O_EXCL, _GUARDED_FILE_MODE, dir_fd=dir_fd
+                        )
+                        created = True
+                        break
+                    except FileExistsError:
+                        pass
+                    try:
+                        fd = os.open(name, flags, dir_fd=dir_fd)
+                        break
+                    except FileNotFoundError:
+                        if last:
+                            raise
+            else:
+                fd = os.open(name, flags, dir_fd=dir_fd)
+        except OSError as exc:
+            if exc.errno in (errno.ELOOP, errno.EMLINK):
+                raise _GuardedRunNotRegular(f"{where} is a link; {_GUARDED_FILES_ONLY}") from None
+            if exc.errno in (errno.EISDIR, errno.ENXIO):
+                raise _GuardedRunNotRegular(
+                    f"{where} is not a regular file; {_GUARDED_FILES_ONLY}"
+                ) from None
+            raise
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                raise _GuardedRunNotRegular(f"{where} is not a regular file; {_GUARDED_FILES_ONLY}")
+            if st.st_nlink > 1:
+                raise _GuardedRunNotRegular(
+                    f"{where} has {st.st_nlink} hard links; {_GUARDED_FILES_ONLY}"
+                )
+            if st.st_nlink == 0 and replaced:
+                raise _GuardedRunNotRegular(f"{where} was replaced while it was opened")
+            if st.st_nlink == 1:
+                os.set_blocking(fd, True)
+                if created:
+                    os.fchmod(fd, _GUARDED_FILE_MODE)
+                return fd, created
+        except BaseException:
+            os.close(fd)
+            raise
+        # No name holds this file any more: a rename replaced it between the
+        # open and the check. The name is opened once more.
+        os.close(fd)
+        replaced = True
+
+
+def _guarded_read_journal(dir_fd: int | None, journal_path: str) -> bytes:
+    """The bytes of the journal in the open directory *dir_fd*; empty when there is none.
+
+    Raises:
+        _GuardedRunNotRegular: The journal is not a regular file with one name.
+        OSError: The journal exists but cannot be read.
+    """
+    if dir_fd is None:
+        return b""
+    try:
+        fd, _created = _guarded_open_regular(
+            _GUARDED_RUN_JOURNAL_FILE, os.O_RDONLY, dir_fd=dir_fd, where=journal_path
+        )
+    except FileNotFoundError:
+        return b""
+    try:
+        chunks: list[bytes] = []
+        offset = 0
+        while True:
+            chunk = os.pread(fd, 1 << 20, offset)
+            if not chunk:
+                return b"".join(chunks)
+            chunks.append(chunk)
+            offset += len(chunk)
+    finally:
+        os.close(fd)
+
+
+def _guarded_run_holder(dir_fd: int | None, lock_path: str) -> tuple[str, str] | None:
+    """The holder of the run lock in the open directory *dir_fd*, ``None`` when free.
+
+    ``(pid, started)`` as text. The lock is tried without blocking and released
+    at once; the hook never writes a holder record, so a run that starts while
+    it looks is never told the hook holds its target. A directory that does
+    not exist (*dir_fd* is ``None``) holds no lock. When the holder releases
+    between the failed try and the read, the emptied file reads as ``unknown``
+    for both fields. *lock_path* names the lock in a refusal.
+
+    Raises:
+        _GuardedRunNotRegular: The lock is not a regular file with one name.
         OSError: The lock file cannot be opened.
     """
     import fcntl
 
-    if not os.path.isdir(directory):
+    if dir_fd is None:
         return None
-    path = os.path.join(directory, _GUARDED_RUN_LOCK_FILE)
-    created = not os.path.exists(path)
-    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o664)
+    fd, _created = _guarded_open_regular(
+        _GUARDED_RUN_LOCK_FILE, os.O_RDWR, dir_fd=dir_fd, where=lock_path, create=True
+    )
     try:
-        if created:
-            os.fchmod(fd, 0o664)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -3148,7 +3314,11 @@ def _guarded_run_lines(hook_input, read_record) -> tuple[list[str], dict[str, st
     the prompt, so a pending journal refuses the call.
 
     The directory is ``<repo root>/var/guarded_run/<target>``, the one every
-    process of the deployment resolves for the target.
+    process of the deployment resolves for the target. It is opened once,
+    without following a link at ``guarded_run`` or at the target, and the lock
+    and the journal are opened in it as the runtime opens them: a name that
+    is not a regular file with one name refuses the call with the runtime's
+    sentence, naming the path.
 
     Returns:
         ``(lines, binding)``: the lines to add to the prompt, empty when nothing
@@ -3160,13 +3330,27 @@ def _guarded_run_lines(hook_input, read_record) -> tuple[list[str], dict[str, st
             listed in full, or a dispatch run meets a pending journal.
     """
     target = _guarded_run_target(hook_input, read_record)
-    directory = os.path.join(get_repo_root(hook_input), _STATE_DIR_NAME, _GUARDED_RUN_DIR, target)
+    repo_root = get_repo_root(hook_input)
+    directory = os.path.join(repo_root, _STATE_DIR_NAME, _GUARDED_RUN_DIR, target)
     lock_path = os.path.join(directory, _GUARDED_RUN_LOCK_FILE)
+    journal_path = os.path.join(directory, _GUARDED_RUN_JOURNAL_FILE)
+    reading = lock_path
     try:
-        holder = _guarded_run_holder(directory)
+        dir_fd = _guarded_open_dir(repo_root, target)
+        try:
+            holder = _guarded_run_holder(dir_fd, lock_path)
+            if holder is None:
+                reading = journal_path
+                raw = _guarded_read_journal(dir_fd, journal_path)
+                pending = _parse_pending_journal(raw, journal_path)
+        finally:
+            if dir_fd is not None:
+                os.close(dir_fd)
+    except _GuardedRunNotRegular as exc:
+        raise _GuardedRunRefused(str(exc), _GUARDED_RUN_UNREADABLE_AUDIT_REASON) from None
     except Exception:
         raise _GuardedRunRefused(
-            f"pending guarded-run journal unreadable: {lock_path}",
+            f"pending guarded-run journal unreadable: {reading}",
             _GUARDED_RUN_UNREADABLE_AUDIT_REASON,
         ) from None
     if holder is not None:
@@ -3175,20 +3359,6 @@ def _guarded_run_lines(hook_input, read_record) -> tuple[list[str], dict[str, st
             f"a guarded run is in progress on {target} (pid {pid}, started {started})",
             _GUARDED_RUN_BUSY_AUDIT_REASON,
         )
-
-    journal_path = os.path.join(directory, _GUARDED_RUN_JOURNAL_FILE)
-    try:
-        try:
-            with open(journal_path, "rb") as handle:
-                raw = handle.read()
-        except FileNotFoundError:
-            raw = b""
-        pending = _parse_pending_journal(raw, journal_path)
-    except Exception:
-        raise _GuardedRunRefused(
-            f"pending guarded-run journal unreadable: {journal_path}",
-            _GUARDED_RUN_UNREADABLE_AUDIT_REASON,
-        ) from None
 
     binding = {_APPROVED_JOURNAL_KEY: _APPROVED_NO_JOURNAL, _APPROVED_TARGET_KEY: target}
     if pending is None:

@@ -16,7 +16,15 @@ import sys
 
 import pytest
 
+from osprey.runtime.journal import DurableJournal
 from tests._control_context_fixtures import write_control_context, write_server_report
+from tests.runtime._guarded_run_fixtures import (
+    LINKED_DIRECTORY_REFUSAL,
+    PLANTED_REFUSAL,
+    PLANTED_REFUSED,
+    link_directory,
+    plant_kind,
+)
 
 # Default hook_config matching the original hard-coded OSPREY_PREFIXES
 DEFAULT_APPROVAL_CONFIG = {
@@ -2383,6 +2391,76 @@ def test_an_unreadable_journal_is_denied(tmp_path, hook_runner, make_config):
 
     assert _decision(result) == "deny"
     assert _reason(result) == f"pending guarded-run journal unreadable: {path}"
+
+
+def _killed_run_journal(path, target="va"):
+    """A journal a killed run on *target* left at *path*, written by the product's writer."""
+    journal = DurableJournal(path)
+    try:
+        journal.start(
+            target=target, generation=1, identity="operator", pid=4242, started="2026-10-01"
+        )
+        journal.record("SR:QF:SP", 1.5)
+    finally:
+        journal.close()
+    return path
+
+
+def _planted_victim(tmp_path):
+    """A well-formed journal outside the guarded-run directory; ``(path, its bytes)``."""
+    victim = _killed_run_journal(tmp_path / "victim")
+    return victim, victim.read_bytes()
+
+
+@pytest.mark.parametrize("kind", PLANTED_REFUSED)
+def test_a_planted_journal_name_is_denied_by_name(kind, tmp_path, hook_runner, make_config):
+    victim, before = _planted_victim(tmp_path)
+    path = _guarded_dir(tmp_path, "va") / "run.journal"
+    plant_kind(path, kind, victim)
+
+    result = _run_guarded(
+        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+    )
+
+    assert _decision(result) == "deny"
+    assert _reason(result) == f"{path} {PLANTED_REFUSAL[kind]}"
+    assert "unreadable" not in _reason(result)
+    assert _updated(result) is None
+    assert victim.read_bytes() == before
+
+
+@pytest.mark.parametrize("kind", PLANTED_REFUSED)
+def test_a_planted_lock_name_is_denied_by_name(kind, tmp_path, hook_runner, make_config):
+    victim, before = _planted_victim(tmp_path)
+    path = _guarded_dir(tmp_path, "va") / "run.lock"
+    plant_kind(path, kind, victim)
+
+    result = _run_guarded(
+        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+    )
+
+    assert _decision(result) == "deny"
+    assert _reason(result) == f"{path} {PLANTED_REFUSAL[kind]}"
+    assert "unreadable" not in _reason(result)
+    assert _updated(result) is None
+    assert victim.read_bytes() == before
+
+
+def test_a_linked_target_directory_is_denied_by_name(tmp_path, hook_runner, make_config):
+    level = _guarded_dir(tmp_path, "va")
+    _killed_run_journal(level / "run.journal")
+    real = link_directory(level)
+    before = (real / "run.journal").read_bytes()
+
+    result = _run_guarded(
+        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+    )
+
+    assert _decision(result) == "deny"
+    assert _reason(result) == f"{level} {LINKED_DIRECTORY_REFUSAL}"
+    assert _updated(result) is None
+    assert (real / "run.journal").read_bytes() == before
+    assert sorted(entry.name for entry in real.iterdir()) == ["run.journal"]
 
 
 def test_a_dispatch_run_with_a_pending_journal_is_denied(

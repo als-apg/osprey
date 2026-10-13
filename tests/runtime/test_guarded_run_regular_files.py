@@ -3,15 +3,18 @@
 ``var/guarded_run/`` and each ``<target>/`` under it are writable by every
 account of the deployment, so anything can be waiting at ``run.lock`` or
 ``run.journal``, and either directory can have been swapped for a link. Every
-opener of the two files is held to one table here
+opener of the two files, in the runtime, the executor and the approval hook, is
+held to one table here
 (:data:`tests.runtime._guarded_run_fixtures.PLANTED_REFUSED`): what is planted
 is refused with its path named, the call returns, and nothing is read, written,
-truncated or created through it. Channels are a dict; no control system is
-involved.
+truncated or created through it. The prompt and the run then read one journal:
+a name the hook cannot digest is a name the run does not restore. Channels are
+a dict; no control system is involved.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import pathlib
 import stat
@@ -23,6 +26,7 @@ import pytest
 
 import osprey.runtime
 import osprey.runtime.journal as journal_module
+import osprey.templates.claude_code.claude.hooks.osprey_approval as hook
 from osprey.errors import ChannelLimitsViolationError
 from osprey.mcp_server.python_executor import executor
 from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
@@ -50,7 +54,9 @@ from tests.runtime._guarded_run_fixtures import (
     LINKED_DIRECTORY_REFUSAL,
     PLANTED_REFUSAL,
     PLANTED_REFUSED,
+    approve,
     dangling_name,
+    digest,
     journal_path,
     link_directory,
     plant,
@@ -346,12 +352,129 @@ def test_a_missing_directory_or_journal_reads_as_none(repo: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# The approval hook's two opens, and the bytes the prompt and the run read
+# ---------------------------------------------------------------------------
+
+
+def _hook_holder(repo: Path) -> tuple[str, str] | None:
+    """The hook's lock probe on ``live``, as its prompt builder runs it."""
+    dir_fd = hook._guarded_open_dir(str(repo), "live")
+    try:
+        return hook._guarded_run_holder(dir_fd, str(_lock_path()))
+    finally:
+        if dir_fd is not None:
+            os.close(dir_fd)
+
+
+def _hook_journal(repo: Path) -> bytes:
+    """The journal bytes the hook digests for ``live``, as its prompt builder reads them."""
+    dir_fd = hook._guarded_open_dir(str(repo), "live")
+    try:
+        return hook._guarded_read_journal(dir_fd, str(journal_path()))
+    finally:
+        if dir_fd is not None:
+            os.close(dir_fd)
+
+
+@pytest.mark.parametrize("kind", PLANTED_REFUSED)
+def test_a_planted_name_refuses_the_hooks_lock_probe(kind: str, repo: Path, tmp_path: Path) -> None:
+    planted = _Planted(_lock_path(), kind, _victim(tmp_path))
+
+    with pytest.raises(hook._GuardedRunNotRegular) as refused:
+        planted.call(lambda: _hook_holder(repo))
+
+    assert str(refused.value) == f"{planted.path} {planted.refusal}"
+    planted.untouched()
+
+
+@pytest.mark.parametrize("kind", PLANTED_REFUSED)
+def test_a_planted_name_refuses_the_hooks_journal_read(
+    kind: str, repo: Path, tmp_path: Path
+) -> None:
+    planted = _Planted(journal_path(), kind, _journal_victim(tmp_path))
+
+    with pytest.raises(hook._GuardedRunNotRegular) as refused:
+        planted.call(lambda: _hook_journal(repo))
+
+    assert str(refused.value) == f"{planted.path} {planted.refusal}"
+    planted.untouched()
+
+
+@pytest.mark.parametrize("level", LINKED_LEVELS)
+def test_a_linked_directory_refuses_the_hook(level: str, repo: Path) -> None:
+    linked, real_directory = _link_level(level)
+    real = _Real(real_directory)
+
+    with pytest.raises(hook._GuardedRunNotRegular) as refused:
+        hook._guarded_open_dir(str(repo), "live")
+
+    assert str(refused.value) == f"{linked} {LINKED_DIRECTORY_REFUSAL}"
+    real.untouched()
+
+
+def test_the_hook_finds_no_lock_and_no_journal_where_there_is_no_directory(repo: Path) -> None:
+    assert hook._guarded_open_dir(str(repo), "live") is None
+    assert hook._guarded_run_holder(None, "unused") is None
+    assert hook._guarded_read_journal(None, "unused") == b""
+    assert not (repo / "var").exists()
+
+
+@pytest.mark.parametrize("kind", [*PLANTED_REFUSED, *LINKED_LEVELS])
+def test_a_planted_journal_is_read_by_neither_side(
+    kind: str,
+    repo: Path,
+    tmp_path: Path,
+    channels: _Channels,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No digest exists to approve, and a run approved under the target's digest restores nothing."""
+    if kind in LINKED_LEVELS:
+        _linked, real_directory = _link_level(kind)
+        victim = real_directory / JOURNAL_FILE_NAME
+        release = None
+    else:
+        victim = _journal_victim(tmp_path)
+        plant_kind(journal_path(), kind, victim)
+        release = journal_path() if kind == "fifo" else None
+    before = victim.read_bytes()
+
+    with pytest.raises(hook._GuardedRunNotRegular):
+        returns_within(lambda: _hook_journal(repo), release=release)
+    with pytest.raises(GuardedRunDirError):
+        returns_within(
+            lambda: approve(monkeypatch, digest(victim), "live", enter_lock=True),
+            release=release,
+        )
+
+    assert channels.writes == []
+    assert victim.read_bytes() == before
+
+
+def test_the_prompt_and_the_run_read_the_same_bytes(
+    repo: Path, channels: _Channels, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = plant({"Q": 0.0})
+
+    assert _hook_holder(repo) is None
+    prompted = _hook_journal(repo)
+
+    assert prompted == path.read_bytes()
+    assert hashlib.sha256(prompted).hexdigest() == digest(path)
+
+    approve(monkeypatch, hashlib.sha256(prompted).hexdigest(), "live", enter_lock=True)
+
+    assert channels.writes == [("Q", 0.0)]
+    assert path.read_bytes() == b""
+    assert _lock_path().read_bytes() == b""
+
+
+# ---------------------------------------------------------------------------
 # Structure
 # ---------------------------------------------------------------------------
 
 
 def test_no_name_is_checked_before_the_open(
-    tmp_path: Path, channels: _Channels, monkeypatch: pytest.MonkeyPatch
+    repo: Path, tmp_path: Path, channels: _Channels, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Whether a file was created is the open's answer, never a look at its name."""
     guarded = (LOCK_FILE_NAME, JOURNAL_FILE_NAME)
@@ -375,7 +498,10 @@ def test_no_name_is_checked_before_the_open(
     folder = tmp_path / "folder"
     folder.mkdir()
     DurableJournal(folder / JOURNAL_FILE_NAME).close()
+    _lock_path().unlink()
 
+    assert _hook_holder(repo) is None
+    assert _lock_path().read_bytes() == b""
     assert channels.writes == [("Q", 4.0)]
 
 

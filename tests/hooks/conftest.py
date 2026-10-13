@@ -418,6 +418,7 @@ def hook_runner(tmp_path, _throwaway_repo):
             text=True,
             env=env,
             cwd=str(cwd) if cwd else None,
+            timeout=120,
         )
         assert result.returncode == 0, f"Hook failed (exit {result.returncode}): {result.stderr}"
         stdout = result.stdout.strip()
@@ -489,6 +490,7 @@ def hook_runner_raw(tmp_path, _throwaway_repo):
             text=True,
             env=env,
             cwd=str(cwd) if cwd else None,
+            timeout=120,
         )
         return result.returncode, result.stdout, result.stderr
 
