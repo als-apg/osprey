@@ -279,13 +279,25 @@ assert UNIT_LANE_DESELECT == '-m "not pty and not wallclock"', UNIT_LANE_DESELEC
 #: The row the terminal-only cases read (Linux gate, files that open a pty).
 TERMINAL_ROW = _row("pty")
 TERMINAL_HOST = TERMINAL_ROW.hosts[0]
-#: The local check scripts that run the same wholesale `pytest tests/` sweep the
-#: CI lane does, and therefore inherit the same problem. Matched per term
+#: The merge gate's one tracked entrypoint, held to the lane's exact expression.
+GATE_SCRIPT = "scripts/gate.sh"
+#: The local scripts that run a parallel sweep over the suite the way the CI
+#: lane does, and therefore inherit the same problem. Every wholesale
+#: `pytest tests/` sweep a script holds is checked, so a script with a second,
+#: narrower sweep is held on the one that covers the suite. Matched per term
 #: rather than on the CI lane's exact spelling because quick_check.sh combines
 #: the terms with another one (`not slow`).
-LANE_SCRIPTS = ("scripts/quick_check.sh", "scripts/premerge_check.sh", "scripts/ci_check.sh")
+LANE_SCRIPTS = (
+    "scripts/quick_check.sh",
+    "scripts/premerge_check.sh",
+    "scripts/ci_check.sh",
+    GATE_SCRIPT,
+)
 #: The one that claims to mirror the lane, and so must also run what it drops.
 CI_CHECK_SCRIPT = "scripts/ci_check.sh"
+#: The scripts that run what they deselect: each marker the sweep hands away
+#: has a serial run of its own in the same script.
+SERIAL_MIRROR_SCRIPTS = (CI_CHECK_SCRIPT, GATE_SCRIPT)
 
 
 @functools.cache
@@ -2042,55 +2054,171 @@ def test_local_check_scripts_deselect_every_lane_leaving_marker__mutation_drops_
     assert _sweeps_missing_the_deselection(mutated, row) != []
 
 
-def _missing_ci_check_serial_run(source: str, row: LaneLeavingMarker) -> list[str]:
-    """What ``ci_check.sh``'s serial follow-up for *row* is missing (empty = wired)."""
+#: Any xdist worker count on a pytest line, a digit or ``auto``. A serial run
+#: carries none.
+_ANY_XDIST_WORKERS_RE = re.compile(r"(?<!\S)-n\s+(auto|\d)")
+
+
+def _missing_serial_run(source: str, row: LaneLeavingMarker) -> list[str]:
+    """What a mirror script's serial follow-up for *row* is missing (empty = wired)."""
     serial = [line for line in _script_pytest_lines(source) if row.select() in line]
     if not serial:
         return [f"a serial {row.marker} invocation"]
     return [
         f"xdist flags on {line.strip()!r}"
         for line in serial
-        if _XDIST_WORKERS_RE.search(line) or "--dist" in line
+        if _ANY_XDIST_WORKERS_RE.search(line) or "--dist" in line
     ]
 
 
 @pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-def test_ci_check_also_runs_what_it_deselects(row: LaneLeavingMarker) -> None:
-    """``ci_check.sh`` is the local mirror of the CI lane, so it owes the same
-    serial follow-up the lane has. The other two scripts are documented fast
-    sweeps and legitimately stop at the deselection; this one would otherwise
-    quietly cover less than it did before the marker existed."""
-    missing = _missing_ci_check_serial_run(_script_source(CI_CHECK_SCRIPT), row)
+@pytest.mark.parametrize("script", SERIAL_MIRROR_SCRIPTS)
+def test_serial_mirror_scripts_run_what_they_deselect(script: str, row: LaneLeavingMarker) -> None:
+    """``ci_check.sh`` mirrors the CI lane and ``gate.sh`` is the merge gate, so
+    each owes the same serial follow-up the lane has. The other two scripts are
+    documented fast sweeps and legitimately stop at the deselection; these would
+    otherwise quietly cover less than they did before the marker existed."""
+    missing = _missing_serial_run(_script_source(script), row)
     assert missing == [], (
-        f"{CI_CHECK_SCRIPT} deselects the {row.marker!r} marker in its sweep but does not "
+        f"{script} deselects the {row.marker!r} marker in its sweep but does not "
         f"run it serially afterwards ({missing}): add `uv run pytest {row.hosts[0].path} "
         f"{row.select()}`"
     )
 
 
 @pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-def test_ci_check_also_runs_what_it_deselects__mutation_drops_the_serial_run(
-    row: LaneLeavingMarker,
+@pytest.mark.parametrize("script", SERIAL_MIRROR_SCRIPTS)
+def test_serial_mirror_scripts_run_what_they_deselect__mutation_drops_the_serial_run(
+    script: str, row: LaneLeavingMarker
 ) -> None:
-    """Dropping the follow-up leaves a script that covers strictly less than it
-    used to while printing the same green summary."""
-    source = _script_source(CI_CHECK_SCRIPT)
+    """Dropping the follow-up from ``ci_check.sh`` or ``gate.sh`` leaves a
+    script that covers strictly less than it used to while reporting the same
+    green."""
+    source = _script_source(script)
     mutated = "\n".join(line for line in source.splitlines() if row.select() not in line)
-    assert mutated != source, f"no serial {row.marker} run in {CI_CHECK_SCRIPT}; mutation is stale"
-    assert _missing_ci_check_serial_run(mutated, row) == [f"a serial {row.marker} invocation"]
+    assert mutated != source, f"no serial {row.marker} run in {script}; mutation is stale"
+    assert _missing_serial_run(mutated, row) == [f"a serial {row.marker} invocation"]
 
 
 @pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
-def test_ci_check_also_runs_what_it_deselects__mutation_parallelizes_it(
+@pytest.mark.parametrize("script", SERIAL_MIRROR_SCRIPTS)
+def test_serial_mirror_scripts_run_what_they_deselect__mutation_parallelizes_it(
+    script: str, row: LaneLeavingMarker
+) -> None:
+    """And speeding the follow-up in ``ci_check.sh`` or ``gate.sh`` up with
+    workers must be reported: it would put the tests back on a contended
+    machine, which is what the sweep dropped them to avoid."""
+    source = _script_source(script)
+    mutated = re.sub(rf"({re.escape(row.select())})(?=\s)", r"\1 -n 4", source)
+    assert mutated != source, f"serial {row.marker} run not found; mutation is stale"
+    assert _missing_serial_run(mutated, row) != []
+
+
+# The gate is held tighter than the other scripts: every pytest line it runs is
+# either the lane's sweep, with exactly the lane's marker expression, or one
+# table row's serial run, with no workers. A line that is neither (a hand-added
+# term, a dropped expression, a parallelized serial run) is drift.
+
+#: A ``-m`` expression on a script line, double-quoted or a bare word.
+_MARKER_EXPR_RE = re.compile(r'(?<!\S)-m\s+("[^"]*"|\S+)')
+
+
+def _gate_lines_off_the_table(source: str) -> list[str]:
+    """The script's pytest lines that are neither the lane's sweep nor one
+    row's serial run (empty = every line is on the table)."""
+    selects = {row.select() for row in LANE_LEAVING_MARKERS}
+    off = []
+    for line in _script_pytest_lines(source):
+        exprs = [f"-m {expr}" for expr in _MARKER_EXPR_RE.findall(line)]
+        has_workers = bool(_ANY_XDIST_WORKERS_RE.search(line))
+        sweep = len(exprs) == 1 and exprs[0] == UNIT_LANE_DESELECT and has_workers
+        serial = (
+            len(exprs) == 1 and exprs[0] in selects and not has_workers and "--dist" not in line
+        )
+        if not (sweep or serial):
+            off.append(line.strip())
+    return off
+
+
+def _gate_sweeps(source: str) -> list[str]:
+    return [line for line in _script_pytest_lines(source) if UNIT_LANE_DESELECT in line]
+
+
+def _gate_modes_missing(source: str, row: LaneLeavingMarker) -> list[str]:
+    """The modes in which the gate has no serial run for *row*, and the modes in
+    which it has no sweep (empty = both modes are wired)."""
+    missing = []
+    serial = [line for line in _script_pytest_lines(source) if row.select() in line]
+    if not any(re.search(r"(?<!\S)tests/", line) for line in serial):
+        missing.append("full serial")
+    if not any('"$@"' in line for line in serial):
+        missing.append("fast serial")
+    sweeps = _gate_sweeps(source)
+    if not any("--ignore=tests/e2e" in line for line in sweeps):
+        missing.append("full sweep")
+    if not any('"$@"' in line for line in sweeps):
+        missing.append("fast sweep")
+    return missing
+
+
+def test_the_gate_runs_exactly_the_lane_expression() -> None:
+    """The gate is the one local spelling of the merge gate, so it runs exactly
+    what the lane runs: a caller that gates a branch adds nothing to it, and a
+    term the lane does not carry is a test the gate skips and CI runs."""
+    source = _script_source(GATE_SCRIPT)
+    assert _script_pytest_lines(source), f"{GATE_SCRIPT} runs no pytest line; this pin is stale"
+    assert _gate_lines_off_the_table(source) == [], (
+        f"{GATE_SCRIPT} runs pytest lines that are neither the lane's sweep "
+        f"({UNIT_LANE_DESELECT}, with workers) nor one row's serial run (no workers): "
+        f"{_gate_lines_off_the_table(source)}"
+    )
+
+
+@pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
+def test_the_gate_has_both_modes_for_every_row(row: LaneLeavingMarker) -> None:
+    """Both modes deselect every row, so both run every row serially: in fast
+    mode a marked test inside a named file would otherwise run nowhere."""
+    missing = _gate_modes_missing(_script_source(GATE_SCRIPT), row)
+    assert missing == [], f"{GATE_SCRIPT} lacks, for {row.marker!r}: {missing}"
+
+
+def test_the_gate_runs_exactly_the_lane_expression__mutation_adds_a_term() -> None:
+    source = _script_source(GATE_SCRIPT)
+    expr = UNIT_LANE_DESELECT[:-1]
+    mutated = source.replace(UNIT_LANE_DESELECT, f'{expr} and not browser"', 1)
+    assert mutated != source, f"no lane sweep in {GATE_SCRIPT}; mutation is stale"
+    assert _gate_lines_off_the_table(mutated) != []
+
+
+def test_the_gate_runs_exactly_the_lane_expression__mutation_drops_the_fast_expression() -> None:
+    source = _script_source(GATE_SCRIPT)
+    lines = source.splitlines()
+    fast = [i for i, line in enumerate(lines) if line in _gate_sweeps(source) and '"$@"' in line]
+    assert fast, f"no fast sweep in {GATE_SCRIPT}; mutation is stale"
+    lines[fast[0]] = lines[fast[0]].replace(f" {UNIT_LANE_DESELECT}", "")
+    mutated = "\n".join(lines)
+    assert mutated != source
+    assert _gate_lines_off_the_table(mutated) != []
+
+
+@pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
+def test_the_gate_has_both_modes_for_every_row__mutation_drops_the_fast_serial(
     row: LaneLeavingMarker,
 ) -> None:
-    """And speeding the follow-up up with workers must be reported: it would
-    put the tests back on a contended machine, which is what the sweep
-    dropped them to avoid."""
-    source = _script_source(CI_CHECK_SCRIPT)
-    mutated = source.replace(f"{row.select()} -v", f"{row.select()} -n 4 -v")
-    assert mutated != source, f"serial {row.marker} run not found; mutation is stale"
-    assert _missing_ci_check_serial_run(mutated, row) != []
+    source = _script_source(GATE_SCRIPT)
+    mutated = "\n".join(line for line in source.splitlines() if f'"$@" {row.select()}' not in line)
+    assert mutated != source, f"no fast serial {row.marker} run in {GATE_SCRIPT}; mutation is stale"
+    assert "fast serial" in _gate_modes_missing(mutated, row)
+
+
+@pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
+def test_the_gate_runs_exactly_the_lane_expression__mutation_parallelizes_a_serial_run(
+    row: LaneLeavingMarker,
+) -> None:
+    source = _script_source(GATE_SCRIPT)
+    mutated = re.sub(rf"({re.escape(row.select())})(?=\s)", r"\1 -n 4", source, count=1)
+    assert mutated != source, f"no serial {row.marker} run in {GATE_SCRIPT}; mutation is stale"
+    assert _gate_lines_off_the_table(mutated) != []
 
 
 #: The written-down copies of the parallel sweep a contributor or a skill copies
