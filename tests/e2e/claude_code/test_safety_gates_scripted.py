@@ -19,8 +19,9 @@ import json
 import pytest
 
 from osprey.agent_runner.primitives import ToolTrace
+from osprey_connectors.control_context import record_path_under
 from tests.e2e.scripted_model import ScriptedCall
-from tests.e2e.sdk_helpers import HookObservedResult, run_sdk_query_with_hooks
+from tests.e2e.sdk_helpers import HookObservedResult, agent_data_dir, run_sdk_query_with_hooks
 
 pytestmark = [pytest.mark.model_free, pytest.mark.harness_benchmark]
 
@@ -176,3 +177,132 @@ async def test_write_to_read_only_channel_is_refused(safety_project, scripted_mo
     assert "Channel is marked as read-only" in (refused.result or "")
     assert_no_callback(result, WRITE)
     assert_untouched(reading(before, READBACK), reading(after, READBACK), 1.0)
+
+
+# ---------------------------------------------------------------------------
+# Limits before approval
+# ---------------------------------------------------------------------------
+
+
+async def test_limits_refuse_before_approval_is_asked(safety_project_selective, scripted_model):
+    """On a render where every write asks for approval, an over-limit write
+    is refused by the limits hook and the approval prompt never appears.
+
+    The approval policy denies everything, so a prompt that did appear would
+    show up twice over: as a recorded callback and as the policy's own refusal
+    text in place of the limits hook's.
+    """
+    _, result = await drive(
+        safety_project_selective,
+        scripted_model,
+        [[read(SETPOINT)], [write(SETPOINT, 999.0)], [read(SETPOINT)]],
+        approval_policy="auto_deny",
+    )
+    before, refused, after = result.tool_traces
+    assert_hook_refused(refused, own=LIMITS_REASON, other=WRITES_REASON)
+    assert "Denied by test approval policy" not in (refused.result or "")
+    assert_no_callback(result, WRITE)
+    assert_untouched(reading(before, SETPOINT), reading(after, SETPOINT), 999.0)
+
+
+# ---------------------------------------------------------------------------
+# Kill switch: writes disarmed everywhere
+# ---------------------------------------------------------------------------
+
+
+async def test_channel_write_is_removed_when_writes_are_disarmed(
+    safety_project_writes_off, scripted_model
+):
+    """With no target armed the write tool is not offered, and a call that
+    names it anyway is rejected as a tool that does not exist.
+
+    The fixture is the operator's action — set ``writes_enabled: false`` and
+    re-render — and the re-render is what moves the tool into
+    ``permissions.deny``. The read tool is checked as present so the absence
+    is the deny's doing and not a controls server that failed to start.
+    """
+    model, result = await drive(
+        safety_project_writes_off, scripted_model, [[write(CORRECTOR, 5.0)]]
+    )
+    assert result.mcp_server_status.get("controls") == "connected"
+    assert READ in model.offered_tools
+    assert WRITE not in model.offered_tools
+    (refused,) = result.tool_traces
+    assert refused.is_error and NO_SUCH_TOOL in (refused.result or ""), (
+        f"a forced {WRITE} was not rejected as an unknown tool: {refused.result}"
+    )
+    assert_no_callback(result, WRITE)
+
+
+async def test_python_write_is_refused_when_writes_are_disarmed(
+    safety_project_writes_off, scripted_model
+):
+    """``execute`` in ``readwrite`` mode is refused by the writes hook.
+
+    The Python route is the way around a removed ``channel_write``; the tool
+    stays offered for read-only work, so the boundary is the hook.
+    """
+    code = f"from osprey.runtime import write_channel\nwrite_channel({CORRECTOR!r}, 5.0)"
+    script = ScriptedCall(
+        EXECUTE,
+        {"code": code, "description": "Write the corrector.", "execution_mode": "readwrite"},
+    )
+    model, result = await drive(
+        safety_project_writes_off, scripted_model, [[read(CORRECTOR)], [script], [read(CORRECTOR)]]
+    )
+    assert result.mcp_server_status.get("python") == "connected"
+    assert EXECUTE in model.offered_tools
+    before, refused, after = result.tool_traces
+    assert refused.name == EXECUTE
+    assert_hook_refused(refused, own=WRITES_REASON, other=LIMITS_REASON)
+    assert_no_callback(result, EXECUTE)
+    assert_untouched(reading(before, CORRECTOR), reading(after, CORRECTOR), 5.0)
+
+
+# ---------------------------------------------------------------------------
+# Per-target posture: armed on va, session on live
+# ---------------------------------------------------------------------------
+
+
+def _record_target(repo) -> str | None:
+    """The control target *repo*'s control-context record names, or ``None``.
+
+    The record is what the hooks resolve the target from, and the controls MCP
+    server writes it at startup. The path comes from ``record_path_under`` so
+    this reads the file the hooks read. Without a record the hooks deny on the
+    most restrictive posture over all targets, which also refuses the write —
+    reading it is what tells the two apart.
+    """
+    record = record_path_under(agent_data_dir(repo))
+    if not record.exists():
+        return None
+    return json.loads(record.read_text(encoding="utf-8")).get("target")
+
+
+async def test_channel_write_is_refused_on_live_when_only_va_is_armed(
+    safety_project_mixed_render, scripted_model
+):
+    """On a render armed for ``va`` only, a write from a session on ``live``
+    is refused by the writes hook, naming the live target.
+
+    The write tool is legal on ``va``, so the render cannot remove it: it is
+    offered, and the whole boundary is the PreToolUse chain — the writes hook
+    denying for the recorded target and the approval hook deferring. The limits
+    posture is permissive on this render, so the writes gate is the only hook
+    with a say.
+    """
+    model, result = await drive(
+        safety_project_mixed_render,
+        scripted_model,
+        [[read(CORRECTOR)], [write(CORRECTOR, 5.0)], [read(CORRECTOR)]],
+    )
+    assert _record_target(safety_project_mixed_render) == "live", (
+        "no control-context record names the live target; the refusal below "
+        "would be the missing-record fallback, not the live target's posture"
+    )
+    assert WRITE in model.offered_tools
+    before, refused, after = result.tool_traces
+    assert_hook_refused(refused, own=WRITES_REASON, other=LIMITS_REASON)
+    assert "active target (live)" in (refused.result or "")
+    assert_no_callback(result, WRITE)
+    assert_untouched(reading(before, CORRECTOR), reading(after, CORRECTOR), 5.0)
