@@ -90,6 +90,15 @@ stops the whole run: every later guarded write is refused with
 run's exit puts back what the run displaced, reports it as aborted and raises
 that error, even when its own code ended cleanly.
 
+A guarded write holds the run for as long as it takes: writes go out one at a
+time, and the exit path waits for the one in flight. A write that never
+returns is therefore ended by nothing inside the run. The execution deadline
+ends the process, no exit path runs, and the journal stays as the write left
+it. An interrupt that arrives while such a write is in flight waits for the
+same write and leaves the same journal. The next approved call on the target
+lists that journal and restores it before its own code runs, as for any run
+killed outright.
+
 A run killed outright reaches no exit path. The next guarded run on the target
 finds its journal. Holding the lock proves the run that wrote it is over, so
 before its own work starts it writes each journaled address back to its
