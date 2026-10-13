@@ -15,6 +15,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import contextvars
+import importlib.util
 import json
 import os
 import subprocess
@@ -509,8 +510,8 @@ def test_an_abort_request_is_a_field_of_the_open_run(
 
 
 def test_the_run_state_is_one_object_no_module_binds() -> None:
-    def context_vars(module: Any) -> list[str]:
-        tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    def context_vars(source: Path) -> list[str]:
+        tree = ast.parse(source.read_text(encoding="utf-8"))
         names = []
         for node in tree.body:
             value = node.value if isinstance(node, ast.Assign | ast.AnnAssign) else None
@@ -523,8 +524,8 @@ def test_the_run_state_is_one_object_no_module_binds() -> None:
                 names += [t.id for t in targets if isinstance(t, ast.Name)]
         return names
 
-    def bound_by_import(module: Any) -> list[str]:
-        tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    def bound_by_import(source: Path) -> list[str]:
+        tree = ast.parse(source.read_text(encoding="utf-8"))
         return [
             alias.name
             for node in ast.walk(tree)
@@ -533,6 +534,14 @@ def test_the_run_state_is_one_object_no_module_binds() -> None:
             if alias.name in {"STATE", "LOCK"}
         ]
 
-    assert context_vars(guarded_run) == []
-    assert context_vars(journal_mod) == ["_ACTIVE"]
-    assert bound_by_import(guarded_run) == bound_by_import(journal_mod) == []
+    run_tool_spec = importlib.util.find_spec("pyaml_cs_osprey.run_tool")
+    assert run_tool_spec is not None and run_tool_spec.origin is not None
+    guarded_run_src = Path(guarded_run.__file__)
+    journal_src = Path(journal_mod.__file__)
+    run_tool_src = Path(run_tool_spec.origin)
+
+    assert context_vars(guarded_run_src) == []
+    assert context_vars(journal_src) == ["_ACTIVE"]
+    assert context_vars(run_tool_src) == ["_INTERRUPT"], "a call stack that attributes only"
+    assert bound_by_import(guarded_run_src) == bound_by_import(journal_src) == []
+    assert bound_by_import(run_tool_src) == []

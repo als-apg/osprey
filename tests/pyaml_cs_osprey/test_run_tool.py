@@ -740,13 +740,13 @@ CHILD_TIMEOUT_S = 60.0
 
 _SIGINT_CHILD = textwrap.dedent(
     """
-    import json, os, sys, time
+    import json, os, sys, threading, time
 
     import osprey.runtime
     from osprey.runtime.journal import journaled_write
     from pyaml_cs_osprey.run_tool import run_tool
 
-    mode, workdir = sys.argv[1], sys.argv[2]
+    mode, workdir, helper_bound_s = sys.argv[1], sys.argv[2], float(sys.argv[3])
     values = {"A": 1.0, "B": 2.0, "C": 3.0}
     restoring = False
 
@@ -818,12 +818,44 @@ _SIGINT_CHILD = textwrap.dedent(
             raise KeyboardInterrupt
         return True
 
+    helper_seen = {}
+
+    def helper_tool(callback):
+        # Steps until its callback says stop, or writes C at the bound.
+        put("B", 6.0)
+        hold("span")
+        bound = time.monotonic() + helper_bound_s
+        while time.monotonic() < bound:
+            if not callback("apply", {}):
+                helper_seen["callback"] = False
+                raise KeyboardInterrupt
+            time.sleep(0.01)
+        put("C", 7.0)
+        return True
+
+    def helper_main(callback):
+        # The main thread's tool runs a second tool in a helper thread.
+        put("A", 5.0)
+
+        def work():
+            try:
+                run_tool(helper_tool)
+            except BaseException as exc:
+                helper_seen["caught"] = type(exc).__name__
+
+        thread = threading.Thread(target=work)
+        thread.start()
+        thread.join()
+        print("HELPER", json.dumps(helper_seen), flush=True)
+        return callback("apply", {})
+
     tools = {
         "span": span_tool,
         "after": returning_tool,
         "plain": plain_tool,
         "restore": restore_tool,
         "nested": outer_tool,
+        "helper": helper_main,
     }
     try:
         report = run_tool(tools[mode])
@@ -863,7 +895,7 @@ class _SigintChild:
         ):
             env.pop(name, None)
         self.proc = subprocess.Popen(
-            [sys.executable, str(script), mode, str(workdir)],
+            [sys.executable, str(script), mode, str(workdir), str(CHILD_TIMEOUT_S / 2)],
             cwd=repo,
             env=env,
             stdout=subprocess.PIPE,
@@ -970,6 +1002,21 @@ class TestSigintAbort:
         child = sigint_child("nested")
         child.interrupt_at("span")
         code, out, err, values = child.finish()
+        assert code != 0
+        report = _line(out, "INTERRUPTED")
+        assert report["aborted"] is True
+        assert report["restored"] == ["A", "B"]
+        assert values == HOME
+        assert _tagged(out) + _tagged(err) == [report]
+
+    def test_sigint_stops_a_helper_threads_tool_through_its_callback(
+        self, sigint_child: Callable[[str], _SigintChild]
+    ) -> None:
+        """A Ctrl-C stops a tool running in a helper thread of the run through its callback."""
+        child = sigint_child("helper")
+        child.interrupt_at("span")
+        code, out, err, values = child.finish()
+        assert _line(out, "HELPER") == {"callback": False, "caught": "KeyboardInterrupt"}
         assert code != 0
         report = _line(out, "INTERRUPTED")
         assert report["aborted"] is True
