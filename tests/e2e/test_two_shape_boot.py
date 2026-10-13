@@ -99,7 +99,7 @@ import yaml
 from osprey.deployment.compose_generator import resolve_project_name
 from tests.e2e.profile_edits import set_pairs
 
-pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.slow, pytest.mark.dockerbuild]
 
 # ---------------------------------------------------------------------------
 # Container runtime selection — ``docker`` by default, ``podman`` opt-in via

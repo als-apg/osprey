@@ -45,8 +45,8 @@ files are gone after the run, and a failing test's files stay under
 summary while that root holds other runs' trees is pytest pruning them at exit,
 not a thread, so the live-thread report shows nothing for it.
 
-**E2E tests are separate.** Run them with `pytest tests/e2e/`, never with
-`-m e2e`.
+**E2E tests are separate.** Run them by path, `pytest tests/e2e/`. The
+directory is the selector: there is no marker for the suite as a whole.
 
 **CI caps every unit test at 600 seconds** (`--timeout=600
 --timeout-method=signal`, on the lane's pytest line only — an ini default would
@@ -245,6 +245,14 @@ than scroll past in the warnings summary. Four groups matter day to day:
   and declare the marker in `pyproject.toml`.
 - **`slow`** — deselected by `scripts/quick_check.sh` (`-m "not slow"`). Mark a
   test slow if it would make the fast loop annoying to run; it still runs in CI.
+- **`pty`** and **`wall_clock`** — the two serial markers. A `pty` test drives a
+  verb on a real terminal and asserts on repaint cadence; a `wall_clock` test
+  holds a time budget. Both measure the machine as much as the code, so the
+  parallel sweep deselects them (`-m "not pty and not wall_clock"`) and a serial
+  step after it — in CI and in `scripts/ci_check.sh` — runs each marker alone.
+  A budget is never loosened for a slow runner and never skipped on one; a
+  `wall_clock` test prints what it measured before it asserts, so a red says
+  whether the code regressed or the host could not hold the budget.
 - **`xdist_group`** — the worker pin from section 1. Self-registered by xdist, so
   it needs no declaration.
 - **`real_<seam>`** (`real_workspace_watcher`, `real_http_posters`,

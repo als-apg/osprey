@@ -148,7 +148,7 @@ All new functionality must include tests.
    # Single test function
    uv run pytest tests/path/to/test_file.py::test_function_name -v
 
-   # E2E tests (requires API keys) -- MUST use path, NOT marker.
+   # E2E tests (requires API keys) -- selected by path.
    # Name the provider: a run that names none is refused before the first test
    # when it selects a test not marked model_free.
    # Sync the extras the suite reaches for too -- the chat-bridge modules skip
@@ -165,10 +165,12 @@ All new functionality must include tests.
    # With coverage
    uv run pytest tests/ --ignore=tests/e2e --cov=src/osprey
 
-.. warning::
+.. note::
 
-   E2E tests **must** be run with ``pytest tests/e2e/`` not ``pytest -m e2e``.
-   The marker-based approach causes registry state leaks and service conflicts.
+   E2E tests are selected by path, ``pytest tests/e2e/``. There is no marker for
+   the suite as a whole: the directory's own ``conftest.py`` carries the fixtures
+   that isolate one test from the next and the gate that refuses a run naming no
+   provider, so a test is an e2e test by living there.
 
 Front-End (JavaScript) Testing
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

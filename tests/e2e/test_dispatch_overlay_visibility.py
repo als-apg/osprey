@@ -114,7 +114,6 @@ DATA_SENTINEL = "CHANLIM_SENTINEL_7F3A"  # lives only in the render's data/ file
 SURFACE_TOKEN = "SURFACE=e2e-generic-webhook"  # emitted only if surface_prompt lands
 
 pytestmark = [
-    pytest.mark.e2e,
     # Gates on the credential of whichever provider the run builds with.
     pytest.mark.requires_e2e_provider,
     pytest.mark.slow,

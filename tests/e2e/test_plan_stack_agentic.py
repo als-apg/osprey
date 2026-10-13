@@ -3515,7 +3515,6 @@ ORM_OPERATOR_REQUEST = (
 )
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 # dockerbuild: builds the VA/bridge/bluesky-web images and deploys the full queue
 # stack — runs in its own CI job, never the shared e2e-tests lane (the
@@ -3608,7 +3607,6 @@ GRID_OPERATOR_REQUEST = (
 )
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 # dockerbuild: see the orbit-response test above — same stack, same CI job.
 @pytest.mark.dockerbuild
@@ -3717,7 +3715,6 @@ def _authoring_promoted(repo: Path) -> Iterator[None]:
         settings_path.write_bytes(original)
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 # dockerbuild: see the orbit-response test above — same stack, same CI job.
 @pytest.mark.dockerbuild
@@ -4120,7 +4117,6 @@ def assert_no_start_request_was_filed(traces: list[ToolTrace]) -> None:
     )
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 # dockerbuild: see the orbit-response test above — same stack, same CI job.
 @pytest.mark.dockerbuild
@@ -4402,7 +4398,6 @@ ABORT_OPERATOR_REQUEST = (
 )
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 # dockerbuild: see the orbit-response test above — same stack, same CI job.
 @pytest.mark.dockerbuild
@@ -4491,7 +4486,6 @@ REARM_OPERATOR_REQUEST = (
 )
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 # dockerbuild: see the orbit-response test above — same stack, same CI job.
 @pytest.mark.dockerbuild

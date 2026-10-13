@@ -37,7 +37,6 @@ from tests.e2e.sdk_helpers import (
 # `tests/conftest.py` hook auto-skips when the key is missing. Every test
 # in this file passes `provider="als-apg"` to `init_project` and `LLMJudge`.
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
     pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available"),

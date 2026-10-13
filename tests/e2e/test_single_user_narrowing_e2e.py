@@ -168,7 +168,6 @@ UNAVAILABLE_CLAUSE = "the store answered control_context_unavailable."
 _EVIDENCE_CAP = 6000
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.requires_als_apg,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),

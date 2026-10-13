@@ -232,7 +232,6 @@ def seeded_graph_paradigm_project(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 @pytest.mark.harness_benchmark
 def test_render_targets_the_graph_channel_finder_server(graph_paradigm_repo: Path) -> None:
@@ -269,7 +268,6 @@ def test_render_targets_the_graph_channel_finder_server(graph_paradigm_repo: Pat
     assert "channel-finder" in expected_mcp_servers(render)
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 @pytest.mark.harness_benchmark
 def test_render_arms_the_subagent_with_the_paradigm_vocabulary(
@@ -493,7 +491,6 @@ def _print_run(result: Any, prose: str) -> None:
     print("  --- end prose ---\n")
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 @pytest.mark.agentic_benchmark
 @pytest.mark.requires_als_apg

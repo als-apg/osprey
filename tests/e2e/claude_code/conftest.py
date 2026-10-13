@@ -104,7 +104,6 @@ def reset_registry_between_tests():
 # `tests/conftest.py` hook) rather than here, so the gating travels with
 # the test rather than the directory.
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
     pytest.mark.skipif(not is_claude_code_available(), reason="Claude Code CLI not installed"),
 ]

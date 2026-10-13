@@ -338,7 +338,8 @@ jobs:
       # this invocation and the conftest override, so the flag cannot outlive
       # the scheduler that makes it safe.
       #
-      # -m "not pty" hands the real-terminal suite to the serial step below.
+      # -m "not pty and not wall_clock" hands the real-terminal suite and the
+      # wall-clock budget tests to the two serial steps below.
       # Those scenarios assert on repaint cadence and on a spinner ADVANCING
       # between two frames, so they measure the box as much as the code, and
       # three other xdist workers competing for it is exactly the load that
@@ -440,7 +441,7 @@ jobs:
         # events than it is here.
         # tests/deployment/test_ci_workflow_wiring.py holds that rule over every
         # file this line ignores by name, and lists the exemptions to it.
-        uv run pytest tests/$SHARD_PATH $SHARD_IGNORE --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py --ignore=tests/services/channel_finder/graph_index/test_scale.py --ignore=tests/integration/test_build_boot.py --ignore=tests/integration/test_preset_static.py -m "not pty" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+        uv run pytest tests/$SHARD_PATH $SHARD_IGNORE --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py --ignore=tests/integration/test_build_boot.py --ignore=tests/integration/test_preset_static.py -m "not pty and not wall_clock" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
 
     # The two steps below are the reason the step above has its own timeout.
     # They run on success too: on a green lane the summary is the slow-test
@@ -510,6 +511,29 @@ jobs:
       # minute, so the tail margin the job cap comment argues for is untouched.
       timeout-minutes: 10
       run: uv run pytest tests/pty/ -m pty -v --tb=short
+
+    - name: Run wall-clock budget suites serially
+      # Every test marked `wall_clock` holds a time budget: a build of the flat
+      # search index that must finish inside its bound, a search whose p95 must
+      # stay under a second. A budget measures the box as much as the code, so
+      # the parallel step above deselects the marker and this step picks it back
+      # up with no xdist worker beside it. Same venue rule as the pty step: the
+      # Linux cells, one shard, so the suite runs once and on the quieter
+      # runners. The budget is never loosened for a slow runner and the tests
+      # never skip on one; a red here is a regression or a host that cannot
+      # hold the budget, and the timings every test prints say which.
+      #
+      # `-m wall_clock` over the tree rather than a directory: a budget test
+      # lives beside the code it measures, so there is no one directory to
+      # name. The wiring test holds that at least one file carries the marker,
+      # so a selection that matched nothing could not green this step.
+      #
+      # The job cap stays where it is for the same reason the pty step gives:
+      # this step is minutes on a healthy lane, and only a lane that has already
+      # burned the unit step's own cap could run into it.
+      if: matrix.os == 'ubuntu-latest' && matrix.shard == 'rest'
+      timeout-minutes: 15
+      run: uv run pytest tests/ --ignore=tests/e2e -m wall_clock -v --tb=short
 
     - name: Run live Channel Access suites in isolation
       # One pytest process per module via the live-CA gate — the same venue
@@ -1730,8 +1754,6 @@ jobs:
         # not hold. Selected, it would skip; skipping fails this lane.
         uv run pytest \
           tests/e2e/test_openobserve_telemetry.py \
-          tests/e2e/test_sdk_helpers.py \
-          tests/e2e/test_mcp_readiness.py \
           tests/e2e/test_dispatch_deploy_render.py \
           tests/e2e/web_terminals/test_scaffold_render_roundtrip.py \
           tests/e2e/web_terminals/test_skills_overlay_discovery.py \
@@ -1815,17 +1837,6 @@ jobs:
 
     - name: Install dependencies
       run: uv sync --extra dev
-
-    - name: Search-index scale guard (no LLM, no store)
-      # The unit lane ignores this module by path: its budgets are held to a
-      # workstation's numbers, and four xdist workers on a four-vCPU runner
-      # miss them by ~7x on both corpora at once — the box, not the code (see
-      # the module docstring). It runs here instead, serially and alone.
-      # Placed ahead of the probe below deliberately: a DuckDB latency
-      # measurement needs no API key, and gating it on one would mean an
-      # unreachable proxy silently takes the scale guard down with it.
-      run: |
-        uv run pytest tests/services/channel_finder/graph_index/test_scale.py -v --tb=short
 
     - name: Pre-flight LLM endpoint reachability check
       env:

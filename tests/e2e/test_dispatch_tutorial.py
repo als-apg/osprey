@@ -56,7 +56,6 @@ RUN_TIMEOUT_SEC = 150.0
 HEALTH_TIMEOUT_SEC = 45.0
 
 pytestmark = [
-    pytest.mark.e2e,
     # The provider comes from the run, so the credential gate has to follow it
     # rather than name one gateway: see tests/e2e/provider.py.
     pytest.mark.requires_e2e_provider,

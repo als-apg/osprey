@@ -273,7 +273,7 @@ def test_configure_registers_the_markers_without_a_provider() -> None:
     among them."""
     config = _StubConfig()
     e2e_conftest.pytest_configure(config)
-    assert any(line.startswith("e2e:") for line in config.markers)
+    assert any(line.startswith("e2e_smoke:") for line in config.markers)
     assert any(line.startswith(f"{MODEL_FREE_MARKER}:") for line in config.markers)
 
 
@@ -284,7 +284,7 @@ def test_enumerating_the_suite_needs_no_provider() -> None:
     config = _StubConfig(collect_only=True)
     e2e_conftest.pytest_configure(config)
     e2e_conftest.pytest_collection_modifyitems(config, [])
-    assert any(line.startswith("e2e:") for line in config.markers)
+    assert any(line.startswith("e2e_smoke:") for line in config.markers)
 
 
 def test_a_named_provider_lets_configure_register_its_markers(
@@ -294,7 +294,7 @@ def test_a_named_provider_lets_configure_register_its_markers(
     monkeypatch.setenv(E2E_PROVIDER_ENV, "cborg")
     config = _StubConfig()
     e2e_conftest.pytest_configure(config)
-    assert any(line.startswith("e2e:") for line in config.markers)
+    assert any(line.startswith("e2e_smoke:") for line in config.markers)
 
 
 # ---------------------------------------------------------------------------
@@ -434,7 +434,7 @@ _DISTRIBUTION = pytest.mark.parametrize("dist", [(), ("-n", "2")], ids=["single"
 
 @_DISTRIBUTION
 def test_a_model_free_module_is_not_refused(dist: tuple[str, ...]) -> None:
-    result = _run_pytest("tests/e2e/test_sdk_helpers.py", "--setup-plan", *dist)
+    result = _run_pytest("tests/e2e/test_dispatch_deploy_render.py", "--setup-plan", *dist)
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
     assert "names no provider" not in output

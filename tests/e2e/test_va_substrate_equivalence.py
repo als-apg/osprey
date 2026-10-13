@@ -231,7 +231,6 @@ CONNECTOR_CONFIG: dict[str, Any] = {
 }
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]

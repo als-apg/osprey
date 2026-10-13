@@ -615,9 +615,8 @@ tmp_path_retention_policy = "failed"
 # WARNING: E2E tests MUST be run with 'pytest tests/e2e/' NOT 'pytest -m e2e'
 # See tests/e2e/README.md for details
 markers = [
-    "e2e: End-to-end workflow tests - WARNING: Use 'pytest tests/e2e/' not '-m e2e' (see tests/e2e/README.md)",
     "e2e_smoke: Quick smoke tests for critical workflows",
-    "channel_finder_benchmark: Channel finder benchmark validation tests. Run on demand, in the benchmark job (`gh workflow run ci.yml -f run_benchmarks=true`), never on a PR: the LLM scoring lane is too expensive to gate on, and the search-index scale guard measures wall-clock latency, which four xdist workers sharing a runner distort past any budget worth keeping. Tests carrying it must be kept out of the unit lane — the LLM ones by living under tests/e2e/, the scale guard by an --ignore on the lane's own line",
+    "channel_finder_benchmark: Channel finder benchmark validation tests. Run on demand, in the benchmark job (`gh workflow run ci.yml -f run_benchmarks=true`), never on a PR: the LLM scoring lane is too expensive to gate on. Tests carrying it live under tests/e2e/, which keeps them out of the unit lane",
     "e2e_tutorial: Tutorial workflow validation tests",
     "model_free: tests/e2e test that reaches no model, so it runs when the session names no provider (OSPREY_E2E_PROVIDER); the set equals the e2e-no-model CI lane's selection",
     "agentic_benchmark: Model-capability lane of the benchmark matrix — genuine agentic tasks (multi-tool reasoning, judged answers) where the model-under-test can fail",
@@ -643,6 +642,7 @@ markers = [
     "real_graph_index: Build test of the channel search index derivation itself — opts out of the conftest stub that builds each corpus once per session and copies it into every render",
     "real_fetch: opt out of the ARIEL attachment fetch fake",
     "real_server_launch: Test of ServerLauncher's own launch — opts out of the conftest stub that keeps companion servers from starting real uvicorn daemon threads in the unit suite",
+    "wall_clock: Tests that hold a wall-clock budget — a build that must finish in so many seconds, a search whose p95 must stay under one. A budget measures the box as much as the code, so these run alone: the parallel lane deselects the marker and a serial step after it selects the marker back, with no xdist workers, in CI and in scripts/ci_check.sh alike. The budget is never loosened for a slow runner and the test is never skipped on one; a red here is either a regression or a host that cannot hold the budget, and the printed timings say which",
     "pty: Real-terminal tests that run an osprey verb on a pty and read back the bytes an operator would have seen. POSIX-only (they self-skip elsewhere), and deselected from the parallel lane because they assert on repaint cadence and on a spinner advancing between frames, which three other xdist workers loading the box would distort; they get their own serial CI step instead. Carried per-test, not per-directory: tests/pty/test_stub_coverage.py needs no terminal and stays in the parallel lane.",
 ]
 

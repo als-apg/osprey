@@ -172,7 +172,6 @@ def _linux_enough() -> bool:
 
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.dockerbuild,
     pytest.mark.skipif(not _linux_enough(), reason=LINUX_ONLY_REASON),
