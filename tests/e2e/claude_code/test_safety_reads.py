@@ -74,9 +74,9 @@ async def test_channel_read_succeeds(safety_project):
     # auto-approves the read by emitting permissionDecision='allow' (no human
     # prompt). With claude-agent-sdk 0.2.93 / CLI 2.1.x an `allow` hook decision
     # is STILL routed through can_use_tool and recorded as a hook event — only a
-    # hook `deny` suppresses the callback (see test_safety_kill_switch.py
-    # scenarios 9/10, which legitimately assert zero hook_events for denies, and
-    # scenario 2d/2e in test_safety_approval_e2e.py). So asserting len==0 here
+    # hook `deny` suppresses the callback (see
+    # test_safety_gates_scripted.py, which asserts zero hook_events for denies,
+    # and scenario 2d in test_safety_approval_e2e.py). So asserting len==0 here
     # was wrong: it conflated allow-suppresses-callback with
     # deny-suppresses-callback. The real safety invariant is that a skip-policy
     # read is auto-approved — never DENIED and never human-blocked — i.e. every

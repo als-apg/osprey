@@ -49,6 +49,9 @@ before any hook or callback runs).
 
 Strict per Task 5.3: this is a safety acceptance test, so no ``@flaky``
 reruns anywhere in this module.
+
+The refusal cases live in test_persona_permissions_scripted.py, where a scripted call reaches the
+gate on every run.
 """
 
 from __future__ import annotations
@@ -58,7 +61,6 @@ import yaml
 
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
-    assert_agent_ran,
     is_claude_code_available,
     render_dir,
     run_sdk_query_with_hooks,
@@ -82,7 +84,7 @@ def test_persona_configs_differ_by_exactly_one_permission_entry(
 
     Confirms the two rendered ``config.yml``'s ``claude_code.permissions``
     blocks differ by exactly the one swing-tool ``deny`` entry, so the two
-    behavioral tests below are actually isolating a single-tool permission
+    behavioral tests are actually isolating a single-tool permission
     difference rather than an incidental drift between the two builds.
 
     Stated as a difference rather than as persona A's whole ``deny`` list: a
@@ -112,77 +114,13 @@ def test_persona_configs_differ_by_exactly_one_permission_entry(
 @pytest.mark.requires_api
 @pytest.mark.requires_als_apg
 @pytest.mark.asyncio
-async def test_denied_tool_refused_in_persona_a(persona_a_denied_repo):
-    """Persona A's launched agent must never successfully call the denied tool.
-
-    Production launch semantics: ``permission_mode="default"`` (via
-    ``run_sdk_query_with_hooks``) so the real ``.claude/settings.json``
-    ``permissions.deny`` entry is what's under test — NOT
-    ``bypassPermissions`` (forbidden in this file; see module docstring).
-
-    Cost budget: $0.50
-    """
-    result = await run_sdk_query_with_hooks(
-        persona_a_denied_repo,
-        _PROMPT,
-        approval_policy="auto_approve",
-        max_turns=5,
-        max_budget_usd=0.50,
-    )
-
-    print("\n--- Persona A (denied) ---")
-    print(f"  tools called: {result.tool_names}")
-    print(f"  hook_events: {[(e.tool_name, e.decision) for e in result.hook_events]}")
-    for trace in result.tool_traces:
-        print(
-            f"  tool: {trace.name} is_error={trace.is_error} result={(trace.result or '')[:200]!r}"
-        )
-
-    assert_agent_ran(result)
-
-    # Attribution guard: the empty-tools signal below is only meaningful if the
-    # osprey_workspace server (the one that owns facility_description) actually
-    # came up for THIS run. Without this check, an incidental MCP startup
-    # failure would produce the exact same "tool never called" signal as a
-    # working deny — a false positive for the safety property under test.
-    assert result.mcp_server_status.get("osprey_workspace") == "connected", (
-        f"osprey_workspace MCP server was not connected in persona A's run — "
-        f"cannot attribute the absence of {DENIED_TOOL_ENTRY} calls to the "
-        f"permission deny. mcp_server_status={result.mcp_server_status!r}"
-    )
-
-    denied_calls = result.tools_matching(DENIED_TOOL_SHORT_NAME)
-    if not denied_calls:
-        pytest.skip("the model never called the denied tool; the persona deny was not exercised")
-    successful_calls = [t for t in denied_calls if not t.is_error]
-    assert len(successful_calls) == 0, (
-        f"Per-persona permission deny breached: {len(successful_calls)} call(s) to "
-        f"{DENIED_TOOL_ENTRY} succeeded in persona A.\n"
-        f"  Tools called: {result.tool_names}\n"
-        f"  Successful results: {[(t.result or '')[:100] for t in successful_calls]}"
-    )
-
-    # A settings.json "deny" wins before the permission engine ever reaches
-    # "ask" / can_use_tool (same precedence the kill-switch test asserts for
-    # channel_write in test_safety_kill_switch.py) — no approval callback
-    # should have fired for the denied tool.
-    denied_hook_events = [e for e in result.hook_events if DENIED_TOOL_SHORT_NAME in e.tool_name]
-    assert len(denied_hook_events) == 0, (
-        f"Expected no approval callback for a denied tool, but got "
-        f"{[(e.tool_name, e.decision) for e in denied_hook_events]}"
-    )
-
-
-@pytest.mark.requires_api
-@pytest.mark.requires_als_apg
-@pytest.mark.asyncio
 async def test_permitted_tool_allowed_in_persona_b(persona_b_permitted_repo):
     """Persona B's launched agent must be able to successfully call the same tool.
 
     Same prompt, same production launch path (``permission_mode="default"``),
     the ONLY difference being persona B's project never added the swing tool
     to ``claude_code.permissions.deny``. This is the positive control that
-    proves the refusal in persona A is due to the permission entry, not to
+    proves that persona A's refusal is due to the permission entry, not to
     the tool being universally broken or unreachable.
 
     Cost budget: $0.50
