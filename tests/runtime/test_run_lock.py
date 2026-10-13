@@ -51,6 +51,7 @@ from osprey_connectors.control_system.limits_validator import (
 from osprey_connectors.types import LIMITS_MODE_OPTIONAL
 from tests.runtime._guarded_run_fixtures import (
     GENERATION,
+    fork_in_a_window,
     journal_path,
     plant,
     plant_raw,
@@ -257,6 +258,45 @@ def test_a_forked_child_neither_holds_nor_keeps_the_lock(repo: Path) -> None:
         if grandchild is not None:
             with contextlib.suppress(ProcessLookupError):
                 os.kill(grandchild, signal.SIGKILL)
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="POSIX fork only")
+def test_a_fork_during_lock_entry_waits_for_the_hold(repo: Path) -> None:
+    """A fork while the lock is being taken returns only once the hold is published."""
+    with fork_in_a_window(
+        repo,
+        guarded_run_dir("live") / LOCK_FILE_NAME,
+        block="guarded_run._write_holder = blocking(guarded_run._write_holder)",
+        run="""
+            with guarded_run.lock("live"):
+                time.sleep(600)
+        """,
+        published="_run_state.STATE.hold is not None",
+    ) as (holder, parent, child):
+        assert parent == ["parent", "True"], "the fork returned before the hold was published"
+        assert child[2:] == ["True", "True"], "the child holds the lock file or the entry lock"
+        holder.kill()
+        holder.wait(timeout=CHILD_TIMEOUT_S)
+
+        with lock("live"):
+            pass
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="POSIX fork only")
+def test_a_fork_during_release_waits_for_the_close(repo: Path) -> None:
+    """A fork while the lock is being dropped returns only once its file is closed."""
+    with fork_in_a_window(
+        repo,
+        guarded_run_dir("live") / LOCK_FILE_NAME,
+        block="os.close = blocking(os.close, lambda fd: same(fd, WATCHED))",
+        run="""
+            with guarded_run.lock("live"):
+                pass
+        """,
+        published="_run_state.STATE.hold is None",
+    ) as (_holder, parent, child):
+        assert parent == ["parent", "True"]
+        assert child[2:] == ["True", "True"], "the child holds the lock file or the entry lock"
 
 
 def test_a_readonly_run_raises_before_the_lock(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:

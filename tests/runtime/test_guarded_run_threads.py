@@ -15,6 +15,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import contextvars
+import inspect
 import json
 import os
 import subprocess
@@ -43,8 +44,10 @@ from osprey.runtime.guarded_run import (
 from osprey.runtime.journal import OspreyWriteRefused, guarded_write, read_pending_journal
 from tests.runtime._guarded_run_fixtures import (
     GENERATION,
+    fork_in_a_window,
     fresh_run_state,  # noqa: F401 - used through pytestmark
     journal_path,
+    reset_run_state,
     write_config,
 )
 
@@ -483,6 +486,40 @@ def test_a_child_forked_inside_a_run_leaves_the_parents_journal(repo: Path) -> N
     assert report["aborted"] is False, "only the parent's own exit reported"
 
 
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="POSIX fork only")
+def test_a_fork_during_journal_entry_waits_for_the_run(repo: Path) -> None:
+    """A fork while the journal is being opened returns only once the run is published."""
+    with fork_in_a_window(
+        repo,
+        journal_path(),
+        block="DurableJournal.start = blocking(DurableJournal.start)",
+        run="""
+            with guarded_run.journaled_run("live"):
+                time.sleep(600)
+        """,
+        published="_run_state.STATE.run is not None",
+    ) as (_holder, parent, child):
+        assert parent == ["parent", "True"], "the fork returned before the run was published"
+        assert child[2:] == ["True", "True"], "the child holds the journal or the entry lock"
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="POSIX fork only")
+def test_a_fork_during_a_runs_exit_waits_for_the_close(repo: Path) -> None:
+    """A fork while a run's journal is being closed returns only once it is closed."""
+    with fork_in_a_window(
+        repo,
+        journal_path(),
+        block="DurableJournal.close = blocking(DurableJournal.close)",
+        run="""
+            with guarded_run.journaled_run("live"):
+                pass
+        """,
+        published="_run_state.STATE.run is None",
+    ) as (_holder, parent, child):
+        assert parent == ["parent", "True"]
+        assert child[2:] == ["True", "True"], "the child holds the journal or the entry lock"
+
+
 def test_the_run_state_is_one_object_no_module_binds() -> None:
     def context_vars(module: Any) -> list[str]:
         tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
@@ -505,9 +542,173 @@ def test_the_run_state_is_one_object_no_module_binds() -> None:
             for node in ast.walk(tree)
             if isinstance(node, ast.ImportFrom)
             for alias in node.names
-            if alias.name in {"STATE", "LOCK"}
+            if alias.name in {"STATE", "LOCK", "ENTRY"}
         ]
 
     assert context_vars(guarded_run) == []
     assert context_vars(journal_mod) == ["_ACTIVE"]
     assert bound_by_import(guarded_run) == bound_by_import(journal_mod) == []
+
+
+#: The callees a ``with _run_state.ENTRY:`` body may call: descriptor work
+#: only, so a fork waits at most for a lock entry and no other library's fork
+#: hook can deadlock against it. ``os.*`` and ``fcntl.*`` are allowed whole.
+ENTRY_CALLEES = {
+    "contextlib.suppress",
+    "_open_run_dir",
+    "_open_regular",
+    "_read_holder",
+    "_write_holder",
+    "DurableJournal",
+    "durable.start",
+    "durable.close",
+    "run.durable.close",
+    "Journal",
+    "_run_state.Hold",
+    "_run_state.OpenRun",
+    "OspreyRunBusy",
+    "str",
+}
+
+
+def _dotted(node: ast.expr) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return f"{_dotted(node.value)}.{node.attr}"
+    return ast.dump(node)
+
+
+def _is_entry(node: ast.expr) -> bool:
+    return _dotted(node) == "_run_state.ENTRY"
+
+
+def _entry_brackets(tree: ast.AST) -> list[tuple[str, ast.With]]:
+    """Every ``with _run_state.ENTRY:`` statement, with the function holding it."""
+    found = []
+    for function in ast.walk(tree):
+        if isinstance(function, ast.FunctionDef):
+            for node in ast.walk(function):
+                if isinstance(node, ast.With) and any(
+                    _is_entry(i.context_expr) for i in node.items
+                ):
+                    found.append((function.name, node))
+    return found
+
+
+def _callees_outside_the_entry_set(tree: ast.AST) -> list[str]:
+    """Every callee inside an ``ENTRY`` bracket that :data:`ENTRY_CALLEES` does not allow."""
+    refused = []
+    for _function, bracket in _entry_brackets(tree):
+        for statement in bracket.body:
+            for node in ast.walk(statement):
+                if not isinstance(node, ast.Call):
+                    continue
+                callee = _dotted(node.func)
+                if callee.split(".")[0] in {"os", "fcntl"} or callee in ENTRY_CALLEES:
+                    continue
+                refused.append(callee)
+    return refused
+
+
+def _module_tree(module: Any) -> ast.Module:
+    return ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+
+
+def _fork_hook_names(tree: ast.AST) -> dict[str, str]:
+    """The functions ``os.register_at_fork`` is given, by keyword."""
+    return {
+        keyword.arg: keyword.value.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and _dotted(node.func) == "os.register_at_fork"
+        for keyword in node.keywords
+        if keyword.arg is not None and isinstance(keyword.value, ast.Name)
+    }
+
+
+def test_entry_is_taken_by_the_four_brackets_and_the_fork_hooks_only() -> None:
+    tree = _module_tree(guarded_run)
+    brackets = _entry_brackets(tree)
+    hooks = _fork_hook_names(tree)
+    as_items = {id(item.context_expr) for _name, bracket in brackets for item in bracket.items}
+    functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+
+    def entries(node: ast.AST) -> list[ast.Attribute]:
+        return [n for n in ast.walk(node) if isinstance(n, ast.Attribute) and n.attr == "ENTRY"]
+
+    hook_spellings = [
+        name
+        for name in (hooks["before"], hooks["after_in_parent"])
+        for node in entries(functions[name])
+    ]
+
+    assert sorted(name for name, _with in brackets) == [
+        "_end_run",
+        "_release",
+        "journaled_run",
+        "lock",
+    ]
+    assert sorted(hook_spellings) == sorted([hooks["before"], hooks["after_in_parent"]])
+    assert len(entries(tree)) == len(brackets) + len(hook_spellings), (
+        "ENTRY is spelled outside the four brackets and the two parent fork hooks"
+    )
+    assert all(
+        id(node) in as_items
+        for name in ("lock", "journaled_run", "_end_run", "_release")
+        for node in entries(functions[name])
+    )
+    assert entries(_module_tree(journal_mod)) == []
+    assert "ENTRY" not in {
+        node.id for node in ast.walk(_module_tree(journal_mod)) if isinstance(node, ast.Name)
+    }
+
+
+def test_an_entry_bracket_calls_descriptor_work_only() -> None:
+    assert _callees_outside_the_entry_set(_module_tree(guarded_run)) == []
+
+
+def test_the_entry_bracket_check_refuses_a_read_of_the_deployment() -> None:
+    synthetic = ast.parse(
+        textwrap.dedent(
+            """
+            def lock():
+                with _run_state.ENTRY:
+                    directory = _repo_root()
+                    os.close(_open_run_dir(directory))
+            """
+        )
+    )
+
+    assert _callees_outside_the_entry_set(synthetic) == ["_repo_root"]
+
+
+def test_no_fork_hook_takes_the_run_state_lock() -> None:
+    tree = _module_tree(guarded_run)
+    hooks = set(_fork_hook_names(tree).values())
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name in hooks
+    }
+
+    assert set(functions) == hooks and len(hooks) == 3
+    assert [
+        name
+        for name, function in functions.items()
+        for node in ast.walk(function)
+        if isinstance(node, ast.Attribute) and node.attr == "LOCK"
+    ] == []
+
+
+def test_reset_run_state_replaces_every_run_state_global() -> None:
+    tree = ast.parse(textwrap.dedent(inspect.getsource(reset_run_state)))
+    replaced = {
+        node.args[1].value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and _dotted(node.func) == "monkeypatch.setattr"
+        and _dotted(node.args[0]) == "_run_state"
+        and isinstance(node.args[1], ast.Constant)
+    }
+
+    assert replaced == {"ENTRY", "LOCK", "STATE"}

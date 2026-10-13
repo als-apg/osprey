@@ -15,10 +15,16 @@ runtime, the executor and the approval hook, is held to it.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
+import queue
+import signal
+import subprocess
+import sys
+import textwrap
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -70,6 +76,7 @@ LINKED_DIRECTORY_REFUSAL = "is a link; a guarded-run directory is never a link"
 
 def reset_run_state(monkeypatch: pytest.MonkeyPatch) -> None:
     """Give this test a fresh run state and lock, put back when it ends."""
+    monkeypatch.setattr(_run_state, "ENTRY", threading.Lock())
     monkeypatch.setattr(_run_state, "LOCK", threading.RLock())
     monkeypatch.setattr(_run_state, "STATE", _run_state.RunState())
 
@@ -224,3 +231,151 @@ def link_directory(level: Path) -> Path:
     level.rename(real)
     os.symlink(real, level, target_is_directory=True)
     return real
+
+
+#: How long a holder script may take to reach a step or answer; a hang guard,
+#: never a statement about speed.
+FORK_HANG_S = 60.0
+
+#: The holder script's common part. ``_run_state.ENTRY`` is a probe that frees
+#: the blocked step only when a fork is found waiting for it, so a fork that
+#: waits for the bracket and one that does not are both deterministic. The
+#: child reports whether it holds a descriptor of the watched file and whether
+#: its entry lock is free.
+_FORK_PROBE = """
+import os, sys, threading, time, warnings
+warnings.simplefilter("ignore", DeprecationWarning)
+import osprey.runtime._run_state as _run_state
+import osprey.runtime.guarded_run as guarded_run
+from osprey.runtime.journal import DurableJournal
+
+WATCHED, HANG_S = sys.argv[1], float(sys.argv[2])
+go, in_window = threading.Event(), threading.Event()
+
+
+class Probe:
+    def __init__(self):
+        self.real = threading.Lock()
+
+    def acquire(self, blocking=True):
+        if self.real.acquire(blocking=False):
+            return True
+        if not blocking:
+            return False
+        go.set()
+        return self.real.acquire()
+
+    def release(self):
+        self.real.release()
+
+    def __enter__(self):
+        self.real.acquire()
+        return self
+
+    def __exit__(self, *exc):
+        self.real.release()
+
+
+_run_state.ENTRY = Probe()
+
+
+def same(fd, path):
+    try:
+        st, want = os.fstat(fd), os.stat(path)
+    except OSError:
+        return False
+    return (st.st_dev, st.st_ino) == (want.st_dev, want.st_ino)
+
+
+def blocking(real, when=lambda *args, **kwargs: True):
+    def blocked(*args, **kwargs):
+        if not in_window.is_set() and when(*args, **kwargs):
+            in_window.set()
+            assert go.wait(HANG_S)
+        return real(*args, **kwargs)
+    return blocked
+
+
+def fork_and_report(published):
+    child = os.fork()
+    if child == 0:
+        held = [fd for fd in range(3, 1024) if same(fd, WATCHED)]
+        print("child", os.getpid(), held == [], _run_state.ENTRY.acquire(blocking=False), flush=True)
+        time.sleep(600)
+        os._exit(0)
+    print("parent", published(), flush=True)
+    go.set()
+"""
+
+_FORK_TAIL = """
+threading.Thread(target=run, daemon=True).start()
+assert in_window.wait(HANG_S)
+forker = threading.Thread(target=fork_and_report, args=(published,))
+forker.start()
+forker.join(HANG_S)
+time.sleep(600)
+"""
+
+
+@contextlib.contextmanager
+def fork_in_a_window(
+    repo: Path, watched: Path, *, block: str, run: str, published: str
+) -> Iterator[tuple[subprocess.Popen[str], list[str], list[str]]]:
+    """Fork a holder process from a second thread while one step of its run is blocked.
+
+    The holder script runs *block* (which wraps one step in ``blocking(...)``),
+    starts ``run()`` (the body *run*) on a daemon thread, waits until the step
+    is reached, forks from a second thread and prints the parent's
+    ``published()`` (the expression *published*) once the fork returned.
+
+    Yields:
+        ``(holder, parent, child)``: the holder process, the parent's line
+        ``["parent", <published>]`` and the child's line ``["child", <pid>,
+        <holds no descriptor of watched>, <entry lock free>]``. The holder and
+        the child are killed on exit.
+    """
+    script = "\n".join(
+        [
+            _FORK_PROBE,
+            textwrap.dedent(block),
+            "def run():\n" + textwrap.indent(textwrap.dedent(run), "    "),
+            f"published = lambda: {published}",
+            _FORK_TAIL,
+        ]
+    )
+    holder = subprocess.Popen(
+        [sys.executable, "-c", script, str(watched), str(FORK_HANG_S)],
+        cwd=repo,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    lines: queue.Queue[str | None] = queue.Queue()
+
+    def read() -> None:
+        assert holder.stdout is not None
+        for line in holder.stdout:
+            lines.put(line)
+        lines.put(None)
+
+    threading.Thread(target=read, daemon=True).start()
+    child: int | None = None
+    try:
+        reported: list[list[str]] = []
+        for _ in range(2):
+            try:
+                line = lines.get(timeout=FORK_HANG_S)
+            except queue.Empty:
+                line = None
+            if line is None:
+                pytest.fail(f"the holder reported {reported} (exit {holder.poll()})")
+            reported.append(line.split())
+        forked, parent = sorted(reported)
+        child = int(forked[1])
+        yield holder, parent, forked
+    finally:
+        if holder.poll() is None:
+            holder.kill()
+            holder.wait(timeout=FORK_HANG_S)
+        if child is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(child, signal.SIGKILL)

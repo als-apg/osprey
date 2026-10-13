@@ -5,13 +5,18 @@ holds, the journaled run it has open and the restore reports it filed are facts
 of the process, not of the thread or task that took them, so a thread or task
 the run starts sees the same answers as the code that started it.
 
-Two invariants hold:
+Four invariants hold:
 
 - Every fact of the guarded run is a field of :data:`STATE`, read and changed
   with :data:`LOCK` held.
-- :data:`STATE` and :data:`LOCK` are spelled ``_run_state.STATE`` and
-  ``_run_state.LOCK`` at the moment of use and never bound by an import, so a
-  forked child (:func:`reset_in_child`) and a test can replace them.
+- :data:`STATE`, :data:`LOCK` and :data:`ENTRY` are spelled
+  ``_run_state.STATE``, ``_run_state.LOCK`` and ``_run_state.ENTRY`` at the
+  moment of use and never bound by an import, so a forked child
+  (:func:`reset_in_child`) and a test can replace them.
+- A descriptor of the run is open exactly when :data:`STATE` names it, except
+  inside an :data:`ENTRY` bracket, and a fork never lands inside one.
+- :data:`LOCK` is held across writes and restores, so no at-fork or signal
+  hook takes it; a short bracket has its own lock.
 
 This module is stdlib-only at import time.
 """
@@ -30,6 +35,15 @@ if TYPE_CHECKING:
 #: The one lock every reader and writer of :data:`STATE` holds. Re-entrant, so
 #: a guarded write can hold it across the journaling it calls.
 LOCK = threading.RLock()
+
+#: Held only while a descriptor of the run exists that :data:`STATE` does not
+#: name: from the first open of a descriptor to its publication in
+#: :data:`STATE`, and from its removal from :data:`STATE` to its close. Taken
+#: with :data:`LOCK` already held; never held across a guarded write, a
+#: restore, a read of the deployment or another lock's acquisition. A fork
+#: waits for it. A plain lock: a re-entrant one would let a fork from the
+#: bracket's own thread through.
+ENTRY = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -111,12 +125,15 @@ STATE = RunState()
 
 
 def reset_in_child() -> None:
-    """Give a forked child a new lock and a state holding only the approved call.
+    """Give a forked child new locks and a state holding only the approved call.
 
     A lock another thread held at the fork is never released in the child, so
-    the child never touches the parent's. The child holds no run lock and has
-    no run open; the parent's descriptors are closed before this is called.
+    the child never touches the parent's. The child's inherited :data:`ENTRY`
+    is locked by the fork and is replaced, never released. The child holds no
+    run lock and has no run open; the parent's descriptors are closed before
+    this is called.
     """
-    global LOCK, STATE
+    global ENTRY, LOCK, STATE
+    ENTRY = threading.Lock()
     LOCK = threading.RLock()
     STATE = RunState(approved=STATE.approved)

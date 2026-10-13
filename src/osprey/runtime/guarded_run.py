@@ -27,6 +27,11 @@ process, not to the thread that took them, and are kept in one place behind
 one lock (:mod:`osprey.runtime._run_state`): a thread or task the run starts
 runs under it and journals into the same journal.
 
+A fork never lands between the open of a run descriptor (the lock, its
+directory, the journal) and its publication in that state, nor between its
+removal from the state and its close: a fork waits for such a bracket and for
+nothing else, and a forked child holds neither the lock nor the journal.
+
 :func:`lock` takes the target's lock without blocking and records its holder
 (pid, start time) in the lock file; a second run on the target, from this or
 any other process, raises :class:`OspreyRunBusy` before it starts. Under the
@@ -212,7 +217,7 @@ class OspreyRunBusy(Exception):
         super().__init__(f"another guarded run is live under {root} (pid {who}, since {since})")
 
 
-#: Whether :func:`_drop_held_locks_in_child` is registered to run in forked children.
+#: Whether the fork hooks (:func:`_register_fork_hook`) are registered in this process.
 _FORK_HOOK_REGISTERED = False
 _FORK_HOOK_GUARD = threading.Lock()
 
@@ -328,22 +333,28 @@ def _open_levels(directory: Path, *, create: bool) -> int:
     return parent
 
 
-def _open_run_dir(name: str, *, create: bool = True) -> tuple[Path, int]:
-    """Open the guarded-run directory of the target named *name*.
-
-    Returns:
-        ``(directory, fd)``: the absolute directory and its open descriptor,
-        which the caller closes.
+def _run_dir_path(name: str) -> Path:
+    """The guarded-run directory of the target named *name*, resolved, not opened.
 
     Raises:
-        GuardedRunDirError: The repo root cannot be resolved, ``guarded_run``
-            or the target's directory is a link, or the directory cannot be
-            created or is not writable.
-        FileNotFoundError: A level is missing and *create* is not set.
+        GuardedRunDirError: The repo root cannot be resolved.
     """
     from osprey_connectors.workspace import STATE_DIR_NAME
 
-    directory = _repo_root() / STATE_DIR_NAME / GUARDED_RUN_DIR / name
+    return _repo_root() / STATE_DIR_NAME / GUARDED_RUN_DIR / name
+
+
+def _open_run_dir(directory: Path, *, create: bool = True) -> int:
+    """Open the guarded-run directory *directory* (see :func:`_run_dir_path`).
+
+    Returns:
+        The directory's open descriptor, which the caller closes.
+
+    Raises:
+        GuardedRunDirError: ``guarded_run`` or the target's directory is a
+            link, or the directory cannot be created or is not writable.
+        FileNotFoundError: A level is missing and *create* is not set.
+    """
     try:
         fd = _open_levels(directory, create=create)
     except OSError as exc:
@@ -362,7 +373,7 @@ def _open_run_dir(name: str, *, create: bool = True) -> tuple[Path, int]:
         raise GuardedRunDirError(
             f"guarded runs need var/{GUARDED_RUN_DIR}: {directory} is not writable."
         )
-    return directory, fd
+    return fd
 
 
 def guarded_run_dir(target: str | None) -> Path:
@@ -384,8 +395,8 @@ def guarded_run_dir(target: str | None) -> Path:
             directory cannot be created or is not writable, or ``guarded_run``
             or the target's directory is a link.
     """
-    directory, fd = _open_run_dir(guarded_run_target(target))
-    os.close(fd)
+    directory = _run_dir_path(guarded_run_target(target))
+    os.close(_open_run_dir(directory))
     return directory
 
 
@@ -968,10 +979,13 @@ def _drop_held_locks_in_child() -> None:
 
     A forked child shares the lock's open file description, so without this a
     child that outlives a killed holder would keep the target busy under a
-    dead pid. The child then starts from a run state that holds nothing and has
-    no run open, so leaving the parent's run block touches neither the parent's
-    lock nor its journal. :data:`_run_state.LOCK` is not taken here: another
-    thread of the parent may have held it at the fork.
+    dead pid. A fork never lands inside an :data:`_run_state.ENTRY` bracket, so
+    :data:`_run_state.STATE` names every open run descriptor at any fork and
+    every one is closed here. The child then starts from a run state that
+    holds nothing and has no run open, so leaving the parent's run block
+    touches neither the parent's lock nor its journal. :data:`_run_state.LOCK`
+    is not taken here: another thread of the parent may have held it at the
+    fork.
     """
     state = _run_state.STATE
     if state.hold is not None:
@@ -985,12 +999,31 @@ def _drop_held_locks_in_child() -> None:
     _run_state.reset_in_child()
 
 
+def _wait_for_entry_before_fork() -> None:
+    """Take :data:`_run_state.ENTRY` before a fork, waiting for a bracket in progress."""
+    _run_state.ENTRY.acquire()
+
+
+def _free_entry_after_fork() -> None:
+    """Release, in the parent, the :data:`_run_state.ENTRY` taken before the fork."""
+    _run_state.ENTRY.release()
+
+
 def _register_fork_hook() -> None:
-    """Register :func:`_drop_held_locks_in_child` once per process."""
+    """Register the fork hooks once per process.
+
+    Before a fork :func:`_wait_for_entry_before_fork` waits for a descriptor
+    bracket in progress, and :func:`_free_entry_after_fork` ends that wait in
+    the parent; the child runs :func:`_drop_held_locks_in_child`.
+    """
     global _FORK_HOOK_REGISTERED
     with _FORK_HOOK_GUARD:
         if not _FORK_HOOK_REGISTERED:
-            os.register_at_fork(after_in_child=_drop_held_locks_in_child)
+            os.register_at_fork(
+                before=_wait_for_entry_before_fork,
+                after_in_parent=_free_entry_after_fork,
+                after_in_child=_drop_held_locks_in_child,
+            )
             _FORK_HOOK_REGISTERED = True
 
 
@@ -1020,16 +1053,17 @@ def _release(hold: _run_state.Hold) -> None:
         try:
             _end_open_run()
         finally:
-            try:
-                with contextlib.suppress(OSError):
-                    os.ftruncate(hold.fd, 0)
-                fcntl.flock(hold.fd, fcntl.LOCK_UN)
-            finally:
-                state.hold = None
+            with _run_state.ENTRY:
                 try:
-                    os.close(hold.fd)
+                    with contextlib.suppress(OSError):
+                        os.ftruncate(hold.fd, 0)
+                    fcntl.flock(hold.fd, fcntl.LOCK_UN)
                 finally:
-                    os.close(hold.dir_fd)
+                    state.hold = None
+                    try:
+                        os.close(hold.fd)
+                    finally:
+                        os.close(hold.dir_fd)
 
 
 @contextlib.contextmanager
@@ -1045,8 +1079,7 @@ def lock(target: str | None) -> Iterator[Path]:
     lock at a time; asking again, from any thread, is busy like any second
     run, and asking for another target is refused. Releasing the lock ends a
     journaled run still open under it, restored and reported as aborted. A
-    child forked while the lock is held closes its copy of the lock and holds
-    nothing; a child started with ``subprocess`` or ``exec`` never inherits
+    forked child closes its copy of the lock and holds nothing; a child started with ``subprocess`` or ``exec`` never inherits
     it, because the lock's descriptor is not inheritable (PEP 446).
 
     Args:
@@ -1087,37 +1120,39 @@ def lock(target: str | None) -> Iterator[Path]:
             raise RuntimeError(
                 f"this process holds the run lock on {held.target}; it cannot take one on {name}"
             )
-        directory, dir_fd = _open_run_dir(name)
-        try:
-            fd, _created = _open_regular(
-                LOCK_FILE_NAME,
-                os.O_RDWR,
-                dir_fd=dir_fd,
-                where=directory / LOCK_FILE_NAME,
-                create=True,
-            )
+        directory = _run_dir_path(name)
+        with _run_state.ENTRY:
+            dir_fd = _open_run_dir(directory)
             try:
+                fd, _created = _open_regular(
+                    LOCK_FILE_NAME,
+                    os.O_RDWR,
+                    dir_fd=dir_fd,
+                    where=directory / LOCK_FILE_NAME,
+                    create=True,
+                )
                 try:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    pid, started = _read_holder(fd)
-                    raise OspreyRunBusy(str(directory), pid, started) from None
-                try:
-                    started = _write_holder(fd)
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        pid, started = _read_holder(fd)
+                        raise OspreyRunBusy(str(directory), pid, started) from None
+                    try:
+                        started = _write_holder(fd)
+                    except BaseException:
+                        with contextlib.suppress(OSError):
+                            os.ftruncate(fd, 0)
+                        raise
                 except BaseException:
-                    with contextlib.suppress(OSError):
-                        os.ftruncate(fd, 0)
+                    os.close(fd)
                     raise
             except BaseException:
-                os.close(fd)
+                os.close(dir_fd)
                 raise
-        except BaseException:
-            os.close(dir_fd)
-            raise
-        hold = _run_state.Hold(
-            target=name, directory=directory, fd=fd, started=started, dir_fd=dir_fd
-        )
-        _run_state.STATE.hold = hold
+            hold = _run_state.Hold(
+                target=name, directory=directory, fd=fd, started=started, dir_fd=dir_fd
+            )
+            _run_state.STATE.hold = hold
         try:
             _replay_dead_run(directory / JOURNAL_FILE_NAME, name, dir_fd)
         except BaseException:
@@ -1239,8 +1274,9 @@ def _end_run(run: _run_state.OpenRun, exc: BaseException | None, *, aborted: boo
                     run.durable.clear()
                     _print_report(RestoreReport(aborted=False, deadline_guard=run.deadline_guard))
         finally:
-            state.run = None
-            run.durable.close()
+            with _run_state.ENTRY:
+                state.run = None
+                run.durable.close()
         return True
 
 
@@ -1320,25 +1356,29 @@ def journaled_run(target: str | None, *, deadline_guard: bool = False) -> Iterat
                 if held is None or held.target != name:
                     stack.enter_context(lock(name))
                 hold = _held()
-                durable = DurableJournal(hold.directory / JOURNAL_FILE_NAME, dir_fd=hold.dir_fd)
-                try:
-                    durable.start(
+                generation = _stamped_generation()
+                identity = acting_identity()
+                started = _utc_now()
+                with _run_state.ENTRY:
+                    durable = DurableJournal(hold.directory / JOURNAL_FILE_NAME, dir_fd=hold.dir_fd)
+                    try:
+                        durable.start(
+                            target=name,
+                            generation=generation,
+                            identity=identity,
+                            pid=os.getpid(),
+                            started=started,
+                        )
+                    except BaseException:
+                        durable.close()
+                        raise
+                    run = _run_state.OpenRun(
                         target=name,
-                        generation=_stamped_generation(),
-                        identity=acting_identity(),
-                        pid=os.getpid(),
-                        started=_utc_now(),
+                        journal=Journal(sink=durable.record),
+                        durable=durable,
+                        deadline_guard=deadline_guard,
                     )
-                except BaseException:
-                    durable.close()
-                    raise
-                run = _run_state.OpenRun(
-                    target=name,
-                    journal=Journal(sink=durable.record),
-                    durable=durable,
-                    deadline_guard=deadline_guard,
-                )
-                _run_state.STATE.run = run
+                    _run_state.STATE.run = run
         if joined is not None:
             try:
                 yield joined.journal
