@@ -11,7 +11,7 @@ from osprey.services.optimizer.services.plugin_registry import EnvironmentRegist
 ENV = """
 name: {name}
 variables:
-  A:SP: {{min: 0, max: 1}}
+  A:SP: {{min: 0, max: 1, step_size: 0.1}}
 observables:
   obj: {{channel: OBJ}}
 """

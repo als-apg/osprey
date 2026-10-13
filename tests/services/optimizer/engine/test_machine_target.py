@@ -103,3 +103,16 @@ def test_metadata_routes_need_no_target(production_client):
     registry.list_environments.return_value = []
     assert client.get("/environments").status_code == 200
     assert client.get("/environments/env").status_code == 200
+
+
+def test_creating_a_run_without_a_target_is_422(production_client):
+    """A draft's bounds come from the machine the run will drive, so it names one at creation."""
+    from osprey.services.optimizer.models.api import EnvironmentInfo
+
+    client, registry = production_client
+    registry.list_environments.return_value = [
+        EnvironmentInfo(name="env", display_name="Env", valid=True)
+    ]
+    resp = client.post("/optimizations", json={"environment_name": "env", "objective_name": "o"})
+    assert resp.status_code == 422
+    assert "control_target" in resp.json()["detail"]

@@ -95,7 +95,10 @@ def test_create_persists_resolved_config_and_registers_created(seam_redis_mock: 
 def test_create_preserves_explicit_objective_direction(seam_redis_mock: MagicMock) -> None:
     """An explicitly-set direction is never overridden by materialization."""
     cfg = OptimizationConfig(
-        environment_name="sim", objective_name="obj", objective_direction=Direction.MINIMIZE
+        environment_name="sim",
+        control_target="va",
+        objective_name="obj",
+        objective_direction=Direction.MINIMIZE,
     )
     with patch(f"{_OL}.get_optimization_writer"):
         ol.create_optimization_job(cfg, MagicMock(), _registry_with_sim())

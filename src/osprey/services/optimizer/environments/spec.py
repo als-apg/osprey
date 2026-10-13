@@ -9,7 +9,7 @@ One file per environment under the deployment's environments directory::
         readback: SR:MAG:VCM:01:CURRENT:RB
         min: -12.0
         max: 12.0
-        step_size: 0.01
+        step_size: 0.01     # required: suggestions snap to this grid
         units: A
     observables:
       orbit_rms_y:
@@ -77,12 +77,12 @@ class VariableSpec(BaseModel):
     readback: str | None = None
     min: float
     max: float
-    step_size: float = Field(default=0.0, ge=0.0)
+    step_size: float = Field(gt=0.0)
+    """The finest change the optimizer makes: suggestions snap to this grid."""
     units: str = ""
     description: str = ""
     readback_tolerance: float | None = Field(default=None, ge=0.0)
-    """How close the readback must come to the value written. Defaults to
-    ``step_size``, or an exact match when that is 0 too."""
+    """How close the readback must come to the value written. Defaults to ``step_size``."""
 
     @model_validator(mode="after")
     def _bounds(self) -> VariableSpec:

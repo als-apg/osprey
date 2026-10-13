@@ -127,7 +127,7 @@ def test_an_environment_wider_than_the_limits_database_is_narrowed_to_it(project
     spec = EnvironmentFile.model_validate(
         {
             "name": "wide",
-            "variables": {"KNOB:POS:SP": {"min": -50, "max": 50}},
+            "variables": {"KNOB:POS:SP": {"min": -50, "max": 50, "step_size": 0.01}},
             "observables": {"knob": {"channel": "KNOB:POS:SP"}},
         }
     )

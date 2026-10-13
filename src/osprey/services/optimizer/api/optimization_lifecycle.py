@@ -28,7 +28,7 @@ from osprey.services.optimizer.api.job_status import read_job_status
 from osprey.services.optimizer.api.job_tracker import JobTracker
 from osprey.services.optimizer.api.runner import run_optimization_process
 from osprey.services.optimizer.models.api import JobResponse
-from osprey.services.optimizer.models.config import OptimizationConfig
+from osprey.services.optimizer.models.config import OptimizationConfig, machine_config
 from osprey.services.optimizer.models.enums import JobType
 from osprey.services.optimizer.models.exceptions import ConnectionError as ALSConnectionError
 from osprey.services.optimizer.optimization.state import (
@@ -83,6 +83,10 @@ def _materialize_objective_direction(
 def _resolve_draft_or_422(config: OptimizationConfig, registry: EnvironmentRegistry) -> None:
     """Resolve the draft against live readbacks; 422 when resolution is impossible.
 
+    The readbacks are the run's own target's: a window centred on the current
+    value means the current value on the machine the run will drive, so a draft
+    names its ``control_target`` from creation, not only at start.
+
     Runs before any persistence, so a failed create leaves no residue and a
     failed update keeps the previously stored config.
     """
@@ -92,7 +96,19 @@ def _resolve_draft_or_422(config: OptimizationConfig, registry: EnvironmentRegis
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="environment_name is required to resolve an optimization draft.",
         )
-    env = registry.load_environment(name, config.environment_config or {})
+    if config.control_target is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "control_target is required to resolve an optimization draft: its bounds are "
+                "read from the machine the run will drive (va, standin or live)."
+            ),
+        )
+    env_config = {
+        **(config.environment_config or {}),
+        **machine_config(config.control_target, config.execution_mode),
+    }
+    env = registry.load_environment(name, env_config)
     try:
         with env:
             resolve_draft_config(config, env)

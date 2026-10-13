@@ -36,7 +36,7 @@ default_objective: orbit_rms_y
 def _minimal(**overrides):
     data = {
         "name": "env",
-        "variables": {"A:SP": {"min": 0, "max": 1}},
+        "variables": {"A:SP": {"min": 0, "max": 1, "step_size": 0.1}},
         "observables": {"obj": {"channel": "OBJ"}},
     }
     data.update(overrides)
@@ -86,7 +86,7 @@ def test_readback_tolerance_defaults_to_step_size():
         _minimal(
             variables={
                 "A": {"min": 0, "max": 1, "step_size": 0.1},
-                "B": {"min": 0, "max": 1, "readback_tolerance": 0.5},
+                "B": {"min": 0, "max": 1, "step_size": 0.1, "readback_tolerance": 0.5},
             }
         )
     )
@@ -111,12 +111,16 @@ def test_malformed_observables_are_refused(observable):
 
 def test_unknown_keys_are_refused():
     with pytest.raises(ValidationError):
-        EnvironmentFile.model_validate(_minimal(variables={"A": {"min": 0, "max": 1, "maxx": 2}}))
+        EnvironmentFile.model_validate(
+            _minimal(variables={"A": {"min": 0, "max": 1, "step_size": 0.1, "maxx": 2}})
+        )
 
 
 def test_min_above_max_is_refused():
     with pytest.raises(ValidationError):
-        EnvironmentFile.model_validate(_minimal(variables={"A": {"min": 2, "max": 1}}))
+        EnvironmentFile.model_validate(
+            _minimal(variables={"A": {"min": 2, "max": 1, "step_size": 0.1}})
+        )
 
 
 def test_default_objective_must_be_a_selectable_observable():
@@ -143,3 +147,10 @@ def test_bad_range_fails_at_load(tmp_path: Path):
     path.write_text(VA_ORBIT.replace("{01..72}", "{72..01}"))
     with pytest.raises(ValueError, match="Descending"):
         load_environment_file(path)
+
+
+@pytest.mark.parametrize("step", [None, 0, -0.1])
+def test_a_variable_needs_a_positive_step_size(step):
+    variable = {"min": 0, "max": 1} if step is None else {"min": 0, "max": 1, "step_size": step}
+    with pytest.raises(ValidationError):
+        EnvironmentFile.model_validate(_minimal(variables={"A": variable}))
