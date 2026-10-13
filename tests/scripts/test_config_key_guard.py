@@ -68,9 +68,9 @@ def details(guard: Any) -> str:
 
 
 def test_guard_is_green_on_this_tree():
-    guard = make_guard()
-    guard.run()
-    assert guard.result.ok, "config-key guard failed:\n" + details(guard)
+    # Through the CLI, so this one full run also proves the exit-0 path; main()
+    # prints every failure before returning 1, and pytest shows that output.
+    assert guard_module.main([]) == 0, "config-key guard failed; its failures are printed above"
 
 
 def test_manifest_carries_every_required_section():
@@ -154,8 +154,8 @@ def test_cli_exits_nonzero_when_the_manifest_is_violated(tmp_path):
     manifest_path = tmp_path / "config_key_manifest.yml"
     manifest_path.write_text(yaml.safe_dump(doctored))
 
+    # The clean tree's exit 0 is test_guard_is_green_on_this_tree's assertion.
     assert guard_module.main(["--manifest", str(manifest_path)]) == 1
-    assert guard_module.main([]) == 0
 
 
 # ── one negative control per failure mode ────────────────────────────────

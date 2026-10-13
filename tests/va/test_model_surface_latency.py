@@ -181,7 +181,6 @@ def _write_call_profile(bridge: PhysicsBridge, value: float) -> Counter[tuple[st
             counts[(code.co_filename, code.co_name)] += 1
 
     previous = sys.getprofile()
-    gc.collect()
     gc.disable()
     sys.setprofile(record)
     try:

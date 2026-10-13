@@ -286,9 +286,15 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     if E2E_ENABLED:
         return
     skip = pytest.mark.skip(reason=f"set {ENV_FLAG}=1 to run VA live-container e2e tests")
-    this_dir = Path(__file__).resolve().parent
+    # The hook sees every item in the session, not just this directory's, so
+    # it compares paths as pytest hands them over rather than resolving each
+    # one (a filesystem walk per item, tens of thousands of them). Both
+    # spellings of this directory are accepted so a symlinked checkout still
+    # matches whichever one pytest collected through.
+    here = Path(__file__).parent
+    these_dirs = {here, here.resolve()}
     for item in items:
-        if Path(str(item.fspath)).resolve().is_relative_to(this_dir):
+        if any(item.path.is_relative_to(directory) for directory in these_dirs):
             item.add_marker(skip)
 
 

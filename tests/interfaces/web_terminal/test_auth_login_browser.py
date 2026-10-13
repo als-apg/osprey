@@ -41,7 +41,7 @@ import pytest
 
 from osprey.services.auth_sidecar.passwords import generation_tag
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME
-from tests._container_support import docker_cli_unavailable_reason
+from tests._container_support import docker_cli_unavailable_reason_once
 from tests.deployment.web_terminals.test_auth_serving import (
     _PASSWORDS,
     TERMINAL_STAND_IN_MARKER,
@@ -56,7 +56,7 @@ if TYPE_CHECKING:
     from tests.deployment.web_terminals.test_auth_serving import Stack
 
 
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
 pytestmark = [
