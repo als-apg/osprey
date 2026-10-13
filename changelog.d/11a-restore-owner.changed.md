@@ -23,8 +23,10 @@ from stdout to stderr. `journaled_run(target, *, deadline_guard=False)` marks a
 deadline-guarded run in that line, and a `run_tool` nested in another that
 returns `False` ends the outer run, which restores and reports once.
 
-`osprey.runtime.guarded_run.restore_writes(journal, current, max_steps=None)`
-counts the writes a restore needs, for a deadline guard's budget.
+`osprey.runtime.guarded_run.restore_estimate(max_steps=None)` returns the
+open run's `RestoreEstimate`: the writes a restore needs over every address the
+run journaled, the run's longest write latency and the time its read of the
+current values took, for a deadline guard's budget.
 `osprey_connectors.dotenv.atomic_replace(path, data, *, mode)` replaces a file
 whole through an unpredictable temporary name; the journal rewrite, the
 executor's `guarded_run_restore_reports.json` (now mode 0644) and the `.env`

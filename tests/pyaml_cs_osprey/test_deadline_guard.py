@@ -10,6 +10,7 @@ is below ``2 * (interval + latency * (walk_back_writes + 1) + read_latency)`` pl
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -233,6 +234,53 @@ class TestAbortsInTime:
         assert machine.writes == [("A", v, {}) for v in (4.0, 3.0, 2.0, 1.0)]
         assert clock.now <= deadline - EXIT_RESERVE_S
 
+    @pytest.mark.parametrize("helper_addresses", [(), ("B", "C")])
+    def test_writes_from_a_helper_thread_grow_the_reserved_margin(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        machine: _Machine,
+        clock: _Clock,
+        helper_addresses: tuple[str, ...],
+    ) -> None:
+        """The restore a deadline stop reserves time for covers every address the run wrote.
+
+        One address needs 2 * 1.0 * 2 + 5 = 9 s and has 13 s left; three need
+        2 * 1.0 * 4 + 5 = 13 s and have 11 s left.
+        """
+        machine.write_s = 1.0
+        deadline = _deadline_in(monkeypatch, 14.0)
+        decisions: list[Any] = []
+
+        def measure(callback: Callable[..., Any] | None = None) -> bool:
+            assert callback is not None
+            machine.set("A", 5.0)
+
+            def helper() -> None:
+                for address in helper_addresses:
+                    machine.set(address, 50.0)
+
+            thread = threading.Thread(target=helper)
+            thread.start()
+            thread.join()
+            ok = callback(Action.APPLY, {})
+            decisions.append(ok)
+            if not ok:
+                raise KeyboardInterrupt
+            return True
+
+        report = run_tool(measure)
+
+        if not helper_addresses:
+            assert decisions == [True]
+            assert report.aborted is False
+            assert machine.values["A"] == 5.0
+            return
+        assert decisions == [False]
+        assert report.aborted is True
+        assert sorted(report.restored) == ["A", "B", "C"]
+        assert machine.values == {"A": 1.0, "B": 2.0, "C": 3.0}
+        assert clock.now <= deadline - EXIT_RESERVE_S
+
     def test_a_run_with_time_to_spare_completes_guarded(
         self, monkeypatch: pytest.MonkeyPatch, machine: _Machine
     ) -> None:
@@ -314,6 +362,15 @@ class TestCallerCallback:
 
         assert tool.returned == [True]
         assert report.aborted is False
+
+    @pytest.mark.usefixtures("machine")
+    def test_a_callback_after_the_run_ended_stops_the_tool(self) -> None:
+        """A tool still stepping in a helper thread once the run is over is stopped, not raised in."""
+        callback, _disarm = run_tool_mod._deadline_callback(
+            None, deadline=START + 3600.0, seed_interval=0.0
+        )
+
+        assert callback(Action.APPLY, {}) is False
 
     @pytest.mark.usefixtures("machine")
     def test_the_chain_is_inert_after_run_tool_returns(

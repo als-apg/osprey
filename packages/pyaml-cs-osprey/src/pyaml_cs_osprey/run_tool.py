@@ -56,9 +56,8 @@ from osprey.runtime.guarded_run import (
     RESTORE_REPORT_TAG,
     RestoreReport,
     journaled_run,
-    restore_writes,
+    restore_estimate,
 )
-from osprey.runtime.journal import Journal, pop_journal, push_journal, read_map
 
 __all__ = [
     "DEFAULT_WRITE_LATENCY_S",
@@ -217,7 +216,6 @@ def _seed_interval(tool_method: Callable[..., Any], kwargs: dict[str, Any]) -> f
 
 def _deadline_callback(
     caller: Callable[..., Any] | None,
-    journal: Journal,
     *,
     deadline: float,
     seed_interval: float,
@@ -231,16 +229,16 @@ def _deadline_callback(
         margin = 2 * (interval + latency * (writes + 1) + read_latency)
 
     ``interval`` is the longest gap between consecutive invocations, never less
-    than ``seed_interval``; ``latency`` is the longest journaled write latency
-    (``DEFAULT_WRITE_LATENCY_S`` before the first one); ``writes`` is
-    :func:`osprey.runtime.guarded_run.restore_writes`, the writes a ``max_step``
-    walk-back needs over the journaled addresses from their current values,
-    read once per invocation; ``read_latency`` is the
-    longest such read.
+    than ``seed_interval``. ``writes`` and ``latency`` are the open guarded run's,
+    from :func:`osprey.runtime.guarded_run.restore_estimate`: the writes a
+    ``max_step`` walk-back needs over every address the run journaled, from
+    whichever thread wrote it, and the longest write latency the run noted
+    (``DEFAULT_WRITE_LATENCY_S`` before the first one). ``read_latency`` is the
+    longest read of the current values an estimate has taken. With no run open
+    the run is over and the callback stops the tool.
 
     Args:
         caller: The caller's callback, or ``None``.
-        journal: The journal of the guarded run; invocations are noted in it.
         deadline: Unix time at which the sandbox is killed.
         seed_interval: The interval assumed before two invocations are seen.
 
@@ -250,6 +248,8 @@ def _deadline_callback(
         and does nothing).
     """
     armed = True
+    last_call: float | None = None
+    max_gap: float | None = None
     read_latency = 0.0
     max_steps: dict[str, float | None] = {}
 
@@ -258,28 +258,27 @@ def _deadline_callback(
         armed = False
 
     def callback(action: Any, data: Any) -> bool:
-        nonlocal read_latency
+        nonlocal last_call, max_gap, read_latency
         if not armed:
             return True
         if caller is not None and not caller(action, data):
             return False
-        journal.note_callback(_clock())
-        gap = journal.max_callback_gap
-        interval = seed_interval if gap is None else max(seed_interval, gap)
-        latency = journal.max_write_latency
+        now = _clock()
+        if last_call is not None:
+            gap = now - last_call
+            if max_gap is None or gap > max_gap:
+                max_gap = gap
+        last_call = now
+        interval = seed_interval if max_gap is None else max(seed_interval, max_gap)
+        try:
+            estimate = restore_estimate(max_steps)
+        except RuntimeError:  # no run is open: the run is over
+            return False
+        read_latency = max(read_latency, estimate.read_latency)
+        latency = estimate.write_latency
         if latency is None:
             latency = DEFAULT_WRITE_LATENCY_S
-        addresses = journal.addresses
-        current: dict[str, Any] | None = None
-        if addresses:
-            start = _clock()
-            try:
-                current = read_map(addresses)
-            except Exception:  # unknown values budget one write each
-                current = None
-            read_latency = max(read_latency, _clock() - start)
-        writes = restore_writes(journal, current, max_steps)
-        margin = 2.0 * (interval + latency * (writes + 1) + read_latency)
+        margin = 2.0 * (interval + latency * (estimate.writes + 1) + read_latency)
         return bool(deadline - _clock() >= margin + EXIT_RESERVE_S)
 
     return callback, disarm
@@ -402,13 +401,11 @@ def _run_guarded(
     exception escaping here is restored by the guarded run; one escaping a
     deadline-guarded call carries ``deadline_guard = True`` so its report says so.
     """
-    journal = Journal()
     disarm: Callable[[], None] | None = None
     chained: Callable[..., Any] | None = callback
     if deadline is not None and level.accepts_callback:
         chained, disarm = _deadline_callback(
             callback,
-            journal,
             deadline=deadline,
             seed_interval=_seed_interval(tool_method, kwargs),
         )
@@ -429,7 +426,6 @@ def _run_guarded(
 
         kwargs["callback"] = recording
 
-    push_journal(journal)
     try:
         try:
             if state.requested:
@@ -438,7 +434,6 @@ def _run_guarded(
             result = tool_method(*args, **kwargs)
         finally:
             level.in_tool = False
-            pop_journal(journal)
         if state.requested:
             raise KeyboardInterrupt
         if result is False:

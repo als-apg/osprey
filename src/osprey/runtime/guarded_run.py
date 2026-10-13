@@ -87,12 +87,13 @@ import signal
 import sys
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
 
 from osprey.runtime import _run_state
+from osprey.runtime import journal as _journal
 from osprey.runtime.journal import (
     DurableJournal,
     GuardedRunDirError,
@@ -122,6 +123,7 @@ __all__ = [
     "GuardedRunDirError",
     "OspreyJournalChanged",
     "OspreyRunBusy",
+    "RestoreEstimate",
     "RestoreReport",
     "approval_asks",
     "guarded_run_dir",
@@ -129,8 +131,8 @@ __all__ = [
     "journaled_run",
     "lock",
     "read_run_journal",
+    "restore_estimate",
     "restore_reports",
-    "restore_writes",
 ]
 
 #: The directory under the repo's state zone (``var/``) holding one
@@ -580,10 +582,10 @@ def _walk(current: Any, target: Any, max_step: float | None) -> list[Any]:
     return _points(float(current), target, n_steps)
 
 
-def restore_writes(
-    journal: Journal,
-    current: dict[str, Any] | None,
-    max_steps: dict[str, float | None] | None = None,
+def _restore_writes(
+    values: Mapping[str, Any],
+    current: Mapping[str, Any] | None,
+    max_steps: dict[str, float | None],
 ) -> int:
     """Writes a restore needs: ``max(1, ceil(|now - journaled| / max_step))`` per address.
 
@@ -591,16 +593,13 @@ def restore_writes(
     ``max_step`` counts one write.
 
     Args:
-        journal: The journal of the guarded run.
+        values: The journaled value per address.
         current: The current value per journaled address, ``None`` when unknown.
         max_steps: Each address's ``max_step`` limit, filled in here the first time
             an address needs it; a lookup that raises is not kept and counts one write.
-            ``None`` looks every limit up afresh.
     """
-    if max_steps is None:
-        max_steps = {}
     total = 0
-    for address, target in journal.items():
+    for address, target in values.items():
         now: Any = None if current is None else current.get(address)
         max_step: float | None = None
         if _as_number(now) is not None and _as_number(target) is not None:
@@ -613,6 +612,60 @@ def restore_writes(
                     max_step = None
         total += _n_steps(now, target, max_step)
     return total
+
+
+@dataclass(frozen=True)
+class RestoreEstimate:
+    """What a restore of the open guarded run would cost, as of one read.
+
+    Attributes:
+        writes: The writes the restore needs, a ``max_step`` walk-back counted
+            step by step, over every address the run journaled from any thread.
+        write_latency: The longest write latency the run's journal noted,
+            ``None`` before its first write.
+        read_latency: How long the read of the journaled addresses' current
+            values took, ``0.0`` when the run had journaled none.
+    """
+
+    writes: int
+    write_latency: float | None
+    read_latency: float
+
+
+def restore_estimate(max_steps: dict[str, float | None] | None = None) -> RestoreEstimate:
+    """Estimate the restore of the open guarded run from its one journal.
+
+    The journal's addresses, values and write latency are copied with the run
+    state's lock held; the current values are read after it is released, so the
+    estimate never queues another thread's guarded write behind a machine read.
+    A read that raises leaves the current values unknown and each address
+    counts one write.
+
+    Args:
+        max_steps: Each address's ``max_step`` limit, filled in here the first
+            time an address needs it, so a caller that estimates repeatedly
+            looks each limit up once. ``None`` looks every limit up afresh.
+
+    Raises:
+        RuntimeError: No journaled guarded run is open.
+    """
+    with _run_state.LOCK:
+        run = _run_state.STATE.run
+        if run is None:
+            raise RuntimeError("no journaled guarded run is open")
+        values = dict(run.journal.items())
+        write_latency = run.journal.max_write_latency
+    current: dict[str, Any] | None = None
+    read_latency = 0.0
+    if values:
+        start = _journal._clock()
+        try:
+            current = read_map(tuple(values))
+        except Exception:  # unknown values budget one write each
+            current = None
+        read_latency = _journal._clock() - start
+    writes = _restore_writes(values, current, {} if max_steps is None else max_steps)
+    return RestoreEstimate(writes=writes, write_latency=write_latency, read_latency=read_latency)
 
 
 def _read_failure_reason(address: str, exc: BaseException) -> str:
