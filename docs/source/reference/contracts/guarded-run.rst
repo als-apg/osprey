@@ -35,6 +35,15 @@ on the same target, of either kind, is refused before it starts, with the
 process id of the holder and the time it took the lock. A read-only run is
 refused before the lock is taken.
 
+A process has one guarded run. The lock it holds, the journal it has open and
+the call it was approved for belong to the process, not to the thread that
+took them: a thread or task the run starts runs under it, and its writes go
+into the same journal. Asking for the lock again from inside the process is
+refused like any other second run. A process holds the lock of one target at
+a time; asking for another target's lock while it holds one is refused before
+anything is opened:
+``this process holds the run lock on <held>; it cannot take one on <asked>``.
+
 The journal
 ===========
 
@@ -64,7 +73,17 @@ outermost journaled run. When an exception escapes the run, an error in its
 code or an interrupt, that exit path writes each journaled address back to its
 recorded value before the exception goes on. While it does, it ignores
 ``SIGINT`` on the main thread, so a second interrupt does not cut the restore
-short.
+short. A write already in flight on another thread finishes before the
+restore starts, and none is accepted after the run has ended.
+
+Releasing the lock ends a run still open under it, as when the code holding
+the lock returns while a thread it started is still inside the run: the exit
+path puts back what the run displaced and reports the run as aborted. Whatever
+escapes a run opened inside another, on the same thread or on another one,
+stops the whole run: every later guarded write is refused with
+``the guarded run was stopped: <first line of the error>``, and the outer
+run's exit puts back what the run displaced, reports it as aborted and raises
+that error, even when its own code ended cleanly.
 
 A run killed outright reaches no exit path. The next guarded run on the target
 finds its journal. Holding the lock proves the run that wrote it is over, so
