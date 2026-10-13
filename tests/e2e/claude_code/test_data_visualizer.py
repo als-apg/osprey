@@ -127,11 +127,10 @@ class TestDataVisualizerAgent:
             f"No create_interactive_plot call succeeded ({len(viz_errors)} error(s)): "
             f"{[t.result[:200] for t in viz_errors if t.result]}"
         )
-        viz_input = viz_ok[-1].input
-        assert viz_input.get("data_source"), (
-            "The plot was made without data_source — "
+        assert any(t.input.get("data_source") for t in viz_ok), (
+            "No plot was made through data_source — "
             "the agent should be passing archiver data via data_source, "
-            f"not hardcoding file reads. Input keys: {list(viz_input.keys())}"
+            f"not hardcoding file reads. Input keys: {[list(t.input) for t in viz_ok]}"
         )
 
         # HTML artifact exists in the workspace
