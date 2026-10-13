@@ -1,19 +1,17 @@
-"""No module in the connectors distribution imports ``osprey``.
+"""No module in the connectors distribution imports ``osprey`` by name at run time.
 
 ``osprey-connectors`` is installed and run where the framework is absent:
 connector-host children, executor sandboxes, notebook kernels and external
 consumers of the distribution alone. A single ``osprey`` import anywhere in
-it breaks those hosts, but only on the code path that reaches it, so an
-import inside a function or a rarely taken branch passes every test that
-merely imports the module (``test_import_isolation.py`` proves the runtime
-side for the modules it loads).
+it breaks those hosts, but only on the code path that reaches it.
 
-This module reads the source instead of running it. Every ``import`` and
-``from ... import`` statement is checked wherever it sits -- module level,
-inside a function, under ``if TYPE_CHECKING:`` -- together with
+Every ``import`` and ``from ... import`` statement, wherever it sits, is held
+by the ``connectors-standalone`` contract that ``lint-imports`` checks (see
+``[tool.importlinter]`` in the root ``pyproject.toml``). What an import graph
+cannot see is a module named in a string, so this file reads the source for
 ``importlib.import_module`` and ``__import__`` calls whose module name is a
-string literal. ``osprey_connectors`` is the package itself and relative
-imports stay inside it, so neither is an offender.
+string literal. ``osprey_connectors`` is the package itself, so it is not an
+offender.
 """
 
 from __future__ import annotations
@@ -59,17 +57,10 @@ def _literal_module_name(call: ast.Call) -> str | None:
 
 
 def framework_imports(source: str, filename: str = "<source>") -> list[tuple[int, str]]:
-    """Return ``(line, module)`` for every import of ``osprey`` in *source*."""
+    """Return ``(line, module)`` for every dynamic import of ``osprey`` in *source*."""
     found: list[tuple[int, str]] = []
     for node in ast.walk(ast.parse(source, filename)):
-        if isinstance(node, ast.Import):
-            found.extend(
-                (node.lineno, alias.name) for alias in node.names if _names_framework(alias.name)
-            )
-        elif isinstance(node, ast.ImportFrom):
-            if node.level == 0 and node.module and _names_framework(node.module):
-                found.append((node.lineno, node.module))
-        elif isinstance(node, ast.Call):
+        if isinstance(node, ast.Call):
             module = _literal_module_name(node)
             if module is not None and _names_framework(module):
                 found.append((node.lineno, module))
@@ -100,22 +91,6 @@ def test_the_walk_covers_the_whole_package() -> None:
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
-        pytest.param("import osprey\n", [(1, "osprey")], id="import"),
-        pytest.param("import os, osprey.errors as e\n", [(1, "osprey.errors")], id="import-dotted"),
-        pytest.param("from osprey import errors\n", [(1, "osprey")], id="from-import"),
-        pytest.param(
-            "from osprey.utils.config import get\n", [(1, "osprey.utils.config")], id="from-dotted"
-        ),
-        pytest.param(
-            "def read():\n    from osprey.errors import X\n    return X\n",
-            [(2, "osprey.errors")],
-            id="function-local",
-        ),
-        pytest.param(
-            "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import osprey.simulation\n",
-            [(3, "osprey.simulation")],
-            id="type-checking",
-        ),
         pytest.param(
             "import importlib\nm = importlib.import_module('osprey.simulation')\n",
             [(2, "osprey.simulation")],
@@ -127,23 +102,25 @@ def test_the_walk_covers_the_whole_package() -> None:
             id="import-module-keyword",
         ),
         pytest.param(
-            "m = __import__('osprey.errors')\n", [(1, "osprey.errors")], id="dunder-import"
+            "def load():\n    return __import__('osprey.errors')\n",
+            [(2, "osprey.errors")],
+            id="dunder-import-in-function",
         ),
     ],
 )
-def test_every_import_form_is_caught(source: str, expected: list[tuple[int, str]]) -> None:
+def test_every_dynamic_form_is_caught(source: str, expected: list[tuple[int, str]]) -> None:
     assert framework_imports(source) == expected
 
 
 @pytest.mark.parametrize(
     "source",
     [
-        pytest.param("import osprey_connectors.errors\n", id="own-package"),
-        pytest.param("from osprey_connectors import config\n", id="own-package-from"),
-        pytest.param("from . import errors\nfrom .osprey import x\n", id="relative"),
-        pytest.param("import ospreyish\n", id="prefix-lookalike"),
+        pytest.param("m = __import__('osprey_connectors.errors')\n", id="own-package"),
+        pytest.param("m = __import__('ospreyish')\n", id="prefix-lookalike"),
         pytest.param("import importlib\nm = importlib.import_module(path)\n", id="non-literal"),
         pytest.param("NAME = 'osprey.errors'\n", id="plain-string"),
+        # A statement is lint-imports' to judge, not this file's.
+        pytest.param("import osprey\n", id="statement"),
     ],
 )
 def test_in_package_and_non_import_forms_pass(source: str) -> None:
