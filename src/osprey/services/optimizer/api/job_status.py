@@ -1,6 +1,6 @@
 """Job metadata lookup + the canonical ``JobResponse`` builder.
 
-Lives outside the jobs router so the optimization/script lifecycle modules can
+Lives outside the jobs router so the job lifecycle modules can
 build the same response shape without importing a router (which would be a
 circular import). ``read_job_status`` is THE single source of every lifecycle
 endpoint's response body.

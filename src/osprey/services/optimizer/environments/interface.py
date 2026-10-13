@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+import math
 import threading
 from collections.abc import Coroutine
 from typing import Any
@@ -54,7 +55,7 @@ def _to_native(value: Any) -> Any:
     """JSON-safe native value: numpy scalars and arrays to Python, NaN to None."""
     if hasattr(value, "tolist"):
         value = value.tolist()
-    if isinstance(value, float) and value != value:  # NaN
+    if isinstance(value, float) and math.isnan(value):
         return None
     return value
 

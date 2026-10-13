@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 
 from osprey.services.optimizer.events import (
@@ -26,8 +25,6 @@ from ..optimization.types import OptimizationMetadata, OptimizationResult
 from ..optimization.xopt_backend import XoptOptimizer
 from ..utils.cancellation import CancellationToken
 from .draft_resolution import read_required_variables
-
-logger = logging.getLogger(__name__)
 
 __all__ = [
     "OptimizationEngine",

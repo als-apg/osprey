@@ -619,7 +619,21 @@ jobs:
 
     - name: Run the optimizer suite
       # -n 2: the runners have two CPUs, and each worker starts its own redis-server.
-      run: uv run pytest tests/services/optimizer -v --tb=short -n 2 --timeout=600
+      # Coverage is scoped to the optimizer: this is the only lane that runs its engine.
+      run: >-
+        uv run pytest tests/services/optimizer -v --tb=short -n 2 --timeout=600
+        --cov=src/osprey/services/optimizer --cov-report=xml --cov-report=term
+
+    - name: Upload coverage reports to Codecov
+      # Codecov merges this with the `test` lanes' reports for the same commit.
+      uses: codecov/codecov-action@v7
+      with:
+        files: ./coverage.xml
+        flags: unittests
+        name: codecov-optimizer
+        fail_ci_if_error: false
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   lint:
     name: Lint and Code Quality + Tier 0 config-key guard

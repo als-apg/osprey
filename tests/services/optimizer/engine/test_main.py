@@ -212,6 +212,20 @@ class TestEventLoopNotStarved:
             app.dependency_overrides.clear()
 
 
+@pytest.fixture
+def panel_origin_allowed() -> Generator[None, None, None]:
+    """Allow one cross-origin client for the test; production allows none by default.
+
+    The CORS middleware keeps a reference to this list, so extending it in place
+    reaches the middleware however early its stack was built.
+    """
+    main._cors_origins.append("http://panel.example.org")
+    try:
+        yield
+    finally:
+        main._cors_origins.remove("http://panel.example.org")
+
+
 def _client() -> TestClient:
     """Client for the middleware tests. The Redis seam is already stubbed by the
     autouse ``mock_api_redis_client`` fixture, so the lifespan ping succeeds."""
@@ -265,6 +279,7 @@ class TestBodySizeLimit:
             )
         assert resp.status_code == 413
 
+    @pytest.mark.usefixtures("panel_origin_allowed")
     def test_oversize_413_carries_cors_header(self) -> None:
         # CORS must be the outermost middleware so a cross-origin oversize POST
         # still gets the access-control-allow-origin header on its 413.
@@ -281,6 +296,7 @@ class TestBodySizeLimit:
         assert resp.status_code == 413
         assert resp.headers["access-control-allow-origin"] == "http://panel.example.org"
 
+    @pytest.mark.usefixtures("panel_origin_allowed")
     def test_preflight_options_unaffected(self) -> None:
         # OPTIONS preflight (no body) is handled by CORS, not 413'd by the cap.
         with _client() as client:

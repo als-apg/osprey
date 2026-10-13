@@ -1,10 +1,5 @@
 """Pytest fixtures for test configuration."""
 
-import os
-
-# The CORS tests need one allowed origin, read when the app module is imported.
-os.environ.setdefault("OPTIMIZER_CORS_ORIGINS", "http://panel.example.org")
-
 import json
 import logging
 import re

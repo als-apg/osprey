@@ -8,7 +8,7 @@ class JobType(str, Enum):  # noqa: UP042 - str() and serialized form kept from t
 
 
 class JobStatus(str, Enum):  # noqa: UP042 - str() and serialized form kept from tuning_scripts
-    """Status of a background job (optimization or script)."""
+    """Status of a background job."""
 
     CREATED = "created"
     IDLE = "idle"

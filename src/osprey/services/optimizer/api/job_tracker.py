@@ -349,7 +349,7 @@ class JobLifecycle:
     capturing crashes with full stack traces, and de-registering
     the job upon completion or failure.
 
-    Works with both optimization and script jobs via ``job_type``.
+    Works with any job type via ``job_type``.
     """
 
     writer: JobStateWriter  # set in __enter__

@@ -45,7 +45,7 @@ class JobStateBase(RedisStateStore):
 
     Adds the job-lifecycle surface (status, logs, error message) on top of
     the raw Redis keyed-namespace store. Concrete job types
-    (``_OptimizationState``, ``_ScriptState``) subclass this and add their own
+    (``_OptimizationState``) subclass this and add their own
     domain-specific getters and setters.
     """
 

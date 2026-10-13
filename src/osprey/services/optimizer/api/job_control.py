@@ -25,7 +25,7 @@ def require_created_or_409(job_id: str, action: str, current: JobStatus | None) 
     """409 unless ``current`` is CREATED — the shared create/start two-phase gate.
 
     ``action`` names the attempted transition ("update"/"start") in the detail.
-    Centralizes the wording so the optimization and script lifecycles can't drift.
+    Centralizes the wording so the job lifecycles can't drift.
     """
     if current is not JobStatus.CREATED:
         current_label = current.value if current else None
@@ -45,7 +45,7 @@ def persist_created_job(
 ) -> None:
     """Persist a job's stored config and register it as CREATED (non-reserving).
 
-    The create tail shared by the optimization and script lifecycles: store the
+    The create tail of a job lifecycle: store the
     config so ``/jobs/{id}/start`` can spawn the worker later, set CREATED, and
     register with the tracker.
     """

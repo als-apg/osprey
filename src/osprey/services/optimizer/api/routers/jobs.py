@@ -1,7 +1,7 @@
 """Jobs API router.
 
-Provides unified endpoints for monitoring and cancelling any running job
-(optimization or script), regardless of type.
+Provides unified endpoints for monitoring and controlling any job, regardless
+of type.
 """
 
 import logging
@@ -47,9 +47,9 @@ def _cancel_job(job_id: str, job_type: JobType, tracker: JobTracker) -> None:
 def _require_optimization(meta: JobMeta, action: str) -> None:
     """409 if the job's type does not support ``action`` (404 already handled).
 
-    start/pause/resume are optimization-only — scripts honor cancel but never
-    wire ``wait_if_paused`` and have no two-phase start. The job's existence is
-    the ``require_job_meta`` dependency's job, so this only checks the type.
+    start/pause/resume need the optimization lifecycle (two-phase start and
+    ``wait_if_paused``). The job's existence is the ``require_job_meta``
+    dependency's job, so this only checks the type.
     """
     if meta.job_type is not JobType.OPTIMIZATION:
         raise HTTPException(
@@ -160,8 +160,7 @@ def get_job_status(
 ) -> JobResponse:
     """Get the status of any job; ``detail=summary|full`` enriches optimizations.
 
-    Default (no ``detail``) returns the basic status for any job type. ``detail``
-    is accepted but inert for script jobs, which have no rich state.
+    Default (no ``detail``) returns the basic status for any job type.
     """
     try:
         if meta.job_type is JobType.OPTIMIZATION and detail is not None:
@@ -186,7 +185,7 @@ def cancel_job(
     tracker: JobTracker = Depends(get_job_tracker),
     meta: JobMeta = Depends(require_job_meta),
 ) -> JobResponse:
-    """Cancel any running job (optimization or script)."""
+    """Cancel any running job."""
     logger.info("Cancel request for job %s", job_id)
 
     current = create_job_state(meta.job_type, job_id).get_status()

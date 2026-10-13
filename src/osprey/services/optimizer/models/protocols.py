@@ -2,8 +2,6 @@
 
 This module defines abstract interfaces (protocols) for key components,
 enabling dependency inversion and better testability.
-
-Now part of tuning-scripts-models to be shared between backend and frontend.
 """
 
 from collections.abc import Callable
@@ -19,9 +17,9 @@ from .types import Direction, PVValues, VariableInputs, validate_min_le_max
 class JobStateReader(Protocol):
     """Protocol for reading common job state (status, logs, errors).
 
-    This is the shared surface implemented by both OptimizationStateReader
-    and ScriptStateReader. Use this type at boundaries that handle any job
-    type without needing domain-specific methods.
+    This is the shared surface the job state readers implement. Use this type
+    at boundaries that handle any job type without needing domain-specific
+    methods.
     """
 
     def get_status(self) -> JobStatus: ...
@@ -33,8 +31,7 @@ class JobStateReader(Protocol):
 class JobStateWriter(JobStateReader, Protocol):
     """Protocol for writing common job state (extends reader).
 
-    Shared write surface implemented by both OptimizationStateWriter
-    and ScriptStateWriter.
+    Shared write surface the job state writers implement.
     """
 
     def set_status(self, status: JobStatus) -> None: ...

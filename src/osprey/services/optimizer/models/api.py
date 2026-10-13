@@ -1,6 +1,6 @@
-"""Shared API models for the tuning-scripts system.
+"""Request and response models of the optimizer service's HTTP API.
 
-These models are used by both the API server (tuning-scripts) and the client (tuning-scripts-web).
+Shared by the API server and its clients.
 """
 
 from typing import Any
@@ -216,13 +216,13 @@ class HistoricalRunDetails(BaseModel):
 
 
 class JobResponse(OptimizationState):
-    """Unified response for any job (optimization or script).
+    """Unified response for any job.
 
     Extends the shared ``OptimizationState`` (job_id, status, error_message,
     results_path, logs, data_version, environment_name, objective_name,
     objective_direction, variable_names, data, snapshots) with the job-level
-    fields. Optimization-only fields are null/defaults for script jobs and for
-    the basic (no-``detail``) read; ``result_summary`` is populated for
+    fields. Optimization-only fields are null/defaults for the basic
+    (no-``detail``) read; ``result_summary`` is populated for
     ``detail=summary`` and ``detail=full``; the comprehensive state fields are
     populated only for ``detail=full``.
     """
