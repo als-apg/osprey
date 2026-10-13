@@ -104,8 +104,15 @@ _INACTIVITY_TIMEOUT_SEC = float(os.environ.get("DISPATCH_INACTIVITY_SEC", "120")
 
 
 def _secret_values() -> list[str]:
-    """Collect non-trivial secret env values to scrub from run output."""
-    vals: set[str] = set()
+    """Collect non-trivial secret values to scrub from run output.
+
+    The worker's own bearers live in the credential holder, not in
+    ``os.environ``, so they are taken from there; everything else that looks
+    like a secret is still read from the environment.
+    """
+    from osprey.mcp_server.dispatch_worker.credentials import worker_credentials
+
+    vals: set[str] = set(worker_credentials().scrub_values)
     for name, val in os.environ.items():
         if (
             val

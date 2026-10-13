@@ -48,18 +48,33 @@ calls it at construction (see
 the process was started, neither carrier is in ``os.environ`` by the time it is
 answering requests and spawning agents.
 
-**What the pop does not reach.** A process that received the secret through
-``execve`` — the ``--reload`` worker, the ``--detach`` child, the per-user
-container — also keeps the exec-time environment block the kernel recorded for
-it. On Linux that block is readable at ``/proc/<pid>/environ`` by any process
-running as the same UID, which includes the agent this module is keeping the
-secret from; ``os.environ.pop`` edits the interpreter's mapping and the
-``environ(7)`` array, not that snapshot. So the pop closes the *inheritance*
-path — the one an SDK overlay travels — and does not make the value unreadable
-to a same-UID reader on those shapes. Closing that residual needs either a
-privilege split (a container user the agent cannot become) or a handoff that
-never touches the environment at all (an inherited file descriptor, a 0600
-file); both are deliberately out of scope here.
+**The pop closes inheritance; the guard closes the memory.** A process that
+received the secret through ``execve`` — the ``--reload`` worker, the
+``--detach`` child, the per-user container — also keeps the exec-time
+environment block the kernel recorded for it, and the popped value is still in
+this process's memory. On Linux both are readable by another process of the
+same uid while the process is dumpable, and the agent this module keeps the
+secret from runs as that uid. So :func:`_populate`, once the carriers are
+out of ``os.environ``, calls
+:func:`osprey.utils.sensitive_env.guard_process_memory`, which marks the
+process non-dumpable: ``/proc/<pid>/environ`` and ``/proc/<pid>/mem`` become
+root-owned and ``ptrace`` is refused to a same-uid peer, while every child this
+process spawns starts dumpable as before. Because every process that ever holds
+the secret settles it through :func:`_populate`, the guard holds on every
+launch shape. What remains is the window between this process's ``exec`` and
+its population — the CLI's own start-up, during which no agent spawned by this
+process exists yet — and a reader holding ``CAP_SYS_PTRACE``; see the guard's
+docstring for both.
+
+**The dispatcher-side carriers follow the operator secret.** The event
+dispatcher's bearer (:data:`DISPATCHER_TOKEN_ENV`) is popped into the holder at
+population, re-published by :func:`mint_and_announce` for a child about to be
+spawned, and closed again by :func:`close_env_carriers`, exactly like the
+operator secret — the terminal's proxy reads it from the holder to inject on
+the EVENTS panel hop. The dispatch-worker bearer (:data:`WORKER_TOKEN_ENV`) is
+popped and discarded wherever those run: the web server presents it to nothing.
+What the serving process still keeps in ``os.environ`` is the
+``*_LAUNCH_TOKEN`` family, which the proxy injects upstream from there.
 """
 
 from __future__ import annotations
@@ -80,12 +95,14 @@ from pathlib import Path
 from typing import Any
 
 from osprey.utils.identity import TERMINAL_USER_ENV, _usable, acting_identity
+from osprey.utils.sensitive_env import guard_process_memory
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "BIND_HOST_ENV",
     "DEFAULT_SESSION_LIFETIME",
+    "DISPATCHER_TOKEN_ENV",
     "OPERATOR_SECRET_ENV",
     "ROSTER_ACCEPT_ENV",
     "ROSTER_OWNERS_ENV",
@@ -96,6 +113,7 @@ __all__ = [
     "SESSION_LIFETIME_ENV",
     "SESSION_STORE_DIR_ENV",
     "UNNAMED_OPERATOR",
+    "WORKER_TOKEN_ENV",
     "OperatorIdentity",
     "SessionStore",
     "Tier",
@@ -166,6 +184,16 @@ PANEL_TOKEN_ENV = "OSPREY_PANEL_TOKEN"
 #: too) exactly as :func:`osprey.cli.web_cmd.resolve_bind_host` reads it: any
 #: truthy value means "a deployment declared this, nginx owns the perimeter".
 BIND_HOST_ENV = "OSPREY_TERMINAL_BIND_HOST"
+
+#: The event dispatcher's bearer. A deployment hands it to the terminal's
+#: container so the proxy can inject it on the EVENTS panel hop; it is held
+#: here, not read from the environment, for the reason the operator secret is.
+DISPATCHER_TOKEN_ENV = "EVENT_DISPATCHER_TOKEN"
+
+#: The dispatcher-to-worker bearer. The web server has no use for it and holds
+#: nothing; the carrier is closed wherever the others are, so no agent this
+#: process spawns inherits it.
+WORKER_TOKEN_ENV = "DISPATCH_WORKER_TOKEN"
 
 #: How long a browser session stays valid when nothing configures it — the
 #: default behind ``modules.web_terminals.auth.session_lifetime``, which is
@@ -515,6 +543,11 @@ class WebCredentials:
     #: :attr:`roster_secrets` — or empty, as in a process with no roster —
     #: simply leaves the remaining secrets unnamed.
     roster_owners: tuple[str, ...] = ()
+
+    #: The event dispatcher's bearer, which the terminal's proxy injects on the
+    #: EVENTS panel hop and nothing else presents. ``""`` when the deployment
+    #: supplied none, in which case the proxy injects nothing.
+    dispatcher_token: str = ""
 
     #: How long a session this holder mints stays valid, in seconds — what
     #: :meth:`create_session` uses when it is not told otherwise, and what the
@@ -878,19 +911,27 @@ def _populate() -> WebCredentials:
             :func:`_session_ttl_from_env`.
     """
     global _SUPPLIED_PANEL_TOKEN
-    # Both carriers are popped BEFORE the check below, because the check can
-    # raise and the process that catches it goes on serving and spawning
-    # children. A panel token left in ``os.environ`` at that point is exactly
-    # the inheritance this module exists to prevent, so the fatal path must not
-    # be the one path that leaks it. The panel token's *value* is kept for this
-    # process even when the check refuses, so the fatal path does not take the
-    # process's own bearer with it either.
+    # Every carrier is popped BEFORE anything below that can raise — the guard
+    # and the operator-secret check — because the process that catches the
+    # error goes on serving and spawning children. A credential left in
+    # ``os.environ`` at that point is exactly the inheritance this module
+    # exists to prevent, so no fatal path may be the one path that leaks it.
+    # The panel token's *value* is kept for this process even when the check
+    # refuses, so the fatal path does not take the process's own bearer with
+    # it either.
     operator_secret = os.environ.pop(OPERATOR_SECRET_ENV, "").strip()
     supplied_panel_token = os.environ.pop(PANEL_TOKEN_ENV, "").strip()
     _SUPPLIED_PANEL_TOKEN = supplied_panel_token or None
+    dispatcher_token = os.environ.pop(DISPATCHER_TOKEN_ENV, "").strip()
+    os.environ.pop(WORKER_TOKEN_ENV, None)
     # Popped unconditionally (they must not reach any child process); kept
     # only where the compose environment said so — see ROSTER_ACCEPT_ENV.
     harvested = _pop_roster_secrets()
+    # Now that every credential lives only in this process's memory, close
+    # that memory to same-uid peers: a holder is only a boundary if it cannot
+    # be read back. Nothing the guard must hide from exists yet — this process
+    # is what spawns it.
+    guard_process_memory()
     # The owners map is read, not popped — a list of names is not a credential,
     # so a child may inherit it. Paired here against ``harvested`` because this
     # is where the variable suffixes it keys accounts by are still in hand.
@@ -921,6 +962,7 @@ def _populate() -> WebCredentials:
         panel_token=supplied_panel_token or mint_secret(),
         roster_secrets=roster_secrets,
         roster_owners=roster_owners,
+        dispatcher_token=dispatcher_token,
         session_ttl_seconds=ttl_seconds,
         sessions=_restore_sessions(store, ttl_seconds),
         store=store,
@@ -1219,7 +1261,7 @@ def peek_supplied_panel_token() -> str | None:
 
 
 def close_env_carriers() -> None:
-    """Remove both credential carriers from ``os.environ`` if either is still there.
+    """Remove every credential carrier from ``os.environ`` that is still there.
 
     :func:`_populate` pops them, but it runs at most once per process, while
     :func:`mint_and_announce` re-publishes the operator secret on *every*
@@ -1245,6 +1287,8 @@ def close_env_carriers() -> None:
     os.environ.pop(OPERATOR_SECRET_ENV, None)
     os.environ.pop(PANEL_TOKEN_ENV, None)
     os.environ.pop(ROSTER_ACCEPT_ENV, None)
+    os.environ.pop(DISPATCHER_TOKEN_ENV, None)
+    os.environ.pop(WORKER_TOKEN_ENV, None)
     _pop_roster_secrets()
 
 
@@ -1358,8 +1402,11 @@ def mint_and_announce(host: str, port: int, *, path: str = "/") -> str:
 
     # Deliberate re-publication for the child/worker about to be started; see
     # the contradiction paragraph above for why this is not the leak the pop
-    # exists to prevent.
+    # exists to prevent. The dispatcher bearer rides the same way, and only
+    # when one is held — a blank would be popped as absent anyway.
     os.environ[OPERATOR_SECRET_ENV] = credentials.operator_secret
+    if credentials.dispatcher_token:
+        os.environ[DISPATCHER_TOKEN_ENV] = credentials.dispatcher_token
 
     if not path.startswith("/"):
         path = f"/{path}"
