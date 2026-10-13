@@ -39,18 +39,18 @@ or the approval hook (all of which are exercised by other e2e safety
 tests and would conflate the signal here).
 
 IMPORTANT — ``bypassPermissions`` is FORBIDDEN in this test file.
-``tests/e2e/sdk_helpers.py::run_sdk_query`` (~line 534) sets
+``tests/e2e/sdk_helpers.py::run_sdk_query`` sets
 ``permission_mode="bypassPermissions"``, under which the Claude Code CLI
 skips ``settings.json`` permission evaluation entirely and auto-allows
 every tool call regardless of its allow/deny/ask entry. A permissions
 test built on that helper would pass even if per-persona permission
 rendering were completely unwired — a meaningless green run. This file
-therefore uses ONLY ``run_sdk_query_with_hooks`` (~line 693), which sets
+therefore uses ONLY ``run_sdk_query_with_hooks``, which sets
 ``permission_mode="default"`` and exercises the CLI's real permission
 engine.
 
-Strict per Task 5.3: this is a safety acceptance test, so no ``@flaky``
-reruns anywhere in this module.
+This is a safety acceptance test, so no ``@flaky`` reruns anywhere in this
+module.
 """
 
 from __future__ import annotations

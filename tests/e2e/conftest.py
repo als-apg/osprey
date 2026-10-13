@@ -309,14 +309,34 @@ def scripted_model(monkeypatch):
     Returns a factory: ``scripted_model(script)`` starts a
     :class:`~tests.e2e.scripted_model.ScriptedModel` for *script* and routes
     every run the test starts afterwards to it, through the same
-    ``OSPREY_E2E_PROXY_BASE_URL`` seam the translation proxy uses. The run
-    presents :data:`~tests.e2e.scripted_model.SCRIPTED_AUTH_TOKEN` as the
-    gateway key of the ``als-apg`` provider the e2e renders build with, and
-    ``ANTHROPIC_API_KEY`` is removed, so no credential the machine holds is
-    sent to the endpoint. Teardown checks that: every recorded request carried
-    the scripted token and nothing asked for a route the endpoint lacks.
+    ``OSPREY_E2E_PROXY_BASE_URL`` seam the translation proxy uses.
+
+    Whatever provider a render names, the only credential its run can present
+    is :data:`~tests.e2e.scripted_model.SCRIPTED_AUTH_TOKEN`. A launch takes
+    the CLI's credential from the key variable of the render's provider, read
+    from the deployment's own secrets file before the shell, and the CLI
+    inherits whatever the launch does not set. So the scripted token stands in
+    every chat provider's key variable, ``ANTHROPIC_AUTH_TOKEN`` — which no
+    provider reads its key from and the CLI would present as it stands — is
+    removed, and every credential in the environment a launch resolves is
+    replaced by the scripted token. Teardown checks the result: every recorded
+    request presented the scripted token and the endpoint refused nothing.
     """
+    from osprey.models.provider_registry import PROVIDER_API_KEYS
+    from tests.e2e import sdk_helpers
     from tests.e2e.scripted_model import SCRIPTED_AUTH_TOKEN, ScriptedModel
+
+    key_variables = {variable for variable in PROVIDER_API_KEYS.values() if variable}
+    credential_variables = key_variables | {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}
+
+    def _scripted(resolve_launch_env):
+        def _launch_env(*args, **kwargs):
+            return {
+                name: SCRIPTED_AUTH_TOKEN if name in credential_variables else value
+                for name, value in resolve_launch_env(*args, **kwargs).items()
+            }
+
+        return _launch_env
 
     started: list[ScriptedModel] = []
 
@@ -325,20 +345,22 @@ def scripted_model(monkeypatch):
         model.start()
         started.append(model)
         monkeypatch.setenv("OSPREY_E2E_PROXY_BASE_URL", model.base_url)
-        monkeypatch.setenv("ALS_APG_API_KEY", SCRIPTED_AUTH_TOKEN)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        for variable in key_variables:
+            monkeypatch.setenv(variable, SCRIPTED_AUTH_TOKEN)
+        monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+        monkeypatch.setattr(sdk_helpers, "sdk_env", _scripted(sdk_helpers.sdk_env))
         return model
 
     yield _start
     for model in started:
         model.stop()
     for model in started:
-        assert model.unexpected == [], (
-            f"requests to routes the scripted model lacks: {model.unexpected}"
-        )
-        tokens = {request.bearer_token for request in model.requests}
-        assert tokens <= {SCRIPTED_AUTH_TOKEN}, (
-            "a scripted run presented a credential other than the scripted token"
+        assert model.unexpected == [], f"requests the scripted model refused: {model.unexpected}"
+        # Compared without being shown: what a failing run presented may be a real key.
+        strangers = sum(request.credential != SCRIPTED_AUTH_TOKEN for request in model.requests)
+        assert not strangers, (
+            f"{strangers} of {len(model.requests)} scripted requests presented a credential "
+            "other than the scripted token"
         )
 
 

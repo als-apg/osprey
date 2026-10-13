@@ -48,14 +48,16 @@ class RecordedRequest:
     Attributes:
         offered_tools: Names of the tools the request offered the model.
         tool_results: Every ``tool_result`` block in the conversation so far.
-        bearer_token: The bearer token presented, or ``None``.
+        credential: The credential presented, whichever header carried it —
+            the bearer token of ``Authorization`` or the value of
+            ``x-api-key`` — or ``None`` when the request carried neither.
         turn_index: The script turn the request asked for; ``None`` for a
             request that offered no tools, which is not an agent turn.
     """
 
     offered_tools: list[str]
     tool_results: list[dict[str, Any]]
-    bearer_token: str | None
+    credential: str | None
     turn_index: int | None
 
 
@@ -121,7 +123,9 @@ class ScriptedModel:
             "the agent never returned the results of the last scripted turn"
         )
 
-    def answer(self, body: dict[str, Any], bearer: str | None) -> tuple[list[dict[str, Any]], str]:
+    def answer(
+        self, body: dict[str, Any], credential: str | None
+    ) -> tuple[list[dict[str, Any]], str]:
         """Record a request and return the content blocks and stop reason for it."""
         messages = [m for m in body.get("messages") or [] if isinstance(m, dict)]
         tools = [t.get("name", "") for t in body.get("tools") or [] if isinstance(t, dict)]
@@ -134,7 +138,7 @@ class ScriptedModel:
             if isinstance(block, dict) and block.get("type") == "tool_result"
         ]
         with self._lock:
-            self.requests.append(RecordedRequest(tools, results, bearer, index))
+            self.requests.append(RecordedRequest(tools, results, credential, index))
         if index is not None and index < len(self._script):
             blocks = [
                 {
@@ -149,7 +153,7 @@ class ScriptedModel:
         return [{"type": "text", "text": FINAL_TEXT}], "end_turn"
 
     def note_unexpected(self, method: str, path: str) -> None:
-        """Record a request to a route the endpoint does not serve."""
+        """Record a request the endpoint refuses to serve."""
         with self._lock:
             self.unexpected.append(f"{method} {path}")
 
@@ -157,6 +161,8 @@ class ScriptedModel:
 def _handler_for(model: ScriptedModel) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
+        # Stopping the server joins the handler threads, so no connection may be held open.
+        timeout = 30
 
         def log_message(self, format: str, *args: Any) -> None:
             """Silence the per-request stderr line."""
@@ -209,9 +215,21 @@ def _handler_for(model: ScriptedModel) -> type[BaseHTTPRequestHandler]:
                     },
                 )
                 return
-            auth = self.headers.get("authorization") or ""
-            bearer = auth[len("Bearer ") :] if auth.startswith("Bearer ") else None
-            blocks, stop = model.answer(body, bearer)
+            presented = self._presented()
+            if len(presented) > 1:
+                model.note_unexpected("POST", f"{self.path} with two different credentials")
+                self._json(
+                    401,
+                    {
+                        "type": "error",
+                        "error": {
+                            "type": "authentication_error",
+                            "message": "the request carries two different credentials",
+                        },
+                    },
+                )
+                return
+            blocks, stop = model.answer(body, next(iter(presented), None))
             message = {
                 "id": f"msg_scripted_{len(model.requests):04d}",
                 "type": "message",
@@ -250,6 +268,17 @@ def _handler_for(model: ScriptedModel) -> type[BaseHTTPRequestHandler]:
             )
             self._event("message_stop", {})
             self.close_connection = True
+
+        def _presented(self) -> set[str]:
+            """Every distinct credential the request carries, in either header."""
+            presented = set()
+            auth = self.headers.get("authorization")
+            if auth:
+                presented.add(auth[len("Bearer ") :] if auth.startswith("Bearer ") else auth)
+            key = self.headers.get("x-api-key")
+            if key:
+                presented.add(key)
+            return presented
 
         def _event(self, name: str, payload: dict[str, Any]) -> None:
             data = json.dumps({"type": name, **payload})

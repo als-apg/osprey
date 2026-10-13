@@ -95,8 +95,9 @@ def assert_no_callback(result: HookObservedResult, tool: str) -> None:
 def assert_untouched(before: float, after: float, written: float) -> None:
     """The read after the refusal is the channel's own value, not the written one.
 
-    The mock connector's reads carry noise, so the two reads are never equal;
-    a write that landed would put the second read at the written value.
+    The mock connector's reads carry noise, so equality with the read made
+    before the write is not available as a check; a write that landed would
+    put the second read at the written value.
     """
     assert abs(after - before) < abs(after - written), (
         f"the channel read {before} before and {after} after a refused write of {written}"

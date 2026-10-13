@@ -64,13 +64,21 @@ def _body(*, assistant_turns: int = 0, tools: bool = True, stream: bool = True) 
 
 
 def _post(
-    model: ScriptedModel, body, *, path: str = "/v1/messages", token: str = "tok"
+    model: ScriptedModel,
+    body,
+    *,
+    path: str = "/v1/messages",
+    token: str = "tok",
+    auth_headers: dict[str, str] | None = None,
 ) -> tuple[int, str]:
+    """Post *body*; ``auth_headers`` replaces the bearer header carrying *token*."""
     data = body if isinstance(body, bytes) else json.dumps(body).encode()
+    if auth_headers is None:
+        auth_headers = {"authorization": f"Bearer {token}"}
     request = urllib.request.Request(
         model.base_url + path,
         data=data,
-        headers={"content-type": "application/json", "authorization": f"Bearer {token}"},
+        headers={"content-type": "application/json", **auth_headers},
         method="POST",
     )
     try:
@@ -160,10 +168,38 @@ def test_requests_are_recorded_with_offer_results_and_token(serve):
     _post(model, _body(assistant_turns=1), token="alpha")
     assert model.offered_tools == ["Glob", "Read"]
     assert [r.turn_index for r in model.requests] == [0, 1]
-    assert [r.bearer_token for r in model.requests] == ["alpha", "alpha"]
+    assert [r.credential for r in model.requests] == ["alpha", "alpha"]
     assert model.requests[1].tool_results == [
         {"type": "tool_result", "tool_use_id": "t0", "content": "result 0"}
     ]
+
+
+def test_a_key_header_is_recorded_as_the_credential(serve):
+    model = serve([[GLOB]])
+    _post(model, _body(), auth_headers={"x-api-key": "beta"})
+    assert [r.credential for r in model.requests] == ["beta"]
+
+
+def test_a_request_with_no_credential_is_recorded_with_none(serve):
+    model = serve([[GLOB]])
+    _post(model, _body(), auth_headers={})
+    assert [r.credential for r in model.requests] == [None]
+
+
+def test_two_different_credentials_are_refused_and_recorded(serve):
+    model = serve([[GLOB]])
+    status, _ = _post(
+        model, _body(), auth_headers={"authorization": "Bearer alpha", "x-api-key": "beta"}
+    )
+    assert status == 401
+    assert model.requests == []
+    assert model.unexpected == ["POST /v1/messages with two different credentials"]
+
+
+def test_the_same_credential_in_both_headers_is_one_credential(serve):
+    model = serve([[GLOB]])
+    _post(model, _body(), auth_headers={"authorization": "Bearer alpha", "x-api-key": "alpha"})
+    assert [r.credential for r in model.requests] == ["alpha"]
 
 
 def test_offered_tools_fails_when_the_agent_never_asked(serve):
@@ -230,7 +266,52 @@ def test_the_fixture_points_the_run_at_the_endpoint_with_the_dummy_token(
     model = scripted_model([[GLOB]])
     assert os.environ["OSPREY_E2E_PROXY_BASE_URL"] == model.base_url
     assert os.environ["ALS_APG_API_KEY"] == SCRIPTED_AUTH_TOKEN
-    assert "ANTHROPIC_API_KEY" not in os.environ
+    assert os.environ["ANTHROPIC_API_KEY"] == SCRIPTED_AUTH_TOKEN
+
+
+def test_the_fixture_leaves_no_provider_a_key_of_its_own(monkeypatch, scripted_model):
+    """Whichever provider a render names, the key it reads is the scripted token."""
+    import os
+
+    from osprey.models.provider_registry import PROVIDER_API_KEYS
+    from tests.e2e.scripted_model import SCRIPTED_AUTH_TOKEN
+
+    for provider in ("anthropic", "cborg", "als-apg"):
+        monkeypatch.setenv(PROVIDER_API_KEYS[provider], f"a-real-looking-{provider}-key")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "a-real-looking-session-token")
+    scripted_model([[GLOB]])
+    # Names only: a failure must not print what the variables hold.
+    still_own = sorted(
+        variable
+        for variable in PROVIDER_API_KEYS.values()
+        if variable and os.environ.get(variable) != SCRIPTED_AUTH_TOKEN
+    )
+    assert still_own == []
+    assert "ANTHROPIC_AUTH_TOKEN" not in os.environ
+
+
+def test_the_fixture_holds_against_a_key_the_launch_resolves_itself(monkeypatch, scripted_model):
+    """A key the launch reads from the deployment's own secrets is replaced too."""
+    from tests.e2e import sdk_helpers
+    from tests.e2e.scripted_model import SCRIPTED_AUTH_TOKEN
+
+    resolved = {
+        "ANTHROPIC_AUTH_TOKEN": "a-real-looking-key",
+        "CBORG_API_KEY": "a-real-looking-key",
+        "ANTHROPIC_API_KEY": "another-real-looking-key",
+        "ANTHROPIC_BASE_URL": "http://127.0.0.1:9",
+    }
+    monkeypatch.setattr(sdk_helpers, "sdk_env", lambda *args, **kwargs: dict(resolved))
+    scripted_model([[GLOB]])
+    launch = sdk_helpers.sdk_env(None)
+    assert launch.keys() == resolved.keys()
+    # Names only: a failure must not print what the variables hold.
+    assert sorted(name for name, value in launch.items() if value == SCRIPTED_AUTH_TOKEN) == [
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "CBORG_API_KEY",
+    ]
+    assert launch["ANTHROPIC_BASE_URL"] == resolved["ANTHROPIC_BASE_URL"]
 
 
 def test_the_fixture_overrides_a_session_proxy(monkeypatch, scripted_model):
