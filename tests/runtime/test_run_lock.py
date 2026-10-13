@@ -49,7 +49,7 @@ from osprey_connectors.control_system.limits_validator import (
     LimitsValidator,
 )
 from osprey_connectors.types import LIMITS_MODE_OPTIONAL
-from tests.runtime._guarded_run_fixtures import (
+from tests._guarded_run import (
     GENERATION,
     journal_path,
     plant,

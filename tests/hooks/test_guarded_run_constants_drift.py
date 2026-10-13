@@ -25,7 +25,7 @@ import osprey.runtime.journal as journal
 import osprey.templates.claude_code.claude.hooks.osprey_approval as hook
 from osprey.runtime.journal import GuardedRunDirError, parse_pending_journal
 from osprey_connectors.workspace import STATE_DIR_NAME
-from tests.runtime._guarded_run_fixtures import (
+from tests._guarded_run import (
     PLANTED_REFUSAL,
     PLANTED_REFUSED,
     link_directory,

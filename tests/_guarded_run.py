@@ -1,4 +1,4 @@
-"""Shared fixtures of the guarded-run tests: a deployment config, a planted journal, a bound call.
+"""Shared fixtures of every test that touches a guarded run's files: paths, journals, a bound call.
 
 Every test that binds a call or reads the reports starts from a fresh run state
 (:func:`reset_run_state`), the one place the process's guarded run is kept.

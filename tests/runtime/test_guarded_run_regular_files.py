@@ -5,7 +5,7 @@ account of the deployment, so anything can be waiting at ``run.lock`` or
 ``run.journal``, and either directory can have been swapped for a link. Every
 opener of the two files, in the runtime, the executor and the approval hook, is
 held to one table here
-(:data:`tests.runtime._guarded_run_fixtures.PLANTED_REFUSED`): what is planted
+(:data:`tests._guarded_run.PLANTED_REFUSED`): what is planted
 is refused with its path named, the call returns, and nothing is read, written,
 truncated or created through it. The prompt and the run then read one journal:
 a name the hook cannot digest is a name the run does not restore. Channels are
@@ -48,7 +48,7 @@ from osprey.runtime.journal import (
     read_journal_bytes,
     read_pending_journal,
 )
-from tests.runtime._guarded_run_fixtures import (
+from tests._guarded_run import (
     ASKING,
     GENERATION,
     LINKED_DIRECTORY_REFUSAL,

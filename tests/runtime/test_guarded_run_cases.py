@@ -42,7 +42,7 @@ from osprey.runtime.guarded_run import (
 from osprey.runtime.journal import OspreyRestoreIncomplete, read_pending_journal
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 from osprey_connectors.workspace import reset_config_cache
-from tests.runtime._guarded_run_fixtures import (
+from tests._guarded_run import (
     GENERATION,
     approve,
     digest,

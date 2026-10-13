@@ -41,7 +41,7 @@ from osprey.runtime.guarded_run import (
     restore_reports,
 )
 from osprey.runtime.journal import OspreyWriteRefused, guarded_write, read_pending_journal
-from tests.runtime._guarded_run_fixtures import (
+from tests._guarded_run import (
     GENERATION,
     fresh_run_state,  # noqa: F401 - used through pytestmark
     journal_path,

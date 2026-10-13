@@ -25,7 +25,7 @@ from osprey.runtime.guarded_run import (
     guarded_run_dir,
     guarded_run_target,
 )
-from tests.runtime._guarded_run_fixtures import LINKED_DIRECTORY_REFUSAL, link_directory
+from tests._guarded_run import LINKED_DIRECTORY_REFUSAL, link_directory
 
 #: A deployment whose own control system is the Virtual Accelerator.
 VA_BASELINE = {"type": "virtual_accelerator", "connector": {"virtual_accelerator": {"port": 1}}}

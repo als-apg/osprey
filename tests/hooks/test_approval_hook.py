@@ -18,7 +18,7 @@ import pytest
 
 from osprey.runtime.journal import DurableJournal
 from tests._control_context_fixtures import write_control_context, write_server_report
-from tests.runtime._guarded_run_fixtures import (
+from tests._guarded_run import (
     LINKED_DIRECTORY_REFUSAL,
     PLANTED_REFUSAL,
     PLANTED_REFUSED,

@@ -31,7 +31,7 @@ from osprey.runtime.guarded_run import (
 from osprey.runtime.journal import OspreyWriteRefused, guarded_write, read_pending_journal
 from osprey_connectors.dotenv import atomic_replace
 from osprey_connectors.workspace import reset_config_cache
-from tests.runtime._guarded_run_fixtures import reset_run_state
+from tests._guarded_run import reset_run_state
 
 #: The RF frequency the restore cases start from, in Hz.
 F0 = 500.0e6
