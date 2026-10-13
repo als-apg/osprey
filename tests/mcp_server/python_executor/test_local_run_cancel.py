@@ -41,6 +41,7 @@ from osprey.mcp_server.python_executor.executor import (
 )
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 from osprey_connectors import posture_store
+from tests._guarded_run import journal_at, plant_at
 
 #: Hang guard for every wait in this module; never an assertion about speed.
 HANG_GUARD_S = 60.0
@@ -215,23 +216,6 @@ def _stamp_live(sandbox_env: dict[str, str]) -> str:
     """Stamp the run onto ``live``, whose journal lives under the test's project root."""
     sandbox_env["OSPREY_CONTROL_TARGET"] = "live"
     return "live"
-
-
-def _journal(root: Path) -> Path:
-    """The ``live`` target's guarded-run journal under the project root *root*."""
-    return root / "var" / "guarded_run" / "live" / "run.journal"
-
-
-def _plant_journal(root: Path, *addresses: str) -> bytes:
-    """Leave a killed run's journal on ``live`` holding *addresses*; return its bytes."""
-    lines = [{"header": {"target": "live", "generation": 1, "pid": 4242}}] + [
-        {"address": address, "value": 1.5} for address in addresses
-    ]
-    raw = "".join(json.dumps(line) + "\n" for line in lines).encode("utf-8")
-    path = _journal(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(raw)
-    return raw
 
 
 @pytest.fixture
@@ -535,7 +519,7 @@ def test_a_cancel_before_the_handle_exists_is_observed_on_disk(
 
     async def spawned_then_cancelled(*_args: Any, **_kwargs: Any) -> Any:
         nonlocal raw
-        raw = _plant_journal(tmp_path, "SR:Q7")
+        raw = plant_at(tmp_path, "live", [("SR:Q7", 1.5)]).read_bytes()
         raise asyncio.CancelledError
 
     monkeypatch.setattr(executor.asyncio, "create_subprocess_exec", spawned_then_cancelled)
@@ -553,7 +537,7 @@ def test_a_cancel_before_the_handle_exists_is_observed_on_disk(
     assert record["detail"] == "source=observed_on_disk addresses=SR:Q7"
     assert all("confirmed" not in r["detail"] for r in _ledger_records(run.ledger))
     assert _filed(run.folder)["observed_on_disk"]["state"] == "entries"
-    assert _journal(tmp_path).read_bytes() == raw
+    assert journal_at(tmp_path, "live").read_bytes() == raw
     assert run.live_markers() == []
 
 
@@ -561,7 +545,7 @@ def test_a_run_killed_at_its_timeout_names_the_journal_it_left(
     make_run: Callable[..., _Run], tmp_path: Path
 ) -> None:
     run = make_run(ignore_sigint=True)
-    raw = _plant_journal(tmp_path, "SR:Q1", "SR:Q2")
+    raw = plant_at(tmp_path, "live", [("SR:Q1", 1.5), ("SR:Q2", 1.5)]).read_bytes()
 
     async def main() -> Any:
         run.handed_over = anyio.Event()
@@ -575,7 +559,7 @@ def test_a_run_killed_at_its_timeout_names_the_journal_it_left(
     (record,) = _ledger_records(run.ledger)
     assert record["reason"] == executor.REASON_JOURNAL_LEFT
     assert record["detail"] == "source=observed_on_disk addresses=SR:Q1,SR:Q2"
-    assert _journal(tmp_path).read_bytes() == raw
+    assert journal_at(tmp_path, "live").read_bytes() == raw
 
 
 #: A readwrite script that saves a malformed artifact manifest and exits cleanly.
@@ -620,7 +604,7 @@ def _run_to_exit(
 def test_a_malformed_artifact_manifest_still_files_the_run_record(
     make_run: Callable[..., _Run], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    raw = _plant_journal(tmp_path, "SR:Q3")
+    raw = plant_at(tmp_path, "live", [("SR:Q3", 1.5)]).read_bytes()
 
     run, outcome = _run_to_exit(make_run, monkeypatch, _MALFORMED_MANIFEST)
 
@@ -630,7 +614,7 @@ def test_a_malformed_artifact_manifest_still_files_the_run_record(
     assert record["reason"] == executor.REASON_JOURNAL_LEFT
     assert record["detail"] == "source=observed_on_disk addresses=SR:Q3"
     assert (run.folder / RESTORE_REPORT_FILE).exists()
-    assert _journal(tmp_path).read_bytes() == raw
+    assert journal_at(tmp_path, "live").read_bytes() == raw
 
 
 #: A readwrite script whose manifest names a file outside the artifacts folder
@@ -660,7 +644,7 @@ _ESCAPING_MANIFEST = textwrap.dedent(
 def test_a_manifest_naming_files_outside_its_folder_hands_none_of_them_over(
     make_run: Callable[..., _Run], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    raw = _plant_journal(tmp_path, "SR:Q5")
+    raw = plant_at(tmp_path, "live", [("SR:Q5", 1.5)]).read_bytes()
     secret = tmp_path / ".env"
     secret.write_bytes(b"API_KEY=do-not-read\n")
     script = _ESCAPING_MANIFEST.replace("{secret!r}", repr(str(secret)))
@@ -677,13 +661,13 @@ def test_a_manifest_naming_files_outside_its_folder_hands_none_of_them_over(
     (record,) = _observed_records(run.ledger)
     assert record["reason"] == executor.REASON_JOURNAL_LEFT
     assert (run.folder / RESTORE_REPORT_FILE).exists()
-    assert _journal(tmp_path).read_bytes() == raw
+    assert journal_at(tmp_path, "live").read_bytes() == raw
 
 
 def test_a_run_whose_result_cannot_be_built_still_files_one_record(
     make_run: Callable[..., _Run], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    _plant_journal(tmp_path, "SR:Q4")
+    plant_at(tmp_path, "live", [("SR:Q4", 1.5)])
 
     def broken(_folder: Path) -> list[dict]:
         raise RuntimeError("artifact store unavailable")

@@ -28,6 +28,7 @@ import osprey.runtime.guarded_run as guarded_run
 from osprey.mcp_server.python_executor import executor
 from osprey.mcp_server.python_executor.executor import ExecutionResult
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
+from tests._guarded_run import plant_at
 from tests.mcp_server.conftest import get_tool_fn
 
 _SRC_ROOT = Path(__file__).resolve().parents[3] / "src"
@@ -376,9 +377,7 @@ async def test_a_refused_call_spawns_nothing_and_leaves_the_journal(
 ) -> None:
     from osprey.audit.call import call_scope
 
-    journal = tmp_path / "var" / "guarded_run" / "live" / "run.journal"
-    journal.parent.mkdir(parents=True)
-    journal.write_text('{"header": {"target": "live"}}\n{"address": "Q", "value": 1}\n')
+    journal = plant_at(tmp_path, "live", [("Q", 1)])
     before = journal.read_bytes()
     folder = tmp_path / "exec"
     folder.mkdir()
@@ -475,9 +474,7 @@ async def test_a_measurement_whose_view_digest_disagrees_spawns_nothing(
     from osprey.audit.call import call_scope
 
     _stamp(stamps, tool="mcp__python__pyaml_measure", **stamped)
-    journal = tmp_path / "var" / "guarded_run" / "live" / "run.journal"
-    journal.parent.mkdir(parents=True)
-    journal.write_text('{"header": {"target": "live"}}\n{"address": "Q", "value": 1}\n')
+    journal = plant_at(tmp_path, "live", [("Q", 1)])
     before = journal.read_bytes()
     folder = tmp_path / "exec"
     folder.mkdir()
@@ -551,12 +548,7 @@ class _Sandbox:
         site.mkdir()
         (site / "sitecustomize.py").write_text(_SITECUSTOMIZE, encoding="utf-8")
         self.site = site
-        directory = root / "var" / "guarded_run" / "live"
-        directory.mkdir(parents=True)
-        header = {"target": "live", "generation": 4, "identity": "bob", "pid": 4242}
-        lines = [{"header": header}] + [{"address": a, "value": v} for a, v in journal.items()]
-        self.journal = directory / "run.journal"
-        self.journal.write_text("".join(json.dumps(line) + "\n" for line in lines))
+        self.journal = plant_at(root, "live", journal.items(), identity="bob")
         self.folder = root / "exec"
         self.folder.mkdir()
 
