@@ -216,3 +216,26 @@ def test_an_empty_script_ends_at_once(serve):
     blocks, stop = _streamed(_post(model, _body())[1])
     assert (stop, blocks[0]["text"]) == ("end_turn", FINAL_TEXT)
     model.assert_script_consumed()
+
+
+def test_the_fixture_points_the_run_at_the_endpoint_with_the_dummy_token(
+    monkeypatch, scripted_model
+):
+    import os
+
+    from tests.e2e.scripted_model import SCRIPTED_AUTH_TOKEN
+
+    monkeypatch.setenv("ALS_APG_API_KEY", "a-real-looking-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "another-real-looking-key")
+    model = scripted_model([[GLOB]])
+    assert os.environ["OSPREY_E2E_PROXY_BASE_URL"] == model.base_url
+    assert os.environ["ALS_APG_API_KEY"] == SCRIPTED_AUTH_TOKEN
+    assert "ANTHROPIC_API_KEY" not in os.environ
+
+
+def test_the_fixture_overrides_a_session_proxy(monkeypatch, scripted_model):
+    import os
+
+    monkeypatch.setenv("OSPREY_E2E_PROXY_BASE_URL", "http://127.0.0.1:9")
+    model = scripted_model([[GLOB]])
+    assert os.environ["OSPREY_E2E_PROXY_BASE_URL"] == model.base_url

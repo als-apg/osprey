@@ -302,6 +302,46 @@ def _e2e_translation_proxy():
         stop_proxy()
 
 
+@pytest.fixture
+def scripted_model(monkeypatch):
+    """Start a scripted model and point this test's agent runs at it.
+
+    Returns a factory: ``scripted_model(script)`` starts a
+    :class:`~tests.e2e.scripted_model.ScriptedModel` for *script* and routes
+    every run the test starts afterwards to it, through the same
+    ``OSPREY_E2E_PROXY_BASE_URL`` seam the translation proxy uses. The run
+    presents :data:`~tests.e2e.scripted_model.SCRIPTED_AUTH_TOKEN` as the
+    gateway key of the ``als-apg`` provider the e2e renders build with, and
+    ``ANTHROPIC_API_KEY`` is removed, so no credential the machine holds is
+    sent to the endpoint. Teardown checks that: every recorded request carried
+    the scripted token and nothing asked for a route the endpoint lacks.
+    """
+    from tests.e2e.scripted_model import SCRIPTED_AUTH_TOKEN, ScriptedModel
+
+    started: list[ScriptedModel] = []
+
+    def _start(script):
+        model = ScriptedModel(script)
+        model.start()
+        started.append(model)
+        monkeypatch.setenv("OSPREY_E2E_PROXY_BASE_URL", model.base_url)
+        monkeypatch.setenv("ALS_APG_API_KEY", SCRIPTED_AUTH_TOKEN)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        return model
+
+    yield _start
+    for model in started:
+        model.stop()
+    for model in started:
+        assert model.unexpected == [], (
+            f"requests to routes the scripted model lacks: {model.unexpected}"
+        )
+        tokens = {request.bearer_token for request in model.requests}
+        assert tokens <= {SCRIPTED_AUTH_TOKEN}, (
+            "a scripted run presented a credential other than the scripted token"
+        )
+
+
 @pytest.fixture(autouse=True, scope="function")
 def reset_registry_between_tests():
     """Auto-reset registry before each e2e test to ensure isolation.

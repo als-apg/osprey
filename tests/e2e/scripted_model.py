@@ -24,6 +24,11 @@ from typing import Any
 #: The text turn that ends a run once the script is used up.
 FINAL_TEXT = "Scripted run complete."
 
+#: The credential a scripted run presents. A run with no key in its
+#: environment falls back to whatever login the machine holds, and would send
+#: that to the endpoint and load that account's connectors into the session.
+SCRIPTED_AUTH_TOKEN = "scripted-model-token"
+
 _MESSAGES_ROUTE = "/v1/messages"
 _COUNT_TOKENS_ROUTE = "/v1/messages/count_tokens"
 

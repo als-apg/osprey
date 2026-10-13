@@ -145,6 +145,7 @@ NO_MODEL_TEST_FILES = (
     "tests/e2e/test_openobserve_telemetry.py",
     "tests/e2e/test_sdk_helpers.py",
     "tests/e2e/test_scripted_model.py",
+    "tests/e2e/claude_code/test_safety_gates_scripted.py",
     "tests/e2e/test_mcp_readiness.py",
     "tests/e2e/test_dispatch_deploy_render.py",
     "tests/e2e/web_terminals/test_scaffold_render_roundtrip.py",
