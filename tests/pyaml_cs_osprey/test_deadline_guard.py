@@ -19,9 +19,9 @@ import pytest
 from pyaml.common.constants import Action
 
 import osprey.runtime
+import osprey.runtime._run_state as _run_state
 import osprey.runtime.journal as journal_mod
 import pyaml_cs_osprey.run_tool as run_tool_mod
-from osprey.runtime.journal import active_journals
 from osprey_connectors.control_system.limits_validator import ChannelLimitsConfig
 from pyaml_cs_osprey.run_tool import (
     DEFAULT_WRITE_LATENCY_S,
@@ -104,7 +104,7 @@ def machine(
 ) -> Iterator[_Machine]:
     m = _Machine({"A": 1.0, "B": 2.0, "C": 3.0}, clock=clock)
     yield m.install(monkeypatch, ("read_channels", "write_channel", "channel_limits"))
-    assert active_journals() == ()
+    assert _run_state.STATE.run is None
 
 
 def _deadline_in(monkeypatch: pytest.MonkeyPatch, seconds: float) -> float:

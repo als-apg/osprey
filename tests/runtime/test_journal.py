@@ -20,11 +20,7 @@ from osprey.runtime.journal import (
     OspreyWriteFailed,
     OspreyWriteRefused,
     PendingJournal,
-    active_journals,
     guarded_write,
-    journaled_write,
-    pop_journal,
-    push_journal,
     read_pending_journal,
 )
 from osprey_connectors.control_system.limits_validator import (
@@ -83,28 +79,6 @@ def test_a_journal_keeps_the_first_value_per_address() -> None:
     assert journal.addresses == ("A", "B")
 
 
-def test_journaled_write_outside_a_level_only_writes(channels: _Channels) -> None:
-    journaled_write(["A"], lambda: channels.write("A", 5.0))
-
-    assert channels.reads == []
-    assert channels.writes == [("A", 5.0)]
-
-
-def test_journaled_write_journals_into_every_level(channels: _Channels) -> None:
-    outer = push_journal()
-    inner = push_journal()
-    try:
-        journaled_write(["A"], lambda: channels.write("A", 5.0))
-        journaled_write(["A"], lambda: channels.write("A", 6.0))
-    finally:
-        pop_journal(inner)
-        pop_journal(outer)
-
-    assert outer.values == inner.values == {"A": 1.0}
-    assert channels.reads == [["A"]]
-    assert active_journals() == ()
-
-
 def test_guarded_write_outside_a_journaled_run_refuses(channels: _Channels) -> None:
     with pytest.raises(OspreyWriteRefused, match="journaled guarded run"):
         guarded_write(["A"], lambda: channels.write("A", 5.0), lambda exc: exc)
@@ -113,27 +87,10 @@ def test_guarded_write_outside_a_journaled_run_refuses(channels: _Channels) -> N
     assert channels.writes == []
 
 
-def test_a_pushed_journal_does_not_open_guarded_write(channels: _Channels) -> None:
-    level = push_journal()
-    try:
-        with pytest.raises(OspreyWriteRefused):
-            guarded_write(["A"], lambda: channels.write("A", 5.0), lambda exc: exc)
-    finally:
-        pop_journal(level)
-
-    assert channels.reads == []
-    assert channels.writes == []
-    assert level.values == {}
-
-
-def test_the_stack_functions_stay_out_of_all() -> None:
+def test_guarded_write_is_the_one_write_in_all() -> None:
     import osprey.runtime.journal as journal
 
-    assert "push_journal" not in journal.__all__
-    assert "pop_journal" not in journal.__all__
-    assert {"guarded_write", "journaled_write", "active_journals", "Journal"} <= set(
-        journal.__all__
-    )
+    assert [name for name in journal.__all__ if name.endswith("_write")] == ["guarded_write"]
 
 
 def test_the_write_errors_carry_reason_and_channel() -> None:

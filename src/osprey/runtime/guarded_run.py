@@ -105,7 +105,6 @@ from osprey.runtime.journal import (
     PendingJournal,
     _open_dir,
     _open_regular,
-    active_journals,
     parse_pending_journal,
     read_journal_bytes,
     read_map,
@@ -1349,7 +1348,7 @@ def journaled_run(target: str | None, *, deadline_guard: bool = False) -> Iterat
 
     Raises:
         RuntimeError: A journaled run on another target is open in this
-            process, or this call already has a journal level pushed.
+            process.
         Exception: Whatever :func:`lock` raises, whatever escapes the run, and
             whatever escaped a run opened inside it.
     """
@@ -1365,10 +1364,6 @@ def journaled_run(target: str | None, *, deadline_guard: bool = False) -> Iterat
                         f"a journaled run on {joined.target} is open; it cannot nest one on {name}"
                     )
             else:
-                if active_journals():
-                    raise RuntimeError(
-                        "a journaled guarded run must be the outermost journal level"
-                    )
                 held = _run_state.STATE.hold
                 if held is None or held.target != name:
                     stack.enter_context(lock(name))

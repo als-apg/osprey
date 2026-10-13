@@ -31,6 +31,7 @@ from pyaml.tuning_tools.measurement_tool import MeasurementTool
 from pyaml_test_lattice import lattices
 
 import osprey.runtime
+import osprey.runtime._run_state as _run_state
 import pyaml_cs_osprey.run_tool as run_tool_mod
 from osprey.errors import ChannelReadFailedError
 from osprey.runtime.guarded_run import (
@@ -40,7 +41,7 @@ from osprey.runtime.guarded_run import (
     lock,
 )
 from osprey.runtime.guarded_run import RESTORE_REPORT_TAG as RUNTIME_REPORT_TAG
-from osprey.runtime.journal import active_journals, read_pending_journal
+from osprey.runtime.journal import read_pending_journal
 from osprey_connectors.control_system.limits_validator import ChannelLimitsConfig
 from pyaml_cs_osprey.catalog import parse_reference
 from pyaml_cs_osprey.device import OspreyDevice
@@ -58,7 +59,7 @@ def machine(
 ) -> Iterator[_Machine]:
     m = _Machine({"A": 1.0, "B": 2.0, "C": 3.0})
     yield m.install(monkeypatch, ("read_channels", "write_channel", "channel_limits"))
-    assert active_journals() == ()
+    assert _run_state.STATE.run is None
 
 
 def test_run_tool_imports_no_private_runtime_name() -> None:
@@ -371,8 +372,8 @@ class TestRestore:
         report = run_tool(tool)
         assert report.unchanged == ["A"]
         assert report.restored == ["B"]
-        restore_writes = machine.writes[3:]
-        assert restore_writes == [("B", 2.0, {})]
+        written_back = machine.writes[3:]
+        assert written_back == [("B", 2.0, {})]
         assert machine.batch_reads[-1] == ["A", "B"]
 
     def test_a_distance_beyond_max_step_walks_back_in_three_equal_steps(
@@ -743,7 +744,7 @@ _SIGINT_CHILD = textwrap.dedent(
     import json, os, sys, time
 
     import osprey.runtime
-    from osprey.runtime.journal import journaled_write
+    from osprey.runtime.journal import guarded_write
     from pyaml_cs_osprey.run_tool import run_tool
 
     mode, workdir = sys.argv[1], sys.argv[2]
@@ -773,7 +774,7 @@ _SIGINT_CHILD = textwrap.dedent(
     osprey.runtime.channel_limits = lambda address: None
 
     def put(address, value):
-        journaled_write([address], lambda: osprey.runtime.write_channel(address, value))
+        guarded_write([address], lambda: osprey.runtime.write_channel(address, value), lambda exc: exc)
 
     def span_tool(callback):
         # pyAML style: a falsy callback raises KeyboardInterrupt.

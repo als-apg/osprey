@@ -1,8 +1,7 @@
 """pyAML writes only inside a journaled guarded run; everywhere else they are refused.
 
 ``execute`` holds the target's run lock and nothing more, so a pyAML set inside it
-is refused before anything is read or written, even with a journal level pushed by
-hand. The same set inside ``run_tool`` is journaled and written. With no guarded-run
+is refused before anything is read or written. The same set inside ``run_tool`` is journaled and written. With no guarded-run
 directory the run stops before the tool is called.
 """
 
@@ -24,7 +23,7 @@ from osprey.runtime.guarded_run import (
     journaled_run,
     lock,
 )
-from osprey.runtime.journal import pop_journal, push_journal, read_pending_journal
+from osprey.runtime.journal import read_pending_journal
 from pyaml_cs_osprey.errors import OspreyReadFailed, OspreyWriteRefused
 from pyaml_cs_osprey.run_tool import run_tool
 from tests.pyaml_cs_osprey.conftest import DictConnector
@@ -109,20 +108,6 @@ class TestExecuteIsReadOnly:
         assert connector.puts == []
         assert connector.reads == []
         assert connector._state[SETPOINT] == 1.0
-
-    def test_a_pushed_journal_level_does_not_let_the_set_through(
-        self, sr: Accelerator, connector: _CountingConnector
-    ) -> None:
-        with lock("live"):
-            journal = push_journal()
-            try:
-                with pytest.raises(OspreyWriteRefused, match="only inside pyaml_measure"):
-                    _strength(sr).set(1.5)
-            finally:
-                pop_journal(journal)
-
-        assert journal.values == {}
-        assert connector.puts == []
 
     def test_a_set_with_no_run_at_all_is_refused_the_same_way(
         self, sr: Accelerator, connector: _CountingConnector

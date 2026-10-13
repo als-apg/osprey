@@ -17,7 +17,6 @@ from osprey.errors import (
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
 )
-from osprey.runtime.journal import pop_journal, push_journal
 from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.control_system.limits_validator import (
     ChannelLimitsConfig,
@@ -185,17 +184,6 @@ def test_guarded_set_journals_every_address_before_the_write(runtime: _Runtime, 
     assert runtime.calls == ["read_channels", "write_channels"]
     assert runtime.batch_reads == [SETS]
     assert guarded.values == {SETS[0]: 1.0, SETS[1]: 2.0, SETS[2]: 3.0}
-
-
-def test_every_active_journal_records_every_address(runtime: _Runtime, guarded) -> None:
-    inner = push_journal()
-    try:
-        _list().set([10.0, 20.0, 30.0])
-    finally:
-        pop_journal(inner)
-    assert set(guarded.addresses) == set(SETS)
-    assert set(inner.addresses) == set(SETS)
-    assert runtime.calls == ["read_channels", "write_channels"]
 
 
 @pytest.mark.usefixtures("guarded")

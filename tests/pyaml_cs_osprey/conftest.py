@@ -11,6 +11,7 @@ import pytest
 import yaml
 
 import osprey.runtime
+import osprey.runtime._run_state as _run_state
 from osprey.errors import (
     ChannelLimitsViolationError,
     ChannelReadFailedError,
@@ -18,7 +19,7 @@ from osprey.errors import (
 )
 from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
 from osprey.runtime.guarded_run import journaled_run
-from osprey.runtime.journal import Journal, active_journals, journaled_write
+from osprey.runtime.journal import Journal, guarded_write
 from osprey_connectors.control_system.base import (
     ChannelMetadata,
     ChannelValue,
@@ -134,7 +135,7 @@ class FakeRuntime:
 
     def set(self, address: str, value: Any) -> None:
         """A guarded device write: journaled, then written."""
-        journaled_write([address], lambda: self.write_channel(address, value))
+        guarded_write([address], lambda: self.write_channel(address, value), lambda exc: exc)
 
     def install(
         self, monkeypatch: pytest.MonkeyPatch, names: Sequence[str] = RUNTIME_FUNCTIONS
@@ -252,4 +253,4 @@ def guarded(guarded_repo: Path) -> Iterator[Journal]:  # noqa: ARG001 - the run 
     """A journaled guarded run on ``live`` in a throwaway deployment repo, for the test."""
     with journaled_run("live") as journal:
         yield journal
-    assert active_journals() == ()
+    assert _run_state.STATE.run is None

@@ -14,7 +14,7 @@ from osprey.errors import (
     ChannelLimitsViolationError,
     ChannelWriteFailedError,
 )
-from osprey.runtime.journal import Journal, pop_journal, push_journal
+from osprey.runtime.journal import Journal
 from osprey.runtime.journal import OspreyWriteRefused as RuntimeOspreyWriteRefused
 from osprey_connectors.control_system.limits_validator import ChannelLimitsConfig
 from pyaml_cs_osprey.catalog import parse_reference
@@ -175,18 +175,6 @@ def test_set_outside_a_journaled_run_is_refused(runtime: _Runtime) -> None:
     assert runtime.calls == []
 
 
-def test_set_under_a_pushed_journal_alone_is_refused(runtime: _Runtime) -> None:
-    """A journal pushed without the run lock does not open the guarded run."""
-    journal = push_journal()
-    try:
-        with pytest.raises(RuntimeOspreyWriteRefused, match="only inside pyaml_measure"):
-            _device(RW).set(3.0)
-    finally:
-        pop_journal(journal)
-    assert runtime.calls == []
-    assert journal.values == {}
-
-
 @pytest.mark.usefixtures("guarded")
 def test_set_on_a_setpoint_reading_nan_is_refused_with_the_runtimes_reason(
     runtime: _Runtime,
@@ -219,17 +207,6 @@ def test_set_journals_the_prior_setpoint(runtime: _Runtime, guarded: Journal) ->
     assert guarded.values == {"QF_001:Cm:set": 1.5}
     assert runtime.batch_reads == [["QF_001:Cm:set"]]
     assert guarded.max_write_latency is not None
-
-
-@pytest.mark.usefixtures("runtime")
-def test_set_records_into_every_active_journal(guarded: Journal) -> None:
-    """A nested guard journals the same prior setpoint at both levels."""
-    inner = push_journal()
-    try:
-        _device(RW).set(3.0)
-    finally:
-        pop_journal(inner)
-    assert guarded.values == inner.values == {"QF_001:Cm:set": 1.5}
 
 
 @pytest.mark.usefixtures("guarded")
@@ -378,14 +355,9 @@ def test_indexed_device_reads_and_refuses_set(monkeypatch: pytest.MonkeyPatch) -
     assert "M@2" in str(short.value) and "length 2" in str(short.value)
     assert OspreyDevice(parse_reference("M@2")).check_device_availability() is False
 
-    journal = push_journal()
-    try:
-        for write in (lambda: dev.set(0.5), lambda: dev.set_and_wait(0.5)):
-            with pytest.raises(PyAMLException, match="A@1"):
-                write()
-        assert journal.values == {}
-    finally:
-        pop_journal(journal)
+    for write in (lambda: dev.set(0.5), lambda: dev.set_and_wait(0.5)):
+        with pytest.raises(PyAMLException, match="A@1"):
+            write()
 
     assert dev.get_range() == [None, None]
     assert fake.writes == []

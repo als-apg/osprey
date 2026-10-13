@@ -40,8 +40,6 @@ from osprey.runtime.journal import (
     OspreyStaleJournal,
     OspreyWriteRefused,
     guarded_write,
-    pop_journal,
-    push_journal,
     read_pending_journal,
 )
 from osprey_connectors.control_system.limits_validator import (
@@ -337,12 +335,6 @@ def test_guarded_write_under_the_lock_alone_is_refused(channels: _Channels) -> N
     with lock("live"):
         with pytest.raises(OspreyWriteRefused):
             guarded_write(["Q"], lambda: channels.write_channel("Q", 2.5), lambda exc: exc)
-        level = push_journal()
-        try:
-            with pytest.raises(OspreyWriteRefused):
-                guarded_write(["Q"], lambda: channels.write_channel("Q", 2.5), lambda exc: exc)
-        finally:
-            pop_journal(level)
 
     assert channels.writes == []
     assert channels.values["Q"] == 3.0

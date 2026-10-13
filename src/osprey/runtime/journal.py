@@ -10,18 +10,10 @@ else it raises :class:`OspreyWriteRefused` and touches no channel. A guarded
 write holds the run state's lock from its check to the end of the write, so it
 is either finished before the run ends or refused after.
 
-A call may also push its own :class:`Journal` levels onto a stack held in a
-context variable: its view of what it wrote, used to time a restore. Device
-``set`` paths journal into the run's journal and every level the calling
-context has pushed. :func:`journaled_write` is the same journaling without the
-guard: with no run open and no level pushed it only writes. A level pushed with
-:func:`push_journal` alone does not open a guarded run; the two stack functions
-stay out of ``__all__`` for that reason.
-
 A journal keeps, per address, only the first value it sees; later writes to the
-same address leave it untouched. It also keeps the longest write latency and the
-longest gap between callback invocations, which a deadline guard uses to budget
-the time a restore needs.
+same address leave it untouched. It also keeps the longest write latency, which
+the runtime's restore estimate
+(:func:`osprey.runtime.guarded_run.restore_estimate`) reads.
 
 The :class:`DurableJournal` is a file beside the run lock that survives the
 process. It starts with one header line (control target, generation, identity,
@@ -47,7 +39,6 @@ import os
 import stat
 import time
 from collections.abc import Callable, ItemsView, Iterator, Sequence
-from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
@@ -62,9 +53,7 @@ __all__ = [
     "OspreyWriteFailed",
     "OspreyWriteRefused",
     "PendingJournal",
-    "active_journals",
     "guarded_write",
-    "journaled_write",
     "parse_pending_journal",
     "read_journal_bytes",
     "read_map",
@@ -77,12 +66,6 @@ _NOT_JOURNALED_REASON = "guarded writes run only inside a journaled guarded run"
 _T = TypeVar("_T")
 
 _clock: Callable[[], float] = time.monotonic
-
-#: The journal levels this context has pushed, outermost first. A level is one
-#: call's own view of what it wrote, used to time a restore; whether a write is
-#: accepted, and where it is durably journaled, is decided by the process's run
-#: state, never by this stack.
-_ACTIVE: ContextVar[tuple[Journal, ...]] = ContextVar("osprey_runtime_journals", default=())
 
 
 class OspreyWriteRefused(Exception):
@@ -275,13 +258,10 @@ def _directory_of(path: Path, dir_fd: int | None) -> Iterator[int]:
 
 
 class Journal:
-    """First-seen setpoints, and the write and callback timing, of one guard.
+    """First-seen setpoints, and the longest write latency, of one guarded run.
 
     Attributes:
         max_write_latency: The longest write latency noted, ``None`` before the first.
-        last_callback: When the latest callback invocation happened, ``None`` before one.
-        max_callback_gap: The longest gap between consecutive callback invocations,
-            ``None`` before two.
     """
 
     def __init__(self, sink: Callable[[str, Any], None] | None = None) -> None:
@@ -295,8 +275,6 @@ class Journal:
         self._values: dict[str, Any] = {}
         self._sink = sink
         self.max_write_latency: float | None = None
-        self.last_callback: float | None = None
-        self.max_callback_gap: float | None = None
 
     @property
     def values(self) -> dict[str, Any]:
@@ -337,60 +315,6 @@ class Journal:
         """Note the duration of one write."""
         if self.max_write_latency is None or latency_s > self.max_write_latency:
             self.max_write_latency = latency_s
-
-    def note_callback(self, timestamp: float | None = None) -> None:
-        """Timestamp one callback invocation (the module clock when not given)."""
-        now = _clock() if timestamp is None else timestamp
-        if self.last_callback is not None:
-            gap = now - self.last_callback
-            if self.max_callback_gap is None or gap > self.max_callback_gap:
-                self.max_callback_gap = gap
-        self.last_callback = now
-
-
-def _levels() -> tuple[Journal, ...]:
-    """The open run's journal, then this context's pushed levels; the caller holds the lock."""
-    run = _run_state.STATE.run
-    if run is None:
-        return _ACTIVE.get()
-    return (run.journal, *_ACTIVE.get())
-
-
-def active_journals() -> tuple[Journal, ...]:
-    """The active journals, outermost first; empty outside a guard.
-
-    The open guarded run's journal comes first, whichever thread opened it.
-    """
-    with _run_state.LOCK:
-        return _levels()
-
-
-def push_journal(journal: Journal | None = None) -> Journal:
-    """Activate ``journal`` (a new one when not given) as the innermost level.
-
-    A pushed level journals writes; it does not let :func:`guarded_write` write.
-    """
-    j = Journal() if journal is None else journal
-    _ACTIVE.set((*_ACTIVE.get(), j))
-    return j
-
-
-def pop_journal(journal: Journal | None = None) -> Journal:
-    """Deactivate the innermost journal and return it.
-
-    Args:
-        journal: When given, must be the innermost journal.
-
-    Raises:
-        RuntimeError: If no journal is active, or ``journal`` is not the innermost.
-    """
-    stack = _ACTIVE.get()
-    if not stack:
-        raise RuntimeError("pop_journal called with no active journal")
-    if journal is not None and stack[-1] is not journal:
-        raise RuntimeError("pop_journal: journal is not the innermost active level")
-    _ACTIVE.set(stack[:-1])
-    return stack[-1]
 
 
 def _stop_reason(stopped_by: BaseException) -> str:
@@ -436,20 +360,13 @@ def _undo_value_problem(value: Any) -> str | None:
     return None
 
 
-def journaled_write(addresses: Sequence[str], write: Callable[[], _T]) -> _T:
-    """Run ``write``, journaling ``addresses`` into every active level first.
+def _journal_then_write(journal: Journal, addresses: Sequence[str], write: Callable[[], _T]) -> _T:
+    """Run ``write``, journaling the ``addresses`` ``journal`` lacks first.
 
-    Outside a guard this only calls ``write``. Inside one, the addresses some
-    active journal does not hold yet are read in one ``read_channels`` call before
-    the write, and each level records those it lacks. The write's latency is
-    noted in every level whether or not it raises, since a failed write may
-    already have moved a channel. While a guarded run is open the whole call
-    holds the run state's lock, so the run's journal gets one line per address
-    whichever threads write it.
-
-    Args:
-        addresses: Every address the write touches.
-        write: Performs the write; its result is returned.
+    The addresses ``journal`` does not hold yet are read in one
+    ``read_channels`` call before the write and recorded. The write's latency
+    is noted whether or not it raises, since a failed write may already have
+    moved a channel.
 
     Raises:
         ChannelReadFailedError: If the pre-write read fails; nothing is written.
@@ -457,19 +374,7 @@ def journaled_write(addresses: Sequence[str], write: Callable[[], _T]) -> _T:
             back (see :func:`_undo_value_problem`); nothing is journaled or
             written, and the refusal names that address.
     """
-    with _run_state.LOCK:
-        if _run_state.STATE.run is not None:
-            return _journal_then_write(_levels(), addresses, write)
-    return _journal_then_write(_ACTIVE.get(), addresses, write)
-
-
-def _journal_then_write(
-    journals: tuple[Journal, ...], addresses: Sequence[str], write: Callable[[], _T]
-) -> _T:
-    """:func:`journaled_write`'s body over the levels ``journals``."""
-    if not journals:
-        return write()
-    missing = [a for a in dict.fromkeys(addresses) if any(a not in j for j in journals)]
+    missing = [a for a in dict.fromkeys(addresses) if a not in journal]
     if missing:
         before = read_map(missing)
         for address in missing:
@@ -479,16 +384,12 @@ def _journal_then_write(
                     f"reads {problem} before the write, so a guarded run could not put it back",
                     address,
                 )
-        for j in journals:
-            lacking = [a for a in missing if a not in j]
-            j.record(lacking, [before[a] for a in lacking])
+        journal.record(missing, [before[a] for a in missing])
     start = _clock()
     try:
         return write()
     finally:
-        latency = _clock() - start
-        for j in journals:
-            j.note_latency(latency)
+        journal.note_latency(_clock() - start)
 
 
 def guarded_write(
@@ -503,8 +404,7 @@ def guarded_write(
 
     The one check that keeps a device write out of every context but
     :func:`osprey.runtime.guarded_run.journaled_run`: anywhere else, including
-    under a level pushed with :func:`push_journal` or under the run lock alone,
-    nothing is read or written and :class:`OspreyWriteRefused` is raised. The
+    under the run lock alone, nothing is read or written and :class:`OspreyWriteRefused` is raised. The
     open run is the process's, so a thread or task it starts writes under it;
     once something escaping a run opened inside it has stopped the run, every
     later guarded write is refused. The check, the journaling and the write
@@ -540,10 +440,13 @@ def guarded_write(
             raise OspreyWriteRefused(_NOT_JOURNALED_REASON)
         if run.stopped_by is not None:
             raise OspreyWriteRefused(f"the guarded run was stopped: {_stop_reason(run.stopped_by)}")
-        _write_journaled(addresses, write, map_write, map_read=map_read, confirm=confirm)
+        _write_journaled(
+            run.journal, addresses, write, map_write, map_read=map_read, confirm=confirm
+        )
 
 
 def _write_journaled(
+    journal: Journal,
     addresses: Sequence[str],
     write: Callable[..., object],
     map_write: Callable[[Exception], Exception],
@@ -551,7 +454,7 @@ def _write_journaled(
     map_read: Callable[[Exception, list[str]], Exception] | None,
     confirm: bool | None,
 ) -> None:
-    """:func:`guarded_write`'s journaling and write, under the open run."""
+    """:func:`guarded_write`'s journaling into the open run's ``journal`` and write."""
     kwargs: dict[str, Any] = {} if confirm is None else {"confirm": confirm}
     attempted = False
 
@@ -564,7 +467,7 @@ def _write_journaled(
             raise map_write(exc) from exc
 
     try:
-        journaled_write(addresses, mapped_write)
+        _journal_then_write(journal, addresses, mapped_write)
     except OspreyWriteRefused:
         raise
     except Exception as exc:

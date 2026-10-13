@@ -27,9 +27,9 @@ from pyaml.accelerator import Accelerator
 from pyaml.common.constants import Action
 
 import osprey.runtime
+import osprey.runtime._run_state as _run_state
 import pyaml_cs_osprey.measure as measure_mod
 from osprey.runtime.guarded_run import JOURNAL_FILE_NAME
-from osprey.runtime.journal import active_journals
 from pyaml_cs_osprey.measure import RESPONSE_MATRIX_DATA, StepMeasurement
 from pyaml_cs_osprey.run_tool import run_tool
 from tests.pyaml_cs_osprey.conftest import DictConnector
@@ -206,7 +206,7 @@ def connector(
     with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as get:
         get.return_value = machine
         yield machine
-    assert active_journals() == ()
+    assert _run_state.STATE.run is None
 
 
 #: One measurement per path: kind → (builder, the setpoints it steps, its expected matrix).

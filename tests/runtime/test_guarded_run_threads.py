@@ -509,5 +509,5 @@ def test_the_run_state_is_one_object_no_module_binds() -> None:
         ]
 
     assert context_vars(guarded_run) == []
-    assert context_vars(journal_mod) == ["_ACTIVE"]
+    assert context_vars(journal_mod) == []
     assert bound_by_import(guarded_run) == bound_by_import(journal_mod) == []

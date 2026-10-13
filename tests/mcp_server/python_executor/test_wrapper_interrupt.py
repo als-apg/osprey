@@ -99,10 +99,10 @@ _PREAMBLE = textwrap.dedent(
 _RUN_TOOL_CODE = _PREAMBLE + textwrap.dedent(
     """
     from osprey.runtime.guarded_run import journaled_run
-    from osprey.runtime.journal import journaled_write
+    from osprey.runtime.journal import guarded_write
 
     def put(address, value):
-        journaled_write([address], lambda: osprey.runtime.write_channel(address, value))
+        guarded_write([address], lambda: osprey.runtime.write_channel(address, value), lambda exc: exc)
 
     with journaled_run("live"):
         put("A", 5.0)
