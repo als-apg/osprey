@@ -131,7 +131,10 @@ class BaseProvider(ABC):  # noqa: B024 - every endpoint has a "not served" defau
     while allowing provider-specific implementations.
     """
 
-    # Metadata - subclasses MUST override these class attributes
+    # Metadata - subclasses MUST override these class attributes. A class that
+    # sets ``name`` is a provider and is refused at definition unless it also
+    # declares every flag in ``_REQUIRED_FLAGS``: an inherited ``NotImplemented``
+    # cannot be read as a bool, so it has no meaning as a flag value.
     name: str = NotImplemented  # Provider identifier (e.g., "anthropic")
     description: str = (
         NotImplemented  # User-friendly description (e.g., "Anthropic (Claude models)")
@@ -197,6 +200,33 @@ class BaseProvider(ABC):  # noqa: B024 - every endpoint has a "not served" defau
     resolves_fallback_outside_calls: bool = False
     # Whether ``dimensions`` is honoured by truncating and L2-renormalising each vector.
     truncates_to_dimensions: bool = False
+
+    _REQUIRED_FLAGS: tuple[str, ...] = (
+        "requires_api_key",
+        "requires_base_url",
+        "requires_model_id",
+        "supports_proxy",
+    )
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Refuse a provider class that leaves a required flag undeclared.
+
+        A subclass that sets no ``name`` is a shared base for providers rather
+        than a provider, and is not checked.
+
+        Raises:
+            TypeError: If the class names a provider and a flag in
+                ``_REQUIRED_FLAGS`` is still ``NotImplemented`` on it.
+        """
+        super().__init_subclass__(**kwargs)
+        if cls.name is NotImplemented:
+            return
+        missing = [flag for flag in cls._REQUIRED_FLAGS if getattr(cls, flag) is NotImplemented]
+        if missing:
+            raise TypeError(
+                f"Provider {cls.name!r} ({cls.__module__}.{cls.__qualname__}) does not declare "
+                f"{', '.join(missing)}. Set each one to True or False in the class body."
+            )
 
     # Embedding health surface
     default_embedding_model_id: str | None = None

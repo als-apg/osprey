@@ -39,6 +39,8 @@ class _GatewayWithoutEndpointAdapter(BaseProvider):
     description = "A gateway each site hosts itself"
     requires_api_key = True
     requires_base_url = True
+    requires_model_id = False
+    supports_proxy = False
     default_base_url = None
     base_url_env_var = GATEWAY_WITHOUT_ENDPOINT_VAR
 
@@ -72,6 +74,9 @@ class _SiteGatewayAdapter(BaseProvider):
     name = "site-gateway"
     description = "A gateway a site registers for itself"
     requires_api_key = True
+    requires_base_url = False
+    requires_model_id = False
+    supports_proxy = False
     api_key_env_var = "SITE_GATEWAY_TOKEN"
 
 

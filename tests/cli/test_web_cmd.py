@@ -1058,7 +1058,10 @@ class TestPreflightAuthSecret:
         """Serve a stand-in adapter for ``site-gateway`` with *declared* facts."""
         from osprey.models.providers.base import BaseProvider
 
-        stand_in = type("SiteGatewayAdapter", (BaseProvider,), {"name": "site-gateway", **declared})
+        flags = dict.fromkeys(BaseProvider._REQUIRED_FLAGS, True)
+        stand_in = type(
+            "SiteGatewayAdapter", (BaseProvider,), {"name": "site-gateway", **flags, **declared}
+        )
         monkeypatch.setattr(
             "osprey.models.provider_registry.ProviderRegistry.get_provider",
             lambda _self, name: stand_in if name == "site-gateway" else None,
