@@ -25,13 +25,12 @@ from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
 from osprey.runtime.guarded_run import (
     JOURNAL_FILE_NAME,
     RESTORE_REPORT_TAG,
-    guarded_run_dir,
     journaled_run,
 )
 from osprey.runtime.journal import OspreyWriteRefused, guarded_write, read_pending_journal
 from osprey_connectors.dotenv import atomic_replace
 from osprey_connectors.workspace import reset_config_cache
-from tests._guarded_run import reset_run_state
+from tests._guarded_run import journal_path, reset_run_state
 
 #: The RF frequency the restore cases start from, in Hz.
 F0 = 500.0e6
@@ -80,10 +79,6 @@ def channels(monkeypatch: pytest.MonkeyPatch) -> _Channels:
     for name in ("read_channels", "write_channel", "channel_limits"):
         monkeypatch.setattr(osprey.runtime, name, getattr(fake, name))
     return fake
-
-
-def _journal_path() -> Path:
-    return guarded_run_dir("live") / JOURNAL_FILE_NAME
 
 
 def _reports(text: str) -> list[dict[str, Any]]:
@@ -145,7 +140,7 @@ class TestNoUndoValue:
         with journaled_run("live"):
             with pytest.raises(OspreyWriteRefused) as caught:
                 _put("Q", 4.0)
-            lines = _journal_path().read_text(encoding="utf-8").splitlines()
+            lines = journal_path().read_text(encoding="utf-8").splitlines()
 
         assert caught.value.channel_address == "Q"
         assert str(caught.value) == (
@@ -153,7 +148,7 @@ class TestNoUndoValue:
             "so a guarded run could not put it back"
         )
         assert [list(json.loads(line)) for line in lines] == [["header"]]
-        assert read_pending_journal(_journal_path()) is None
+        assert read_pending_journal(journal_path()) is None
         assert channels.writes == []
 
     def test_a_numpy_array_holding_nan_is_refused(self, channels: _Channels) -> None:
@@ -165,7 +160,7 @@ class TestNoUndoValue:
     def test_a_finite_pre_read_journals_and_writes(self, channels: _Channels) -> None:
         with journaled_run("live"):
             _put("Q", 4.0)
-            pending = read_pending_journal(_journal_path())
+            pending = read_pending_journal(journal_path())
 
         assert pending is not None and pending.values == {"Q": 3.0}
         assert channels.writes == [("Q", 4.0)]
@@ -177,7 +172,7 @@ class TestAtomicReplace:
     def test_a_link_planted_at_every_predictable_name_is_never_followed(
         self, tmp_path: Path
     ) -> None:
-        path = tmp_path / "run.journal"
+        path = tmp_path / JOURNAL_FILE_NAME
         path.write_bytes(b"old\n")
         victim = tmp_path / "victim"
         victim.write_text("untouched", encoding="utf-8")
@@ -343,7 +338,7 @@ class TestExitPath:
         def broken(*_args: Any, **_kwargs: Any) -> None:
             raise RuntimeError("the connector is gone\nsecond line")
 
-        path = _journal_path()
+        path = journal_path()
         with pytest.raises(ValueError, match="stop"), journaled_run("live"):
             _put("Q", 9.0)
             before = path.read_bytes()
