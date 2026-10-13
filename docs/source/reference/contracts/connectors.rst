@@ -234,7 +234,7 @@ implementation:
   ``asyncio.run_coroutine_threadsafe``. Each runs the put in a copy of the
   calling context, and a task created while the door is open inherits it too.
   The EPICS connector uses the last: its Channel Access puts run on the
-  process's CA loop (``osprey_connectors.control_system.ca_loop``).
+  process's CA loop (``osprey_connectors.control_system._ca_loop``).
 - **Not behind** ``loop.run_in_executor``, a raw executor ``submit`` or a bare
   ``threading.Thread``. Each starts from a fresh context, sees the door
   closed, and the put is refused with reason ``RAW_CLIENT_WRITE``.
