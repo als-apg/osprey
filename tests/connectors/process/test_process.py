@@ -74,9 +74,13 @@ async def test_reaping_a_running_child_gives_up_after_the_window_without_signall
 
 
 async def test_a_real_child_that_exits_on_its_own_reports_its_own_exit_code():
+    """A child whose exit the loop has already collected keeps its own exit
+    code: putting it down signals nothing.
+    """
     process = await asyncio.create_subprocess_exec(sys.executable, "-c", "import os; os._exit(3)")
+    await process.wait()
 
-    await terminate(process, 0.5)
+    assert await terminate(process, 0.5) == 3
 
     assert process.returncode == 3
 
