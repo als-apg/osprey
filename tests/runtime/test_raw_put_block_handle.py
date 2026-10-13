@@ -7,7 +7,7 @@ included: ``ca_sg_array_put`` writes the channel as ``ca_array_put`` does, only
 deferred until the group is flushed.
 
 ``install`` is called directly with the ``ctypes`` rows alone, so the only
-process-wide objects it patches are the ``ctypes`` loaders — restored after
+process-wide object it patches is the ``ctypes`` loader class — restored after
 each test together with the import-hook finder it registers.
 """
 
@@ -21,17 +21,14 @@ from osprey.runtime import raw_put_block
 
 _REFUSAL = "refused by the handle test"
 
-_LOADER_ROWS = (
-    ("ctypes", ("CDLL", "PyDLL", "WinDLL", "OleDLL")),
-    ("ctypes.LibraryLoader", ("LoadLibrary", "__getattr__")),
-)
+_LOADER_ROWS = (("ctypes.CDLL", ("__init__", "__getitem__")),)
 
 
 @pytest.fixture(autouse=True)
 def _restore_ctypes():
     saved = []
-    for dotted, attrs in _LOADER_ROWS:
-        target = ctypes if dotted == "ctypes" else ctypes.LibraryLoader
+    for _dotted, attrs in _LOADER_ROWS:
+        target = ctypes.CDLL
         for attr in attrs:
             if attr in vars(target):
                 saved.append((target, attr, vars(target)[attr], True))
@@ -91,3 +88,17 @@ def test_readonly_refuses_a_load_outside_pyepics(monkeypatch):
 
     with pytest.raises(RuntimeError, match=_REFUSAL):
         ctypes.cdll.LoadLibrary(None)
+
+
+@pytest.mark.parametrize("symbol", ["ca_array_put", "ca_array_put_callback", "ca_sg_array_put"])
+def test_readonly_refuses_each_put_symbol_by_item_on_any_handle(symbol):
+    _install_readonly()
+
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        ctypes.pythonapi[symbol]
+
+
+def test_readonly_leaves_other_symbols_on_any_handle():
+    _install_readonly()
+
+    assert ctypes.pythonapi["Py_IsInitialized"]() == 1

@@ -587,6 +587,8 @@ def _escape_route_identities() -> dict[str, object]:
         "ctypes.PyDLL": ctypes.PyDLL,
         "ctypes.LibraryLoader.LoadLibrary": ctypes.LibraryLoader.LoadLibrary,
         "ctypes.LibraryLoader.__getattr__": ctypes.LibraryLoader.__getattr__,
+        "ctypes.CDLL.__init__": ctypes.CDLL.__init__,
+        "ctypes.CDLL.__getitem__": ctypes.CDLL.__getitem__,
     }
 
 

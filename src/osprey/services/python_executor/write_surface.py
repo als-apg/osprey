@@ -103,12 +103,14 @@ _CLIENT_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("aioca._catools", ("caput",)),
     # --- Channel Access (epicscorelibs). The ctypes binding that aioca loads
     # ``libca`` through, so it is a client route in its own right. Listing it
-    # also puts ``epicscorelibs`` in :data:`READONLY_DENIED_IMPORTS`, which is
-    # what closes the route in a readonly run: the import is refused, so the
-    # binding is never reached. An armed run refuses both names as well — they
-    # sit in :data:`_ARMED_BLOCKED`. pyepics loads a handle of its own through
-    # ``ctypes`` rather than this binding, and the ``ctypes`` rows of
-    # :data:`_ESCAPE_ROUTES` refuse the put symbols on that handle.
+    # also puts ``epicscorelibs`` in :data:`READONLY_DENIED_IMPORTS`, so a
+    # plain import of it is refused in a readonly run; ``importlib`` gets past
+    # that check, which is why both names are refused at runtime too, and the
+    # ``libca`` handle under them in :data:`_ESCAPE_ROUTES`. An armed run
+    # refuses both names as well — they sit in :data:`_ARMED_BLOCKED`. pyepics
+    # loads a handle of its own through ``ctypes`` rather than this binding,
+    # and the ``ctypes`` rows of :data:`_ESCAPE_ROUTES` refuse the put symbols
+    # on that handle.
     ("epicscorelibs.ca.cadef", ("ca_array_put", "ca_array_put_callback")),
     # --- PVAccess (p4p): one client Context per concurrency flavour, plus the
     # server-side SharedPV, which puts values on the wire when it is opened or
@@ -276,16 +278,25 @@ _ESCAPE_ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
             "posix_spawnp",
         ),
     ),
+    # --- The libca handle epicscorelibs loads in its module body, before the
+    # loader below is gated. aioca reads through this handle's read symbols,
+    # so the handle stays; the put symbols ``cadef`` already resolved are
+    # cached on the instance, past ``__getitem__``, and are closed here by name.
+    # ``importlib`` reaches the handle past the static import check.
+    (
+        "epicscorelibs.ca.cadef.libca",
+        ("ca_array_put", "ca_array_put_callback", "ca_sg_array_put"),
+    ),
     # --- Loading a shared library sidesteps every Python-level guard above:
     # ``ctypes.CDLL("libca")`` reaches Channel Access without importing a
-    # single client package. ``LibraryLoader.__getattr__`` is patched too,
-    # because ``ctypes.cdll.libca`` never goes through ``CDLL`` by that name.
-    # These rows are gated rather than refused outright: pyepics, which a
-    # readonly run reads through via ``osprey.runtime``, loads ``libca`` this
-    # way, so its own load is permitted and the handle it gets has its put
-    # symbols refused. Every other load refuses.
-    ("ctypes", ("CDLL", "PyDLL", "WinDLL", "OleDLL")),
-    ("ctypes.LibraryLoader", ("LoadLibrary", "__getattr__")),
+    # single client package. The class is gated, not its module attribute, so
+    # ``cdll.LoadLibrary``, ``cdll.libca``, ``cdll._dlltype``, ``PyDLL`` and
+    # ``type(handle)`` all load through the same ``__init__``. It is gated
+    # rather than refused outright: pyepics, which a readonly run reads through
+    # via ``osprey.runtime``, loads ``libca`` this way, so its own load is
+    # permitted. Every other load refuses. ``__getitem__`` refuses the put
+    # symbols on every handle, the ones loaded before the gate included.
+    ("ctypes.CDLL", ("__init__", "__getitem__")),
 )
 
 #: Every entry point a readonly run refuses. The canonical machine-readable
