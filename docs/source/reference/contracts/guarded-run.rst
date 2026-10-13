@@ -44,6 +44,10 @@ a time; asking for another target's lock while it holds one is refused before
 anything is opened:
 ``this process holds the run lock on <held>; it cannot take one on <asked>``.
 
+A child forked from the process, from any thread and at any moment, holds
+neither the lock nor the journal, so a holder that is killed frees its target
+whatever it forked.
+
 The journal
 ===========
 
