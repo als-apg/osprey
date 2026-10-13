@@ -267,6 +267,34 @@
   border-color: var(--color-accent);
 }
 
+/* ---- Protected (build-owned) fields ---- */
+
+.toggle-switch input:disabled + .toggle-slider,
+.settings-input:disabled,
+.settings-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.settings-field-protected {
+  flex-wrap: wrap;
+}
+
+.settings-field-protected .settings-field-label {
+  color: var(--text-muted);
+}
+
+.settings-field-note {
+  display: block;
+  flex-basis: 100%;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.settings-section > .settings-field-note {
+  padding: var(--space-2) var(--space-4) 0;
+}
+
 /* ---- Raw YAML Editor ---- */
 
 .settings-raw {

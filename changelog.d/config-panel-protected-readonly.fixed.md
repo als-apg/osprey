@@ -1,0 +1,1 @@
+The Web Terminal settings form shows the keys the build owns read-only, with a note to change them in the profile's `config:` block and re-run `osprey build`, instead of offering a control whose Apply is refused.

@@ -5,6 +5,7 @@ import { restartTerminal, startTerminal } from './terminal.js';
 import { showSettingsNotice } from './settings-notice.js';
 import { mountOverlay, fadeOutOverlay } from './modal-overlay.js';
 import { hideApplyConfirm, initApplyConfirmGate } from './settings-apply-confirm.js';
+import { isSectionProtected, markProtected, protectedNote } from './settings-protected.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 /**
@@ -13,6 +14,7 @@ import { scopedStorageKey } from '/design-system/js/storage-scope.js';
  * @property {Record<string, any>} sections  nested config tree, keyed by section
  * @property {string} raw  the raw YAML file text
  * @property {string} [path]
+ * @property {string[]} [protected]  dotted leaf keys the form shows read-only
  */
 
 /**
@@ -28,6 +30,9 @@ import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 /** @type {ConfigPayload|null} */
 let currentConfig = null;
+// Dotted leaf keys the build owns: rendered disabled and never sent on Apply.
+/** @type {Set<string>} */
+let protectedKeys = new Set();
 let isDirty = false;
 let currentMode = 'form';  // 'form' | 'raw'
 
@@ -386,6 +391,8 @@ async function loadConfig() {
     currentConfig = /** @type {ConfigPayload} */ (await fetchJSON('/api/config')); // fetchJSON prefixes internally
     if (loading) loading.style.display = 'none';
 
+    protectedKeys = new Set(currentConfig.protected ?? []);
+
     // Populate form view
     renderFormSections(currentConfig.sections);
 
@@ -449,9 +456,11 @@ function renderFormSections(sections) {
     const body = document.createElement('div');
     body.className = 'settings-section-body';
 
-    renderFields(body, sectionValue, sectionKey);
+    const sectionProtected = isSectionProtected(sectionValue, sectionKey, protectedKeys);
+    renderFields(body, sectionValue, sectionKey, 0, sectionProtected);
 
     section.appendChild(header);
+    if (sectionProtected) section.appendChild(protectedNote());
     section.appendChild(body);
     container.appendChild(section);
   }
@@ -462,8 +471,9 @@ function renderFormSections(sections) {
  * @param {Record<string, any>} obj
  * @param {string} prefix
  * @param {number} [depth]
+ * @param {boolean} [sectionProtected]  the section carries the note for every leaf
  */
-function renderFields(container, obj, prefix, depth = 0) {
+function renderFields(container, obj, prefix, depth = 0, sectionProtected = false) {
   for (const [key, value] of Object.entries(obj)) {
     const fullKey = `${prefix}.${key}`;
 
@@ -478,7 +488,7 @@ function renderFields(container, obj, prefix, depth = 0) {
       groupLabel.title = fullKey;
       group.appendChild(groupLabel);
 
-      renderFields(group, value, fullKey, depth + 1);
+      renderFields(group, value, fullKey, depth + 1, sectionProtected);
 
       container.appendChild(group);
       continue;
@@ -500,6 +510,7 @@ function renderFields(container, obj, prefix, depth = 0) {
 
     field.appendChild(label);
     field.appendChild(inputWrap);
+    if (protectedKeys.has(fullKey)) markProtected(field, input, !sectionProtected);
     container.appendChild(field);
   }
 }
@@ -595,6 +606,7 @@ function collectFormUpdates() {
 
   for (const input of inputs) {
     const key = /** @type {string} */ (input.dataset.key);
+    if (protectedKeys.has(key)) continue;
     let newValue;
 
     if (input.type === 'checkbox') {

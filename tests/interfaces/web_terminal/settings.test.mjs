@@ -294,3 +294,119 @@ describe('form mode: enum fields', () => {
     ).toBe('always');
   });
 });
+
+describe('form mode: protected keys', () => {
+  const NOTE = "Set in the profile's config: block — re-run osprey build to change.";
+
+  /**
+   * @param {Record<string, any>} sections
+   * @param {string[]} [protectedKeys]
+   */
+  function configResponse(sections, protectedKeys) {
+    const payload = protectedKeys === undefined
+      ? { sections, raw: '' }
+      : { sections, raw: '', protected: protectedKeys };
+    return { ok: true, status: 200, json: () => Promise.resolve(payload) };
+  }
+
+  /**
+   * @param {Record<string, any>} sections
+   * @param {string[]} [protectedKeys]
+   */
+  function stubConfig(sections, protectedKeys) {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(configResponse(sections, protectedKeys))));
+  }
+
+  /** @param {string} key */
+  async function openFormAt(key) {
+    /** @type {HTMLElement} */ (
+      document.getElementById('tab-config')
+    ).dispatchEvent(new Event('drawer:tab-activate'));
+    const selector = `[data-key="${key}"]`;
+    await vi.waitFor(() => expect(document.querySelector(selector)).not.toBeNull());
+  }
+
+  /** @param {string} key */
+  const control = (key) => /** @type {HTMLInputElement} */ (document.querySelector(`[data-key="${key}"]`));
+  /** @param {string} key */
+  const row = (key) => /** @type {HTMLElement} */ (control(key).closest('.settings-field'));
+  /** @param {string} key */
+  const section = (key) => /** @type {HTMLElement} */ (control(key).closest('.settings-section'));
+  /** @param {Element} el */
+  const notesIn = (el) => [...el.querySelectorAll('.settings-field-note')];
+  /** @param {Element} el */
+  const ownNotes = (el) => [...el.children].filter((c) => c.classList.contains('settings-field-note'));
+
+  test('a fully protected section carries one note and greys its controls', async () => {
+    stubConfig(
+      { approval: { enabled: true }, claude_code: { default_model: 'sonnet' } },
+      ['approval.enabled'],
+    );
+    await openFormAt('approval.enabled');
+
+    expect(control('approval.enabled').disabled).toBe(true);
+    expect(control('approval.enabled').checked).toBe(true);
+    expect(row('approval.enabled').classList.contains('settings-field-protected')).toBe(true);
+    expect(notesIn(section('approval.enabled'))).toHaveLength(1);
+    expect(ownNotes(section('approval.enabled')).map((n) => n.textContent)).toEqual([NOTE]);
+    expect(notesIn(row('approval.enabled'))).toHaveLength(0);
+
+    expect(control('claude_code.default_model').disabled).toBe(false);
+    expect(notesIn(section('claude_code.default_model'))).toHaveLength(0);
+  });
+
+  test('a protected leaf inside an editable section carries its own note', async () => {
+    stubConfig(
+      { claude_code: { default_model: 'sonnet', permissions: { deny: [] } } },
+      ['claude_code.permissions.deny'],
+    );
+    await openFormAt('claude_code.permissions.deny');
+
+    expect(ownNotes(section('claude_code.permissions.deny'))).toHaveLength(0);
+    expect(notesIn(row('claude_code.permissions.deny')).map((n) => n.textContent)).toEqual([NOTE]);
+    expect(control('claude_code.permissions.deny').disabled).toBe(true);
+    expect(row('claude_code.permissions.deny').classList.contains('settings-field-protected')).toBe(true);
+    expect(control('claude_code.default_model').disabled).toBe(false);
+    expect(notesIn(row('claude_code.default_model'))).toHaveLength(0);
+  });
+
+  test('Apply never sends a protected key', async () => {
+    const sections = { control_system: { type: null }, claude_code: { default_model: 'sonnet' } };
+    const fetchMock = vi.fn((/** @type {string} */ _url, /** @type {any} */ opts) => Promise.resolve(
+      !opts || !opts.method || opts.method === 'GET'
+        ? configResponse(sections, ['control_system.type'])
+        : notOkResponse(),
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    /** @type {HTMLElement} */ (
+      document.querySelector('.settings-mode-btn[data-mode="form"]')
+    ).click();
+    await openFormAt('claude_code.default_model');
+
+    const model = control('claude_code.default_model');
+    model.value = 'opus';
+    model.dispatchEvent(new Event('input'));
+    /** @type {HTMLElement} */ (document.querySelector('.settings-confirm-btn')).click();
+
+    await vi.waitFor(() => expect(
+      fetchMock.mock.calls.filter(([, opts]) => opts && opts.method === 'PATCH'),
+    ).toHaveLength(1));
+    const [, patch] = /** @type {[string, any]} */ (
+      fetchMock.mock.calls.find(([, opts]) => opts && opts.method === 'PATCH')
+    );
+    expect(Object.keys(JSON.parse(patch.body).updates)).toEqual(['claude_code.default_model']);
+  });
+
+  test('a payload without protected renders every control enabled', async () => {
+    stubConfig({ approval: { enabled: true }, claude_code: { default_model: 'sonnet' } });
+    await openFormAt('approval.enabled');
+
+    const controls = /** @type {NodeListOf<HTMLInputElement>} */ (
+      document.querySelectorAll('#settings-form [data-key]')
+    );
+    expect(controls.length).toBe(2);
+    for (const c of controls) expect(c.disabled).toBe(false);
+    expect(document.querySelectorAll('.settings-field-note')).toHaveLength(0);
+    expect(document.querySelectorAll('.settings-field-protected')).toHaveLength(0);
+  });
+});
