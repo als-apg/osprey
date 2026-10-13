@@ -6991,6 +6991,16 @@ def test_va_live_step_caps_leave_the_job_room__mutation_lowers_the_job_to_the_tw
 # has no post hook, so each lane calls a second action and says which of its
 # own builds that call has to cover.
 
+
+def _module_constant(path: Path, name: str) -> str:
+    for node in ast.parse(path.read_text()).body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == name for target in node.targets
+        ):
+            return str(ast.literal_eval(node.value))
+    raise AssertionError(f"{path} has no module-level `{name}` assignment")
+
+
 VA_IMAGE_ACTION = "./.github/actions/build-virtual-accelerator-image"
 VA_IMAGE_ACTION_YML = (
     REPO_ROOT / ".github" / "actions" / "build-virtual-accelerator-image" / "action.yml"
@@ -7002,7 +7012,6 @@ VA_REMOVE_ACTION_YML = (
 #: Matched as a prefix, so a version bump of the setup action does not have
 #: to be made here as well.
 BUILDX_ACTION = "docker/setup-buildx-action@"
-VA_IMAGE_TAG = "osprey-va-full:latest"
 VA_CACHE_DIR = "/tmp/va-buildx-cache"
 VA_CACHE_EXPORT_DIR = "/tmp/va-buildx-cache-new"
 VA_CACHE_KEY_PREFIX = "va-full-buildx-"
@@ -7011,10 +7020,12 @@ VA_CACHE_KEY_PREFIX = "va-full-buildx-"
 #: invalidate the layers as surely as the framework's does, including a member
 #: added after this key was written.
 VA_CACHE_MEMBER_GLOB = "'packages/*/pyproject.toml'"
-#: The fixture constant the built tag has to agree with, read from source
-#: rather than restated, for the reason the xdist pairing is read from source.
+#: The fixture constant the built tag has to agree with, and the tag itself,
+#: read from source rather than restated, for the reason the xdist pairing is
+#: read from source.
 VA_E2E_IMAGE_OWNER = REPO_ROOT / "tests" / "va" / "e2e" / "_image.py"
 VA_E2E_IMAGE_CONSTANT = "DEFAULT_IMAGE"
+VA_IMAGE_TAG = _module_constant(VA_E2E_IMAGE_OWNER, VA_E2E_IMAGE_CONSTANT)
 
 
 def _load_action_yml(path: Path) -> dict[str, Any]:
@@ -7066,15 +7077,6 @@ def _sole_step_whose_script(steps: list[dict[str, Any]], needle: str, what: str)
     found = [i for i, step in enumerate(steps) if needle in str(step.get("run", ""))]
     assert len(found) == 1, f"expected exactly one step that {what}; found {len(found)}"
     return found[0]
-
-
-def _module_constant(path: Path, name: str) -> str:
-    for node in ast.parse(path.read_text()).body:
-        if isinstance(node, ast.Assign) and any(
-            isinstance(target, ast.Name) and target.id == name for target in node.targets
-        ):
-            return str(ast.literal_eval(node.value))
-    raise AssertionError(f"{path} has no module-level `{name}` assignment")
 
 
 def _steps_using(wf: dict[str, Any], job_name: str, action: str) -> list[int]:
@@ -7384,6 +7386,39 @@ def test_the_action_builds_the_tag_the_live_fixtures_boot__mutation_builds_a_tag
     steps[build]["run"] = steps[build]["run"].replace(VA_IMAGE_TAG, "osprey-va-full:experiment")
     with pytest.raises(AssertionError):
         test_the_action_builds_the_tag_the_live_fixtures_boot(mutated)
+
+
+@pytest.fixture()
+def wiring_module_source() -> str:
+    return Path(__file__).read_text(encoding="utf-8")
+
+
+def test_this_module_reads_the_image_from_its_owner(wiring_module_source: str) -> None:
+    """The tag is read from ``tests/va/e2e/_image.py``, never restated here.
+
+    A string constant here equal to the owner's value is a second copy that a
+    rename on the owner's side leaves behind, and every pin in this block would
+    then check the workflow against the stale copy. Constants only, so a
+    comment naming the tag and the deliberately different replacement tags of
+    the mutation twins do not count.
+    """
+    image = _module_constant(VA_E2E_IMAGE_OWNER, VA_E2E_IMAGE_CONSTANT)
+    spelled = sorted(
+        node.lineno
+        for node in ast.walk(ast.parse(wiring_module_source))
+        if isinstance(node, ast.Constant) and node.value == image
+    )
+    assert spelled == [], (
+        f"lines {spelled} spell {image!r}; read it with "
+        f"`_module_constant(VA_E2E_IMAGE_OWNER, VA_E2E_IMAGE_CONSTANT)`."
+    )
+
+
+def test_this_module_reads_the_image_from_its_owner__mutation_restates_the_tag() -> None:
+    image = _module_constant(VA_E2E_IMAGE_OWNER, VA_E2E_IMAGE_CONSTANT)
+    planted = f"VA_IMAGE_TAG = {image!r}\n"
+    with pytest.raises(AssertionError):
+        test_this_module_reads_the_image_from_its_owner(planted)
 
 
 def test_every_virtual_accelerator_lane_removes_the_image_it_built(
