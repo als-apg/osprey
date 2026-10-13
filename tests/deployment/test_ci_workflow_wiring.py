@@ -143,8 +143,6 @@ NO_MODEL_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 #: The files the model-free lane names, in the order its run step names them.
 NO_MODEL_TEST_FILES = (
     "tests/e2e/test_openobserve_telemetry.py",
-    "tests/e2e/test_sdk_helpers.py",
-    "tests/e2e/test_mcp_readiness.py",
     "tests/e2e/test_dispatch_deploy_render.py",
     "tests/e2e/web_terminals/test_scaffold_render_roundtrip.py",
     "tests/e2e/web_terminals/test_skills_overlay_discovery.py",
@@ -192,20 +190,35 @@ PTY_MARKER = "pty"
 #: The directory the serial step selects, and therefore the only place a
 #: ``pty``-marked test can live and still be run by anything.
 PTY_TESTS_DIR = "tests/pty/"
-#: Exact spellings, matched as literal substrings on the two invocations that
-#: form the pair: the parallel lane hands the marker away, the serial step
-#: picks it up. Single spaces and the quoting are part of the pin.
-PTY_DESELECT = '-m "not pty"'
+#: The serial step's selection, matched as a literal substring: single spaces
+#: and the quoting are part of the pin. The parallel lane's deselection is one
+#: expression carrying both serial markers (``SERIAL_DESELECT`` below), and each
+#: marker's own pin looks for its term inside it.
 PTY_SELECT = "-m pty"
 _PTY_MARK_RE = re.compile(r"pytest\.mark\.pty\b")
 #: The local check scripts that run the same wholesale `pytest tests/` sweep the
 #: CI lane does, and therefore inherit the same problem. Matched on the term
 #: rather than on the CI lane's exact spelling because quick_check.sh combines
-#: it with another one (`-m "not slow and not pty"`).
+#: it with another one (`-m "not slow and not pty and not wall_clock"`).
 LANE_SCRIPTS = ("scripts/quick_check.sh", "scripts/premerge_check.sh", "scripts/ci_check.sh")
 #: The one that claims to mirror the lane, and so must also run what it drops.
 CI_CHECK_SCRIPT = "scripts/ci_check.sh"
 PTY_DESELECT_TERM = "not pty"
+
+#: The second serial marker. Where `pty` measures a terminal's repaint cadence,
+#: `wall_clock` measures a time budget — and both measure the box as much as the
+#: code, so both leave the parallel lane the same way: deselected there, selected
+#: by a serial step after it. The step selects the marker over the whole tree
+#: (minus tests/e2e, which has lanes of its own) because a budget test lives
+#: beside the code it measures, not in one directory.
+WALL_CLOCK_STEP = "Run wall-clock budget suites serially"
+WALL_CLOCK_MARKER = "wall_clock"
+#: The lane's deselection carries both markers in one expression; the serial
+#: step selects its own.
+SERIAL_DESELECT = '-m "not pty and not wall_clock"'
+WALL_CLOCK_SELECT = "-m wall_clock"
+WALL_CLOCK_DESELECT_TERM = "not wall_clock"
+_WALL_CLOCK_MARK_RE = re.compile(r"pytest\.mark\.wall_clock\b")
 
 
 @functools.cache
@@ -1016,16 +1029,15 @@ def test_every_boot_smoke_test_runs_in_one_cell__mutation_hides_the_case_in_a_cl
 #:    through scripts/va/live_ca/gate.py, in a step of the unit job itself that
 #:    is gated on a single matrix cell. libca is process-global and not
 #:    thread-safe, so a shared xdist worker is precisely what they cannot have,
-#:    and the gate — not a path in a run step — is what proves they ran;
-#:  * the search-index scale guard holds latency budgets taken on a workstation
-#:    that four workers sharing a runner miss by design, so it runs alone in the
-#:    on-demand benchmark job. The `channel_finder_benchmark` marker text in
-#:    pyproject.toml states the same rule from the other side.
+#:    and the gate — not a path in a run step — is what proves they ran.
+#:
+#: A test that must not share a worker for the opposite reason — it holds a
+#: wall-clock budget — is not dropped by name at all: it carries the `wall_clock`
+#: marker and the lane hands it to its serial step, pinned below with `pty`.
 UNIT_LANE_IGNORE_EXEMPTIONS = frozenset(
     {
         "tests/va/test_record_factory.py",
         "tests/va/test_apply_fault.py",
-        "tests/services/channel_finder/graph_index/test_scale.py",
     }
 )
 
@@ -1393,9 +1405,10 @@ def test_unit_lane_hands_the_pty_suite_away(workflow: dict[str, Any]) -> None:
     """The parallel lane must deselect the marker. It collects ``tests/``
     wholesale, so without this the pty scenarios are simply part of it."""
     line = _unit_test_pytest_line(workflow)
-    assert PTY_DESELECT in line, (
-        f"the '{UNIT_TEST_JOB}' job must run pytest with {PTY_DESELECT} so the "
-        f"real-terminal scenarios are left to the '{PTY_STEP}' step; got: {line.strip()!r}"
+    assert PTY_DESELECT_TERM in line, (
+        f"the '{UNIT_TEST_JOB}' job must run pytest with an -m expression carrying "
+        f"{PTY_DESELECT_TERM!r} so the real-terminal scenarios are left to the "
+        f"'{PTY_STEP}' step; got: {line.strip()!r}"
     )
 
 
@@ -1403,7 +1416,7 @@ def test_unit_lane_hands_the_pty_suite_away__mutation_drops_the_deselection() ->
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
     original = step["run"]
-    step["run"] = original.replace(f" {PTY_DESELECT}", "")
+    step["run"] = original.replace(SERIAL_DESELECT, '-m "not wall_clock"')
     assert step["run"] != original, "deselection not found; mutation is stale"
     with pytest.raises(AssertionError):
         test_unit_lane_hands_the_pty_suite_away(mutated)
@@ -1416,7 +1429,9 @@ def test_unit_lane_hands_the_pty_suite_away__mutation_parks_it_in_a_comment() ->
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
     original = step["run"]
-    step["run"] = original.replace(f" {PTY_DESELECT}", f"  # TODO restore {PTY_DESELECT}")
+    step["run"] = original.replace(
+        SERIAL_DESELECT, f'-m "not wall_clock"  # TODO restore {PTY_DESELECT_TERM}'
+    )
     assert step["run"] != original, "deselection not found; mutation is stale"
     with pytest.raises(AssertionError):
         test_unit_lane_hands_the_pty_suite_away(mutated)
@@ -1692,9 +1707,21 @@ def _script_source(name: str) -> str:
     return (CI_YML.parents[2] / name).read_text(encoding="utf-8")
 
 
+#: An xdist worker count, numeric or ``auto``: what marks a script's parallel
+#: sweep apart from the serial follow-ups that select one marker over the same
+#: tree.
+_XDIST_ANY_WORKERS_RE = re.compile(r"(?<!\S)-n\s+(\d+|auto)\b")
+
+
 def _lane_invocations(source: str) -> list[str]:
-    """The script's wholesale ``pytest tests/`` sweeps, ignoring narrower runs."""
-    return [line for line in _script_pytest_lines(source) if "--ignore=tests/e2e" in line]
+    """The script's wholesale parallel ``pytest tests/`` sweeps: the lines that
+    drop ``tests/e2e`` and run under xdist workers. A serial follow-up selects
+    one marker over the same tree with no workers and is not a sweep."""
+    return [
+        line
+        for line in _script_pytest_lines(source)
+        if "--ignore=tests/e2e" in line and _XDIST_ANY_WORKERS_RE.search(line)
+    ]
 
 
 def _sweeps_missing_the_deselection(source: str) -> list[str]:
@@ -1704,11 +1731,9 @@ def _sweeps_missing_the_deselection(source: str) -> list[str]:
 
 
 def _drop_the_deselection(source: str) -> str:
-    """*source* with the deselection removed, in either spelling it appears in
-    (quick_check.sh combines it with ``not slow``)."""
-    return source.replace(f' -m "not slow and {PTY_DESELECT_TERM}"', ' -m "not slow"').replace(
-        f" {PTY_DESELECT}", ""
-    )
+    """*source* with the pty term removed from every combined expression, which
+    leaves a well-formed expression behind in each script's spelling."""
+    return source.replace(f"{PTY_DESELECT_TERM} and ", "")
 
 
 @pytest.mark.parametrize("script", LANE_SCRIPTS)
@@ -1776,6 +1801,209 @@ def test_ci_check_also_runs_what_it_deselects__mutation_parallelizes_it() -> Non
     mutated = source.replace(f"{PTY_SELECT} -v", f"{PTY_SELECT} -n 4 -v")
     assert mutated != source, "serial pty invocation not found; mutation is stale"
     assert _missing_ci_check_serial_run(mutated) != []
+
+
+# ---------------------------------------------------------------------------
+# (d2) the wall_clock marker: the second serial handover
+# ---------------------------------------------------------------------------
+# Same two halves as the pty pins above, for the same reason. A test that holds
+# a time budget measures the box as much as the code, so the parallel lane must
+# hand it away and a serial step must pick it back up. The step selects the
+# marker over the whole tree (minus tests/e2e) rather than a directory, so the
+# placement pin is the opposite of pty's: nothing may carry the marker where
+# the step does not look, which here means only under tests/e2e.
+
+
+def _wall_clock_step(wf: dict[str, Any]) -> dict[str, Any]:
+    return _find_named_step(wf, UNIT_TEST_JOB, WALL_CLOCK_STEP)
+
+
+def test_unit_lane_hands_the_wall_clock_tests_away(workflow: dict[str, Any]) -> None:
+    """One deselection expression carries both serial markers; losing either
+    term puts that suite back beside three loaded workers."""
+    line = _unit_test_pytest_line(workflow)
+    assert SERIAL_DESELECT in line, (
+        f"the '{UNIT_TEST_JOB}' job must run pytest with {SERIAL_DESELECT} so the "
+        f"wall-clock budget tests are left to the '{WALL_CLOCK_STEP}' step; got: {line.strip()!r}"
+    )
+
+
+def test_unit_lane_hands_the_wall_clock_tests_away__mutation_drops_the_term() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    original = step["run"]
+    step["run"] = original.replace(SERIAL_DESELECT, '-m "not pty"')
+    assert step["run"] != original, "deselection not found; mutation is stale"
+    with pytest.raises(AssertionError):
+        test_unit_lane_hands_the_wall_clock_tests_away(mutated)
+
+
+def test_wall_clock_tests_run_in_their_own_serial_step(workflow: dict[str, Any]) -> None:
+    """The step selects the marker over the tree, serially, and never collects
+    tests/e2e, whose files have lanes of their own and a conftest that refuses
+    to run under the unit lane's conditions."""
+    run = _wall_clock_step(workflow)["run"]
+    assert "uv run pytest " in run, f"'{WALL_CLOCK_STEP}' must invoke pytest; got: {run!r}"
+    assert WALL_CLOCK_SELECT in run, (
+        f"'{WALL_CLOCK_STEP}' must select the marker with {WALL_CLOCK_SELECT!r}; got: {run!r}"
+    )
+    assert "--ignore=tests/e2e" in run, (
+        f"'{WALL_CLOCK_STEP}' must ignore tests/e2e as the parallel step does; got: {run!r}"
+    )
+    assert not _XDIST_WORKERS_RE.search(run), (
+        f"'{WALL_CLOCK_STEP}' runs pytest with xdist workers; a budget cannot be held "
+        f"beside another worker"
+    )
+    assert "--dist" not in run, f"'{WALL_CLOCK_STEP}' sets an xdist dist mode; it must stay serial"
+
+
+def test_wall_clock_tests_run_in_their_own_serial_step__mutation_drops_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[UNIT_TEST_JOB]["steps"].remove(_wall_clock_step(mutated))
+    with pytest.raises(AssertionError):
+        test_wall_clock_tests_run_in_their_own_serial_step(mutated)
+
+
+def test_wall_clock_tests_run_in_their_own_serial_step__mutation_adds_xdist_workers() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _wall_clock_step(mutated)
+    step["run"] = step["run"].replace("--tb=short", "--tb=short -n 2")
+    with pytest.raises(AssertionError, match="xdist workers"):
+        test_wall_clock_tests_run_in_their_own_serial_step(mutated)
+
+
+def test_wall_clock_step_runs_on_the_quieter_cells(workflow: dict[str, Any]) -> None:
+    """Pinned to the Linux cells like the pty step: the macOS runners are the
+    slower, more contended ones, and a budget is held on a chosen venue, not
+    wherever the matrix happens to land it."""
+    condition = _wall_clock_step(workflow).get("if", "")
+    assert "matrix.os" in condition and "ubuntu-latest" in condition, (
+        f"'{WALL_CLOCK_STEP}' must be gated on the Linux matrix cells; got if: {condition!r}"
+    )
+
+
+def test_wall_clock_step_runs_on_the_quieter_cells__mutation_drops_the_gate() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _wall_clock_step(mutated)["if"]
+    with pytest.raises(AssertionError):
+        test_wall_clock_step_runs_on_the_quieter_cells(mutated)
+
+
+def test_wall_clock_marker_is_registered(pyproject: dict[str, Any]) -> None:
+    assert WALL_CLOCK_MARKER in _registered_markers(pyproject), (
+        f"register the '{WALL_CLOCK_MARKER}' marker in [tool.pytest.ini_options].markers; "
+        f"ci.yml selects and deselects it by name"
+    )
+
+
+def test_wall_clock_marker_is_registered__mutation_drops_it() -> None:
+    mutated = _load_pyproject()
+    ini = mutated["tool"]["pytest"]["ini_options"]
+    original = ini["markers"]
+    ini["markers"] = [e for e in original if e.split(":", 1)[0].strip() != WALL_CLOCK_MARKER]
+    assert ini["markers"] != original, "marker not registered; mutation is stale"
+    with pytest.raises(AssertionError):
+        test_wall_clock_marker_is_registered(mutated)
+
+
+def _wall_clock_marked_files_where_the_step_never_looks(sources: dict[str, str]) -> list[str]:
+    """Marked files under the one tree the serial step ignores (empty = none)."""
+    return sorted(
+        name
+        for name, source in sources.items()
+        if _WALL_CLOCK_MARK_RE.search(source) and name.startswith("tests/e2e/")
+    )
+
+
+def test_some_file_carries_the_wall_clock_marker_and_none_hides_under_e2e() -> None:
+    """A marker selection that matches nothing greens the step over nothing, so
+    the suite must have at least one member; and a member under tests/e2e would
+    be ignored by the step and deselected by the lane — run by nobody."""
+    sources = _test_module_sources()
+    marked = [name for name, source in sources.items() if _WALL_CLOCK_MARK_RE.search(source)]
+    assert marked, (
+        f"no test file carries {WALL_CLOCK_MARKER!r} any more. Either the last budget "
+        f"test was removed (drop the lane wiring with it) or the marker scan broke"
+    )
+    hidden = _wall_clock_marked_files_where_the_step_never_looks(sources)
+    assert hidden == [], (
+        f"{WALL_CLOCK_MARKER}-marked file(s) under tests/e2e: {hidden}. The serial step "
+        f"ignores that tree and the parallel lane deselects the marker, so these run "
+        f"nowhere. An e2e budget belongs in its own lane, not under this marker."
+    )
+
+
+def test_some_file_carries_the_wall_clock_marker_and_none_hides_under_e2e__mutation_hides_one() -> (
+    None
+):
+    sources = _test_module_sources()
+    phantom = "tests/e2e/test_future_budget.py"
+    sources[phantom] = "pytestmark = [pytest.mark.wall_clock]\n"
+    assert _wall_clock_marked_files_where_the_step_never_looks(sources) == [phantom]
+
+
+def _sweeps_missing_the_wall_clock_deselection(source: str) -> list[str]:
+    return [
+        line.strip() for line in _lane_invocations(source) if WALL_CLOCK_DESELECT_TERM not in line
+    ]
+
+
+@pytest.mark.parametrize("script", LANE_SCRIPTS)
+def test_local_check_scripts_deselect_the_wall_clock_marker(script: str) -> None:
+    """A budget is no easier to hold on a laptop running four workers than on a
+    runner, so every wholesale local sweep hands the marker away as the lane
+    does."""
+    source = _script_source(script)
+    assert _lane_invocations(source), (
+        f"{script} no longer runs a wholesale `pytest tests/` sweep; this pin is stale"
+    )
+    assert _sweeps_missing_the_wall_clock_deselection(source) == [], (
+        f"{script} sweeps tests/ without deselecting the {WALL_CLOCK_MARKER!r} marker: "
+        f"{_sweeps_missing_the_wall_clock_deselection(source)}"
+    )
+
+
+@pytest.mark.parametrize("script", LANE_SCRIPTS)
+def test_local_check_scripts_deselect_the_wall_clock_marker__mutation_drops_it(script: str) -> None:
+    source = _script_source(script)
+    mutated = source.replace(f" and {WALL_CLOCK_DESELECT_TERM}", "")
+    assert mutated != source, f"no deselection in {script}; mutation is stale"
+    assert _sweeps_missing_the_wall_clock_deselection(mutated) != []
+
+
+def _missing_ci_check_wall_clock_run(source: str) -> list[str]:
+    serial = [line for line in _script_pytest_lines(source) if WALL_CLOCK_SELECT in line]
+    if not serial:
+        return ["a serial wall_clock invocation"]
+    return [
+        f"xdist flags on {line.strip()!r}"
+        for line in serial
+        if _XDIST_WORKERS_RE.search(line) or "--dist" in line
+    ]
+
+
+def test_ci_check_also_runs_the_wall_clock_tests_it_deselects() -> None:
+    """The local CI mirror owes the same serial follow-up for this marker as
+    for pty; without it a green run here covers less than the lane does."""
+    assert _missing_ci_check_wall_clock_run(_script_source(CI_CHECK_SCRIPT)) == [], (
+        f"{CI_CHECK_SCRIPT} deselects the {WALL_CLOCK_MARKER!r} marker in its sweep but "
+        f"does not run it serially afterwards: add `uv run pytest tests/ --ignore=tests/e2e "
+        f"{WALL_CLOCK_SELECT}`"
+    )
+
+
+def test_ci_check_also_runs_the_wall_clock_tests_it_deselects__mutation_drops_the_run() -> None:
+    source = _script_source(CI_CHECK_SCRIPT)
+    mutated = "\n".join(line for line in source.splitlines() if WALL_CLOCK_SELECT not in line)
+    assert mutated != source, f"no serial wall_clock invocation in {CI_CHECK_SCRIPT}; stale"
+    assert _missing_ci_check_wall_clock_run(mutated) == ["a serial wall_clock invocation"]
+
+
+def test_ci_check_also_runs_the_wall_clock_tests_it_deselects__mutation_parallelizes_it() -> None:
+    source = _script_source(CI_CHECK_SCRIPT)
+    mutated = source.replace(f"{WALL_CLOCK_SELECT} -v", f"{WALL_CLOCK_SELECT} -n 4 -v")
+    assert mutated != source, "serial wall_clock invocation not found; mutation is stale"
+    assert _missing_ci_check_wall_clock_run(mutated) != []
 
 
 # ---------------------------------------------------------------------------
@@ -2978,7 +3206,7 @@ def test_model_free_lane_names_every_file_it_owns__mutation_drops_a_file_from_th
     assert len(kept) == len(lines) - 1, "expected exactly one line dropped"
     step["run"] = "".join(kept)
     # the neighbour survives, so the mutation is one file wide
-    assert "tests/e2e/test_sdk_helpers.py" in _model_free_selected_paths(mutated)
+    assert "tests/e2e/test_dispatch_deploy_render.py" in _model_free_selected_paths(mutated)
     with pytest.raises(AssertionError, match="does not name"):
         test_model_free_lane_names_every_file_it_owns(mutated)
 

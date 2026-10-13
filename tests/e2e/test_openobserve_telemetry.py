@@ -35,7 +35,7 @@ not inherit their state.
 
 Gating: needs Docker; skipped entirely if unavailable. Lives in ``tests/e2e/``
 so the fast lane never collects this real-container build+deploy; run via
-``pytest tests/e2e/`` (NOT ``-m e2e``).
+``pytest tests/e2e/``.
 """
 
 from __future__ import annotations
@@ -124,7 +124,6 @@ INGEST_QUERY_TIMEOUT_SEC = 60.0
 # ``Failed`` (not AssertionError) and fail fast rather than burning a retry on a
 # multi-minute redeploy. reruns=2 per the multi-step-pipeline e2e convention.
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
     pytest.mark.flaky(reruns=2, only_rerun=["AssertionError"]),

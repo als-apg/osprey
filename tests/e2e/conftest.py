@@ -1,7 +1,7 @@
 """Pytest fixtures for end-to-end workflow tests.
 
-⚠️ IMPORTANT: Run these tests with 'pytest tests/e2e/' NOT 'pytest -m e2e'
-See tests/e2e/README.md for details.
+Run these tests by path, ``pytest tests/e2e/``: the directory is the selector,
+and there is no marker for the suite as a whole. See tests/e2e/README.md.
 """
 
 import json
@@ -204,9 +204,8 @@ def pytest_sessionfinish(session):
 
 
 def pytest_configure(config):
-    """Register E2E markers, and warn if tests are being run incorrectly."""
+    """Register the e2e suite's own markers."""
     # Register custom markers
-    config.addinivalue_line("markers", "e2e: End-to-end workflow tests (requires API keys, slow)")
     config.addinivalue_line("markers", "e2e_smoke: Quick smoke tests for critical workflows")
     config.addinivalue_line("markers", "e2e_tutorial: Tutorial workflow validation tests")
     config.addinivalue_line(
@@ -227,29 +226,6 @@ def pytest_configure(config):
         "harness_benchmark: Harness-integrity lane of the benchmark matrix — an agent runs "
         "but the assertion is model-independent OSPREY behavior",
     )
-
-    # Warn if invoked with `-m e2e` from outside tests/e2e/ (causes registry leaks)
-    if config.option.markexpr and "e2e" in config.option.markexpr:
-        invocation_dir = config.invocation_params.dir
-        if not str(invocation_dir).endswith("tests/e2e"):
-            import warnings
-
-            warnings.warn(
-                "\n" + "=" * 80 + "\n"
-                "⚠️  WARNING: You are running e2e tests with '-m e2e' marker!\n"
-                "\n"
-                "This can cause test collection order issues and registry failures.\n"
-                "\n"
-                "✅ CORRECT way to run e2e tests:\n"
-                "   pytest tests/e2e/ -v\n"
-                "\n"
-                "❌ AVOID using:\n"
-                "   pytest -m e2e\n"
-                "\n"
-                "See tests/e2e/README.md for details.\n" + "=" * 80,
-                UserWarning,
-                stacklevel=2,
-            )
 
 
 @pytest.fixture(autouse=True, scope="session")

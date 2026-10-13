@@ -72,7 +72,6 @@ from tests.e2e.test_preset_agentic import (
 # and a runner without it must fail this test loudly, not skip it the way a
 # ``claude --version`` gate (is_claude_code_available()) would.
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.agentic_benchmark,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),

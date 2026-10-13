@@ -93,14 +93,10 @@ echo "→ Running pytest with coverage..."
 # -n auto sizes the worker pool to this machine; CI pins -n 4 to keep its matrix cells
 # comparable. Override with PYTEST_XDIST_AUTO_NUM_WORKERS=<n>.
 #
-# tests/services/channel_finder/graph_index/test_scale.py is ignored for the same
-# reason ci.yml's lane ignores it: it is a wall-clock latency guard whose budgets
-# are held to an unloaded workstation, and its own module docstring says it does
-# not run in the parallel lane. Under -n it measures worker contention rather
-# than the index, so leaving it in made this script red on every branch. It runs
-# on demand — `uv run pytest tests/services/channel_finder/graph_index/test_scale.py`
-# — and in the benchmark job.
-if ! uv run python scripts/run_bounded.py 3600 -- uv run pytest tests/ --ignore=tests/e2e --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty" -n auto --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
+# "not wall_clock" beside "not pty": a test that holds a time budget measures
+# worker contention under -n, not the code. Both markers are run serially below,
+# exactly as the CI lane does it.
+if ! uv run python scripts/run_bounded.py 3600 -- uv run pytest tests/ --ignore=tests/e2e -m "not pty and not wall_clock" -n auto --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
     FAILED_CHECKS+=("pytest")
     echo "❌ Tests failed"
 else
@@ -119,6 +115,19 @@ if ! uv run python scripts/run_bounded.py 600 -- uv run pytest tests/pty -m pty 
     echo "❌ Real-terminal tests failed"
 else
     echo "✅ Real-terminal tests passed"
+fi
+echo ""
+
+# The wall-clock budget tests, deselected above and re-run here alone, as the
+# CI lane does it. Each holds a time budget — a build that must finish inside
+# its bound, a search whose p95 must stay under a second — and a budget measures
+# the machine as much as the code, so nothing else may be running beside it.
+echo "→ Running the wall-clock budget suites (serial)..."
+if ! uv run python scripts/run_bounded.py 900 -- uv run pytest tests/ --ignore=tests/e2e -m wall_clock -v --tb=short; then
+    FAILED_CHECKS+=("pytest-wall-clock")
+    echo "❌ Wall-clock budget tests failed"
+else
+    echo "✅ Wall-clock budget tests passed"
 fi
 echo ""
 

@@ -146,7 +146,6 @@ from tests.fixtures.bench_ioc import (
 #: one that runs a real container stack, which is how the shared e2e CI lane
 #: knows to leave it alone.
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.requires_als_apg,
     pytest.mark.dockerbuild,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),

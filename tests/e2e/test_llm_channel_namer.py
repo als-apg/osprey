@@ -83,7 +83,6 @@ _AVAILABLE_PROVIDERS = get_available_providers()
 # Skip-gate via marker: auto-enforced by the root `tests/conftest.py` hook.
 # `_AVAILABLE_PROVIDERS` is still used by the test bodies to pick a provider.
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.requires_api,
 ]
 
@@ -214,7 +213,6 @@ def setup_llm_test_environment(test_config):
 # =============================================================================
 
 
-@pytest.mark.e2e
 class TestLLMChannelNamerImport:
     """Test that the config loading fix from issue #103 works."""
 
@@ -238,7 +236,6 @@ class TestLLMChannelNamerImport:
         assert "project_root" in raw_config
 
 
-@pytest.mark.e2e
 class TestLLMChannelNamer:
     """Test the LLM channel namer with real API calls."""
 
@@ -362,7 +359,6 @@ Return exactly 2 PascalCase names that are self-documenting."""
             print(f"  {i + 1}. {minimal_channel_data[i]['short_name']} → {name}")
 
 
-@pytest.mark.e2e
 class TestLLMChannelNamerValidation:
     """Test name validation logic (no API calls needed)."""
 

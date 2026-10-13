@@ -151,7 +151,6 @@ _BLUESKY_BRIDGE_ONLY_MODULES = (
 # ``Failed``, not ``AssertionError``, so they now fail fast instead of burning a
 # retry on a multi-minute rebuild that would deterministically fail again.
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
     pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"]),

@@ -141,7 +141,7 @@ Documentation Structure
       :class-header: sd-bg-info sd-text-white
 
       Core concepts: agentic orchestration, MCP servers, connectors,
-      human-in-the-loop safety, and the runtime API.
+      human-in-the-loop safety, the runtime API, and how it is all tested.
 
    .. grid-item-card:: Reference
       :link: reference/index

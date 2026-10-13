@@ -48,8 +48,6 @@ from .teams_fakes import (
     personal_activity,
 )
 
-pytestmark = [pytest.mark.e2e]
-
 TIMEOUT = 10.0
 CONVERSATION = f"{CHANNEL_ID};messageid=1700000000001"
 """A channel reply's conversation id: every character a path segment can carry."""

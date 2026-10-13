@@ -27,8 +27,6 @@ from .gchat_pubsub_emulator import (
     decode_pubsub_message,
 )
 
-pytestmark = [pytest.mark.e2e]
-
 SPACE = "spaces/AAAAsmoke"
 TIMEOUT = 10.0
 

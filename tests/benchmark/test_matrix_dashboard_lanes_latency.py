@@ -1,4 +1,4 @@
-"""Tier labels, latency columns and model rows of the benchmark dashboard
+"""Lane labels, latency columns and model rows of the benchmark dashboard
 (scripts/benchmark/matrix_dashboard.py)."""
 
 from __future__ import annotations
@@ -14,10 +14,10 @@ _BENCH = Path(__file__).resolve().parents[2] / "scripts" / "benchmark"
 
 def _load_dashboard():
     spec = importlib.util.spec_from_file_location(
-        "benchmark_dashboard_tiers", _BENCH / "matrix_dashboard.py"
+        "benchmark_dashboard_lanes", _BENCH / "matrix_dashboard.py"
     )
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["benchmark_dashboard_tiers"] = mod
+    sys.modules["benchmark_dashboard_lanes"] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -75,7 +75,7 @@ def test_latency_stats_from_tests_and_query_log(tmp_path):
 
     stats = dash.latency_stats("m", runs, queries, lanes)
 
-    # median over the model's tier-1 tests only (100 s and 300 s), harness excluded
+    # median over the model's capability-lane tests only (100 s and 300 s), harness excluded
     assert stats["median_task_s"] == 200.0
     # 300 s of 400 s spent waiting on the model
     assert stats["model_share"] == 0.75
@@ -102,7 +102,7 @@ def test_query_log_is_not_read_as_a_run_summary(tmp_path):
     assert set(dash.load(str(results))) == {("m", 1)}
 
 
-def test_rendered_page_names_the_tiers_and_shows_only_models_with_data(tmp_path):
+def test_rendered_page_names_the_lanes_and_shows_only_models_with_data(tmp_path):
     results = tmp_path / "results"
     _write_results(results)
     out = tmp_path / "dash.html"
@@ -119,7 +119,8 @@ def test_rendered_page_names_the_tiers_and_shows_only_models_with_data(tmp_path)
         capture_output=True,
     )
     page = out.read_text()
-    assert "Tier 1" in page and "Tier 0" in page
+    assert "Capability lane" in page and "Harness lane" in page
+    assert "Tier" not in page
     assert "median task" in page
     # models from earlier runs with no results here get no empty row
     assert "gpt-oss-20b" not in page

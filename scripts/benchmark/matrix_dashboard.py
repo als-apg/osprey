@@ -6,7 +6,7 @@ run_e2e_for_model.sh) and produces a single static HTML file (inline CSS, no
 external deps) with:
 
   * run metadata + methodology footer (override mechanism, proxy, cap, drops),
-  * a model x seed summary matrix (Tier 1 pass rate, Tier 0 line, counts, wall-clock)
+  * a model x seed summary matrix (capability-lane pass rate, harness-lane line, counts, wall-clock)
     with latency columns (median task time, share spent waiting on the model, tok/s),
   * a per-test heatmap (one row per model-driving test x model cols; cell = passes across seeds),
     grouped by test file, so you can see exactly which capabilities each model
@@ -285,7 +285,7 @@ def latency_stats(
 ) -> dict:
     """Latency figures for one model across its seeds.
 
-    ``median_task_s`` is the median wall time of the model's Tier 1 tests (all
+    ``median_task_s`` is the median wall time of the model's capability-lane tests (all
     tests when there is no lane manifest), skips excluded. ``model_share`` and
     ``tokens_per_s`` come from the per-query log: the share of query time spent
     waiting on the model, and output tokens per second of model time. Each is
@@ -695,13 +695,13 @@ def main() -> int:
     H.append("<h2>Outcome breakdown by model × seed</h2>")
     if lane_map:
         H.append(
-            "<p class=sub>The headline pass% per cell is <b>Tier 1 · capability</b> — the "
+            "<p class=sub>The headline pass% per cell is the <b>capability lane</b> — the "
             "tests where the model itself can fail (passed / passed+failed+timeout+error; a "
-            "<b>timeout counts as a failure</b>, only skips are excluded). The <b>Tier 0</b> line "
+            "<b>timeout counts as a failure</b>, only skips are excluded). The <b>harness lane</b> line "
             "below it scores the harness tests (model-independent OSPREY safety and plumbing) "
-            "separately, so they can never inflate a model's Tier 1 score. Bar and counts show the "
-            "full outcome mix across both tiers. Latency: <i>median task</i> is the median wall "
-            "time of a Tier 1 test, <i>in model</i> the share of agent time spent waiting on the "
+            "separately, so they can never inflate a model's capability score. Bar and counts show the "
+            "full outcome mix across both lanes. Latency: <i>median task</i> is the median wall "
+            "time of a capability-lane test, <i>in model</i> the share of agent time spent waiting on the "
             "model, <i>tok/s</i> output tokens per second of model time.</p>"
         )
     else:
@@ -714,7 +714,7 @@ def main() -> int:
     H.append(
         "<tr><th class=l>model</th>"
         + "".join(f"<th>seed {s}</th>" for s in SEEDS)
-        + ("<th>mean Tier 1</th>" if lane_map else "<th>mean pass</th>")
+        + ("<th>mean capability</th>" if lane_map else "<th>mean pass</th>")
         + "<th>median task</th><th>in model</th><th>tok/s</th></tr>"
     )
     sep_done = False
@@ -747,7 +747,7 @@ def main() -> int:
                     # constant) passes never pad the capability number.
                     p_s, den_s = lane_conclusive(d, lane_map, "agentic")
                     hp, hden = lane_conclusive(d, lane_map, "harness")
-                    harness_line = f"<div class=muted>Tier 0 {hp}/{hden}</div>" if hden else ""
+                    harness_line = f"<div class=muted>harness {hp}/{hden}</div>" if hden else ""
                 else:
                     p_s, den_s = conclusive(d)
                     harness_line = ""
@@ -833,12 +833,12 @@ def main() -> int:
             for short in all_tests[file]:
                 lane = lane_map.get((file, short)) or "other"
                 sections[lane].setdefault(file, []).append(short)
-        H.append("<h2 style='font-size:15px'>Tier 1 · capability</h2>")
+        H.append("<h2 style='font-size:15px'>Capability lane</h2>")
         render_test_table(sections["agentic"])
-        H.append("<h2 style='font-size:15px'>Tier 0 · harness</h2>")
+        H.append("<h2 style='font-size:15px'>Harness lane</h2>")
         render_test_table(sections["harness"])
         if sections["other"]:
-            H.append("<h2 style='font-size:15px'>Unclassified (not in the tier manifest)</h2>")
+            H.append("<h2 style='font-size:15px'>Unclassified (not in the lane manifest)</h2>")
             render_test_table(sections["other"])
     else:
         render_test_table(all_tests)
@@ -867,18 +867,18 @@ def main() -> int:
         n_a = sum(1 for v in lane_map.values() if v == "agentic")
         n_h = sum(1 for v in lane_map.values() if v == "harness")
         scope += (
-            f" — split into <b>Tier 1 · capability</b>, {n_a} tests "
+            f" — split into the <b>capability lane</b>, {n_a} tests "
             f"(<code>agentic_benchmark</code>: agentic tasks the model itself can fail; the "
-            f"headline score) and <b>Tier 0 · harness</b>, {n_h} tests "
+            f"headline score) and the <b>harness lane</b>, {n_h} tests "
             f"(<code>harness_benchmark</code>: model-independent safety and plumbing assertions, "
-            f"scored separately so they never pad the Tier 1 number), with tier membership "
+            f"scored separately so they never pad the capability number), with lane membership "
             f"declared by pytest markers on the tests and re-derived from live collection every "
             f"cell —"
         )
     H.append(
         "<footer><b>Methodology.</b> " + scope + " onto each model suite-wide via "
-        "<code>OSPREY_E2E_FORCE_PROVIDER</code> + <code>OSPREY_E2E_FORCE_MODEL</code> (all tiers of "
-        "the agent collapse to one model). OpenAI-protocol models route through OSPREY's "
+        "<code>OSPREY_E2E_FORCE_PROVIDER</code> + <code>OSPREY_E2E_FORCE_MODEL</code> (every model alias "
+        "the agent uses collapses to one model). OpenAI-protocol models route through OSPREY's "
         "Anthropic↔OpenAI translation proxy; Anthropic models connect directly. The per-test "
         "timeout is 1800s; a timeout <b>counts as a failure</b> (the model did not complete the "
         "task within the cap) and is shown as a distinct category so it can be told apart from a "

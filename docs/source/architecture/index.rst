@@ -12,9 +12,9 @@ the tool interface, and **pluggable connectors** for protocol-agnostic hardware 
 
    Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.
 
-Six pages break that picture down — how a tool call is guarded, how a write
-travels, how reading differs from writing, and the three subsystems with
-architecture of their own:
+Seven pages break that picture down — how a tool call is guarded, how a write
+travels, how reading differs from writing, the three subsystems with
+architecture of their own, and how all of it is tested:
 
 .. grid:: 1 1 2 2
    :gutter: 3
@@ -73,6 +73,16 @@ architecture of their own:
       map, the two transports, and the model seam that makes the physics
       replaceable.
 
+   .. grid-item-card:: Testing
+      :link: testing
+      :link-type: doc
+      :shadow: md
+
+      Five rings that gate a change — the code, the hooks, the machine, the
+      model, the stack — and the two uses of the same machinery that judge
+      the model on the benchmark board and the facility's deployment in
+      production.
+
 .. seealso::
 
    :doc:`/how-to/control-systems/use-connectors`
@@ -90,3 +100,4 @@ architecture of their own:
    mcp-servers
    python-executor
    virtual-accelerator
+   testing

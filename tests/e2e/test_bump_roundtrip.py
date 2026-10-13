@@ -119,7 +119,6 @@ if TYPE_CHECKING:
     from osprey.channel_roster import ChannelRecord
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     # dockerbuild: full VA/bridge/Tiled image build + deploy -- runs in the
     # dedicated orm-roundtrip-e2e CI job alongside test_orm_roundtrip.py and

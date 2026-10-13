@@ -27,12 +27,12 @@ divides out. The build budgets and the cold-search budget stay absolute: they
 are coarse enough that contention does not reach them, and there is no cheaper
 thing in the same process to measure them against.
 
-The whole module is therefore marked ``channel_finder_benchmark`` as well as
-``slow``: it is deselected from CI's unit lane and runs on demand, in the
-benchmark job (``gh workflow run ci.yml -f run_benchmarks=true``) or locally
-with ``pytest tests/services/channel_finder/graph_index/test_scale.py``. The
-cost of that is real and worth naming: nothing runs these automatically, so a
-latency regression lands unnoticed until someone asks for a benchmark run.
+The whole module is therefore marked ``wall_clock`` as well as ``slow``: the
+parallel unit lane deselects it and the serial step after that lane runs it
+alone, on every push, with no other worker loading the box. Locally,
+``scripts/quick_check.sh`` skips it (``slow``) and ``scripts/ci_check.sh`` runs
+it serially after its sweep, as CI does; ``pytest
+tests/services/channel_finder/graph_index/test_scale.py`` runs it by hand.
 
 :data:`PARITY_MATRIX` is exported for the parity lane, which replays the same
 filter shapes against the store and against the index and compares the answers.
@@ -70,7 +70,7 @@ from osprey.services.channel_finder.graph_index.reader import (
 )
 from osprey.services.channel_finder.graph_index.taxonomy import class_name
 
-pytestmark = [pytest.mark.slow, pytest.mark.channel_finder_benchmark]
+pytestmark = [pytest.mark.slow, pytest.mark.wall_clock]
 
 logger = logging.getLogger(__name__)
 
