@@ -196,6 +196,16 @@ def test_a_created_journal_is_group_writable_under_umask_022(tmp_path: Path) -> 
     assert path.stat().st_mode & 0o060 == 0o060
 
 
+def test_an_existing_journal_keeps_its_mode(tmp_path: Path) -> None:
+    path = tmp_path / "journal"
+    path.write_bytes(b"")
+    os.chmod(path, 0o600)
+
+    DurableJournal(path).close()
+
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
 def test_a_link_planted_as_the_journal_is_refused(tmp_path: Path) -> None:
     victim = tmp_path / "victim"
     victim.write_bytes(b"keep\n")

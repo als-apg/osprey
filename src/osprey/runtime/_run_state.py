@@ -57,6 +57,8 @@ class Hold:
         target: The control target's name.
         directory: The target's guarded-run directory.
         fd: The locked lock file's descriptor.
+        dir_fd: The open descriptor of ``directory``; the lock and the journal
+            are opened relative to it.
         started: When the lock was taken (ISO-8601), as the holder record says.
     """
 
@@ -64,6 +66,7 @@ class Hold:
     directory: Path
     fd: int
     started: str
+    dir_fd: int
 
 
 @dataclass

@@ -38,13 +38,15 @@ This module is stdlib-only at import time.
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import json
 import math
 import numbers
 import os
+import stat
 import time
-from collections.abc import Callable, ItemsView, Sequence
+from collections.abc import Callable, ItemsView, Iterator, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
@@ -64,6 +66,7 @@ __all__ = [
     "guarded_write",
     "journaled_write",
     "parse_pending_journal",
+    "read_journal_bytes",
     "read_map",
     "read_pending_journal",
 ]
@@ -118,21 +121,157 @@ class GuardedRunDirError(RuntimeError):
     """The guarded-run directory for a target cannot be resolved or written."""
 
 
-def _open_no_follow(path: Path, flags: int) -> int:
-    """Open ``path`` with ``flags``, never through a symbolic link at its last component.
+#: What every refusal of a name in a guarded-run directory ends with.
+_FILES_ONLY = "the guarded-run directory holds files only"
+
+#: The mode a lock or journal created here gets, whatever the umask.
+_FILE_MODE = 0o664
+
+
+def _open_dir(name: str | Path, *, dir_fd: int | None = None, where: Path) -> int:
+    """Open the directory ``name`` for reading, never through a link at ``name``.
+
+    Args:
+        name: The directory, relative to ``dir_fd`` when one is given.
+        dir_fd: The open directory ``name`` is looked up in.
+        where: The path a refusal names.
+
+    Returns:
+        The directory's descriptor, close-on-exec.
 
     Raises:
-        GuardedRunDirError: ``path`` is a link; nothing was opened or created.
+        GuardedRunDirError: ``name`` is a link or not a directory.
+        FileNotFoundError: There is no ``name``.
         OSError: Any other failure to open, unchanged.
     """
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
     try:
-        return os.open(path, flags | os.O_NOFOLLOW | os.O_CLOEXEC, 0o664)
-    except OSError as exc:
-        if exc.errno == errno.ELOOP:
-            raise GuardedRunDirError(
-                f"{path} is a link; the guarded-run directory holds files only"
-            ) from None
+        return os.open(name, flags, dir_fd=dir_fd)
+    except FileNotFoundError:
         raise
+    except OSError as exc:
+        # The open has failed; this only words the refusal.
+        is_link = False
+        with contextlib.suppress(OSError):
+            is_link = stat.S_ISLNK(os.lstat(name, dir_fd=dir_fd).st_mode)
+        if is_link:
+            raise GuardedRunDirError(
+                f"{where} is a link; a guarded-run directory is never a link"
+            ) from None
+        if exc.errno == errno.ENOTDIR:
+            raise GuardedRunDirError(f"{where} is not a directory") from None
+        raise
+
+
+def _open_regular(
+    name: str, flags: int, *, dir_fd: int, where: Path, create: bool = False
+) -> tuple[int, bool]:
+    """Open the lock or the journal ``name`` in the open directory ``dir_fd``.
+
+    The one way those two files are opened. A link at ``name`` is not
+    followed, the open never waits for the other end of a FIFO, and the
+    descriptor is accepted only when it is a regular file with exactly one
+    name; that is checked on the descriptor before anything reads, writes,
+    truncates or changes the mode of it. Whether the file was created is the
+    exclusive create's answer, never a look at the name.
+
+    Args:
+        name: The file's name in ``dir_fd``.
+        flags: The access mode, with ``O_APPEND`` when wanted.
+        dir_fd: The open guarded-run directory.
+        where: The path a refusal names.
+        create: Create the file when it is missing, at mode ``0o664``.
+
+    Returns:
+        ``(fd, created)``: the blocking, close-on-exec descriptor and whether
+        this call created the file.
+
+    Raises:
+        GuardedRunDirError: ``name`` is a link, has more than one hard link,
+            is not a regular file, or was replaced while it was opened;
+            nothing was read, written or created through it.
+        FileNotFoundError: There is no ``name`` and ``create`` is not set.
+        OSError: Any other failure to open, unchanged.
+    """
+    flags |= os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+    replaced = False
+    while True:
+        created = False
+        try:
+            if create:
+                for last in (False, True):
+                    try:
+                        fd = os.open(
+                            name, flags | os.O_CREAT | os.O_EXCL, _FILE_MODE, dir_fd=dir_fd
+                        )
+                        created = True
+                        break
+                    except FileExistsError:
+                        pass
+                    try:
+                        fd = os.open(name, flags, dir_fd=dir_fd)
+                        break
+                    except FileNotFoundError:
+                        if last:
+                            raise
+            else:
+                fd = os.open(name, flags, dir_fd=dir_fd)
+        except OSError as exc:
+            if exc.errno in (errno.ELOOP, errno.EMLINK):
+                raise GuardedRunDirError(f"{where} is a link; {_FILES_ONLY}") from None
+            if exc.errno in (errno.EISDIR, errno.ENXIO):
+                raise GuardedRunDirError(f"{where} is not a regular file; {_FILES_ONLY}") from None
+            raise
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                raise GuardedRunDirError(f"{where} is not a regular file; {_FILES_ONLY}")
+            if st.st_nlink > 1:
+                raise GuardedRunDirError(f"{where} has {st.st_nlink} hard links; {_FILES_ONLY}")
+            if st.st_nlink == 0 and replaced:
+                raise GuardedRunDirError(f"{where} was replaced while it was opened")
+            if st.st_nlink == 1:
+                os.set_blocking(fd, True)
+                if created:
+                    os.fchmod(fd, _FILE_MODE)
+                return fd, created
+        except BaseException:
+            os.close(fd)
+            raise
+        # No name holds this file any more: a rename replaced it between the
+        # open and the check. The name is opened once more.
+        os.close(fd)
+        replaced = True
+
+
+def _read_all(fd: int) -> bytes:
+    """Every byte of the file ``fd``, read without moving the descriptor's offset."""
+    chunks: list[bytes] = []
+    offset = 0
+    while True:
+        chunk = os.pread(fd, 1 << 20, offset)
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+        offset += len(chunk)
+
+
+@contextlib.contextmanager
+def _directory_of(path: Path, dir_fd: int | None) -> Iterator[int]:
+    """The open directory ``path`` is a file of: ``dir_fd``, or ``path.parent`` opened here.
+
+    A descriptor handed in is borrowed and stays open. A caller that hands
+    none names its own directory and owns that path, so it is opened as
+    named and closed on the way out.
+    """
+    if dir_fd is not None:
+        yield dir_fd
+        return
+    opened = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        yield opened
+    finally:
+        os.close(opened)
 
 
 class Journal:
@@ -555,6 +694,30 @@ def _optional(value: Any, kind: type) -> Any:
     return value
 
 
+def read_journal_bytes(path: Path, *, dir_fd: int | None = None) -> bytes | None:
+    """The bytes of the journal at ``path``; ``None`` when there is no file.
+
+    Args:
+        path: The journal file.
+        dir_fd: The open directory holding it; ``path`` then only names the
+            file in it. Without one, ``path.parent`` is opened as named.
+
+    Raises:
+        GuardedRunDirError: ``path`` is a link, has more than one hard link or
+            is not a regular file; nothing is read.
+        OSError: The file exists but could not be read.
+    """
+    try:
+        with _directory_of(path, dir_fd) as directory:
+            fd, _created = _open_regular(path.name, os.O_RDONLY, dir_fd=directory, where=path)
+    except FileNotFoundError:
+        return None
+    try:
+        return _read_all(fd)
+    finally:
+        os.close(fd)
+
+
 def read_pending_journal(path: Path) -> PendingJournal | None:
     """Read the journal at ``path``; ``None`` when it holds no record.
 
@@ -562,12 +725,13 @@ def read_pending_journal(path: Path) -> PendingJournal | None:
     newline-terminated or not a record is taken as torn by a kill and ignored.
 
     Raises:
+        GuardedRunDirError: ``path`` is a link, has more than one hard link or
+            is not a regular file; nothing is read.
         OSError: The file exists but could not be read.
         ValueError: A line other than the last is not a header or record.
     """
-    try:
-        raw = path.read_bytes()
-    except FileNotFoundError:
+    raw = read_journal_bytes(path)
+    if raw is None:
         return None
     return parse_pending_journal(raw, path)
 
@@ -624,20 +788,31 @@ class DurableJournal:
     returns. Use :meth:`record` as a :class:`Journal` sink.
     """
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, dir_fd: int | None = None) -> None:
         """Open (creating when missing) the journal at ``path``; its content is kept.
 
+        Args:
+            path: The journal file.
+            dir_fd: The open directory holding it, borrowed and never closed
+                here; ``path`` then only names the file in it. Without one,
+                ``path.parent`` is opened as named.
+
         Raises:
-            GuardedRunDirError: ``path`` is a symbolic link; it is not followed.
+            GuardedRunDirError: ``path`` is a link, has more than one hard link
+                or is not a regular file; nothing is read, written or created.
         """
         self.path = path
-        created = not path.exists()
-        self._fd = _open_no_follow(path, os.O_RDWR | os.O_CREAT | os.O_APPEND)
-        if created:
-            from osprey_connectors.dotenv import _fsync_directory
+        with _directory_of(path, dir_fd) as directory:
+            self._fd, created = _open_regular(
+                path.name, os.O_RDWR | os.O_APPEND, dir_fd=directory, where=path, create=True
+            )
+            if created:
+                with contextlib.suppress(OSError):
+                    os.fsync(directory)
 
-            os.fchmod(self._fd, 0o664)
-            _fsync_directory(path.parent)
+    def read(self) -> bytes:
+        """The file's bytes, read from the open descriptor."""
+        return _read_all(self._fd)
 
     def _append(self, payload: dict[str, Any]) -> None:
         os.write(self._fd, (json.dumps(payload, allow_nan=True) + "\n").encode("utf-8"))

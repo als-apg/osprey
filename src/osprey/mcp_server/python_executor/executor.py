@@ -1574,8 +1574,11 @@ def _observe_journal(control_target: str) -> dict[str, Any]:
 
     ``<project root>/var/guarded_run/<target name>/run.journal``, the target
     name resolved as :func:`osprey.runtime.guarded_run.guarded_run_target`
-    resolves it and the file parsed by
-    :func:`osprey.runtime.journal.parse_pending_journal`. Never raises.
+    resolves it, the file read by
+    :func:`osprey.runtime.guarded_run.read_run_journal`, the way a guarded run
+    opens it, and parsed by
+    :func:`osprey.runtime.journal.parse_pending_journal`. Never raises and
+    creates nothing.
 
     Returns:
         ``{"journal", "state", "values"}``: the path (``None`` when it cannot be
@@ -1588,21 +1591,21 @@ def _observe_journal(control_target: str) -> dict[str, Any]:
             GUARDED_RUN_DIR,
             JOURNAL_FILE_NAME,
             guarded_run_target,
+            read_run_journal,
         )
         from osprey.runtime.journal import parse_pending_journal
         from osprey_connectors.workspace import STATE_DIR_NAME
 
-        path = (
+        directory = (
             _resolve_project_root()
             / STATE_DIR_NAME
             / GUARDED_RUN_DIR
             / guarded_run_target(control_target)
-            / JOURNAL_FILE_NAME
         )
+        path = directory / JOURNAL_FILE_NAME
         observed["journal"] = str(path)
-        try:
-            raw = path.read_bytes()
-        except FileNotFoundError:
+        raw = read_run_journal(directory)
+        if raw is None:
             observed["state"] = "absent"
             return observed
         pending = parse_pending_journal(raw, path)

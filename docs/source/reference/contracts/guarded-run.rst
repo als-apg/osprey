@@ -53,8 +53,13 @@ the journal, flushed to disk before the write goes out. The journal keeps the
 first value per address only, the value from before the run, however often the
 run writes the address afterwards. Its header line records the control target,
 the target's generation, who is acting, the process id and the start time. The lock and
-the journal are regular files; a link found at either name is refused by name
-and the run does not start.
+the journal are regular files with one name each, opened inside the target's
+directory without following a link at ``guarded_run``, at the target's
+directory or at the file. A link, a hard link, a FIFO or anything else that is
+not such a file is refused with its path named: the run does not start, and
+nothing is read or written through it. The approval prompt and the Python
+executor read the journal through the same open, so the journal a prompt lists
+is the file the run restores.
 
 A write through the guarded path is refused outside a journaled run and
 touches no channel, so no code path writes a device under the guard without

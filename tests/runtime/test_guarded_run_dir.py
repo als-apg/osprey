@@ -25,6 +25,7 @@ from osprey.runtime.guarded_run import (
     guarded_run_dir,
     guarded_run_target,
 )
+from tests.runtime._guarded_run_fixtures import LINKED_DIRECTORY_REFUSAL, link_directory
 
 #: A deployment whose own control system is the Virtual Accelerator.
 VA_BASELINE = {"type": "virtual_accelerator", "connector": {"virtual_accelerator": {"port": 1}}}
@@ -189,3 +190,35 @@ def test_an_uncreatable_path_is_refused(tmp_path: Path, monkeypatch: pytest.Monk
             guarded_run_dir("live")
     finally:
         os.chmod(state_zone, 0o755)
+
+
+def test_a_linked_target_directory_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _host_repo(tmp_path, LIVE_BASELINE, monkeypatch)
+    level = guarded_run_dir("live")
+    real = link_directory(level)
+
+    with pytest.raises(GuardedRunDirError) as refused:
+        guarded_run_dir("live")
+
+    assert str(refused.value) == f"{level} {LINKED_DIRECTORY_REFUSAL}"
+    assert level == repo.resolve() / "var" / GUARDED_RUN_DIR / "live"
+    assert list(real.iterdir()) == []
+
+
+def test_a_linked_guarded_run_directory_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _host_repo(tmp_path, LIVE_BASELINE, monkeypatch)
+    (repo / "var").mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    level = repo.resolve() / "var" / GUARDED_RUN_DIR
+    os.symlink(elsewhere, level, target_is_directory=True)
+
+    with pytest.raises(GuardedRunDirError) as refused:
+        guarded_run_dir("live")
+
+    assert str(refused.value) == f"{level} {LINKED_DIRECTORY_REFUSAL}"
+    assert list(elsewhere.iterdir()) == [], "nothing is created through the link"
