@@ -173,8 +173,12 @@ copy, both of which the `Containerfile` installs, so no extra copy step exists.
 ## Validating
 
 ```bash
-scripts/va/build_and_boot_check.sh [DATA_ROOT]
+scripts/va/build_and_boot_check.sh [--tag TAG] [DATA_ROOT]
 ```
+
+`--tag` names the tag the image is built and booted under; it defaults to
+`osprey-va-full:latest`, the tag the live-container suites boot unless
+`OSPREY_VA_E2E_IMAGE` names another.
 
 Stages the build context, builds the image and boots a container serving a
 simulator view. `DATA_ROOT` is a render's data root, `<project>/build/data`;

@@ -7026,6 +7026,8 @@ VA_CACHE_MEMBER_GLOB = "'packages/*/pyproject.toml'"
 VA_E2E_IMAGE_OWNER = REPO_ROOT / "tests" / "va" / "e2e" / "_image.py"
 VA_E2E_IMAGE_CONSTANT = "DEFAULT_IMAGE"
 VA_IMAGE_TAG = _module_constant(VA_E2E_IMAGE_OWNER, VA_E2E_IMAGE_CONSTANT)
+#: The developer build that ``IMAGE_REMEDY`` in the owner module names.
+VA_BUILD_SCRIPT = REPO_ROOT / "scripts" / "va" / "build_and_boot_check.sh"
 
 
 def _load_action_yml(path: Path) -> dict[str, Any]:
@@ -7386,6 +7388,68 @@ def test_the_action_builds_the_tag_the_live_fixtures_boot__mutation_builds_a_tag
     steps[build]["run"] = steps[build]["run"].replace(VA_IMAGE_TAG, "osprey-va-full:experiment")
     with pytest.raises(AssertionError):
         test_the_action_builds_the_tag_the_live_fixtures_boot(mutated)
+
+
+@pytest.fixture()
+def va_build_script_text() -> str:
+    return VA_BUILD_SCRIPT.read_text(encoding="utf-8")
+
+
+def test_the_developer_builder_takes_the_tag_as_an_argument(va_build_script_text: str) -> None:
+    """The script builds and boots whatever tag it is given, and its own default otherwise.
+
+    A developer reproducing a lane that boots another tag has to be able to
+    build that tag with the remedy the live suites print, so ``IMAGE`` is
+    assigned twice -- the default and the ``--tag`` branch -- and both the build
+    and the run read it rather than a literal.
+    """
+    assignments = [
+        line.strip() for line in va_build_script_text.splitlines() if re.match(r"\s*IMAGE=", line)
+    ]
+    assert len(assignments) == 2, (
+        f"`IMAGE` is assigned in exactly two places, the default and the `--tag` branch; "
+        f"found {assignments}"
+    )
+    assert any(re.fullmatch(r'IMAGE="\$\{?2\}?"', line) for line in assignments), (
+        f"one assignment takes the word after `--tag`; found {assignments}"
+    )
+    lines = {line.strip() for line in va_build_script_text.splitlines()}
+    assert any(line.startswith('-t "${IMAGE}"') for line in lines), (
+        'the build tags the image `-t "${IMAGE}"`'
+    )
+    assert '"${IMAGE}" >/dev/null' in lines, 'the run starts `"${IMAGE}"`'
+
+
+def test_the_developer_builder_takes_the_tag_as_an_argument__mutation_drops_the_tag_branch(
+    va_build_script_text: str,
+) -> None:
+    kept = "\n".join(
+        line
+        for line in va_build_script_text.splitlines()
+        if not re.match(r'\s*IMAGE="\$\{?2\}?"', line)
+    )
+    with pytest.raises(AssertionError):
+        test_the_developer_builder_takes_the_tag_as_an_argument(kept)
+
+
+@pytest.mark.parametrize(
+    ("argv", "stop"),
+    [(["--tag"], "--tag needs a value"), (["--no-such-option"], "unknown option")],
+    ids=["tag-without-value", "unknown-option"],
+)
+def test_the_developer_builder_refuses_a_bad_argument_before_any_runtime(
+    argv: list[str], stop: str
+) -> None:
+    refused = subprocess.run(
+        ["bash", str(VA_BUILD_SCRIPT), *argv],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={"PATH": "/usr/bin:/bin"},
+    )
+    assert refused.returncode == 1, refused.stdout + refused.stderr
+    fatal = [line for line in refused.stderr.splitlines() if line.startswith("FATAL")]
+    assert len(fatal) == 1 and stop in fatal[0], refused.stderr
 
 
 @pytest.fixture()

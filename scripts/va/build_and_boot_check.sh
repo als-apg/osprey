@@ -87,7 +87,11 @@
 # Idempotent: safe to re-run. Removes any prior gate container first.
 #
 # Usage:
-#   scripts/va/build_and_boot_check.sh [DATA_ROOT]
+#   scripts/va/build_and_boot_check.sh [--tag TAG] [DATA_ROOT]
+#
+# --tag names the tag the image is built and booted under. It defaults to
+# osprey-va-full:latest, the tag the live-container suites boot unless
+# OSPREY_VA_E2E_IMAGE names another.
 #
 # DATA_ROOT is a render's data root, `<project>/build/data`, holding the
 # simulator view under `simulator/`.
@@ -173,17 +177,38 @@ OVER_DRIVE="20.0"
 
 PRESET_FACILITY="${WORKTREE_ROOT}/src/osprey/templates/facilities/example"
 DATA_ROOT=""
-if [[ $# -gt 0 ]]; then
-    if [[ ! -d "${1}" ]]; then
-        echo "FATAL: ${1} is not a directory; name a render's data root (<project>/build/data)" >&2
-        exit 1
-    fi
-    DATA_ROOT="$(cd "${1}" && pwd)"
-    if [[ ! -f "${DATA_ROOT}/simulator/served_models.json" ]]; then
-        echo "FATAL: no simulator/served_models.json under ${DATA_ROOT}; run \`osprey build\` first" >&2
-        exit 1
-    fi
-fi
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --tag)
+            if [[ $# -lt 2 || -z "$2" ]]; then
+                echo "FATAL: --tag needs a value, the tag to build and boot" >&2
+                exit 1
+            fi
+            IMAGE="$2"
+            shift 2
+            ;;
+        -*)
+            echo "FATAL: unknown option $1; usage: $0 [--tag TAG] [DATA_ROOT]" >&2
+            exit 1
+            ;;
+        *)
+            if [[ -n "${DATA_ROOT}" ]]; then
+                echo "FATAL: a second DATA_ROOT $1; name one render's data root" >&2
+                exit 1
+            fi
+            if [[ ! -d "${1}" ]]; then
+                echo "FATAL: ${1} is not a directory; name a render's data root (<project>/build/data)" >&2
+                exit 1
+            fi
+            DATA_ROOT="$(cd "${1}" && pwd)"
+            if [[ ! -f "${DATA_ROOT}/simulator/served_models.json" ]]; then
+                echo "FATAL: no simulator/served_models.json under ${DATA_ROOT}; run \`osprey build\` first" >&2
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
 
 # Container runtime: prefer podman, fall back to docker (same auto-detect as
 # scripts/va/probe_build_and_caget.sh -- podman-machine storage has been
