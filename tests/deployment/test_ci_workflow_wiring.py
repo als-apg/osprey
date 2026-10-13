@@ -144,6 +144,8 @@ NO_MODEL_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 NO_MODEL_TEST_FILES = (
     "tests/e2e/test_openobserve_telemetry.py",
     "tests/e2e/test_sdk_helpers.py",
+    "tests/e2e/test_scripted_model.py",
+    "tests/e2e/claude_code/test_safety_gates_scripted.py",
     "tests/e2e/test_mcp_readiness.py",
     "tests/e2e/test_dispatch_deploy_render.py",
     "tests/e2e/web_terminals/test_scaffold_render_roundtrip.py",
@@ -151,6 +153,7 @@ NO_MODEL_TEST_FILES = (
     "tests/e2e/web_terminals/test_loopback_chokepoint.py",
     "tests/e2e/web_terminals/test_session_restart_e2e.py",
     "tests/e2e/web_terminals/test_terminal_auth_e2e.py",
+    "tests/e2e/web_terminals/test_persona_permissions_scripted.py",
 )
 #: The one test in that set gated on a credential rather than on a model call.
 NO_MODEL_DESELECTED = "tests/e2e/test_openobserve_telemetry.py::test_live_agent_metric_lands"

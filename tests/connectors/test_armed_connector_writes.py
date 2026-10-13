@@ -54,12 +54,17 @@ _EPICS_SOURCE = """
         return True
 
     class PV:
+        connected = True
+
         def __init__(self, pvname, *args, **kwargs):
             self.pvname = pvname
 
         def put(self, value, **kwargs):
             calls.append((self.pvname, value, door_is_open()))
             return True
+
+    def get_pv(pvname, *args, **kwargs):
+        return PV(pvname)
 """
 
 _TANGO_SOURCE = """

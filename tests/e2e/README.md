@@ -259,7 +259,7 @@ use, so you can iterate without Docker or a live run:
 ## Per-PR LLM cost expectation
 
 The ``e2e-tests`` job is a hard-fail gate — as is every e2e lane: the
-``all-checks-passed`` gate has no advisory tier. Per PR, expect ~14
+``all-checks-passed`` gate has no advisory tier. Per PR, expect ~10
 SDK-driven safety scenario runs plus the SDK workflow/delegation
 pipelines (cheap at als-apg/haiku rates). The channel-finder MCP
 benchmarks (~90 queries from ``test_channel_finder_mcp_benchmarks.py``,
@@ -337,6 +337,27 @@ The marked set equals the selection of the `e2e-no-model` CI lane, and a wiring
 test in `tests/deployment/test_ci_workflow_wiring.py` holds the two equal.
 Adding a model-free module therefore means marking it and naming it in that
 lane in one change.
+
+### Scripted gate tests
+
+A test whose subject is a safety gate needs one forbidden tool call to be made,
+and a well-behaved model will not make it. Those tests replace the model with a
+script: the `scripted_model` fixture starts a local endpoint
+(`tests/e2e/scripted_model.py`) that makes exactly the tool calls the test
+lists, and the real Claude Code delivers them through the rendered
+`settings.json`, the hook chain and the MCP servers.
+
+    model = scripted_model([[ScriptedCall("mcp__controls__channel_write", {...})]])
+    result = await run_sdk_query_with_hooks(repo, "Carry out the scripted steps.")
+
+Such a test asserts that the call was delivered, that the refusal carries the
+gate's own reason, and that no approval prompt appeared. It never skips: the
+modules are `model_free` and run in the `e2e-no-model` lane.
+`test_scripted_round_trip_reaches_the_cli` is the canary for the Claude Code
+wire format; when it fails after a version bump, fix `scripted_model.py` first.
+
+Use a live model when the question is what the agent chooses to do. Use a
+script when the question is what happens to a call once it is made.
 
 ### Which model the lanes run
 

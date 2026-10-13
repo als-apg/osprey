@@ -81,7 +81,7 @@ from click.testing import CliRunner
 
 from osprey.cli.main import cli
 from osprey.utils.workspace import container_image_context
-from tests._container_support import docker_cli_unavailable_reason
+from tests._container_support import docker_cli_unavailable_reason_once
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONNECTORS_PYPROJECT = REPO_ROOT / "packages" / "osprey-connectors" / "pyproject.toml"
@@ -114,7 +114,7 @@ def _docker_unavailable_reason() -> str | None:
     The shared probe words a slow daemon apart from an absent one, so a loaded
     host shows up in the report as "timed out" rather than as "no docker" (#820).
     """
-    return docker_cli_unavailable_reason()
+    return docker_cli_unavailable_reason_once()
 
 
 @cache

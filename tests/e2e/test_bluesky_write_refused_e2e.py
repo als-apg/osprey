@@ -115,6 +115,11 @@ def _run_query(repo: Path, prompt: str) -> list[str]:
     json_start = output.find("{")
     assert json_start >= 0, f"No JSON found in command output:\n{output}"
     payload, _ = json.JSONDecoder().raw_decode(output[json_start:].strip())
+    # No tool calls and a failing exit: the agent never ran (e.g. "Not logged
+    # in"), so an absent tool name says nothing about the surface.
+    assert payload["tool_traces"] or payload["exit_code"] == 0, (
+        f"The agent never ran (exit {payload['exit_code']}): {payload['final_text']!r}"
+    )
     return [t["name"] for t in payload["tool_traces"]]
 
 

@@ -950,6 +950,7 @@ def reset_web_credentials_between_tests(monkeypatch: pytest.MonkeyPatch):
         SESSION_STORE_DIR_ENV,
         reset_web_credentials,
     )
+    from osprey.mcp_server.dispatch_worker.credentials import reset_worker_credentials
     from osprey.mcp_server.http import reset_panel_token_latch
 
     monkeypatch.delenv(SESSION_LIFETIME_ENV, raising=False)
@@ -959,9 +960,11 @@ def reset_web_credentials_between_tests(monkeypatch: pytest.MonkeyPatch):
     # companion launch scrubbing the carrier does not strip its bearer); that
     # latch is process state for the same reason and is reset on both sides too.
     reset_web_credentials()
+    reset_worker_credentials()
     reset_panel_token_latch()
     yield
     reset_web_credentials()
+    reset_worker_credentials()
     reset_panel_token_latch()
 
 

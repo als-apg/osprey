@@ -1214,7 +1214,15 @@ class TestDispatcherTokenGate:
     loopback alone would hand it to a listener a runtime registration squatted
     the id with. It goes to the ``events`` panel only, and only when that panel
     is both declared by config and addressed at loopback.
+
+    The proxy reads the bearer from the process's credential holder, never from
+    ``os.environ`` (population pops it out of the environment), so these tests
+    hold it on the pinned credentials rather than exporting it.
     """
+
+    @staticmethod
+    def _hold_bearer(app, token: str) -> None:
+        app.state.web_credentials.dispatcher_token = token
 
     @pytest.fixture
     def events_app(self, workspace_dir, request):
@@ -1225,9 +1233,9 @@ class TestDispatcherTokenGate:
         yield from _build_app(workspace_dir, [panel])
 
     @pytest.mark.parametrize("events_app", [("http://localhost:8020", True)], indirect=True)
-    def test_loopback_events_panel_gets_the_bearer(self, events_app, monkeypatch):
+    def test_loopback_events_panel_gets_the_bearer(self, events_app):
         app, client = events_app
-        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "dispatcher-token")
+        self._hold_bearer(app, "dispatcher-token")
         captured = _capture_request(app)
 
         client.get("/panel/events/dashboard/state", headers=OPERATOR_HEADERS)
@@ -1249,9 +1257,9 @@ class TestDispatcherTokenGate:
         ],
         indirect=True,
     )
-    def test_an_untrusted_events_panel_gets_neither_credential(self, events_app, monkeypatch):
+    def test_an_untrusted_events_panel_gets_neither_credential(self, events_app):
         app, client = events_app
-        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "dispatcher-token")
+        self._hold_bearer(app, "dispatcher-token")
         captured = _capture_request(app)
 
         client.get("/panel/events/dashboard/state", headers=OPERATOR_HEADERS)
@@ -1262,20 +1270,20 @@ class TestDispatcherTokenGate:
         assert "dispatcher-token" not in " ".join(captured.values())
 
     @pytest.mark.parametrize("events_app", [("http://localhost:8020", True)], indirect=True)
-    def test_no_token_no_header(self, events_app, monkeypatch):
+    def test_no_token_no_header(self, events_app):
         """A deployment without the token sends no credential rather than a blank one."""
         app, client = events_app
-        monkeypatch.delenv("EVENT_DISPATCHER_TOKEN", raising=False)
+        self._hold_bearer(app, "")
         captured = _capture_request(app)
 
         client.get("/panel/events/dashboard/state", headers=OPERATOR_HEADERS)
 
         assert "authorization" not in _lower(captured)
 
-    def test_only_the_events_panel_gets_the_bearer(self, panels_app, monkeypatch):
+    def test_only_the_events_panel_gets_the_bearer(self, panels_app):
         """A declared loopback panel earns the operator secret, never the dispatcher's token."""
         app, _client = panels_app
-        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "dispatcher-token")
+        self._hold_bearer(app, "dispatcher-token")
         captured = _capture_request(app)
 
         _cookie_client(app).get("/panel/trusted/api/status")
