@@ -47,6 +47,10 @@
       "reason": "Pure-logic unit tests for sdk_helpers: the transcript dump, the hook read-back and the approval-policy binder (no LLM, model-independent). Excluded so it doesn't inflate the per-model total/pass counts the dashboard expects."
     },
     {
+      "path": "tests/e2e/test_scripted_model.py",
+      "reason": "HTTP-level unit tests for the scripted model endpoint (no agent, no LLM, model-independent). Excluded so it doesn't inflate the per-model total/pass counts the dashboard expects."
+    },
+    {
       "path": "tests/e2e/test_judge.py",
       "reason": "Pure-logic unit tests for the judge's own retry rule, with the provider call scripted (no LLM, model-independent). Excluded so it doesn't inflate the per-model total/pass counts the dashboard expects."
     },
