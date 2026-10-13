@@ -428,6 +428,22 @@ virtual-accelerator = [
     "aioca>=1.7",
 ]
 
+# Optimizer service (osprey.services.optimizer): Xopt-driven tuning jobs, ported
+# from tuning_scripts. Torch and the BoTorch stack are gigabytes, so like the
+# virtual accelerator this is installed only in the service's own image and
+# stays out of `all`. Torch resolves from the CPU wheel index (tool.uv.sources).
+# The search stack is pinned to the versions tuning_scripts was benchmarked on:
+# a bump can change how the optimizer searches, so it is its own benchmarked change.
+optimizer = [
+    "xopt==3.1.2",
+    "torch==2.13.0",
+    "botorch==0.17.2",
+    "gpytorch==1.15.2",
+    "polars>=1.36.1",
+    "redis>=5.0.4",
+    "joblib>=1.5.2",
+]
+
 # All optional dependencies for complete installation
 all = [
     "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,knowledge,gchat,teams]"
@@ -438,6 +454,12 @@ members = ["packages/osprey-connectors"]
 
 [tool.uv.sources]
 osprey-connectors = { workspace = true }
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [project.urls]
 Homepage = "https://als-apg.github.io/osprey"

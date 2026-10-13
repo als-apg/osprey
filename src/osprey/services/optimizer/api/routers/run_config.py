@@ -1,0 +1,149 @@
+"""Run-configuration API router.
+
+Endpoints that prepare an optimization run's configuration — template form
+defaults and the bounds-preview computation for the cockpit table. These are
+run-config concerns rather than live machine I/O, so they live apart from
+``routers/environments.py`` while sharing its ``/environments/{name}`` prefix.
+"""
+
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from osprey.services.optimizer.api.dependencies import get_environment_registry
+from osprey.services.optimizer.api.environment_ops import (
+    load_environment,
+    read_errors,
+    validate_variable_names,
+)
+from osprey.services.optimizer.models.api import (
+    InitialBoundsResponse,
+    ResolveBoundsRequest,
+    ResolveBoundsResponse,
+    ResolvedBoundsModel,
+    TemplateDefaultsResponse,
+)
+from osprey.services.optimizer.models.config import VariableOverride
+from osprey.services.optimizer.models.protocols import VariableMetadata
+from osprey.services.optimizer.optimization.coercion import reading_to_float
+from osprey.services.optimizer.services.bounds_resolver import effective_step_size, resolve_bounds
+from osprey.services.optimizer.services.plugin_registry import EnvironmentRegistry
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/environments", tags=["environments"])
+
+
+def _resolve_one_bound(
+    var_name: str,
+    meta: VariableMetadata,
+    override: VariableOverride | None,
+    current_value: float,
+) -> ResolvedBoundsModel:
+    """Resolve one variable's bounds, mapping a ``ValueError`` to a 422."""
+    step = effective_step_size(override, meta.step_size)
+    try:
+        return resolve_bounds(
+            override,
+            current_value=current_value,
+            safety_min=meta.min_value,
+            safety_max=meta.max_value,
+            step_size=step,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Variable '{var_name}': {e}",
+        ) from e
+
+
+@router.get("/{name}/template-defaults", response_model=TemplateDefaultsResponse)
+def get_environment_template_defaults(
+    name: str,
+    registry: EnvironmentRegistry = Depends(get_environment_registry),
+) -> TemplateDefaultsResponse:
+    """Return template-defined form defaults; all-None for plugin envs."""
+    config = registry.get_template_defaults(name)
+    if config is not None:
+        return TemplateDefaultsResponse(
+            algorithm=config.get("algorithm"),
+            n_iterations=config.get("n_iterations"),
+        )
+    try:
+        registry.get_environment_class(name)
+    except KeyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Environment '{name}' not found",
+        ) from e
+    return TemplateDefaultsResponse()
+
+
+@router.get("/{name}/initial-bounds", response_model=InitialBoundsResponse)
+def get_environment_initial_bounds(
+    name: str,
+    registry: EnvironmentRegistry = Depends(get_environment_registry),
+) -> InitialBoundsResponse:
+    """Resolve initial bounds for the cockpit table.
+
+    For template-backed envs, applies the template's ``variable_overrides`` to the
+    env's current readbacks (e.g. ``window_fraction: 0.1`` → window equal to 10% of
+    the variable's safety range, centered on the current readback).
+    Plugin envs without a template return their safety range. Variables whose
+    readback is unavailable (NaN) fall back to the safety range as well — the
+    operator can still see the table while connectivity is being investigated.
+    """
+    env = load_environment(name, registry)
+    template_config = registry.get_template_defaults(name) or {}
+    raw_overrides = template_config.get("variable_overrides") or {}
+    overrides: dict[str, VariableOverride] = {
+        var: spec if isinstance(spec, VariableOverride) else VariableOverride(**spec)
+        for var, spec in raw_overrides.items()
+    }
+
+    with env:
+        variables = env.variables
+        with read_errors(name, "read current values"):
+            readings = env.get_variables(list(variables.keys()))
+
+        bounds: dict[str, ResolvedBoundsModel] = {}
+        for var_name, meta in variables.items():
+            current = reading_to_float(readings[var_name]) if var_name in readings else None
+            if current is None:
+                bounds[var_name] = ResolvedBoundsModel(
+                    min=meta.min_value,
+                    max=meta.max_value,
+                    requested_min=meta.min_value,
+                    requested_max=meta.max_value,
+                    was_clamped=False,
+                )
+                continue
+            bounds[var_name] = _resolve_one_bound(var_name, meta, overrides.get(var_name), current)
+        return InitialBoundsResponse(bounds=bounds, current_values=readings)
+
+
+@router.post("/{name}/resolve-bounds", response_model=ResolveBoundsResponse)
+def resolve_environment_bounds(
+    name: str,
+    body: ResolveBoundsRequest,
+    registry: EnvironmentRegistry = Depends(get_environment_registry),
+) -> ResolveBoundsResponse:
+    """Resolve bounds for the variables named in current_values; every override needs a matching current_value."""
+    env = load_environment(name, registry)
+    with env:
+        variables = env.variables
+        validate_variable_names(list(body.overrides.keys()), env, field="override")
+        validate_variable_names(list(body.current_values.keys()), env, field="current_value")
+        missing = [n for n in body.overrides if n not in body.current_values]
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Missing current_value(s) for overridden variable(s): {missing}",
+            )
+
+        bounds: dict[str, ResolvedBoundsModel] = {}
+        for var_name, current_value in body.current_values.items():
+            bounds[var_name] = _resolve_one_bound(
+                var_name, variables[var_name], body.overrides.get(var_name), current_value
+            )
+        return ResolveBoundsResponse(bounds=bounds)
