@@ -194,6 +194,38 @@ def test_a_malformed_result_is_an_error(stdout: str, match: str):
         parse_measure_result(stdout, [], "orm")
 
 
+@pytest.mark.parametrize(
+    ("plane", "read"), [("H", "x"), ("h", "x"), ("x", "x"), ("V", "y"), ("Y", "y")]
+)
+def test_every_plane_spelling_reads_back_as_x_or_y(plane: str, read: str):
+    line = _line(**_orm(observables=[["SR_BPM1", plane], ["SR_BPM1", "y"]]))
+
+    result = parse_measure_result(line, [], "orm")
+
+    assert result["observables"] == [["SR_BPM1", read], ["SR_BPM1", "y"]]
+
+
+def test_an_observable_without_a_plane_is_refused_by_name():
+    line = _line(**_orm(observables=[["SR_BPM1", ""], ["SR_BPM1", "y"]]))
+
+    with pytest.raises(MeasureResultError, match=r"observable 'SR_BPM1' has no plane"):
+        parse_measure_result(line, [], "orm")
+
+
+def test_an_observable_with_an_unknown_plane_is_refused_by_name():
+    line = _line(**_orm(observables=[["SR_BPM1", "s"], ["SR_BPM1", "y"]]))
+
+    with pytest.raises(MeasureResultError, match=r"observable 'SR_BPM1' has plane 's'"):
+        parse_measure_result(line, [], "orm")
+
+
+def test_an_observable_without_a_name_is_refused():
+    line = _line(**_orm(observables=[["", "x"], ["SR_BPM1", "y"]]))
+
+    with pytest.raises(MeasureResultError, match="has no name"):
+        parse_measure_result(line, [], "orm")
+
+
 def test_bytes_are_read_as_text():
     result = parse_measure_result(_line(**_orm()).encode(), [], "orm")
 

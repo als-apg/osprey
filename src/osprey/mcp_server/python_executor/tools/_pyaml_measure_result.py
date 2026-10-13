@@ -15,8 +15,9 @@ returns the tool's result for one kind:
   adds ``rf_span_hz`` and ``rf_limited_by``, the chromaticity monitor
   ``e_delta_used``;
 * a completed ``orm``, ``dispersion``, ``trm`` or ``crm``: ``shape``,
-  ``observables`` (``[name, plane]`` per row), ``variables`` (one name per
-  column), the steps used and ``data_file``;
+  ``observables`` (``[name, plane]`` per row, the plane read as ``x`` or
+  ``y``), ``variables`` (one name per column), the steps used and
+  ``data_file``;
 * a completed ``chromaticity_monitor``: ``chromaticity`` ``[xi_x, xi_y]`` and
   ``data_file``;
 * a stopped run: the steps used, the ``restore`` report and ``remainder``, the
@@ -54,6 +55,13 @@ _MATRIX_KINDS = ("orm", "dispersion", "trm", "crm")
 
 #: The planes a row may be read in.
 _PLANES = ("x", "y")
+
+#: Each plane spelling pyAML labels a row with, matched without case, and the
+#: plane it is read in.
+_PLANE_SPELLINGS = {"h": "x", "x": "x", "v": "y", "y": "y"}
+
+#: How a row is labelled, said when a label is refused.
+_LABELLED = "observables are labelled <name>.<plane> with plane H, V, x or y"
 
 #: The request values the script echoes: the stepping it ran and, for a group,
 #: what sized its step.
@@ -117,16 +125,24 @@ def _names(line: Mapping[str, Any], name: str) -> list[str]:
 
 
 def _observables(line: Mapping[str, Any]) -> list[list[str]]:
+    """Each row's ``[name, plane]``, the plane read as ``x`` or ``y``."""
     value = _require(line, "observables")
     if not isinstance(value, list) or not all(
-        isinstance(item, list)
-        and len(item) == 2
-        and isinstance(item[0], str)
-        and item[1] in _PLANES
+        isinstance(item, list) and len(item) == 2 and all(isinstance(part, str) for part in item)
         for item in value
     ):
         raise MeasureResultError(f"'observables' is not a list of [name, plane]: {value!r}")
-    return [list(item) for item in value]
+    rows = []
+    for name, plane in value:
+        if not name:
+            raise MeasureResultError(f"observable with plane {plane!r} has no name; {_LABELLED}")
+        if not plane:
+            raise MeasureResultError(f"observable {name!r} has no plane; {_LABELLED}")
+        read = _PLANE_SPELLINGS.get(plane.lower())
+        if read is None:
+            raise MeasureResultError(f"observable {name!r} has plane {plane!r}; {_LABELLED}")
+        rows.append([name, read])
+    return rows
 
 
 def _shape(line: Mapping[str, Any]) -> list[int]:

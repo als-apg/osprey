@@ -33,7 +33,10 @@ import pyaml_cs_osprey.run_tool as run_tool_module
 from osprey.facility.views.facts import measurement_records
 from osprey.mcp_server.python_executor.executor import _record_reports
 from osprey.mcp_server.python_executor.tools import _pyaml_measure_script as script_module
-from osprey.mcp_server.python_executor.tools._pyaml_measure_result import parse_measure_result
+from osprey.mcp_server.python_executor.tools._pyaml_measure_result import (
+    MeasureResultError,
+    parse_measure_result,
+)
 from osprey.mcp_server.python_executor.tools._pyaml_measure_script import (
     DELTA_BASES,
     RESULT_TAG,
@@ -370,15 +373,23 @@ def _run(
 
 
 def _round_trip(
-    render: Path, execution: Path, capsys: pytest.CaptureFixture[str], **request: Any
+    render: Path,
+    execution: Path,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    stdout: list[str] | None = None,
+    **request: Any,
 ) -> dict[str, Any]:
     """Execute the rendered script; the result the parser reads from its stdout and record.
 
     The reports are the ones this run added to ``guarded_run.restore_reports()``,
-    filed and read back as the execution record carries them.
+    filed and read back as the execution record carries them. ``stdout`` gets
+    what the script printed there.
     """
     before = len(guarded_run.restore_reports())
     captured = _execute(render, execution, capsys, **request)
+    if stdout is not None:
+        stdout.append(captured.out)
     record = json.loads(json.dumps({"restore_reports": guarded_run.restore_reports()[before:]}))
     return parse_measure_result(captured.out, _record_reports(record), request["kind"])
 
@@ -470,7 +481,7 @@ def test_a_bipolar_orm_runs_pyamls_tool_with_one_step(render, execution, capsys,
         "sleep_between_meas": 0.5,
     }
     assert result["deltas"] == {H_NAMES[0]: CORRECTOR_DELTA, V_NAMES[0]: CORRECTOR_DELTA}
-    assert result["observables"] == [["SR_BPM01", "x"], ["SR_BPM01", "y"]]
+    assert result["observables"] == [["SR_BPM01", "H"], ["SR_BPM01", "V"]]
     assert FakeStep.built == []
 
 
@@ -860,7 +871,7 @@ def test_the_chromaticity_monitors_printed_result_is_one_the_parser_accepts(
     assert not {"observables", "variables", "deltas"} & set(result)
 
 
-@pytest.mark.parametrize("planes", [["H", "V"], ["h", "v"], ["x", "y"]])
+@pytest.mark.parametrize("planes", [["H", "V"], ["h", "v"], ["x", "y"], ["X", "Y"]])
 def test_every_plane_spelling_pyaml_uses_reads_back_as_x_and_y(
     render, execution, capsys, holder, planes
 ):
@@ -869,6 +880,29 @@ def test_every_plane_spelling_pyaml_uses_reads_back_as_x_and_y(
     result = _round_trip(render, execution, capsys, kind="orm")
 
     assert result["observables"] == BPM_PLANES
+
+
+def test_a_plane_less_observable_name_is_refused_by_the_parser_by_name(
+    render, execution, capsys, holder
+):
+    holder.orm.latest_measurement["observable_names"] = ["SR_BPM01", "SR_BPM01"]
+    holder.orm.latest_measurement.pop("observable_planes")
+    printed: list[str] = []
+
+    with pytest.raises(MeasureResultError, match=r"'SR_BPM01' has no plane"):
+        _round_trip(render, execution, capsys, stdout=printed, kind="orm")
+
+    ((out,),) = [printed]
+    ((line,),) = [out.splitlines()]
+    assert line.startswith(RESULT_TAG + " ")
+    assert (execution / "pyaml_measure_orm.json").is_file()
+
+
+def test_an_unknown_plane_is_refused_by_the_parser_by_name(render, execution, capsys, holder):
+    holder.orm.latest_measurement["observable_planes"] = ["H", "S"]
+
+    with pytest.raises(MeasureResultError, match=r"'SR_BPM01' has plane 'S'"):
+        _round_trip(render, execution, capsys, kind="orm")
 
 
 def test_a_stopped_measurements_printed_result_and_recorded_report_reach_the_parser(

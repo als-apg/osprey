@@ -422,17 +422,20 @@ class Recorder:
         return True
 
 
-#: pyAML's plane names, spelled as the result's planes.
-PLANES = {"h": "x", "v": "y", "x": "x", "y": "y"}
+def split_label(name):
+    """``[name, plane]`` of a ``<name>.<plane>`` label, the plane empty when it has none."""
+    head, dot, tail = name.rpartition(".")
+    return [head, tail] if dot else [name, ""]
 
 
 def observables(measured, holder, bpm_array):
+    """The rows' labels as pyAML gives them; the parser judges their planes."""
     names = list(measured.get("observable_names") or [])
     planes = measured.get("observable_planes")
     if planes:
-        return [[str(n), PLANES.get(str(p).lower(), str(p).lower())] for n, p in zip(names, planes)]
+        return [[str(n), str(p)] for n, p in zip(names, planes)]
     if names:
-        return [[n.rsplit(".", 1)[0], n.rsplit(".", 1)[1]] for n in names]
+        return [split_label(str(n)) for n in names]
     bpms = list(holder.bpms.get(bpm_array).names())
     return [[n, "x"] for n in bpms] + [[n, "y"] for n in bpms]
 
