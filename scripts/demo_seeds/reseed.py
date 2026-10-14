@@ -12,7 +12,8 @@ data.
 Every setpoint gets its ``tolerance`` from the one ``tolerance`` row that
 matches it, converted into its unit and written ``{absolute: <x>}`` directly
 after its ``pair:`` line in ``records/channels.yaml``; every other byte of that
-file stays as it is. A setpoint no row matches, or whose tolerance is below the
+file stays as it is. A write-only command, a setpoint with no ``pair``, has no
+readback to settle and takes no tolerance. A setpoint no row matches, or whose tolerance is below the
 motion envelope of the readback it pairs with, is an error.
 
 The outputs are the committed ``seeds.yaml``, addresses sorted, each entry's
@@ -252,7 +253,7 @@ def tolerances(tree: Path = TREE, rules: list[dict[str, Any]] | None = None) -> 
     devices = {record["id"]: record for record in load(tree / "records/devices.yaml")}
     stamped: dict[str, float] = {}
     for channel in load(tree / CHANNELS):
-        if channel.get("role") != "setpoint":
+        if channel.get("role") != "setpoint" or "pair" not in channel:
             continue
         address, device = channel["id"], channel.get("on", {}).get("device")
         row = None
