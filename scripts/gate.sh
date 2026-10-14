@@ -101,10 +101,10 @@ serial() {
 step "lockfile"
 uv lock --check
 
-step "ruff check"
+step "ruff (linting)"
 uv run ruff check .
 
-step "ruff format"
+step "ruff (formatting)"
 uv run ruff format --check .
 
 step "config keys"

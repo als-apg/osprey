@@ -36,6 +36,7 @@ INVOCATION_SURFACES = (
     "scripts/ci_check.sh",
     "scripts/quick_check.sh",
     "scripts/premerge_check.sh",
+    "scripts/gate.sh",
     "CONTRIBUTING.md",
     "docs/source/contributing/development-setup.rst",
     "plugins/osprey/skills/pre-commit/SKILL.md",

@@ -20,7 +20,7 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = _REPO_ROOT / "scripts" / "run_bounded.py"
-GATE_SCRIPTS = ("quick_check.sh", "premerge_check.sh", "ci_check.sh")
+GATE_SCRIPTS = ("quick_check.sh", "premerge_check.sh", "ci_check.sh", "gate.sh")
 
 _WRAPPER_PREFIX = re.compile(r"uv run python scripts/run_bounded\.py [0-9.]+ -- ")
 
