@@ -286,9 +286,10 @@ def _monitor_addresses(facility: Path) -> list[str]:
 
     A monitor reading is an address whose wiring record in ``models.yaml``
     the model's engine describes as a ``monitor``, or as an ``output`` of one
-    plane (a tune or a chromaticity). The source states no direction, so each
-    record is described as a reading; a setting record then describes as its
-    readback and is not one.
+    plane (a tune or a chromaticity). The source states no direction, so a
+    record takes the one its channel implies -- ``write`` for a setpoint
+    channel, else ``read`` -- and a setting or command then describes as a
+    setpoint and is not one.
     """
     from importlib import metadata
 
@@ -296,13 +297,20 @@ def _monitor_addresses(facility: Path) -> list[str]:
     from osprey_connectors.simulation.view import TEXTURE
 
     models = yaml.safe_load((facility / "models.yaml").read_text(encoding="utf-8")) or []
+    records = (facility / "records" / "channels.yaml").read_text(encoding="utf-8")
+    setpoints = {
+        str(channel["id"])
+        for channel in yaml.safe_load(records) or []
+        if channel.get("role") == "setpoint"
+    }
     monitors: set[str] = set()
     for model in models:
         if model.get("engine") == TEXTURE or not model.get("wiring"):
             continue
         describe = metadata.entry_points(group=ENTRY_POINT_GROUP)[str(model["engine"])].load()
         for record in model["wiring"]:
-            described = describe.describe({**record, "direction": "read"})
+            direction = "write" if str(record["address"]) in setpoints else "read"
+            described = describe.describe({**record, "direction": direction})
             if described["role"] == "monitor" or (
                 described["role"] == "output" and described["plane"] is not None
             ):
