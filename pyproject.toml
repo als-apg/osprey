@@ -432,8 +432,6 @@ virtual-accelerator = [
 # from tuning_scripts. Torch and the BoTorch stack are gigabytes, so like the
 # virtual accelerator this is installed only in the service's own image and
 # stays out of `all`. Torch resolves from the CPU wheel index (tool.uv.sources).
-# The search stack is pinned to the versions tuning_scripts was benchmarked on:
-# a bump can change how the optimizer searches, so it is its own benchmarked change.
 optimizer = [
     "xopt==3.1.2",
     "torch==2.13.0",
