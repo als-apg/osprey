@@ -23,8 +23,8 @@ What the lanes hold:
   abort path and answers a stopped result whose ``moved`` lists each setpoint
   with its value before the call. ``SIGINT`` is the stop: the executor's own
   cancel sends it, and it lands deterministically on the served machine.
-* **What is refused.** A measurement on a held target, naming the holder; a
-  call no hook stamped; a pyAML write from ``execute``; a view whose bytes
+* **What is refused.** A measurement on a held target fails busy at its run,
+  naming the holder; a call no hook stamped; a pyAML write from ``execute``; a view whose bytes
   differ from the facts record; a measurement while writes are off.
 
 Every deployment here starts in the built-in ``still`` scenario, and each lane
@@ -262,17 +262,23 @@ async def test_a_stopped_measurement_lists_each_setpoint_it_moved_with_its_value
 # ---------------------------------------------------------------------------
 
 
-async def test_a_measurement_on_a_held_target_is_denied_naming_its_holder(
+async def test_a_measurement_on_a_held_target_fails_busy_naming_its_holder(
     deployment: gm.Deployment, session: Path
 ) -> None:
     del session
+    stepped = _stepped(deployment, "orm")
+    _assert_still(deployment, stepped)
+    home = gm.ca_read(deployment.port, stepped)
+
     with held_lock(gm.VA_TARGET, root=deployment.repo) as holder:
         asked = gm.ask(deployment, "pyaml_measure", {"kind": "orm", "model": MODEL})
+        assert asked.decision == "ask", asked.reason
+        answer = await gm.call("pyaml_measure", asked.updated_input, asked.tool_use_id)
 
-    assert asked.decision == "deny", asked.reason
-    assert asked.reason.startswith(
-        f"a guarded run is in progress on {gm.VA_TARGET} (pid {holder.pid}, started "
-    ), asked.reason
+    assert answer.error is not None, answer.text
+    assert answer.error["details"]["kind"] == "guarded_run_busy", answer.text
+    assert f"pid {holder.pid}" in answer.error["error_message"], answer.text
+    assert gm.ca_read(deployment.port, stepped) == home
 
 
 async def test_a_call_no_approval_prompt_stamped_is_refused_before_anything_runs(

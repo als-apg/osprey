@@ -16,8 +16,8 @@ accelerator image, and reads the machine over Channel Access:
   the same view holds for it. A server answering with values it never
   computed is not a served machine.
 * **A measurement on the chain stays on the simulator.** ``pyaml_measure``
-  takes the orbit response of ``LTB`` through the approval hook, in one
-  guarded run that clears its journal at the end; the render configures no
+  takes the orbit response of ``LTB`` through the approval hook, under the
+  target's run lock; the render configures no
   target but the simulator, so every write reaches the virtual accelerator
   and none reaches hardware.
 
