@@ -19,10 +19,13 @@ The shared container serves its monitors without their declared noise and
 drift (``conftest.stage_demo_data_dir``), so a reading is the solved orbit and
 nothing else, and every cycle reproduces the first.
 
-Sweep currents stay inside the +/-12 A band ``limits.yaml`` gives this
-corrector: the view carries it as the setpoint's ``value_range`` and the runner
-clamps an out-of-band write into it, so a 20 A write would read back as 12 A
-and corrupt the linearity measurement rather than fail loudly.
+Sweep currents are a small fraction of the +/-12 A band ``limits.yaml`` gives
+this corrector. The band's ends are milliradian kicks, where feed-down bends
+the response by several percent, so the sweep stays at microradian kicks, in
+the linear regime this test asserts. The view carries the band as the
+setpoint's ``value_range`` and the runner clamps an out-of-band write into it,
+so a 20 A write would read back as 12 A and corrupt the linearity measurement
+rather than fail loudly.
 """
 
 from __future__ import annotations
@@ -38,8 +41,12 @@ CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
 BPM_X = "SR:DIAG:BPM:01:POSITION:X"
 BPM_Y = "SR:DIAG:BPM:01:POSITION:Y"  # HCM steers x only; y should stay ~put (plane decoupling)
 
+#: The sweep's base current, in amperes: a kick of a few microradians, where
+#: the antisymmetry and doubling residuals are a tenth of LINEAR_REL_TOL.
+SWEEP_CURRENT_A = 0.05
+
 SETTLE_BOUND_S = 1.0
-NONZERO_FLOOR_M = 1e-5  # 10 microns -- comfortably below the documented mm-scale shift
+NONZERO_FLOOR_M = 1e-5  # 10 microns -- a quarter of the shift the smaller sweep current gives
 LINEAR_REL_TOL = 0.02  # 2%: sextupole feed-down at these amplitudes stays far inside it
 #: Two solves at one corrector setting agree to this, in metres: the readings
 #: carry no motion, so only the solver's own rounding separates them.
@@ -76,13 +83,19 @@ async def _read_bpm(connector, address: str, *, retries: int = 10, delay: float 
 
 
 async def _measure_one_cycle(connector) -> dict[str, float]:
-    """Write 0, +5, -5, +10 A in turn and return each state's BPM01 (x, y).
+    """Write 0, +I, -I, +2I in turn and return each state's BPM01 (x, y).
 
-    All amplitudes are inside the committed +/-12 A band -- see the module
-    docstring for why exceeding it silently clamps instead of failing.
+    All amplitudes are far inside the committed +/-12 A band -- see the module
+    docstring for why exceeding it silently clamps instead of failing, and
+    for why the sweep stays this small.
     """
     readings: dict[str, tuple[float, float]] = {}
-    for label, current in (("zero", 0.0), ("plus5", 5.0), ("minus5", -5.0), ("plus10", 10.0)):
+    for label, current in (
+        ("zero", 0.0),
+        ("plus", SWEEP_CURRENT_A),
+        ("minus", -SWEEP_CURRENT_A),
+        ("double", 2 * SWEEP_CURRENT_A),
+    ):
         await _write_current(connector, current)
         x = await _read_bpm(connector, BPM_X, retries=3, delay=0.05)
         y = await _read_bpm(connector, BPM_Y, retries=1, delay=0.0)
@@ -119,30 +132,30 @@ class TestOrbitResponse:
                     f"cycle {i}: BPM01 y at {label} read {y}, cycle 0 read {first_y}"
                 )
             x0, y0 = readings["zero"]
-            x_p5, y_p5 = readings["plus5"]
-            x_m5, _ = readings["minus5"]
-            x_p10, _ = readings["plus10"]
+            x_plus, y_plus = readings["plus"]
+            x_minus, _ = readings["minus"]
+            x_double, _ = readings["double"]
 
-            delta_p5 = x_p5 - x0
-            delta_m5 = x_m5 - x0
-            delta_p10 = x_p10 - x0
+            delta_plus = x_plus - x0
+            delta_minus = x_minus - x0
+            delta_double = x_double - x0
 
-            assert abs(delta_p5) > NONZERO_FLOOR_M, (
-                f"cycle {i}: +5A produced a negligible BPM01 x shift ({delta_p5} m) -- "
+            assert abs(delta_plus) > NONZERO_FLOOR_M, (
+                f"cycle {i}: +I produced a negligible BPM01 x shift ({delta_plus} m) -- "
                 "corrector write is not reaching the physics bridge"
             )
             # Antisymmetric: +I and -I give opposite shifts, not naive same-sign.
-            assert delta_p5 == pytest.approx(-delta_m5, rel=LINEAR_REL_TOL), (
-                f"cycle {i}: +5A shift ({delta_p5}) is not antisymmetric with "
-                f"-5A shift ({delta_m5})"
+            assert delta_plus == pytest.approx(-delta_minus, rel=LINEAR_REL_TOL), (
+                f"cycle {i}: +I shift ({delta_plus}) is not antisymmetric with "
+                f"-I shift ({delta_minus})"
             )
             # Linear: 2x the current doubles the shift.
-            assert delta_p10 == pytest.approx(2 * delta_p5, rel=LINEAR_REL_TOL), (
-                f"cycle {i}: +10A shift ({delta_p10}) is not double the +5A shift ({delta_p5})"
+            assert delta_double == pytest.approx(2 * delta_plus, rel=LINEAR_REL_TOL), (
+                f"cycle {i}: +2I shift ({delta_double}) is not double the +I shift ({delta_plus})"
             )
             # Plane decoupling: HCM steers x only -- y stays put at BPM01.
-            assert y_p5 == pytest.approx(y0, abs=1e-6), (
-                f"cycle {i}: HCM write moved BPM01 y ({y0} -> {y_p5}); "
+            assert y_plus == pytest.approx(y0, abs=1e-6), (
+                f"cycle {i}: HCM write moved BPM01 y ({y0} -> {y_plus}); "
                 "expected x/y plane decoupling to hold"
             )
 

@@ -56,6 +56,8 @@ PYAML = (
     "data/pyaml/SR/configuration.yaml",
     "data/pyaml/SR/crm.json",
     "data/pyaml/SR/lattice.json",
+    "data/pyaml/SR/trajectory_rm.index.json",
+    "data/pyaml/SR/trajectory_rm.json",
     "data/pyaml/SR/trm.json",
 )
 
@@ -310,7 +312,20 @@ def test_the_demo_wiring_is_simulator_wiring_serialised(
         "name": "SR",
         "engine": "pyat",
         "served": True,
-        "settings": {"pyat": {"solve": "periodic"}},
+        "settings": {
+            "pyat": {
+                "solve": "periodic",
+                "injection": {
+                    "marker": "INJ",
+                    "x": 0.0,
+                    "px": 0.0,
+                    "y": 0.0,
+                    "py": 0.0,
+                    "delta": 0.0,
+                    "ct": 0.0,
+                },
+            }
+        },
         "deck": "decks/SR.json",
         "wiring": None,
     }
@@ -336,7 +351,7 @@ def test_every_wiring_entry_carries_the_engines_description(
         }
         assert "kind" not in entry
         roles.add(entry["role"])
-    assert roles == {"setpoint", "readback", "monitor", "output"}
+    assert roles == {"setpoint", "readback", "monitor", "output", "turn_series"}
     facility_sr = next(m for m in built_control_assistant.facility["models"] if m["name"] == "SR")
     assert not set(DESCRIPTION_KEYS) & set(facility_sr["wiring"][0])
 

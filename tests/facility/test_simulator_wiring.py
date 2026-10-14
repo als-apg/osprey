@@ -35,9 +35,21 @@ ENTRY_KEYS = {
     "role",
     "plane",
     "refresh",
+    "command",
+    "value_type",
+    "shape",
 }
 ALWAYS = {"id", "address", "engine", "direction", "default", "role", "plane", "refresh"}
 UNWIRED_ELEMENT = {"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
+
+#: The element-free records of an injected shot: each monitor's arm command
+#: and armed flag, and the injection request.
+SHOT_FLAGS = {
+    f"SR:DIAG:BPM:{n:02d}:TBT:{tail}" for n in range(1, 73) for tail in ("ARM", "ARMED")
+} | {"SR:DIAG:INJECTION:REQUEST"}
+
+#: Each monitor's turn-by-turn sum: on its element, with no calibration.
+SHOT_SUMS = {f"SR:DIAG:BPM:{n:02d}:TBT:SUM" for n in range(1, 73)}
 
 
 @pytest.fixture(scope="module")
@@ -59,7 +71,7 @@ def test_every_sr_record_becomes_one_entry_in_order(
     demo: FacilityDocument, sr: list[dict[str, Any]]
 ) -> None:
     records = _records(demo, "SR")
-    assert len(sr) == len(records) == 846
+    assert len(sr) == len(records) == 1207
     assert [entry["id"] for entry in sr] == [record["id"] for record in records]
 
 
@@ -68,15 +80,18 @@ def test_every_entry_has_the_wiring_entry_shape(sr: list[dict[str, Any]]) -> Non
         assert set(entry) <= ENTRY_KEYS, entry["id"]
         assert set(entry) >= ALWAYS, entry["id"]
         assert entry["direction"] in {"read", "write"}
+    commands = {entry["address"] for entry in sr if entry.get("command")}
+    assert commands == {address for address in SHOT_FLAGS if not address.endswith(":ARMED")}
 
 
 def test_calibration_and_element_appear_exactly_where_the_record_carries_them(
     sr: list[dict[str, Any]],
 ) -> None:
     bare = {entry["address"] for entry in sr if "calibration" not in entry}
-    assert bare == UNWIRED_ELEMENT
-    assert {entry["address"] for entry in sr if "element" not in entry} == UNWIRED_ELEMENT
-    assert sum("calibration" in entry for entry in sr) == 842
+    assert bare == UNWIRED_ELEMENT | SHOT_FLAGS | SHOT_SUMS
+    unplaced = {entry["address"] for entry in sr if "element" not in entry}
+    assert unplaced == UNWIRED_ELEMENT | SHOT_FLAGS
+    assert sum("calibration" in entry for entry in sr) == 986
 
 
 def test_unit_appears_exactly_where_the_channel_states_one(
@@ -88,7 +103,7 @@ def test_unit_appears_exactly_where_the_channel_states_one(
             assert entry["unit"] == units[entry["address"]]
         else:
             assert "unit" not in entry
-    assert sum("unit" in entry for entry in sr) == 842
+    assert sum("unit" in entry for entry in sr) == 986
 
 
 def test_value_range_appears_exactly_where_the_limits_record_bounds_the_channel(

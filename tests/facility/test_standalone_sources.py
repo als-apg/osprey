@@ -59,9 +59,14 @@ def test_paired_readbacks_start_at_their_setpoint_value() -> None:
         for address, record in wiring.items()
         if record["direction"] == "read" and address not in setpoint_of
     ]
-    assert len(unpaired) == 156
-    assert sum(":BPM:" in address for address in unpaired) == 152
-    assert all(wiring[address]["default"] == 0.0 for address in unpaired)
+    # 156 orbit and diagnostic readbacks, plus the turn-by-turn x / y / sum
+    # series and armed flag on each of the ring's 72 BPMs.
+    assert len(unpaired) == 156 + 4 * 72
+    assert sum(":BPM:" in address for address in unpaired) == 152 + 4 * 72
+    series = [address for address in unpaired if isinstance(wiring[address]["default"], list)]
+    assert len(series) == 3 * 72
+    assert all(set(wiring[address]["default"]) == {0.0} for address in series)
+    assert all(wiring[address]["default"] == 0.0 for address in unpaired if address not in series)
 
 
 def test_hello_world_tree_builds_with_the_tutorial_channels() -> None:

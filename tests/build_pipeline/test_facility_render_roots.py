@@ -77,6 +77,8 @@ def test_the_facility_file_is_written_only_through_render_facility_outputs(
             "data/pyaml/SR/configuration.yaml",
             "data/pyaml/SR/crm.json",
             "data/pyaml/SR/lattice.json",
+            "data/pyaml/SR/trajectory_rm.index.json",
+            "data/pyaml/SR/trajectory_rm.json",
             "data/pyaml/SR/trm.json",
             "data/simulator/addresses.json",
             "data/simulator/decks/LINE.json",

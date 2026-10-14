@@ -13,8 +13,8 @@ rendered view, on every served channel:
   family-wise false-alarm rate of 1e-4 allows;
 * **across a scenario switch**, every paired texture setpoint and its readback
   return to their seed in both;
-* **under a scenario the physics model cannot solve**, every channel reads
-  with the alarm severity the composite gives it;
+* **under a scenario with no closed orbit**, the physics model is degraded
+  and every channel reads with the alarm severity the composite gives it;
 * **at nominal**, the served values are the captured
   ``tests/facility/golden/nominal_va.json``, every difference declared below
   by cause;
@@ -22,7 +22,7 @@ rendered view, on every served channel:
   among them, :func:`decode_char_waveform` reads the wire value as the text
   the composite holds.
 
-**Two containers.** The held, nominal, scenario-switch, failed-scenario and
+**Two containers.** The held, nominal, scenario-switch, degraded-scenario and
 string checks use
 this directory's session container (``conftest.va_container``), which serves
 its monitors without their declared motion so a monitor reading is the solved
@@ -154,6 +154,7 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 import yaml  # noqa: E402
 
+from osprey.simulation.engines.pyat import NO_CLOSED_ORBIT  # noqa: E402
 from osprey_connectors.control_system.va_in_process_connector import UDF_SEVERITY  # noqa: E402
 from osprey_connectors.simulation import decode_char_waveform  # noqa: E402
 from osprey_connectors.simulation.envelope import declares_motion, noise_sigma  # noqa: E402
@@ -213,10 +214,13 @@ BURST_THRESHOLD = 1e-6
 #: The operating point the held comparison is taken at: a horizontal and a
 #: vertical corrector the other suites in this directory never write, so the
 #: closed orbit is nonzero at every monitor, and a texture setpoint whose
-#: write echoes into its readback.
+#: write echoes into its readback. The corrector currents are kicks of a few
+#: microradians: the orbit stays tens of microns, where the two platforms'
+#: chromaticity solves agree inside :data:`CHROMATICITY_TOL`; at a millimetre
+#: orbit their rounding reaches the chromaticity several times larger.
 OPERATING_POINT: dict[str, float] = {
-    "SR:MAG:HCM:11:CURRENT:SP": 1.5,
-    "SR:MAG:VCM:11:CURRENT:SP": -0.75,
+    "SR:MAG:HCM:11:CURRENT:SP": 0.015,
+    "SR:MAG:VCM:11:CURRENT:SP": -0.0075,
     "SR:RF:CAVITY:01:VOLTAGE:SP": 2.6,
 }
 
@@ -259,8 +263,8 @@ NOMINAL_ADDITIONS: dict[str, frozenset[str]] = {
     ),
     "the suite's synthetic string channel": frozenset({e2e_conftest.STRING_CHANNEL}),
 }
-#: The physics model's status channel: ``ok`` while it solves, its error text
-#: once it fails.
+#: The physics model's status channel: ``ok`` while it solves, ``no closed
+#: orbit`` while it is degraded, its error text once it fails.
 SR_STATUS = "ca:SIM:SR:STATUS"
 
 #: Container-name prefix of the noise container; the pid follows, as for the
@@ -644,28 +648,30 @@ def _sr_status() -> str:
     return decode_char_waveform(_read(e2e_conftest.CA_PORT, [SR_STATUS])[SR_STATUS]["value"])
 
 
-def test_a_failed_scenario_reads_with_the_composites_severity(
+def test_a_degraded_scenario_reads_with_the_composites_severity(
     va_container: e2e_conftest.VaProject, session_view: View
 ) -> None:
-    """A channel of the failed model reads ``udf``'s severity on the wire and
-    in process alike; every other channel reads none."""
+    """A channel the degraded model lists reads ``udf``'s severity on the wire
+    and in process alike; every other channel, its setpoints included, reads
+    none."""
     _to_nominal(va_container)
     applied = va_container.sim_apply(e2e_conftest.UNSTABLE_SCENARIO_NAME)
     assert applied.returncode == 0, applied.stdout + applied.stderr
     try:
         deadline = time.monotonic() + SWITCH_BOUND_S
-        while _sr_status() == "ok":
-            assert time.monotonic() < deadline, "the container never failed the physics model"
+        while _sr_status() != NO_CLOSED_ORBIT:
+            assert time.monotonic() < deadline, "the container never degraded the physics model"
             time.sleep(0.2)
         wire = _read(e2e_conftest.CA_PORT, session_view.addresses)
         mock = _composite(session_view, va_container.state_dir)
-        failed = mock.output_severity(session_view.addresses)
+        listed = mock.output_severity(session_view.addresses)
         mock_status = mock.status("SR")
+        mock_built = mock.built("SR")
     finally:
         _to_nominal(va_container)
 
     expected = {
-        address: UDF_SEVERITY if address in failed else 0 for address in session_view.addresses
+        address: UDF_SEVERITY if address in listed else 0 for address in session_view.addresses
     }
     differing = {
         address: (expected[address], wire[address]["severity"])
@@ -673,7 +679,8 @@ def test_a_failed_scenario_reads_with_the_composites_severity(
         if wire[address]["severity"] != expected[address]
     }
 
-    assert failed and mock_status != "ok"
+    assert mock_built and mock_status == NO_CLOSED_ORBIT
+    assert listed and e2e_conftest.UNSTABLE_QUADRUPOLE not in listed
     assert differing == {}
 
 
