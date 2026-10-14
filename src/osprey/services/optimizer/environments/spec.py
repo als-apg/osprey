@@ -18,6 +18,14 @@ One file per environment under the deployment's environments directory::
         direction: MINIMIZE
         units: m
     default_objective: orbit_rms_y
+    presets:
+      gentle:
+        description: Corrector 01 only, within 1 A of where it is
+        variables: [SR:MAG:VCM:01:CURRENT:SP]
+        variable_overrides:
+          SR:MAG:VCM:01:CURRENT:SP: {window_abs: 1.0}
+        algorithm: upper_confidence_bound
+        n_iterations: 30
 
 A variable's key is its setpoint channel unless ``setpoint`` says otherwise;
 its readback defaults to the setpoint. ``{01..72}`` in a channel name expands
@@ -33,6 +41,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from osprey.services.optimizer.models.config import Preset
 from osprey.services.optimizer.models.protocols import (
     ObservableMetadata,
     PVObservable,
@@ -42,6 +51,7 @@ from osprey.services.optimizer.models.protocols import (
 from osprey.services.optimizer.models.types import Direction, validate_min_le_max
 
 _RANGE = re.compile(r"\{(\d+)\.\.(\d+)\}")
+_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 # An environment file is operator-authored config, not data; anything this big is a mistake.
 MAX_FILE_BYTES = 256 * 1024
 
@@ -121,7 +131,7 @@ class EnvironmentFile(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+    name: str = Field(pattern=rf"^{_NAME.pattern}$")
     display_name: str = ""
     description: str = ""
     variables: dict[str, VariableSpec] = Field(min_length=1)
@@ -130,6 +140,8 @@ class EnvironmentFile(BaseModel):
     settle_seconds: float = Field(default=0.0, ge=0.0)
     """Wait after every write, once readbacks agree, before reading observables."""
     readback_timeout_seconds: float = Field(default=5.0, gt=0.0)
+    presets: dict[str, Preset] = Field(default_factory=dict)
+    """Named run setups an operator or the agent can start from."""
 
     @model_validator(mode="after")
     def _objective_known(self) -> EnvironmentFile:
@@ -144,6 +156,23 @@ class EnvironmentFile(BaseModel):
                 raise ValueError(f"default_objective {self.default_objective!r} is not selectable")
         elif not any(o.selectable_as_objective for o in self.observables.values()):
             raise ValueError("no observable is selectable as an objective")
+        return self
+
+    @model_validator(mode="after")
+    def _presets_known(self) -> EnvironmentFile:
+        for key, preset in self.presets.items():
+            if not _NAME.fullmatch(key):
+                raise ValueError(f"preset name {key!r} is not a plain identifier")
+            named = [*(preset.variables or []), *preset.variable_overrides]
+            unknown = sorted({n for n in named if n not in self.variables})
+            if unknown:
+                raise ValueError(f"preset {key!r} names unknown variable(s) {unknown}")
+            objective = preset.objective_name
+            if objective is not None and not (
+                objective in self.observables
+                and self.observables[objective].selectable_as_objective
+            ):
+                raise ValueError(f"preset {key!r}: {objective!r} is not a selectable observable")
         return self
 
     def variable_metadata(self) -> dict[str, VariableMetadata]:

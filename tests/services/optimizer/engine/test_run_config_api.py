@@ -2,7 +2,7 @@
 
 Covers: POST /environments/{name}/resolve-bounds,
         GET /environments/{name}/initial-bounds,
-        GET /environments/{name}/template-defaults.
+        GET /environments/{name}/presets.
 """
 
 from typing import Any
@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.services.optimizer.models.config import Preset
 from osprey.services.optimizer.models.exceptions import TimeoutError as OptimizerTimeoutError
 from osprey.services.optimizer.models.protocols import (
     PVReading,
@@ -171,20 +172,18 @@ class TestResolveBoundsEndpoint:
 
 class TestInitialBoundsEndpoint:
     @pytest.mark.parametrize(
-        ("env_name", "template_defaults", "expected_min", "expected_max", "expected_clamped"),
+        ("preset", "expected_min", "expected_max", "expected_clamped"),
         [
             # mock env: var1 safety [0,10], current 5.0, fraction 0.1 → [4.5, 5.5]
             pytest.param(
-                "phase_tuning",
                 {"variable_overrides": {"var1": {"window_fraction": 0.1}}},
                 4.5,
                 5.5,
                 False,
-                id="template_overrides_applied",
+                id="preset_overrides_applied",
             ),
-            pytest.param("sim", None, 0.0, 10.0, False, id="no_template_passes_safety_through"),
+            pytest.param(None, 0.0, 10.0, False, id="no_preset_passes_safety_through"),
             pytest.param(
-                "bad_tpl",
                 {"variable_overrides": {"var1": {"min": 50.0, "max": 60.0}}},
                 10.0,
                 10.0,
@@ -193,21 +192,23 @@ class TestInitialBoundsEndpoint:
             ),
         ],
     )
-    def test_initial_bounds_from_template(
+    def test_initial_bounds_from_preset(
         self,
         client: TestClient,
         mock_registry: MagicMock,
-        env_name: str,
-        template_defaults: dict[str, Any] | None,
+        preset: dict[str, Any] | None,
         expected_min: float,
         expected_max: float,
         expected_clamped: bool,
     ) -> None:
-        """Template variable_overrides drive the window; without a template the
+        """A preset's variable_overrides drive the window; without a preset the
         safety range passes through; an override entirely outside safety collapses
         to the nearest safety endpoint."""
-        mock_registry.get_template_defaults.return_value = template_defaults
-        resp = client.get(f"/environments/{env_name}/initial-bounds")
+        params = {}
+        if preset is not None:
+            mock_registry.get_presets.return_value = {"p": Preset.model_validate(preset)}
+            params["preset"] = "p"
+        resp = client.get("/environments/sim/initial-bounds", params=params)
         assert resp.status_code == 200
         body = resp.json()
         bounds = body["bounds"]["var1"]
@@ -215,6 +216,20 @@ class TestInitialBoundsEndpoint:
         assert bounds["max"] == pytest.approx(expected_max)
         assert bounds["was_clamped"] is expected_clamped
         assert body["current_values"]["var1"]["value"] == 5.0
+
+    def test_unknown_preset_returns_404(self, client: TestClient, mock_registry: MagicMock) -> None:
+        mock_registry.get_presets.return_value = {}
+        resp = client.get("/environments/sim/initial-bounds", params={"preset": "nope"})
+        assert resp.status_code == 404
+        assert "no preset 'nope'" in resp.json()["detail"]
+
+    def test_preset_naming_an_unknown_variable_returns_422(
+        self, client: TestClient, mock_registry: MagicMock
+    ) -> None:
+        mock_registry.get_presets.return_value = {"p": Preset(variables=["ghost"])}
+        resp = client.get("/environments/sim/initial-bounds", params={"preset": "p"})
+        assert resp.status_code == 422
+        assert "ghost" in resp.json()["detail"]
 
     def test_unknown_env_returns_404(self, client: TestClient, mock_registry: MagicMock) -> None:
         mock_registry.load_environment.side_effect = KeyError("nope")
@@ -233,7 +248,6 @@ class TestInitialBoundsEndpoint:
         self, client: TestClient, mock_registry: MagicMock, mock_env: MockEnvironment
     ) -> None:
         """An unexpected get_variables error while reading current values -> 500."""
-        mock_registry.get_template_defaults.return_value = {}
         with patch.object(mock_env, "get_variables", side_effect=RuntimeError("read broke")):
             resp = client.get("/environments/sim/initial-bounds")
         assert resp.status_code == 500
@@ -243,15 +257,15 @@ class TestInitialBoundsEndpoint:
         self, client: TestClient, mock_registry: MagicMock, mock_env: MockEnvironment
     ) -> None:
         """A None readback (NaN) falls back to the safety range; the table is still usable."""
-        mock_registry.get_template_defaults.return_value = {
-            "variable_overrides": {"var1": {"window_fraction": 0.1}},
+        mock_registry.get_presets.return_value = {
+            "p": Preset(variable_overrides={"var1": {"window_fraction": 0.1}})
         }
 
         def _none_readback(variable_names: list[str]) -> dict[str, PVReading]:
             return {n: PVReading(value=None, connected=False) for n in variable_names}
 
         mock_env.get_variables = _none_readback  # type: ignore[method-assign]
-        resp = client.get("/environments/phase_tuning/initial-bounds")
+        resp = client.get("/environments/sim/initial-bounds", params={"preset": "p"})
         assert resp.status_code == 200
         body = resp.json()
         bounds = body["bounds"]["var1"]
@@ -262,45 +276,39 @@ class TestInitialBoundsEndpoint:
         assert body["current_values"]["var1"]["connected"] is False
 
 
-class TestTemplateDefaultsEndpoint:
+class TestPresetsEndpoint:
+    def test_presets_are_returned_by_name(
+        self, client: TestClient, mock_registry: MagicMock
+    ) -> None:
+        mock_registry.get_presets.return_value = {
+            "phase_tuning": Preset(algorithm="extremum_seeking", n_iterations=100)
+        }
+        resp = client.get("/environments/sim/presets")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert list(body) == ["phase_tuning"]
+        assert body["phase_tuning"]["algorithm"] == "extremum_seeking"
+        assert body["phase_tuning"]["n_iterations"] == 100
+        mock_registry.get_presets.assert_called_once_with("sim")
+
+    def test_no_presets_is_an_empty_mapping(
+        self, client: TestClient, mock_registry: MagicMock
+    ) -> None:
+        mock_registry.get_presets.return_value = {}
+        resp = client.get("/environments/sim/presets")
+        assert resp.status_code == 200
+        assert resp.json() == {}
+
     @pytest.mark.parametrize(
-        ("env_name", "defaults", "expected_json"),
+        ("error", "code"),
         [
-            pytest.param(
-                "phase_tuning",
-                {"algorithm": "extremum_seeking", "n_iterations": 100},
-                {"algorithm": "extremum_seeking", "n_iterations": 100},
-                id="template_defaults_returned",
-            ),
-            pytest.param(
-                "partial",
-                {"algorithm": "neldermead"},
-                {"algorithm": "neldermead", "n_iterations": None},
-                id="partial_defaults_filled_with_none",
-            ),
-            pytest.param(
-                "sim", None, {"algorithm": None, "n_iterations": None}, id="plugin_env_all_none"
-            ),
+            pytest.param(KeyError("nope"), 404, id="unknown_env"),
+            pytest.param(ValueError("bad"), 422, id="bad_plugin_presets"),
         ],
     )
-    def test_template_defaults(
-        self,
-        client: TestClient,
-        mock_registry: MagicMock,
-        env_name: str,
-        defaults: dict[str, Any] | None,
-        expected_json: dict[str, Any],
+    def test_errors(
+        self, client: TestClient, mock_registry: MagicMock, error: Exception, code: int
     ) -> None:
-        mock_registry.get_template_defaults.return_value = defaults
-        # Only the plugin-env row reaches the class lookup; inert elsewhere.
-        mock_registry.get_environment_class.return_value = MockEnvironment
-        resp = client.get(f"/environments/{env_name}/template-defaults")
-        assert resp.status_code == 200
-        assert resp.json() == expected_json
-        mock_registry.get_template_defaults.assert_called_once_with(env_name)
-
-    def test_unknown_env_returns_404(self, client: TestClient, mock_registry: MagicMock) -> None:
-        mock_registry.get_template_defaults.return_value = None
-        mock_registry.get_environment_class.side_effect = KeyError("nope")
-        resp = client.get("/environments/nope/template-defaults")
-        assert resp.status_code == 404
+        mock_registry.get_presets.side_effect = error
+        resp = client.get("/environments/nope/presets")
+        assert resp.status_code == code

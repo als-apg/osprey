@@ -55,7 +55,7 @@ def production_client() -> Generator[tuple[TestClient, MagicMock], None, None]:
     env.check_connection.return_value = True
     registry = MagicMock()
     registry.load_environment.return_value = env
-    registry.get_template_defaults.return_value = None
+    registry.get_presets.return_value = {}
     tracker = MagicMock(spec=JobTracker)
     tracker.get_active_job.return_value = None
     app.dependency_overrides[get_environment_registry] = lambda: registry

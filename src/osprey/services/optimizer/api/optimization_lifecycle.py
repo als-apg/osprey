@@ -14,6 +14,7 @@ import uuid
 from fastapi import HTTPException, status
 
 from osprey.services.optimizer.api.environment_ops import (
+    environment_presets,
     lookup_environment,
     require_known_environment,
 )
@@ -131,6 +132,39 @@ def _require_environment(
     require_known_environment(config.environment_name, registry)
 
 
+_PRESET_FIELDS = ("variables", "algorithm", "n_iterations", "objective_name")
+
+
+def _apply_preset(config: OptimizationConfig, registry: EnvironmentRegistry) -> None:
+    """Fill the fields *config* leaves unset from the preset it names.
+
+    A field the caller set, even to its default, is theirs. Overrides merge per
+    variable, the caller's winning, so a draft can start from a preset and
+    widen one window. 422 when the environment has no such preset.
+    """
+    if config.preset is None or config.environment_name is None:
+        return
+    presets = environment_presets(registry, config.environment_name)
+    preset = presets.get(config.preset)
+    if preset is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Environment '{config.environment_name}' has no preset '{config.preset}'. "
+                f"Available: {sorted(presets)}"
+            ),
+        )
+    for field in _PRESET_FIELDS:
+        value = getattr(preset, field)
+        if value is not None and field not in config.model_fields_set:
+            setattr(config, field, value)
+    if preset.variable_overrides:
+        config.variable_overrides = {
+            **preset.variable_overrides,
+            **(config.variable_overrides or {}),
+        }
+
+
 def _prepare_draft(config: OptimizationConfig, registry: EnvironmentRegistry) -> None:
     """Enrich + resolve a draft config in place (shared by create and update)."""
     _materialize_objective_direction(config, registry)
@@ -148,6 +182,7 @@ def create_optimization_job(
     The single-running-job guard fires later, at start.
     """
     _require_environment(config, registry, action="create")
+    _apply_preset(config, registry)
     if not config.objective_name:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -183,6 +218,7 @@ def update_optimization_config(
     """
     require_created_or_409(job_id, "update", get_optimization_reader(job_id).get_status())
     _require_environment(config, registry, action="update")
+    _apply_preset(config, registry)
     _prepare_draft(config, registry)
 
     store_created_config(tracker, job_id, config.model_dump_json())

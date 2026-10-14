@@ -627,7 +627,7 @@ class TestStartJob:
         itself use it for (regression guard for the start-gate/resolution/worker
         env mismatch)."""
         job_id = "gate-env-config-job"
-        env_config = {"template_dir": "/custom/templates"}
+        env_config = {"sim_seed": 7}
         registry = MagicMock()
         registry.load_environment.return_value = MockEnvironment()
 

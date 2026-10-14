@@ -24,17 +24,8 @@ def envdir(tmp_path, monkeypatch):
     monkeypatch.setenv("OPTIMIZER_ENVIRONMENTS_DIR", str(d))
     monkeypatch.setattr(plugin_registry, "entry_points", lambda group: [])
     EnvironmentRegistry.reset()
-    monkeypatch.setattr(plugin_registry, "TemplateService", lambda **_: _NoTemplates())
     yield d
     EnvironmentRegistry.reset()
-
-
-class _NoTemplates:
-    def scan_templates(self):
-        return []
-
-    def load_template_config(self, name):
-        raise FileNotFoundError(name)
 
 
 def test_environment_files_are_listed_and_loaded(envdir: Path):
@@ -78,3 +69,84 @@ def test_no_directory_means_no_file_environments(envdir: Path, monkeypatch):
 def test_unknown_name_is_a_key_error():
     with pytest.raises(KeyError):
         EnvironmentRegistry().load_environment("nope", {})
+
+
+PRESETS = """
+presets:
+  narrow:
+    description: A within a tenth of its range
+    variables: [A:SP]
+    variable_overrides:
+      A:SP: {window_fraction: 0.1}
+    algorithm: upper_confidence_bound
+    n_iterations: 15
+    objective_name: obj
+"""
+
+
+def test_a_file_offers_its_presets(envdir: Path):
+    (envdir / "a.yml").write_text(ENV.format(name="alpha") + PRESETS)
+    presets = EnvironmentRegistry().get_presets("alpha")
+    assert list(presets) == ["narrow"]
+    assert presets["narrow"].variables == ["A:SP"]
+    assert presets["narrow"].variable_overrides["A:SP"].window_fraction == 0.1
+
+
+def test_a_file_without_presets_offers_none(envdir: Path):
+    (envdir / "a.yml").write_text(ENV.format(name="alpha"))
+    assert EnvironmentRegistry().get_presets("alpha") == {}
+
+
+@pytest.mark.parametrize(
+    ("preset", "match"),
+    [
+        pytest.param("{variables: [B:SP]}", "unknown variable", id="unknown_variable"),
+        pytest.param(
+            "{variable_overrides: {B:SP: {window_abs: 1}}}",
+            "unknown variable",
+            id="unknown_override",
+        ),
+        pytest.param(
+            "{objective_name: nope}", "not a selectable observable", id="unknown_objective"
+        ),
+        pytest.param(
+            "{variables: [A:SP], variable_overrides: {C:SP: {window_abs: 1}}}",
+            "leaves out",
+            id="override_outside_its_variables",
+        ),
+    ],
+)
+def test_a_preset_naming_what_the_file_lacks_fails_discovery(envdir: Path, preset: str, match: str):
+    (envdir / "a.yml").write_text(ENV.format(name="alpha") + f"presets:\n  p: {preset}\n")
+    with pytest.raises(ValueError, match=match):
+        EnvironmentRegistry().discover_environments()
+
+
+def _plugin(presets):
+    """An entry point named ``plug`` whose class offers ``presets``."""
+    members = dict.fromkeys(plugin_registry._REQUIRED_PROTOCOL_MEMBERS)
+    cls = type("Plugin", (), {**members, "PRESETS": presets})
+    return type("EP", (), {"name": "plug", "load": staticmethod(lambda: cls)})()
+
+
+@pytest.mark.usefixtures("envdir")
+def test_a_plugin_offers_presets_from_its_class(monkeypatch):
+    plugin = _plugin({"quick": {"variables": ["x"], "n_iterations": 5}})
+    monkeypatch.setattr(plugin_registry, "entry_points", lambda group: [plugin])
+    presets = EnvironmentRegistry().get_presets("plug")
+    assert presets["quick"].variables == ["x"]
+    assert presets["quick"].n_iterations == 5
+
+
+@pytest.mark.usefixtures("envdir")
+def test_a_plugin_with_a_bad_preset_is_refused(monkeypatch):
+    plugin = _plugin({"q": {"n_iterations": 0}})
+    monkeypatch.setattr(plugin_registry, "entry_points", lambda group: [plugin])
+    with pytest.raises(ValueError, match="invalid preset"):
+        EnvironmentRegistry().get_presets("plug")
+
+
+@pytest.mark.usefixtures("envdir")
+def test_presets_of_an_unknown_environment_is_a_key_error():
+    with pytest.raises(KeyError):
+        EnvironmentRegistry().get_presets("nope")

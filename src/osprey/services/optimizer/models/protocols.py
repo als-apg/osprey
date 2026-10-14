@@ -185,7 +185,9 @@ class EnvironmentProtocol(Protocol):
     """Protocol for environment plugins.
 
     Defines the contract that plugins must satisfy to integrate with the
-    optimization framework.
+    optimization framework. A plugin class may also offer named run setups as
+    ``PRESETS``, a mapping of preset name to
+    :class:`~osprey.services.optimizer.models.config.Preset` or its dict form.
     """
 
     def __init__(self, config: dict[str, Any]) -> None: ...

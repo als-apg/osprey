@@ -1,14 +1,14 @@
 """Run-configuration API router.
 
-Endpoints that prepare an optimization run's configuration — template form
-defaults and the bounds-preview computation for the cockpit table. These are
+Endpoints that prepare an optimization run's configuration — the environment's
+presets and the bounds-preview computation for the cockpit table. These are
 run-config concerns rather than live machine I/O, so they live apart from
 ``routers/environments.py`` while sharing its ``/environments/{name}`` prefix.
 """
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from osprey.services.optimizer.api.dependencies import (
     Machine,
@@ -16,7 +16,9 @@ from osprey.services.optimizer.api.dependencies import (
     require_machine,
 )
 from osprey.services.optimizer.api.environment_ops import (
+    environment_presets,
     load_environment,
+    lookup_preset,
     read_errors,
     validate_variable_names,
 )
@@ -25,9 +27,8 @@ from osprey.services.optimizer.models.api import (
     ResolveBoundsRequest,
     ResolveBoundsResponse,
     ResolvedBoundsModel,
-    TemplateDefaultsResponse,
 )
-from osprey.services.optimizer.models.config import VariableOverride
+from osprey.services.optimizer.models.config import Preset, VariableOverride
 from osprey.services.optimizer.models.protocols import VariableMetadata
 from osprey.services.optimizer.optimization.coercion import reading_to_float
 from osprey.services.optimizer.services.bounds_resolver import effective_step_size, resolve_bounds
@@ -61,53 +62,40 @@ def _resolve_one_bound(
         ) from e
 
 
-@router.get("/{name}/template-defaults", response_model=TemplateDefaultsResponse)
-def get_environment_template_defaults(
+@router.get("/{name}/presets", response_model=dict[str, Preset])
+def get_environment_presets(
     name: str,
     registry: EnvironmentRegistry = Depends(get_environment_registry),
-) -> TemplateDefaultsResponse:
-    """Return template-defined form defaults; all-None for plugin envs."""
-    config = registry.get_template_defaults(name)
-    if config is not None:
-        return TemplateDefaultsResponse(
-            algorithm=config.get("algorithm"),
-            n_iterations=config.get("n_iterations"),
-        )
-    try:
-        registry.get_environment_class(name)
-    except KeyError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Environment '{name}' not found",
-        ) from e
-    return TemplateDefaultsResponse()
+) -> dict[str, Preset]:
+    """The run setups the environment offers, by name; empty when it offers none."""
+    return environment_presets(registry, name)
 
 
 @router.get("/{name}/initial-bounds", response_model=InitialBoundsResponse)
 def get_environment_initial_bounds(
     name: str,
+    preset: str | None = Query(None, description="Preset whose variables and windows to apply."),
     machine: Machine = Depends(require_machine),
     registry: EnvironmentRegistry = Depends(get_environment_registry),
 ) -> InitialBoundsResponse:
     """Resolve initial bounds for the cockpit table.
 
-    For template-backed envs, applies the template's ``variable_overrides`` to the
-    env's current readbacks (e.g. ``window_fraction: 0.1`` → window equal to 10% of
-    the variable's safety range, centered on the current readback).
-    Plugin envs without a template return their safety range. Variables whose
-    readback is unavailable (NaN) fall back to the safety range as well — the
-    operator can still see the table while connectivity is being investigated.
+    With a preset, only its variables are listed and its ``variable_overrides``
+    apply to their current readbacks (e.g. ``window_fraction: 0.1`` → a window
+    10% of the variable's safety range wide, centered on the current readback).
+    Without one, every variable gets its safety range. Variables whose readback
+    is unavailable (NaN) fall back to the safety range as well — the operator
+    can still see the table while connectivity is being investigated.
     """
+    chosen = lookup_preset(registry, name, preset) if preset is not None else None
+    overrides = chosen.variable_overrides if chosen is not None else {}
     env = load_environment(name, registry, machine.env_config())
-    template_config = registry.get_template_defaults(name) or {}
-    raw_overrides = template_config.get("variable_overrides") or {}
-    overrides: dict[str, VariableOverride] = {
-        var: spec if isinstance(spec, VariableOverride) else VariableOverride(**spec)
-        for var, spec in raw_overrides.items()
-    }
 
     with env:
         variables = env.variables
+        if chosen is not None and chosen.variables is not None:
+            validate_variable_names(chosen.variables, env, field="preset variable")
+            variables = {n: variables[n] for n in chosen.variables}
         with read_errors(name, "read current values"):
             readings = env.get_variables(list(variables.keys()))
 

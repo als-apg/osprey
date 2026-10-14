@@ -103,29 +103,37 @@ class ConstraintSpec(BaseModel):
         return v
 
 
-class EnvironmentTemplate(BaseModel):
-    """Schema for environment template files and default settings."""
+class Preset(BaseModel):
+    """A named run setup offered by an environment: phase tuning, corrector tuning.
+
+    It fills a draft's unset fields when the draft names it (``preset``): which
+    variables to tune, how far each may move, and the algorithm, length and
+    objective. Anything the draft sets itself wins.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(description="Name of the template (e.g., 'Injector Standard').")
-    display_name: str | None = Field(default=None, description="Optional display name for UI.")
-    description: str | None = Field(default=None, description="Description of the template.")
-    override: str = Field(description="Base environment to override (e.g., 'injector').")
-    variables: list[str] | None = Field(default=None, description="List of active variables.")
-    variable_overrides: dict[str, VariableOverride] | None = Field(
-        default=None, description="Overrides for variable ranges and settings."
+    display_name: str = ""
+    description: str = ""
+    variables: list[str] | None = Field(
+        default=None, min_length=1, description="Variables to tune; omitted means all of them."
     )
-    algorithm: AlgorithmType | None = Field(
-        default=None, description="Default optimization algorithm to pre-fill in the cockpit."
+    variable_overrides: dict[str, VariableOverride] = Field(
+        default_factory=dict, description="Per-variable bounds, windows or step sizes."
     )
-    n_iterations: int | None = Field(
-        default=None, ge=1, description="Default iteration count to pre-fill in the cockpit."
-    )
-    objective_name: str | None = Field(
-        default=None,
-        description="Default objective observable name; replaces the env's ``default_objective`` when set.",
-    )
+    algorithm: AlgorithmType | None = None
+    n_iterations: int | None = Field(default=None, ge=1)
+    objective_name: str | None = None
+
+    @model_validator(mode="after")
+    def _overrides_within_variables(self) -> "Preset":
+        if self.variables is not None:
+            stray = sorted(set(self.variable_overrides) - set(self.variables))
+            if stray:
+                raise ValueError(
+                    f"variable_overrides name variables the preset leaves out: {stray}"
+                )
+        return self
 
 
 class OptimizationConfig(BaseModel):
@@ -135,6 +143,10 @@ class OptimizationConfig(BaseModel):
 
     environment_name: str | None = None
     environment_config: dict[str, Any] | None = None
+    preset: str | None = Field(
+        default=None,
+        description="One of the environment's presets; it fills the fields this config leaves unset.",
+    )
 
     control_target: ControlTarget | None = Field(
         default=None,

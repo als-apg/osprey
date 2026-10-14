@@ -25,7 +25,7 @@ INITIAL_VALUES: dict[str, float] = {
     "GTL_____SHB2_PHAC00": 180.0,
 }
 
-#: The phase_tuning_sim template's variables: the five RF phases.
+#: tuning_scripts' phase_tuning_sim template's variables: the five RF phases.
 PHASE_VARIABLES = tuple(INITIAL_VALUES)
 
 #: The injector plugin's step sizes for them (tuning_scripts_als_plugin/constants.py).

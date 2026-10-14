@@ -15,7 +15,12 @@ if TYPE_CHECKING:
     from osprey.services.optimizer.api.job_tracker import JobTracker
 
 from osprey.services.optimizer.models.api import EnvironmentDetails, EnvironmentStatusResponse
-from osprey.services.optimizer.models.config import ControlTarget, ExecutionMode, machine_config
+from osprey.services.optimizer.models.config import (
+    ControlTarget,
+    ExecutionMode,
+    Preset,
+    machine_config,
+)
 from osprey.services.optimizer.models.exceptions import ConnectionError as OptimizerConnectionError
 from osprey.services.optimizer.models.exceptions import TimeoutError as OptimizerTimeoutError
 from osprey.services.optimizer.models.exceptions import VariableOutOfBoundsError
@@ -233,6 +238,30 @@ def validate_observable_names(names: list[str], env: EnvironmentProtocol) -> Non
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown observable(s): {unknown}",
         )
+
+
+def lookup_preset(registry: EnvironmentRegistry, name: str, preset: str) -> Preset:
+    """Environment ``name``'s preset ``preset``; 404 for either unknown, 422 for a bad declaration."""
+    presets = environment_presets(registry, name)
+    if preset not in presets:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Environment '{name}' has no preset '{preset}'. Available: {sorted(presets)}",
+        )
+    return presets[preset]
+
+
+def environment_presets(registry: EnvironmentRegistry, name: str) -> dict[str, Preset]:
+    """Environment ``name``'s presets; 404 when it is unknown, 422 for a bad declaration."""
+    try:
+        return registry.get_presets(name)
+    except KeyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Environment '{name}' not found",
+        ) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
 
 
 def validate_variable_names(

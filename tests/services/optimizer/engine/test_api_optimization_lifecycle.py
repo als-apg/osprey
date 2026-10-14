@@ -9,8 +9,8 @@ from fastapi import HTTPException
 from osprey.services.optimizer.api import optimization_lifecycle as ol
 from osprey.services.optimizer.api.optimization_lifecycle import read_optimization_config
 from osprey.services.optimizer.models.api import JobResponse
-from osprey.services.optimizer.models.config import ConstraintSpec, OptimizationConfig
-from osprey.services.optimizer.models.enums import ConstraintType, JobStatus, JobType
+from osprey.services.optimizer.models.config import ConstraintSpec, OptimizationConfig, Preset
+from osprey.services.optimizer.models.enums import AlgorithmType, ConstraintType, JobStatus, JobType
 from osprey.services.optimizer.models.protocols import PVReading
 from osprey.services.optimizer.models.types import Direction
 from osprey.services.optimizer.utils.redis_state_store import CREATED_STATE_TTL_SECONDS
@@ -90,6 +90,76 @@ def test_create_persists_resolved_config_and_registers_created(seam_redis_mock: 
     assert persisted.constraints["loss"].type is ConstraintType.LESS_THAN
     assert persisted.constraints["loss"].value == 0.25
     persisted.require_resolved()  # explicit variables + full min/max/step
+
+
+_TWO = list(VARIABLES)[:2]
+
+
+def _registry_with_preset() -> MagicMock:
+    registry = _registry_with_sim()
+    registry.get_presets.return_value = {
+        "narrow": Preset(
+            variables=_TWO,
+            variable_overrides={name: {"window_abs": 0.5} for name in _TWO},
+            algorithm=AlgorithmType.UPPER_CONFIDENCE_BOUND,
+            n_iterations=7,
+            objective_name="obj",
+        )
+    }
+    return registry
+
+
+def _persisted(seam_redis_mock: MagicMock) -> OptimizationConfig:
+    return OptimizationConfig.model_validate_json(seam_redis_mock.set.call_args[0][1])
+
+
+def test_create_fills_unset_fields_from_the_preset(seam_redis_mock: MagicMock) -> None:
+    """A draft naming only an environment, target and preset gets the preset's
+    variables, windows, algorithm, length and objective, resolved like any other."""
+    cfg = OptimizationConfig(environment_name="sim", control_target="va", preset="narrow")
+    with patch(f"{_OL}.get_optimization_writer"):
+        ol.create_optimization_job(cfg, MagicMock(), _registry_with_preset())
+
+    persisted = _persisted(seam_redis_mock)
+    assert persisted.preset == "narrow"
+    assert persisted.variables == _TWO
+    assert persisted.algorithm is AlgorithmType.UPPER_CONFIDENCE_BOUND
+    assert persisted.n_iterations == 7
+    assert persisted.objective_name == "obj"
+    overrides = persisted.variable_overrides or {}
+    for name in _TWO:
+        assert overrides[name].max - overrides[name].min <= 1.0 + 1e-9  # current ± 0.5
+
+
+def test_what_the_draft_sets_beats_the_preset(seam_redis_mock: MagicMock) -> None:
+    """Explicit fields win, even at their defaults; overrides merge per variable."""
+    first, second = _TWO
+    cfg = OptimizationConfig(
+        environment_name="sim",
+        control_target="va",
+        preset="narrow",
+        algorithm=AlgorithmType.RANDOM,
+        n_iterations=20,
+        variable_overrides={first: {"window_abs": 0.1}},
+    )
+    with patch(f"{_OL}.get_optimization_writer"):
+        ol.create_optimization_job(cfg, MagicMock(), _registry_with_preset())
+
+    persisted = _persisted(seam_redis_mock)
+    assert persisted.algorithm is AlgorithmType.RANDOM
+    assert persisted.n_iterations == 20
+    overrides = persisted.variable_overrides or {}
+    assert overrides[first].max - overrides[first].min <= 0.2 + 1e-9
+    assert overrides[second].max - overrides[second].min > 0.2
+
+
+def test_create_rejects_an_unknown_preset(seam_redis_mock: MagicMock) -> None:
+    cfg = OptimizationConfig(environment_name="sim", control_target="va", preset="wide")
+    with pytest.raises(HTTPException) as exc:
+        ol.create_optimization_job(cfg, MagicMock(), _registry_with_preset())
+    assert exc.value.status_code == 422
+    assert "no preset 'wide'" in exc.value.detail
+    seam_redis_mock.set.assert_not_called()
 
 
 def test_create_preserves_explicit_objective_direction(seam_redis_mock: MagicMock) -> None:

@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Any
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
@@ -13,8 +14,8 @@ from osprey.services.optimizer.models.api import (
 )
 from osprey.services.optimizer.models.config import (
     ConstraintSpec,
-    EnvironmentTemplate,
     OptimizationConfig,
+    Preset,
     VariableOverride,
 )
 from osprey.services.optimizer.models.enums import (
@@ -185,34 +186,30 @@ class TestConfig:
         )
         assert "loss" in config.constraints
 
-    def test_environment_template_accepts_algorithm_and_iterations(self) -> None:
-        tpl = EnvironmentTemplate(
-            name="phase_tuning",
-            override="als_injector",
-            algorithm=AlgorithmType.EXTREMUM_SEEKING,
-            n_iterations=100,
-        )
-        assert tpl.algorithm is AlgorithmType.EXTREMUM_SEEKING
-        assert tpl.n_iterations == 100
+    def test_preset_accepts_algorithm_and_iterations(self) -> None:
+        preset = Preset(algorithm=AlgorithmType.EXTREMUM_SEEKING, n_iterations=100)
+        assert preset.algorithm is AlgorithmType.EXTREMUM_SEEKING
+        assert preset.n_iterations == 100
 
-    def test_environment_template_rejects_unknown_fields(self) -> None:
+    def test_preset_rejects_unknown_fields(self) -> None:
         """Forbid unknown keys so YAML typos surface instead of being silently dropped."""
         with pytest.raises(ValidationError):
-            EnvironmentTemplate(
-                name="phase_tuning",
-                override="als_injector",
-                strategy="extremum_seeking",  # type: ignore[call-arg]
-            )
+            Preset(strategy="extremum_seeking")  # type: ignore[call-arg]
 
-    def test_environment_template_rejects_non_positive_iterations(self) -> None:
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            pytest.param({"n_iterations": 0}, id="non_positive_iterations"),
+            pytest.param({"variables": []}, id="empty_variables"),
+            pytest.param(
+                {"variables": ["a"], "variable_overrides": {"b": {"window_abs": 1.0}}},
+                id="override_outside_variables",
+            ),
+        ],
+    )
+    def test_preset_rejects(self, fields: dict[str, Any]) -> None:
         with pytest.raises(ValidationError):
-            EnvironmentTemplate(name="x", override="als_injector", n_iterations=0)
-
-    def test_environment_template_accepts_objective_name(self) -> None:
-        tpl = EnvironmentTemplate(
-            name="phase_tuning", override="als_injector", objective_name="charge_br_end"
-        )
-        assert tpl.objective_name == "charge_br_end"
+            Preset.model_validate(fields)
 
 
 class TestProtocols:

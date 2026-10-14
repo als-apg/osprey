@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from pydantic import ConfigDict as PydanticConfigDict
 
 from .config import ControlTarget, VariableOverride
-from .enums import AlgorithmType, EnvironmentType, JobType
+from .enums import EnvironmentType, JobType
 from .protocols import EnvironmentProtocol, ObservableMetadata, PVReading, VariableMetadata
 from .state import OptimizationState
 from .types import BestPoint, ConfigDict, Direction
@@ -133,13 +133,6 @@ class InitialBoundsResponse(BaseModel):
 
     bounds: dict[str, ResolvedBoundsModel]
     current_values: dict[str, PVReading] = Field(default_factory=dict)
-
-
-class TemplateDefaultsResponse(BaseModel):
-    """Default form values declared by a template; all-None for plugin envs."""
-
-    algorithm: AlgorithmType | None = None
-    n_iterations: int | None = None
 
 
 class AnnotatedValue(BaseModel):
