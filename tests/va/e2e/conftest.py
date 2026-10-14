@@ -825,9 +825,11 @@ def corrector_at_slot(slot: int) -> Corrector:
     A lane names the corrector it drives by SLOT rather than by address: which
     channels kick the beam is the served view's wiring to answer, and where
     each of them reads its own field back is its channel's ``pair``, rather
-    than a device name written into a test. Wiring order is the facility
-    file's record order, so one slot names one magnet on every run against a
-    given tree.
+    than a device name written into a test. The slots count the correctors of
+    one model: the one whose wiring binds the first corrector the limits view
+    bands, so slot 0 is that banded magnet and every slot takes a demand its
+    band admits. Wiring order is the facility file's record order, so one slot
+    names one magnet on every run against a given tree.
 
     A slot is owned by one lane for the life of the session container -- two
     lanes driving one corrector would read each other's writes -- so each lane
@@ -845,8 +847,25 @@ def corrector_at_slot(slot: int) -> Corrector:
     from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
 
     view = SimulatorView.open(demo_data_dir() / VIEW_RELPATH.name)
+    limits = json.loads(LIMITS_DB_PATH.read_text(encoding="utf-8"))
+    banded_model = next(
+        (
+            binding.model
+            for binding in view.bindings(role="setpoint")
+            if binding.plane is not None
+            and isinstance(entry := limits.get(binding.address), dict)
+            and "min_value" in entry
+            and "max_value" in entry
+        ),
+        None,
+    )
+    assert banded_model is not None, (
+        "no corrector the served view wires carries a limits record with both bounds"
+    )
     kicks = [
-        binding.address for binding in view.bindings(role="setpoint") if binding.plane is not None
+        binding.address
+        for binding in view.bindings(role="setpoint", model=banded_model)
+        if binding.plane is not None
     ]
     assert len(kicks) > slot, (
         f"the served view wires {len(kicks)} correctors, too few for a lane's slot {slot}"

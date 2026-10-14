@@ -871,6 +871,37 @@ def monitor_addresses(view: SimulatorView, *, plane: str | None = None) -> froze
     return frozenset(binding.address for binding in view.bindings(role="monitor", plane=plane))
 
 
+def model_addresses(view: SimulatorView, model: str) -> frozenset[str]:
+    """Every address one model's wiring binds."""
+    return frozenset(binding.address for binding in view.bindings(model=model))
+
+
+def is_banded(entry: object) -> bool:
+    """Whether a limits-table entry bounds its channel on both sides."""
+    return isinstance(entry, dict) and "min_value" in entry and "max_value" in entry
+
+
+def banded_model(repo: Path) -> str:
+    """The model whose wiring binds the first corrector the limits table bands.
+
+    The model the sweeping lanes select from: a lane sizes its sweep from a
+    corrector's band, and the band's author wrote it for a magnet whose model
+    holds that sweep. A corrector of another model may be unbounded, and a
+    demand inside one model's band may lose the beam in another's.
+    """
+    return _banded_model_of_resolved(repo.resolve())
+
+
+@cache
+def _banded_model_of_resolved(repo: Path) -> str:
+    """The memoized search behind :func:`banded_model`, keyed on a resolved repo."""
+    limits = channel_limits(repo)
+    for binding in repo_view(repo).bindings(role="setpoint"):
+        if binding.plane is not None and is_banded(limits.get(binding.address)):
+            return binding.model
+    raise AssertionError("no corrector the view wires carries a limits record with both bounds")
+
+
 def claimed_addresses(view: SimulatorView) -> frozenset[str]:
     """Every corrector setpoint and monitor reading the view's bindings serve.
 
@@ -924,7 +955,9 @@ def select_correctors(
     kind is the same question on any facility where the address text is not.
     A settable the view names no readback for is skipped: these plans read a
     corrector back after setting it, and a device whose readback is its own
-    setpoint would echo the demand rather than report the magnet.
+    setpoint would echo the demand rather than report the magnet. Only the
+    :func:`banded_model`'s correctors are taken, so every lane sweeps the model
+    whose correctors the limits table sizes a sweep for.
 
     If ``count`` is ``None``, returns the FULL available corrector set instead
     of a fixed-size slice -- no assertion is raised in that case, regardless of
@@ -933,7 +966,8 @@ def select_correctors(
     Returns a dict of ``sp_address -> (sp_address, rb_address)`` -- the
     setpoint's device name is its own ``:SP`` address, as it is in the view.
     """
-    kicks = corrector_addresses(repo_view(repo))
+    view = repo_view(repo)
+    kicks = corrector_addresses(view) & model_addresses(view, banded_model(repo))
     settables, _ = staged_devices(repo)
     pairs = [
         (setpoint, readback)
@@ -951,7 +985,9 @@ def select_bpms(repo: Path, count: int | None = DEFAULT_BPM_COUNT) -> dict[str, 
     A beam-position readback is a reading the repo's simulator view wires as a
     monitor (:func:`monitor_addresses`): a reading the lattice model solves for, which
     moves when a corrector is swept. A readable no model wires is static noise
-    and would sit still through any sweep.
+    and would sit still through any sweep. Only the :func:`banded_model`'s
+    monitors are taken: a monitor of another model sits still whatever the
+    selected correctors do.
 
     If ``count`` is ``None``, returns the FULL available monitor set instead of
     a fixed-size slice -- no assertion is raised in that case. Readbacks are
@@ -960,7 +996,8 @@ def select_bpms(repo: Path, count: int | None = DEFAULT_BPM_COUNT) -> dict[str, 
     Returns a dict of ``read_address -> read_address`` -- the readback's device
     name is its own read address, as it is in the view.
     """
-    monitors = monitor_addresses(repo_view(repo))
+    view = repo_view(repo)
+    monitors = monitor_addresses(view) & model_addresses(view, banded_model(repo))
     _, readables = staged_devices(repo)
     addresses = sorted(address for address in readables.values() if address in monitors)
     return _keyed_by_address(addresses, lambda address: address, count, "monitor readbacks")
