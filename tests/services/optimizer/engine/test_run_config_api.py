@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.services.optimizer.models.exceptions import TimeoutError as ALSTimeoutError
+from osprey.services.optimizer.models.exceptions import TimeoutError as OptimizerTimeoutError
 from osprey.services.optimizer.models.protocols import (
     PVReading,
     VariableMetadata,
@@ -225,7 +225,7 @@ class TestInitialBoundsEndpoint:
         self, client: TestClient, mock_env: MockEnvironment
     ) -> None:
         """An unreachable/slow control system surfaces as 503, not a generic 500."""
-        mock_env.get_variables = MagicMock(side_effect=ALSTimeoutError("worker wedged"))  # type: ignore[method-assign]
+        mock_env.get_variables = MagicMock(side_effect=OptimizerTimeoutError("worker wedged"))  # type: ignore[method-assign]
         resp = client.get("/environments/sim/initial-bounds")
         assert resp.status_code == 503
 

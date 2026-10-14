@@ -4,19 +4,19 @@ import functools
 from collections.abc import Callable
 
 
-class ALSTuningError(Exception):
+class OptimizerServiceError(Exception):
     """Base exception for optimizer errors."""
 
     pass
 
 
-class CancellationError(ALSTuningError):
+class CancellationError(OptimizerServiceError):
     """Raised when optimization is cancelled by user."""
 
     pass
 
 
-class InterfaceError(ALSTuningError):
+class InterfaceError(OptimizerServiceError):
     """Hardware interface communication error."""
 
     pass
@@ -61,7 +61,7 @@ class ControlSystemUnreachableError(InterfaceError):
     pass
 
 
-class EvaluationError(ALSTuningError):
+class EvaluationError(OptimizerServiceError):
     """Error during optimization evaluation."""
 
     pass
@@ -79,7 +79,7 @@ class InvalidSuggestionError(EvaluationError):
     pass
 
 
-class OptimizerError(ALSTuningError):
+class OptimizerError(OptimizerServiceError):
     """The optimizer backend failed internally.
 
     Raised by an :class:`~osprey.services.optimizer.models.protocols.OptimizerProtocol`
@@ -91,19 +91,19 @@ class OptimizerError(ALSTuningError):
     pass
 
 
-class VariableOutOfBoundsError(ALSTuningError):
+class VariableOutOfBoundsError(OptimizerServiceError):
     """Variable value is outside defined bounds."""
 
     pass
 
 
-class ObservableNotFoundError(ALSTuningError):
+class ObservableNotFoundError(OptimizerServiceError):
     """Requested observable does not exist."""
 
     pass
 
 
-class MachineSettingsError(ALSTuningError):
+class MachineSettingsError(OptimizerServiceError):
     """The live machine's settings refuse an optimization start.
 
     Raised by ``EnvironmentProtocol.check_machine_settings`` with every unmet
@@ -116,7 +116,7 @@ class MachineSettingsError(ALSTuningError):
         self.failures = failures
 
 
-class RestoreFailedError(ALSTuningError):
+class RestoreFailedError(OptimizerServiceError):
     """A run ended (cancelled, failed, or finished with ``on_complete: restore``)
     and writing its starting values back failed.
 

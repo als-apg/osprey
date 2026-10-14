@@ -3,7 +3,7 @@
 The optimizer (xopt) requires floats for the objective and for VOCS current
 values; everything upstream now carries native types via ``PVReading``. This
 helper is the only place that reduction happens. Callers decide what ``None``
-means in their context (raise EvaluationError vs ALSConnectionError).
+means in their context (raise EvaluationError vs OptimizerConnectionError).
 """
 
 import math

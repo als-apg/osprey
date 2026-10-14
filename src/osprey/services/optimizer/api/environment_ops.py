@@ -16,8 +16,8 @@ if TYPE_CHECKING:
 
 from osprey.services.optimizer.models.api import EnvironmentDetails, EnvironmentStatusResponse
 from osprey.services.optimizer.models.config import ControlTarget, ExecutionMode, machine_config
-from osprey.services.optimizer.models.exceptions import ConnectionError as ALSConnectionError
-from osprey.services.optimizer.models.exceptions import TimeoutError as ALSTimeoutError
+from osprey.services.optimizer.models.exceptions import ConnectionError as OptimizerConnectionError
+from osprey.services.optimizer.models.exceptions import TimeoutError as OptimizerTimeoutError
 from osprey.services.optimizer.models.exceptions import VariableOutOfBoundsError
 from osprey.services.optimizer.models.protocols import EnvironmentProtocol
 from osprey.services.optimizer.services.plugin_registry import EnvironmentRegistry
@@ -178,7 +178,7 @@ def read_errors(name: str, action: str) -> Iterator[None]:
     """
     try:
         yield
-    except ALSTimeoutError as e:
+    except OptimizerTimeoutError as e:
         logger.exception("CA worker unresponsive while reading from '%s'", name)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -211,7 +211,7 @@ def write_errors(name: str, action: str) -> Iterator[None]:
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(e),
         ) from e
-    except (ALSConnectionError, ALSTimeoutError) as e:
+    except (OptimizerConnectionError, OptimizerTimeoutError) as e:
         logger.exception("Control system unreachable while trying to %s on '%s'", action, name)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

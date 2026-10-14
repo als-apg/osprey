@@ -28,7 +28,7 @@ from osprey.services.optimizer.events import (
 from osprey.services.optimizer.models.config import OptimizationConfig
 from osprey.services.optimizer.models.enums import AlgorithmType, JobStatus
 from osprey.services.optimizer.models.exceptions import CancellationError, OptimizerError
-from osprey.services.optimizer.models.exceptions import ConnectionError as ALSConnectionError
+from osprey.services.optimizer.models.exceptions import ConnectionError as OptimizerConnectionError
 from osprey.services.optimizer.models.protocols import PVReading
 from osprey.services.optimizer.models.types import Direction
 from osprey.services.optimizer.optimization.types import OptimizationMetadata, OptimizationResult
@@ -186,7 +186,7 @@ class TestMeasureInitialState:
         )
         config = _config()
         with pytest.raises(
-            ALSConnectionError, match="Cannot read variables required for optimization"
+            OptimizerConnectionError, match="Cannot read variables required for optimization"
         ):
             exec_service._measure_initial_state(config)
 

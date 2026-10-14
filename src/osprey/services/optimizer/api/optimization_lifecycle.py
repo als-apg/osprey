@@ -30,7 +30,7 @@ from osprey.services.optimizer.api.runner import run_optimization_process
 from osprey.services.optimizer.models.api import JobResponse
 from osprey.services.optimizer.models.config import OptimizationConfig, machine_config
 from osprey.services.optimizer.models.enums import JobType
-from osprey.services.optimizer.models.exceptions import ConnectionError as ALSConnectionError
+from osprey.services.optimizer.models.exceptions import ConnectionError as OptimizerConnectionError
 from osprey.services.optimizer.optimization.state import (
     get_optimization_reader,
     get_optimization_writer,
@@ -112,7 +112,7 @@ def _resolve_draft_or_422(config: OptimizationConfig, registry: EnvironmentRegis
     try:
         with env:
             resolve_draft_config(config, env)
-    except (ValueError, ALSConnectionError) as e:
+    except (ValueError, OptimizerConnectionError) as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Cannot resolve draft against current machine state: {e}",

@@ -12,7 +12,7 @@ import logging
 from typing import cast
 
 from osprey.services.optimizer.models.config import OptimizationConfig, VariableOverride
-from osprey.services.optimizer.models.exceptions import ConnectionError as ALSConnectionError
+from osprey.services.optimizer.models.exceptions import ConnectionError as OptimizerConnectionError
 from osprey.services.optimizer.models.protocols import EnvironmentProtocol
 from osprey.services.optimizer.optimization.coercion import coerce_readings
 
@@ -27,11 +27,11 @@ def read_required_variables(env: EnvironmentProtocol, names: list[str]) -> dict[
     Returns the readback dict with all values present (no ``None``).
 
     Raises:
-        ALSConnectionError: If any variable's PV could not be read.
+        OptimizerConnectionError: If any variable's PV could not be read.
     """
     coerced, failed = coerce_readings(env.get_variables(names), names)
     if failed:
-        raise ALSConnectionError(f"Cannot read variables required for optimization: {failed}")
+        raise OptimizerConnectionError(f"Cannot read variables required for optimization: {failed}")
     return cast("dict[str, float]", coerced)
 
 
@@ -46,7 +46,7 @@ def resolve_draft_config(config: OptimizationConfig, env: EnvironmentProtocol) -
     Raises:
         ValueError: Unknown variable names, or an override ``resolve_bounds``
             rejects for the variable.
-        ALSConnectionError: An active variable's readback cannot be read.
+        OptimizerConnectionError: An active variable's readback cannot be read.
     """
     all_vars = env.variables
     if config.variables:

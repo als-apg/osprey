@@ -111,7 +111,7 @@ class EnvironmentTemplate(BaseModel):
     name: str = Field(description="Name of the template (e.g., 'Injector Standard').")
     display_name: str | None = Field(default=None, description="Optional display name for UI.")
     description: str | None = Field(default=None, description="Description of the template.")
-    override: str = Field(description="Base environment to override (e.g., 'als_injector').")
+    override: str = Field(description="Base environment to override (e.g., 'injector').")
     variables: list[str] | None = Field(default=None, description="List of active variables.")
     variable_overrides: dict[str, VariableOverride] | None = Field(
         default=None, description="Overrides for variable ranges and settings."

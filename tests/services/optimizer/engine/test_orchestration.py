@@ -19,7 +19,7 @@ from osprey.services.optimizer.models.config import (
     VariableOverride,
 )
 from osprey.services.optimizer.models.enums import AlgorithmType, ConstraintType
-from osprey.services.optimizer.models.exceptions import ConnectionError as ALSConnectionError
+from osprey.services.optimizer.models.exceptions import ConnectionError as OptimizerConnectionError
 from osprey.services.optimizer.models.protocols import PVReading
 from osprey.services.optimizer.optimization.runner import PhaseResult
 from osprey.services.optimizer.services.draft_resolution import resolve_draft_config
@@ -363,7 +363,7 @@ class TestOptimizationEngineValidation:
             initial_point=None,
         )
 
-        with pytest.raises(ALSConnectionError, match="Cannot read variables"):
+        with pytest.raises(OptimizerConnectionError, match="Cannot read variables"):
             engine.run()
 
     def test_optimization_started_carries_resolved_variable_bounds(

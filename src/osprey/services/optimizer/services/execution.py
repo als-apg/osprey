@@ -198,7 +198,7 @@ class ExecutionService:
         Raises:
             ValueError: If ``config.environment_name`` is missing, or the
                 configured objective is not present in the environment.
-            ALSConnectionError: If required variable PVs cannot be read.
+            OptimizerConnectionError: If required variable PVs cannot be read.
             KeyError: If the environment plugin name is not registered.
             Exception: Any other failure raised by environment loading,
                 ``env.get_variables``, or the evaluator.

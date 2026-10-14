@@ -3,13 +3,13 @@
 import pytest
 
 from osprey.services.optimizer.models.config import OptimizationConfig, VariableOverride
-from osprey.services.optimizer.models.exceptions import ALSTuningError, MachineSettingsError
+from osprey.services.optimizer.models.exceptions import MachineSettingsError, OptimizerServiceError
 from osprey.services.optimizer.models.protocols import EnvironmentProtocol
 
 
 def test_machine_settings_error_carries_failures() -> None:
     err = MachineSettingsError("machine not ready", failures=["PV1: got 0, expected 1"])
-    assert isinstance(err, ALSTuningError)
+    assert isinstance(err, OptimizerServiceError)
     assert err.failures == ["PV1: got 0, expected 1"]
 
 

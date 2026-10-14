@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from osprey.services.optimizer.models.config import OptimizationConfig, VariableOverride
-from osprey.services.optimizer.models.exceptions import ConnectionError as ALSConnectionError
+from osprey.services.optimizer.models.exceptions import ConnectionError as OptimizerConnectionError
 from osprey.services.optimizer.services.draft_resolution import resolve_draft_config
 
 from ._fakes import FakeInjectorEnvironment
@@ -73,5 +73,5 @@ def test_unreadable_active_readback_raises_connection_error(
     fake_env_disconnected: FakeInjectorEnvironment,
 ) -> None:
     cfg = OptimizationConfig(environment_name="fake", control_target="va", objective_name="obj")
-    with fake_env_disconnected, pytest.raises(ALSConnectionError):
+    with fake_env_disconnected, pytest.raises(OptimizerConnectionError):
         resolve_draft_config(cfg, fake_env_disconnected)

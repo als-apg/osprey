@@ -1,5 +1,5 @@
 """Tests for FakeInjectorEnvironment — the app_tests-fake stand-in for
-ALSInjectorSimulationEnvironment used by the decoupled app_tests suite.
+the facility injector simulation environment used by the decoupled app_tests suite.
 """
 
 import pytest
@@ -50,7 +50,7 @@ _FIRST = next(iter(VARIABLES))
     ],
 )
 def test_fake_rejects_bad_variables(values: dict[str, float], match: str) -> None:
-    """Matches ALSInjectorEnvironment.set_variables: same exception type
+    """Matches the facility injector plugin's set_variables: same exception type
     and message shape, so tests driving Evaluator error-propagation see
     identical behavior against the fake and the real env."""
     with pytest.raises(VariableOutOfBoundsError, match=match):

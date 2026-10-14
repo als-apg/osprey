@@ -13,8 +13,8 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.services.optimizer.models.exceptions import ConnectionError as ALSConnectionError
-from osprey.services.optimizer.models.exceptions import TimeoutError as ALSTimeoutError
+from osprey.services.optimizer.models.exceptions import ConnectionError as OptimizerConnectionError
+from osprey.services.optimizer.models.exceptions import TimeoutError as OptimizerTimeoutError
 from osprey.services.optimizer.models.exceptions import VariableOutOfBoundsError
 from osprey.services.optimizer.models.protocols import PVReading
 
@@ -294,8 +294,8 @@ _EVALUATE = (
 _READ_PVS = ("get", "/environments/sim/pv", None, {"names": ["SR:DCCT"]}, "read_pvs")
 
 _HW_FAULT = RuntimeError("hardware fault")
-_WEDGED = ALSTimeoutError("worker wedged")
-_UNREACHABLE = ALSConnectionError("Failed to connect to EPICS PV: V1:SP")
+_WEDGED = OptimizerTimeoutError("worker wedged")
+_UNREACHABLE = OptimizerConnectionError("Failed to connect to EPICS PV: V1:SP")
 
 
 @pytest.mark.parametrize(
@@ -310,7 +310,7 @@ _UNREACHABLE = ALSConnectionError("Failed to connect to EPICS PV: V1:SP")
         pytest.param(*_EVALUATE, _WEDGED, 503, id="evaluate_ca_worker_unresponsive"),
         pytest.param(
             *_READ_PVS,
-            ALSTimeoutError("CA worker unresponsive"),
+            OptimizerTimeoutError("CA worker unresponsive"),
             503,
             id="pv_ca_worker_unresponsive",
         ),
@@ -332,7 +332,7 @@ def test_environment_method_failure_status_mapping(
     expected_status: int,
 ) -> None:
     """An environment-method exception maps to the corresponding HTTP status:
-    RuntimeError -> 500, ALSTimeoutError/ALSConnectionError -> 503."""
+    RuntimeError -> 500, OptimizerTimeoutError/OptimizerConnectionError -> 503."""
     setattr(mock_env, broken_attr, MagicMock(side_effect=exception))
     kwargs: dict[str, Any] = {}
     if json_body is not None:

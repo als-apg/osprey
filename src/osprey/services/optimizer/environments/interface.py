@@ -12,7 +12,7 @@ The engine is synchronous and the pool is async and bound to one event loop, so
 each process runs one :class:`_PoolBridge`: a daemon thread with that loop and
 the pool on it. Calls block on ``run_coroutine_threadsafe(...).result()``.
 
-Ported from tuning_scripts' ``als_plugin/osprey_interface.py``. The error
+Ported from tuning_scripts' facility plugin interface. The error
 mapping is unchanged:
 
 - ``ChannelWriteBlockedError`` (refused, never sent) becomes ``WriteRefusedError``.
