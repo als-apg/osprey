@@ -11,13 +11,13 @@ tool should see as a pyAML failure is re-raised as one of three subclasses:
   refused after the connector sent the others, naming those as sent.
 * :class:`OspreyReadFailed` - one or more channels produced no value.
 
-The two write exceptions are also the :mod:`osprey.runtime.journal` exceptions of
-the same name, so one ``except`` catches a connector refusal mapped here and the
-refusal :func:`osprey.runtime.journal.guarded_write` raises outside a journaled
-guarded run.
+:class:`OspreyWriteRefused` is also the runtime's
+:class:`osprey.runtime.guarded_run.OspreyWriteRefused`, which a read-only run's
+lock raises, so one ``except`` catches a connector refusal mapped here and that
+refusal.
 
-Each carries a short ``reason`` (one line, suitable for a restore report's
-``refused`` entries) and the connector exception as ``__cause__``.
+Each carries a short ``reason`` (one line, suitable for a result line) and the
+connector exception as ``__cause__``.
 """
 
 from __future__ import annotations
@@ -32,8 +32,7 @@ from osprey.errors import (
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
 )
-from osprey.runtime import ControlTargetChangedError
-from osprey.runtime import journal as runtime_journal
+from osprey.runtime import ControlTargetChangedError, guarded_run
 
 __all__ = [
     "OspreyReadFailed",
@@ -46,7 +45,7 @@ __all__ = [
 _VIOLATION_PREFIX = "Violation:"
 
 
-class OspreyWriteRefused(runtime_journal.OspreyWriteRefused, PyAMLException):
+class OspreyWriteRefused(guarded_run.OspreyWriteRefused, PyAMLException):
     """A write was refused and no value of the call was written.
 
     Attributes:
@@ -55,13 +54,19 @@ class OspreyWriteRefused(runtime_journal.OspreyWriteRefused, PyAMLException):
     """
 
 
-class OspreyWriteFailed(runtime_journal.OspreyWriteFailed, PyAMLException):
+class OspreyWriteFailed(PyAMLException):
     """A write was attempted but its outcome was not confirmed.
 
     Attributes:
         reason: One-line reason taken from the connector's failure.
         channel_address: The failed channel, when the failure names one.
     """
+
+    def __init__(self, reason: str, channel_address: str | None = None) -> None:
+        self.reason = reason
+        self.channel_address = channel_address
+        where = f" to '{channel_address}'" if channel_address else ""
+        super().__init__(f"OSPREY write{where} failed: {reason}")
 
 
 class OspreyReadFailed(PyAMLException):

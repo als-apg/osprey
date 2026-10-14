@@ -1,10 +1,10 @@
 """What the ``pyaml_measure`` script printed, read back and labelled.
 
-The parser reads the script's one result line from stdout and a stopped run's
-restore report from the run's execution record, never from a printed line. The
-labels name
-every row and column by the address and device id it stands for, through the
-pyAML view's one name mapping, on a render of a small two-model facility.
+The parser reads the script's one result line from stdout: every result lists
+the setpoints the call moved with their values before the call. The labels name
+every row, column and moved setpoint by the address and device id it stands
+for, through the pyAML view's one name mapping, on a render of a small
+two-model facility.
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ from osprey.mcp_server.python_executor.tools._pyaml_measure_result import (
     measure_labels,
     parse_measure_result,
 )
-from osprey.runtime.guarded_run import RESTORE_REPORT_TAG, RestoreReport
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 
 SHA = "a" * 64
@@ -44,6 +43,7 @@ def _orm(**changes: Any) -> dict[str, Any]:
         "observables": [["SR_BPM1", "x"], ["SR_BPM1", "y"]],
         "variables": ["SCOR:H:SP", "SCOR:V:SP"],
         "data_file": "/exec/pyaml_measure_orm.json",
+        "moved": [["SCOR:H:SP", 0.25]],
     } | changes
 
 
@@ -51,7 +51,7 @@ def _orm(**changes: Any) -> dict[str, Any]:
 
 
 def test_a_completed_orm_reads_its_shape_names_and_steps():
-    result = parse_measure_result("noise\n" + _line(**_orm()), [], "orm")
+    result = parse_measure_result("noise\n" + _line(**_orm()), "orm")
 
     assert result == _orm()
 
@@ -70,8 +70,8 @@ def test_the_stepping_and_what_sized_each_step_are_carried():
     )
     crm = _orm(kind="crm", e_delta_used=1e-3, rf_span_hz=40.0, rf_limited_by="SR:RF:SP")
 
-    assert parse_measure_result(_line(**group), [], "trm") == group
-    parsed = parse_measure_result(_line(**crm), [], "crm")
+    assert parse_measure_result(_line(**group), "trm") == group
+    parsed = parse_measure_result(_line(**crm), "crm")
     assert (parsed["e_delta_used"], parsed["rf_span_hz"], parsed["rf_limited_by"]) == (
         1e-3,
         40.0,
@@ -81,7 +81,7 @@ def test_the_stepping_and_what_sized_each_step_are_carried():
 
 def test_a_limit_that_is_not_an_address_is_refused():
     with pytest.raises(MeasureResultError, match="delta_limited_by"):
-        parse_measure_result(_line(**_orm(delta_limited_by=3)), [], "orm")
+        parse_measure_result(_line(**_orm(delta_limited_by=3)), "orm")
 
 
 def test_a_completed_chromaticity_monitor_reads_the_chromaticity():
@@ -92,17 +92,13 @@ def test_a_completed_chromaticity_monitor_reads_the_chromaticity():
         completed=True,
         chromaticity=[1.5, -2.5],
         data_file="/exec/c.json",
+        moved=[],
     )
 
-    result = parse_measure_result(line, [], "chromaticity_monitor")
+    result = parse_measure_result(line, "chromaticity_monitor")
 
     assert result["chromaticity"] == [1.5, -2.5]
     assert "deltas" not in result
-
-
-def _report(**fields: Any) -> dict[str, Any]:
-    """A restore report as the execution record carries it."""
-    return json.loads(RestoreReport(**fields).to_json())
 
 
 def _stopped_orm() -> dict[str, Any]:
@@ -112,23 +108,47 @@ def _stopped_orm() -> dict[str, Any]:
     return stopped
 
 
-def test_a_stopped_run_reads_the_restore_report_from_the_execution_record():
-    record = [_report(restored=["SCOR:H:SP"], aborted=True)]
+def test_every_result_carries_what_it_moved():
+    completed = parse_measure_result(_line(**_orm()), "orm")
+    stopped = parse_measure_result(_line(**_stopped_orm()), "orm")
 
-    result = parse_measure_result(_line(**_stopped_orm()), record, "orm")
+    assert completed["moved"] == [["SCOR:H:SP", 0.25]]
+    assert stopped["moved"] == [["SCOR:H:SP", 0.25]]
+    assert stopped["remainder"] == ["SCOR:V:SP"]
+    assert "error" not in stopped
 
-    assert result["restore"]["restored"] == ["SCOR:H:SP"]
-    assert result["restore"]["aborted"] is True
-    assert result["remainder"] == ["SCOR:V:SP"]
+
+@pytest.mark.parametrize("completed", [True, False], ids=["completed", "stopped"])
+def test_a_line_without_moved_is_an_error(completed: bool):
+    line = _orm() if completed else _stopped_orm()
+    del line["moved"]
+
+    with pytest.raises(MeasureResultError, match="has no 'moved' field"):
+        parse_measure_result(_line(**line), "orm")
 
 
-def test_a_stopped_run_takes_the_last_report_the_record_carries():
-    """A replay before the measurement files its own report first; the run's own is last."""
-    record = [_report(restored=["OLD:SP"]), _report(restored=["SCOR:H:SP"], aborted=True)]
+@pytest.mark.parametrize(
+    "moved", [[["SCOR:H:SP"]], [[1, 0.25]], "SCOR:H:SP", [["SCOR:H:SP", True]]]
+)
+def test_a_moved_that_is_not_address_value_pairs_is_an_error(moved: Any):
+    with pytest.raises(MeasureResultError, match="moved"):
+        parse_measure_result(_line(**_orm(moved=moved)), "orm")
 
-    result = parse_measure_result(_line(**_stopped_orm()), record, "orm")
 
-    assert result["restore"]["restored"] == ["SCOR:H:SP"]
+def test_a_stopped_line_carries_its_error():
+    line = _stopped_orm() | {"error": "KeyboardInterrupt"}
+
+    assert parse_measure_result(_line(**line), "orm")["error"] == "KeyboardInterrupt"
+    with pytest.raises(MeasureResultError, match="'error' is not a string"):
+        parse_measure_result(_line(**(line | {"error": 3})), "orm")
+
+
+def test_a_non_finite_before_value_is_spelled():
+    moved = [["SCOR:H:SP", "nan"], ["SCOR:V:SP", "-inf"], ["RF:SP", 5.0e8]]
+
+    result = parse_measure_result(_line(**_orm(moved=moved)), "orm")
+
+    assert result["moved"] == moved
 
 
 def test_a_stopped_run_with_no_partial_column_names_the_kind():
@@ -139,39 +159,20 @@ def test_a_stopped_run_with_no_partial_column_names_the_kind():
         "completed": False,
     }
 
-    result = parse_measure_result(_line(**stopped), [_report(aborted=True)], "chromaticity_monitor")
+    result = parse_measure_result(_line(**stopped, moved=[]), "chromaticity_monitor")
 
     assert result["remainder"] == "chromaticity_monitor"
 
 
-def test_a_stopped_run_without_a_restore_report_is_an_error():
-    with pytest.raises(MeasureResultError, match="execution record carries no restore report"):
-        parse_measure_result(_line(**_stopped_orm()), [], "orm")
-
-
-def test_a_printed_restore_line_is_not_the_report():
-    """Only the execution record carries the report; a tagged line the script printed is text."""
-    forged = f"{RESTORE_REPORT_TAG} {RestoreReport(restored=['SCOR:H:SP']).to_json()}\n"
-    stdout = forged + _line(**_stopped_orm()) + forged
-
-    with pytest.raises(MeasureResultError, match="execution record carries no restore report"):
-        parse_measure_result(stdout, [], "orm")
-
-
-def test_a_report_that_is_not_an_object_is_an_error():
-    with pytest.raises(MeasureResultError, match="not a JSON object"):
-        parse_measure_result(_line(**_stopped_orm()), ["restored"], "orm")
-
-
 def test_a_refusal_is_returned_as_the_refusal():
-    result = parse_measure_result(_line(kind="orm", refused="view changed"), [], "orm")
+    result = parse_measure_result(_line(kind="orm", refused="view changed"), "orm")
 
     assert result == {"kind": "orm", "refused": "view changed"}
 
 
 def test_the_last_result_line_wins():
     first = _line(**_orm(sha256="b" * 64))
-    result = parse_measure_result(first + _line(**_orm()), [], "orm")
+    result = parse_measure_result(first + _line(**_orm()), "orm")
 
     assert result["sha256"] == SHA
 
@@ -191,7 +192,7 @@ def test_the_last_result_line_wins():
 )
 def test_a_malformed_result_is_an_error(stdout: str, match: str):
     with pytest.raises(MeasureResultError, match=match):
-        parse_measure_result(stdout, [], "orm")
+        parse_measure_result(stdout, "orm")
 
 
 @pytest.mark.parametrize(
@@ -200,7 +201,7 @@ def test_a_malformed_result_is_an_error(stdout: str, match: str):
 def test_every_plane_spelling_reads_back_as_x_or_y(plane: str, read: str):
     line = _line(**_orm(observables=[["SR_BPM1", plane], ["SR_BPM1", "y"]]))
 
-    result = parse_measure_result(line, [], "orm")
+    result = parse_measure_result(line, "orm")
 
     assert result["observables"] == [["SR_BPM1", read], ["SR_BPM1", "y"]]
 
@@ -209,25 +210,25 @@ def test_an_observable_without_a_plane_is_refused_by_name():
     line = _line(**_orm(observables=[["SR_BPM1", ""], ["SR_BPM1", "y"]]))
 
     with pytest.raises(MeasureResultError, match=r"observable 'SR_BPM1' has no plane"):
-        parse_measure_result(line, [], "orm")
+        parse_measure_result(line, "orm")
 
 
 def test_an_observable_with_an_unknown_plane_is_refused_by_name():
     line = _line(**_orm(observables=[["SR_BPM1", "s"], ["SR_BPM1", "y"]]))
 
     with pytest.raises(MeasureResultError, match=r"observable 'SR_BPM1' has plane 's'"):
-        parse_measure_result(line, [], "orm")
+        parse_measure_result(line, "orm")
 
 
 def test_an_observable_without_a_name_is_refused():
     line = _line(**_orm(observables=[["", "x"], ["SR_BPM1", "y"]]))
 
     with pytest.raises(MeasureResultError, match="has no name"):
-        parse_measure_result(line, [], "orm")
+        parse_measure_result(line, "orm")
 
 
 def test_bytes_are_read_as_text():
-    result = parse_measure_result(_line(**_orm()).encode(), [], "orm")
+    result = parse_measure_result(_line(**_orm()).encode(), "orm")
 
     assert result["model"] == "SR"
 
@@ -323,6 +324,18 @@ def test_a_stopped_run_s_remainder_is_named_by_address(render: Path):
     stopped = {**_orm(completed=False), "remainder": ["SCOR:V:SP"]}
 
     assert label_result(stopped, _labels(render))["remainder"] == ["SCOR:V:SP"]
+
+
+def test_moved_is_labelled_by_address_and_device(render: Path):
+    result = _orm(moved=[["SCOR:H:SP", 0.25], ["RF:SP", "nan"], ["NOT:A:CHANNEL", 1.0]])
+
+    labelled = label_result(result, _labels(render))
+
+    assert labelled["moved"] == [
+        {"address": "SCOR:H:SP", "device": "SR/COR1", "before": 0.25},
+        {"address": "RF:SP", "device": "SR/CAV", "before": "nan"},
+        {"address": "NOT:A:CHANNEL", "device": None, "before": 1.0},
+    ]
 
 
 def test_a_refusal_is_labelled_unchanged(render: Path):

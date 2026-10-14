@@ -1,11 +1,12 @@
-"""``run_tool`` restores what an interrupted pyAML tool moved and reports every address.
+"""``run_tool`` runs a pyAML tool under the run lock and lists every setpoint it moved.
 
-A completed run leaves the machine as the tool left it. An interrupted one - a
-``KeyboardInterrupt``, a ``False`` return, or any exception - writes each moved
-address back through ``osprey.runtime.write_channel``, walking back under
-``max_step``, and never forces a refused channel. Every run is a journaled guarded
-run on the target, so a second one is busy and a missing guarded-run directory
-stops it before the tool is called.
+The call holds the target's run lock, joining the process's hold, so a second
+run is busy and a missing guarded-run directory stops it before the tool is
+called. Before the first write of each address its value is recorded; nothing
+is written back. A completed run, a stop, an exception and a Ctrl-C each report
+the setpoints the run moved with their values before the call: on the returned
+``ToolRun`` or, on an escaping exception, as ``moved_setpoints``. A Ctrl-C stops
+every tool of the process's run that takes a callback, from any thread.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ import sys
 import textwrap
 import threading
 import time
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -31,24 +32,21 @@ from pyaml.tuning_tools.measurement_tool import MeasurementTool
 from pyaml_test_lattice import lattices
 
 import osprey.runtime
+import osprey.runtime._run_state as _run_state
 import pyaml_cs_osprey.run_tool as run_tool_mod
-from osprey.errors import ChannelReadFailedError
-from osprey.runtime.guarded_run import (
-    JOURNAL_FILE_NAME,
-    GuardedRunDirError,
-    OspreyRunBusy,
-    lock,
-)
-from osprey.runtime.guarded_run import RESTORE_REPORT_TAG as RUNTIME_REPORT_TAG
-from osprey.runtime.journal import active_journals, read_pending_journal
-from osprey_connectors.control_system.limits_validator import ChannelLimitsConfig
-from pyaml_cs_osprey.catalog import parse_reference
-from pyaml_cs_osprey.device import OspreyDevice
+from osprey.runtime.guarded_run import GuardedRunDirError, OspreyRunBusy, lock
+from pyaml_cs_osprey import _run
 from pyaml_cs_osprey.errors import OspreyWriteRefused
-from pyaml_cs_osprey.run_tool import REPORT_TAG, RestoreReport, run_tool
+from pyaml_cs_osprey.run_tool import ToolRun, run_tool
 from tests.pyaml_cs_osprey.conftest import FakeRuntime as _Machine
 
 LATTICE = Path(lattices["fodo_1gev_6d.json"])
+
+#: Seconds a stub child may take to import and reach a phase, or to exit afterwards.
+CHILD_TIMEOUT_S = 60.0
+
+#: Setpoints of the dict machine before any tool ran.
+HOME = {"A": 1.0, "B": 2.0, "C": 3.0}
 
 
 @pytest.fixture
@@ -56,9 +54,9 @@ def machine(
     monkeypatch: pytest.MonkeyPatch,
     guarded_repo: Path,  # noqa: ARG001 - the run needs its repo
 ) -> Iterator[_Machine]:
-    m = _Machine({"A": 1.0, "B": 2.0, "C": 3.0})
+    m = _Machine(dict(HOME))
     yield m.install(monkeypatch, ("read_channels", "write_channel", "channel_limits"))
-    assert active_journals() == ()
+    assert _run.moved() == {}, "no pyAML run outlives its call"
 
 
 def test_run_tool_imports_no_private_runtime_name() -> None:
@@ -74,30 +72,27 @@ def test_run_tool_imports_no_private_runtime_name() -> None:
     assert private == []
 
 
-def test_the_report_tag_is_the_runtimes() -> None:
-    """The tag is the runtime's own."""
-    assert REPORT_TAG is RUNTIME_REPORT_TAG
+class TestRunLock:
+    """The tool runs under the target's run lock, or not at all."""
 
-
-class TestGuardedRun:
-    """The tool runs inside the target's journaled guarded run, or not at all."""
-
-    def test_each_address_is_journaled_durably_before_its_first_write(
-        self, machine: _Machine, guarded_repo: Path
+    def test_each_addresss_first_value_is_recorded_before_its_first_write(
+        self, machine: _Machine
     ) -> None:
-        """While the tool runs, the run's durable journal already holds the old value."""
-        journal_path = guarded_repo / "var" / "guarded_run" / "live" / JOURNAL_FILE_NAME
+        """While the tool runs, the run already holds each address's value before its write."""
         seen: list[dict[str, Any]] = []
 
         def tool() -> None:
             machine.set("A", 5.0)
-            pending = read_pending_journal(journal_path)
-            assert pending is not None
-            seen.append(dict(pending.values))
+            seen.append(_run.moved())
+            machine.set("A", 6.0)
+            machine.set("B", 7.0)
 
-        run_tool(tool)
+        run = run_tool(tool)
+
         assert seen == [{"A": 1.0}]
-        assert read_pending_journal(journal_path) is None
+        assert run == ToolRun(completed=True, moved={"A": 1.0, "B": 2.0})
+        assert list(run.moved) == ["A", "B"], "in first-write order"
+        assert machine.values == {"A": 6.0, "B": 7.0, "C": 3.0}
 
     def test_a_second_run_on_the_target_is_busy_and_never_calls_the_tool(
         self, machine: _Machine, guarded_repo: Path
@@ -135,19 +130,14 @@ class TestGuardedRun:
         assert f"(pid {holder.pid}, since " in str(info.value)
         assert machine.writes == []
 
-    def test_run_tool_from_a_thread_runs_under_the_callers_lock(
-        self, machine: _Machine, guarded_repo: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """A tool run from a helper thread journals and restores under the caller's lock."""
-        journal_path = guarded_repo / "var" / "guarded_run" / "live" / JOURNAL_FILE_NAME
-        seen: list[dict[str, Any]] = []
-        errors: list[BaseException] = []
+    def test_run_tool_from_a_thread_runs_under_the_callers_lock(self, machine: _Machine) -> None:
+        """A tool run from a helper thread joins the caller's hold; nothing is written back."""
+        holds: list[Any] = []
+        outcomes: list[Any] = []
 
         def tool() -> None:
+            holds.append(_run_state.STATE.hold)
             machine.set("A", 5.0)
-            pending = read_pending_journal(journal_path)
-            assert pending is not None
-            seen.append(dict(pending.values))
 
         def failing() -> None:
             machine.set("B", 7.0)
@@ -156,26 +146,27 @@ class TestGuardedRun:
         def worker(method: Callable[[], None]) -> Callable[[], None]:
             def run() -> None:
                 try:
-                    run_tool(method)
+                    outcomes.append(run_tool(method))
                 except BaseException as exc:  # surfaced by the assertion
-                    errors.append(exc)
+                    outcomes.append(exc)
 
             return run
 
         with lock("live"):
+            hold = _run_state.STATE.hold
             for method in (tool, failing):
                 thread = threading.Thread(target=worker(method))
                 thread.start()
                 thread.join(CHILD_TIMEOUT_S)
                 assert not thread.is_alive()
+            assert _run_state.STATE.hold is hold, "the threads released nothing"
 
-        assert seen == [{"A": 1.0}], "the address is journaled before the write"
-        assert [type(exc) for exc in errors] == [RuntimeError]
-        assert errors[0].restore_report.restored == ["B"]  # type: ignore[attr-defined]
-        assert machine.values == {"A": 5.0, "B": 2.0, "C": 3.0}
-        reports = _tagged(capsys.readouterr().err)
-        assert [report["aborted"] for report in reports] == [False, True]
-        assert read_pending_journal(journal_path) is None
+        assert holds == [hold]
+        completed, failed = outcomes
+        assert completed == ToolRun(completed=True, moved={"A": 1.0})
+        assert isinstance(failed, RuntimeError)
+        assert failed.moved_setpoints == {"B": 2.0}  # type: ignore[attr-defined]
+        assert machine.values == {"A": 5.0, "B": 7.0, "C": 3.0}
 
     def test_no_guarded_run_directory_raises_before_the_tool(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -191,45 +182,57 @@ class TestGuardedRun:
         assert called == []
 
 
-def _tagged(text: str) -> list[dict[str, Any]]:
-    return [
-        json.loads(line[len(REPORT_TAG) + 1 :])
-        for line in text.splitlines()
-        if line.startswith(REPORT_TAG + " ")
-    ]
+class _Tool:
+    """A pyAML-shaped measurement: step, then callback; a falsy callback aborts."""
+
+    def __init__(self, machine: _Machine, steps: list[tuple[str, float]]) -> None:
+        self.machine = machine
+        self.steps = steps
+        self.returned: list[Any] = []
+
+    def measure(self, callback: Callable[..., Any] | None = None) -> bool:
+        for address, value in self.steps:
+            self.machine.set(address, value)
+            if callback is not None:
+                ok = callback(Action.APPLY, {"source": self})
+                self.returned.append(ok)
+                if not ok:
+                    raise KeyboardInterrupt
+        return True
 
 
 class TestOutcomes:
-    """The method's return value or exception decides whether the journal is restored."""
+    """The method's return value or exception decides the outcome; nothing is written back."""
 
     @pytest.mark.parametrize("result", [None, True, 0, "done"])
     def test_a_completed_run_leaves_the_machine_as_the_tool_left_it(
         self, machine: _Machine, result: Any
     ) -> None:
-        """Anything but ``False`` is success: nothing written back, empty report."""
+        """Anything but ``False`` is success: nothing written back, what moved listed."""
 
         def tool() -> Any:
             machine.set("A", 5.0)
             return result
 
-        report = run_tool(tool)
-        assert report == RestoreReport(aborted=False)
+        run = run_tool(tool)
+        assert run == ToolRun(completed=True, moved={"A": 1.0})
         assert machine.values["A"] == 5.0
         assert machine.writes == [("A", 5.0, {})]
 
-    def test_a_false_return_is_an_abort_and_restores(self, machine: _Machine) -> None:
+    def test_a_false_return_is_a_stop_that_leaves_the_machine_where_it_stopped(
+        self, machine: _Machine
+    ) -> None:
         """``measure()`` reports an interrupted run with ``False``."""
 
         def tool() -> bool:
             machine.set("A", 5.0)
             return False
 
-        report = run_tool(tool)
-        assert report.aborted is True
-        assert report.restored == ["A"]
-        assert machine.values["A"] == 1.0
+        assert run_tool(tool) == ToolRun(completed=False, moved={"A": 1.0})
+        assert machine.values["A"] == 5.0
+        assert machine.writes == [("A", 5.0, {})]
 
-    def test_a_callback_stop_raised_as_keyboard_interrupt_returns_the_report(
+    def test_a_callback_stop_raised_as_keyboard_interrupt_returns_a_stopped_run(
         self, machine: _Machine
     ) -> None:
         """pyAML aborts on a falsy callback with ``KeyboardInterrupt``; it does not escape."""
@@ -239,30 +242,38 @@ class TestOutcomes:
             if not callback(Action.APPLY, {}):
                 raise KeyboardInterrupt
 
-        report = run_tool(tool, callback=lambda _action, _data: False)
-        assert report.aborted is True
-        assert report.restored == ["B"]
-        assert machine.values["B"] == 2.0
+        run = run_tool(tool, callback=lambda _action, _data: False)
+        assert run == ToolRun(completed=False, moved={"B": 2.0})
+        assert machine.values["B"] == 7.0
 
-    def test_a_callback_stop_prints_one_report_line(
-        self, machine: _Machine, capsys: pytest.CaptureFixture[str]
+    @pytest.mark.parametrize("says", [False, None, 0])
+    def test_a_falsy_caller_result_stops_the_tool(self, machine: _Machine, says: Any) -> None:
+        tool = _Tool(machine, [("A", 5.0), ("B", 6.0)])
+        seen: list[Any] = []
+
+        def caller(action: Any, data: Any) -> Any:
+            seen.append((action, data["source"]))
+            return says
+
+        run = run_tool(tool.measure, callback=caller)
+
+        assert seen == [(Action.APPLY, tool)]
+        assert tool.returned == [says]
+        assert run == ToolRun(completed=False, moved={"A": 1.0})
+        assert machine.values == {**HOME, "A": 5.0}
+
+    def test_a_truthy_caller_result_continues(self, machine: _Machine) -> None:
+        tool = _Tool(machine, [("A", 5.0)])
+
+        run = run_tool(tool.measure, callback=lambda _a, _d: "yes")
+
+        assert tool.returned == ["yes"]
+        assert run.completed is True
+
+    def test_a_real_keyboard_interrupt_propagates_with_what_it_moved(
+        self, machine: _Machine
     ) -> None:
-        """The guarded run restores the stopped tool once and prints its one tagged line."""
-
-        def tool(callback: Callable[..., Any]) -> None:
-            machine.set("B", 7.0)
-            if not callback(Action.APPLY, {}):
-                raise KeyboardInterrupt
-
-        report = run_tool(tool, callback=lambda _action, _data: False)
-        out, err = capsys.readouterr()
-        assert _tagged(out) + _tagged(err) == [json.loads(report.to_json())]
-        assert [w for w in machine.writes if w[0] == "B"] == [("B", 7.0, {}), ("B", 2.0, {})]
-
-    def test_a_real_keyboard_interrupt_restores_and_propagates_with_the_report(
-        self, machine: _Machine, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """A ``KeyboardInterrupt`` no callback asked for is a Ctrl-C: restored, then re-raised."""
+        """A ``KeyboardInterrupt`` no callback asked for propagates; nothing is put back."""
 
         def tool(callback: Callable[..., Any]) -> None:
             machine.set("B", 7.0)
@@ -271,11 +282,8 @@ class TestOutcomes:
 
         with pytest.raises(KeyboardInterrupt) as info:
             run_tool(tool, callback=lambda _action, _data: True)
-        report = info.value.restore_report  # type: ignore[attr-defined]
-        assert report.aborted is True
-        assert report.restored == ["B"]
-        assert machine.values["B"] == 2.0
-        assert _tagged(capsys.readouterr().err) == [json.loads(report.to_json())]
+        assert info.value.moved_setpoints == {"B": 2.0}  # type: ignore[attr-defined]
+        assert machine.values["B"] == 7.0
 
     def test_a_keyboard_interrupt_without_a_callback_propagates(self, machine: _Machine) -> None:
         """With no callback in the run, nothing but a Ctrl-C raises ``KeyboardInterrupt``."""
@@ -286,12 +294,10 @@ class TestOutcomes:
 
         with pytest.raises(KeyboardInterrupt):
             run_tool(tool)
-        assert machine.values["B"] == 2.0
+        assert machine.values["B"] == 7.0
 
-    def test_an_exception_restores_and_reraises_carrying_the_report(
-        self, machine: _Machine, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """Any other exception restores, attaches ``restore_report``, prints to stderr."""
+    def test_an_exception_reraises_carrying_what_it_moved(self, machine: _Machine) -> None:
+        """Any other exception carries ``moved_setpoints``; nothing is written back."""
 
         def tool() -> None:
             machine.set("A", 5.0)
@@ -299,18 +305,14 @@ class TestOutcomes:
 
         with pytest.raises(ValueError, match="boom") as info:
             run_tool(tool)
-        report = info.value.restore_report  # type: ignore[attr-defined]
-        assert isinstance(report, RestoreReport)
-        assert report.restored == ["A"]
-        assert machine.values["A"] == 1.0
-        out, err = capsys.readouterr()
-        assert _tagged(err) == [json.loads(report.to_json())]
-        assert _tagged(out) == []
+        assert info.value.moved_setpoints == {"A": 1.0}  # type: ignore[attr-defined]
+        assert machine.values["A"] == 5.0
+        assert machine.writes == [("A", 5.0, {})]
 
-    def test_a_refused_write_reraises_osprey_write_refused_with_the_report(
+    def test_a_refused_write_reraises_osprey_write_refused_with_what_it_moved(
         self, machine: _Machine
     ) -> None:
-        """A tool stopped by an ``OspreyWriteRefused`` still restores what it had moved."""
+        """A tool stopped by an ``OspreyWriteRefused`` lists what it had moved."""
 
         def tool() -> None:
             machine.set("A", 5.0)
@@ -318,21 +320,44 @@ class TestOutcomes:
 
         with pytest.raises(OspreyWriteRefused) as info:
             run_tool(tool)
-        assert info.value.restore_report.restored == ["A"]  # type: ignore[attr-defined]
+        assert info.value.moved_setpoints == {"A": 1.0}  # type: ignore[attr-defined]
+        assert machine.values["A"] == 5.0
 
     @pytest.mark.parametrize("exc_type", [SystemExit, GeneratorExit])
-    def test_exit_exceptions_restore_and_propagate(
+    def test_exit_exceptions_propagate_with_what_they_moved(
         self, machine: _Machine, exc_type: type[BaseException]
     ) -> None:
-        """``SystemExit`` and ``GeneratorExit`` restore, then propagate unchanged."""
+        """``SystemExit`` and ``GeneratorExit`` propagate carrying ``moved_setpoints``."""
 
         def tool() -> None:
             machine.set("C", 9.0)
             raise exc_type
 
-        with pytest.raises(exc_type):
+        with pytest.raises(exc_type) as info:
             run_tool(tool)
-        assert machine.values["C"] == 3.0
+        assert info.value.moved_setpoints == {"C": 3.0}  # type: ignore[attr-defined]
+        assert machine.values["C"] == 9.0
+
+    def test_a_nested_run_s_stop_does_not_stop_the_outer_run(self, machine: _Machine) -> None:
+        """Each call reports its own outcome; the record is the process's one run."""
+        inner_runs: list[ToolRun] = []
+
+        def inner(callback: Callable[..., Any]) -> None:
+            machine.set("B", 6.0)
+            if not callback(Action.APPLY, {}):
+                raise KeyboardInterrupt
+
+        def outer() -> bool:
+            machine.set("A", 5.0)
+            inner_runs.append(run_tool(inner, callback=lambda _a, _d: False))
+            machine.set("C", 9.0)
+            return True
+
+        run = run_tool(outer)
+
+        assert inner_runs == [ToolRun(completed=False, moved={"A": 1.0, "B": 2.0})]
+        assert run == ToolRun(completed=True, moved={"A": 1.0, "B": 2.0, "C": 3.0})
+        assert machine.values == {"A": 5.0, "B": 6.0, "C": 9.0}
 
     def test_arguments_and_the_callback_reach_the_method(self, machine: _Machine) -> None:
         """Positional and keyword arguments pass through; ``callback`` only when given."""
@@ -355,234 +380,26 @@ class TestOutcomes:
         assert calls == [Action.APPLY]
         assert machine.batch_reads == []
 
+    def test_an_abort_request_is_a_field_of_the_pyaml_run(self, machine: _Machine) -> None:
+        """A request from any thread reaches the run's opening thread; the next run starts clear."""
+        assert _run.request_abort() is False
+        seen: list[bool] = []
 
-class TestRestore:
-    """Restore reads once, skips unchanged addresses and never forces a refused one."""
-
-    def test_addresses_already_back_are_unchanged_and_not_written(self, machine: _Machine) -> None:
-        """One read decides; an address the tool put back itself is not written again."""
-
-        def tool() -> bool:
-            machine.set("A", 5.0)
-            machine.set("B", 6.0)
-            machine.set("A", 1.0)
-            return False
-
-        report = run_tool(tool)
-        assert report.unchanged == ["A"]
-        assert report.restored == ["B"]
-        restore_writes = machine.writes[3:]
-        assert restore_writes == [("B", 2.0, {})]
-        assert machine.batch_reads[-1] == ["A", "B"]
-
-    def test_a_distance_beyond_max_step_walks_back_in_three_equal_steps(
-        self, machine: _Machine
-    ) -> None:
-        """Distance 2.5 with ``max_step`` 1.0 takes three steps, the last exactly home."""
-        machine.limits["A"] = ChannelLimitsConfig("A", max_step=1.0, writable=True)
-
-        def tool() -> bool:
-            machine.set("A", 3.5)
-            return False
-
-        report = run_tool(tool)
-        steps = [v for a, v, _ in machine.writes[1:] if a == "A"]
-        assert steps == pytest.approx([3.5 - 2.5 / 3, 3.5 - 5.0 / 3, 1.0])
-        assert steps[-1] == 1.0
-        assert all(abs(b - a) <= 1.0 for a, b in zip([3.5, *steps], steps, strict=False))
-        assert report.restored == ["A"]
-
-    @pytest.mark.parametrize(("home", "moved"), [(0.7, 0.0), (0.0, 0.7), (1.7, 1.0), (1.0, 1.7)])
-    def test_no_walk_back_step_exceeds_max_step_after_rounding(
-        self, machine: _Machine, home: float, moved: float
-    ) -> None:
-        """Equal steps that round above ``max_step`` are resized, so the restore lands home."""
-        machine.values["A"] = home
-        machine.limits["A"] = ChannelLimitsConfig("A", max_step=0.1, writable=True)
-
-        def tool() -> bool:
-            machine.set("A", moved)
-            machine.refuse["A"] = lambda value: abs(value - machine.values["A"]) > 0.1
-            return False
-
-        report = run_tool(tool)
-        assert report.refused == []
-        assert report.restored == ["A"]
-        assert machine.values["A"] == home
-
-    def test_a_refused_step_stops_that_address_and_reports_where_it_was_left(
-        self, machine: _Machine
-    ) -> None:
-        """The walk-back stops at the first refusal; the other addresses still restore."""
-        machine.limits["A"] = ChannelLimitsConfig("A", max_step=1.0, writable=True)
-
-        def tool() -> bool:
-            machine.set("A", 4.0)
-            machine.set("B", 8.0)
-            return False
-
-        machine.refuse["A"] = lambda value: value < 2.5
-        report = run_tool(tool)
-        assert report.refused == [("A", "step too large", 3.0)]
-        assert machine.values["A"] == 3.0
-        assert report.restored == ["B"]
-        assert machine.values["B"] == 2.0
-
-    def test_restore_after_scaled_write_is_native(self, machine: _Machine) -> None:
-        """A device write in SI journals and restores the native value, not the SI one."""
-        dev = OspreyDevice(parse_reference("A[mm]"))
-
-        def tool() -> bool:
-            dev.set(5.0e-3)
-            return False
-
-        report = run_tool(tool)
-        assert machine.writes == [("A", pytest.approx(5.0), {}), ("A", 1.0, {})]
-        assert report.restored == ["A"]
-        assert machine.values["A"] == 1.0
-
-    def test_an_unconfirmed_write_back_is_failed(self, machine: _Machine) -> None:
-        """A write back attempted and not confirmed lands in ``failed``."""
-
-        def tool() -> bool:
-            machine.set("C", 4.0)
-            machine.fail.add("C")
-            return False
-
-        report = run_tool(tool)
-        assert [address for address, _ in report.failed] == ["C"]
-        assert report.restored == []
-
-    def test_an_unreadable_address_costs_one_more_read_for_the_rest(
-        self, machine: _Machine, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The failed channel is reported with its own cause; the rest are read once more."""
-        batch_read = machine.read_channels
-
-        def read_channels(addresses: Sequence[str], **kwargs: Any) -> list[Any]:
-            if machine.values.get("B") is None and "B" in addresses:
-                machine.batch_reads.append(list(addresses))
-                raise ChannelReadFailedError(["B"], causes={"B": TimeoutError("timed out")})
-            return batch_read(addresses, **kwargs)
-
-        monkeypatch.setattr(osprey.runtime, "read_channels", read_channels)
-
-        def tool() -> bool:
-            machine.set("A", 5.0)
-            machine.set("B", 6.0)
-            machine.set("C", 7.0)
-            machine.values["B"] = None
-            return False
-
-        report = run_tool(tool)
-        assert machine.batch_reads[-2:] == [["A", "B", "C"], ["A", "C"]]
-        assert report.failed == [("B", "Read failed for 1 channel(s): B (TimeoutError: timed out)")]
-        assert report.restored == ["A", "C"]
-        assert (machine.values["A"], machine.values["C"]) == (1.0, 3.0)
-
-    def test_an_outer_abort_restores_a_nested_successful_write(self, machine: _Machine) -> None:
-        """A nested ``run_tool`` journals into the outer run too."""
-
-        def inner() -> None:
+        def tool() -> None:
+            requested: list[bool] = []
+            helper = threading.Thread(target=lambda: requested.append(_run.request_abort()))
+            helper.start()
+            helper.join(CHILD_TIMEOUT_S)
+            seen.extend([*requested, _run.abort_requested()])
             machine.set("A", 5.0)
 
-        def outer() -> bool:
-            inner_report = run_tool(inner)
-            assert inner_report.aborted is False
-            assert machine.values["A"] == 5.0
-            return False
+        with pytest.raises(KeyboardInterrupt) as info:
+            run_tool(tool)
 
-        report = run_tool(outer)
-        assert report.aborted is True
-        assert report.restored == ["A"]
-        assert machine.values["A"] == 1.0
-
-    def test_a_callback_stop_in_a_nested_run_ends_the_outer_run_with_one_report(
-        self, machine: _Machine, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """The outermost run restores what every level moved and prints the one line."""
-
-        def inner(callback: Callable[..., Any]) -> None:
-            machine.set("B", 6.0)
-            if not callback(Action.APPLY, {}):
-                raise KeyboardInterrupt
-
-        def outer() -> bool:
-            machine.set("A", 5.0)
-            run_tool(inner, callback=lambda _action, _data: False)
-            machine.set("C", 9.0)
-            return True
-
-        report = run_tool(outer)
-        assert report.aborted is True
-        assert report.restored == ["A", "B"]
-        assert machine.values == {"A": 1.0, "B": 2.0, "C": 3.0}
-        out, err = capsys.readouterr()
-        assert _tagged(out) + _tagged(err) == [json.loads(report.to_json())]
-
-    def test_a_false_return_in_a_nested_run_ends_the_outer_run_with_one_report(
-        self, machine: _Machine, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """A nested ``False`` is an abort of the whole guarded run, restored once."""
-
-        def inner() -> bool:
-            machine.set("B", 6.0)
-            return False
-
-        def outer() -> bool:
-            machine.set("A", 5.0)
-            run_tool(inner)
-            machine.set("C", 9.0)
-            return True
-
-        report = run_tool(outer)
-        assert report.aborted is True
-        assert report.restored == ["A", "B"]
-        assert machine.values == {"A": 1.0, "B": 2.0, "C": 3.0}
-        assert [w for w in machine.writes if w[0] == "C"] == []
-        out, err = capsys.readouterr()
-        assert _tagged(out) + _tagged(err) == [json.loads(report.to_json())]
-
-    def test_a_clean_nested_run_prints_no_line(
-        self, machine: _Machine, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """Only the outermost run prints, once, as it ends."""
-        printed: list[list[dict[str, Any]]] = []
-
-        def inner() -> None:
-            machine.set("B", 6.0)
-
-        def outer() -> None:
-            run_tool(inner)
-            out, err = capsys.readouterr()
-            printed.append(_tagged(out) + _tagged(err))
-
-        report = run_tool(outer)
-        assert printed == [[]]
-        out, err = capsys.readouterr()
-        assert _tagged(out) + _tagged(err) == [json.loads(report.to_json())]
-        assert report == RestoreReport(aborted=False)
-
-    def test_the_tagged_line_is_printed_once_per_return(
-        self, machine: _Machine, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """Each return prints exactly one guarded-run report line with the report."""
-
-        def tool() -> bool:
-            machine.set("B", 6.0)
-            return False
-
-        report = run_tool(tool)
-        lines = _tagged(capsys.readouterr().err)
-        assert lines == [json.loads(report.to_json())]
-        assert lines[0] == {
-            "restored": ["B"],
-            "unchanged": [],
-            "refused": [],
-            "failed": [],
-            "aborted": True,
-            "deadline_guard": False,
-        }
+        assert seen == [True, True]
+        assert info.value.moved_setpoints == {"A": 1.0}  # type: ignore[attr-defined]
+        assert run_tool(lambda: seen.append(_run.abort_requested())).completed is True
+        assert seen[-1] is False
 
 
 def _fodo_design() -> Accelerator:
@@ -673,21 +490,19 @@ def _stop(_action: Action, _data: dict[str, Any]) -> bool:
 
 @pytest.mark.usefixtures("machine")
 class TestPyamlTools:
-    """Real pyAML tools in design mode abort through ``run_tool`` instead of raising."""
+    """Real pyAML tools in design mode stop through ``run_tool`` instead of raising."""
 
-    def test_a_trm_measure_stopped_at_init_returns_an_aborted_report(self, sr: Accelerator) -> None:
-        """``trm.measure`` sends INIT outside its ``try``; the interrupt becomes a report."""
-        report = run_tool(sr.design.trm.measure, callback=_stop)
-        assert report.aborted is True
+    def test_a_trm_measure_stopped_at_init_returns_a_stopped_run(self, sr: Accelerator) -> None:
+        """``trm.measure`` sends INIT outside its ``try``; the interrupt becomes a stopped run."""
+        run = run_tool(sr.design.trm.measure, callback=_stop)
+        assert run.completed is False
         assert sr.design.trm._callback is None
 
-    def test_a_chromaticity_measure_stopped_returns_an_aborted_report(
-        self, sr: Accelerator
-    ) -> None:
+    def test_a_chromaticity_measure_stopped_returns_a_stopped_run(self, sr: Accelerator) -> None:
         """The chromaticity monitor reports its interrupted run with ``False``."""
         monitor = sr.design.get_chromaticity_monitor("CHROMATICITY_MONITOR")
-        report = run_tool(monitor.measure, callback=_stop)
-        assert report.aborted is True
+        run = run_tool(monitor.measure, callback=_stop)
+        assert run.completed is False
         assert monitor._callback is None
 
     def test_a_later_plain_readback_is_unaffected_by_a_stale_callback(
@@ -729,26 +544,23 @@ def test_the_chromaticity_monitor_slot_is_cleared_too() -> None:
     """A response matrix hands its callback to its monitor; neither slot survives the run."""
     monitor = _Monitor("CHROMATICITY_MONITOR")
     crm = _ResponseMatrix("CRM", monitor)
-    report = run_tool(crm.measure, callback=lambda _action, _data: True)
-    assert report.aborted is False
+    run = run_tool(crm.measure, callback=lambda _action, _data: True)
+    assert run.completed is True
     assert crm._callback is None
     assert monitor._callback is None
 
 
-#: Seconds a stub child may take to import and reach a phase, or to exit afterwards.
-CHILD_TIMEOUT_S = 60.0
-
 _SIGINT_CHILD = textwrap.dedent(
     """
-    import json, os, sys, time
+    import json, os, sys, threading, time
 
     import osprey.runtime
-    from osprey.runtime.journal import journaled_write
+    from pyaml_cs_osprey import _run
     from pyaml_cs_osprey.run_tool import run_tool
 
-    mode, workdir = sys.argv[1], sys.argv[2]
+    mode, workdir, bound = sys.argv[1], sys.argv[2], float(sys.argv[3])
     values = {"A": 1.0, "B": 2.0, "C": 3.0}
-    restoring = False
+    helper = {"falsy": False, "caught": False}
 
     def hold(name):
         # Announce the phase once, then wait for the parent's go (sent after SIGINT).
@@ -764,16 +576,23 @@ _SIGINT_CHILD = textwrap.dedent(
         return [values[a] for a in addresses]
 
     def write_channel(address, value, **kwargs):
-        if restoring:
-            hold("restore")
         values[address] = value
 
     osprey.runtime.read_channels = read_channels
     osprey.runtime.write_channel = write_channel
     osprey.runtime.channel_limits = lambda address: None
 
+    def same(exc, *_addresses):
+        return exc
+
     def put(address, value):
-        journaled_write([address], lambda: osprey.runtime.write_channel(address, value))
+        _run.write(
+            [address],
+            lambda **kw: osprey.runtime.write_channel(address, value, **kw),
+            same,
+            map_read=same,
+            confirm=None,
+        )
 
     def span_tool(callback):
         # pyAML style: a falsy callback raises KeyboardInterrupt.
@@ -798,13 +617,6 @@ _SIGINT_CHILD = textwrap.dedent(
         hold("span")
         put("B", 6.0)
 
-    def restore_tool():
-        global restoring
-        put("A", 5.0)
-        put("B", 6.0)
-        restoring = True
-        return False
-
     def outer_tool():
         put("A", 5.0)
         run_tool(span_inner)
@@ -818,23 +630,52 @@ _SIGINT_CHILD = textwrap.dedent(
             raise KeyboardInterrupt
         return True
 
+    def helper_tool(callback):
+        # Steps until its callback says stop, or writes C once the bound passes.
+        put("B", 6.0)
+        hold("span")
+        until = time.monotonic() + bound
+        while time.monotonic() < until:
+            if not callback("apply", {}):
+                helper["falsy"] = True
+                raise KeyboardInterrupt
+            time.sleep(0.01)
+        put("C", 7.0)
+        return True
+
+    def in_helper():
+        try:
+            run_tool(helper_tool)
+        except KeyboardInterrupt:
+            helper["caught"] = True
+
+    def main_tool(callback):
+        put("A", 5.0)
+        thread = threading.Thread(target=in_helper)
+        thread.start()
+        thread.join()
+        if not callback("apply", {}):
+            raise KeyboardInterrupt
+        return True
+
     tools = {
         "span": span_tool,
         "after": returning_tool,
         "plain": plain_tool,
-        "restore": restore_tool,
         "nested": outer_tool,
+        "helper": main_tool,
     }
     try:
-        report = run_tool(tools[mode])
-        print("RETURNED", report.to_json(), flush=True)
+        run = run_tool(tools[mode])
+        print("RETURNED", json.dumps({"completed": run.completed, "moved": run.moved}), flush=True)
         if mode == "after":
             osprey.runtime.write_channel("C", 99.0)
             print("AFTER", flush=True)
     except KeyboardInterrupt as exc:
-        print("INTERRUPTED", exc.restore_report.to_json(), flush=True)
+        print("INTERRUPTED", json.dumps({"moved": exc.moved_setpoints}), flush=True)
         raise
     finally:
+        print("HELPER", json.dumps(helper), flush=True)
         with open(os.path.join(workdir, "values.json"), "w") as handle:
             json.dump(values, handle)
     """
@@ -844,8 +685,8 @@ _SIGINT_CHILD = textwrap.dedent(
 class _SigintChild:
     """A stub child running ``run_tool`` over a dict machine; the parent sends SIGINT.
 
-    The child runs in a deployment repo of its own, so its guarded run has a
-    target directory to lock.
+    The child runs in a deployment repo of its own, so its run has a target
+    directory to lock.
     """
 
     def __init__(self, workdir: Path, mode: str) -> None:
@@ -856,14 +697,10 @@ class _SigintChild:
         repo.mkdir(exist_ok=True)
         (repo / "profile.yml").write_text("name: probe\n", encoding="utf-8")
         env = {**os.environ, osprey.runtime.ENV_CONTROL_TARGET: "live"}
-        for name in (
-            "OSPREY_EXECUTION_DEADLINE",
-            "OSPREY_EXECUTION_MODE",
-            osprey.runtime.ENV_CONTROL_TARGET_GENERATION,
-        ):
+        for name in ("OSPREY_EXECUTION_MODE", osprey.runtime.ENV_CONTROL_TARGET_GENERATION):
             env.pop(name, None)
         self.proc = subprocess.Popen(
-            [sys.executable, str(script), mode, str(workdir)],
+            [sys.executable, str(script), mode, str(workdir), str(CHILD_TIMEOUT_S / 2)],
             cwd=repo,
             env=env,
             stdout=subprocess.PIPE,
@@ -917,65 +754,52 @@ def _line(out: str, tag: str) -> dict[str, Any]:
     return json.loads(line[len(tag) + 1 :])
 
 
-HOME = {"A": 1.0, "B": 2.0, "C": 3.0}
-
-
 class TestSigintAbort:
-    """A Ctrl-C aborts the guarded run, restores it and ends the script."""
+    """A Ctrl-C stops every tool of the run and ends the script; nothing is put back."""
 
     def test_sigint_during_span_aborts(self, sigint_child: Callable[[str], _SigintChild]) -> None:
-        """The chained callback stops the tool; restored, reported on stderr, re-raised."""
+        """The chained callback stops the tool; re-raised with what it moved."""
         child = sigint_child("span")
         child.interrupt_at("span")
         code, out, err, values = child.finish()
         assert code != 0
-        report = _line(out, "INTERRUPTED")
-        assert report["aborted"] is True
-        assert report["restored"] == ["A"]
-        assert values == HOME
-        assert _tagged(err) == [report]
-        assert _tagged(out) == []
+        assert _line(out, "INTERRUPTED") == {"moved": {"A": 1.0}}
+        assert values == {**HOME, "A": 5.0}
+        assert "GUARDED_RUN_RESTORE" not in out + err
 
-    def test_sigint_during_restore_restores_all(
+    def test_sigint_without_callback_raises_with_what_it_moved(
         self, sigint_child: Callable[[str], _SigintChild]
     ) -> None:
-        """A SIGINT while writing back is ignored: every address restored, one tagged line."""
-        child = sigint_child("restore")
-        child.interrupt_at("restore")
-        code, out, err, values = child.finish()
-        assert code == 0, err
-        report = _line(out, "RETURNED")
-        assert report["restored"] == ["A", "B"]
-        assert values == HOME
-        assert _tagged(out) + _tagged(err) == [report]
-
-    def test_sigint_without_callback_restores_and_raises(
-        self, sigint_child: Callable[[str], _SigintChild]
-    ) -> None:
-        """A tool that takes no callback gets ``KeyboardInterrupt`` at once, then the restore."""
+        """A tool that takes no callback gets ``KeyboardInterrupt`` at once."""
         child = sigint_child("plain")
         child.interrupt_at("span")
-        code, out, err, values = child.finish()
+        code, out, _err, values = child.finish()
         assert code != 0
-        report = _line(out, "INTERRUPTED")
-        assert report["aborted"] is True
-        assert report["restored"] == ["A"]
-        assert values == HOME
-        assert _tagged(err) == [report]
+        assert _line(out, "INTERRUPTED") == {"moved": {"A": 1.0}}
+        assert values == {**HOME, "A": 5.0}
 
     def test_sigint_in_nested_run_aborts_outer(
         self, sigint_child: Callable[[str], _SigintChild]
     ) -> None:
-        """A SIGINT inside a nested run aborts every enclosing run; the outermost reports once."""
+        """A SIGINT inside a nested run stops every enclosing run; nothing later writes."""
         child = sigint_child("nested")
         child.interrupt_at("span")
-        code, out, err, values = child.finish()
+        code, out, _err, values = child.finish()
         assert code != 0
-        report = _line(out, "INTERRUPTED")
-        assert report["aborted"] is True
-        assert report["restored"] == ["A", "B"]
-        assert values == HOME
-        assert _tagged(out) + _tagged(err) == [report]
+        assert _line(out, "INTERRUPTED") == {"moved": {"A": 1.0, "B": 2.0}}
+        assert values == {"A": 5.0, "B": 6.0, "C": 3.0}
+
+    def test_sigint_stops_a_helper_threads_tool_through_its_callback(
+        self, sigint_child: Callable[[str], _SigintChild]
+    ) -> None:
+        """The run's abort flag reaches a tool on a helper thread; it never steps to its bound."""
+        child = sigint_child("helper")
+        child.interrupt_at("span")
+        code, out, _err, values = child.finish()
+        assert code != 0
+        assert _line(out, "HELPER") == {"falsy": True, "caught": True}
+        assert _line(out, "INTERRUPTED") == {"moved": {"A": 1.0, "B": 2.0}}
+        assert values == {"A": 5.0, "B": 6.0, "C": 3.0}, "C was never written"
 
     def test_run_tool_off_main_thread_no_handler(self, machine: _Machine) -> None:
         """Off the main thread no handler is installed; on it, the previous one comes back."""
@@ -1006,18 +830,13 @@ class TestSigintAbort:
         assert seen[1] is True
         assert signal.getsignal(signal.SIGINT) is before
 
-    def test_sigint_abort_stops_script_after_restore(
-        self, sigint_child: Callable[[str], _SigintChild]
-    ) -> None:
-        """A tool that reports the stop with ``False`` still ends the script after the restore."""
+    def test_sigint_abort_stops_script(self, sigint_child: Callable[[str], _SigintChild]) -> None:
+        """A tool that reports the stop with ``False`` still ends the script."""
         child = sigint_child("after")
         child.interrupt_at("span")
-        code, out, err, values = child.finish()
+        code, out, _err, values = child.finish()
         assert code != 0
         assert "AFTER" not in out
         assert "RETURNED" not in out
-        report = _line(out, "INTERRUPTED")
-        assert report["aborted"] is True
-        assert report["restored"] == ["A"]
-        assert values == HOME
-        assert _tagged(err) == [report]
+        assert _line(out, "INTERRUPTED") == {"moved": {"A": 1.0}}
+        assert values == {**HOME, "A": 5.0}

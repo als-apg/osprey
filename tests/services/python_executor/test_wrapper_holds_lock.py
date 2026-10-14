@@ -8,10 +8,10 @@ lock. Each case runs a real wrapped script in a deployment repo whose
 sandbox of ``test_approved_call_forwarding``).
 
 Covered elsewhere and kept green by this module's gate set: a pyAML tool run
-inside a readwrite run journals and restores under the run's lock
-(``tests/pyaml_cs_osprey/test_run_tool.py``), and a killed readwrite run leaves
-no journal
-(``tests/runtime/test_guarded_run_cases.py::test_a_killed_readwrite_execute_leaves_no_journal``).
+inside a readwrite run joins the run's lock
+(``tests/pyaml_cs_osprey/test_run_tool.py``), and a killed readwrite run frees
+its target
+(``tests/runtime/test_guarded_run_cases.py::test_a_killed_readwrite_execute_frees_the_target``).
 """
 
 from __future__ import annotations
@@ -25,9 +25,8 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
-import osprey.runtime.guarded_run as guarded_run
-from osprey.runtime.guarded_run import LOCK_FILE_NAME
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
+from tests._guarded_run import held_lock, lock_path
 from tests.mcp_server.python_executor.test_approved_call_forwarding import (
     _SRC_ROOT,
     CHILD_TIMEOUT_S,
@@ -81,32 +80,9 @@ _WRITE_SENTINEL = textwrap.dedent(
     """
 )
 
-#: User code whose helper thread writes ``Q`` inside a journaled run it never leaves.
-_LEAVE_A_THREAD_INSIDE_A_RUN = textwrap.dedent(
-    """
-    import threading
-
-    import osprey.runtime
-    from osprey.runtime.guarded_run import journaled_run
-    from osprey.runtime.journal import guarded_write
-
-    _wrote = threading.Event()
-    _never = threading.Event()
-
-    def _tool():
-        with journaled_run(None):
-            guarded_write(["Q"], lambda: osprey.runtime.write_channel("Q", 7.0), lambda exc: exc)
-            _wrote.set()
-            _never.wait()
-
-    threading.Thread(target=_tool).start()
-    results = {"wrote": _wrote.wait(30)}
-    """
-)
-
 
 def _lock_path(sandbox: _Sandbox) -> Path:
-    return sandbox.root / "var" / "guarded_run" / "live" / LOCK_FILE_NAME
+    return lock_path("live", sandbox.root)
 
 
 def _run(
@@ -121,7 +97,7 @@ def _run(
     for name in ("execution_metadata.json", "results.json"):
         (sandbox.folder / name).unlink(missing_ok=True)
     env = os.environ.copy()
-    for name in ("OSPREY_CONFIG", "CONFIG_FILE", "OSPREY_EXECUTION_DEADLINE"):
+    for name in ("OSPREY_CONFIG", "CONFIG_FILE"):
         env.pop(name, None)
     env["PYTHONPATH"] = os.pathsep.join(
         filter(None, [str(sandbox.site), str(_SRC_ROOT), env.get("PYTHONPATH")])
@@ -150,7 +126,7 @@ def _run(
 
 
 def test_a_readwrite_runs_code_finds_the_lock_held_by_the_run(tmp_path: Path) -> None:
-    sandbox = _Sandbox(tmp_path / "repo", {"Q": 3.0}, {})
+    sandbox = _Sandbox(tmp_path / "repo", {"Q": 3.0})
 
     metadata = _run(sandbox, "readwrite", _PROBE_THE_LOCK)
 
@@ -161,7 +137,7 @@ def test_a_readwrite_runs_code_finds_the_lock_held_by_the_run(tmp_path: Path) ->
 
 
 def test_the_lock_is_free_after_the_run_and_a_second_run_takes_it(tmp_path: Path) -> None:
-    sandbox = _Sandbox(tmp_path / "repo", {"Q": 3.0}, {})
+    sandbox = _Sandbox(tmp_path / "repo", {"Q": 3.0})
 
     first = _run(sandbox, "readwrite", _PROBE_THE_LOCK)
     assert first["success"] is True, first.get("traceback")
@@ -180,7 +156,7 @@ def test_the_lock_is_free_after_the_run_and_a_second_run_takes_it(tmp_path: Path
 
 
 def test_a_readonly_run_never_touches_the_lock(tmp_path: Path) -> None:
-    sandbox = _Sandbox(tmp_path / "repo", {"Q": 3.0}, {})
+    sandbox = _Sandbox(tmp_path / "repo", {"Q": 3.0})
 
     metadata = _run(sandbox, "readonly", _WRITE_SENTINEL)
 
@@ -190,57 +166,14 @@ def test_a_readonly_run_never_touches_the_lock(tmp_path: Path) -> None:
 
 
 def test_a_readwrite_run_on_a_held_target_fails_before_its_code(tmp_path: Path) -> None:
-    sandbox = _Sandbox(tmp_path / "repo", {"Q": 3.0}, {})
-    fd = os.open(_lock_path(sandbox), os.O_RDWR | os.O_CREAT, 0o664)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        guarded_run._write_holder(fd)
-        holder = json.loads(os.pread(fd, 4096, 0))
+    sandbox = _Sandbox(tmp_path / "repo", {"Q": 3.0})
+    with held_lock("live", root=sandbox.root) as holder_process:
+        holder = json.loads(_lock_path(sandbox).read_text(encoding="utf-8"))
 
         metadata = _run(sandbox, "readwrite", _WRITE_SENTINEL)
-    finally:
-        os.close(fd)
 
     assert metadata["success"] is False
     assert metadata["error_type"] == "OspreyRunBusy"
     assert not (sandbox.root / "sentinel").exists(), "the user code never started"
-    assert f"pid {os.getpid()}" in metadata["error"]
+    assert f"pid {holder_process.pid}" in metadata["error"]
     assert holder["started"] in metadata["error"]
-
-
-def test_an_approved_journal_is_restored_on_entry_and_the_lock_stays_held(
-    tmp_path: Path,
-) -> None:
-    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0, "S": 5.0}, {"Q": 3.0})
-    env = {"OSPREY_APPROVED_JOURNAL_SHA256": sandbox.digest(), "OSPREY_APPROVED_TARGET": "live"}
-
-    metadata = _run(sandbox, "readwrite", _PROBE_THE_LOCK, env)
-
-    assert metadata["success"] is True, metadata.get("traceback")
-    results = metadata["_results"]
-    assert results["seen"] == {"Q": 3.0, "S": 5.0}, "restored before the user code started"
-    assert results["second_process"] == "BlockingIOError"
-    assert results["holder_pid"] == results["run_pid"]
-    assert sandbox.journal.read_bytes() == b""
-    (report,) = metadata["restore_reports"]
-    assert report["restored"] == ["Q"]
-
-
-def test_a_thread_left_inside_a_run_is_restored_before_the_record(tmp_path: Path) -> None:
-    sandbox = _Sandbox(tmp_path / "repo", {"Q": 3.0}, {})
-
-    metadata = _run(sandbox, "readwrite", _LEAVE_A_THREAD_INSIDE_A_RUN)
-
-    assert metadata["success"] is True, metadata.get("traceback")
-    assert metadata["_results"] == {"wrote": True}
-    (report,) = metadata["restore_reports"]
-    assert report["aborted"] is True
-    assert report["restored"] == ["Q"]
-    assert sandbox.values() == {"Q": 3.0}
-    assert sandbox.journal.read_bytes() == b""
-    fd = os.open(_lock_path(sandbox), os.O_RDWR)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        fcntl.flock(fd, fcntl.LOCK_UN)
-    finally:
-        os.close(fd)

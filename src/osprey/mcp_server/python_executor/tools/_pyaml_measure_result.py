@@ -1,15 +1,15 @@
 """Read what the ``pyaml_measure`` sandbox script printed, and label it.
 
-The script ends with one ``OSPREY_PYAML_MEASURE <json>`` line on stdout, and the
-guarded run it starts hands its restore report to the executor in the run's
-execution record (``ExecutionResult.restore_reports``); the tagged line the run
-also prints is for people and is never read as the report.
-:func:`parse_measure_result` reads the result line and the record's reports and
-returns the tool's result for one kind:
+The script ends with one ``OSPREY_PYAML_MEASURE <json>`` line on stdout, also
+when the measurement stopped, failed or was interrupted.
+:func:`parse_measure_result` reads that line and returns the tool's result for
+one kind:
 
 * every result carries ``kind``, ``model``, ``completed`` and ``sha256``, the
-  digest of the pyAML view the script loaded, and the ``modulation`` (and
-  ``by``) the script ran;
+  digest of the pyAML view the script loaded, the ``modulation`` (and ``by``)
+  the script ran, and ``moved``: ``[address, before]`` for every setpoint the
+  call moved, in first-write order, with the value it held before the call (a
+  non-finite value spelled as Python spells it);
 * the steps: ``deltas`` by variable and ``delta_limited_by``, the setpoint
   whose ``max_step`` bounded a step; a group adds ``delta_basis``; an RF step
   adds ``rf_span_hz`` and ``rf_limited_by``, the chromaticity monitor
@@ -20,8 +20,9 @@ returns the tool's result for one kind:
   ``data_file``;
 * a completed ``chromaticity_monitor``: ``chromaticity`` ``[xi_x, xi_y]`` and
   ``data_file``;
-* a stopped run: the steps used, the ``restore`` report and ``remainder``, the
-  variables not measured (the kind itself when no column is partial);
+* a stopped run: the steps used, ``remainder``, the variables not measured
+  (the kind itself when no column is partial), and ``error``, the first line
+  of what stopped it, when an exception did;
 * a refusal: ``{"kind", "refused"}``.
 
 :func:`label_result` then names every row and column by the address and device
@@ -33,7 +34,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -156,6 +157,19 @@ def _shape(line: Mapping[str, Any]) -> list[int]:
     return list(value)
 
 
+def _moved(line: Mapping[str, Any]) -> list[list[Any]]:
+    """Each moved setpoint's ``[address, before]``, the value a number or a spelling."""
+    value = _require(line, "moved")
+    if not isinstance(value, list) or not all(
+        isinstance(item, list) and len(item) == 2 and isinstance(item[0], str) for item in value
+    ):
+        raise MeasureResultError(f"'moved' is not a list of [address, value]: {value!r}")
+    return [
+        [address, before if isinstance(before, str) else _number(before, f"moved.{address}")]
+        for address, before in value
+    ]
+
+
 def _steps(line: Mapping[str, Any]) -> dict[str, Any]:
     """The steps the script took, as it reported them: ``deltas`` by variable."""
     value = _require(line, "deltas")
@@ -164,26 +178,21 @@ def _steps(line: Mapping[str, Any]) -> dict[str, Any]:
     return {key: _number(step, f"deltas.{key}") for key, step in value.items()}
 
 
-def parse_measure_result(
-    stdout: str | bytes, restore_reports: Sequence[Any], kind: str
-) -> dict[str, Any]:
-    """The ``pyaml_measure`` result for ``kind`` from the script's output and the run's record.
+def parse_measure_result(stdout: str | bytes, kind: str) -> dict[str, Any]:
+    """The ``pyaml_measure`` result for ``kind`` from the script's output.
 
     Args:
         stdout: Everything the script printed to stdout.
-        restore_reports: The restore reports the run's execution record
-            carries, in the order the guarded runs made them.
         kind: The kind the script was built for.
 
     Returns:
-        The result described in the module docstring. A stopped run's
-        ``restore`` is the record's last report, the outermost guarded run's.
+        The result described in the module docstring.
 
     Raises:
-        MeasureResultError: No result line was printed (the script raised or
-            was killed), it is not a JSON object, it names another kind, a
-            field the kind needs is missing or mistyped, or a stopped run's
-            execution record carries no restore report.
+        MeasureResultError: No result line was printed (the script was killed
+            or failed before it could print one), it is not a JSON object, it
+            names another kind, or a field the kind needs is missing or
+            mistyped.
     """
     out = stdout.decode("utf-8", errors="replace") if isinstance(stdout, bytes) else stdout or ""
 
@@ -205,6 +214,7 @@ def parse_measure_result(
         "model": _string(line, "model"),
         "sha256": _string(line, "sha256"),
         "completed": completed,
+        "moved": _moved(line),
     }
     for name in _ECHOED:
         if name in line:
@@ -239,12 +249,8 @@ def parse_measure_result(
         result["data_file"] = _string(line, "data_file")
         return result
 
-    if not restore_reports:
-        raise MeasureResultError("a stopped run's execution record carries no restore report")
-    restore = restore_reports[-1]
-    if not isinstance(restore, Mapping):
-        raise MeasureResultError(f"the record's restore report is not a JSON object: {restore!r}")
-    result["restore"] = dict(restore)
+    if "error" in line:
+        result["error"] = _string(line, "error")
     remainder = line.get("remainder")
     result["remainder"] = _names(line, "remainder") if isinstance(remainder, list) else kind
     return result
@@ -261,6 +267,8 @@ class MeasureLabels:
         rf: The RF plant's name and ``{address, device}``, or ``None``.
         tune: The tune monitor's name and ``{x, y}`` readback addresses, or
             ``None``.
+        devices: Channel address to the device id it belongs to, ``None``
+            for a channel of no device.
     """
 
     bpms: Mapping[str, Mapping[str, str | None]] = field(default_factory=dict)
@@ -268,6 +276,7 @@ class MeasureLabels:
     arrays: Mapping[str, str] = field(default_factory=dict)
     rf: tuple[str, Mapping[str, str | None]] | None = None
     tune: tuple[str, Mapping[str, str | None]] | None = None
+    devices: Mapping[str, str | None] = field(default_factory=dict)
 
 
 def measure_labels(render_root: Path, model: str, config_path: Path) -> MeasureLabels:
@@ -324,7 +333,9 @@ def measure_labels(render_root: Path, model: str, config_path: Path) -> MeasureL
                 "y": parse_reference(monitor["tune_v"]).address,
             },
         )
-    return MeasureLabels(bpms=bpms, magnets=magnets, arrays=arrays, rf=rf, tune=tune)
+    return MeasureLabels(
+        bpms=bpms, magnets=magnets, arrays=arrays, rf=rf, tune=tune, devices=device_of
+    )
 
 
 def _inverse(table: Mapping[str, str]) -> dict[str, str]:
@@ -359,7 +370,7 @@ def label_result(result: Mapping[str, Any], labels: MeasureLabels) -> dict[str, 
     row. A column is ``{name, address, device}`` for a magnet or the RF plant,
     ``{name, group}`` for a group stepped as one knob. ``deltas`` and
     ``remainder`` are keyed and listed by the same address, or group id, where
-    one exists.
+    one exists. Each ``moved`` entry is ``{address, device, before}``.
 
     Args:
         result: A result :func:`parse_measure_result` returned.
@@ -377,6 +388,11 @@ def label_result(result: Mapping[str, Any], labels: MeasureLabels) -> dict[str, 
         del labelled["variables"]
     if "deltas" in result:
         labelled["deltas"] = {_key(labels, name): step for name, step in result["deltas"].items()}
+    if "moved" in result:
+        labelled["moved"] = [
+            {"address": address, "device": labels.devices.get(address), "before": before}
+            for address, before in result["moved"]
+        ]
     if isinstance(result.get("remainder"), list):
         labelled["remainder"] = [_key(labels, name) for name in result["remainder"]]
     return labelled

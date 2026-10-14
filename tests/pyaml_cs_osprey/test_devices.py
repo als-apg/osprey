@@ -17,7 +17,6 @@ from osprey.errors import (
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
 )
-from osprey.runtime.journal import pop_journal, push_journal
 from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.control_system.limits_validator import (
     ChannelLimitsConfig,
@@ -131,7 +130,7 @@ def test_check_device_availability_is_one_read(runtime: _Runtime) -> None:
 # --- writes ------------------------------------------------------------------
 
 
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_set_is_one_batch_write_in_reference_order(runtime: _Runtime) -> None:
     _list().set(np.array([10.0, 20.0, 30.0]))
     assert runtime.calls == ["read_channels", "write_channels"]
@@ -140,7 +139,7 @@ def test_set_is_one_batch_write_in_reference_order(runtime: _Runtime) -> None:
     assert kwargs == {}
 
 
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_set_and_wait_confirms(runtime: _Runtime) -> None:
     _list().set_and_wait([10.0, 20.0, 30.0])
     [(_, kwargs)] = runtime.batch_writes
@@ -164,49 +163,22 @@ def test_a_set_outside_a_run_is_refused_as_a_pyaml_error_with_nothing_read(
     assert runtime.calls == []
 
 
-@pytest.mark.usefixtures("guarded")
-def test_a_set_on_a_setpoint_reading_nan_is_refused_with_the_runtimes_reason(
-    runtime: _Runtime,
-) -> None:
-    runtime.values[SETS[1]] = float("nan")
-    with pytest.raises(OspreyWriteRefused) as info:
-        _list().set([10.0, 20.0, 30.0])
-    assert isinstance(info.value, PyAMLException)
-    assert info.value.channel_address == SETS[1]
-    assert str(info.value) == (
-        f"OSPREY refused the write to '{SETS[1]}': reads nan before the write, "
-        "so a guarded run could not put it back"
-    )
-    assert runtime.calls == ["read_channels"]
-
-
-def test_guarded_set_journals_every_address_before_the_write(runtime: _Runtime, guarded) -> None:
+def test_a_set_in_a_run_records_every_address_before_the_write(runtime: _Runtime, in_run) -> None:
     _list().set([10.0, 20.0, 30.0])
     assert runtime.calls == ["read_channels", "write_channels"]
     assert runtime.batch_reads == [SETS]
-    assert guarded.values == {SETS[0]: 1.0, SETS[1]: 2.0, SETS[2]: 3.0}
+    assert in_run.moved == {SETS[0]: 1.0, SETS[1]: 2.0, SETS[2]: 3.0}
 
 
-def test_every_active_journal_records_every_address(runtime: _Runtime, guarded) -> None:
-    inner = push_journal()
-    try:
-        _list().set([10.0, 20.0, 30.0])
-    finally:
-        pop_journal(inner)
-    assert set(guarded.addresses) == set(SETS)
-    assert set(inner.addresses) == set(SETS)
-    assert runtime.calls == ["read_channels", "write_channels"]
-
-
-@pytest.mark.usefixtures("guarded")
-def test_guarded_pre_read_failure_writes_nothing(runtime: _Runtime) -> None:
+@pytest.mark.usefixtures("in_run")
+def test_a_pre_write_read_failure_writes_nothing(runtime: _Runtime) -> None:
     runtime.values[SETS[1]] = None
     with pytest.raises(OspreyReadFailed):
         _list().set([10.0, 20.0, 30.0])
     assert runtime.calls == ["read_channels"]
 
 
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_limits_violation_maps_to_refused(runtime: _Runtime) -> None:
     runtime.write_error = ChannelLimitsViolationError(
         channel_address=SETS[1],
@@ -219,7 +191,7 @@ def test_limits_violation_maps_to_refused(runtime: _Runtime) -> None:
     assert info.value.channel_address == SETS[1]
 
 
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_write_failure_names_failing_and_sent_addresses(runtime: _Runtime) -> None:
     runtime.write_error = ChannelWriteFailedError(SETS[1], "FAILED")
     with pytest.raises(OspreyWriteFailed) as info:
@@ -238,7 +210,7 @@ def test_unit_is_the_first_devices_unit_or_empty() -> None:
     assert OspreyDeviceList().unit() == ""
 
 
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_device_list_values_are_si(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each member scales by its own suffix; one batch read and one batch write per call."""
     refs = ["BPM1:x[mm]", "(BPM2:x:rb, BPM2:x:sp)[um]", "BPM3:x[m]"]
@@ -304,7 +276,7 @@ def unvalidated(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.usefixtures("unvalidated")
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_mid_batch_failure_on_a_mock_connector() -> None:
     connector = _FailingConnector(SETS[1])
     with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as get:
@@ -320,7 +292,7 @@ def test_mid_batch_failure_on_a_mock_connector() -> None:
     assert connector._state.get(SETS[1]) != 20.0
 
 
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_limits_violation_refuses_the_whole_batch_before_sending(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -360,8 +332,8 @@ def test_a_non_numeric_value_is_a_failed_read(runtime: _Runtime) -> None:
     assert _list().check_device_availability() is False
 
 
-@pytest.mark.usefixtures("guarded")
-def test_any_journal_read_error_maps_to_read_failed(
+@pytest.mark.usefixtures("in_run")
+def test_a_pre_write_read_error_maps_to_read_failed(
     runtime: _Runtime, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     boom = RuntimeError("connector could not be acquired")
@@ -386,7 +358,7 @@ def test_one_address_given_two_values_is_refused_before_any_call(runtime: _Runti
     assert runtime.calls == []
 
 
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_one_address_given_the_same_value_twice_is_written_once(runtime: _Runtime) -> None:
     _list([REFS[0], REFS[1], REFS[0]]).set([1.0, 2.0, 1.0])
     assert runtime.batch_writes == [({SETS[0]: 1.0, SETS[1]: 2.0}, {})]
@@ -395,7 +367,7 @@ def test_one_address_given_the_same_value_twice_is_written_once(runtime: _Runtim
 # --- reference mode --------------------------------------------------------------
 
 
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_a_bare_device_is_written_at_its_one_address(runtime: _Runtime) -> None:
     runtime.values["TUNE:x"] = 0.25
     _list([REFS[0], "TUNE:x"]).set([1.0, 0.3])
@@ -412,14 +384,14 @@ def test_a_write_only_device_refuses_the_read(runtime: _Runtime) -> None:
 
 
 @pytest.mark.parametrize("reason", ["WRITES_DISABLED", "LIMITS"])
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_a_pre_send_refusal_of_a_batch_stays_refused(runtime: _Runtime, reason: str) -> None:
     runtime.write_error = ChannelWriteBlockedError(SETS[0], reason)
     with pytest.raises(OspreyWriteRefused):
         _list().set([10.0, 20.0, 30.0])
 
 
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_a_single_channel_control_system_refusal_stays_refused(runtime: _Runtime) -> None:
     runtime.write_error = ChannelWriteBlockedError(SETS[0], "CONTROL_SYSTEM_REFUSED")
     with pytest.raises(OspreyWriteRefused):
@@ -448,7 +420,7 @@ class _RefusingConnector(_FailingConnector):
 
 @pytest.mark.usefixtures("unvalidated")
 @pytest.mark.parametrize("reason", ["CONTROL_SYSTEM_REFUSED", "VALIDATION_ERROR"])
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_a_refusal_in_the_middle_of_a_batch_names_the_channels_sent(reason: str) -> None:
     connector = _RefusingConnector(SETS[1], reason)
     with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as get:
@@ -493,8 +465,8 @@ def test_indexed_list_reads_base_once(monkeypatch: pytest.MonkeyPatch) -> None:
     assert _list(["TUNE@1"]).check_device_availability() is False
 
 
-def test_indexed_list_set_refused(runtime: _Runtime, guarded) -> None:
-    """A list set holding any indexed member writes and journals nothing."""
+def test_indexed_list_set_refused(runtime: _Runtime, in_run) -> None:
+    """A list set holding any indexed member writes and records nothing."""
     runtime.values["BPM:x"] = [1.0, 2.0]
     dl = _list([REFS[0], "BPM:x@1", REFS[1]])
     runtime.calls.clear()
@@ -508,4 +480,4 @@ def test_indexed_list_set_refused(runtime: _Runtime, guarded) -> None:
 
     assert runtime.calls == []
     assert runtime.batch_writes == []
-    assert guarded.values == {}
+    assert in_run.moved == {}

@@ -2,15 +2,16 @@
 
 Every read and write goes through :mod:`osprey.runtime`, so limits, write gates and
 the control-target check apply exactly as they do to any other OSPREY write. A write
-runs only inside a journaled guarded run (:func:`osprey.runtime.guarded_run.journaled_run`),
-which journals it before it happens; anywhere else, ``execute`` included, it is refused
-as :data:`OUTSIDE_A_RUN` and nothing is read or written. Connector exceptions surface as the pyAML exceptions of :mod:`pyaml_cs_osprey.errors`. The
-write-only reference refuses reads; every other reference is read and written.
+runs only while a :func:`pyaml_cs_osprey.run_tool.run_tool` call is in progress in
+the process, and the prior native setpoint is recorded for the call's result first;
+outside a ``run_tool`` call, ``execute`` included, it is refused as
+:data:`OUTSIDE_A_RUN` and nothing is read or written. Connector exceptions surface as
+the pyAML exceptions of :mod:`pyaml_cs_osprey.errors`. The write-only reference
+refuses reads; every other reference is read and written.
 
 Values cross this device in SI: reads and ranges are scaled from the reference's unit
 suffix to SI, and a set value is scaled back to that native unit before it is written.
-The journal, ``channel_limits`` and the guard's restore stay native, so a restore
-writes back the native value the channel held.
+The recorded value and ``channel_limits`` stay native.
 
 An indexed reference (``ADDR@i``) reads its base address and returns element ``i`` of
 the array value; it is read-only, so every write and range request is refused or open.
@@ -25,21 +26,17 @@ from pyaml.common.exception import PyAMLException
 from pyaml.control.deviceaccess import DeviceAccess
 
 import osprey.runtime
-from osprey.runtime import journal as runtime_journal
-from osprey.runtime.journal import guarded_write
+from pyaml_cs_osprey import _run
+from pyaml_cs_osprey._run import OUTSIDE_A_RUN
 from pyaml_cs_osprey.catalog import ChannelReference
 from pyaml_cs_osprey.errors import (
     OspreyReadFailed,
-    OspreyWriteRefused,
     map_read_error,
     map_write_error,
 )
 from pyaml_cs_osprey.units import UnitError, si_unit, to_native, to_si
 
 __all__ = ["OUTSIDE_A_RUN", "OspreyDevice", "indexed_element", "unknown_unit"]
-
-#: Why a device write outside a journaled guarded run is refused.
-OUTSIDE_A_RUN = "pyAML writes run only inside pyaml_measure"
 
 
 class OspreyDevice(DeviceAccess):
@@ -103,9 +100,9 @@ class OspreyDevice(DeviceAccess):
     def set(self, value: Any, *, confirm: bool | None = None) -> None:
         """Write the SI ``value`` to the setpoint address in the reference's native unit.
 
-        The prior (native) setpoint is journaled into every active guard level first.
-        Outside a journaled guarded run the write is refused as :data:`OUTSIDE_A_RUN`
-        and nothing is read.
+        The prior native setpoint is recorded for the call's result first. Outside
+        a ``run_tool`` call the write is refused as :data:`OUTSIDE_A_RUN` and
+        nothing is read.
 
         Args:
             value: The value to write, in SI.
@@ -114,31 +111,22 @@ class OspreyDevice(DeviceAccess):
 
         Raises:
             PyAMLException: The reference is indexed (read-only), or the suffix has no
-                known SI factor; nothing was journaled or written.
+                known SI factor; nothing was recorded or written.
             OspreyReadFailed: The prior setpoint could not be read; nothing was written.
-            OspreyWriteRefused: The write was refused, or no journaled guarded run
-                is open; nothing was written.
+            OspreyWriteRefused: The write was refused, or no ``run_tool`` call is in
+                progress; nothing was written.
             OspreyWriteFailed: The write was attempted and not confirmed.
         """
         self._require_writable()
         address = self._reference.address
         native = self._to_native(value)
-        try:
-            guarded_write(
-                [address],
-                lambda **kwargs: osprey.runtime.write_channel(address, native, **kwargs),
-                lambda exc: map_write_error(exc, address),
-                map_read=map_read_error,
-                confirm=confirm,
-            )
-        except OspreyWriteRefused:
-            raise
-        except runtime_journal.OspreyWriteRefused as exc:
-            # The runtime's refusals: one naming no channel means no run is open;
-            # one naming a channel carries its own reason.
-            if exc.channel_address is None:
-                raise OspreyWriteRefused(OUTSIDE_A_RUN, address) from exc
-            raise OspreyWriteRefused(exc.reason, exc.channel_address) from exc
+        _run.write(
+            [address],
+            lambda **kwargs: osprey.runtime.write_channel(address, native, **kwargs),
+            lambda exc: map_write_error(exc, address),
+            map_read=map_read_error,
+            confirm=confirm,
+        )
 
     def set_and_wait(self, value: Any) -> None:
         """Write ``value`` and confirm the channel holds it (``set(value, confirm=True)``)."""

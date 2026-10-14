@@ -19,18 +19,21 @@ resolved measurement request. The script runs in the executor sandbox
    magnet's step; a strength, ``max_step`` or write that is not a finite
    number, or a ``max_step`` not above zero, refuses the measurement;
 3. runs the measurement through ``pyaml_cs_osprey.run_tool.run_tool``, called
-   once at the top level of the script, never inside a guarded run the script
-   opens itself: bipolar orbit responses, dispersion and magnet-by-magnet tune
+   once at the top level of the script, never inside a lock the script takes
+   itself: bipolar orbit responses, dispersion and magnet-by-magnet tune
    and chromaticity responses run pyAML's own tools, every other stepping runs
    ``pyaml_cs_osprey.measure.StepMeasurement.measure``; a completed
    measurement is saved as JSON, every array as a list;
-4. prints one ``OSPREY_PYAML_MEASURE <json>`` line. The guarded run prints its
-   restore report on stderr.
+4. prints one ``OSPREY_PYAML_MEASURE <json>`` line, also when the measurement
+   stopped or an exception escaped it; the exception then ends the script.
 
 Result line fields (JSON object):
 
 * ``kind``, ``model``, ``sha256`` (the loaded configuration's digest),
   ``completed``, ``modulation``; ``by`` for ``trm`` and ``crm``;
+* ``moved``: ``[address, before]`` for every setpoint the call moved, in
+  first-write order, with the value it held before the call; a non-finite
+  value is spelled as Python spells it (``"nan"``, ``"inf"``, ``"-inf"``);
 * ``orm``, ``dispersion``, ``trm``, ``crm``: ``deltas`` (the step of each
   variable: integrated strength for a magnet or a group, Hz for the RF) and
   ``delta_limited_by`` (the setpoint whose ``max_step`` bounded a step, or
@@ -40,7 +43,8 @@ Result line fields (JSON object):
 * a completed matrix kind: ``shape``, ``observables`` (``[name, plane]``),
   ``variables`` and ``data_file``; a completed ``chromaticity_monitor``:
   ``chromaticity`` and ``data_file``;
-* a stopped run: ``remainder``, the variables not measured, or the kind;
+* a stopped run: ``remainder``, the variables not measured, or the kind, and
+  ``error``, the first line of the exception that stopped it, when one did;
 * a refusal: ``{"kind", "refused"}`` and nothing else.
 """
 
@@ -567,6 +571,37 @@ def save(tool, path):
     path.write_text(json.dumps(tool.latest_measurement, indent=4, default=plain), encoding="utf-8")
 
 
+def json_value(value):
+    """A recorded setpoint value as JSON: a finite number, else its spelling."""
+    tolist = getattr(value, "tolist", None)
+    if callable(tolist):
+        value = tolist()
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        number = float(value)
+        return value if math.isfinite(number) else repr(number)
+    return str(value)
+
+
+def pairs(moved):
+    """``[address, before]`` for every setpoint the call moved, in first-write order."""
+    return [[str(address), json_value(before)] for address, before in moved.items()]
+
+
+def first_line(exc):
+    """The first non-blank line of an exception, else its type's name."""
+    for line in str(exc).splitlines():
+        if line.strip():
+            return line.strip()
+    return type(exc).__name__
+
+
+def remainder(variables, recorder):
+    """The variables not yet measured for ``trm``/``crm``, else the kind."""
+    if KIND in ("trm", "crm"):
+        return [name for name in variables if name not in recorder.done]
+    return KIND
+
+
 def tool_bpm_array(holder):
     return holder.orm.bpm_array_name if KIND == "orm" else holder.dispersion.bpm_array_name
 
@@ -586,14 +621,22 @@ def main():
     result.update(fields)
 
     recorder = Recorder()
-    report = run_tool(method, callback=recorder, **arguments)
+    try:
+        run = run_tool(method, callback=recorder, **arguments)
+    except BaseException as exc:
+        result.update(
+            completed=False,
+            error=first_line(exc),
+            moved=pairs(getattr(exc, "moved_setpoints", None) or {}),
+            remainder=remainder(variables, recorder),
+        )
+        print(RESULT_TAG, json.dumps(result), flush=True)
+        raise
 
-    result["completed"] = not report.aborted
-    if report.aborted:
-        if KIND in ("trm", "crm"):
-            result["remainder"] = [name for name in variables if name not in recorder.done]
-        else:
-            result["remainder"] = KIND
+    result["completed"] = run.completed
+    result["moved"] = pairs(run.moved)
+    if not run.completed:
+        result["remainder"] = remainder(variables, recorder)
         print(RESULT_TAG, json.dumps(result), flush=True)
         return
     data_file = root / f"pyaml_measure_{KIND}.json"

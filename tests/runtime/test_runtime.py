@@ -1152,23 +1152,3 @@ class TestChannelLimits:
         import osprey.runtime as runtime
 
         assert "channel_limits" in runtime.__all__
-
-
-class TestExecutionDeadline:
-    """``execution_deadline`` reads the executor's kill time from the environment."""
-
-    def test_a_finite_value_is_returned(self, monkeypatch):
-        import osprey.runtime as runtime
-
-        monkeypatch.setenv(runtime.ENV_EXECUTION_DEADLINE, "1700000000.5")
-        assert runtime.execution_deadline() == 1700000000.5
-
-    @pytest.mark.parametrize("raw", [None, "", "soon", "inf", "nan"])
-    def test_unset_unparseable_or_non_finite_is_none(self, monkeypatch, raw):
-        import osprey.runtime as runtime
-
-        if raw is None:
-            monkeypatch.delenv(runtime.ENV_EXECUTION_DEADLINE, raising=False)
-        else:
-            monkeypatch.setenv(runtime.ENV_EXECUTION_DEADLINE, raw)
-        assert runtime.execution_deadline() is None

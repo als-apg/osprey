@@ -8,12 +8,12 @@ step a whole group of magnets as one knob.
 Every write happens INSIDE :meth:`StepMeasurement.measure`: pySC's measurement
 generators are drained within the call, so a run given to
 :func:`pyaml_cs_osprey.run_tool.run_tool` writes nothing after ``run_tool`` returns,
-and every write is journaled, locked and guarded by the deadline like any pyAML
-tool's. ``measure`` reports progress the way pyAML's own tools do: ``Action.APPLY``
-after each setpoint change, ``Action.MEASURE`` after each reading and
-``Action.RESTORE`` after a stepped knob is put back. A callback that returns a falsy
-value stops the run and ``measure`` returns ``False``; what it had moved is left for
-the guarded run's journal to write back.
+and every write is recorded for the call's result, under the run lock, like any
+pyAML tool's. ``measure`` reports progress the way pyAML's own tools do:
+``Action.APPLY`` after each setpoint change, ``Action.MEASURE`` after each reading
+and ``Action.RESTORE`` after a stepped knob is put back. A callback that returns a
+falsy value stops the run and ``measure`` returns ``False``; what it had moved is
+left where it stopped and listed in the call's result.
 
 pySC is always called with ``skip_save=True``: its default writes result files
 under the working directory's ``data/``.

@@ -1,21 +1,16 @@
-"""``StepMeasurement`` steps the machine inside one call, so ``run_tool`` guards every write.
+"""``StepMeasurement`` steps the machine inside one call, so ``run_tool`` records every write.
 
 Each path runs against a pyAML configuration on the OSPREY control system, served
 by a fake connector whose readings follow a small linear model of its setpoints:
 orbit from the correctors and the RF frequency, tunes from the quadrupoles,
 chromaticity from the sextupoles. A completed run measures that model; a stopped
-or killed run leaves nothing moved once the guarded run has restored its journal.
+run leaves the stepped knob where it stopped and lists it with its value before
+the call.
 """
 
 from __future__ import annotations
 
 import json
-import os
-import signal
-import subprocess
-import sys
-import textwrap
-import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -28,8 +23,7 @@ from pyaml.common.constants import Action
 
 import osprey.runtime
 import pyaml_cs_osprey.measure as measure_mod
-from osprey.runtime.guarded_run import JOURNAL_FILE_NAME
-from osprey.runtime.journal import active_journals
+from pyaml_cs_osprey import _run
 from pyaml_cs_osprey.measure import RESPONSE_MATRIX_DATA, StepMeasurement
 from pyaml_cs_osprey.run_tool import run_tool
 from tests.pyaml_cs_osprey.conftest import DictConnector
@@ -136,8 +130,8 @@ class ModelConnector(DictConnector):
     """A dict connector whose readings follow a linear model of its setpoints.
 
     Every put is recorded in ``puts`` as ``(address, value)``; ``on_put`` is called
-    with the address before the value lands, so a test can look at the durable
-    journal at the moment of each write.
+    with the address before the value lands, so a test can look at the run's
+    record at the moment of each write.
     """
 
     def __init__(self, values: dict[str, float] | None = None) -> None:
@@ -201,12 +195,11 @@ def connector(
 ) -> Iterator[ModelConnector]:
     """The model machine, served to ``osprey.runtime`` for the test."""
     monkeypatch.setattr(osprey.runtime, "_limits_validator", None)
-    monkeypatch.delenv(osprey.runtime.ENV_EXECUTION_DEADLINE, raising=False)
     machine = ModelConnector()
     with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as get:
         get.return_value = machine
         yield machine
-    assert active_journals() == ()
+    assert _run.moved() == {}
 
 
 #: One measurement per path: kind → (builder, the setpoints it steps, its expected matrix).
@@ -262,9 +255,9 @@ class TestEveryPath:
         before = _files_under(guarded_repo)
         measurement = build(sr.live)
 
-        report = run_tool(measurement.measure)
+        run = run_tool(measurement.measure)
 
-        assert report.aborted is False
+        assert run.completed is True
         latest = measurement.latest_measurement
         assert latest["type"] == RESPONSE_MATRIX_DATA
         np.testing.assert_allclose(latest["matrix"], expected, rtol=1e-6, atol=1e-12)
@@ -272,140 +265,50 @@ class TestEveryPath:
         assert connector.setpoints() == _home()
         assert _files_under(guarded_repo) == before, "nothing is written under the project root"
 
-    def test_every_displaced_address_is_journaled_once_before_its_first_write(
-        self, kind: str, sr: Accelerator, connector: ModelConnector, guarded_repo: Path
-    ) -> None:
-        journal_path = guarded_repo / "var" / "guarded_run" / "live" / JOURNAL_FILE_NAME
-        at_first_put: dict[str, list[str]] = {}
-
-        def look(address: str) -> None:
-            if address in at_first_put:
-                return
-            lines = [json.loads(line) for line in journal_path.read_text().splitlines()]
-            at_first_put[address] = [line["address"] for line in lines if "address" in line]
-
-        connector.on_put = look
-        run_tool(PATHS[kind][0](sr.live).measure)
-
-        assert set(at_first_put) == set(PATHS[kind][1])
-        for address, journaled in at_first_put.items():
-            assert journaled.count(address) == 1, f"{address} journaled {journaled.count(address)}x"
-        assert journal_path.read_text() == "", "a completed run clears its journal"
-
-    def test_a_run_under_the_execution_deadline_is_deadline_guarded(
-        self,
-        kind: str,
-        sr: Accelerator,
-        connector: ModelConnector,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        monkeypatch.setenv(osprey.runtime.ENV_EXECUTION_DEADLINE, repr(time.time() + 3600.0))
-
-        report = run_tool(PATHS[kind][0](sr.live).measure)
-
-        assert report.deadline_guard is True
-        assert report.aborted is False
-        assert connector.setpoints() == _home()
-
-    def test_a_callback_stop_after_the_first_write_restores_every_address(
+    def test_every_displaced_address_is_recorded_once_before_its_first_write(
         self, kind: str, sr: Accelerator, connector: ModelConnector
     ) -> None:
+        at_first_put: dict[str, dict[str, Any]] = {}
+
+        def look(address: str) -> None:
+            # The put runs under the run's guard, so the record is read as it stands.
+            if address not in at_first_put and _run._RUN is not None:
+                at_first_put[address] = dict(_run._RUN.moved)
+
+        connector.on_put = look
+        run = run_tool(PATHS[kind][0](sr.live).measure)
+
+        assert set(at_first_put) == set(PATHS[kind][1])
+        for address, recorded in at_first_put.items():
+            assert recorded[address] == pytest.approx(SETPOINTS[address]), address
+        assert set(run.moved) == set(PATHS[kind][1]), "each address recorded once"
+
+    def test_a_callback_stop_after_the_first_write_leaves_the_stepped_knob_where_it_stopped_and_lists_it(
+        self, kind: str, sr: Accelerator, connector: ModelConnector
+    ) -> None:
+        stopped_after: list[int] = []
+
         def stop_once_moved(action: Action, _data: dict[str, Any]) -> bool:
-            return not (action is Action.APPLY and connector.puts)
+            if action is Action.APPLY and connector.puts:
+                stopped_after.append(len(connector.puts))
+                return False
+            return True
 
         measurement = PATHS[kind][0](sr.live)
-        report = run_tool(measurement.measure, callback=stop_once_moved)
+        run = run_tool(measurement.measure, callback=stop_once_moved)
 
-        assert report.aborted is True
+        assert run.completed is False
         assert connector.puts, "the run wrote before it was stopped"
-        assert connector.setpoints() == _home()
+        after_the_stop = connector.puts[stopped_after[0] :]
+        if kind == "crm":
+            # pyAML's chromaticity monitor puts its own RF step back in a finally block.
+            assert after_the_stop == [("RF:freq", F0)]
+        else:
+            assert after_the_stop == [], "nothing is written after the stop"
+            assert connector.setpoints() != _home(), "the stepped knob is left where it stopped"
+        first, _value = connector.puts[0]
+        assert run.moved[first] == pytest.approx(SETPOINTS[first])
         assert measurement._callback is None
-
-
-_KILLED_CHILD = textwrap.dedent(
-    """
-    import json, os, sys, time
-    from unittest.mock import AsyncMock, patch
-
-    import osprey.runtime
-    from pyaml_cs_osprey.run_tool import run_tool
-    from tests.pyaml_cs_osprey.test_step_measurement import PATHS, ModelConnector, _accelerator
-
-    kind, workdir = sys.argv[1], sys.argv[2]
-    machine = ModelConnector()
-    osprey.runtime._limits_validator = None
-    sr = _accelerator()
-
-    def hold(action, data):
-        # The first report after a write parks the run there, for the parent to kill.
-        if machine.puts:
-            with open(os.path.join(workdir, "values.json"), "w") as handle:
-                json.dump(machine.setpoints(), handle)
-            open(os.path.join(workdir, "written"), "w").close()
-            time.sleep(3600)
-        return True
-
-    with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as get:
-        get.return_value = machine
-        run_tool(PATHS[kind][0](sr.live).measure, callback=hold)
-    """
-)
-
-#: Seconds a child may take to import, start the run and make its first write.
-CHILD_TIMEOUT_S = 60.0
-
-
-@pytest.mark.parametrize("kind", list(PATHS))
-def test_a_run_killed_after_its_first_write_is_restored_by_the_next_run(
-    kind: str, tmp_path: Path, guarded_repo: Path, connector: ModelConnector
-) -> None:
-    """A SIGKILL leaves the durable journal; the next guarded run writes it all back."""
-    script = tmp_path / "killed_child.py"
-    script.write_text(_KILLED_CHILD, encoding="utf-8")
-    env = {**os.environ, "PYTHONPATH": str(REPO_ROOT)}
-    for name in (
-        osprey.runtime.ENV_EXECUTION_DEADLINE,
-        osprey.runtime.ENV_CONTROL_TARGET,
-        osprey.runtime.ENV_CONTROL_TARGET_GENERATION,
-        "OSPREY_EXECUTION_MODE",
-    ):
-        env.pop(name, None)
-    proc = subprocess.Popen(
-        [sys.executable, str(script), kind, str(tmp_path)],
-        cwd=guarded_repo,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    try:
-        deadline = time.monotonic() + CHILD_TIMEOUT_S
-        while not (tmp_path / "written").exists():
-            if proc.poll() is not None:
-                out, err = proc.communicate()
-                pytest.fail(f"child exited {proc.returncode} before its first write:\n{out}{err}")
-            if time.monotonic() > deadline:
-                pytest.fail("child did not make its first write in time")
-            time.sleep(0.01)
-        proc.send_signal(signal.SIGKILL)
-        proc.communicate(timeout=CHILD_TIMEOUT_S)
-    finally:
-        if proc.poll() is None:
-            proc.kill()
-            proc.communicate()
-
-    left = json.loads((tmp_path / "values.json").read_text(encoding="utf-8"))
-    assert left != _home(), "the killed run left a setpoint moved"
-    connector._state.update(left)
-    for address, value in left.items():
-        connector._state[address.replace(":sp", ":rb")] = value
-
-    report = run_tool(lambda: None)
-
-    assert report.aborted is False
-    assert connector.setpoints() == _home()
-    journal = guarded_repo / "var" / "guarded_run" / "live" / JOURNAL_FILE_NAME
-    assert journal.read_text() == ""
 
 
 class TestCalls:

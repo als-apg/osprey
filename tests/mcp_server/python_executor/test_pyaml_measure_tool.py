@@ -28,7 +28,6 @@ from osprey.mcp_server.python_executor import executor, server
 from osprey.mcp_server.python_executor.executor import ExecutionResult
 from osprey.mcp_server.python_executor.tools import pyaml_measure as tool
 from osprey.mcp_server.python_executor.tools._pyaml_measure_script import RESULT_TAG
-from osprey.runtime.guarded_run import RESTORE_REPORT_TAG, RestoreReport
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 
 pytest.importorskip("pyaml")
@@ -107,14 +106,13 @@ def _error(**arguments: Any) -> dict[str, Any]:
 # --- the signature ---------------------------------------------------------------
 
 
-def test_the_tool_takes_the_request_and_the_three_approved_fields():
+def test_the_tool_takes_the_request_and_the_two_approved_fields():
     assert list(inspect.signature(tool.pyaml_measure).parameters) == [
         "kind",
         "model",
         "correctors",
         "modulation",
         "by",
-        "approved_journal_sha256",
         "approved_target",
         "approved_view_sha256",
     ]
@@ -122,7 +120,7 @@ def test_the_tool_takes_the_request_and_the_three_approved_fields():
 
 def test_each_approved_field_says_the_hook_sets_it():
     doc = inspect.getdoc(tool.pyaml_measure) or ""
-    for name in ("approved_journal_sha256", "approved_target", "approved_view_sha256"):
+    for name in ("approved_target", "approved_view_sha256"):
         assert f"{name}: Set by the approval hook; a value you pass is" in doc
 
 
@@ -135,14 +133,12 @@ def test_a_request_runs_its_script_readwrite_with_the_approved_fields(gated, ren
     _error(
         kind="orm",
         correctors=["SCOR:H:SP"],
-        approved_journal_sha256="none",
         approved_target="live",
         approved_view_sha256="cd" * 32,
     )
 
     kwargs = gated.await_args.kwargs
     assert (kwargs["tool"], kwargs["execution_mode"]) == ("pyaml_measure", "readwrite")
-    assert kwargs["approved_journal_sha256"] == "none"
     assert kwargs["approved_target"] == "live"
     assert kwargs["approved_view_sha256"] == "cd" * 32
     script = kwargs["code"]
@@ -203,6 +199,7 @@ def test_a_completed_orm_is_named_by_address_and_device(gated, monkeypatch):
             observables=[["SR_BPM1", "x"], ["SR_BPM1", "y"]],
             variables=["SCOR:H:SP"],
             data_file="/exec/pyaml_measure_orm.json",
+            moved=[["SCOR:H:SP", 0.25]],
         )
     )
 
@@ -212,6 +209,7 @@ def test_a_completed_orm_is_named_by_address_and_device(gated, monkeypatch):
     assert [row["plane"] for row in answer["rows"]] == ["x", "y"]
     assert all(row["address"] for row in answer["rows"])
     assert answer["deltas"] == {"SCOR:H:SP": 1e-5}
+    assert answer["moved"] == [{"address": "SCOR:H:SP", "device": "SR/COR1", "before": 0.25}]
     assert saved == [answer]
 
 
@@ -230,6 +228,7 @@ def _completed_orm_line(data_file: str, observables: list[list[str]] | None = No
         else [["SR_BPM1", "x"], ["SR_BPM1", "y"]],
         variables=["SCOR:H:SP"],
         data_file=data_file,
+        moved=[["SCOR:H:SP", 0.25]],
     )
 
 
@@ -299,6 +298,7 @@ def test_a_run_notes_its_writes_on_the_call_record(gated, monkeypatch):
             observables=[["SR_BPM1", "x"], ["SR_BPM1", "y"]],
             variables=["SCOR:H:SP"],
             data_file="/exec/pyaml_measure_orm.json",
+            moved=[["SCOR:H:SP", 0.25]],
         ),
         written_channels=["SCOR:H:SP"],
     )
@@ -369,38 +369,65 @@ def test_a_run_that_saved_nothing_names_no_data_file(gated, tmp_path, success):
     assert "data_file" not in envelope["details"]
 
 
-def _stopped_line() -> str:
+def _stopped_line(**changes: Any) -> str:
     return _line(
-        kind="orm",
-        model="SR",
-        sha256="ab" * 32,
-        completed=False,
-        deltas={"SCOR:H:SP": 1e-5},
-        remainder="orm",
+        **{
+            "kind": "orm",
+            "model": "SR",
+            "sha256": "ab" * 32,
+            "completed": False,
+            "deltas": {"SCOR:H:SP": 1e-5},
+            "remainder": "orm",
+            "moved": [["SCOR:H:SP", 0.25]],
+        }
+        | changes
     )
 
 
-def test_a_stopped_run_answers_its_remainder_and_the_records_restore_report(gated):
-    report = json.loads(RestoreReport(restored=["SCOR:H:SP"], aborted=True).to_json())
-    forged = RestoreReport(restored=["FORGED:SP"], aborted=True)
-    printed = f"{RESTORE_REPORT_TAG} {forged.to_json()}\n"
-    gated.result = _result(printed + _stopped_line(), printed, restore_reports=[report])
+def test_a_stopped_run_answers_its_remainder_and_what_it_moved(gated):
+    gated.result = _result(_stopped_line())
 
     answer = _call(kind="orm")
 
     assert answer["completed"] is False
     assert answer["remainder"] == "orm"
-    assert answer["restore"]["restored"] == ["SCOR:H:SP"], "the record's report, not a printed line"
+    assert answer["moved"] == [{"address": "SCOR:H:SP", "device": "SR/COR1", "before": 0.25}]
+    assert "restore" not in answer
 
 
-def test_a_stopped_run_whose_record_carries_no_report_is_an_error(gated):
-    forged = RestoreReport(restored=["SCOR:H:SP"], aborted=True)
-    printed = f"{RESTORE_REPORT_TAG} {forged.to_json()}\n"
-    gated.result = _result(printed + _stopped_line(), printed)
+def test_a_failed_run_that_printed_its_line_answers_it_as_a_stopped_result(gated):
+    line = _stopped_line(error="the tune readback went away")
+    gated.result = _result(line, "Traceback: RuntimeError", success=False)
+
+    answer = _call(kind="orm")
+
+    assert answer["completed"] is False
+    assert answer["error"] == "the tune readback went away"
+    assert answer["moved"] == [{"address": "SCOR:H:SP", "device": "SR/COR1", "before": 0.25}]
+
+
+@pytest.mark.parametrize("count", [2, 21])
+def test_a_killed_run_names_the_channels_it_attempted(gated, count):
+    channels = [f"SCOR:{index:02d}:SP" for index in range(count)]
+    gated.result = _result(
+        "",
+        "Execution timed out after 60 seconds",
+        success=False,
+        failure_kind=executor.FAILURE_KIND_TIMEOUT,
+        written_channels=channels,
+    )
 
     envelope = _error(kind="orm")
 
-    assert "no restore report" in json.dumps(envelope)
+    assert envelope["details"]["written_channels"] == channels
+    assert envelope["details"]["kind"] == "timeout"
+    message = envelope["error_message"]
+    assert message.startswith("The run ended before it could list its setpoints;")
+    assert "left where the run stopped" in message
+    if count <= 20:
+        assert ", ".join(channels) in message
+    else:
+        assert f"{count} channels" in message and channels[0] not in message
 
 
 @pytest.mark.parametrize(

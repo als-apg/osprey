@@ -719,16 +719,6 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "a served block's `probe_channel` the facility file does not hold",
     ),
     (
-        "profile_invalid__guarded_tool_skip",
-        "profile-invalid",
-        "a guarded tool's own approval policy `skip` while `channel_write` prompts",
-    ),
-    (
-        "profile_invalid__default_policy_skip",
-        "profile-invalid",
-        "a guarded tool's default approval policy `skip` while `channel_write` prompts",
-    ),
-    (
         "profile_invalid__approval_hook_not_selected",
         "profile-invalid",
         "a guarded tool put to a human while the profile does not select the `approval` hook",
@@ -2495,24 +2485,6 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility file holds, such as `BPM1:X`"
         ),
     ),
-    "profile_invalid__guarded_tool_skip": (
-        _plain(),
-        (
-            "facility: profile-invalid: path approval.tools.pyaml_measure — guarded tool "
-            "`pyaml_measure` runs with approval policy `skip` while "
-            "`approval.tools.channel_write` is `always`, so a pending journal would be replayed "
-            "with no one asked; fix: set `approval.tools.pyaml_measure` to `always` in profile.yml"
-        ),
-    ),
-    "profile_invalid__default_policy_skip": (
-        _plain(),
-        (
-            "facility: profile-invalid: path approval.default_policy — guarded tool "
-            "`execute_file` runs with approval policy `skip` while "
-            "`approval.tools.channel_write` is `always`, so a pending journal would be replayed "
-            "with no one asked; fix: set `approval.tools.execute_file` to `always` in profile.yml"
-        ),
-    ),
     "profile_invalid__approval_hook_not_selected": (
         _plain(),
         (
@@ -2614,18 +2586,6 @@ def _probe(address: str) -> Callable[[Path], None]:
     return edit
 
 
-def _state_approval(key: str) -> Callable[[Path], None]:
-    """Set *key* to ``skip`` in a profile whose ``channel_write`` prompts."""
-
-    def edit(repo: Path) -> None:
-        profile = repo / "profile.yml"
-        data = yaml.safe_load(profile.read_text(encoding="utf-8"))
-        data.setdefault("config", {})[key] = "skip"
-        profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-
-    return edit
-
-
 def _drop_approval_hook(repo: Path) -> None:
     profile = repo / "profile.yml"
     data = yaml.safe_load(profile.read_text(encoding="utf-8"))
@@ -2698,8 +2658,6 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
         "control_system.connector.epics.limits_checking.database_path"
     ),
     "profile_invalid__served_probe_channel": _probe("NOPE:RB"),
-    "profile_invalid__guarded_tool_skip": _state_approval("approval.tools.pyaml_measure"),
-    "profile_invalid__default_policy_skip": _state_approval("approval.default_policy"),
     "profile_invalid__approval_hook_not_selected": _drop_approval_hook,
 }
 

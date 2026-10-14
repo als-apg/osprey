@@ -123,22 +123,6 @@ PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
 ENV_CONTROL_TARGET = "OSPREY_CONTROL_TARGET"
 ENV_CONTROL_TARGET_GENERATION = "OSPREY_CONTROL_TARGET_GENERATION"
 
-#: The absolute Unix time, in seconds, at which this module kills the sandbox
-#: child: the launch time plus the configured execution timeout. Written into
-#: every spawned sandbox, stamped or not, so code inside the child can budget
-#: its own clean exit. Spelled again in :mod:`osprey.runtime` for the reason
-#: the stamp names are; the same test pins the two equal.
-ENV_EXECUTION_DEADLINE = "OSPREY_EXECUTION_DEADLINE"
-
-#: The journal digest and control target the approval hook put into a guarded
-#: tool's call, carried into a readwrite sandbox only. The sandbox wrapper
-#: hands them to :mod:`osprey.runtime.guarded_run` before user code runs, and a
-#: guarded run replays a pending journal only under them. Spelled again there
-#: for the reason the stamp names are; ``tests/runtime/test_replay.py`` pins
-#: the spellings equal.
-ENV_APPROVED_JOURNAL_SHA256 = "OSPREY_APPROVED_JOURNAL_SHA256"
-ENV_APPROVED_TARGET = "OSPREY_APPROVED_TARGET"
-
 #: Every name the stamp occupies. Cleared together on every launch, stamped or
 #: not, so no inherited name survives into a sandbox that did not earn it.
 #: :data:`ENV_LAUNCH_POSTURE` is deliberately NOT a member: it is stamped on
@@ -146,8 +130,6 @@ ENV_APPROVED_TARGET = "OSPREY_APPROVED_TARGET"
 _STAMP_ENV_NAMES = (
     ENV_CONTROL_TARGET,
     ENV_CONTROL_TARGET_GENERATION,
-    ENV_APPROVED_JOURNAL_SHA256,
-    ENV_APPROVED_TARGET,
 )
 
 #: The per-target write posture the run was LAUNCHED under, stamped into the
@@ -155,7 +137,7 @@ _STAMP_ENV_NAMES = (
 #: reading side belong to
 #: :mod:`osprey_connectors.posture_store`, which is where the sandbox's own
 #: reference monitor asks the question; the name is imported from there rather
-#: than re-spelled, because unlike the three stamps above this one is read by a
+#: than re-spelled, because unlike the stamps above this one is read by a
 #: module this process can import.
 ENV_LAUNCH_POSTURE = posture_store.LAUNCH_POSTURE_ENV_VAR
 
@@ -212,14 +194,10 @@ FAILURE_KIND_GUARDED_RUN_BUSY = "guarded_run_busy"
 
 #: The call fields the approval prompt binds a guarded call to. Every one the
 #: call carries must equal the value the approval hook recorded for the call.
-APPROVED_FIELDS: tuple[str, ...] = (
-    "approved_journal_sha256",
-    "approved_target",
-    "approved_view_sha256",
-)
+APPROVED_FIELDS: tuple[str, ...] = ("approved_target", "approved_view_sha256")
 
 #: The approved fields an asking guarded call must carry.
-_REQUIRED_APPROVED_FIELDS: tuple[str, ...] = ("approved_journal_sha256", "approved_target")
+_REQUIRED_APPROVED_FIELDS: tuple[str, ...] = ("approved_target",)
 
 #: The further approved fields an asking call of one tool must carry: a
 #: measurement is bound to the pyAML view its prompt showed.
@@ -235,17 +213,11 @@ _TOOL_REQUIRED_APPROVED_FIELDS: Mapping[str, tuple[str, ...]] = {
 APPROVAL_ASK_PREFIX = "approval_ask_"
 APPROVAL_ASK_SUFFIX = ".json"
 
-#: The file in the execution folder that holds a readwrite run's restore
-#: record: ``{"sandbox": [...], "observed_on_disk": {...}}`` — the reports the
-#: sandbox handed back in its execution record, and what the executor read in
-#: the target's journal after the run.
-RESTORE_REPORT_FILE = "guarded_run_restore_reports.json"
-
 #: Upper bound, in seconds, on winding down a cancelled run that has no finite
 #: deadline: how long its child gets to exit after ``SIGINT`` before it is
 #: killed, and how long reaping a killed child may take. A run WITH a deadline
-#: is given the time left to it instead, so a cancel never cuts a run's
-#: restore shorter than the timeout that run was granted; a cancel that lands
+#: is given the time left to it instead, so a cancel never cuts a run's own
+#: clean exit shorter than the timeout that run was granted; a cancel that lands
 #: at or after that deadline has no time left, and its child is killed at once.
 CANCEL_DRAIN_CAP_S = 30.0
 
@@ -259,22 +231,6 @@ _CANCEL_EXIT_POLL_S = 0.02
 
 #: Bytes per read while a cancelled run's pipes are drained.
 _CANCEL_READ_CHUNK = 65536
-
-#: Audit ``reason`` for a restore that wrote every journaled address back.
-REASON_RESTORE_COMPLETE = "guarded_run_restore_complete"
-#: Audit ``reason`` for a restore that left an address refused or unconfirmed.
-REASON_RESTORE_INCOMPLETE = "guarded_run_restore_incomplete"
-#: Audit ``reason`` for a run's target journal the executor itself read after
-#: the run and found holding entries, or could not read.
-REASON_JOURNAL_LEFT = "guarded_run_journal_left"
-#: Audit ``reason`` for a run that ended abnormally and left no journal entry
-#: the executor could see.
-REASON_JOURNAL_ABSENT = "guarded_run_journal_absent"
-
-#: The provenance word at the front of every filed restore detail: what the
-#: sandbox reported, and what the executor saw on disk itself.
-SOURCE_SANDBOX = "source=sandbox"
-SOURCE_OBSERVED_ON_DISK = "source=observed_on_disk"
 
 
 @dataclass
@@ -310,12 +266,6 @@ class ExecutionResult:
     #: ledger holds the attempts it reached. Empty for a readonly run and for a
     #: run that never started.
     written_channels: list[str] = field(default_factory=list)
-    #: The restore reports the run's guarded runs made, in the order they were
-    #: made, read from the execution record the sandbox wrapper wrote: the same
-    #: list a readwrite run's record files (:func:`_file_run_record`). A tagged
-    #: line the script printed is never one of them. Empty for a run that left
-    #: no record or whose record carries none.
-    restore_reports: list[dict] = field(default_factory=list)
     #: The folder the run executed in, for a run that ran its script; the files
     #: a tool reads back from its own run are named under it. ``None`` for a
     #: run that never started.
@@ -775,7 +725,7 @@ def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
 class _ApprovalMissing(Exception):
     """A guarded call whose approval prompt left no matching record.
 
-    Raised by :func:`_approved_call_env` and turned into an
+    Raised by :func:`_check_approved_call` and turned into an
     :class:`ExecutionResult` by :func:`_execute_via_local`, before anything
     is spawned — never seen outside this module.
     """
@@ -784,7 +734,7 @@ class _ApprovalMissing(Exception):
 class _ApprovalConfigInvalid(Exception):
     """A readwrite call under an approval switch that is not true or false.
 
-    Raised by :func:`_approved_call_env` and turned into an
+    Raised by :func:`_check_approved_call` and turned into an
     :class:`ExecutionResult` by :func:`_execute_via_local`, before anything
     is spawned — never seen outside this module.
     """
@@ -810,23 +760,23 @@ def _approved_call_stamp(tool_use_id: str | None) -> dict | None:
     return stamp if isinstance(stamp, dict) else None
 
 
-def _approved_call_env(
+def _check_approved_call(
     execution_mode: str,
     osprey_config: Mapping[str, Any],
     tool: str,
     approved: Mapping[str, str | None],
     *,
     control_target: str,
-) -> dict[str, str]:
-    """The approved fields a readwrite sandbox carries, decided before it is spawned.
+) -> None:
+    """Whether the call was approved, decided before it is spawned.
 
-    A readonly run never enters the guarded run, and a call whose tool's policy
-    does not ask was put to nobody, so neither carries a field. A call whose
-    policy asks runs only when the approval hook's ask stamp for this tool call
-    exists, names *tool*, and records every approved field the call carries
-    with the same value; the call must carry the journal digest and the target,
-    ``pyaml_measure`` the view digest too, and that target must name the
-    guarded-run directory *control_target* does.
+    A readonly run takes no run lock, and a call whose tool's policy does not
+    ask was put to nobody, so neither is checked. A call whose policy asks
+    runs only when the approval hook's ask stamp for this tool call exists,
+    names *tool*, and records every approved field the call carries with the
+    same value; the call must carry the target, ``pyaml_measure`` the view
+    digest too, and that target must name the guarded-run directory
+    *control_target* does. Nothing of the stamp reaches the sandbox.
 
     Args:
         execution_mode: ``"readonly"`` or ``"readwrite"``.
@@ -834,10 +784,6 @@ def _approved_call_env(
         tool: The tool's short name, as ``approval.tools`` keys it.
         approved: The call's :data:`APPROVED_FIELDS`, ``None`` for an absent one.
         control_target: The target this run is stamped with.
-
-    Returns:
-        The sandbox environment entries for the approved journal digest and
-        target; empty when nothing is carried.
 
     Raises:
         _ApprovalMissing: The policy asks and the stamp is missing, names
@@ -847,14 +793,14 @@ def _approved_call_env(
             is not true or false, or an ``approval`` that is not a mapping.
     """
     if execution_mode != "readwrite":
-        return {}
+        return
     from osprey.cli.build_posture_check import approval_enabled_fault, ask_capable
 
     fault = approval_enabled_fault(osprey_config)
     if fault is not None:
         raise _ApprovalConfigInvalid(f"not run: {fault} (approval_config_invalid).")
     if not ask_capable(osprey_config, tool):
-        return {}
+        return
     from osprey.audit.call import current_tool_use_id
 
     stamp = _approved_call_stamp(current_tool_use_id())
@@ -880,10 +826,6 @@ def _approved_call_env(
             f"not run: this call was approved for target `{approved_target}`; the run is on "
             f"`{control_target}` (approval_missing). Call the tool again."
         )
-    return {
-        ENV_APPROVED_JOURNAL_SHA256: str(approved["approved_journal_sha256"]),
-        ENV_APPROVED_TARGET: str(approved["approved_target"]),
-    }
 
 
 def _guarded_run_name(target: str) -> str | None:
@@ -1047,16 +989,15 @@ async def _execute_via_local(
     execution_folder: Path,
     *,
     tool: str = "execute",
-    approved_journal_sha256: str | None = None,
     approved_target: str | None = None,
     approved_view_sha256: str | None = None,
 ) -> ExecutionResult:
     """Execute code in a host subprocess with the ExecutionWrapper.
 
-    *tool* names the guarded tool the run is for; with the approved journal
-    digest, target and view digest it binds a readwrite run's guarded runs to
-    the call the approval hook recorded (:func:`_approved_call_env`). A call
-    that should have been asked and was not is refused before anything is
+    *tool* names the guarded tool the run is for; with the approved target and
+    view digest it is checked against the call the approval hook recorded
+    (:func:`_check_approved_call`). A call that should have been asked and was
+    not, or was approved for another target, is refused before anything is
     spawned.
     """
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
@@ -1111,20 +1052,14 @@ async def _execute_via_local(
         )
     # Whether this call was put to a human is decided here, by the process
     # that launches the script, from the record the approval hook left for
-    # this tool call; the sandbox binds what it is handed and decides nothing.
+    # this tool call; the sandbox is handed nothing of it.
     try:
-        sandbox_env.update(
-            _approved_call_env(
-                execution_mode,
-                osprey_config,
-                tool,
-                {
-                    "approved_journal_sha256": approved_journal_sha256,
-                    "approved_target": approved_target,
-                    "approved_view_sha256": approved_view_sha256,
-                },
-                control_target=control_target,
-            )
+        _check_approved_call(
+            execution_mode,
+            osprey_config,
+            tool,
+            {"approved_target": approved_target, "approved_view_sha256": approved_view_sha256},
+            control_target=control_target,
         )
     except _ApprovalMissing as refusal:
         return ExecutionResult(
@@ -1153,7 +1088,6 @@ async def _execute_via_local(
     wrapper = ExecutionWrapper(
         limits_validator=limits_validator,
         execution_mode=execution_mode,
-        tool=tool,
         protected_roots=resolve_protected_roots(project_root, osprey_config),
         permitted_roots=resolve_permitted_roots(project_root, osprey_config),
         secret_roots=resolve_secret_roots(project_root),
@@ -1179,20 +1113,8 @@ async def _execute_via_local(
 
     timeout = config["timeout"]
     start_time = time.time()
-    # Overwrites or drops any inherited value: the scrub keeps unknown OSPREY_
-    # names. A null ``execution_timeout_seconds`` is an unbounded run, which
-    # has no deadline to announce.
-    if isinstance(timeout, int | float) and math.isfinite(timeout):
-        sandbox_env[ENV_EXECUTION_DEADLINE] = str(start_time + timeout)
-    else:
-        sandbox_env.pop(ENV_EXECUTION_DEADLINE, None)
 
     python_bin = str(resolve_agent_interpreter(project_root))
-
-    # A readwrite launch files exactly one run record: each exit path below
-    # that files one says so, and whatever leaves the launch without one (an
-    # exception while the result is built) files it as an abnormal exit.
-    filed = execution_mode != "readwrite"
 
     # A switch of the recorded control target retires the connector host this run
     # was stamped against, so the switch tool has to be able to see that a run is
@@ -1202,104 +1124,76 @@ async def _execute_via_local(
     with _in_flight_marker(control_target, sandbox_env.get(ENV_LAUNCH_POSTURE)):
         proc: asyncio.subprocess.Process | None = None
         try:
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    python_bin,
-                    str(script_path),
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=str(project_root),
-                    env=sandbox_env,
-                )
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(), timeout=timeout
-                )
-                stdout_text = stdout_bytes.decode("utf-8", errors="replace")
-                stderr_text = stderr_bytes.decode("utf-8", errors="replace")
-            except asyncio.CancelledError:
-                # A cancel before the handle exists is still observed on disk;
-                # one after it is answered before it propagates, inside the
-                # marker, so the marker outlives the child. Either way the
-                # record is filed on this path.
-                if proc is not None:
-                    filed = True  # the wind-down files a readwrite run's record
-                    await _interrupt_and_drain(
-                        proc, start_time, timeout, execution_folder, execution_mode, control_target
-                    )
-                elif not filed:
-                    filed = True
-                    _file_run_record(execution_folder, control_target, None, abnormal=True)
-                raise
-            except TimeoutError:
-                assert proc is not None  # the wait that timed out is the child's
-                proc.kill()
-                await proc.wait()
-                elapsed = time.time() - start_time
-                # A record on disk means the script ran to completion and the
-                # sandbox then failed to exit — a library's shutdown hook wedged
-                # on the way out. That run may have written to the machine, so it
-                # is reported from its record; the pipes were never drained, so
-                # the record is the only account of its output. No record means
-                # the script itself was still running: that is the timeout.
-                metadata = _read_execution_metadata(execution_folder)
-                if metadata is not None:
-                    notice = (
-                        f"The sandbox did not exit within {timeout} seconds after the script "
-                        "finished and was killed; the outcome above is the script's own record."
-                    )
-                    logger.warning(
-                        "Sandbox %s finished its script but did not exit within %ss; killed",
-                        execution_folder.name,
-                        timeout,
-                    )
-                    # _result_from_run files the record before it reads anything else.
-                    filed = True
-                    return _result_from_run(
-                        execution_folder,
-                        metadata,
-                        stdout_text="",
-                        stderr_text="",
-                        returncode=proc.returncode,
-                        elapsed=elapsed,
-                        control_target=control_target,
-                        execution_mode=execution_mode,
-                        stderr_notice=notice,
-                    )
-                if not filed:
-                    filed = True
-                    _file_run_record(execution_folder, control_target, None, abnormal=True)
-                return ExecutionResult(
-                    success=False,
-                    stdout="",
-                    stderr=f"Execution timed out after {timeout} seconds",
-                    execution_method_used=EXECUTION_METHOD_SUBPROCESS,
-                    execution_time_seconds=elapsed,
-                    error_message=f"Execution timed out after {timeout} seconds",
-                    control_target=control_target,
-                    failure_kind=FAILURE_KIND_TIMEOUT,
-                    written_channels=_read_written_channels(execution_folder),
-                )
-
-            # _result_from_run files the record before it reads anything else.
-            filed = True
-            return _result_from_run(
-                execution_folder,
-                _read_execution_metadata(execution_folder),
-                stdout_text=stdout_text,
-                stderr_text=stderr_text,
-                returncode=proc.returncode,
-                elapsed=time.time() - start_time,
-                control_target=control_target,
-                execution_mode=execution_mode,
+            proc = await asyncio.create_subprocess_exec(
+                python_bin,
+                str(script_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(project_root),
+                env=sandbox_env,
             )
-        finally:
-            if not filed and proc is not None:
-                _file_run_record(
-                    execution_folder,
-                    control_target,
-                    _read_execution_metadata(execution_folder),
-                    abnormal=True,
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            stdout_text = stdout_bytes.decode("utf-8", errors="replace")
+            stderr_text = stderr_bytes.decode("utf-8", errors="replace")
+        except asyncio.CancelledError:
+            # A cancel after the handle exists is answered before it
+            # propagates, inside the marker, so the marker outlives the child.
+            if proc is not None:
+                await _interrupt_and_drain(proc, start_time, timeout, execution_folder)
+            raise
+        except TimeoutError:
+            assert proc is not None  # the wait that timed out is the child's
+            proc.kill()
+            await proc.wait()
+            elapsed = time.time() - start_time
+            # A record on disk means the script ran to completion and the
+            # sandbox then failed to exit — a library's shutdown hook wedged
+            # on the way out. That run may have written to the machine, so it
+            # is reported from its record; the pipes were never drained, so
+            # the record is the only account of its output. No record means
+            # the script itself was still running: that is the timeout.
+            metadata = _read_execution_metadata(execution_folder)
+            if metadata is not None:
+                notice = (
+                    f"The sandbox did not exit within {timeout} seconds after the script "
+                    "finished and was killed; the outcome above is the script's own record."
                 )
+                logger.warning(
+                    "Sandbox %s finished its script but did not exit within %ss; killed",
+                    execution_folder.name,
+                    timeout,
+                )
+                return _result_from_run(
+                    execution_folder,
+                    metadata,
+                    stdout_text="",
+                    stderr_text="",
+                    returncode=proc.returncode,
+                    elapsed=elapsed,
+                    control_target=control_target,
+                    stderr_notice=notice,
+                )
+            return ExecutionResult(
+                success=False,
+                stdout="",
+                stderr=f"Execution timed out after {timeout} seconds",
+                execution_method_used=EXECUTION_METHOD_SUBPROCESS,
+                execution_time_seconds=elapsed,
+                error_message=f"Execution timed out after {timeout} seconds",
+                control_target=control_target,
+                failure_kind=FAILURE_KIND_TIMEOUT,
+                written_channels=_read_written_channels(execution_folder),
+            )
+
+        return _result_from_run(
+            execution_folder,
+            _read_execution_metadata(execution_folder),
+            stdout_text=stdout_text,
+            stderr_text=stderr_text,
+            returncode=proc.returncode,
+            elapsed=time.time() - start_time,
+            control_target=control_target,
+        )
 
 
 async def _interrupt_and_drain(
@@ -1307,16 +1201,14 @@ async def _interrupt_and_drain(
     start_time: float,
     timeout: Any,
     execution_folder: Path,
-    execution_mode: str,
-    control_target: str,
 ) -> None:
     """Wind down a cancelled run's child: SIGINT, drain, kill only at the bound.
 
     MCP cancels a tool call through an anyio cancel scope that re-cancels on
     every await, so the whole sequence runs shielded. ``SIGINT`` lets the
-    wrapped script end the way an interrupted one does — a guarded run
-    interrupted inside its journaled span restores the setpoints it moved, and
-    the wrapper writes its report into the execution record. Both pipes are read into
+    wrapped script end the way an interrupted one does, a run's own clean
+    exit: the wrapper records the interrupt in the execution record and
+    releases the run lock. Both pipes are read into
     buffers for the whole wind-down, so an echo larger than a pipe buffer
     cannot wedge the child and nothing read is lost when a wait is cut short.
 
@@ -1326,10 +1218,9 @@ async def _interrupt_and_drain(
     that deadline has already passed, so such a child is killed at once — or
     :data:`CANCEL_DRAIN_CAP_S` when the run has no finite deadline. A child
     still alive at the bound is killed and reaped. Once it has exited the pipes
-    get :data:`_CANCEL_PIPE_GRACE_S` to deliver what is left, and a readwrite
-    run's record is filed as an abnormal exit (:func:`_file_run_record`).
+    get :data:`_CANCEL_PIPE_GRACE_S` to deliver what is left.
 
-    The report is filed, and a still-running child killed, even when a native
+    A still-running child is killed even when a native
     asyncio cancellation breaks through the shield; that cancellation then
     propagates. Under anyio cancellation this never raises: the caller
     re-raises the cancellation.
@@ -1377,13 +1268,6 @@ async def _interrupt_and_drain(
         if proc.returncode is None:
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()
-        if execution_mode == "readwrite":
-            _file_run_record(
-                execution_folder,
-                control_target,
-                _read_execution_metadata(execution_folder),
-                abnormal=True,
-            )
 
 
 def _start_pump(tg: Any, stream: asyncio.StreamReader | None, sink: bytearray) -> Any:
@@ -1418,7 +1302,6 @@ def _result_from_run(
     returncode: int | None,
     elapsed: float,
     control_target: str,
-    execution_mode: str,
     stderr_notice: str | None = None,
 ) -> ExecutionResult:
     """Build the result of a run that ran its script, from its record.
@@ -1429,16 +1312,7 @@ def _result_from_run(
     fallback for a child that left no record at all. *stderr_notice*, when
     given, is appended to the reported stderr — a fact about the sandbox
     (it had to be killed) rather than about the script.
-
-    A readwrite run's restore record is filed (:func:`_file_run_record`)
-    before anything else is read from the folder: the exit is abnormal when
-    there is no record and the child exited non-zero, or when the record says
-    the script failed.
     """
-    if execution_mode == "readwrite":
-        abnormal = metadata.get("success") is False if metadata else returncode != 0
-        _file_run_record(execution_folder, control_target, metadata, abnormal=abnormal)
-
     figures = _collect_figures(execution_folder)
     artifacts = collect_artifacts(execution_folder)
 
@@ -1473,7 +1347,6 @@ def _result_from_run(
         control_target=control_target,
         failure_kind=failure_kind,
         written_channels=_read_written_channels(execution_folder),
-        restore_reports=_record_reports(metadata),
         execution_folder=execution_folder,
     )
 
@@ -1519,229 +1392,6 @@ def _read_execution_metadata(execution_folder: Path) -> dict | None:
     return None
 
 
-def _addresses(entries: Any) -> list[str]:
-    """The addresses of a report's ``refused``/``failed`` entries, values dropped."""
-    names: list[str] = []
-    for entry in entries or ():
-        if isinstance(entry, list | tuple) and entry:
-            names.append(str(entry[0]))
-        elif isinstance(entry, str):
-            names.append(entry)
-    return names
-
-
-def _cut_detail(detail: str) -> str:
-    """*detail* cut to the envelope's detail bound, so the record is never dropped."""
-    from osprey.audit.envelope import MAX_DETAIL_CHARS
-
-    if len(detail) > MAX_DETAIL_CHARS:
-        detail = detail[: MAX_DETAIL_CHARS - 3] + "..."
-    return detail
-
-
-def _restore_detail(execution_dir: Path, report: dict) -> str:
-    """The audit ``detail`` of one sandbox report: addresses and flags, no values.
-
-    The ledger holds identifiers only, so a refused write's left-behind value
-    stays in the execution folder's copy of the report.
-    """
-    restored = [str(a) for a in report.get("restored") or ()]
-    return _cut_detail(
-        f"{SOURCE_SANDBOX} "
-        f"execution={execution_dir.name} "
-        f"aborted={bool(report.get('aborted'))} "
-        f"deadline_guard={bool(report.get('deadline_guard'))} "
-        f"unchanged={len(report.get('unchanged') or ())} "
-        f"refused={','.join(_addresses(report.get('refused')))} "
-        f"failed={','.join(_addresses(report.get('failed')))} "
-        f"restored={','.join(restored)}"
-    )
-
-
-def _write_restore_file(execution_dir: Path, record: dict) -> None:
-    """Write *record* to :data:`RESTORE_REPORT_FILE`, replacing it atomically."""
-    from osprey_connectors.dotenv import atomic_replace
-
-    atomic_replace(
-        execution_dir / RESTORE_REPORT_FILE,
-        json.dumps(record, indent=2, allow_nan=True).encode("utf-8"),
-        mode=0o644,
-    )
-
-
-def _observe_journal(control_target: str) -> dict[str, Any]:
-    """What the target's guarded-run journal holds now, read by this process.
-
-    ``<project root>/var/guarded_run/<target name>/run.journal``, the target
-    name resolved as :func:`osprey.runtime.guarded_run.guarded_run_target`
-    resolves it, the file read by
-    :func:`osprey.runtime.guarded_run.read_run_journal`, the way a guarded run
-    opens it, and parsed by
-    :func:`osprey.runtime.journal.parse_pending_journal`. Never raises and
-    creates nothing.
-
-    Returns:
-        ``{"journal", "state", "values"}``: the path (``None`` when it cannot be
-        resolved), ``entries``, ``absent`` (no file, or no record in it) or
-        ``unreadable``, and the journaled values in record order.
-    """
-    observed: dict[str, Any] = {"journal": None, "state": "unreadable", "values": {}}
-    try:
-        from osprey.runtime.guarded_run import (
-            GUARDED_RUN_DIR,
-            JOURNAL_FILE_NAME,
-            guarded_run_target,
-            read_run_journal,
-        )
-        from osprey.runtime.journal import parse_pending_journal
-        from osprey_connectors.workspace import STATE_DIR_NAME
-
-        directory = (
-            _resolve_project_root()
-            / STATE_DIR_NAME
-            / GUARDED_RUN_DIR
-            / guarded_run_target(control_target)
-        )
-        path = directory / JOURNAL_FILE_NAME
-        observed["journal"] = str(path)
-        raw = read_run_journal(directory)
-        if raw is None:
-            observed["state"] = "absent"
-            return observed
-        pending = parse_pending_journal(raw, path)
-    except Exception:
-        logger.warning(
-            "Could not read the guarded-run journal of %s", control_target, exc_info=True
-        )
-        return observed
-    if pending is None:
-        observed["state"] = "absent"
-        return observed
-    observed["state"] = "entries"
-    observed["values"] = dict(pending.values)
-    return observed
-
-
-def _observed_reason(observed: dict[str, Any], *, abnormal: bool) -> tuple[str, str] | None:
-    """The audit reason and detail of what the executor saw on disk, ``None`` when nothing."""
-    state = observed.get("state")
-    if state == "entries":
-        addresses = ",".join(str(address) for address in observed.get("values") or {})
-        return REASON_JOURNAL_LEFT, f"{SOURCE_OBSERVED_ON_DISK} addresses={addresses}"
-    if state == "unreadable":
-        return REASON_JOURNAL_LEFT, f"{SOURCE_OBSERVED_ON_DISK} unreadable"
-    if abnormal:
-        return (
-            REASON_JOURNAL_ABSENT,
-            f"{SOURCE_OBSERVED_ON_DISK} journal absent after abnormal exit",
-        )
-    return None
-
-
-def _record_reports(metadata: dict | None) -> list[dict]:
-    """The restore reports a run's execution record carries, each a JSON object."""
-    raw_reports = (metadata or {}).get("restore_reports")
-    return [
-        report
-        for report in (raw_reports if isinstance(raw_reports, list) else ())
-        if isinstance(report, dict)
-    ]
-
-
-def _file_run_record(
-    execution_dir: Path,
-    control_target: str,
-    metadata: dict | None,
-    *,
-    abnormal: bool,
-    ledger: Path | None = None,
-) -> dict[str, Any]:
-    """File what a readwrite run's guarded runs restored, each fact with where it came from.
-
-    Two sources, filed side by side and never merged into one verdict:
-
-    * the reports the sandbox handed back in its execution record
-      (``restore_reports``), each filed with today's reason and a detail that
-      starts ``source=sandbox``;
-    * the executor's own read of the target's journal after the run: entries
-      left (or a journal it cannot read) are filed as
-      :data:`REASON_JOURNAL_LEFT`; after an abnormal exit, no entry is filed
-      as :data:`REASON_JOURNAL_ABSENT`. Each detail starts
-      ``source=observed_on_disk``.
-
-    A clean exit whose journal holds nothing files nothing of its own. The
-    folder keeps the values (:data:`RESTORE_REPORT_FILE`); the audit ledger
-    keeps identifiers only.
-
-    Args:
-        execution_dir: The run's execution folder.
-        control_target: The target the run was stamped with.
-        metadata: The run's execution record, ``None`` when it left none.
-        abnormal: Whether the run was killed, interrupted, exited non-zero
-            with no record, or recorded a failure.
-        ledger: The ledger file to append to; ``None`` routes the records the
-            way every executor record is routed (``var/audit/<identity>/``).
-
-    Returns:
-        ``{"sandbox": [...], "observed_on_disk": {...}}``; empty when nothing
-        was filed. Never raises: a record that cannot be stored costs the audit
-        trail that record and is logged, not the run's outcome.
-    """
-    record: dict[str, Any] = {}
-    try:
-        reports = _record_reports(metadata)
-        observed = _observe_journal(control_target)
-        filed: list[tuple[str, str]] = []
-        for report in reports:
-            incomplete = bool(report.get("refused") or report.get("failed"))
-            filed.append(
-                (
-                    REASON_RESTORE_INCOMPLETE if incomplete else REASON_RESTORE_COMPLETE,
-                    _restore_detail(execution_dir, report),
-                )
-            )
-        seen = _observed_reason(observed, abnormal=abnormal)
-        if seen is not None:
-            filed.append((seen[0], _cut_detail(seen[1])))
-        if not filed:
-            return record
-        record = {"sandbox": reports, "observed_on_disk": observed}
-    except Exception:  # never costs the run's outcome
-        logger.warning("Could not assemble the run record of %s", execution_dir, exc_info=True)
-        return record
-
-    try:
-        _write_restore_file(execution_dir, record)
-    except Exception:  # the ledger records below still land
-        logger.warning("Could not write the restore record into %s", execution_dir, exc_info=True)
-
-    for reason, detail in filed:
-        try:
-            from osprey.audit.envelope import DECISION_ALLOWED, SURFACE_EXECUTOR, AuditEnvelope
-            from osprey.audit.writer import append_envelope, record_envelope
-            from osprey.utils.identity import acting_identity
-
-            envelope = AuditEnvelope(
-                surface=SURFACE_EXECUTOR,
-                actor=acting_identity(),
-                posture=posture.posture(),
-                posture_source=posture.posture_source(),
-                session=posture.posture_session(),
-                subject=f"execution/{execution_dir.name}",
-                decision=DECISION_ALLOWED,
-                reason=reason,
-                detail=detail,
-            )
-            if ledger is None:
-                record_envelope(envelope)
-            else:
-                ledger.parent.mkdir(parents=True, exist_ok=True)
-                append_envelope(ledger, envelope)
-        except Exception:  # the audit trail degrades; the run's outcome does not
-            logger.warning("Could not record a run record for audit", exc_info=True)
-    return record
-
-
 def _collect_figures(execution_folder: Path) -> list[Path]:
     """Collect figure files from execution folder and its figures/ subdirectory.
 
@@ -1780,7 +1430,6 @@ async def execute_code(
     description: str,  # noqa: ARG001 - mirrors the execute tools' parameter; the description is recorded by the tool layer
     *,
     tool: str = "execute",
-    approved_journal_sha256: str | None = None,
     approved_target: str | None = None,
     approved_view_sha256: str | None = None,
 ) -> ExecutionResult:
@@ -1798,9 +1447,6 @@ async def execute_code(
         execution_mode: ``"readonly"`` or ``"readwrite"``.
         description: Human-readable description of what the code does.
         tool: The tool the run is for, as ``approval.tools`` keys it.
-        approved_journal_sha256: The pending-journal digest the approval hook
-            put into the call (``none`` when it listed none); ``None`` when the
-            call carries none.
         approved_target: The control target the approval hook put into the
             call; ``None`` when the call carries none.
         approved_view_sha256: The pyAML view digest the approval hook put into
@@ -1820,7 +1466,6 @@ async def execute_code(
             config,
             execution_folder,
             tool=tool,
-            approved_journal_sha256=approved_journal_sha256,
             approved_target=approved_target,
             approved_view_sha256=approved_view_sha256,
         )

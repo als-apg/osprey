@@ -42,16 +42,15 @@ same way an operator's own line is. Each refusal names the dotted key and the
 file to add it to.
 
 Beside the floor sits one check on what the approval policies *say*. The
-guarded tools — ``execute``, ``execute_file`` and ``pyaml_measure`` — each run a
-multi-write that can replay a pending journal, and the approval prompt is where
-a human sees that replay. A guarded tool whose policy is ``skip`` while
-``channel_write`` still prompts would replay setpoints no one was asked about,
-so the build stops on it naming both keys. :func:`effective_policy` and
-:func:`ask_capable` are the one reading of a tool's policy that the check and
-the guarded run share. The build also guarantees that a render which asks
-selects the hook that asks: a guarded tool put to a human in a profile whose
-``hooks:`` list lacks ``approval`` stops the build. So asks ⇒ hook selected,
-and ``config.yml`` alone answers whether a call of a guarded tool is asked.
+guarded tools — ``execute``, ``execute_file`` and ``pyaml_measure`` — each run
+a read-write call under the target's run lock, and the executor refuses such a
+call before it is spawned unless the approval hook recorded it whenever its
+policy asks. :func:`effective_policy` and :func:`ask_capable` are the one
+reading of a tool's policy that the build and the executor share. The build
+guarantees that a render which asks selects the hook that asks: a guarded tool
+put to a human in a profile whose ``hooks:`` list lacks ``approval`` stops the
+build. So asks ⇒ hook selected, and ``config.yml`` alone answers whether a
+call of a guarded tool is asked.
 """
 
 from __future__ import annotations
@@ -61,7 +60,6 @@ from typing import Any
 
 __all__ = [
     "APPROVAL_HOOK",
-    "CHANNEL_WRITE_TOOL",
     "CONTROLS_SERVER",
     "GUARDED_TOOLS",
     "REQUIRED_ALWAYS",
@@ -71,7 +69,6 @@ __all__ = [
     "ask_capable",
     "check_approval_enabled",
     "check_approval_hook_selected",
-    "check_guarded_tool_policies",
     "effective_policy",
     "missing_posture_errors",
 ]
@@ -87,11 +84,9 @@ CONTROLS_SERVER = "controls"
 #: Artifact name of the approval hook, as a profile's ``hooks:`` list spells it.
 APPROVAL_HOOK = "approval"
 
-#: The tools that run a guarded multi-write, each able to replay a pending journal.
+#: The tools whose read-write call runs under the target's run lock and the
+#: executor's approved-call check.
 GUARDED_TOOLS: tuple[str, ...] = ("execute", "execute_file", "pyaml_measure")
-
-#: The tool whose policy puts a single channel write to a human.
-CHANNEL_WRITE_TOOL = "channel_write"
 
 #: The approval policy that lets a call run with no prompt.
 SKIP_POLICY = "skip"
@@ -399,44 +394,5 @@ def check_approval_hook_selected(
                 f"guarded tool `{tool}` is put to a human under "
                 f"`{_policy_key(rendered, tool)}` but the profile does not select the "
                 f"`{APPROVAL_HOOK}` hook, so nothing would ask"
-            ),
-        )
-
-
-def check_guarded_tool_policies(rendered: Mapping[str, Any]) -> None:
-    """Stop a render whose guarded tool skips approval while single writes do not.
-
-    A guarded tool may carry policy ``skip`` only when ``channel_write``'s
-    effective policy is ``skip`` too. The first guarded tool, in
-    :data:`GUARDED_TOOLS` order, that breaks the rule is named.
-
-    Args:
-        rendered: The rendered ``config.yml``, read after the injectors.
-
-    Raises:
-        FacilityBuildError: ``profile-invalid`` naming the key that gives the
-            guarded tool ``skip`` and the key that gives ``channel_write`` its
-            policy.
-    """
-    write_policy = effective_policy(rendered, CHANNEL_WRITE_TOOL)
-    if write_policy == SKIP_POLICY:
-        return
-    for tool in GUARDED_TOOLS:
-        if effective_policy(rendered, tool) != SKIP_POLICY:
-            continue
-        from osprey.facility.errors import FacilityBuildError
-
-        key = _policy_key(rendered, tool)
-        write_key = _policy_key(rendered, CHANNEL_WRITE_TOOL)
-        raise FacilityBuildError(
-            "profile-invalid",
-            key,
-            [PROFILE_FILENAME],
-            f"set `approval.tools.{tool}` to `always` in {PROFILE_FILENAME}",
-            record_kind="path",
-            detail=(
-                f"guarded tool `{tool}` runs with approval policy `skip` while "
-                f"`{write_key}` is `{write_policy}`, so a pending journal would be "
-                "replayed with no one asked"
             ),
         )

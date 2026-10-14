@@ -1,17 +1,17 @@
-"""The approved journal digest and target travel from the tool call to the guarded run.
+"""The approved target travels from the tool call to the executor's check before spawning.
 
-The approval hook writes ``approved_journal_sha256`` and ``approved_target``
-into an ``execute`` or ``execute_file`` call. The tool hands them to the shared
-gate sequence, the executor writes them into a readwrite sandbox's environment
-(never a readonly one's), and the wrapped script binds them to
-``osprey.runtime.guarded_run`` before user code runs, restoring the approved
-journal there and then. The sandbox cases run a real wrapped script whose
-``osprey.runtime`` reads and writes a dict machine kept in a JSON file.
+The approval hook writes ``approved_target`` into an ``execute`` or
+``execute_file`` call, and ``approved_view_sha256`` too into a
+``pyaml_measure`` call. The tool hands them to the shared gate sequence, and
+the executor, before it spawns anything, refuses an asking call whose fields
+differ from what the approval prompt recorded, or that was approved for another
+target than the run's. Nothing of the record reaches the sandbox. The sandbox
+cases run a real wrapped script whose ``osprey.runtime`` reads and writes a dict
+machine kept in a JSON file.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import subprocess
@@ -28,6 +28,7 @@ import osprey.runtime.guarded_run as guarded_run
 from osprey.mcp_server.python_executor import executor
 from osprey.mcp_server.python_executor.executor import ExecutionResult
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
+from tests._guarded_run import held_lock, lock_path
 from tests.mcp_server.conftest import get_tool_fn
 
 _SRC_ROOT = Path(__file__).resolve().parents[3] / "src"
@@ -71,11 +72,7 @@ _PROBE = textwrap.dedent(
     import json, os
     with open(os.environ["APPROVED_CALL_VALUES"]) as handle:
         seen = json.load(handle)
-    results = {
-        "seen": seen,
-        "digest_env": os.environ.get("OSPREY_APPROVED_JOURNAL_SHA256"),
-        "target_env": os.environ.get("OSPREY_APPROVED_TARGET"),
-    }
+    results = {"seen": seen}
     """
 )
 
@@ -89,14 +86,6 @@ def _result() -> ExecutionResult:
         execution_method_used="subprocess",
         execution_time_seconds=0.1,
     )
-
-
-def test_the_executor_and_the_runtime_spell_the_approved_names_alike() -> None:
-    assert executor.ENV_APPROVED_JOURNAL_SHA256 == guarded_run.ENV_APPROVED_JOURNAL_SHA256
-    assert executor.ENV_APPROVED_TARGET == guarded_run.ENV_APPROVED_TARGET
-    assert {executor.ENV_APPROVED_JOURNAL_SHA256, executor.ENV_APPROVED_TARGET} <= set(
-        executor._STAMP_ENV_NAMES
-    ), "cleared on every launch, so no inherited value reaches a sandbox"
 
 
 @pytest.mark.parametrize("tool_name", ["execute", "execute_file"])
@@ -128,12 +117,10 @@ async def test_each_tool_hands_the_approved_fields_to_the_gate_sequence(
             description="probe",
             execution_mode="readwrite",
             save_output=False,
-            approved_journal_sha256="ab" * 32,
             approved_target="live",
         )
 
     assert gated.await_args.kwargs["tool"] == tool_name
-    assert gated.await_args.kwargs["approved_journal_sha256"] == "ab" * 32
     assert gated.await_args.kwargs["approved_target"] == "live"
 
 
@@ -152,12 +139,10 @@ async def test_the_gate_sequence_hands_the_approved_fields_to_the_launch(
             description="probe",
             execution_mode="readonly",
             project_root=tmp_path,
-            approved_journal_sha256="none",
             approved_target="va",
         )
 
     assert launch.await_args.kwargs["tool"] == "execute_file"
-    assert launch.await_args.kwargs["approved_journal_sha256"] == "none"
     assert launch.await_args.kwargs["approved_target"] == "va"
 
 
@@ -176,7 +161,7 @@ def _approval(**changes: Any) -> dict[str, Any]:
 _CALL_ID = "toolu_gate1"
 
 #: The approved fields the approval prompt bound the call to.
-_BOUND = {"approved_journal_sha256": "ab" * 32, "approved_target": "live"}
+_BOUND = {"approved_target": "live"}
 
 
 @pytest.fixture
@@ -203,13 +188,11 @@ def _gate(
     tool: str = "execute",
     call_id: str | None = _CALL_ID,
     control_target: str = "live",
-) -> dict[str, str]:
+) -> None:
     from osprey.audit.call import call_scope
 
     with call_scope(call_id, None):
-        return executor._approved_call_env(
-            mode, config, tool, approved, control_target=control_target
-        )
+        executor._check_approved_call(mode, config, tool, approved, control_target=control_target)
 
 
 def test_the_executor_spells_the_ask_stamp_like_the_hook() -> None:
@@ -221,19 +204,16 @@ def test_the_executor_spells_the_ask_stamp_like_the_hook() -> None:
     assert all(name.startswith(approval.APPROVED_FIELD_PREFIX) for name in executor.APPROVED_FIELDS)
 
 
-def test_a_stamp_equal_to_the_call_forwards_both_fields(stamps: Path) -> None:
+def test_a_stamp_equal_to_the_call_is_admitted(stamps: Path) -> None:
     _stamp(stamps, **_BOUND)
 
-    assert _gate(_ASKING_CONFIG, _BOUND) == {
-        "OSPREY_APPROVED_JOURNAL_SHA256": "ab" * 32,
-        "OSPREY_APPROVED_TARGET": "live",
-    }
+    _gate(_ASKING_CONFIG, _BOUND)
 
 
 def test_execute_file_is_matched_by_its_own_name(stamps: Path) -> None:
     _stamp(stamps, tool="mcp__python__execute_file", **_BOUND)
 
-    assert _gate(_ASKING_CONFIG, _BOUND, tool="execute_file")
+    _gate(_ASKING_CONFIG, _BOUND, tool="execute_file")
     with pytest.raises(executor._ApprovalMissing, match="left no record"):
         _gate(_ASKING_CONFIG, _BOUND, tool="execute")
 
@@ -263,7 +243,7 @@ def test_an_unresolvable_state_directory_is_no_stamp(monkeypatch: pytest.MonkeyP
         _gate(_ASKING_CONFIG, _BOUND)
 
 
-@pytest.mark.parametrize("field", ["approved_journal_sha256", "approved_target"])
+@pytest.mark.parametrize("field", ["approved_target"])
 def test_a_stamp_that_differs_from_the_call_is_refused(stamps: Path, field: str) -> None:
     _stamp(stamps, **{**_BOUND, field: "something-else"})
 
@@ -275,7 +255,7 @@ def test_a_stamp_that_differs_from_the_call_is_refused(stamps: Path, field: str)
     )
 
 
-@pytest.mark.parametrize("field", ["approved_journal_sha256", "approved_target"])
+@pytest.mark.parametrize("field", ["approved_target"])
 def test_an_asking_call_missing_a_field_is_refused(stamps: Path, field: str) -> None:
     _stamp(stamps, **_BOUND)
 
@@ -286,7 +266,7 @@ def test_an_asking_call_missing_a_field_is_refused(stamps: Path, field: str) -> 
 def test_a_field_the_stamp_records_and_the_call_omits_is_not_compared(stamps: Path) -> None:
     _stamp(stamps, **_BOUND, approved_view_sha256="cd" * 32)
 
-    assert _gate(_ASKING_CONFIG, _BOUND)
+    _gate(_ASKING_CONFIG, _BOUND)
 
 
 def test_a_field_the_call_carries_and_the_stamp_lacks_is_refused(stamps: Path) -> None:
@@ -307,24 +287,85 @@ def test_a_call_approved_for_another_target_is_refused_before_spawn(stamps: Path
     )
 
 
+def _launched_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config: dict[str, Any],
+    *,
+    mode: str = "readwrite",
+    tool: str = "execute",
+    approved: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """The environment a launch of one call hands its sandbox, from a fake spawn."""
+    from osprey.audit.call import call_scope
+
+    captured: dict[str, dict[str, str]] = {}
+
+    class _Proc:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return b"", b""
+
+    async def spawn(*_args: Any, **kwargs: Any) -> _Proc:
+        captured["env"] = kwargs["env"]
+        return _Proc()
+
+    def stamp_target(sandbox_env: dict[str, str]) -> str:
+        sandbox_env["OSPREY_CONTROL_TARGET"] = "live"
+        return "live"
+
+    folder = tmp_path / "exec"
+    (folder / "figures").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
+    monkeypatch.setattr("osprey.utils.workspace.load_osprey_config", lambda: config)
+    monkeypatch.setattr(executor, "_apply_target_stamp", stamp_target)
+    monkeypatch.setattr(executor, "_load_limits_validator", lambda target: None)
+    monkeypatch.setattr(executor, "resolve_agent_interpreter", lambda root=None: "/bin/true")
+    monkeypatch.setattr(executor.asyncio, "create_subprocess_exec", spawn)
+    monkeypatch.setenv("OSPREY_APPROVED_TARGET", "inherited")
+
+    import asyncio
+
+    async def launch() -> ExecutionResult:
+        with call_scope(_CALL_ID, None):
+            return await executor._execute_via_local(
+                "x = 1\n", mode, {"timeout": 30}, folder, tool=tool, **(approved or _BOUND)
+            )
+
+    asyncio.run(launch())
+    return captured["env"]
+
+
 @pytest.mark.parametrize(
-    "config",
+    ("config", "mode", "stamped"),
     [
-        pytest.param(_approval(tools={"execute": "skip"}), id="skip"),
-        pytest.param(_approval(enabled=False), id="approval-disabled"),
+        pytest.param(_approval(tools={"execute": "skip"}), "readwrite", False, id="skip"),
+        pytest.param(_approval(enabled=False), "readwrite", False, id="approval-disabled"),
+        pytest.param(_ASKING_CONFIG, "readwrite", True, id="asked-and-stamped"),
+        pytest.param(_ASKING_CONFIG, "readonly", False, id="readonly"),
     ],
 )
-def test_fields_no_approval_prompt_set_never_reach_the_sandbox(
-    stamps: Path, config: dict[str, Any]
+def test_no_approved_field_reaches_any_sandbox(
+    stamps: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config: dict[str, Any],
+    mode: str,
+    stamped: bool,
 ) -> None:
-    """With nobody asked, the fields in the call are the caller's own and are dropped."""
-    _stamp(stamps, **_BOUND)
-    assert _gate(config, _BOUND) == {}
+    if stamped:
+        _stamp(stamps, **_BOUND)
+
+    env = _launched_env(tmp_path, monkeypatch, config, mode=mode)
+
+    assert [name for name in env if name.startswith("OSPREY_APPROVED_")] == []
 
 
-def test_a_readonly_call_carries_nothing(stamps: Path) -> None:
-    _stamp(stamps, **_BOUND)
-    assert _gate(_ASKING_CONFIG, _BOUND, mode="readonly") == {}
+def test_a_readonly_call_is_not_checked(stamps: Path) -> None:
+    _stamp(stamps, approved_target="va")
+
+    _gate(_ASKING_CONFIG, _BOUND, mode="readonly")
 
 
 #: Approval sections no reader can trust, each with the sentence that refuses it.
@@ -367,19 +408,15 @@ def test_a_non_bool_switch_leaves_a_readonly_call_alone(
     stamps: Path, config: dict[str, Any]
 ) -> None:
     _stamp(stamps, **_BOUND)
-    assert _gate(config, _BOUND, mode="readonly") == {}
+    _gate(config, _BOUND, mode="readonly")
 
 
 @pytest.mark.usefixtures("stamps")
-async def test_a_refused_call_spawns_nothing_and_leaves_the_journal(
+async def test_a_refused_call_spawns_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from osprey.audit.call import call_scope
 
-    journal = tmp_path / "var" / "guarded_run" / "live" / "run.journal"
-    journal.parent.mkdir(parents=True)
-    journal.write_text('{"header": {"target": "live"}}\n{"address": "Q", "value": 1}\n')
-    before = journal.read_bytes()
     folder = tmp_path / "exec"
     folder.mkdir()
 
@@ -404,7 +441,7 @@ async def test_a_refused_call_spawns_nothing_and_leaves_the_journal(
     assert result.failure_kind == executor.FAILURE_KIND_APPROVAL_MISSING == "approval_missing"
     assert "left no record" in (result.error_message or "")
     assert list(folder.iterdir()) == [], "the execution folder is never used"
-    assert journal.read_bytes() == before
+    assert not (tmp_path / "var").exists(), "no lock was taken"
 
 
 @pytest.mark.usefixtures("stamps")
@@ -446,13 +483,10 @@ async def test_a_non_bool_switch_spawns_nothing(
 _MEASURE_BOUND = {**_BOUND, "approved_view_sha256": "cd" * 32}
 
 
-def test_a_measurement_whose_stamp_agrees_on_all_three_forwards_the_two(stamps: Path) -> None:
+def test_a_measurement_whose_stamp_agrees_on_both_fields_is_admitted(stamps: Path) -> None:
     _stamp(stamps, tool="mcp__python__pyaml_measure", **_MEASURE_BOUND)
 
-    assert _gate(_ASKING_CONFIG, _MEASURE_BOUND, tool="pyaml_measure") == {
-        "OSPREY_APPROVED_JOURNAL_SHA256": "ab" * 32,
-        "OSPREY_APPROVED_TARGET": "live",
-    }
+    _gate(_ASKING_CONFIG, _MEASURE_BOUND, tool="pyaml_measure")
 
 
 def test_an_asking_measurement_without_a_view_digest_is_refused(stamps: Path) -> None:
@@ -475,10 +509,6 @@ async def test_a_measurement_whose_view_digest_disagrees_spawns_nothing(
     from osprey.audit.call import call_scope
 
     _stamp(stamps, tool="mcp__python__pyaml_measure", **stamped)
-    journal = tmp_path / "var" / "guarded_run" / "live" / "run.journal"
-    journal.parent.mkdir(parents=True)
-    journal.write_text('{"header": {"target": "live"}}\n{"address": "Q", "value": 1}\n')
-    before = journal.read_bytes()
     folder = tmp_path / "exec"
     folder.mkdir()
 
@@ -507,7 +537,6 @@ async def test_a_measurement_whose_view_digest_disagrees_spawns_nothing(
     assert result.failure_kind == executor.FAILURE_KIND_APPROVAL_MISSING
     assert "`approved_view_sha256` differs" in (result.error_message or "")
     assert list(folder.iterdir()) == []
-    assert journal.read_bytes() == before
 
 
 async def test_the_gate_sequence_hands_the_view_digest_to_the_launch(
@@ -531,15 +560,16 @@ async def test_the_gate_sequence_hands_the_view_digest_to_the_launch(
     assert launch.await_args.kwargs["approved_view_sha256"] == "cd" * 32
 
 
-def test_a_readonly_wrapper_binds_nothing() -> None:
+def test_a_readonly_wrapper_takes_no_lock() -> None:
     script = ExecutionWrapper(execution_mode="readonly").create_wrapper("x = 1\n")
-    assert "_open_approved_call" not in script
+    assert "_osprey_lock" not in script
+    assert "_osprey_lock" in ExecutionWrapper(execution_mode="readwrite").create_wrapper("x = 1\n")
 
 
 class _Sandbox:
-    """A deployment repo with a planted journal, and one wrapped readwrite run in it."""
+    """A deployment repo and one wrapped readwrite run in it."""
 
-    def __init__(self, root: Path, values: dict[str, float], journal: dict[str, float]) -> None:
+    def __init__(self, root: Path, values: dict[str, float]) -> None:
         self.root = root
         (root / "build").mkdir(parents=True)
         (root / "profile.yml").write_text("name: probe\n", encoding="utf-8")
@@ -551,20 +581,11 @@ class _Sandbox:
         site.mkdir()
         (site / "sitecustomize.py").write_text(_SITECUSTOMIZE, encoding="utf-8")
         self.site = site
-        directory = root / "var" / "guarded_run" / "live"
-        directory.mkdir(parents=True)
-        header = {"target": "live", "generation": 4, "identity": "bob", "pid": 4242}
-        lines = [{"header": header}] + [{"address": a, "value": v} for a, v in journal.items()]
-        self.journal = directory / "run.journal"
-        self.journal.write_text("".join(json.dumps(line) + "\n" for line in lines))
         self.folder = root / "exec"
         self.folder.mkdir()
 
     def write_config(self, config: dict[str, Any]) -> None:
         self.config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
-
-    def digest(self) -> str:
-        return hashlib.sha256(self.journal.read_bytes()).hexdigest()
 
     def run(self, env_extra: dict[str, str], code: str = _PROBE) -> dict[str, Any]:
         script = self.folder / "wrapped_script.py"
@@ -573,7 +594,7 @@ class _Sandbox:
             encoding="utf-8",
         )
         env = os.environ.copy()
-        for name in ("OSPREY_CONFIG", "CONFIG_FILE", "OSPREY_EXECUTION_DEADLINE"):
+        for name in ("OSPREY_CONFIG", "CONFIG_FILE"):
             env.pop(name, None)
         env["PYTHONPATH"] = os.pathsep.join(
             filter(None, [str(self.site), str(_SRC_ROOT), env.get("PYTHONPATH")])
@@ -598,219 +619,6 @@ class _Sandbox:
             metadata["_results"] = json.loads(results_path.read_text())
         return metadata
 
-    def values(self) -> dict[str, float]:
-        return json.loads(self.values_path.read_text(encoding="utf-8"))
-
-
-def test_an_approved_journal_is_restored_before_user_code(tmp_path: Path) -> None:
-    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0, "S": 5.0}, {"Q": 3.0})
-
-    metadata = sandbox.run(
-        {"OSPREY_APPROVED_JOURNAL_SHA256": sandbox.digest(), "OSPREY_APPROVED_TARGET": "live"}
-    )
-
-    assert metadata["success"] is True, metadata.get("traceback")
-    results = metadata["_results"]
-    assert results["seen"] == {"Q": 3.0, "S": 5.0}, "restored before the user code started"
-    assert results["digest_env"] is None and results["target_env"] is None
-    assert sandbox.journal.read_bytes() == b""
-    assert "OSPREY_GUARDED_RUN_RESTORE" in metadata["stderr"]
-    (report,) = metadata["restore_reports"]
-    assert report["restored"] == ["Q"]
-
-
-def test_a_changed_journal_stops_the_run_before_user_code(tmp_path: Path) -> None:
-    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0, "S": 5.0}, {"Q": 3.0})
-    before = sandbox.journal.read_bytes()
-
-    metadata = sandbox.run(
-        {"OSPREY_APPROVED_JOURNAL_SHA256": "0" * 64, "OSPREY_APPROVED_TARGET": "live"}
-    )
-
-    assert metadata["success"] is False
-    assert metadata["error_type"] == "OspreyJournalChanged"
-    assert "_results" not in metadata, "the user code never started"
-    assert sandbox.values() == {"Q": 9.0, "S": 5.0}
-    assert sandbox.journal.read_bytes() == before
-
-
-_FORGED_REPORT = {
-    "restored": ["Q", "S"],
-    "unchanged": [],
-    "refused": [],
-    "failed": [],
-    "aborted": True,
-    "deadline_guard": False,
-}
-
-#: User code that prints a well-formed report line under the tag on both streams,
-#: once spelled by hand and once from the runtime's own constant.
-_FORGE = textwrap.dedent(
-    f"""
-    import sys
-    from osprey.runtime.guarded_run import RESTORE_REPORT_TAG
-    line = "OSPREY_GUARDED_RUN_RESTORE " + {json.dumps(_FORGED_REPORT)!r}
-    print(line)
-    print(RESTORE_REPORT_TAG, {json.dumps(_FORGED_REPORT)!r}, file=sys.stderr)
-    results = {{"printed": True}}
-    """
-)
-
-
-def test_a_report_line_user_code_prints_is_never_filed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Only the reports the guarded run kept are in the record; printed lines are not."""
-    from osprey.audit import writer
-
-    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "audit")
-    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0, "S": 5.0}, {"Q": 3.0})
-    env = {"OSPREY_APPROVED_JOURNAL_SHA256": sandbox.digest(), "OSPREY_APPROVED_TARGET": "live"}
-
-    metadata = sandbox.run(env, _FORGE)
-
-    assert metadata["success"] is True, metadata.get("traceback")
-    assert metadata["stdout"].count("OSPREY_GUARDED_RUN_RESTORE") == 1
-    monkeypatch.setattr(executor, "_resolve_project_root", lambda: sandbox.root)
-    result_folder = tmp_path / "filed"
-    result_folder.mkdir()
-    filed = executor._file_run_record(result_folder, "live", metadata, abnormal=False)
-    (report,) = filed["sandbox"]
-    assert report["restored"] == ["Q"], "the replay's own report, and nothing the code printed"
-
-
-def test_a_forged_report_line_alone_files_nothing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
-    folder = tmp_path / "exec"
-    folder.mkdir()
-    forged = f"OSPREY_GUARDED_RUN_RESTORE {json.dumps(_FORGED_REPORT)}\n"
-
-    result = executor._result_from_run(
-        folder,
-        {"success": True, "stdout": forged, "stderr": forged},
-        stdout_text=forged,
-        stderr_text=forged,
-        returncode=0,
-        elapsed=0.1,
-        control_target="live",
-        execution_mode="readwrite",
-    )
-
-    assert not (folder / executor.RESTORE_REPORT_FILE).exists()
-    assert result.restore_reports == []
-
-
-#: User code that takes the guarded run on its own target.
-_TAKE_THE_RUN = textwrap.dedent(
-    """
-    from osprey.runtime.guarded_run import lock
-    with lock(None):
-        results = {"ran": True}
-    """
-)
-
-
-@pytest.mark.parametrize(
-    "config",
-    [
-        pytest.param(_approval(tools={"execute": "skip"}), id="skip"),
-        pytest.param(_approval(enabled=False), id="approval-disabled"),
-    ],
-)
-def test_a_digest_in_a_call_nobody_approved_restores_nothing(
-    tmp_path: Path, config: dict[str, Any]
-) -> None:
-    """The executor forwards nothing nobody was asked about; another generation stays."""
-    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0, "S": 5.0}, {"Q": 3.0})
-    sandbox.write_config(config)
-    before = sandbox.journal.read_bytes()
-    env = executor._approved_call_env(
-        "readwrite",
-        config,
-        "execute",
-        {"approved_journal_sha256": sandbox.digest(), "approved_target": "live"},
-        control_target="live",
-    )
-    assert env == {}
-
-    metadata = sandbox.run({**env, "OSPREY_CONTROL_TARGET_GENERATION": "5"}, _TAKE_THE_RUN)
-
-    assert metadata["success"] is False
-    assert metadata["error_type"] == "OspreyStaleJournal"
-    assert sandbox.values() == {"Q": 9.0, "S": 5.0}
-    assert sandbox.journal.read_bytes() == before
-
-
-def test_a_finished_runs_restore_report_is_filed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A replay before user code keeps one report in the record; the finished run files it."""
-    from osprey.audit import writer
-
-    zone = tmp_path / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
-    monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
-    folder = tmp_path / "exec"
-    folder.mkdir()
-    report = {
-        "restored": ["Q"],
-        "unchanged": [],
-        "refused": [],
-        "failed": [],
-        "aborted": True,
-        "deadline_guard": False,
-    }
-    metadata = {
-        "success": True,
-        "stdout": "restored 1 addresses from a dead run (pid 4242)\n",
-        "stderr": "",
-        "restore_reports": [report],
-    }
-
-    result = executor._result_from_run(
-        folder,
-        metadata,
-        stdout_text="",
-        stderr_text="",
-        returncode=0,
-        elapsed=0.1,
-        control_target="live",
-        execution_mode="readwrite",
-    )
-
-    saved = json.loads((folder / executor.RESTORE_REPORT_FILE).read_text(encoding="utf-8"))
-    assert saved["sandbox"] == [report]
-    assert result.restore_reports == [report], "the result carries the list the record filed"
-    (ledger,) = zone.rglob("*.jsonl")
-    (record,) = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
-    assert record["reason"] == "guarded_run_restore_complete"
-    assert record["detail"].startswith("source=sandbox ")
-    assert folder.name in record["subject"]
-
-
-def test_a_finished_run_without_a_report_files_nothing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A clean run that left no journal files nothing."""
-    monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
-    folder = tmp_path / "exec"
-    folder.mkdir()
-
-    executor._result_from_run(
-        folder,
-        {"success": True, "stdout": "hello\n", "stderr": ""},
-        stdout_text="",
-        stderr_text="",
-        returncode=0,
-        elapsed=0.1,
-        control_target="live",
-        execution_mode="readwrite",
-    )
-
-    assert not (folder / executor.RESTORE_REPORT_FILE).exists()
-
 
 def test_the_executor_spells_the_busy_failure_like_the_hooks_audit_reason() -> None:
     from osprey.services.python_executor.execution import wrapper
@@ -819,16 +627,6 @@ def test_the_executor_spells_the_busy_failure_like_the_hooks_audit_reason() -> N
     approval = import_hook("osprey_approval")
     assert executor.FAILURE_KIND_GUARDED_RUN_BUSY == approval._GUARDED_RUN_BUSY_AUDIT_REASON
     assert wrapper.FAILURE_KIND_GUARDED_RUN_BUSY == executor.FAILURE_KIND_GUARDED_RUN_BUSY
-
-
-def _held(sandbox: _Sandbox) -> int:
-    """Take the sandbox target's lock from this process, as another run would hold it."""
-    import fcntl
-
-    fd = os.open(sandbox.journal.parent / guarded_run.LOCK_FILE_NAME, os.O_RDWR | os.O_CREAT, 0o664)
-    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    guarded_run._write_holder(fd)
-    return fd
 
 
 def _filed(
@@ -845,7 +643,6 @@ def _filed(
         returncode=0,
         elapsed=0.1,
         control_target="live",
-        execution_mode="readwrite",
     )
 
 
@@ -862,13 +659,10 @@ def test_a_run_on_a_held_target_is_reported_as_busy_with_its_holder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The sandbox refuses before user code; the result names the holder and its own kind."""
-    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0}, {})
-    fd = _held(sandbox)
-    try:
-        holder = json.loads(os.pread(fd, 4096, 0))
+    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0})
+    with held_lock("live", root=sandbox.root) as holder_process:
+        holder = json.loads(lock_path("live", sandbox.root).read_text(encoding="utf-8"))
         metadata = sandbox.run({})
-    finally:
-        os.close(fd)
 
     result = _filed(tmp_path, monkeypatch, sandbox, metadata)
 
@@ -876,11 +670,11 @@ def test_a_run_on_a_held_target_is_reported_as_busy_with_its_holder(
     assert metadata["failure_kind"] == executor.FAILURE_KIND_GUARDED_RUN_BUSY
     assert result.success is False
     assert result.failure_kind == executor.FAILURE_KIND_GUARDED_RUN_BUSY
-    assert f"pid {os.getpid()}" in result.error_message
+    assert f"pid {holder_process.pid}" in result.error_message
     assert holder["started"] in result.error_message
     envelope = _envelope(result)
     assert envelope["details"]["kind"] == executor.FAILURE_KIND_GUARDED_RUN_BUSY
-    assert f"pid {os.getpid()}" in envelope["error_message"]
+    assert f"pid {holder_process.pid}" in envelope["error_message"]
     assert holder["started"] in envelope["error_message"]
     assert len(envelope["suggestions"]) == 1
 
@@ -889,7 +683,7 @@ def test_a_busy_raised_by_the_scripts_own_lock_is_the_scripts_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """User code that asks for the lock its own run holds fails as its own code."""
-    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0}, {})
+    sandbox = _Sandbox(tmp_path / "repo", {"Q": 9.0})
     code = "from osprey.runtime.guarded_run import lock\nwith lock(None):\n    pass\n"
 
     metadata = sandbox.run({}, code)

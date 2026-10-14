@@ -39,6 +39,23 @@ def test_mapped_classes_are_pyaml_exceptions(cls: type) -> None:
     assert issubclass(cls, PyAMLException)
 
 
+def test_a_refusal_is_also_the_runtimes_readonly_refusal() -> None:
+    """One ``except`` catches an adapter refusal and the refusal a read-only run's lock raises."""
+    from osprey.runtime import guarded_run
+
+    assert issubclass(OspreyWriteRefused, guarded_run.OspreyWriteRefused)
+    refused = OspreyWriteRefused("posture is read-only", "Q:SP")
+    assert (refused.reason, refused.channel_address) == ("posture is read-only", "Q:SP")
+
+
+def test_a_failure_carries_its_reason_and_channel() -> None:
+    failed = OspreyWriteFailed("readback did not follow", "Q:SP")
+
+    assert (failed.reason, failed.channel_address) == ("readback did not follow", "Q:SP")
+    assert str(failed) == "OSPREY write to 'Q:SP' failed: readback did not follow"
+    assert str(OspreyWriteFailed("timed out")) == "OSPREY write failed: timed out"
+
+
 def test_direct_limits_violation_is_refused_with_violation_reason() -> None:
     original = _limits_violation()
     mapped = map_write_error(original)
@@ -47,7 +64,7 @@ def test_direct_limits_violation_is_refused_with_violation_reason() -> None:
     assert mapped.reason == "Step 0.5 exceeds max_step 0.1"
     assert "Step 0.5 exceeds max_step 0.1" in str(mapped)
     assert ADDR in str(mapped)
-    # A restore-report reason stays one line, not the multi-line banner.
+    # A result-line reason stays one line, not the multi-line banner.
     assert "\n" not in mapped.reason
 
 

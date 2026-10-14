@@ -215,7 +215,6 @@ class ExecutionWrapper:
         permitted_roots: Iterable[str | Path] = (),
         perimeter_denied_ports: Iterable[int] = (),
         secret_roots: Iterable[str | Path] = (),
-        tool: str = "execute",
     ):
         """
         Initialize the wrapper.
@@ -267,10 +266,6 @@ class ExecutionWrapper:
                 (:meth:`_get_net_guard`); a non-empty set puts the guard in
                 front of user code in **every** execution mode, because the
                 perimeter is orthogonal to the write posture.
-            tool: The guarded tool the run is for, as ``approval.tools`` keys
-                it. A readwrite run binds it, with the approved journal digest
-                and target the executor put into the environment, before user
-                code runs (:meth:`_get_approved_call`).
         """
         self.limits_validator = limits_validator
         self.execution_mode = execution_mode
@@ -278,7 +273,6 @@ class ExecutionWrapper:
         self.permitted_roots = tuple(str(root) for root in permitted_roots)
         self.secret_roots = tuple(str(root) for root in secret_roots)
         self.perimeter_denied_ports = tuple(perimeter_denied_ports)
-        self.tool = tool
 
     def create_wrapper(self, user_code: str, execution_folder: Path | None = None) -> str:
         """
@@ -1282,40 +1276,33 @@ if not _execution_dir.exists():
         """
         ).strip()
 
-    def _get_approved_call(self) -> str:
-        """Bind a readwrite run to its approved call and take its target's lock.
+    def _get_run_lock(self) -> str:
+        """Take a readwrite run's control-target lock.
 
         Empty when readonly: a readonly run takes no lock. Runs first inside
         the user-code ``try``, so whatever it raises is the run's recorded
-        failure and the user code never starts.
-        :func:`osprey.runtime.guarded_run._open_approved_call` takes the
-        approved journal digest and target out of the environment and keeps
-        them, with :attr:`tool`, for every guarded run the code takes. The
-        control target's :func:`~osprey.runtime.guarded_run.lock` is then
-        entered and held until the run's record is saved (see
-        :meth:`_get_cleanup_and_export`); its entry restores a killed run's
-        journal under the bound call's rules, and another holder makes it raise
+        failure and the user code never starts. The control target's
+        :func:`~osprey.runtime.guarded_run.lock` is entered and held until the
+        run's record is saved (see :meth:`_get_cleanup_and_export`); another
+        holder makes it raise
         :class:`~osprey.runtime.guarded_run.OspreyRunBusy`, which the record
         marks with :data:`FAILURE_KIND_GUARDED_RUN_BUSY`. The entered context
         is kept in ``_osprey_run_lock``, set only once the entry succeeded. An
-        interpreter that cannot import ``osprey.runtime`` cannot take a guarded
-        run either: it binds nothing and takes no lock.
+        interpreter that cannot import ``osprey.runtime`` cannot take the lock
+        either, and runs without it.
         """
         if self.execution_mode != "readwrite":
             return ""
         return textwrap.indent(
             textwrap.dedent(
                 f"""
-                # The approval hook's binding of this call, read before user code,
-                # and the control target's lock, held until the record is saved.
+                # The control target's lock, held until the record is saved.
                 try:
                     from osprey.runtime.guarded_run import OspreyRunBusy as _OspreyRunBusy
-                    from osprey.runtime.guarded_run import _open_approved_call as _osprey_bind
                     from osprey.runtime.guarded_run import lock as _osprey_lock
                 except ImportError:
-                    _osprey_bind = _osprey_lock = _OspreyRunBusy = None
-                if _osprey_bind is not None:
-                    _osprey_bind({self.tool!r})
+                    _osprey_lock = _OspreyRunBusy = None
+                if _osprey_lock is not None:
                     _osprey_entering = _osprey_lock(None)
                     try:
                         _osprey_entering.__enter__()
@@ -1324,7 +1311,7 @@ if not _execution_dir.exists():
                         raise
                     _osprey_run_lock = _osprey_entering
                     del _osprey_entering
-                del _osprey_bind, _osprey_lock, _OspreyRunBusy
+                del _osprey_lock, _OspreyRunBusy
                 """
             ).strip(),
             "        ",
@@ -1344,7 +1331,7 @@ if not _execution_dir.exists():
         return f"""
     # Execute user code
     try:
-{self._get_approved_call()}
+{self._get_run_lock()}
 {indented_code}
 
         # The script is done: an interrupt from here on has nothing to stop.
@@ -1386,18 +1373,15 @@ if not _execution_dir.exists():
         Everything the executor reads is on disk or already flushed to the
         pipes by then, so the abrupt exit costs nothing; the exit code stays 0
         because the outcome is read from the record, not from the status.
-        A readwrite run's control-target lock (see :meth:`_get_approved_call`)
+        A readwrite run's control-target lock (see :meth:`_get_run_lock`)
         is released just before that exit, once every persistence step has
         run, so no other guarded run starts on the target before this run's
-        record is saved. A journaled run still open when the script's code has
-        ended is restored before the record is written.
+        record is saved.
 
         An interrupted run takes the same way out. The executor cancels a run
         with ``SIGINT``; the prologue in :meth:`_get_imports` restores the
         default handler, the ``KeyboardInterrupt`` is recorded (error_type
-        ``'KeyboardInterrupt'``; the restore report a guarded run interrupted
-        inside its journaled span made travels in ``restore_reports`` with
-        every other), and every handler
+        ``'KeyboardInterrupt'``), and every handler
         here first ignores further ``SIGINT``, so no second interrupt can carry
         an exception past the persistence and ``os._exit``.
         """
@@ -1530,21 +1514,6 @@ if not _execution_dir.exists():
                         execution_metadata["figure_count"] = len(execution_metadata["figures_saved"])
                 except Exception as e:
                     execution_metadata["figure_save_error"] = str(e)
-
-                # The restore reports this process's guarded runs made, for the
-                # executor to file. Read only when the run loaded the runtime.
-                _osprey_guarded_run = sys.modules.get("osprey.runtime.guarded_run")
-                if _osprey_guarded_run is not None:
-                    # A run a thread of the script left open is ended and
-                    # restored here, so its report is in the record.
-                    try:
-                        _osprey_guarded_run._end_open_run()
-                    except BaseException:
-                        traceback.print_exc()
-                    try:
-                        execution_metadata["restore_reports"] = _osprey_guarded_run.restore_reports()
-                    except Exception:
-                        pass  # the record without the reports beats no record
 
                 # Save execution metadata for debugging
                 try:

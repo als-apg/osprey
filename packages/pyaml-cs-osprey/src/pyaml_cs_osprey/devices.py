@@ -3,15 +3,18 @@
 A read collects the distinct addresses of every device and issues one
 ``read_channels``; a write issues one ``write_channels`` carrying every setpoint,
 so the limits validator sees the whole batch and refuses it whole before anything
-is sent. A write runs only inside a journaled guarded run, which journals every
-address first; anywhere else it is refused and nothing is read or written. Connector
+is sent. A write runs only while a :func:`pyaml_cs_osprey.run_tool.run_tool` call is
+in progress, which records every address's prior value first; anywhere else it is
+refused as :data:`~pyaml_cs_osprey.device.OUTSIDE_A_RUN` and nothing is read or
+written. Connector
 exceptions surface as the pyAML exceptions of :mod:`pyaml_cs_osprey.errors`. A
 channel refused after the connector sent the rest of the batch surfaces as
 :class:`~pyaml_cs_osprey.errors.OspreyWriteFailed` naming the channels sent.
 
 Values cross this list in SI: each device's value is scaled by its own reference's
 unit suffix after the read and before the write, so one list may mix suffixes that
-share an SI word. The journal and the limits stay in the channels' native units.
+share an SI word. The recorded values and the limits stay in the channels' native
+units.
 
 An indexed member (``ADDR@i``) reads element ``i`` of its base address's waveform.
 A batch reads each base address once however many indexed members share it, so a
@@ -32,9 +35,8 @@ from pyaml.control.deviceaccesslist import DeviceAccessList
 
 import osprey.runtime
 from osprey.errors import ChannelWriteBlockedError, ChannelWriteFailedError
-from osprey.runtime import journal as runtime_journal
-from osprey.runtime.journal import guarded_write
-from pyaml_cs_osprey.device import OUTSIDE_A_RUN, OspreyDevice, indexed_element, unknown_unit
+from pyaml_cs_osprey import _run
+from pyaml_cs_osprey.device import OspreyDevice, indexed_element, unknown_unit
 from pyaml_cs_osprey.errors import (
     OspreyReadFailed,
     OspreyWriteFailed,
@@ -127,7 +129,7 @@ class OspreyDeviceList(DeviceAccessList):
     def set(self, value: Any, *, confirm: bool | None = None) -> None:
         """Write one setpoint per device, in list order, as one batch.
 
-        Every address is journaled into every active guard level first. A value
+        Every address's prior value is recorded for the call's result first. A value
         that violates any channel's limits refuses the whole batch before anything
         is sent. Devices sharing an address must be given the same value; that
         address is written once.
@@ -140,14 +142,14 @@ class OspreyDeviceList(DeviceAccessList):
 
         Raises:
             PyAMLException: A member's reference is indexed, so read-only; nothing
-                was journaled or written.
+                was recorded or written.
             ValueError: ``value`` does not hold one entry per device, or one
                 address is given two different values; nothing was written.
             OspreyReadFailed: A prior setpoint could not be read; nothing was written.
             OspreyWriteRefused: The batch was refused whole before anything was
-                sent (limits, write gate, control-target change), or no journaled
-                guarded run is open (:data:`OUTSIDE_A_RUN`, naming the batch's first
-                address); nothing was written.
+                sent (limits, write gate, control-target change), or no ``run_tool``
+                call is in progress (:data:`~pyaml_cs_osprey.device.OUTSIDE_A_RUN`,
+                naming the batch's first address); nothing was written.
             OspreyWriteFailed: A write was attempted and not confirmed, or one
                 channel of a multi-channel batch was refused after the connector
                 sent the others. The message names the failing address and every
@@ -176,22 +178,13 @@ class OspreyDeviceList(DeviceAccessList):
                 return _batch_failure(exc, list(batch))
             return map_write_error(exc)
 
-        try:
-            guarded_write(
-                list(batch),
-                lambda **kwargs: osprey.runtime.write_channels(batch, **kwargs),
-                map_error,
-                map_read=map_read_error,
-                confirm=confirm,
-            )
-        except OspreyWriteRefused:
-            raise
-        except runtime_journal.OspreyWriteRefused as exc:
-            # The runtime's refusals: one naming no channel means no run is open;
-            # one naming a channel carries its own reason.
-            if exc.channel_address is None:
-                raise OspreyWriteRefused(OUTSIDE_A_RUN, next(iter(batch), None)) from exc
-            raise OspreyWriteRefused(exc.reason, exc.channel_address) from exc
+        _run.write(
+            list(batch),
+            lambda **kwargs: osprey.runtime.write_channels(batch, **kwargs),
+            map_error,
+            map_read=map_read_error,
+            confirm=confirm,
+        )
 
     def set_and_wait(self, value: Any) -> None:
         """Write the setpoints and confirm each channel holds its value."""

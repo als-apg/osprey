@@ -1,20 +1,16 @@
-"""The lock and the journal are regular files with one name, under their own directory.
+"""The lock is a regular file with one name, under its own directory.
 
 ``var/guarded_run/`` and each ``<target>/`` under it are writable by every
-account of the deployment, so anything can be waiting at ``run.lock`` or
-``run.journal``, and either directory can have been swapped for a link. Every
-opener of the two files, in the runtime, the executor and the approval hook, is
-held to one table here
-(:data:`tests.runtime._guarded_run_fixtures.PLANTED_REFUSED`): what is planted
-is refused with its path named, the call returns, and nothing is read, written,
-truncated or created through it. The prompt and the run then read one journal:
-a name the hook cannot digest is a name the run does not restore. Channels are
-a dict; no control system is involved.
+account of the deployment, so anything can be waiting at ``run.lock``, and
+either directory can have been swapped for a link. Every opener of the lock,
+in the runtime and the approval hook, is held to one table here
+(:data:`tests._guarded_run.PLANTED_REFUSED`): what is planted is refused with
+its path named, the call returns, and nothing is read, written, truncated or
+created through it. No control system is involved.
 """
 
 from __future__ import annotations
 
-import hashlib
 import os
 import pathlib
 import stat
@@ -24,42 +20,23 @@ from typing import Any
 
 import pytest
 
-import osprey.runtime
-import osprey.runtime.journal as journal_module
+import osprey.runtime.guarded_run as guarded_run
 import osprey.templates.claude_code.claude.hooks.osprey_approval as hook
-from osprey.errors import ChannelLimitsViolationError
-from osprey.mcp_server.python_executor import executor
-from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
+from osprey.runtime import ENV_CONTROL_TARGET
 from osprey.runtime.guarded_run import (
-    ENV_APPROVED_JOURNAL_SHA256,
-    ENV_APPROVED_TARGET,
-    GUARDED_RUN_DIR,
-    JOURNAL_FILE_NAME,
     LOCK_FILE_NAME,
     GuardedRunDirError,
     guarded_run_dir,
-    journaled_run,
     lock,
-    read_run_journal,
 )
-from osprey.runtime.journal import (
-    DurableJournal,
-    guarded_write,
-    read_journal_bytes,
-    read_pending_journal,
-)
-from tests.runtime._guarded_run_fixtures import (
+from tests._guarded_run import (
     ASKING,
-    GENERATION,
     LINKED_DIRECTORY_REFUSAL,
     PLANTED_REFUSAL,
     PLANTED_REFUSED,
-    approve,
     dangling_name,
-    digest,
-    journal_path,
     link_directory,
-    plant,
+    lock_path,
     plant_kind,
     reset_run_state,
     returns_within,
@@ -68,24 +45,6 @@ from tests.runtime._guarded_run_fixtures import (
 
 #: The two guarded-run levels another account can swap for a link.
 LINKED_LEVELS = ("linked_target", "linked_guarded_run")
-
-
-class _Channels:
-    """A dict of channel values; every write is recorded and lands."""
-
-    def __init__(self, values: dict[str, Any]) -> None:
-        self.values = dict(values)
-        self.writes: list[tuple[str, Any]] = []
-
-    def read_channels(self, addresses: list[str], **_kwargs: Any) -> list[Any]:
-        return [self.values[a] for a in addresses]
-
-    def write_channel(self, address: str, value: Any, **_kwargs: Any) -> None:
-        self.writes.append((address, value))
-        self.values[address] = value
-
-    def channel_limits(self, _address: str) -> None:
-        return None
 
 
 @pytest.fixture(autouse=True)
@@ -97,26 +56,15 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     write_config(root, ASKING)
     monkeypatch.chdir(root)
     monkeypatch.setenv(ENV_CONTROL_TARGET, "live")
-    monkeypatch.setenv(ENV_CONTROL_TARGET_GENERATION, str(GENERATION))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    monkeypatch.delenv(ENV_APPROVED_JOURNAL_SHA256, raising=False)
-    monkeypatch.delenv(ENV_APPROVED_TARGET, raising=False)
-    monkeypatch.setattr(executor, "_resolve_project_root", lambda: root)
     reset_run_state(monkeypatch)
     return root
 
 
-@pytest.fixture
-def channels(monkeypatch: pytest.MonkeyPatch) -> _Channels:
-    """``Q`` at 3.0 and ``S`` at 5.0, both writable."""
-    fake = _Channels({"Q": 3.0, "S": 5.0})
-    for name in ("read_channels", "write_channel", "channel_limits"):
-        monkeypatch.setattr(osprey.runtime, name, getattr(fake, name))
-    return fake
-
-
 def _lock_path() -> Path:
-    return guarded_run_dir("live") / LOCK_FILE_NAME
+    path = lock_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def _listing(directory: Path) -> list[str]:
@@ -171,20 +119,12 @@ def _victim(tmp_path: Path, content: bytes = b"keep\n") -> Path:
     return victim
 
 
-def _journal_victim(tmp_path: Path) -> Path:
-    """A well-formed journal holding ``Q``, written by the product and moved aside."""
-    victim = tmp_path / "victim"
-    plant({"Q": 0.0}).rename(victim)
-    return victim
-
-
 def _link_level(level: str) -> tuple[Path, Path]:
     """Swap one guarded-run level for a link; ``(the linked level, the real target directory)``.
 
-    The real directory holds a well-formed journal and an empty lock.
+    The real directory holds an empty lock.
     """
     target = guarded_run_dir("live")
-    plant({"Q": 0.0})
     (target / LOCK_FILE_NAME).touch()
     if level == "linked_target":
         return target, link_directory(target)
@@ -197,11 +137,9 @@ class _Real:
 
     def __init__(self, directory: Path) -> None:
         self.directory = directory
-        self._journal = (directory / JOURNAL_FILE_NAME).read_bytes()
         self._names = _listing(directory)
 
     def untouched(self) -> None:
-        assert (self.directory / JOURNAL_FILE_NAME).read_bytes() == self._journal
         assert (self.directory / LOCK_FILE_NAME).read_bytes() == b""
         assert _listing(self.directory) == self._names
 
@@ -212,21 +150,7 @@ class _Real:
 
 
 @pytest.mark.parametrize("kind", PLANTED_REFUSED)
-@pytest.mark.parametrize("relative", [False, True], ids=["by-name", "under-a-directory"])
-def test_a_planted_name_refuses_the_journal_open(kind: str, relative: bool, tmp_path: Path) -> None:
-    folder = tmp_path / "folder"
-    folder.mkdir()
-    planted = _Planted(folder / JOURNAL_FILE_NAME, kind, _victim(tmp_path))
-    dir_fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY) if relative else None
-    try:
-        planted.refuses(lambda: DurableJournal(planted.path, dir_fd=dir_fd))
-    finally:
-        if dir_fd is not None:
-            os.close(dir_fd)
-
-
-@pytest.mark.parametrize("kind", PLANTED_REFUSED)
-def test_a_planted_name_refuses_the_lock(kind: str, tmp_path: Path, channels: _Channels) -> None:
+def test_a_planted_name_refuses_the_lock(kind: str, tmp_path: Path) -> None:
     planted = _Planted(_lock_path(), kind, _victim(tmp_path))
 
     def take() -> None:
@@ -235,124 +159,35 @@ def test_a_planted_name_refuses_the_lock(kind: str, tmp_path: Path, channels: _C
 
     planted.refuses(take)
 
-    assert channels.writes == []
-    assert not journal_path().exists()
-
-
-@pytest.mark.parametrize("kind", PLANTED_REFUSED)
-@pytest.mark.parametrize("enter", [lock, journaled_run], ids=["lock", "journaled-run"])
-def test_a_planted_name_refuses_the_restore_read(
-    kind: str, enter: Callable[..., Any], tmp_path: Path, channels: _Channels
-) -> None:
-    victim = _journal_victim(tmp_path)
-    with lock("live"):
-        pass  # the lock file is there, so a refused run adds nothing beside the journal
-    planted = _Planted(journal_path(), kind, victim)
-
-    def start() -> None:
-        with enter("live"):
-            pytest.fail("a run whose journal is planted never starts")
-
-    planted.refuses(start)
-
-    assert channels.writes == []
-    assert _lock_path().read_bytes() == b""
-
-
-@pytest.mark.parametrize("kind", PLANTED_REFUSED)
-@pytest.mark.parametrize("read", [read_pending_journal, read_journal_bytes])
-def test_a_planted_name_refuses_the_pending_read(
-    kind: str, read: Callable[[Path], Any], tmp_path: Path
-) -> None:
-    planted = _Planted(journal_path(), kind, _journal_victim(tmp_path))
-
-    planted.refuses(lambda: read(planted.path))
-
-
-@pytest.mark.parametrize("kind", PLANTED_REFUSED)
-def test_a_planted_name_is_unreadable_to_the_executor(kind: str, tmp_path: Path) -> None:
-    planted = _Planted(journal_path(), kind, _journal_victim(tmp_path))
-
-    observed = planted.call(lambda: executor._observe_journal("live"))
-
-    assert observed == {"journal": str(planted.path), "state": "unreadable", "values": {}}
-    planted.untouched()
-
 
 @pytest.mark.parametrize("level", LINKED_LEVELS)
-def test_a_linked_directory_refuses_every_runtime_opener(
-    level: str, repo: Path, channels: _Channels
-) -> None:
+def test_a_linked_directory_refuses_every_runtime_opener(level: str) -> None:
     linked, real_directory = _link_level(level)
     real = _Real(real_directory)
-    directory = repo / "var" / GUARDED_RUN_DIR / "live"
 
     def take() -> None:
         with lock("live"):
             pytest.fail("a run under a linked directory never starts")
 
-    def start() -> None:
-        with journaled_run("live"):
-            pytest.fail("a run under a linked directory never starts")
-
-    for opener in (
-        lambda: guarded_run_dir("live"),
-        take,
-        start,
-        lambda: read_run_journal(directory),
-    ):
+    for opener in (lambda: guarded_run_dir("live"), take):
         with pytest.raises(GuardedRunDirError) as refused:
             returns_within(opener)
         assert str(refused.value) == f"{linked} {LINKED_DIRECTORY_REFUSAL}"
-    observed = executor._observe_journal("live")
 
-    assert observed["state"] == "unreadable" and observed["values"] == {}
-    assert channels.writes == []
     assert linked.is_symlink()
     real.untouched()
 
 
 def test_a_regular_file_is_accepted_by_every_runtime_opener() -> None:
-    path = plant({"Q": 0.0})
-    planted_bytes = path.read_bytes()
-
-    assert read_journal_bytes(path) == planted_bytes
-    assert read_run_journal(path.parent) == planted_bytes
-    pending = read_pending_journal(path)
-    assert pending is not None and pending.values == {"Q": 0.0}
-    observed = executor._observe_journal("live")
-    assert observed["state"] == "entries" and observed["values"] == {"Q": 0.0}
-
-    durable = DurableJournal(path)
-    try:
-        assert durable.read() == planted_bytes
-        durable.record("S", 1.0)
-        assert durable.read() == path.read_bytes() != planted_bytes
-        durable.clear()
-    finally:
-        durable.close()
-    assert path.read_bytes() == b""
+    _lock_path().touch()
 
     with lock("live"):
         assert b'"pid"' in _lock_path().read_bytes()
     assert _lock_path().read_bytes() == b""
 
 
-def test_a_missing_directory_or_journal_reads_as_none(repo: Path) -> None:
-    directory = repo / "var" / GUARDED_RUN_DIR / "live"
-
-    assert read_run_journal(directory) is None
-    assert not (repo / "var").exists()
-
-    guarded_run_dir("live")
-
-    assert read_run_journal(directory) is None
-    assert read_journal_bytes(directory / JOURNAL_FILE_NAME) is None
-    assert _listing(directory) == []
-
-
 # ---------------------------------------------------------------------------
-# The approval hook's two opens, and the bytes the prompt and the run read
+# The approval hook's lock probe
 # ---------------------------------------------------------------------------
 
 
@@ -366,35 +201,12 @@ def _hook_holder(repo: Path) -> tuple[str, str] | None:
             os.close(dir_fd)
 
 
-def _hook_journal(repo: Path) -> bytes:
-    """The journal bytes the hook digests for ``live``, as its prompt builder reads them."""
-    dir_fd = hook._guarded_open_dir(str(repo), "live")
-    try:
-        return hook._guarded_read_journal(dir_fd, str(journal_path()))
-    finally:
-        if dir_fd is not None:
-            os.close(dir_fd)
-
-
 @pytest.mark.parametrize("kind", PLANTED_REFUSED)
 def test_a_planted_name_refuses_the_hooks_lock_probe(kind: str, repo: Path, tmp_path: Path) -> None:
     planted = _Planted(_lock_path(), kind, _victim(tmp_path))
 
     with pytest.raises(hook._GuardedRunNotRegular) as refused:
         planted.call(lambda: _hook_holder(repo))
-
-    assert str(refused.value) == f"{planted.path} {planted.refusal}"
-    planted.untouched()
-
-
-@pytest.mark.parametrize("kind", PLANTED_REFUSED)
-def test_a_planted_name_refuses_the_hooks_journal_read(
-    kind: str, repo: Path, tmp_path: Path
-) -> None:
-    planted = _Planted(journal_path(), kind, _journal_victim(tmp_path))
-
-    with pytest.raises(hook._GuardedRunNotRegular) as refused:
-        planted.call(lambda: _hook_journal(repo))
 
     assert str(refused.value) == f"{planted.path} {planted.refusal}"
     planted.untouched()
@@ -412,60 +224,10 @@ def test_a_linked_directory_refuses_the_hook(level: str, repo: Path) -> None:
     real.untouched()
 
 
-def test_the_hook_finds_no_lock_and_no_journal_where_there_is_no_directory(repo: Path) -> None:
+def test_the_hook_finds_no_lock_where_there_is_no_directory(repo: Path) -> None:
     assert hook._guarded_open_dir(str(repo), "live") is None
     assert hook._guarded_run_holder(None, "unused") is None
-    assert hook._guarded_read_journal(None, "unused") == b""
     assert not (repo / "var").exists()
-
-
-@pytest.mark.parametrize("kind", [*PLANTED_REFUSED, *LINKED_LEVELS])
-def test_a_planted_journal_is_read_by_neither_side(
-    kind: str,
-    repo: Path,
-    tmp_path: Path,
-    channels: _Channels,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """No digest exists to approve, and a run approved under the target's digest restores nothing."""
-    if kind in LINKED_LEVELS:
-        _linked, real_directory = _link_level(kind)
-        victim = real_directory / JOURNAL_FILE_NAME
-        release = None
-    else:
-        victim = _journal_victim(tmp_path)
-        plant_kind(journal_path(), kind, victim)
-        release = journal_path() if kind == "fifo" else None
-    before = victim.read_bytes()
-
-    with pytest.raises(hook._GuardedRunNotRegular):
-        returns_within(lambda: _hook_journal(repo), release=release)
-    with pytest.raises(GuardedRunDirError):
-        returns_within(
-            lambda: approve(monkeypatch, digest(victim), "live", enter_lock=True),
-            release=release,
-        )
-
-    assert channels.writes == []
-    assert victim.read_bytes() == before
-
-
-def test_the_prompt_and_the_run_read_the_same_bytes(
-    repo: Path, channels: _Channels, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    path = plant({"Q": 0.0})
-
-    assert _hook_holder(repo) is None
-    prompted = _hook_journal(repo)
-
-    assert prompted == path.read_bytes()
-    assert hashlib.sha256(prompted).hexdigest() == digest(path)
-
-    approve(monkeypatch, hashlib.sha256(prompted).hexdigest(), "live", enter_lock=True)
-
-    assert channels.writes == [("Q", 0.0)]
-    assert path.read_bytes() == b""
-    assert _lock_path().read_bytes() == b""
 
 
 # ---------------------------------------------------------------------------
@@ -473,15 +235,12 @@ def test_the_prompt_and_the_run_read_the_same_bytes(
 # ---------------------------------------------------------------------------
 
 
-def test_no_name_is_checked_before_the_open(
-    repo: Path, tmp_path: Path, channels: _Channels, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_no_name_is_checked_before_the_open(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Whether a file was created is the open's answer, never a look at its name."""
-    guarded = (LOCK_FILE_NAME, JOURNAL_FILE_NAME)
 
     def refusing(real: Callable[..., bool]) -> Callable[..., bool]:
         def asked(path: Any, *args: Any, **kwargs: Any) -> bool:
-            if os.path.basename(os.fspath(path)) in guarded:
+            if os.path.basename(os.fspath(path)) == LOCK_FILE_NAME:
                 pytest.fail(f"{path} was checked by name")
             return real(path, *args, **kwargs)
 
@@ -493,16 +252,10 @@ def test_no_name_is_checked_before_the_open(
 
     with lock("live"):
         pass
-    with journaled_run("live"):
-        guarded_write(["Q"], lambda: osprey.runtime.write_channel("Q", 4.0), lambda e: e)
-    folder = tmp_path / "folder"
-    folder.mkdir()
-    DurableJournal(folder / JOURNAL_FILE_NAME).close()
     _lock_path().unlink()
 
     assert _hook_holder(repo) is None
     assert _lock_path().read_bytes() == b""
-    assert channels.writes == [("Q", 4.0)]
 
 
 def test_an_existing_lock_keeps_its_mode() -> None:
@@ -536,59 +289,26 @@ def test_a_released_lock_leaves_no_descriptor_open(tmp_path: Path) -> None:
     assert _open_descriptors() == before
 
     victim = _victim(tmp_path)
-    for name in (LOCK_FILE_NAME, JOURNAL_FILE_NAME):
-        for kind in PLANTED_REFUSED:
-            path = guarded_run_dir("live") / name
-            path.unlink(missing_ok=True)
-            plant_kind(path, kind, victim)
-            with pytest.raises(GuardedRunDirError):
-                with lock("live"):
-                    pytest.fail("a run whose lock or journal is planted never starts")
-            assert _open_descriptors() == before, (name, kind)
-            if kind == "directory":
-                path.rmdir()
-            else:
-                path.unlink()
+    for kind in PLANTED_REFUSED:
+        path = guarded_run_dir("live") / LOCK_FILE_NAME
+        path.unlink(missing_ok=True)
+        plant_kind(path, kind, victim)
+        with pytest.raises(GuardedRunDirError):
+            with lock("live"):
+                pytest.fail("a run whose lock is planted never starts")
+        assert _open_descriptors() == before, kind
+        if kind == "directory":
+            path.rmdir()
+        else:
+            path.unlink()
 
 
-def test_an_incomplete_restore_rewrites_under_the_held_directory(
-    tmp_path: Path, channels: _Channels, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    directory = guarded_run_dir("live")
-    aside = directory.with_name("live.aside")
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-
-    def refuse_q(address: str, value: Any, **kwargs: Any) -> None:
-        if address == "Q":
-            raise ChannelLimitsViolationError(address, value, "MAX_VALUE", "outside the band")
-        channels.write_channel(address, value, **kwargs)
-
-    with pytest.raises(RuntimeError, match="the run's own error"):
-        with journaled_run("live"):
-            for address in ("Q", "S"):
-                guarded_write(
-                    [address],
-                    lambda address=address: osprey.runtime.write_channel(address, 9.0),
-                    lambda e: e,
-                )
-            monkeypatch.setattr(osprey.runtime, "write_channel", refuse_q)
-            directory.rename(aside)
-            os.symlink(elsewhere, directory, target_is_directory=True)
-            raise RuntimeError("the run's own error")
-
-    pending = read_pending_journal(aside / JOURNAL_FILE_NAME)
-    assert pending is not None and pending.values == {"Q": 3.0}
-    assert _listing(aside) == sorted([JOURNAL_FILE_NAME, LOCK_FILE_NAME])
-    assert _listing(elsewhere) == []
-    assert channels.values == {"Q": 9.0, "S": 5.0}
-
-
-def test_a_journal_replaced_while_it_is_opened_is_read_once_more(
+def test_a_lock_replaced_while_it_is_opened_is_opened_once_more(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A rename over the name between the open and the check leaves a file no name holds."""
-    path = plant({"Q": 0.0})
+    path = _lock_path()
+    path.touch()
     real_fstat = os.fstat
 
     def nameless(times: int) -> list[int]:
@@ -601,14 +321,16 @@ def test_a_journal_replaced_while_it_is_opened_is_read_once_more(
                 return st
             return os.stat_result((*st[:3], 0, *st[4:10]))
 
-        monkeypatch.setattr(journal_module.os, "fstat", fstat)
+        monkeypatch.setattr(guarded_run.os, "fstat", fstat)
         return opened
 
     opened = nameless(1)
-    assert read_journal_bytes(path) == path.read_bytes()
+    with lock("live"):
+        pass
     assert len(opened) == 2
 
     nameless(2)
     with pytest.raises(GuardedRunDirError) as refused:
-        read_journal_bytes(path)
+        with lock("live"):
+            pytest.fail("a lock replaced twice while it was opened is refused")
     assert str(refused.value) == f"{path} was replaced while it was opened"

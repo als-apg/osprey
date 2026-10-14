@@ -1,8 +1,5 @@
 """Tests for `values_match`, the one comparison rule behind a confirmed write.
 
-`readings_equal`, beside it, answers a different question — whether two
-readings are the same value — and is tested at the end of the file.
-
 A write is confirmed when the channel holds the value that was sent — exactly,
 with no configurable tolerance. Every row below is a shape a control system
 actually reads back (boxed scalars, float32 stores, enum indices, waveforms),
@@ -16,7 +13,7 @@ import inspect
 import numpy as np
 import pytest
 
-from osprey.connectors.control_system.base import readings_equal, values_match
+from osprey.connectors.control_system.base import values_match
 
 
 class _Unmentionable:
@@ -123,32 +120,3 @@ class TestNoConfigurableTolerance:
         # ~8x float32 epsilon, so a value stored as float32 and read back as a
         # double still confirms.
         assert values_match(1234.5678, float(np.float32(1234.5678))) is True
-
-
-# (id, a, b, expected)
-READINGS = [
-    ("boxed_vs_scalar", [5.0], 5.0, True),
-    ("a_100_hz_step_on_500_mhz", 500e6, 500e6 + 100, False),
-    ("nan_vs_nan", float("nan"), float("nan"), False),
-    ("equal_int_vectors", [1, 2], [1, 2], True),
-    ("vector_vs_scalar", [1, 2], 1, False),
-    ("float32_vs_its_own_float", np.float32(1e6 / 3), float(np.float32(1e6 / 3)), True),
-    ("equal_strings", "Open", "Open", True),
-    ("unequal_lengths", [1.0, 2.0], [1.0, 2.0, 3.0], False),
-    ("equal_arrays", np.array([1.0, 2.0]), [1.0, 2.0], True),
-    ("equality_raises", _Unmentionable(), 5.0, False),
-]
-
-
-@pytest.mark.parametrize(
-    "a,b,expected", [row[1:] for row in READINGS], ids=[r[0] for r in READINGS]
-)
-def test_readings_equal_matrix(a, b, expected):
-    assert readings_equal(a, b) is expected
-    assert readings_equal(b, a) is expected
-
-
-def test_a_step_values_match_admits_is_not_an_equal_reading():
-    """`values_match` confirms a write landed; `readings_equal` tells two readings apart."""
-    assert values_match(500e6, 500e6 + 100) is True
-    assert readings_equal(500e6, 500e6 + 100) is False

@@ -1849,7 +1849,6 @@ def _render_project(
     from .build_posture_check import (
         check_approval_enabled,
         check_approval_hook_selected,
-        check_guarded_tool_policies,
         missing_posture_errors,
     )
     from .build_profile_archiver import va_archiver_config_overrides
@@ -2160,17 +2159,14 @@ def _render_project(
             # has a reader that answers something regardless.
             *missing_posture_errors(_rendered_config(render_dir), build_profile.hooks),
         ]
-        # A guarded tool that skips approval while single writes prompt would
-        # replay a pending journal with no one asked; the render is what the
-        # approval hook reads, so it is the render that is held to the rule.
-        # A guarded tool put to a human in a profile that does not select the
+        # The render is what the approval hook reads, so it is the render that
+        # is held to these rules. A guarded tool put to a human in a profile that does not select the
         # approval hook would never be asked; the render is held to "asks ⇒ hook
         # selected" so config.yml alone answers whether a call is asked.
         # An approval switch that is not true or false would turn every prompt
         # off, or on, by truthiness; the render states a bool or nothing.
         check_approval_enabled(_rendered_config(render_dir))
         check_approval_hook_selected(_rendered_config(render_dir), build_profile.hooks)
-        check_guarded_tool_policies(_rendered_config(render_dir))
         if unrunnable:
             raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrunnable))
         # And the runtime, for the same reason once more: the verbs that stop,

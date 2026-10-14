@@ -23,7 +23,6 @@ import asyncio
 import contextlib
 import json
 import os
-import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -254,7 +253,6 @@ def test_env_names_agree_across_the_process_boundary():
 
     assert host_executor.ENV_CONTROL_TARGET == runtime.ENV_CONTROL_TARGET
     assert host_executor.ENV_CONTROL_TARGET_GENERATION == runtime.ENV_CONTROL_TARGET_GENERATION
-    assert host_executor.ENV_EXECUTION_DEADLINE == runtime.ENV_EXECUTION_DEADLINE
 
 
 def test_the_sandbox_carries_no_state_file_identity():
@@ -726,39 +724,17 @@ class TestExecuteViaLocalStamping:
             assert name not in env
         assert result.control_target == host_executor.CONTROL_TARGET_BASELINE
 
-    @pytest.mark.usefixtures("deployment_config")
-    def test_sandbox_env_carries_the_execution_deadline(self, state_root, tmp_path, monkeypatch):
-        """The child learns the Unix time at which the executor will kill it."""
-        write_record(state_root, target="va", generation=5)
-
-        env, _ = self._run(tmp_path, monkeypatch)
-
-        deadline = float(env[host_executor.ENV_EXECUTION_DEADLINE])
-        assert abs(deadline - time.time() - 5) < 1
-
-    @pytest.mark.usefixtures("state_root", "deployment_config")
-    def test_unstamped_run_still_carries_the_execution_deadline(self, tmp_path, monkeypatch):
-        """The deadline is not part of the target stamp; every spawned run has one."""
-        monkeypatch.setenv(host_executor.ENV_EXECUTION_DEADLINE, "0")
-
-        env, _ = self._run(tmp_path, monkeypatch)
-
-        deadline = float(env[host_executor.ENV_EXECUTION_DEADLINE])
-        assert abs(deadline - time.time() - 5) < 1
-
     @pytest.mark.usefixtures("state_root", "deployment_config")
     def test_a_null_timeout_runs_unbounded_and_stamps_no_deadline(self, tmp_path, monkeypatch):
         """``execution_timeout_seconds: null`` is an unbounded run, not a crash.
 
         The config key is read without a schema, so an explicit YAML null
-        reaches the adapter as ``None``. There is no deadline to announce, and
-        an inherited one must not reach the child either.
+        reaches the adapter as ``None``. The executor announces no kill time to
+        the sandbox.
         """
-        monkeypatch.setenv(host_executor.ENV_EXECUTION_DEADLINE, "0")
-
         env, result = self._run(tmp_path, monkeypatch, timeout=None)
 
-        assert host_executor.ENV_EXECUTION_DEADLINE not in env
+        assert "OSPREY_EXECUTION_DEADLINE" not in env
         assert result.failure_kind is None
 
     @pytest.mark.usefixtures("deployment_config")

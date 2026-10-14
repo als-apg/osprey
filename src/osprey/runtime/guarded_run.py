@@ -1,196 +1,125 @@
-"""Where a guarded multi-write run keeps its lock and its journal.
+"""The run lock: one read-write run per control target.
 
-A guarded run holds one lock per control target and records the setpoints it
-displaces in a journal beside that lock, so a run that dies half way can be
-restored by the next one — from any process and any container of the
-deployment. That only works if every process of the deployment resolves the
-SAME directory for a target, so the directory is deployment-wide and lives in
-the repo's state zone, ``<repo root>/var/guarded_run/<target>/``, never under a
-per-container agent-data root.
+A read-write run holds its control target's run lock for the whole run, so two
+runs never drive one machine at once, from any process and any container of
+the deployment. The lock is a non-blocking ``flock`` on
+``<repo root>/var/guarded_run/<target>/run.lock``. That only works if every
+process of the deployment resolves the SAME file for a target, so the
+directory is deployment-wide and lives in the repo's state zone, never under a
+per-container agent-data root. It holds no file but ``run.lock``.
 
 The deploy provisions ``var/guarded_run/<target>/`` on the host before compose
 runs and binds ``var/guarded_run`` read-write at the same place under the
 container repo root of every container that runs the agent, so the path this
 module resolves inside a container names the one host directory. A process run
-on the host itself — a local ``osprey chat`` — has no mount to rely on, and the
+on the host itself (a local ``osprey chat``) has no mount to rely on, and the
 directory is created here when it is missing.
 
-The directory is keyed by the target NAME — ``live``, ``va`` or ``standin`` —
+The directory is keyed by the target NAME (``live``, ``va`` or ``standin``),
 so two runs aimed at one machine contend for one lock however each was
 launched. A process carries the target it was stamped with; an unstamped
 process, and the executor's ``baseline`` stand-in for "no recorded target", are
 on the deployment's own baseline target, and resolve to its name.
 
-A process has one guarded run. The lock it holds, the journaled run it has
-open, the call it was approved for and the reports it filed belong to the
-process, not to the thread that took them, and are kept in one place behind
-one lock (:mod:`osprey.runtime._run_state`): a thread or task the run starts
-runs under it and journals into the same journal.
-
 :func:`lock` takes the target's lock without blocking and records its holder
-(pid, start time) in the lock file; a second run on the target, from this or
-any other process, raises :class:`OspreyRunBusy` before it starts. Under the
-lock it reads what a killed run left in the journal: the free lock proves that
-run dead. Which journal it restores is bound to the approved call. A guarded tool's
-approval prompt lists the pending journal and hands the call its digest and
-target; the executor that launches the sandbox decides, before it spawns
-anything, whether the call needed that approval and whether the approval
-hook recorded these fields for it, and hands the sandbox only the fields it
-confirmed (:data:`ENV_APPROVED_JOURNAL_SHA256`, :data:`ENV_APPROVED_TARGET`).
-This process evaluates no approval policy: the sandbox wrapper binds what it
-is given before user code runs (:func:`_open_approved_call`). A run whose
-stamped target is not the approved one refuses before any write. Under a
-digest a pending journal is restored only when its sha256 equals it; any
-other journal, or any journal under the digest ``none``, raises
-:class:`OspreyJournalChanged` and is left untouched for the next prompt to
-list. Without a digest a journal for this run's target and generation is
-restored and one for another generation raises
-:class:`~osprey.runtime.journal.OspreyStaleJournal`. After a restore the journal
-is cleared when every entry is back; otherwise it is rewritten to hold exactly
-the refused and failed entries and the run refuses to start with
-:class:`~osprey.runtime.journal.OspreyRestoreIncomplete`. Every restore prints
-one :data:`RESTORE_REPORT_TAG` line.
+(pid, start time) in the lock file, emptied on release. A second run on the
+target, from this or any other process or container, raises
+:class:`OspreyRunBusy` naming the holder before it starts. A readonly run
+raises :class:`OspreyWriteRefused` before the lock is taken.
 
-``execute`` and ``execute_file`` hold :func:`lock` over user code and never
-journal. :func:`journaled_run` adds the durable journal and is the only context
-in which :func:`osprey.runtime.journal.guarded_write` writes. It is the one
-place a run's displaced setpoints are put back: its outermost exit path
-ignores ``SIGINT``, clears the journal on a clean exit, restores what the run
-displaced when an exception escapes it, and prints one
-:data:`RESTORE_REPORT_TAG` line either way. When that restore cannot run, one
-untagged ``restore not attempted`` line says so and the journal is left for
-the next run, as a killed run leaves it. A readonly run raises before it takes
-the lock.
+The lock belongs to the process, not to the thread that took it. A process
+holds one run lock at a time, kept in :mod:`osprey.runtime._run_state`; a
+thread that asks again is busy like any second run, and a caller that means to
+run under the process's hold says so (``lock(target, join=True)``).
 
-A journal is restored without forcing anything: an address reading exactly
-its journaled value is left alone, and each other displaced address is
-written back through ``osprey.runtime.write_channel`` like any other write, so
-limits, write gates and the control-target check all apply, and an address the
-connector refuses is reported with the value it was left at. When a channel has
-a ``max_step`` limit and the way back is longer, the restore walks back in
-equal steps no larger than ``max_step``.
+A forked child never holds the run lock, at any moment, from any thread. A
+lock entry, from the open of the directory to publishing the hold, and a
+release run under :data:`osprey.runtime._run_state.LOCK`, and a fork takes that
+lock before it forks, so it waits at most for a lock entry's system calls;
+the child then closes every descriptor of the lock the run state names,
+without unlocking the parent's. A child started with ``subprocess`` or
+``exec`` never inherits the lock, because its descriptors are close-on-exec.
+
+Nothing here records or restores a setpoint: a run that is killed or fails
+leaves the machine where it stopped.
 
 This module is stdlib-only at import time; everything it reads from the
-deployment is imported when a directory is asked for or a journal restored.
+deployment is imported when a directory is asked for.
 """
 
 from __future__ import annotations
 
 import contextlib
-import copy
+import errno
 import fcntl
-import hashlib
 import json
-import math
 import os
-import signal
-import sys
+import stat
 import threading
 import time
 from collections.abc import Iterator
-from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, TextIO
 
 from osprey.runtime import _run_state
-from osprey.runtime.journal import (
-    DurableJournal,
-    GuardedRunDirError,
-    Journal,
-    OspreyRestoreIncomplete,
-    OspreyStaleJournal,
-    OspreyWriteFailed,
-    OspreyWriteRefused,
-    PendingJournal,
-    _open_dir,
-    _open_regular,
-    active_journals,
-    parse_pending_journal,
-    read_journal_bytes,
-    read_map,
-)
 
 __all__ = [
-    "APPROVED_NO_JOURNAL",
-    "ENV_APPROVED_JOURNAL_SHA256",
-    "ENV_APPROVED_TARGET",
     "GUARDED_RUN_DIR",
     "GUARDED_RUN_DIR_MODE",
-    "JOURNAL_FILE_NAME",
     "LOCK_FILE_NAME",
-    "RESTORE_REPORT_TAG",
     "GuardedRunDirError",
-    "OspreyJournalChanged",
     "OspreyRunBusy",
-    "RestoreReport",
-    "approval_asks",
+    "OspreyWriteRefused",
     "guarded_run_dir",
     "guarded_run_target",
-    "journaled_run",
     "lock",
-    "read_run_journal",
-    "restore_reports",
-    "restore_writes",
 ]
 
 #: The directory under the repo's state zone (``var/``) holding one
 #: subdirectory per control target.
 GUARDED_RUN_DIR = "guarded_run"
 
-#: The lock a guarded run holds on its target for the whole run.
+#: The lock a read-write run holds on its target for the whole run.
 LOCK_FILE_NAME = "run.lock"
-
-#: The durable record of the setpoints a guarded run has displaced.
-JOURNAL_FILE_NAME = "run.journal"
 
 #: The mode a directory created here gets: setgid, so files created under it
 #: take the directory's group, and group-writable, so every process of the
-#: deployment sharing that group can take the lock and restore the journal.
+#: deployment sharing that group can take the lock.
 GUARDED_RUN_DIR_MODE = 0o2775
 
 #: Why a guarded run refuses to start in a readonly run. Carries the readonly
 #: marker every readonly refusal shares.
 _READONLY_REASON = "readonly execution mode: a guarded run needs execution_mode='readwrite'"
 
-#: The sha256 of the pending journal the approved call's prompt listed. Written
-#: into the sandbox by the executor, which spells the same name, and read once
-#: by :func:`_open_approved_call` before user code runs.
-ENV_APPROVED_JOURNAL_SHA256 = "OSPREY_APPROVED_JOURNAL_SHA256"
-
-#: The control target the approved call's prompt named. Carried like
-#: :data:`ENV_APPROVED_JOURNAL_SHA256`.
-ENV_APPROVED_TARGET = "OSPREY_APPROVED_TARGET"
-
-#: The approved digest when the prompt listed no pending journal.
-APPROVED_NO_JOURNAL = "none"
-
-#: Prefix of the one line every outermost journaled run prints as it ends, and
-#: every restore of a killed run's journal: the tag, one space, then the
-#: :class:`RestoreReport` as a single JSON object. The line is for people; the
-#: same report is kept for :func:`restore_reports`.
-RESTORE_REPORT_TAG = "OSPREY_GUARDED_RUN_RESTORE"
-
 #: The executor's spelling of "no recorded control target". It names no
 #: machine, so it is never a directory; it resolves to the baseline's name.
 _BASELINE_STAND_IN = "baseline"
 
+#: What every refusal of a name in a guarded-run directory ends with.
+_FILES_ONLY = "the guarded-run directory holds files only"
 
-class OspreyJournalChanged(Exception):
-    """The pending journal is not the one the approved call's prompt listed.
+#: The mode a lock file created here gets, whatever the umask.
+_FILE_MODE = 0o664
 
-    Nothing was written and the journal is left as it is, for the next prompt
-    to list afresh.
+
+class OspreyWriteRefused(Exception):
+    """A write was refused and no value of the call was written.
+
+    Treat it as a stop, not a retry.
 
     Attributes:
-        path: The journal file.
+        reason: One-line reason taken from the refusal.
+        channel_address: The refused channel, when the refusal names one.
     """
 
-    def __init__(self, path: Path) -> None:
-        self.path = str(path)
-        super().__init__(
-            f"the pending journal {path} is not the one this call was approved with; "
-            "nothing was written. Call the tool again: its prompt lists the journal as it is now."
-        )
+    def __init__(self, reason: str, channel_address: str | None = None) -> None:
+        self.reason = reason
+        self.channel_address = channel_address
+        where = f" to '{channel_address}'" if channel_address else ""
+        super().__init__(f"OSPREY refused the write{where}: {reason}")
+
+
+class GuardedRunDirError(RuntimeError):
+    """The guarded-run directory for a target cannot be resolved or written."""
 
 
 class OspreyRunBusy(Exception):
@@ -212,9 +141,125 @@ class OspreyRunBusy(Exception):
         super().__init__(f"another guarded run is live under {root} (pid {who}, since {since})")
 
 
-#: Whether :func:`_drop_held_locks_in_child` is registered to run in forked children.
+#: Whether the fork hooks (:func:`_register_fork_hook`) are registered in this process.
 _FORK_HOOK_REGISTERED = False
 _FORK_HOOK_GUARD = threading.Lock()
+
+
+def _open_dir(name: str | Path, *, dir_fd: int | None = None, where: Path) -> int:
+    """Open the directory ``name`` for reading, never through a link at ``name``.
+
+    Args:
+        name: The directory, relative to ``dir_fd`` when one is given.
+        dir_fd: The open directory ``name`` is looked up in.
+        where: The path a refusal names.
+
+    Returns:
+        The directory's descriptor, close-on-exec.
+
+    Raises:
+        GuardedRunDirError: ``name`` is a link or not a directory.
+        FileNotFoundError: There is no ``name``.
+        OSError: Any other failure to open, unchanged.
+    """
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    try:
+        return os.open(name, flags, dir_fd=dir_fd)
+    except FileNotFoundError:
+        raise
+    except OSError as exc:
+        # The open has failed; this only words the refusal.
+        is_link = False
+        with contextlib.suppress(OSError):
+            is_link = stat.S_ISLNK(os.lstat(name, dir_fd=dir_fd).st_mode)
+        if is_link:
+            raise GuardedRunDirError(
+                f"{where} is a link; a guarded-run directory is never a link"
+            ) from None
+        if exc.errno == errno.ENOTDIR:
+            raise GuardedRunDirError(f"{where} is not a directory") from None
+        raise
+
+
+def _open_regular(
+    name: str, flags: int, *, dir_fd: int, where: Path, create: bool = False
+) -> tuple[int, bool]:
+    """Open the lock file ``name`` in the open directory ``dir_fd``.
+
+    The one way the lock file is opened. A link at ``name`` is not
+    followed, the open never waits for the other end of a FIFO, and the
+    descriptor is accepted only when it is a regular file with exactly one
+    name; that is checked on the descriptor before anything reads, writes,
+    truncates or changes the mode of it. Whether the file was created is the
+    exclusive create's answer, never a look at the name.
+
+    Args:
+        name: The file's name in ``dir_fd``.
+        flags: The access mode, with ``O_APPEND`` when wanted.
+        dir_fd: The open guarded-run directory.
+        where: The path a refusal names.
+        create: Create the file when it is missing, at mode ``0o664``.
+
+    Returns:
+        ``(fd, created)``: the blocking, close-on-exec descriptor and whether
+        this call created the file.
+
+    Raises:
+        GuardedRunDirError: ``name`` is a link, has more than one hard link,
+            is not a regular file, or was replaced while it was opened;
+            nothing was read, written or created through it.
+        FileNotFoundError: There is no ``name`` and ``create`` is not set.
+        OSError: Any other failure to open, unchanged.
+    """
+    flags |= os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+    replaced = False
+    while True:
+        created = False
+        try:
+            if create:
+                for last in (False, True):
+                    try:
+                        fd = os.open(
+                            name, flags | os.O_CREAT | os.O_EXCL, _FILE_MODE, dir_fd=dir_fd
+                        )
+                        created = True
+                        break
+                    except FileExistsError:
+                        pass
+                    try:
+                        fd = os.open(name, flags, dir_fd=dir_fd)
+                        break
+                    except FileNotFoundError:
+                        if last:
+                            raise
+            else:
+                fd = os.open(name, flags, dir_fd=dir_fd)
+        except OSError as exc:
+            if exc.errno in (errno.ELOOP, errno.EMLINK):
+                raise GuardedRunDirError(f"{where} is a link; {_FILES_ONLY}") from None
+            if exc.errno in (errno.EISDIR, errno.ENXIO):
+                raise GuardedRunDirError(f"{where} is not a regular file; {_FILES_ONLY}") from None
+            raise
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                raise GuardedRunDirError(f"{where} is not a regular file; {_FILES_ONLY}")
+            if st.st_nlink > 1:
+                raise GuardedRunDirError(f"{where} has {st.st_nlink} hard links; {_FILES_ONLY}")
+            if st.st_nlink == 0 and replaced:
+                raise GuardedRunDirError(f"{where} was replaced while it was opened")
+            if st.st_nlink == 1:
+                os.set_blocking(fd, True)
+                if created:
+                    os.fchmod(fd, _FILE_MODE)
+                return fd, created
+        except BaseException:
+            os.close(fd)
+            raise
+        # No name holds this file any more: a rename replaced it between the
+        # open and the check. The name is opened once more.
+        os.close(fd)
+        replaced = True
 
 
 def guarded_run_target(target: str | None) -> str:
@@ -328,22 +373,30 @@ def _open_levels(directory: Path, *, create: bool) -> int:
     return parent
 
 
-def _open_run_dir(name: str, *, create: bool = True) -> tuple[Path, int]:
-    """Open the guarded-run directory of the target named *name*.
-
-    Returns:
-        ``(directory, fd)``: the absolute directory and its open descriptor,
-        which the caller closes.
+def _run_dir_path(name: str) -> Path:
+    """The guarded-run directory of the target named *name*, not opened.
 
     Raises:
-        GuardedRunDirError: The repo root cannot be resolved, ``guarded_run``
-            or the target's directory is a link, or the directory cannot be
-            created or is not writable.
-        FileNotFoundError: A level is missing and *create* is not set.
+        GuardedRunDirError: The repo root cannot be resolved.
     """
     from osprey_connectors.workspace import STATE_DIR_NAME
 
-    directory = _repo_root() / STATE_DIR_NAME / GUARDED_RUN_DIR / name
+    return _repo_root() / STATE_DIR_NAME / GUARDED_RUN_DIR / name
+
+
+def _open_run_dir(directory: Path, *, create: bool = True) -> int:
+    """Open *directory*, a target's guarded-run directory (:func:`_run_dir_path`).
+
+    Only system calls run here, so a caller may hold :data:`_run_state.LOCK`.
+
+    Returns:
+        The directory's open descriptor, which the caller closes.
+
+    Raises:
+        GuardedRunDirError: ``guarded_run`` or the target's directory is a
+            link, or the directory cannot be created or is not writable.
+        FileNotFoundError: A level is missing and *create* is not set.
+    """
     try:
         fd = _open_levels(directory, create=create)
     except OSError as exc:
@@ -362,11 +415,11 @@ def _open_run_dir(name: str, *, create: bool = True) -> tuple[Path, int]:
         raise GuardedRunDirError(
             f"guarded runs need var/{GUARDED_RUN_DIR}: {directory} is not writable."
         )
-    return directory, fd
+    return fd
 
 
 def guarded_run_dir(target: str | None) -> Path:
-    """The directory holding the lock and journal of guarded runs on *target*.
+    """The directory holding the run lock of *target*.
 
     ``<repo root>/var/guarded_run/<target name>/``. Inside a container the deploy
     has provisioned and mounted it; anywhere else it is created when missing,
@@ -384,353 +437,15 @@ def guarded_run_dir(target: str | None) -> Path:
             directory cannot be created or is not writable, or ``guarded_run``
             or the target's directory is a link.
     """
-    directory, fd = _open_run_dir(guarded_run_target(target))
+    directory = _run_dir_path(guarded_run_target(target))
+    fd = _open_run_dir(directory)
     os.close(fd)
     return directory
-
-
-def read_run_journal(directory: Path) -> bytes | None:
-    """The bytes of ``run.journal`` in the guarded-run directory *directory*.
-
-    Read the way a guarded run opens its journal: relative to the opened
-    directory, never through a link at ``guarded_run``, at the target's
-    directory or at the file, and only as a regular file with one name.
-    Nothing is created.
-
-    Args:
-        directory: A ``<root>/var/guarded_run/<target name>``.
-
-    Returns:
-        The journal's bytes, ``None`` when the directory or the file is missing.
-
-    Raises:
-        GuardedRunDirError: A guarded-run level is a link or not a directory,
-            or the journal is a link, has more than one hard link or is not a
-            regular file; nothing is read.
-        OSError: The directory or the file exists but could not be read.
-    """
-    try:
-        fd = _open_levels(directory, create=False)
-    except FileNotFoundError:
-        return None
-    try:
-        return read_journal_bytes(directory / JOURNAL_FILE_NAME, dir_fd=fd)
-    finally:
-        os.close(fd)
-
-
-@dataclass
-class RestoreReport:
-    """What a restore did with the setpoints a guarded run displaced.
-
-    Attributes:
-        restored: Addresses written back to their journaled value.
-        unchanged: Addresses already at their journaled value; not written.
-        refused: ``(address, reason, value left behind)`` for each address whose
-            write back the connector refused; the walk-back stops at the first
-            refusal.
-        failed: ``(address, reason)`` for each address that could not be read or
-            whose write back was attempted and not confirmed.
-        aborted: The run did not complete and the journal was restored.
-        deadline_guard: The run was guarded by the execution deadline.
-    """
-
-    restored: list[str] = field(default_factory=list)
-    unchanged: list[str] = field(default_factory=list)
-    refused: list[tuple[str, str, float]] = field(default_factory=list)
-    failed: list[tuple[str, str]] = field(default_factory=list)
-    aborted: bool = False
-    deadline_guard: bool = False
-
-    def to_json(self) -> str:
-        """The report as one line of JSON (tuples become arrays)."""
-        return json.dumps(asdict(self), default=repr)
-
-
-def _first_line(text: str) -> str:
-    """The first non-blank line of ``text``, stripped (``""`` if none)."""
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped:
-            return stripped
-    return ""
-
-
-def _banner_violation(text: str) -> str | None:
-    """The ``Violation:`` line's text from a limits banner, if present."""
-    prefix = "Violation:"
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith(prefix):
-            return stripped[len(prefix) :].strip() or None
-    return None
-
-
-def _write_reason(exc: BaseException) -> str:
-    """The one-line reason for a write-side exception.
-
-    A refusal raised from a ``ChannelLimitsViolationError`` takes that error's
-    ``violation_reason``; one without that cause falls back to the ``Violation:``
-    line of the limits banner in its message.
-    """
-    from osprey.errors import (
-        ChannelLimitsViolationError,
-        ChannelWriteBlockedError,
-        ChannelWriteFailedError,
-    )
-
-    if isinstance(exc, ChannelLimitsViolationError):
-        return exc.violation_reason
-    if isinstance(exc, ChannelWriteBlockedError | ChannelWriteFailedError):
-        text = str(exc)
-        cause = exc.__cause__
-        violation = (
-            _first_line(cause.violation_reason)
-            if isinstance(cause, ChannelLimitsViolationError)
-            else _banner_violation(text)
-        )
-        detail = violation or _first_line(text)
-        if not detail:
-            return exc.reason
-        return detail if exc.reason in detail else f"{exc.reason}: {detail}"
-    return _first_line(str(exc)) or type(exc).__name__
-
-
-def _map_write_error(exc: BaseException, address: str) -> OspreyWriteRefused | OspreyWriteFailed:
-    """A restore write's exception as a refusal (nothing written) or a failure.
-
-    A limits violation, any other blocked write and a moved control target are
-    refusals; anything else was attempted and is unconfirmed.
-    """
-    from osprey.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
-    from osprey.runtime import ControlTargetChangedError
-
-    channel = getattr(exc, "channel_address", None) or address
-    reason = _write_reason(exc)
-    refusals = (ChannelLimitsViolationError, ChannelWriteBlockedError, ControlTargetChangedError)
-    if isinstance(exc, refusals):
-        return OspreyWriteRefused(reason, channel)
-    return OspreyWriteFailed(reason, channel)
-
-
-def _as_number(value: Any) -> float | None:
-    """``value`` as a finite real number, ``None`` when it is not one."""
-    from osprey_connectors.control_system.base import as_number
-
-    return as_number(value)
-
-
-def _max_step(address: str) -> float | None:
-    """The channel's ``max_step`` limit, ``None`` when it has none.
-
-    Raises:
-        Exception: Whatever ``osprey.runtime.channel_limits`` raised.
-    """
-    import osprey.runtime
-
-    return getattr(osprey.runtime.channel_limits(address), "max_step", None)
-
-
-def _points(current: float, target: Any, n_steps: int) -> list[Any]:
-    """``n_steps`` equal steps from ``current``, the last exactly ``target``."""
-    distance = float(target) - current
-    return [current + distance * k / n_steps for k in range(1, n_steps)] + [target]
-
-
-def _within_step(current: float, points: list[Any], max_step: float) -> bool:
-    """Whether every consecutive difference along ``current, *points`` is ``<= max_step``."""
-    previous = current
-    for value in points:
-        if abs(float(value) - previous) > max_step:
-            return False
-        previous = float(value)
-    return True
-
-
-def _n_steps(current: Any, target: Any, max_step: float | None) -> int:
-    """How many writes take a channel from ``current`` to ``target``.
-
-    One unless both ends are scalar numbers, ``max_step`` is set and positive,
-    and the distance exceeds it. Otherwise the smallest count, starting from
-    ``ceil(distance / max_step)``, whose equal steps all measure at most
-    ``max_step`` in floating point: the limits validator refuses a step whose
-    computed size exceeds ``max_step`` by any rounding error.
-    """
-    if not (max_step and max_step > 0):
-        return 1
-    if _as_number(current) is None or _as_number(target) is None:
-        return 1
-    start = float(current)
-    distance = abs(float(target) - start)
-    n_steps = max(1, math.ceil(distance / max_step))
-    while n_steps > 1 and not _within_step(start, _points(start, target, n_steps), max_step):
-        n_steps += 1
-    return n_steps
-
-
-def _walk(current: Any, target: Any, max_step: float | None) -> list[Any]:
-    """The values to write, in order, to take a channel from ``current`` to ``target``.
-
-    :func:`_n_steps` equal steps, the last exactly ``target``; with a positive
-    ``max_step`` no step exceeds it.
-    """
-    n_steps = _n_steps(current, target, max_step)
-    if n_steps == 1:
-        return [target]
-    return _points(float(current), target, n_steps)
-
-
-def restore_writes(
-    journal: Journal,
-    current: dict[str, Any] | None,
-    max_steps: dict[str, float | None] | None = None,
-) -> int:
-    """Writes a restore needs: ``max(1, ceil(|now - journaled| / max_step))`` per address.
-
-    An address whose current value is unknown, non-numeric, or has no positive
-    ``max_step`` counts one write.
-
-    Args:
-        journal: The journal of the guarded run.
-        current: The current value per journaled address, ``None`` when unknown.
-        max_steps: Each address's ``max_step`` limit, filled in here the first time
-            an address needs it; a lookup that raises is not kept and counts one write.
-            ``None`` looks every limit up afresh.
-    """
-    if max_steps is None:
-        max_steps = {}
-    total = 0
-    for address, target in journal.items():
-        now: Any = None if current is None else current.get(address)
-        max_step: float | None = None
-        if _as_number(now) is not None and _as_number(target) is not None:
-            if address in max_steps:
-                max_step = max_steps[address]
-            else:
-                try:
-                    max_step = max_steps[address] = _max_step(address)
-                except Exception:  # an unknown limit budgets one write
-                    max_step = None
-        total += _n_steps(now, target, max_step)
-    return total
-
-
-def _read_failure_reason(address: str, exc: BaseException) -> str:
-    """The report reason for ``address`` after a read raised ``exc``.
-
-    An address a ``ChannelReadFailedError`` names gets the reason a read of that
-    address alone would have produced, carrying its own cause when there is one.
-    """
-    from osprey.errors import ChannelReadFailedError
-
-    if isinstance(exc, ChannelReadFailedError) and address in exc.addresses:
-        cause = exc.causes.get(address)
-        exc = ChannelReadFailedError([address], causes=None if cause is None else {address: cause})
-    return _first_line(str(exc)) or type(exc).__name__
-
-
-def _read_current(addresses: tuple[str, ...], report: RestoreReport) -> dict[str, Any]:
-    """Read every journaled address, in at most two ``read_channels`` calls.
-
-    When the first read fails, the addresses a ``ChannelReadFailedError`` names
-    are reported as failed and the rest are read again in one more call, so one
-    unreadable channel does not block the restore of the others. Every address
-    still unread after that second call is reported as failed. An address
-    reported as failed is not written.
-    """
-    from osprey.errors import ChannelReadFailedError
-
-    pending = list(addresses)
-    for attempt in range(2):
-        try:
-            return read_map(pending)
-        except Exception as exc:  # reported, never raised
-            named = set(exc.addresses) if isinstance(exc, ChannelReadFailedError) else set()
-            give_up = attempt == 1
-            for address in pending:
-                if give_up or address in named:
-                    report.failed.append((address, _read_failure_reason(address, exc)))
-            pending = [] if give_up else [a for a in pending if a not in named]
-        if not pending:
-            break
-    return {}
-
-
-def _restore_address(address: str, current: Any, target: Any, report: RestoreReport) -> None:
-    """Write one address back to ``target``, walking back under ``max_step``."""
-    import osprey.runtime
-
-    try:
-        max_step = _max_step(address)
-    except Exception as exc:  # reported, never raised
-        report.failed.append((address, _map_write_error(exc, address).reason))
-        return
-    left_at = current
-    for value in _walk(current, target, max_step):
-        try:
-            osprey.runtime.write_channel(address, value)
-        except Exception as exc:  # reported, never raised
-            mapped = _map_write_error(exc, address)
-            if isinstance(mapped, OspreyWriteRefused):
-                number = _as_number(left_at)
-                left = left_at if number is None else number
-                report.refused.append((address, mapped.reason, left))
-            else:
-                report.failed.append((address, mapped.reason))
-            return
-        left_at = value
-    report.restored.append(address)
-
-
-def _restore(journal: Journal, *, aborted: bool) -> RestoreReport:
-    """Write every journaled address that moved back to its journaled value.
-
-    One ``read_channels`` over the journaled addresses decides which ones still
-    hold exactly their journaled value
-    (:func:`osprey_connectors.control_system.base.readings_equal`); those are
-    reported unchanged and not written. Every other address, however small its
-    displacement, is written back, each with its own writes, so a refused or
-    failed channel does not block the rest.
-
-    Args:
-        journal: The journal of the run being restored (no longer active).
-        aborted: Recorded in the report.
-
-    Returns:
-        The report naming each journaled address exactly once.
-    """
-    from osprey_connectors.control_system.base import readings_equal
-
-    report = RestoreReport(aborted=aborted)
-    journaled = journal.values
-    if not journaled:
-        return report
-    current = _read_current(tuple(journaled), report)
-    for address, target in journaled.items():
-        if address not in current:
-            continue
-        now = current[address]
-        if readings_equal(target, now):
-            report.unchanged.append(address)
-            continue
-        _restore_address(address, now, target, report)
-    return report
 
 
 def _utc_now() -> str:
     """The current UTC time as ISO-8601 to the second."""
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-
-def _stamped_generation() -> int | None:
-    """The generation this process's target stamp was taken at, ``None`` when unusable."""
-    from osprey.runtime import ENV_CONTROL_TARGET_GENERATION
-
-    raw = os.environ.get(ENV_CONTROL_TARGET_GENERATION, "").strip()
-    try:
-        return int(raw)
-    except ValueError:
-        return None
 
 
 def _write_holder(fd: int) -> str:
@@ -762,216 +477,31 @@ def _read_holder(fd: int) -> tuple[int | None, str | None]:
     )
 
 
-def _clear_journal(path: Path, dir_fd: int) -> None:
-    """Empty the journal ``path`` names in the open directory ``dir_fd``, when there is one."""
-    try:
-        fd, _created = _open_regular(path.name, os.O_RDWR, dir_fd=dir_fd, where=path)
-    except FileNotFoundError:
-        return
-    try:
-        os.ftruncate(fd, 0)
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+def _acquire_for_fork() -> None:
+    """Take :data:`_run_state.LOCK` before this process forks.
 
-
-def approval_asks(tool: str | None) -> bool:
-    """Whether a call of the guarded *tool* is put to a human before it runs.
-
-    Read from the rendered ``config.yml`` by
-    :func:`osprey.cli.build_posture_check.ask_capable`. It chooses the remedy
-    sentence of :class:`~osprey.runtime.journal.OspreyStaleJournal` only:
-    whether a call needed its approval is decided by the executor before the
-    sandbox starts.
-
-    Args:
-        tool: The tool's short name, as ``approval.tools`` keys it. ``None``,
-            for a process no guarded tool started, asks whether any guarded
-            tool's call is put to a human.
-
-    Returns:
-        ``True`` when the approval hook asks about such a call.
+    A lock entry and a release run under that lock, so a fork waits until the
+    run state names every descriptor of the lock this process holds.
     """
-    from osprey.cli.build_posture_check import GUARDED_TOOLS, ask_capable
-    from osprey_connectors.workspace import load_osprey_config
-
-    config = load_osprey_config()
-    tools = GUARDED_TOOLS if tool is None else (tool,)
-    return any(ask_capable(config, name) for name in tools)
+    _run_state.LOCK.acquire()
 
 
-def _open_approved_call(tool: str) -> None:
-    """Bind this process to the *tool* call it runs for, and replay what it approved.
-
-    Called once by the sandbox wrapper of a readwrite run, before user code.
-    The approved digest and target the executor confirmed are taken out of
-    the environment (:data:`ENV_APPROVED_JOURNAL_SHA256`,
-    :data:`ENV_APPROVED_TARGET`) and kept in the process's run state as given, so nothing
-    user code later sets in the environment changes them. Nothing is restored
-    here: the wrapper then takes the target's :func:`lock` for the whole run,
-    and that entry restores the approved journal.
-
-    Args:
-        tool: The guarded tool's short name.
-
-    Raises:
-        RuntimeError: A call is already bound in this process.
-    """
-    with _run_state.LOCK:
-        state = _run_state.STATE
-        if state.approved is not None:
-            raise RuntimeError("a guarded tool call is already bound to this process")
-        digest = os.environ.pop(ENV_APPROVED_JOURNAL_SHA256, "").strip() or None
-        target = os.environ.pop(ENV_APPROVED_TARGET, "").strip() or None
-        state.approved = _run_state.ApprovedCall(tool=tool, journal_sha256=digest, target=target)
-
-
-def _check_approved_call(target: str) -> None:
-    """Refuse a guarded run on *target* the bound call was not approved for.
-
-    A call that carries an approved target is checked against the run's
-    target; a process no guarded tool started, and a call carrying no target,
-    have nothing to check.
-
-    Raises:
-        OspreyWriteRefused: The approved target is not the run's.
-    """
-    with _run_state.LOCK:
-        call = _run_state.STATE.approved
-    if call is None or call.target is None:
-        return
-    if call.target != target:
-        raise OspreyWriteRefused(
-            f"this call was approved for target {call.target!r}; the run is on {target!r}"
-        )
-
-
-def _print_report(report: RestoreReport, stream: TextIO | None = None) -> None:
-    """Print *report* as the one :data:`RESTORE_REPORT_TAG` line, and keep it.
-
-    The line goes to *stream*, stderr when not given. The report is appended to
-    what :func:`restore_reports` returns.
-    """
-    with _run_state.LOCK:
-        _run_state.STATE.reports.append(json.loads(report.to_json()))
-    out = sys.stderr if stream is None else stream
-    print(f"{RESTORE_REPORT_TAG} {report.to_json()}", file=out, flush=True)
-
-
-def restore_reports() -> list[dict[str, Any]]:
-    """Every restore report this process's guarded runs made, as JSON objects.
-
-    In print order; a deep copy, so the caller cannot change what a later
-    call returns. The sandbox wrapper hands the list to the executor in the run's
-    execution record.
-    """
-    with _run_state.LOCK:
-        return copy.deepcopy(_run_state.STATE.reports)
-
-
-def _left_displaced(report: RestoreReport) -> list[str]:
-    """The addresses *report* refused or failed, in report order."""
-    return [address for address, _r, _v in report.refused] + [a for a, _r in report.failed]
-
-
-def _rewrite_journal(
-    path: Path, raw: bytes, pending: PendingJournal, keep: list[str], dir_fd: int
-) -> None:
-    """Replace the journal at *path* with its header and the entries for *keep*.
-
-    *raw* is the file's content, whose first line is kept byte for byte; each
-    kept address gets its journaled value from *pending*. Written through
-    :func:`osprey_connectors.dotenv.atomic_replace` relative to *dir_fd*, the
-    open directory the run holds, so a reader sees the old journal or the new
-    one, never a mix, no file or link waiting in the directory is ever written,
-    and the rewrite lands in the directory the run opened whatever its name
-    points at by then: the directory is shared by every identity that runs on
-    the target.
-    """
-    from osprey_connectors.dotenv import atomic_replace
-
-    header = raw.split(b"\n", 1)[0] + b"\n"
-    records = b"".join(
-        (json.dumps({"address": a, "value": pending.values[a]}, allow_nan=True) + "\n").encode(
-            "utf-8"
-        )
-        for a in keep
-    )
-    atomic_replace(path, header + records, mode=0o664, dir_fd=dir_fd)
-
-
-def _replay_dead_run(path: Path, target: str, dir_fd: int) -> None:
-    """Restore what a killed run's journal at ``path`` recorded.
-
-    Called with the run lock held and no journal active, so the restore writes
-    are not journaled. The journal is read, cleared and rewritten relative to
-    ``dir_fd``, the open directory the lock holds. A journal with no record is cleared. Under an approved
-    digest the journal is restored when its sha256 matches, whatever target
-    generation it was left under; with no digest only a journal of this run's
-    target and generation is. A complete restore clears the journal; one that
-    refused or failed an entry rewrites it to hold exactly those entries.
-
-    Raises:
-        OspreyJournalChanged: The journal's sha256 is not the approved digest,
-            or the digest is ``none``; nothing is written and the file is left.
-        OspreyStaleJournal: No digest was approved and the journal's target or
-            generation differs from this run's; nothing is written and the file
-            is left.
-        OspreyRestoreIncomplete: The restore refused or failed an address; the
-            journal now holds exactly those entries.
-        ValueError: The journal is unreadable before its last line; it is left.
-        GuardedRunDirError: ``path`` is a link, has more than one hard link or
-            is not a regular file; nothing is read or written.
-    """
-    raw = read_journal_bytes(path, dir_fd=dir_fd)
-    if raw is None:
-        return
-    pending = parse_pending_journal(raw, path)
-    if pending is None:
-        _clear_journal(path, dir_fd)
-        return
-    with _run_state.LOCK:
-        call = _run_state.STATE.approved
-    digest = None if call is None else call.journal_sha256
-    if digest is not None:
-        if digest == APPROVED_NO_JOURNAL or hashlib.sha256(raw).hexdigest() != digest:
-            raise OspreyJournalChanged(path)
-    else:
-        generation = _stamped_generation()
-        if (pending.target, pending.generation) != (target, generation):
-            raise OspreyStaleJournal(
-                pending,
-                path,
-                target=target,
-                generation=generation,
-                approval=approval_asks(None if call is None else call.tool),
-            )
-    journal = Journal()
-    journal.record(list(pending.values), list(pending.values.values()))
-    report = _restore(journal, aborted=True)
-    who = "unknown" if pending.pid is None else str(pending.pid)
-    line = f"restored {len(report.restored)} addresses from a dead run (pid {who})"
-    left = [f"{address} refused: {reason}" for address, reason, _value in report.refused]
-    left += [f"{address} failed: {reason}" for address, reason in report.failed]
-    if left:
-        line += "; not restored: " + "; ".join(left)
-    print(line, flush=True)
-    _print_report(report)
-    if report.refused or report.failed:
-        _rewrite_journal(path, raw, pending, _left_displaced(report), dir_fd)
-        raise OspreyRestoreIncomplete(path, report.refused, report.failed)
-    _clear_journal(path, dir_fd)
+def _release_after_fork() -> None:
+    """Release, in the parent, the :data:`_run_state.LOCK` the fork took."""
+    _run_state.LOCK.release()
 
 
 def _drop_held_locks_in_child() -> None:
-    """Close, in a forked child, the run lock, its directory and the journal the parent holds.
+    """Close, in a forked child, the run lock and its directory the parent holds.
 
     A forked child shares the lock's open file description, so without this a
     child that outlives a killed holder would keep the target busy under a
-    dead pid. The child then starts from a run state that holds nothing and has
-    no run open, so leaving the parent's run block touches neither the parent's
-    lock nor its journal. :data:`_run_state.LOCK` is not taken here: another
-    thread of the parent may have held it at the fork.
+    dead pid. At any fork :data:`_run_state.STATE` names every descriptor of
+    the lock, because a lock entry publishes its hold and a release unlocks
+    before it forgets the hold, both under :data:`_run_state.LOCK`, and a fork
+    takes that lock first (:func:`_acquire_for_fork`). The child closes its
+    copies and never unlocks, which would release the parent's lock, then
+    starts from a run state that holds nothing and a lock of its own.
     """
     state = _run_state.STATE
     if state.hold is not None:
@@ -979,36 +509,24 @@ def _drop_held_locks_in_child() -> None:
             os.close(state.hold.fd)
         with contextlib.suppress(OSError):
             os.close(state.hold.dir_fd)
-    if state.run is not None:
-        with contextlib.suppress(OSError):
-            state.run.durable.close()
     _run_state.reset_in_child()
 
 
 def _register_fork_hook() -> None:
-    """Register :func:`_drop_held_locks_in_child` once per process."""
+    """Order this process's forks against the run lock, once per process."""
     global _FORK_HOOK_REGISTERED
     with _FORK_HOOK_GUARD:
         if not _FORK_HOOK_REGISTERED:
-            os.register_at_fork(after_in_child=_drop_held_locks_in_child)
+            os.register_at_fork(
+                before=_acquire_for_fork,
+                after_in_parent=_release_after_fork,
+                after_in_child=_drop_held_locks_in_child,
+            )
             _FORK_HOOK_REGISTERED = True
 
 
-def _held() -> _run_state.Hold:
-    """The run lock this process holds; called with :data:`_run_state.LOCK` held.
-
-    A journaled run is open only under a hold: the lock is entered before the
-    run's journal is opened, and releasing it ends the run before the hold is
-    dropped.
-    """
-    hold = _run_state.STATE.hold
-    if hold is None:
-        raise RuntimeError("a journaled guarded run is open under no run lock")
-    return hold
-
-
 def _release(hold: _run_state.Hold) -> None:
-    """Release *hold*, ending a journaled run still open under it first.
+    """Release *hold*.
 
     Does nothing when *hold* is not the one this process holds: a forked child
     closed its copy at the fork.
@@ -1017,69 +535,61 @@ def _release(hold: _run_state.Hold) -> None:
         state = _run_state.STATE
         if state.hold is not hold:
             return
+        # The shared description is unlocked while the run state still names
+        # its descriptor, and forgotten only after: a child forked before the
+        # unlock closes its copy, and one forked after holds a copy that locks
+        # nothing.
         try:
-            _end_open_run()
+            with contextlib.suppress(OSError):
+                os.ftruncate(hold.fd, 0)
+            fcntl.flock(hold.fd, fcntl.LOCK_UN)
         finally:
+            state.hold = None
             try:
-                with contextlib.suppress(OSError):
-                    os.ftruncate(hold.fd, 0)
-                fcntl.flock(hold.fd, fcntl.LOCK_UN)
+                os.close(hold.fd)
             finally:
-                state.hold = None
-                try:
-                    os.close(hold.fd)
-                finally:
-                    os.close(hold.dir_fd)
+                os.close(hold.dir_fd)
 
 
 @contextlib.contextmanager
-def lock(target: str | None) -> Iterator[Path]:
-    """Hold *target*'s run lock, restoring a killed run's journal first.
+def lock(target: str | None, *, join: bool = False) -> Iterator[Path]:
+    """Hold *target*'s run lock for the body.
 
     The lock is taken without blocking. Its holder record (pid, started) is
-    written into the lock file and emptied on release. Under the lock a killed
-    run's journal is restored and cleared (see the module docstring) before the
-    body runs. Writes in the body are not journaled; see :func:`journaled_run`.
-    The lock is held by this process, not by the thread that took it: a
-    thread or task the body starts runs under it. A process holds one run
-    lock at a time; asking again, from any thread, is busy like any second
-    run, and asking for another target is refused. Releasing the lock ends a
-    journaled run still open under it, restored and reported as aborted. A
-    child forked while the lock is held closes its copy of the lock and holds
-    nothing; a child started with ``subprocess`` or ``exec`` never inherits
-    it, because the lock's descriptor is not inheritable (PEP 446).
+    written into the lock file and emptied on release. The lock is held by this
+    process, not by the thread that took it: a thread or task the body starts
+    runs under it. A process holds one run lock at a time; asking again, from
+    any thread, is busy like any second run, and asking for another target is
+    refused. With *join* a caller runs under the hold this process already
+    has on *target*, taking and releasing nothing, and takes the lock as
+    without it when the process holds none. A forked child holds nothing; a
+    child started with ``subprocess`` or ``exec`` never inherits the lock,
+    because the lock's descriptor is not inheritable (PEP 446).
 
     Args:
         target: The target the run is for, or ``None`` for the process's own
             stamp (see :func:`guarded_run_target`).
+        join: Run under this process's hold on *target* when it has one.
 
     Yields:
         The target's guarded-run directory.
 
     Raises:
-        OspreyWriteRefused: This is a readonly run, or the bound call was not
-            approved for this target (see :func:`_check_approved_call`); no
-            lock was taken.
+        OspreyWriteRefused: This is a readonly run; no lock was taken.
         RuntimeError: This process holds the run lock on another target.
         GuardedRunDirError: The guarded-run directory cannot be resolved, a
-            directory on the way is a link, or the lock or the journal is a
-            link, has more than one hard link or is not a regular file.
-        OspreyRunBusy: Another guarded run holds the target's lock.
-        OspreyJournalChanged: A killed run's journal is not the approved one.
-        OspreyStaleJournal: A killed run's journal is for another generation
-            and no digest was approved.
-        OspreyRestoreIncomplete: A killed run's journal could not be fully
-            restored; it holds the entries left displaced.
-        ValueError: A killed run's journal is unreadable before its last line;
-            it is left in place.
-        OSError: The lock or the journal could not be opened.
+            directory on the way is a link, or the lock is a link, has more
+            than one hard link or is not a regular file.
+        OspreyRunBusy: Another run holds the target's lock.
+        OSError: The lock could not be opened.
     """
     from osprey_connectors.control_system.base import is_readonly_run
 
     if is_readonly_run():
         raise OspreyWriteRefused(_READONLY_REASON)
     name = guarded_run_target(target)
-    _check_approved_call(name)
+    directory = _run_dir_path(name)
+    where = directory / LOCK_FILE_NAME
     _register_fork_hook()
     with _run_state.LOCK:
         held = _run_state.STATE.hold
@@ -1087,272 +597,39 @@ def lock(target: str | None) -> Iterator[Path]:
             raise RuntimeError(
                 f"this process holds the run lock on {held.target}; it cannot take one on {name}"
             )
-        directory, dir_fd = _open_run_dir(name)
-        try:
-            fd, _created = _open_regular(
-                LOCK_FILE_NAME,
-                os.O_RDWR,
-                dir_fd=dir_fd,
-                where=directory / LOCK_FILE_NAME,
-                create=True,
-            )
+        joined = join and held is not None
+        if not joined:
+            dir_fd = _open_run_dir(directory)
             try:
+                fd, _created = _open_regular(
+                    LOCK_FILE_NAME, os.O_RDWR, dir_fd=dir_fd, where=where, create=True
+                )
                 try:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    pid, started = _read_holder(fd)
-                    raise OspreyRunBusy(str(directory), pid, started) from None
-                try:
-                    started = _write_holder(fd)
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        pid, started = _read_holder(fd)
+                        raise OspreyRunBusy(str(directory), pid, started) from None
+                    try:
+                        started = _write_holder(fd)
+                    except BaseException:
+                        with contextlib.suppress(OSError):
+                            os.ftruncate(fd, 0)
+                        raise
                 except BaseException:
-                    with contextlib.suppress(OSError):
-                        os.ftruncate(fd, 0)
+                    os.close(fd)
                     raise
             except BaseException:
-                os.close(fd)
+                os.close(dir_fd)
                 raise
-        except BaseException:
-            os.close(dir_fd)
-            raise
-        hold = _run_state.Hold(
-            target=name, directory=directory, fd=fd, started=started, dir_fd=dir_fd
-        )
-        _run_state.STATE.hold = hold
-        try:
-            _replay_dead_run(directory / JOURNAL_FILE_NAME, name, dir_fd)
-        except BaseException:
-            _release(hold)
-            raise
+            hold = _run_state.Hold(
+                target=name, directory=directory, fd=fd, started=started, dir_fd=dir_fd
+            )
+            _run_state.STATE.hold = hold
+    if joined:
+        yield directory
+        return
     try:
         yield directory
     finally:
         _release(hold)
-
-
-@contextlib.contextmanager
-def _sigint_ignored() -> Iterator[None]:
-    """Ignore ``SIGINT`` for the body, then put the previous handler back.
-
-    Only the main thread can change a handler, so elsewhere the body runs
-    unshielded; so does it when the handler in place was installed outside
-    Python (``signal.getsignal`` answers ``None``), which could not be put back.
-    """
-    if threading.current_thread() is not threading.main_thread():
-        yield
-        return
-    previous = signal.getsignal(signal.SIGINT)
-    if previous is None:
-        yield
-        return
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-    try:
-        yield
-    finally:
-        signal.signal(signal.SIGINT, previous)
-
-
-def _restore_escaped(
-    durable: DurableJournal,
-    journal: Journal,
-    exc: BaseException | None,
-    *,
-    target: str,
-    deadline_guard: bool,
-    dir_fd: int,
-) -> None:
-    """Restore what a journaled run displaced before *exc* escaped it.
-
-    *exc* is ``None`` when the run is ended by the release of its lock, with
-    nothing escaping it.
-
-    Hangs the report on *exc* as ``restore_report``, clears the durable journal
-    when every entry is back or rewrites it to hold exactly the refused and
-    failed entries, relative to *dir_fd*, the open directory the run's lock
-    holds, then prints the one :data:`RESTORE_REPORT_TAG` line. The
-    report says the run was deadline-guarded when *deadline_guard* is set or
-    *exc* carries a ``deadline_guard`` attribute that is ``True``. When the
-    restore itself cannot run, nothing is written, the durable journal is left
-    byte for byte for the next guarded run on *target*, and one untagged
-    ``restore not attempted: <reason>`` line on stderr says so instead. Never
-    raises: bookkeeping that cannot finish leaves the durable journal as it is.
-    """
-    try:
-        report = _restore(journal, aborted=True)
-    except Exception as failure:  # the journal stays for the next run to restore
-        reason = _first_line(str(failure)) or type(failure).__name__
-        with contextlib.suppress(Exception):
-            print(
-                f"restore not attempted: {reason}; the journal {durable.path} stays "
-                f"for the next guarded run on {target}",
-                file=sys.stderr,
-                flush=True,
-            )
-        return
-    report.deadline_guard = deadline_guard or getattr(exc, "deadline_guard", False) is True
-    if exc is not None:
-        with contextlib.suppress(AttributeError, TypeError):
-            exc.restore_report = report  # type: ignore[attr-defined]
-    with contextlib.suppress(Exception):  # the journal stays for the next run to restore
-        left = _left_displaced(report)
-        if left:
-            raw = durable.read()
-            pending = parse_pending_journal(raw, durable.path)
-            if pending is not None:
-                _rewrite_journal(durable.path, raw, pending, left, dir_fd)
-        else:
-            durable.clear()
-    with contextlib.suppress(Exception):
-        _print_report(report)
-
-
-def _end_run(run: _run_state.OpenRun, exc: BaseException | None, *, aborted: bool = False) -> bool:
-    """End *run*: the one exit path of a journaled guarded run.
-
-    Runs with :data:`_run_state.LOCK` held for its whole body, so a guarded
-    write in flight on another thread finishes first and none is accepted
-    after. Restores what the run displaced when *exc* escaped it, when a run
-    opened inside it was stopped (``stopped_by``), or when *aborted*; else
-    clears the durable journal and reports ``aborted: false``. Either way it
-    closes the durable journal and leaves the process with no run open.
-
-    Returns:
-        Whether this call ended the run; ``False`` when it had already ended,
-        or in a forked child.
-    """
-    with _run_state.LOCK:
-        state = _run_state.STATE
-        if state.run is not run:
-            return False
-        try:
-            escaped = exc if exc is not None else run.stopped_by
-            with _sigint_ignored():
-                if escaped is not None or aborted:
-                    _restore_escaped(
-                        run.durable,
-                        run.journal,
-                        escaped,
-                        target=run.target,
-                        deadline_guard=run.deadline_guard,
-                        dir_fd=_held().dir_fd,
-                    )
-                else:
-                    run.durable.clear()
-                    _print_report(RestoreReport(aborted=False, deadline_guard=run.deadline_guard))
-        finally:
-            state.run = None
-            run.durable.close()
-        return True
-
-
-def _end_open_run() -> None:
-    """End the journaled run still open, restored and reported as aborted; else nothing."""
-    with _run_state.LOCK:
-        run = _run_state.STATE.run
-        if run is not None:
-            _end_run(run, None, aborted=True)
-
-
-@contextlib.contextmanager
-def journaled_run(target: str | None, *, deadline_guard: bool = False) -> Iterator[Journal]:
-    """Hold *target*'s run lock with its durable journal open.
-
-    The only context in which :func:`osprey.runtime.journal.guarded_write`
-    writes, and the one place a guarded run's displaced setpoints are put
-    back. The lock is taken as :func:`lock` takes it, unless this process
-    already holds it, and then the run goes on under it. The durable journal
-    gets this run's header (target, generation, identity, pid, started) and one
-    fsync'd line per address before that address is first written.
-
-    The run is this process's, not the opening thread's: a thread or task it
-    starts that opens a journaled run on the same target runs under this one
-    and writes into its journal. A guarded write is ordered against the run's
-    end: one in flight finishes before the restore starts, and none is
-    accepted after the run has ended.
-
-    The outermost run's exit path ignores ``SIGINT`` (on the main thread) and
-    prints exactly one :data:`RESTORE_REPORT_TAG` line, on stderr. A clean exit
-    clears the journal and reports ``aborted: false``. When an exception
-    escapes the run, every journaled address not exactly at its journaled
-    value is written back, the report rides on the exception as
-    ``restore_report``, the journal is cleared or, when entries stay
-    displaced, rewritten to hold exactly those, and the exception then
-    propagates. When the restore itself cannot run, no tagged line is printed:
-    one ``restore not attempted: <reason>`` line on stderr names the journal,
-    which is left for the next guarded run on the target. A journaled run
-    opened inside another one on the same target, from this thread or any
-    other, runs under the outer one and prints nothing; whatever escapes it
-    stops the whole run: later guarded writes are refused, and the outer
-    run's exit restores, reports the run as aborted and raises that error,
-    even when its own code ended cleanly.
-
-    Args:
-        target: The target the run is for, or ``None`` for the process's own
-            stamp (see :func:`guarded_run_target`).
-        deadline_guard: The run is guarded by the execution deadline; its
-            report says so. Ignored by a run nested in another.
-
-    Yields:
-        The run's outermost journal.
-
-    Raises:
-        RuntimeError: A journaled run on another target is open in this
-            process, or this call already has a journal level pushed.
-        Exception: Whatever :func:`lock` raises, whatever escapes the run, and
-            whatever escaped a run opened inside it.
-    """
-    name = guarded_run_target(target)
-    from osprey_connectors.identity import acting_identity
-
-    with contextlib.ExitStack() as stack:
-        with _run_state.LOCK:
-            joined = _run_state.STATE.run
-            if joined is not None:
-                if joined.target != name:
-                    raise RuntimeError(
-                        f"a journaled run on {joined.target} is open; it cannot nest one on {name}"
-                    )
-            else:
-                if active_journals():
-                    raise RuntimeError(
-                        "a journaled guarded run must be the outermost journal level"
-                    )
-                held = _run_state.STATE.hold
-                if held is None or held.target != name:
-                    stack.enter_context(lock(name))
-                hold = _held()
-                durable = DurableJournal(hold.directory / JOURNAL_FILE_NAME, dir_fd=hold.dir_fd)
-                try:
-                    durable.start(
-                        target=name,
-                        generation=_stamped_generation(),
-                        identity=acting_identity(),
-                        pid=os.getpid(),
-                        started=_utc_now(),
-                    )
-                except BaseException:
-                    durable.close()
-                    raise
-                run = _run_state.OpenRun(
-                    target=name,
-                    journal=Journal(sink=durable.record),
-                    durable=durable,
-                    deadline_guard=deadline_guard,
-                )
-                _run_state.STATE.run = run
-        if joined is not None:
-            try:
-                yield joined.journal
-            except BaseException as exc:
-                with _run_state.LOCK:
-                    if joined.stopped_by is None:
-                        joined.stopped_by = exc
-                raise
-            return
-        try:
-            yield run.journal
-        except BaseException as exc:
-            _end_run(run, exc)
-            raise
-        _end_run(run, None)
-        if run.stopped_by is not None:
-            raise run.stopped_by

@@ -12,7 +12,7 @@ One call:
 3. renders the measurement script (:func:`~._pyaml_measure_script.build_measure_script`)
    and runs it through :func:`~._execution_gates.run_gated_execution` in
    ``readwrite`` mode, so it meets every gate ``execute`` meets, carrying the
-   approved journal digest, target and view digest the approval hook set;
+   approved target and view digest the approval hook set;
 4. notes who the run wrote as and which channels it attempted on the call's
    audit record, then parses what the script printed, names every row, column
    and step by its address and device id, and copies a completed run's saved
@@ -20,8 +20,11 @@ One call:
    name, into the artifact store.
 
 The response is a summary: names, shape, steps used and the view's digest,
-never the matrix itself, which ``data_file`` and ``artifact_id`` point at. A
-stopped run returns its ``remainder`` and the guarded run's restore report.
+never the matrix itself, which ``data_file`` and ``artifact_id`` point at.
+Every result lists the setpoints the call moved with their values before the
+call (``moved``); a stopped run also returns its ``remainder``. A run that
+ends without a result line, killed at its timeout above all, fails naming the
+channels it attempted (``written_channels``).
 """
 
 from __future__ import annotations
@@ -156,7 +159,9 @@ def _raise_unparsed(
 
     The script saves its measurement only after the run completed, so a saved
     file in the run's folder means the setpoints moved and the data is kept:
-    the envelope names that file and never reads as a refusal.
+    the envelope names that file and never reads as a refusal. A failed run
+    could not list its setpoints, so its envelope names the channels it
+    attempted (``written_channels``), left where the run stopped.
     """
     from osprey.mcp_server.python_executor.tools._response_builder import (
         SUBSYSTEM,
@@ -176,8 +181,28 @@ def _raise_unparsed(
             ["Report this; the measurement script and its parser disagree."],
             details={**payload, "subsystem": SUBSYSTEM, "kind": "script_error"},
         )
-    _raise_failure(exec_result, exec_result.stderr or "", payload)
+    written = list(exec_result.written_channels)
+    payload["written_channels"] = written
+    stderr = exec_result.stderr or ""
+    _raise_failure(exec_result, f"{_attempted(written)}\n{stderr}".rstrip(), payload)
     raise AssertionError("unreachable: _raise_failure always raises")
+
+
+#: How many attempted channels a failure names before it gives only their count.
+_MAX_NAMED_CHANNELS = 20
+
+
+def _attempted(channels: list[str]) -> str:
+    """The sentence a failed run's envelope says about the channels it attempted."""
+    if not channels:
+        return "The run ended before it could list its setpoints; it attempted no writes."
+    named = (
+        ", ".join(channels) if len(channels) <= _MAX_NAMED_CHANNELS else f"{len(channels)} channels"
+    )
+    return (
+        "The run ended before it could list its setpoints; it attempted writes to "
+        f"{named}, left where the run stopped."
+    )
 
 
 def _measurement_file(kind: str, folder: Path | None) -> Path | None:
@@ -238,15 +263,16 @@ async def pyaml_measure(
     correctors: list[str] | None = None,
     modulation: Literal["bipolar", "unipolar"] | None = None,
     by: Literal["magnet", "group"] | None = None,
-    approved_journal_sha256: str | None = None,
     approved_target: str | None = None,
     approved_view_sha256: str | None = None,
 ) -> str:
     """Measure a response matrix or the chromaticity with pyAML on the control target.
 
-    Steps setpoints on the machine and writes them back, so every call is
-    approval-gated and runs in read-write mode inside one guarded run: a run
-    that stops part-way is restored before the call returns. The model's pyAML
+    Steps setpoints on the machine inside the control target's run lock, so
+    every call is approval-gated and runs in read-write mode. A run that
+    stops, fails or is interrupted leaves each setpoint where it stopped;
+    every result lists the setpoints the call moved with their values before
+    the call (``moved``). The model's pyAML
     view is ``data/pyaml/<model>/configuration.yaml``; each step is sized so
     no setpoint's largest single write exceeds half its limits.yaml max_step.
 
@@ -269,8 +295,6 @@ async def pyaml_measure(
             of the group by the same integrated strength as one column
             (``trm`` and ``crm`` only); group stepping is unipolar and refuses
             ``bipolar``; omit for magnet.
-        approved_journal_sha256: Set by the approval hook; a value you pass is
-            overwritten.
         approved_target: Set by the approval hook; a value you pass is
             overwritten.
         approved_view_sha256: Set by the approval hook; a value you pass is
@@ -282,8 +306,9 @@ async def pyaml_measure(
         a completed run ``rows`` and ``columns`` named by address and device id,
         ``shape``, ``data_file`` and ``artifact_id``; a ``data_file`` that is not
         the run's own measurement file is answered as ``null`` with
-        ``data_file_refused``. A stopped run returns its ``remainder`` and the
-        ``restore`` report.
+        ``data_file_refused``; every result has ``moved``, each entry
+        ``{address, device, before}``. A stopped run returns its
+        ``remainder`` and, when an error stopped it, ``error``.
     """
     from osprey.mcp_server.python_executor.tools._response_builder import _note_writes
     from osprey.utils.config_paths import resolve_config_dir
@@ -312,14 +337,13 @@ async def pyaml_measure(
         description=_description(args),
         execution_mode=_EXECUTION_MODE,
         notify=notify_agent_activity_async,
-        approved_journal_sha256=approved_journal_sha256,
         approved_target=approved_target,
         approved_view_sha256=approved_view_sha256,
     )
     _note_writes(exec_result)
 
     try:
-        result = parse_measure_result(exec_result.stdout, exec_result.restore_reports, args.kind)
+        result = parse_measure_result(exec_result.stdout, args.kind)
     except MeasureResultError as error:
         _raise_unparsed(exec_result, error, args.kind, exec_result.execution_folder)
 

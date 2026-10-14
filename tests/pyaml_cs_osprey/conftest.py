@@ -1,11 +1,11 @@
-"""Shared fixtures: a journaled guarded run and a dict-backed ``osprey.runtime`` stand-in."""
+"""Shared fixtures: a pyAML run under the run lock and a dict-backed ``osprey.runtime`` stand-in."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 import pytest
 import yaml
@@ -17,8 +17,7 @@ from osprey.errors import (
     ChannelWriteFailedError,
 )
 from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
-from osprey.runtime.guarded_run import journaled_run
-from osprey.runtime.journal import Journal, active_journals, journaled_write
+from osprey.runtime.guarded_run import lock
 from osprey_connectors.control_system.base import (
     ChannelMetadata,
     ChannelValue,
@@ -28,6 +27,7 @@ from osprey_connectors.control_system.base import (
 )
 from osprey_connectors.control_system.limits_validator import ChannelLimitsConfig
 from osprey_connectors.workspace import reset_config_cache
+from pyaml_cs_osprey import _run
 
 RUNTIME_FUNCTIONS = (
     "read_channel",
@@ -36,12 +36,6 @@ RUNTIME_FUNCTIONS = (
     "write_channels",
     "channel_limits",
 )
-
-
-class Clock(Protocol):
-    """A fake clock a write advances by ``FakeRuntime.write_s``."""
-
-    def advance(self, seconds: float) -> None: ...
 
 
 class FakeRuntime:
@@ -55,20 +49,16 @@ class FakeRuntime:
     Failures are injected by setting ``read_error`` / ``write_error`` (raised by every
     read / write), adding an address to ``fail`` (its writes are unconfirmed) or to
     ``refuse`` (its writes are refused as a ``MAX_STEP`` violation when the predicate
-    on the value holds). With a ``clock``, every write advances it by ``write_s``.
-    With ``batch_only``, a single-channel read or write fails the test.
+    on the value holds). With ``batch_only``, a single-channel read or write fails the test.
     """
 
     def __init__(
         self,
         values: dict[str, Any],
         *,
-        clock: Clock | None = None,
         batch_only: bool = False,
     ) -> None:
         self.values = dict(values)
-        self.clock = clock
-        self.write_s = 0.0
         self.batch_only = batch_only
         self.limits: dict[str, ChannelLimitsConfig] = {}
         self.read_error: BaseException | None = None
@@ -104,8 +94,6 @@ class FakeRuntime:
         if self.batch_only:
             raise AssertionError("a device list never writes one channel at a time")
         self.calls.append("write_channel")
-        if self.clock is not None:
-            self.clock.advance(self.write_s)
         self.writes.append((channel_address, value, kwargs))
         if self.write_error is not None:
             raise self.write_error
@@ -133,8 +121,18 @@ class FakeRuntime:
         return self.limits.get(address)
 
     def set(self, address: str, value: Any) -> None:
-        """A guarded device write: journaled, then written."""
-        journaled_write([address], lambda: self.write_channel(address, value))
+        """A pyAML device write: its prior value recorded, then written, inside a run only."""
+
+        def reraise(exc: Exception, *_addresses: Any) -> Exception:
+            return exc
+
+        _run.write(
+            [address],
+            lambda **kwargs: self.write_channel(address, value, **kwargs),
+            reraise,
+            map_read=reraise,
+            confirm=None,
+        )
 
     def install(
         self, monkeypatch: pytest.MonkeyPatch, names: Sequence[str] = RUNTIME_FUNCTIONS
@@ -227,8 +225,8 @@ def guarded_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pa
     """A throwaway deployment repo, the working directory, with no target stamp.
 
     The repo holds its ``profile.yml`` and a render naming a real machine's
-    control system, so an unstamped guarded run is on ``live`` and its lock and
-    durable journal live under ``<tmp>/repo/var/guarded_run/live/``. The config
+    control system, so an unstamped run is on ``live`` and its lock lives under
+    ``<tmp>/repo/var/guarded_run/live/``. The config
     caches are empty going in and coming out, so the render read is this repo's
     and no later test is answered from it.
     """
@@ -247,9 +245,26 @@ def guarded_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pa
     reset_config_cache()
 
 
+class RunRecord:
+    """The process's pyAML run as a test sees it."""
+
+    @property
+    def moved(self) -> dict[str, Any]:
+        """Each written address's value before its first write, in first-write order."""
+        return _run.moved()
+
+
 @pytest.fixture
-def guarded(guarded_repo: Path) -> Iterator[Journal]:  # noqa: ARG001 - the run needs its repo
-    """A journaled guarded run on ``live`` in a throwaway deployment repo, for the test."""
-    with journaled_run("live") as journal:
-        yield journal
-    assert active_journals() == ()
+def guarded(guarded_repo: Path) -> Iterator[RunRecord]:  # noqa: ARG001 - the run needs its repo
+    """A pyAML run under ``live``'s run lock in a throwaway deployment repo, for the test."""
+    with lock("live"), _run.opened("live"):
+        yield RunRecord()
+    assert _run.moved() == {}, "the run ends with the test"
+
+
+@pytest.fixture
+def in_run() -> Iterator[RunRecord]:
+    """A pyAML run open for the test, as a ``run_tool`` call opens it, with no lock taken."""
+    with _run.opened("live"):
+        yield RunRecord()
+    assert _run.moved() == {}, "the run ends with the test"

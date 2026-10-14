@@ -70,7 +70,6 @@ import asyncio
 import atexit
 import dataclasses
 import json
-import math
 import os
 import threading
 import uuid
@@ -79,7 +78,6 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.runtime.guarded_run import (
     GUARDED_RUN_DIR,
-    JOURNAL_FILE_NAME,
     LOCK_FILE_NAME,
     guarded_run_dir,
 )
@@ -110,7 +108,6 @@ __all__ = [
     "ControlTargetChangedError",
     "SwitchInProgressError",
     "GUARDED_RUN_DIR",
-    "JOURNAL_FILE_NAME",
     "LOCK_FILE_NAME",
     "guarded_run_dir",
 ]
@@ -120,12 +117,6 @@ __all__ = [
 #: only writer; ``tests/runtime/test_executor_target_stamp.py`` pins them equal.
 ENV_CONTROL_TARGET = "OSPREY_CONTROL_TARGET"
 ENV_CONTROL_TARGET_GENERATION = "OSPREY_CONTROL_TARGET_GENERATION"
-
-#: The absolute Unix time, in seconds, at which the executor kills this
-#: process. Written by :mod:`osprey.mcp_server.python_executor.executor`, its
-#: only writer, and re-spelled here because the sandbox must not import the
-#: host executor; ``tests/runtime/test_executor_target_stamp.py`` pins it equal.
-ENV_EXECUTION_DEADLINE = "OSPREY_EXECUTION_DEADLINE"
 
 #: Why this process may reach no control system at all, and whether a notebook
 #: cell is open. Both are written by :mod:`osprey.jupyter_kernel`, their only
@@ -143,23 +134,6 @@ INFLIGHT_SURFACE = "notebook_kernel"
 #: How a kernel spells itself as an audit session; a marker's ``kernel_id`` is
 #: what follows the prefix.
 KERNEL_SESSION_PREFIX = "kernel:"
-
-
-def execution_deadline() -> float | None:
-    """The executor's kill time in Unix seconds, from :data:`ENV_EXECUTION_DEADLINE`.
-
-    Returns:
-        The deadline, or ``None`` when the variable is unset, does not parse as
-        a number, or is not finite.
-    """
-    raw = os.environ.get(ENV_EXECUTION_DEADLINE)
-    if raw is None:
-        return None
-    try:
-        deadline = float(raw)
-    except ValueError:
-        return None
-    return deadline if math.isfinite(deadline) else None
 
 
 class ControlTargetChangedError(RuntimeError):

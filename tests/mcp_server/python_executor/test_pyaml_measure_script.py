@@ -4,10 +4,10 @@ The script is executed in-process against a render built in ``tmp_path``.
 pyAML's ``Accelerator``, ``StepMeasurement`` and ``run_tool`` are replaced by
 fakes that record what they are handed, and ``osprey.runtime.channel_limits``
 answers from a dict; the facts record, the digests, the copy and the reference
-grammar are the real ones. One case runs the real ``run_tool`` in a throwaway
-deployment repo, to show a stopped measurement ends the script with its result
-and one restore line. The round-trip cases hand the script's stdout and the
-run's restore reports, as the execution record carries them, to the parser.
+grammar are the real ones. The stop cases run the real ``run_tool`` in a
+throwaway deployment repo, to show a stopped or failed measurement ends the
+script with its result listing every setpoint it moved, and nothing written
+back. The round-trip cases hand the script's stdout to the parser.
 """
 
 from __future__ import annotations
@@ -31,7 +31,6 @@ import osprey.runtime
 import pyaml_cs_osprey.measure as measure_module
 import pyaml_cs_osprey.run_tool as run_tool_module
 from osprey.facility.views.facts import measurement_records
-from osprey.mcp_server.python_executor.executor import _record_reports
 from osprey.mcp_server.python_executor.tools import _pyaml_measure_script as script_module
 from osprey.mcp_server.python_executor.tools._pyaml_measure_result import (
     MeasureResultError,
@@ -43,9 +42,7 @@ from osprey.mcp_server.python_executor.tools._pyaml_measure_script import (
     MeasureScript,
     build_measure_script,
 )
-from osprey.runtime import guarded_run
-from osprey.runtime.guarded_run import RESTORE_REPORT_TAG
-from pyaml_cs_osprey.run_tool import RestoreReport, run_tool
+from pyaml_cs_osprey.run_tool import ToolRun, run_tool
 from tests.pyaml_cs_osprey.conftest import FakeRuntime, guarded_repo  # noqa: F401
 
 #: The real ``run_tool``, which the ``runs`` fixture replaces.
@@ -306,7 +303,7 @@ def runs(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     def fake_run_tool(method: Any, /, *args: Any, callback: Any = None, **kwargs: Any) -> Any:
         calls.append({"method": method, "kwargs": kwargs})
         outcome = method(*args, callback=callback, **kwargs)
-        return RestoreReport(aborted=outcome is False)
+        return ToolRun(completed=outcome is not False, moved={})
 
     monkeypatch.setattr(run_tool_module, "run_tool", fake_run_tool)
     return calls
@@ -380,18 +377,14 @@ def _round_trip(
     stdout: list[str] | None = None,
     **request: Any,
 ) -> dict[str, Any]:
-    """Execute the rendered script; the result the parser reads from its stdout and record.
+    """Execute the rendered script; the result the parser reads from its stdout.
 
-    The reports are the ones this run added to ``guarded_run.restore_reports()``,
-    filed and read back as the execution record carries them. ``stdout`` gets
-    what the script printed there.
+    ``stdout`` gets what the script printed there.
     """
-    before = len(guarded_run.restore_reports())
     captured = _execute(render, execution, capsys, **request)
     if stdout is not None:
         stdout.append(captured.out)
-    record = json.loads(json.dumps({"restore_reports": guarded_run.restore_reports()[before:]}))
-    return parse_measure_result(captured.out, _record_reports(record), request["kind"])
+    return parse_measure_result(captured.out, request["kind"])
 
 
 pytestmark = pytest.mark.usefixtures("holder", "limits", "runs")
@@ -459,10 +452,10 @@ def test_a_view_other_than_the_approved_one_is_refused(render, execution, capsys
     assert runs == []
 
 
-def test_run_tool_is_called_once_at_the_top_level_and_never_inside_a_guarded_run():
+def test_run_tool_is_called_once_at_the_top_level_and_never_inside_a_lock_the_script_takes_itself():
     source = Path(script_module.__file__).read_text(encoding="utf-8")
 
-    assert not re.search(r"journaled_run|lock\(", source)
+    assert not re.search(r"lock\(", source)
     assert source.count("run_tool(") == 1
 
 
@@ -644,28 +637,60 @@ def _stop_after_the_first_magnet(holder: FakeHolder, monkeypatch: pytest.MonkeyP
     return machine
 
 
-def test_a_stopped_measurement_ends_with_its_result_and_one_restore_line(
+def test_a_stopped_measurement_ends_with_its_result_listing_what_it_moved(
     render,
     execution,
     capsys,
     holder,
-    guarded_repo,  # noqa: ARG001, F811 - the guarded run needs its repo
+    guarded_repo,  # noqa: ARG001, F811 - the run lock needs its repo
     monkeypatch,
 ):
     machine = _stop_after_the_first_magnet(holder, monkeypatch)
 
-    stderr: list[str] = []
+    captured = _execute(render, execution, capsys, kind="trm", by="magnet")
 
-    result = _run(render, execution, capsys, kind="trm", by="magnet", stderr=stderr)
-
+    (line,) = [line for line in captured.out.splitlines() if line.startswith(RESULT_TAG + " ")]
+    result = json.loads(line[len(RESULT_TAG) + 1 :])
     assert result["completed"] is False
     assert result["remainder"] == [QUADS[1]]
-    (err,) = stderr
-    (line,) = [line for line in err.splitlines() if line.startswith(RESTORE_REPORT_TAG)]
-    report = json.loads(line[len(RESTORE_REPORT_TAG) + 1 :])
-    assert report["aborted"] is True
-    assert sorted(report["restored"]) == sorted(QUADS)
-    assert machine.values == dict.fromkeys(QUADS, 0.0)
+    assert result["moved"] == [[QUADS[0], 0.0], [QUADS[1], 0.0]]
+    assert "error" not in result
+    assert "GUARDED_RUN_RESTORE" not in captured.out + captured.err
+    assert machine.values == dict.fromkeys(QUADS, 0.5), "nothing is written back"
+
+
+def test_a_tool_that_raises_prints_a_stopped_line_then_fails(
+    render,
+    execution,
+    capsys,
+    holder,
+    guarded_repo,  # noqa: ARG001, F811 - the run lock needs its repo
+    monkeypatch,
+):
+    monkeypatch.setattr(run_tool_module, "run_tool", REAL_RUN_TOOL)
+    machine = FakeRuntime(dict.fromkeys(QUADS, 0.0)).install(
+        monkeypatch, ("read_channels", "write_channel", "channel_limits")
+    )
+
+    def fail_after_the_first_magnet(callback: Any) -> None:
+        machine.set(QUADS[0], 0.5)
+        callback(Action.RESTORE, {"idx": 0, "magnet": QUADS[0], "dtune": [0.1, 0.2]})
+        raise RuntimeError("the tune readback went away\nsecond line")
+
+    holder.trm.on_measure = fail_after_the_first_magnet
+
+    with pytest.raises(RuntimeError, match="the tune readback went away"):
+        _execute(render, execution, capsys, kind="trm", by="magnet")
+
+    out = capsys.readouterr().out
+    (line,) = [line for line in out.splitlines() if line.startswith(RESULT_TAG + " ")]
+    result = json.loads(line[len(RESULT_TAG) + 1 :])
+    assert result["completed"] is False
+    assert result["error"] == "the tune readback went away"
+    assert result["moved"] == [[QUADS[0], 0.0]]
+    assert result["remainder"] == [QUADS[1]]
+    assert parse_measure_result(out, "trm")["error"] == "the tune readback went away"
+    assert machine.values[QUADS[0]] == 0.5
 
 
 # --- a non-finite number never sizes a step ------------------------------------------
@@ -905,12 +930,12 @@ def test_an_unknown_plane_is_refused_by_the_parser_by_name(render, execution, ca
         _round_trip(render, execution, capsys, kind="orm")
 
 
-def test_a_stopped_measurements_printed_result_and_recorded_report_reach_the_parser(
+def test_a_stopped_measurements_printed_result_reaches_the_parser(
     render,
     execution,
     capsys,
     holder,
-    guarded_repo,  # noqa: ARG001, F811 - the guarded run needs its repo
+    guarded_repo,  # noqa: ARG001, F811 - the run lock needs its repo
     monkeypatch,
 ):
     machine = _stop_after_the_first_magnet(holder, monkeypatch)
@@ -920,10 +945,9 @@ def test_a_stopped_measurements_printed_result_and_recorded_report_reach_the_par
     assert result["completed"] is False
     assert result["remainder"] == [QUADS[1]]
     assert result["deltas"] == dict.fromkeys(QUADS, QUAD_DELTA)
-    assert result["restore"]["aborted"] is True
-    assert sorted(result["restore"]["restored"]) == sorted(QUADS)
-    assert not {"observables", "data_file"} & set(result)
-    assert machine.values == dict.fromkeys(QUADS, 0.0)
+    assert result["moved"] == [[QUADS[0], 0.0], [QUADS[1], 0.0]]
+    assert not {"observables", "data_file", "restore"} & set(result)
+    assert machine.values == dict.fromkeys(QUADS, 0.5)
 
 
 def test_a_refusals_printed_line_reads_back_as_the_refusal(render, execution, capsys, runs):

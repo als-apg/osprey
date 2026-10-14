@@ -14,13 +14,14 @@ from osprey.errors import (
     ChannelLimitsViolationError,
     ChannelWriteFailedError,
 )
-from osprey.runtime.journal import Journal, pop_journal, push_journal
-from osprey.runtime.journal import OspreyWriteRefused as RuntimeOspreyWriteRefused
+from osprey.runtime.guarded_run import OspreyWriteRefused as RuntimeOspreyWriteRefused
 from osprey_connectors.control_system.limits_validator import ChannelLimitsConfig
+from pyaml_cs_osprey import _run
 from pyaml_cs_osprey.catalog import parse_reference
 from pyaml_cs_osprey.device import OspreyDevice
 from pyaml_cs_osprey.errors import OspreyReadFailed, OspreyWriteFailed, OspreyWriteRefused
 from tests.pyaml_cs_osprey.conftest import FakeRuntime as _Runtime
+from tests.pyaml_cs_osprey.conftest import RunRecord
 
 RW = "(QF_001:Cm:rdbk, QF_001:Cm:set)[1/m]"
 
@@ -80,9 +81,8 @@ def test_unit_is_the_si_word_of_the_reference_suffix() -> None:
 BPM = "(BPM1:x:rdbk, BPM1:x:set)[mm]"
 
 
-@pytest.mark.usefixtures("guarded")
-def test_device_values_are_si(runtime: _Runtime, guarded: Journal) -> None:
-    """A SPEAR3-style BPM in mm reads, writes and ranges in metres; the journal stays native."""
+def test_device_values_are_si(runtime: _Runtime, in_run: RunRecord) -> None:
+    """A BPM in mm reads, writes and ranges in metres; the recorded value stays native."""
     runtime.values.update({"BPM1:x:set": 2.0, "BPM1:x:rdbk": 1.5})
     runtime.limits["BPM1:x:set"] = ChannelLimitsConfig(
         channel_address="BPM1:x:set", min_value=-4.0, max_value=None, writable=True
@@ -94,7 +94,7 @@ def test_device_values_are_si(runtime: _Runtime, guarded: Journal) -> None:
     assert dev.get_range() == [pytest.approx(-4.0e-3), None]
     dev.set(3.0e-3)
     assert runtime.writes == [("BPM1:x:set", pytest.approx(3.0), {})]
-    assert guarded.values == {"BPM1:x:set": 2.0}
+    assert in_run.moved == {"BPM1:x:set": 2.0}
 
 
 def test_an_unknown_unit_suffix_is_a_pyaml_exception(runtime: _Runtime) -> None:
@@ -161,79 +161,51 @@ def test_availability_is_a_successful_read(runtime: _Runtime) -> None:
 # --- writes -----------------------------------------------------------------
 
 
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_set_writes_the_setpoint(runtime: _Runtime) -> None:
     """set() writes the setpoint address, leaving confirm to the channel default."""
     _device(RW).set(3.0)
     assert runtime.writes == [("QF_001:Cm:set", 3.0, {})]
 
 
-def test_set_outside_a_journaled_run_is_refused(runtime: _Runtime) -> None:
-    """Outside a journaled guarded run a write is refused, reading and writing nothing."""
+def test_set_outside_a_run_tool_call_is_refused(runtime: _Runtime) -> None:
+    """Outside a ``run_tool`` call a write is refused, reading and writing nothing."""
     with pytest.raises(RuntimeOspreyWriteRefused, match="only inside pyaml_measure"):
         _device(RW).set(3.0)
     assert runtime.calls == []
 
 
-def test_set_under_a_pushed_journal_alone_is_refused(runtime: _Runtime) -> None:
-    """A journal pushed without the run lock does not open the guarded run."""
-    journal = push_journal()
-    try:
-        with pytest.raises(RuntimeOspreyWriteRefused, match="only inside pyaml_measure"):
-            _device(RW).set(3.0)
-    finally:
-        pop_journal(journal)
-    assert runtime.calls == []
-    assert journal.values == {}
-
-
-@pytest.mark.usefixtures("guarded")
-def test_set_on_a_setpoint_reading_nan_is_refused_with_the_runtimes_reason(
-    runtime: _Runtime,
+def test_a_nan_before_value_is_recorded_and_the_write_goes_out(
+    runtime: _Runtime, in_run: RunRecord
 ) -> None:
-    """A pre-read with no undo value is the runtime's refusal, named, not "outside a run"."""
+    """A setpoint reading NaN is recorded as it reads; nothing refuses the write."""
     runtime.values["QF_001:Cm:set"] = float("nan")
-    with pytest.raises(OspreyWriteRefused) as info:
-        _device(RW).set(3.0)
-    assert isinstance(info.value, PyAMLException)
-    assert info.value.channel_address == "QF_001:Cm:set"
-    assert str(info.value) == (
-        "OSPREY refused the write to 'QF_001:Cm:set': reads nan before the write, "
-        "so a guarded run could not put it back"
-    )
-    assert runtime.writes == []
+
+    _device(RW).set(3.0)
+
+    (before,) = in_run.moved.values()
+    assert before != before, "recorded as NaN"
+    assert runtime.writes == [("QF_001:Cm:set", 3.0, {})]
 
 
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_set_and_wait_confirms(runtime: _Runtime) -> None:
     """set_and_wait() is a confirmed write."""
     _device(RW).set_and_wait(4.0)
     assert runtime.writes == [("QF_001:Cm:set", 4.0, {"confirm": True})]
 
 
-def test_set_journals_the_prior_setpoint(runtime: _Runtime, guarded: Journal) -> None:
-    """Inside a guard the setpoint before the first write is journaled."""
+def test_set_records_the_prior_setpoint(runtime: _Runtime, in_run: RunRecord) -> None:
+    """Inside a run the setpoint before the first write is recorded, read once."""
     dev = _device(RW)
     dev.set(3.0)
     dev.set(5.0)
-    assert guarded.values == {"QF_001:Cm:set": 1.5}
+    assert in_run.moved == {"QF_001:Cm:set": 1.5}
     assert runtime.batch_reads == [["QF_001:Cm:set"]]
-    assert guarded.max_write_latency is not None
 
 
-@pytest.mark.usefixtures("runtime")
-def test_set_records_into_every_active_journal(guarded: Journal) -> None:
-    """A nested guard journals the same prior setpoint at both levels."""
-    inner = push_journal()
-    try:
-        _device(RW).set(3.0)
-    finally:
-        pop_journal(inner)
-    assert guarded.values == inner.values == {"QF_001:Cm:set": 1.5}
-
-
-@pytest.mark.usefixtures("guarded")
-def test_failed_journal_read_writes_nothing(runtime: _Runtime) -> None:
+@pytest.mark.usefixtures("in_run")
+def test_a_failed_pre_write_read_writes_nothing(runtime: _Runtime) -> None:
     """If the prior setpoint cannot be read the write never happens."""
     runtime.values["QF_001:Cm:set"] = None
     with pytest.raises(OspreyReadFailed) as info:
@@ -242,7 +214,7 @@ def test_failed_journal_read_writes_nothing(runtime: _Runtime) -> None:
     assert runtime.writes == []
 
 
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_limits_refusal_maps_to_write_refused(runtime: _Runtime) -> None:
     """A limits violation becomes OspreyWriteRefused naming the channel."""
     err = ChannelLimitsViolationError(
@@ -258,18 +230,17 @@ def test_limits_refusal_maps_to_write_refused(runtime: _Runtime) -> None:
     assert info.value.__cause__ is err
 
 
-def test_write_failure_maps_to_write_failed(runtime: _Runtime, guarded: Journal) -> None:
-    """A failed write becomes OspreyWriteFailed; its latency is still journaled."""
+def test_write_failure_maps_to_write_failed(runtime: _Runtime, in_run: RunRecord) -> None:
+    """A failed write becomes OspreyWriteFailed; the prior value stays recorded."""
     err = ChannelWriteFailedError("QF_001:Cm:set", "FAILED")
     runtime.write_error = err
     with pytest.raises(OspreyWriteFailed) as info:
         _device(RW).set(3.0)
     assert info.value.__cause__ is err
-    assert guarded.values == {"QF_001:Cm:set": 1.5}
-    assert guarded.max_write_latency is not None
+    assert in_run.moved == {"QF_001:Cm:set": 1.5}
 
 
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_mapped_errors_are_pyaml_exceptions(runtime: _Runtime) -> None:
     """Any write exception surfaces as a PyAMLException."""
     runtime.write_error = RuntimeError("socket closed")
@@ -306,8 +277,8 @@ def test_a_non_numeric_value_is_a_failed_read(runtime: _Runtime) -> None:
     assert _device(RW).check_device_availability() is False
 
 
-@pytest.mark.usefixtures("guarded")
-def test_any_journal_read_error_maps_to_read_failed(
+@pytest.mark.usefixtures("in_run")
+def test_a_pre_write_read_error_maps_to_read_failed(
     runtime: _Runtime, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A pre-read that raises anything (e.g. no connector) writes nothing and is mapped."""
@@ -327,7 +298,7 @@ def test_any_journal_read_error_maps_to_read_failed(
 # --- reference mode -----------------------------------------------------------
 
 
-@pytest.mark.usefixtures("guarded")
+@pytest.mark.usefixtures("in_run")
 def test_a_bare_reference_reads_and_writes_one_address(runtime: _Runtime) -> None:
     """A bare reference's set() writes its one address and get() reads it back."""
     dev = _device("master_clock:freq[Hz]")
@@ -378,14 +349,11 @@ def test_indexed_device_reads_and_refuses_set(monkeypatch: pytest.MonkeyPatch) -
     assert "M@2" in str(short.value) and "length 2" in str(short.value)
     assert OspreyDevice(parse_reference("M@2")).check_device_availability() is False
 
-    journal = push_journal()
-    try:
+    with _run.opened("live"):
         for write in (lambda: dev.set(0.5), lambda: dev.set_and_wait(0.5)):
             with pytest.raises(PyAMLException, match="A@1"):
                 write()
-        assert journal.values == {}
-    finally:
-        pop_journal(journal)
+        assert _run.moved() == {}
 
     assert dev.get_range() == [None, None]
     assert fake.writes == []

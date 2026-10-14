@@ -1,9 +1,9 @@
-"""pyAML writes only inside a journaled guarded run; everywhere else they are refused.
+"""pyAML writes only inside a ``run_tool`` call; everywhere else they are refused.
 
 ``execute`` holds the target's run lock and nothing more, so a pyAML set inside it
-is refused before anything is read or written, even with a journal level pushed by
-hand. The same set inside ``run_tool`` is journaled and written. With no guarded-run
-directory the run stops before the tool is called.
+is refused before anything is read or written. The same set inside ``run_tool``
+has its prior value recorded, then is written. With no guarded-run directory the
+run stops before the tool is called.
 """
 
 from __future__ import annotations
@@ -18,13 +18,8 @@ import pytest
 from pyaml.accelerator import Accelerator
 
 import osprey.runtime
-from osprey.runtime.guarded_run import (
-    JOURNAL_FILE_NAME,
-    GuardedRunDirError,
-    journaled_run,
-    lock,
-)
-from osprey.runtime.journal import pop_journal, push_journal, read_pending_journal
+from osprey.runtime.guarded_run import GuardedRunDirError, lock
+from pyaml_cs_osprey import _run
 from pyaml_cs_osprey.errors import OspreyReadFailed, OspreyWriteRefused
 from pyaml_cs_osprey.run_tool import run_tool
 from tests.pyaml_cs_osprey.conftest import DictConnector
@@ -110,20 +105,6 @@ class TestExecuteIsReadOnly:
         assert connector.reads == []
         assert connector._state[SETPOINT] == 1.0
 
-    def test_a_pushed_journal_level_does_not_let_the_set_through(
-        self, sr: Accelerator, connector: _CountingConnector
-    ) -> None:
-        with lock("live"):
-            journal = push_journal()
-            try:
-                with pytest.raises(OspreyWriteRefused, match="only inside pyaml_measure"):
-                    _strength(sr).set(1.5)
-            finally:
-                pop_journal(journal)
-
-        assert journal.values == {}
-        assert connector.puts == []
-
     def test_a_set_with_no_run_at_all_is_refused_the_same_way(
         self, sr: Accelerator, connector: _CountingConnector
     ) -> None:
@@ -133,24 +114,26 @@ class TestExecuteIsReadOnly:
 
 
 class TestRunToolWrites:
-    """Inside ``run_tool`` the same set is journaled, then written."""
+    """Inside ``run_tool`` the same set has its prior value recorded, then is written."""
 
-    def test_the_set_is_journaled_before_it_is_written(
-        self, sr: Accelerator, connector: _CountingConnector, guarded_repo: Path
+    def test_the_sets_first_value_is_recorded_before_it_is_written(
+        self, sr: Accelerator, connector: _CountingConnector
     ) -> None:
-        journal_path = guarded_repo / "var" / "guarded_run" / "live" / JOURNAL_FILE_NAME
-        journaled: list[dict[str, Any]] = []
+        recorded: list[dict[str, Any]] = []
 
-        def tool() -> None:
-            _strength(sr).set(1.5)
-            pending = read_pending_journal(journal_path)
-            assert pending is not None
-            journaled.append(dict(pending.values))
+        def put(channel_address: str, value: Any) -> None:
+            # The write runs under the run's guard, so the record is read as it stands.
+            assert _run._RUN is not None
+            recorded.append(dict(_run._RUN.moved))
+            _CountingConnector._put(connector, channel_address, value)
 
-        report = run_tool(tool)
+        connector._put = put  # type: ignore[method-assign]
 
-        assert report.aborted is False
-        assert journaled == [{SETPOINT: 1.0}]
+        run = run_tool(lambda: _strength(sr).set(1.5))
+
+        assert run.completed is True
+        assert recorded == [{SETPOINT: 1.0}], "recorded before the put"
+        assert run.moved == {SETPOINT: 1.0}
         assert connector.puts == [(SETPOINT, 1.5)]
 
     def test_no_guarded_run_directory_stops_the_run_before_the_tool(
@@ -180,7 +163,7 @@ class TestRunToolWrites:
     ) -> None:
         connector.read_error = TimeoutError("timed out")
 
-        with journaled_run("live"), pytest.raises(OspreyReadFailed) as info:
+        with lock("live"), _run.opened("live"), pytest.raises(OspreyReadFailed) as info:
             _strength(sr).set(1.5)
 
         assert SETPOINT in str(info.value)

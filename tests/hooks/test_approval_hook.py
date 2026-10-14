@@ -16,9 +16,8 @@ import sys
 
 import pytest
 
-from osprey.runtime.journal import DurableJournal
 from tests._control_context_fixtures import write_control_context, write_server_report
-from tests.runtime._guarded_run_fixtures import (
+from tests._guarded_run import (
     LINKED_DIRECTORY_REFUSAL,
     PLANTED_REFUSAL,
     PLANTED_REFUSED,
@@ -2394,15 +2393,10 @@ def test_an_unreadable_journal_is_denied(tmp_path, hook_runner, make_config):
 
 
 def _killed_run_journal(path, target="va"):
-    """A journal a killed run on *target* left at *path*, written by the product's writer."""
-    journal = DurableJournal(path)
-    try:
-        journal.start(
-            target=target, generation=1, identity="operator", pid=4242, started="2026-10-01"
-        )
-        journal.record("SR:QF:SP", 1.5)
-    finally:
-        journal.close()
+    """A journal a killed run on *target* left at *path*."""
+    header = {"target": target, "generation": 1, "identity": "operator", "pid": 4242}
+    lines = [{"header": header}, {"address": "SR:QF:SP", "value": 1.5}]
+    path.write_bytes(b"".join(json.dumps(line).encode("utf-8") + b"\n" for line in lines))
     return path
 
 

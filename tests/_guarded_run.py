@@ -1,24 +1,21 @@
-"""Shared fixtures of the guarded-run tests: a deployment config, a planted journal, a bound call.
+"""Shared fixtures of the run-lock tests: a deployment config, the lock's path, a held lock.
 
-Every test that binds a call or reads the reports starts from a fresh run state
-(:func:`reset_run_state`), the one place the process's guarded run is kept.
-
-A planted journal is written by the product's own writer
-(:class:`~osprey.runtime.journal.DurableJournal`), so its bytes are the bytes a
-killed run leaves; :func:`plant_raw` is only for content that writer never
-produces.
+Every test that takes the lock in process starts from a fresh run state
+(:func:`reset_run_state`), the one place the process's hold is kept.
 
 :data:`PLANTED_REFUSED` is the one table of what another account can leave at
-the lock's or the journal's name; every opener of the two files, in the
-runtime, the executor and the approval hook, is held to it.
+the lock's name; every opener of the lock file, in the runtime and the approval
+hook, is held to it.
 """
 
 from __future__ import annotations
 
-import hashlib
+import contextlib
 import os
+import subprocess
+import sys
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -26,19 +23,8 @@ import pytest
 import yaml
 
 import osprey.runtime._run_state as _run_state
-import osprey.runtime.guarded_run as guarded_run
-from osprey.runtime.guarded_run import (
-    ENV_APPROVED_JOURNAL_SHA256,
-    ENV_APPROVED_TARGET,
-    JOURNAL_FILE_NAME,
-    guarded_run_dir,
-    lock,
-)
-from osprey.runtime.journal import DurableJournal
-from osprey_connectors.workspace import reset_config_cache
-
-#: The generation this process is stamped with.
-GENERATION = 4
+from osprey.runtime.guarded_run import GUARDED_RUN_DIR, LOCK_FILE_NAME
+from osprey_connectors.workspace import STATE_DIR_NAME, reset_config_cache
 
 #: An ``approval`` block that puts every tool's call to a human.
 ASKING = {"enabled": True, "default_policy": "always"}
@@ -51,8 +37,8 @@ _T = TypeVar("_T")
 #: What every refusal of a planted name ends with.
 FILES_ONLY = "the guarded-run directory holds files only"
 
-#: Everything but a regular file with one name that can sit at the lock's or
-#: the journal's name, and the refusal it meets.
+#: Everything but a regular file with one name that can sit at the lock's name,
+#: and the refusal it meets.
 PLANTED_REFUSAL = {
     "symlink": f"is a link; {FILES_ONLY}",
     "dangling_symlink": f"is a link; {FILES_ONLY}",
@@ -67,16 +53,35 @@ PLANTED_REFUSED = ("symlink", "dangling_symlink", "hard_link", "fifo", "director
 #: The refusal a link at ``guarded_run`` or at the target's directory meets.
 LINKED_DIRECTORY_REFUSAL = "is a link; a guarded-run directory is never a link"
 
+#: The ``started`` a lock held by :func:`held_lock` records.
+HELD_STARTED = "2026-01-01T00:00:00Z"
+
+#: A helper process that holds the run lock at ``argv[1]`` with ``argv[2]`` in
+#: it until its stdin closes, the way a live run holds it; an empty ``argv[3]``
+#: writes ``argv[2]`` as given, else a holder record with the helper's own pid.
+_LOCK_HOLDER = """
+import fcntl, json, os, sys
+fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o664)
+fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+content = sys.argv[2]
+if sys.argv[3]:
+    content = json.dumps({"pid": os.getpid(), "started": sys.argv[3]})
+os.ftruncate(fd, 0)
+os.pwrite(fd, content.encode("utf-8"), 0)
+print("held", flush=True)
+sys.stdin.read()
+"""
+
 
 def reset_run_state(monkeypatch: pytest.MonkeyPatch) -> None:
     """Give this test a fresh run state and lock, put back when it ends."""
-    monkeypatch.setattr(_run_state, "LOCK", threading.RLock())
+    monkeypatch.setattr(_run_state, "LOCK", threading.Lock())
     monkeypatch.setattr(_run_state, "STATE", _run_state.RunState())
 
 
 @pytest.fixture
 def fresh_run_state(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A fresh run state for the test: no call bound, nothing held, no report filed."""
+    """A fresh run state for the test: nothing held."""
     reset_run_state(monkeypatch)
 
 
@@ -89,69 +94,47 @@ def write_config(root: Path, approval: dict[str, Any] | None = ASKING) -> None:
     reset_config_cache()
 
 
-def journal_path(target: str = "live") -> Path:
-    """The journal file of ``target``'s guarded run."""
-    return guarded_run_dir(target) / JOURNAL_FILE_NAME
+def lock_path(target: str = "live", root: Path | None = None) -> Path:
+    """The run lock file of *target* under the repo *root*, the working directory when not given."""
+    base = Path.cwd() if root is None else root
+    return base / STATE_DIR_NAME / GUARDED_RUN_DIR / target / LOCK_FILE_NAME
 
 
-def plant(
-    values: dict[str, Any],
-    *,
-    target: str = "live",
-    generation: int = GENERATION,
-    identity: str = "alice",
-) -> Path:
-    """A journal a killed run on ``target`` left, holding ``values``."""
-    journal = DurableJournal(journal_path(target))
-    try:
-        journal.start(
-            target=target,
-            generation=generation,
-            identity=identity,
-            pid=4242,
-            started="2026-01-01T00:00:00Z",
-        )
-        for address, value in values.items():
-            journal.record(address, value)
-    finally:
-        journal.close()
-    return journal.path
+@contextlib.contextmanager
+def held_lock(
+    target: str = "live", content: str | None = None, *, root: Path | None = None
+) -> Iterator[subprocess.Popen[str]]:
+    """Hold *target*'s run lock from a child process for the body.
 
+    The lock file records *content* as given, or, when it is ``None``, a holder
+    record naming the child's pid and :data:`HELD_STARTED`. The child releases
+    the lock and exits when the body ends.
 
-def plant_raw(lines: Iterable[str], *, target: str = "live") -> Path:
-    """A journal on ``target`` holding exactly ``lines``, for content the writer never produces."""
-    path = journal_path(target)
-    path.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
-    return path
-
-
-def digest(path: Path) -> str:
-    """The sha256 hex digest of the file's bytes."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def approve(
-    monkeypatch: pytest.MonkeyPatch,
-    digest: str | None,
-    target: str | None = "live",
-    tool: str = "execute",
-    *,
-    enter_lock: bool = False,
-) -> None:
-    """Bind a fresh approved ``tool`` call, as the wrapper does before user code.
-
-    ``None`` hands the sandbox no such field. With ``enter_lock`` the call's lock
-    is entered once, as the wrapper does before user code runs.
+    Yields:
+        The child holding the lock.
     """
-    reset_run_state(monkeypatch)
-    if digest is not None:
-        monkeypatch.setenv(ENV_APPROVED_JOURNAL_SHA256, digest)
-    if target is not None:
-        monkeypatch.setenv(ENV_APPROVED_TARGET, target)
-    guarded_run._open_approved_call(tool)
-    if enter_lock:
-        with lock(None):
-            pass
+    path = lock_path(target, root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    started = HELD_STARTED if content is None else ""
+    child = subprocess.Popen(
+        [sys.executable, "-c", _LOCK_HOLDER, str(path), content or "", started],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert child.stdout is not None and child.stdout.readline().strip() == "held"
+        yield child
+    finally:
+        if child.stdin is not None:
+            child.stdin.close()
+        try:
+            child.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+        if child.stdout is not None:
+            child.stdout.close()
 
 
 def plant_kind(path: Path, kind: str, victim: Path) -> None:

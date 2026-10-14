@@ -19,13 +19,12 @@ from osprey.runtime import ENV_CONTROL_TARGET
 from osprey.runtime.guarded_run import (
     GUARDED_RUN_DIR,
     GUARDED_RUN_DIR_MODE,
-    JOURNAL_FILE_NAME,
     LOCK_FILE_NAME,
     GuardedRunDirError,
     guarded_run_dir,
     guarded_run_target,
 )
-from tests.runtime._guarded_run_fixtures import LINKED_DIRECTORY_REFUSAL, link_directory
+from tests._guarded_run import LINKED_DIRECTORY_REFUSAL, link_directory
 
 #: A deployment whose own control system is the Virtual Accelerator.
 VA_BASELINE = {"type": "virtual_accelerator", "connector": {"virtual_accelerator": {"port": 1}}}
@@ -48,8 +47,7 @@ def _host_repo(root: Path, control_system: dict, monkeypatch: pytest.MonkeyPatch
 
 def test_the_exported_names() -> None:
     assert GUARDED_RUN_DIR == "guarded_run"
-    assert LOCK_FILE_NAME != JOURNAL_FILE_NAME
-    assert "/" not in LOCK_FILE_NAME and "/" not in JOURNAL_FILE_NAME
+    assert LOCK_FILE_NAME == "run.lock"
 
 
 def test_a_host_layout_without_var_gets_it_created(

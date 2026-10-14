@@ -29,8 +29,7 @@ The checks:
 * the view's configuration resolves under ``<render>/data/pyaml/`` (symlinks
   followed) and exists;
 * the execution timeout (``python_executor.execution_timeout_seconds``) is a
-  finite positive number, since the measurement's deadline guard needs a
-  deadline to stop before.
+  finite positive number: the executor kills the measurement at that time.
 """
 
 from __future__ import annotations
@@ -145,8 +144,7 @@ def _timeout(timeout: object) -> float:
         or timeout <= 0
     ):
         _refuse(
-            f"{TIMEOUT_KEY} is {timeout!r}; a measurement needs a finite, positive timeout "
-            "so its deadline guard can stop and restore before the run is killed",
+            f"{TIMEOUT_KEY} is {timeout!r}; a measurement needs a finite, positive timeout",
             f"Set {TIMEOUT_KEY} to a positive number of seconds.",
         )
     return float(timeout)

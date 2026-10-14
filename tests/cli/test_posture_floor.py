@@ -47,7 +47,6 @@ from osprey.cli.build_posture_check import (
     ask_capable,
     check_approval_enabled,
     check_approval_hook_selected,
-    check_guarded_tool_policies,
     effective_policy,
     missing_posture_errors,
 )
@@ -424,34 +423,6 @@ class TestApprovalHookSelected:
         with pytest.raises(FacilityBuildError) as stop:
             check_approval_hook_selected(rendered, [])
         assert "under `approval.default_policy`" in stop.value.format_message()
-
-
-class TestGuardedToolPolicies:
-    """A guarded tool skips approval only when single writes skip it too."""
-
-    def test_prompting_guarded_tools_pass(self) -> None:
-        check_guarded_tool_policies(_rendered(approval=_approval(execute="selective")))
-
-    def test_a_skipped_guarded_tool_stops_naming_both_keys(self) -> None:
-        rendered = _rendered(approval=_approval(pyaml_measure="skip"))
-        with pytest.raises(FacilityBuildError) as stop:
-            check_guarded_tool_policies(rendered)
-        assert stop.value.kind == "profile-invalid"
-        assert stop.value.record_id == "approval.tools.pyaml_measure"
-        assert "approval.tools.channel_write" in stop.value.format_message()
-
-    def test_a_skip_default_names_the_default(self) -> None:
-        rendered = _rendered(approval={**_approval(execute="selective"), "default_policy": "skip"})
-        with pytest.raises(FacilityBuildError) as stop:
-            check_guarded_tool_policies(rendered)
-        assert stop.value.record_id == "approval.default_policy"
-        assert "approval.tools.channel_write" in stop.value.format_message()
-
-    def test_skip_everywhere_passes(self) -> None:
-        rendered = _rendered(
-            approval=_approval(channel_write="skip", execute="skip", pyaml_measure="skip")
-        )
-        check_guarded_tool_policies(rendered)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
