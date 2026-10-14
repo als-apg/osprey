@@ -25,6 +25,7 @@ pytest.importorskip("at")
 import numpy as np
 
 from osprey.facility.errors import FacilityBuildError
+from osprey.facility.views import pyaml as pyaml_view
 from osprey.facility.views.pyaml import (
     CONFIGURATION_FILE,
     TRAJECTORY_RM_FILE,
@@ -121,9 +122,11 @@ def test_a_model_not_measuring_the_kind_gets_neither_file(tmp_path: Path) -> Non
 
 
 def test_two_builds_of_equal_sources_write_equal_bytes(
-    view: tuple[Path, list[Path]], tmp_path: Path
+    view: tuple[Path, list[Path]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     first, _ = view
+    # Solved afresh, so the bytes compared are two solves', not one solve's twice.
+    monkeypatch.setattr(pyaml_view, "_SOLVED", {})
     second, _ = write_view(tmp_path, trajectory_tree())
     for name in MODELS:
         for file in (TRAJECTORY_RM_FILE, TRAJECTORY_RM_INDEX_FILE):
@@ -375,6 +378,33 @@ def test_a_failure_that_is_no_refusal_is_not_turned_into_a_stop(
     inputs = view_inputs(tmp_path, trajectory_tree(), ["LINE"])
     with pytest.raises(RuntimeError, match="a defect"):
         write_pyaml_view(tmp_path / "render" / "data" / "pyaml", inputs)
+
+
+def test_a_render_of_inputs_already_solved_is_not_solved_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every render of one build asks for the same response; an edited deck is solved afresh."""
+    solved: list[str] = []
+    real = engine.response_matrix
+
+    def counted(*args: Any, **kwargs: Any) -> Any:
+        solved.append(Path(args[0]).name)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(engine, "response_matrix", counted)
+    inputs = view_inputs(tmp_path, trajectory_tree(), ["LINE"])
+    first = tmp_path / "first"
+    write_pyaml_view(first, inputs)
+    write_pyaml_view(tmp_path / "second", inputs)
+    assert solved == ["line.json"]
+    assert (first / "LINE" / TRAJECTORY_RM_FILE).read_bytes() == (
+        tmp_path / "second" / "LINE" / TRAJECTORY_RM_FILE
+    ).read_bytes()
+
+    deck = inputs.facility_dir / "decks" / "line.json"
+    deck.write_text(deck.read_text("utf-8") + "\n", encoding="utf-8")
+    write_pyaml_view(tmp_path / "third", inputs)
+    assert solved == ["line.json", "line.json"]
 
 
 def _answer(**changed: Any) -> Any:

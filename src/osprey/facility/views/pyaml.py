@@ -45,6 +45,8 @@ between its files are relative, and equal sources and configs give equal bytes.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -878,6 +880,43 @@ def hardware_width(record: Mapping[str, Any], delta: float) -> float:
     return width
 
 
+#: Trajectory responses already solved in this process, by :func:`_solved_response`'s key.
+_SOLVED: dict[tuple[Any, ...], Any] = {}
+
+#: The most responses :data:`_SOLVED` holds; the oldest is dropped past it.
+_SOLVED_LIMIT = 16
+
+
+def _solved_response(
+    solve: Any,
+    deck: Path,
+    wiring: Sequence[Mapping[str, Any]],
+    settings: Any,
+    correctors: Sequence[str],
+    steps: Mapping[str, float],
+) -> Any:
+    """``solve``'s trajectory response, solved once per distinct input.
+
+    The response is a function of the solve, the deck's bytes, the wiring,
+    the settings, the correctors and their steps, and every render of one
+    build asks for it with the same ones; the key holds all of them, so an
+    edited deck or record is solved afresh. A refusal is not kept.
+    """
+    key = (
+        solve,
+        hashlib.sha256(deck.read_bytes()).hexdigest() if deck.is_file() else str(deck),
+        json.dumps([wiring, settings], sort_keys=True, default=repr),
+        tuple(correctors),
+        tuple(sorted(steps.items())),
+    )
+    if key not in _SOLVED:
+        answer = solve(deck, wiring, settings, list(correctors), steps, kind=_RESPONSE_KIND)
+        if len(_SOLVED) >= _SOLVED_LIMIT:
+            del _SOLVED[next(iter(_SOLVED))]
+        _SOLVED[key] = answer
+    return _SOLVED[key]
+
+
 def _trajectory_files(
     inputs: ViewInputs, record: Mapping[str, Any], hcor: Sequence[str], vcor: Sequence[str]
 ) -> dict[str, str]:
@@ -965,15 +1004,9 @@ def _trajectory_files(
         )
 
     refusals = (ValueError, *getattr(engine, "SOLVE_ERRORS", ()))
+    deck = inputs.facility_dir / str(record["deck"])
     try:
-        answer = solve(
-            inputs.facility_dir / str(record["deck"]),
-            wiring,
-            record.get("settings"),
-            list(correctors),
-            steps,
-            kind=_RESPONSE_KIND,
-        )
+        answer = _solved_response(solve, deck, wiring, record.get("settings"), correctors, steps)
     except FacilityBuildError:
         raise
     except refusals as exc:
