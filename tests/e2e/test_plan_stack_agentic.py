@@ -4240,9 +4240,12 @@ ABORT_PLAN_POINTS = 8000
 #: Points for the re-arm twin's SETUP plan. This one is aborted by the test
 #: itself over raw HTTP within seconds of the run reporting ``running``, so
 #: it only has to outlive the abort's own pause-poll composition (~10 s) —
-#: and the agent's restart then re-runs the SAME plan to completion, so it
-#: must stay short enough to wait out: ~50 s at the measured pace.
-REARM_PLAN_POINTS = 900
+#: and the agent's restart then re-runs the SAME plan to completion inside
+#: ``REARM_RUN_TIMEOUT_SEC``. A sweep of a storage-ring corrector runs at
+#: about 2 points/s on a CI runner, so the restart takes about 150 s, under
+#: half the wait, and the setup plan outlives the abort even at many times
+#: that pace.
+REARM_PLAN_POINTS = 300
 
 #: How long a protocol-started plan may take to reach ``running`` — covers
 #: the manager handing the item to the worker, not the plan's own duration.
