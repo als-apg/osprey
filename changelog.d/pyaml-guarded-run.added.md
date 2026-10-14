@@ -1,15 +1,16 @@
-A pyAML write outside a journaled guarded run, `execute` included, is refused as
+A pyAML write outside a `run_tool` call, `execute` included, is refused as
 `OspreyWriteRefused` ("pyAML writes run only inside pyaml_measure") before
 anything is read or written.
 
-`pyaml_cs_osprey.run_tool.run_tool` calls a pyAML tool method inside
-`journaled_run` on the process's control target: a second run on the target is
-refused busy before the tool starts, each setpoint is journaled before its first
-write, `journaled_run` writes back a tool that stops part-way and prints the
-guarded run's one `OSPREY_GUARDED_RUN_RESTORE` line on stderr, for a stopped
-tool as for a completed one, and a killed run is written back by the next
-guarded run. Under `OSPREY_EXECUTION_DEADLINE` a tool that takes a
-callback is stopped while the write-back still fits before the sandbox is killed.
+`pyaml_cs_osprey.run_tool.run_tool` calls a pyAML tool method under the
+target's run lock, joining the lock the process already holds: a second run on
+the target is refused busy before the tool starts, each setpoint's value is
+recorded before its first write, and the call returns a `ToolRun` whose `moved`
+lists every setpoint it moved with its value before the call; an escaping
+exception carries the same list as `moved_setpoints`. Nothing is written back.
+A Ctrl-C stops every tool of the run that takes a callback, in any thread,
+through pyAML's own abort path. A run that reaches the execution timeout is
+killed like any other, with no early stop.
 
 `pyaml_cs_osprey.measure.StepMeasurement` measures what pyAML's own tools step
 only bipolar or one magnet at a time: a unipolar orbit response with a step per

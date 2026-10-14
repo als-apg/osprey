@@ -6,8 +6,9 @@ device. The solve runs in a sandbox child stopped at the executor's timeout.
 
 A new tool on the `python` server, `pyaml_measure(kind, model, correctors, modulation,
 by)`, measures an orbit, dispersion, tune or chromaticity response, or the chromaticity,
-with pyAML on the control target. Every write runs inside one guarded run that writes
-back what a stopped run moved, each step is sized so no setpoint's largest single write
+with pyAML on the control target. Every write holds the control target's run lock; a
+stopped or failed run leaves its setpoints where it stopped and lists each with its
+value before the call, each step is sized so no setpoint's largest single write
 exceeds half its limits.yaml `max_step`, and the run starts only on the pyAML view the
 build recorded and the approval prompt showed. A group stepped as one knob is stepped
 unipolar and moves every member by the same integrated strength, sized so the tune or
