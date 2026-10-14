@@ -142,6 +142,7 @@ _WIRING_ENTRY_KEYS = (
     "role",
     "plane",
     "refresh",
+    "command",
 )
 
 #: The file a model record comes from when no source states it.
@@ -155,12 +156,15 @@ def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, A
     carries and, for a physics model, the ``role``, ``plane`` and ``refresh``
     its engine's ``describe()`` states; where the wired channel is a
     waveform, the entry adds the channel's ``value_type`` and ``shape``. A key
-    the record lacks is absent from its entry.
+    the record lacks is absent from its entry. The entry of a record the
+    engine marks a command carries ``command: true``; no other entry has the
+    key.
 
     Each description is checked against the facility file: a ``write``
-    record is a ``setpoint``; a record whose address is the pair of a
-    setpoint is a ``readback``; a record naming no element and no slices is
-    an ``output``.
+    record is a ``setpoint``, marked a command or not; a read record may be a
+    ``turn_series``; any other record whose address is the pair of a
+    setpoint is a ``readback``, and any other naming no element and no
+    slices is an ``output``. Only a ``write`` record is a command.
 
     Args:
         facility: The in-memory facility file.
@@ -185,10 +189,13 @@ def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, A
             wiring: list[dict[str, Any]] = []
             for record in records:
                 source = dict(record)
+                source.pop(_COMMAND_MARK, None)
                 if describe is not None:
                     description = describe(record)
                     _check_description(entry, record, description, pairs)
                     source.update({key: description[key] for key in _DESCRIPTION_KEYS})
+                    if description.get(_COMMAND_MARK) is True:
+                        source[_COMMAND_MARK] = True
                 wiring.append(
                     {
                         **{
@@ -205,6 +212,13 @@ def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, A
 
 #: The keys an engine's description gives a wiring entry.
 _DESCRIPTION_KEYS = ("role", "plane", "refresh")
+
+#: The key an engine's description carries, ``True``, for a command alone;
+#: the entry of that record carries it too.
+_COMMAND_MARK = "command"
+
+#: The role a read record holding one sample per turn is described with.
+_TURN_SERIES = "turn_series"
 
 
 def _describer(model: Mapping[str, Any]) -> Callable[[Any], Mapping[str, Any]]:
@@ -277,8 +291,20 @@ def _check_description(
     from osprey.facility.validate import stating_files
 
     address = str(record["address"])
-    if record.get("direction") == "write":
+    written = record.get("direction") == "write"
+    if description.get(_COMMAND_MARK) is True and not written:
+        raise FacilityBuildError(
+            "engine-invalid",
+            str(model["name"]),
+            stating_files(model, None, fallback=_MODELS_FILE),
+            "make the engine's describe() mark write records alone as commands",
+            record_kind="model",
+            detail=f"the engine marks {address} a command; it is none: its direction is read",
+        )
+    if written:
         expected, why = "setpoint", "its direction is write"
+    elif description.get("role") == _TURN_SERIES:
+        return
     elif address in pairs:
         expected, why = "readback", "a setpoint pairs with it"
     elif record.get("element") is None and not record.get("slices"):

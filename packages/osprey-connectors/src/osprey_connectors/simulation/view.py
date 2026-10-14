@@ -88,8 +88,9 @@ SCHEMAS: Mapping[str, str] = MappingProxyType(
 #: The engine of the model that serves every channel no physics model wires.
 TEXTURE = "texture"
 
-#: The roles a wiring record's description names.
-ROLES = ("setpoint", "readback", "monitor", "output")
+#: The roles a wiring record's description names; a ``turn_series`` holds one
+#: sample per turn, or the state of taking them.
+ROLES = ("setpoint", "readback", "monitor", "output", "turn_series")
 #: The planes a wiring record's description names; ``None`` is no plane.
 PLANES = ("x", "y")
 #: The refresh a wiring record's description names: ``pass`` with each
@@ -101,6 +102,10 @@ NO_VIEW_MESSAGE = "no simulator view at {path}: run osprey build"
 
 #: The keys a wiring record's description adds.
 _DESCRIPTION_KEYS = ("role", "plane", "refresh")
+
+#: The key a wiring record carries, ``true``, when it is a command; a record
+#: that is none has no such key.
+_COMMAND_MARK = "command"
 
 
 class NoSimulatorView(LookupError):
@@ -201,9 +206,11 @@ class Binding:
         model: The model the record belongs to.
         address: The channel address the record serves.
         direction: ``write`` or ``read``.
-        role: ``setpoint``, ``readback``, ``monitor`` or ``output``. A
-            ``readback`` reads an element's setting, paired with a setpoint
-            or not; the setpoint channel's ``pair`` names its readback.
+        role: ``setpoint``, ``readback``, ``monitor``, ``output`` or
+            ``turn_series``. A ``readback`` reads an element's setting,
+            paired with a setpoint or not; the setpoint channel's ``pair``
+            names its readback. A ``turn_series`` is never a ``monitor``,
+            whatever element it names.
         plane: ``x`` or ``y`` for a record steering or reading one transverse
             plane, else ``None``.
         refresh: ``pass`` or ``periodic``.
@@ -211,6 +218,9 @@ class Binding:
             slices, or none).
         record: The wiring record as the view states it, read-only; the
             engine's ``build`` takes it verbatim.
+        command: Whether the record is a command: a setpoint whose write
+            acts and holds no setting. ``False`` for a record stating no
+            mark.
     """
 
     id: str
@@ -222,6 +232,7 @@ class Binding:
     refresh: str
     element: str | None
     record: Mapping[str, Any]
+    command: bool = False
 
     @classmethod
     def from_record(cls, model: str, record: Mapping[str, Any]) -> Binding:
@@ -247,6 +258,7 @@ class Binding:
             refresh=record["refresh"],
             element=record.get("element"),
             record=MappingProxyType(copy.deepcopy(dict(record))),
+            command=record.get(_COMMAND_MARK) is True,
         )
 
 
