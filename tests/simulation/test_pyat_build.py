@@ -7,6 +7,7 @@ facility file, over the deck that model names.
 
 from __future__ import annotations
 
+import copy
 import subprocess
 import sys
 from typing import Any
@@ -67,7 +68,9 @@ def monitors(demo: dict[str, Any]) -> list[str]:
     return [
         item["address"]
         for item in demo["wiring"]
-        if "axis" in item["engine"] and "attribute" not in item["engine"]
+        if "axis" in item["engine"]
+        and "attribute" not in item["engine"]
+        and "series" not in item["engine"]
     ]
 
 
@@ -105,9 +108,12 @@ class TestFaultVariables:
         }
 
         roster = engine.fault_variables(demo["wiring"])
+        addressed = {name: slot for name, slot in roster.items() if slot.address is not None}
 
-        assert sorted(roster) == sorted(declared)
-        for name, slot in roster.items():
+        assert sorted(addressed) == sorted(declared)
+        assert set(roster) - set(addressed) == set(pyat_faults.MODEL_WIDE_FAULTS)
+        assert not set(pyat_faults.MODEL_WIDE_FAULTS) & set(model.supported_variables)
+        for name, slot in addressed.items():
             assert name == f"{slot.address}/{slot.field}"
             bounds = getattr(declared[name], "value_range", None)
             assert slot.value_range == (None if bounds is None else tuple(bounds))
@@ -156,9 +162,29 @@ class TestActiveScenario:
         with pytest.raises(ValueError, match="NOT:A:CHANNEL"):
             build(demo, {"NOT:A:CHANNEL": 1.0})
 
-    def test_an_unstable_active_scenario_raises_the_solve_error(self, demo):
+    def test_an_unstable_active_scenario_builds_a_ring_without_a_closed_orbit(self, demo):
+        model = build(demo, {QUADRUPOLE: entry(demo, QUADRUPOLE)["default"] * 50.0})
+
+        assert model.no_closed_orbit
+        assert engine.condition(model)[0] == engine.NO_CLOSED_ORBIT
+
+    def test_an_unstable_active_scenario_raises_the_solve_error_without_injection(self, demo):
+        settings = copy.deepcopy(demo["settings"])
+        del settings["pyat"]["injection"]
+        wiring = [
+            item
+            for item in demo["wiring"]
+            if ":TBT:" not in item["address"] and ":INJECTION:" not in item["address"]
+        ]
+
         with pytest.raises(OrbitSolveError):
-            build(demo, {QUADRUPOLE: entry(demo, QUADRUPOLE)["default"] * 50.0})
+            engine.build(
+                MODEL,
+                wiring,
+                demo["deck"],
+                settings,
+                {QUADRUPOLE: entry(demo, QUADRUPOLE)["default"] * 50.0},
+            )
 
 
 class TestDeckCopy:

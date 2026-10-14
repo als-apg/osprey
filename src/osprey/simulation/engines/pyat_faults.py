@@ -36,8 +36,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from osprey.simulation.engines.calibration import Linear, to_hardware, to_physics
 from osprey.simulation.engines.calibration import field as _slot
-from osprey.simulation.engines.calibration import to_hardware, to_physics
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Mapping
@@ -92,6 +92,10 @@ POLARITY_OPTIONS: tuple[float, float] = (-1.0, 1.0)
 
 #: The subkey that makes a reading's noise stream its own.
 NOISE_SUBKEY = b":readout_noise"
+
+#: The subkey of a turn series' noise, which the shot count is appended to: a
+#: stream per series and shot, apart from the address's per-read one.
+SHOT_NOISE_SUBKEY = b":shot_noise:"
 
 _AXES = ("x", "y")
 
@@ -225,27 +229,108 @@ def supply_calibration(element: Any, setpoint: str) -> dict[str, float]:
 class FaultSlot:
     """One fault a model declares: the wired address it perturbs and the field.
 
+    A model-wide fault perturbs no one address: its ``address`` is ``None``
+    and its ``field`` is the fault's whole name.
+
     Attributes:
-        address: The wired address.
+        address: The wired address, or ``None`` for a model-wide fault.
         field: The fault field, such as ``offset`` or ``cal_factor``.
         value_range: The inclusive ``(min, max)`` a value must lie in, or
             ``None`` where only well-formedness bounds it.
         options: The exact values a value must equal one of, or ``None``
             where the field is not an enumeration.
-        element: The element the address is wired to (its first slice's).
+        element: The element the address is wired to (its first slice's);
+            ``None`` for a model-wide fault.
     """
 
-    address: str
+    address: str | None
     field: str
     value_range: tuple[float, float] | None
     options: tuple[float, ...] | None = None
     element: str | None = None
 
 
+#: The model-wide fault that seeds every misalignment draw: a whole number,
+#: 0 when a scenario states none.
+MISALIGNMENT_SEED = "misalignment_seed"
+MAX_MISALIGNMENT_SEED = float(2**53)
+
+#: The magnet classes a misalignment sigma selects, each by its word.
+MISALIGNED_MAGNETS: tuple[str, ...] = ("quadrupole", "sextupole", "dipole")
+
+#: What a misaligned magnet is moved in: ``dx`` and ``dy`` in metres, ``roll``
+#: in radians about the beam axis.
+MISALIGNMENT_FIELDS: tuple[str, ...] = ("dx", "dy", "roll")
+
+#: The aperture shapes a model-wide fault states, each by its two half-axes.
+APERTURE_SHAPES: tuple[str, ...] = ("elliptical", "rectangular")
+
+#: The smallest aperture half-axis, in metres: an aperture is never closed.
+MIN_APERTURE_HALF_AXIS_M = 1.0e-6
+
+
+def misalignment_sigma(magnet: str, field: str) -> str:
+    """The model-wide fault naming one magnet class's sigma in one field.
+
+    Args:
+        magnet: One of :data:`MISALIGNED_MAGNETS`.
+        field: One of :data:`MISALIGNMENT_FIELDS`.
+
+    Returns:
+        ``<magnet>_<field>_sigma``.
+    """
+    return f"{magnet}_{field}_sigma"
+
+
+def aperture_half_axis(shape: str, axis: str) -> str:
+    """The model-wide fault naming one half-axis of one aperture shape, in metres.
+
+    Args:
+        shape: One of :data:`APERTURE_SHAPES`.
+        axis: ``x`` or ``y``.
+
+    Returns:
+        ``aperture_<shape>_<axis>``.
+    """
+    return f"aperture_{shape}_{axis}"
+
+
+def _model_wide() -> dict[str, FaultSlot]:
+    bounds: dict[str, tuple[float, float]] = {MISALIGNMENT_SEED: (0.0, MAX_MISALIGNMENT_SEED)}
+    for magnet in MISALIGNED_MAGNETS:
+        for field in MISALIGNMENT_FIELDS:
+            bounds[misalignment_sigma(magnet, field)] = (0.0, math.inf)
+    for shape in APERTURE_SHAPES:
+        for axis in ("x", "y"):
+            bounds[aperture_half_axis(shape, axis)] = (MIN_APERTURE_HALF_AXIS_M, math.inf)
+    return {name: FaultSlot(None, name, bounds[name]) for name in sorted(bounds)}
+
+
+#: Every model-wide fault, by name: the misalignment seed, a sigma per magnet
+#: class and field, and the two half-axes of each aperture shape. None is a
+#: variable of a built model: a model is built at them and holds them for its
+#: whole lifetime.
+MODEL_WIDE_FAULTS: dict[str, FaultSlot] = _model_wide()
+
+
 def _first_element(record: Any) -> str | None:
     slices = _slot(record, "slices")
     element = _slot(slices[0], "element") if slices else _slot(record, "element")
     return None if element is None else str(element)
+
+
+def is_series_record(record: Any) -> bool:
+    """Whether a wiring record's engine block carries ``series``.
+
+    Such a record is a buffer of one reading per tracked sample, never an
+    orbit monitor, though it names a monitor element and an ``axis``.
+    """
+    return carries_series(_slot(record, "engine"))
+
+
+def carries_series(holder: Any) -> bool:
+    """Whether an engine block, or a variable built from one, carries ``series``."""
+    return _slot(holder, "series") is not None
 
 
 def fault_variables(wiring: Iterable[Any]) -> dict[str, FaultSlot]:
@@ -256,8 +341,12 @@ def fault_variables(wiring: Iterable[Any]) -> dict[str, FaultSlot]:
     ``polarity`` on its own axis, the first readback of each element and axis
     only; each monitor element carries one ``roll``, on its x-axis readback or
     else its first one. A setpoint (``direction: write``) on ``PolynomB`` or
-    ``KickAngle`` carries ``cal_factor`` and ``cal_offset``. Nothing is
-    imported and no deck is read.
+    ``KickAngle`` carries ``cal_factor`` and ``cal_offset``. A record whose
+    engine block carries ``series`` declares none and is no monitor readback.
+
+    Every model declares the model-wide faults of :data:`MODEL_WIDE_FAULTS`
+    too, whatever its wiring: each is named flat, with no address and no
+    separator. Nothing is imported and no deck is read.
 
     Args:
         wiring: The model's wiring records, each with its ``direction``.
@@ -265,7 +354,7 @@ def fault_variables(wiring: Iterable[Any]) -> dict[str, FaultSlot]:
     Returns:
         Fault name -> its slot, sorted by name.
     """
-    slots: dict[str, FaultSlot] = {}
+    slots: dict[str, FaultSlot] = dict(MODEL_WIDE_FAULTS)
     monitors: dict[str, dict[str, str]] = {}
 
     def declare(address: str, field: str, element: str) -> None:
@@ -281,7 +370,7 @@ def fault_variables(wiring: Iterable[Any]) -> dict[str, FaultSlot]:
         attribute = _slot(block, "attribute")
         axis = _slot(block, "axis")
         element = _first_element(record)
-        if element is None:
+        if element is None or is_series_record(record):
             continue
         if attribute is None and axis in _AXES:
             monitors.setdefault(element, {}).setdefault(str(axis), address)
@@ -321,7 +410,11 @@ built, so the map is too; a rebuilt model is a new key."""
 
 
 def _monitors(model: Any) -> dict[str, dict[str, _Plane]]:
-    """Each monitor element's planes, axis -> plane, from the model's variables."""
+    """Each monitor element's planes, axis -> plane, from the model's variables.
+
+    A variable carrying ``series`` is a buffer of tracked samples and no plane
+    of a monitor.
+    """
     cached = _MONITORS.get(model)
     if cached is not None:
         return cached
@@ -329,6 +422,8 @@ def _monitors(model: Any) -> dict[str, dict[str, _Plane]]:
     for address, variable in model.supported_variables.items():
         axis = getattr(variable, "axis", None)
         element = getattr(variable, "element_name", None)
+        if carries_series(variable):
+            continue
         if not getattr(variable, "read_only", False) or axis not in _AXES or element is None:
             continue
         monitors.setdefault(str(element), {})[axis] = _Plane(
@@ -440,13 +535,136 @@ def readout(model: Any, values: Mapping[str, float], t_ms: int | float) -> dict[
     return read
 
 
+def samples_to_hardware(
+    calibration: Calibration | None, inverse: Calibration | None, physics: Any
+) -> Any:
+    """Finite samples in the deck's unit, mapped to hardware units sample by sample.
+
+    The vector form of :func:`~osprey.simulation.engines.calibration.to_hardware`:
+    a linear calibration with no stated inverse is undone in one array
+    operation.
+
+    Args:
+        calibration: Hardware to physics; ``None`` for no calibration.
+        inverse: Physics back to hardware, or ``None`` where none is stated.
+        physics: The samples, in the deck's unit.
+
+    Returns:
+        A float64 array the length of ``physics``.
+    """
+    import numpy as np
+
+    if calibration is None and inverse is None:
+        return np.asarray(physics, dtype=np.float64)
+    if inverse is None and isinstance(calibration, Linear) and calibration.gain != 0.0:
+        return (physics - calibration.offset) / calibration.gain
+    return np.array(
+        [to_hardware(calibration, inverse, float(value)) for value in physics], dtype=np.float64
+    )
+
+
+def _samples_to_published(plane: _Plane | None, physics: Any) -> Any:
+    """Finite samples in the deck's unit, in the unit ``plane`` publishes."""
+    if plane is None:
+        return physics
+    return samples_to_hardware(plane.calibration, plane.inverse, physics)
+
+
+def _samples_to_physics(plane: _Plane | None, published: Any) -> Any:
+    """Finite samples in the unit ``plane`` publishes, in the deck's unit."""
+    import numpy as np
+
+    if plane is None or plane.calibration is None:
+        return published
+    if isinstance(plane.calibration, Linear):
+        return published * plane.calibration.gain + plane.calibration.offset
+    return np.array(
+        [to_physics(plane.calibration, float(value)) for value in published], dtype=np.float64
+    )
+
+
+def shot_read(
+    model: Any,
+    monitor: str,
+    axis: str,
+    x: Any,
+    y: Any,
+    *,
+    address: str,
+    shot: int,
+    first: int,
+) -> Any:
+    """What one monitor reports, on one axis, of the positions a shot tracked at it.
+
+    The chain is :func:`readout`'s, one sample at a time: the roll turns the
+    tracked pair in the deck's unit, and the element's other readout
+    attributes then act on the sample in the unit the monitor's orbit reading
+    of that axis publishes, the unit they are stated in. The result is handed
+    back in the deck's unit, so the same physical fault reaches a series
+    whatever unit its own record publishes. An axis with no orbit reading
+    takes its attributes in the deck's unit.
+
+    The noise is a pure function of ``address``, ``shot`` and the sample's
+    index, never of a time: a series' samples are drawn once, when its shot is
+    tracked. A sample that is NaN on either tracked axis stays NaN, and a
+    monitor that carries no fault returns the tracked axis untouched.
+
+    Args:
+        model: The model the monitor belongs to, as :func:`readout` takes it.
+        monitor: The monitor element's name.
+        axis: ``x`` or ``y``.
+        x: The tracked horizontal positions, one per sample, in the deck's unit.
+        y: The tracked vertical positions, sample for sample with ``x``.
+        address: The series' address, which keys its noise.
+        shot: The count of the shot that tracked the samples.
+        first: The index, in the series, of the first sample given.
+
+    Returns:
+        The samples of ``axis`` as the monitor reports them, in the deck's
+        unit: a float64 array the length of ``x``.
+    """
+    import numpy as np
+
+    faults = _readout_faults(model.simulator.element(monitor))
+    roll = faults.pop(ROLL)
+    mine = {field: faults[f"{field}_{axis}"] for field in READOUT_IDENTITY}
+    pair: tuple[Any, Any] = (np.asarray(x, dtype=np.float64), np.asarray(y, dtype=np.float64))
+    samples = np.array(pair[_AXES.index(axis)], dtype=np.float64)
+    if roll == ROLL_IDENTITY and mine == READOUT_IDENTITY:
+        return samples
+    seen = ~(np.isnan(pair[0]) | np.isnan(pair[1]))
+    read = np.full(samples.shape, np.nan, dtype=np.float64)
+    if not seen.any():
+        return read
+    position: Any = samples[seen]
+    if roll != ROLL_IDENTITY:
+        position = rolled(pair[0][seen], pair[1][seen], roll)[_AXES.index(axis)]
+    plane = _monitors(model).get(monitor, {}).get(axis)
+    published = _samples_to_published(plane, position)
+    noise: Any = 0.0
+    if mine["noise"] != 0.0:
+        from osprey_connectors.simulation.series import channel_key_bytes, keyed_normals
+
+        key = channel_key_bytes(address) + SHOT_NOISE_SUBKEY + str(int(shot)).encode("ascii")
+        indexes = first + np.flatnonzero(seen)
+        noise = mine["noise"] * keyed_normals(key, indexes)
+    # bpm_read's order: offset, polarity, noise, then the gain.
+    reading = ((published - mine["offset"]) * mine["polarity"] + noise) * mine["gain"]
+    read[seen] = _samples_to_physics(plane, reading)
+    return read
+
+
 __all__ = [
     "READOUT_IDENTITY",
     "SUPPLY_IDENTITY",
     "bpm_read",
+    "carries_series",
+    "is_series_record",
     "magnet_cal",
     "readout",
     "rolled",
+    "samples_to_hardware",
+    "shot_read",
     "supply_attribute",
     "supply_calibration",
 ]

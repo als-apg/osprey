@@ -44,6 +44,15 @@ for that setpoint: a family supply and a trim on one of its magnets, or the
 two planes of one corrector, are each miscalibrated alone, and a fault on one
 never rescales what another delivers.
 
+**A model with an injection tolerates a lost closed orbit.** A ``periodic``
+model handed an ``injection`` is solved by
+:class:`~osprey.simulation.engines.pyat_tolerant.TolerantPeriodicSimulator`:
+a write that leaves the lattice without a closed orbit commits, every monitor
+reading, optics array and chromaticity reads NaN, and
+:attr:`PyATLatticeModel.no_closed_orbit` is true until a later solve finds a
+closed orbit again. A ``periodic`` model without one refuses that write and
+rolls it back; a ``single_pass`` model refuses a lost particle either way.
+
 **Optics are read-only arrays, computed on read.** ``tunes`` (the fractional
 tunes: the two transverse ones, and the synchrotron tune third on a deck with
 longitudinal motion), ``chromaticity`` (one per tune), ``beta_at_monitors``
@@ -60,6 +69,33 @@ served from memory until the next. The chromaticity needs a chromatic solve,
 far dearer than the linear pass, so it has a memo of its own and is solved
 only for a read that names it.
 
+**A shot is a command, and commits with its batch.** A model wires the shot
+as records naming no element: any number of ``arm`` commands, which all set
+one armed flag; ``inject`` requests; ``armed`` readings of that flag; and
+turn series, each one coordinate of one monitor per tracked sample. A write
+of 1 to an ``arm`` command arms. A write that raises a request above the
+last value the model saw is one shot: the shot count advances, and if the
+flag is set one particle is tracked from the injection through the lattice
+as the batch's setpoints left it, every series is refilled, and the flag is
+cleared; unarmed, every series keeps what it held. The track runs after the
+batch's solve, and the series, the flag, the count and the last request
+seen change only when the batch commits, so a refused batch leaves all four
+alone. A write of a request's default is never a shot, and neither is
+:meth:`PyATLatticeModel.reset`, which returns all four to rest.
+
+**A series holds one launch.** The samples before the launch, and every
+sample no turn was tracked for, are zero. A tracked sample is lost when its
+``x`` is NaN: ``x`` and ``y`` read NaN there and ``sum`` reads 0; every
+other tracked sample passes its record's calibration, ``sum`` from 1.
+
+**A series is read by its monitor.** A tracked position takes the readout
+faults its monitor's element carries, the ones the monitor's orbit reading
+takes, at the same physical size whatever unit the series publishes
+(:func:`~osprey.simulation.engines.pyat_faults.shot_read`); ``sum`` takes
+none. The noise is drawn once, when the shot is tracked, per series, shot
+count and sample, so a series reads the same until the next shot refills it
+and a fault written afterwards reaches the next shot only.
+
 Declared defaults are recorded as the retained input values at construction
 but are not written to the lattice, so the lattice boots exactly as handed
 over; :meth:`reset` writes them back through the calibrations. This module
@@ -69,18 +105,25 @@ never touches a control system and never raises ``SystemExit``.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import at
 import numpy as np
 from lume.actions import ReadOnlyActionMixin, WritableActionMixin
 from lume.variables import ConfigEnum, ScalarVariable
-from lume_pyat.actions import ElementBinding, PyATWritableScalarVariable
+from lume_pyat.actions import ElementBinding, PyATWritableScalarVariable, SnapshotTarget
 from lume_pyat.exceptions import UnknownElementError
 from lume_pyat.model import LUMEPyATModel
 from lume_pyat.simulator import PyATSimulator
-from pydantic import ConfigDict
+from pydantic import ConfigDict, model_validator
 
+from osprey.simulation.engines.calibration import (
+    Calibration,
+    check_inverse,
+    curve_from_record,
+)
+from osprey.simulation.engines.calibration import field as slot
 from osprey.simulation.engines.pyat import SOLVES
 from osprey.simulation.engines.pyat_faults import (
     CALIBRATED_ATTRIBUTES,
@@ -91,9 +134,12 @@ from osprey.simulation.engines.pyat_faults import (
     ROLL,
     ROLL_IDENTITY,
     SUPPLY_IDENTITY,
+    samples_to_hardware,
+    shot_read,
     supply_attribute,
 )
 from osprey.simulation.engines.pyat_single_pass import SinglePassSimulator
+from osprey.simulation.engines.pyat_tolerant import TolerantPeriodicSimulator
 from osprey.simulation.engines.pyat_variables import (
     CalibratedSetpoint,
     EnergyVariable,
@@ -113,9 +159,12 @@ __all__ = [
     "OPTICS_NAMES",
     "ORBIT_AT_MONITORS",
     "TUNES",
+    "ArmedVariable",
     "ArrayReadbackVariable",
+    "CommandVariable",
     "PyATLatticeModel",
     "ReadbackVariable",
+    "SeriesVariable",
 ]
 
 # Element-attribute prefix of a readout fault. No pyAT pass method reads an
@@ -141,6 +190,17 @@ PLANE_OPTICS: frozenset[str] = frozenset({TUNES, CHROMATICITY})
 
 #: The two solves: a closed orbit, and one tracked pass through a line.
 PERIODIC, SINGLE_PASS = SOLVES
+
+#: The two commands of a shot: ``arm`` sets the armed flag, ``inject``
+#: requests a launch.
+ARM, INJECT = "arm", "inject"
+
+#: What a turn series holds of its monitor per tracked sample: a transverse
+#: position, or the share of the launched charge that passed.
+SERIES_AXES: tuple[str, ...] = ("x", "y", "sum")
+
+#: The value an ``arm`` command arms with.
+_ARMING = 1.0
 
 FaultVariable = PyATWritableScalarVariable | PyATWritableEnumVariable
 
@@ -316,6 +376,205 @@ class ArrayReadbackVariable(PyATReadOnlyNDVariable):
     source: str
 
 
+class CommandVariable(WritableActionMixin[PyATSimulator], ScalarVariable):
+    """A command of the shot: a write the model acts on, bound to no element.
+
+    Nothing of the lattice changes when it is written, so it has nothing to
+    snapshot and nothing to roll back; the model reads what the write means
+    off the batch. A read answers the value last written.
+
+    Attributes:
+        command: ``arm`` or ``inject``.
+        element_name: Always ``None``, so a model's per-element binding check
+            has nothing to resolve.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    command: str
+    element_name: None = None
+
+    @model_validator(mode="after")
+    def _check_the_command(self) -> CommandVariable:
+        """Refuse a command the shot does not have, or one with no rest value."""
+        if self.command not in (ARM, INJECT):
+            raise ValueError(f"command {self.name} is {self.command!r}; use {ARM} or {INJECT}")
+        if self.default_value is None:
+            raise ValueError(
+                f"command {self.name} needs a default_value: it is what reset() writes back"
+            )
+        return self
+
+    def snapshot_targets(self, simulator: PyATSimulator) -> list[SnapshotTarget]:  # noqa: ARG002
+        """Nothing: a command writes no attribute of the lattice."""
+        return []
+
+    def _get(self, simulator: PyATSimulator) -> float:
+        """Refuse. The owning model answers with the value last written.
+
+        Raises:
+            NotImplementedError: always.
+        """
+        raise NotImplementedError(
+            f"{self.name!r} is a command; read it through the model that declares it"
+        )
+
+    def _set(self, simulator: PyATSimulator, value: Any) -> None:
+        """Write nothing: the owning model acts on the batch that carries the command."""
+
+
+class ArmedVariable(ReadOnlyActionMixin[PyATSimulator], ScalarVariable):
+    """A reading of the model's armed flag: 1 while a shot will fill the series, else 0.
+
+    Attributes:
+        element_name: Always ``None``, so a model's per-element binding check
+            has nothing to resolve.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    element_name: None = None
+    read_only: bool = True
+
+    def _get(self, simulator: PyATSimulator) -> float:
+        """Refuse. The owning model holds the flag, not the variable.
+
+        Raises:
+            NotImplementedError: always.
+        """
+        raise NotImplementedError(
+            f"{self.name!r} reads the armed flag; read it through the model that declares it"
+        )
+
+
+class SeriesVariable(PyATReadOnlyNDVariable):
+    """A turn series: one coordinate of one monitor per tracked sample.
+
+    The model that declares it fills it with a shot and serves it on read. A
+    position is tracked in metres and published through the record's
+    calibration, by the rule a monitor reading follows.
+
+    Attributes:
+        monitor: The monitor element the samples are read at.
+        axis: ``x`` or ``y``, the position; or ``sum``, 1 for a sample the
+            particle reached.
+        series: What one sample is taken per: ``turn``.
+        calibration: Hardware to physics; ``None`` when the published unit is
+            the tracked one.
+        inverse: Physics back to hardware, or ``None`` where the record states
+            none.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    monitor: str
+    axis: str
+    series: str
+    calibration: Calibration | None = None
+    inverse: Calibration | None = None
+
+    @model_validator(mode="after")
+    def _check_the_series(self) -> SeriesVariable:
+        """Refuse an unknown axis, a shape of more than one length, or no way back."""
+        if self.axis not in SERIES_AXES:
+            raise ValueError(
+                f"turn series {self.name} names axis {self.axis!r}; use one of {list(SERIES_AXES)}"
+            )
+        if len(self.shape) != 1:
+            raise ValueError(
+                f"turn series {self.name} has shape {tuple(self.shape)}; a series is one length"
+            )
+        check_inverse(self.calibration, self.inverse)
+        return self
+
+    @classmethod
+    def from_wiring(cls, record: Any, samples: int) -> SeriesVariable:
+        """Build the series one wiring record describes.
+
+        Args:
+            record: The wiring record: ``address``, ``element`` (or the first
+                of its ``slices``), the engine block's ``axis`` and
+                ``series``, ``unit`` and ``calibration`` (``curve``,
+                ``inverse``).
+            samples: The samples the series holds.
+
+        Returns:
+            The variable.
+
+        Raises:
+            ValueError: the record names no element or an axis that is none of
+                :data:`SERIES_AXES`, or its calibration has no way back to
+                hardware units.
+        """
+        address = str(slot(record, "address"))
+        slices = slot(record, "slices")
+        element = slot(slices[0], "element") if slices else slot(record, "element")
+        if element is None:
+            raise ValueError(f"turn series {address} names no monitor element")
+        block = slot(record, "engine")
+        calibration = slot(record, "calibration")
+        return cls(
+            name=address,
+            shape=(samples,),
+            monitor=str(element),
+            axis=str(slot(block, "axis")),
+            series=str(slot(block, "series")),
+            unit=slot(record, "unit"),
+            calibration=curve_from_record(slot(calibration, "curve")),
+            inverse=curve_from_record(slot(calibration, "inverse")),
+        )
+
+
+@dataclass
+class _Shot:
+    """What a batch leaves of the shot state once it commits.
+
+    Attributes:
+        armed: The armed flag.
+        count: The shots taken since the model was last at rest.
+        seen: Each request's last written value.
+        buffers: Every series' samples, or ``None`` to keep the ones held.
+        track: Whether the batch tracks a shot, which then fills ``buffers``.
+    """
+
+    armed: bool
+    count: int
+    seen: dict[str, float]
+    buffers: dict[str, np.ndarray] | None = None
+    track: bool = False
+
+
+def _check_series(channels: Iterable[Variable], injection: Any) -> int:
+    """The samples every turn series among ``channels`` holds; zero with none.
+
+    Raises:
+        ValueError: a model with a turn series has no injection, its series
+            differ in length, or one cannot hold a sample after the
+            injection's pre-trigger samples.
+    """
+    series = [variable for variable in channels if isinstance(variable, SeriesVariable)]
+    if not series:
+        return 0
+    if injection is None:
+        raise ValueError(
+            f"turn series {series[0].name} is on a model with no injection; a series is "
+            "filled by a particle launched at one"
+        )
+    lengths = {int(variable.shape[0]) for variable in series}
+    if len(lengths) > 1:
+        raise ValueError(
+            f"the model's turn series hold {sorted(lengths)} samples; every turn series of "
+            "a model holds the same number"
+        )
+    samples = lengths.pop()
+    if samples <= injection.pre_trigger_samples:
+        raise ValueError(
+            f"the model's turn series hold {samples} samples; a series holds the "
+            f"{injection.pre_trigger_samples} samples before the launch and at least one after"
+        )
+    return samples
+
+
 def _check_readbacks(channels: Iterable[Variable], planes: int, solve: str) -> None:
     """Refuse a readback whose source the model does not serve.
 
@@ -420,6 +679,7 @@ class PyATLatticeModel(LUMEPyATModel):
         element_misalignments: Mapping[str, Mapping[str, float]] | None = None,
         solve: str = PERIODIC,
         twiss_in: Mapping[str, np.ndarray] | None = None,
+        injection: Any = None,
     ) -> None:
         """Adopt the wired variables, declare their faults, and solve once.
 
@@ -441,20 +701,25 @@ class PyATLatticeModel(LUMEPyATModel):
                 tracks one pass through a line from ``twiss_in``.
             twiss_in: pyAT's initial conditions, as ``prepare`` normalises
                 them; read by a ``single_pass`` model only.
+            injection: Where a tracked particle is launched, as ``prepare``
+                normalises it, or ``None``. A ``periodic`` model that has one
+                tolerates a lost closed orbit: its solve never refuses, and
+                :attr:`no_closed_orbit` says when the lattice has none.
 
         Raises:
             ValueError: a seed names a fault the model does not declare, a
                 fault or optics name is already a channel address, ``solve``
                 is neither of its two values, a ``single_pass`` model has no
-                ``twiss_in``, or a single-pass readback reads the tunes or
-                the chromaticity.
+                ``twiss_in``, a single-pass readback reads the tunes or
+                the chromaticity, or a turn series has no ``injection`` to be
+                filled from or a length unlike the model's other series.
             pydantic.ValidationError: a seed lies outside its field's bounds,
                 or a polarity seed is neither of its two values.
             UnknownElementError: a variable binds an element the lattice does
                 not have.
             OrbitSolveError: the lattice as handed over, with its
-                misalignments, has no stable closed orbit, or loses the
-                single-pass particle.
+                misalignments, has no stable closed orbit and the model has
+                no ``injection``, or loses the single-pass particle.
         """
         if solve not in SOLVES:
             raise ValueError(f"solve is {solve!r}; use {' or '.join(SOLVES)}")
@@ -480,6 +745,7 @@ class PyATLatticeModel(LUMEPyATModel):
             )
         planes = tune_planes(lattice)
         _check_readbacks(channels, planes, solve)
+        samples = _check_series(channels, injection)
         optics = _optics_variables(len(monitors), planes, solve)
         _refuse_name_collisions(channels, [*declared, *optics])
         _seed_fault_attributes(lattice, declared)
@@ -492,15 +758,20 @@ class PyATLatticeModel(LUMEPyATModel):
             if element_misalignments is None
             else {name: dict(kwargs) for name, kwargs in element_misalignments.items()}
         )
-        simulator = (
-            PyATSimulator(lattice, element_misalignments=misalignments)
-            if solve == PERIODIC
-            else SinglePassSimulator(
+        simulator: PyATSimulator
+        if solve == SINGLE_PASS:
+            simulator = SinglePassSimulator(
                 lattice,
                 twiss_in=twiss_in,  # type: ignore[arg-type]
                 element_misalignments=misalignments,
             )
-        )
+        elif injection is not None:
+            simulator = TolerantPeriodicSimulator(lattice, element_misalignments=misalignments)
+        else:
+            simulator = PyATSimulator(lattice, element_misalignments=misalignments)
+        # Read by _read_outputs, which the base constructor already calls.
+        self._pending_shot: _Shot | None = None
+        self._restoring = False
         super().__init__(simulator=simulator, action_variables=variables)
 
         #: The variables this model declares that no channel addresses: the
@@ -511,6 +782,8 @@ class PyATLatticeModel(LUMEPyATModel):
         self._fault_names: frozenset[str] = frozenset(fault.name for fault in declared)
         #: ``periodic`` or ``single_pass``.
         self.solve: str = solve
+        #: Where a tracked particle is launched, or ``None``.
+        self.injection: Any = injection
         self._optics_names: frozenset[str] = frozenset(variable.name for variable in optics)
 
         # Sorted by lattice index, so row i of every per-monitor optics array
@@ -536,6 +809,56 @@ class PyATLatticeModel(LUMEPyATModel):
         self._optics_memo: _OpticsMemo | None = None
         self._chromaticity_memo: _ChromaticityMemo | None = None
 
+        self._commands: dict[str, str] = {
+            variable.name: variable.command
+            for variable in channels
+            if isinstance(variable, CommandVariable)
+        }
+        #: Each request's default, the value it has been seen at while at rest.
+        self._requests: dict[str, float] = {
+            variable.name: float(variable.default_value)  # type: ignore[arg-type]
+            for variable in channels
+            if isinstance(variable, CommandVariable) and variable.command == INJECT
+        }
+        self._armed_names: frozenset[str] = frozenset(
+            variable.name for variable in channels if isinstance(variable, ArmedVariable)
+        )
+        self._series: dict[str, SeriesVariable] = {
+            variable.name: variable for variable in channels if isinstance(variable, SeriesVariable)
+        }
+        self._samples = samples
+        #: Each series monitor's index in the lattice.
+        self._series_index: dict[str, int] = {
+            monitor: self.element_index(monitor)
+            for monitor in sorted({variable.monitor for variable in self._series.values()})
+        }
+        rest = self._shot_at_rest()
+        self._armed: bool = rest.armed
+        self._shot_count: int = rest.count
+        self._seen: dict[str, float] = rest.seen
+        self._buffers: dict[str, np.ndarray] = rest.buffers or {}
+
+    @property
+    def armed(self) -> bool:
+        """Whether the next shot fills the turn series."""
+        return self._armed
+
+    @property
+    def shot_count(self) -> int:
+        """The shots taken since the model was last at rest, tracked or not."""
+        return self._shot_count
+
+    @property
+    def no_closed_orbit(self) -> bool:
+        """Whether the lattice as it stands has no closed orbit.
+
+        Only a ``periodic`` model with an ``injection`` can be in that state;
+        every other model refuses the write that would lead to it. While it
+        holds, every monitor reading, the optics arrays and the chromaticity
+        are NaN. It ends with the first solve that finds a closed orbit.
+        """
+        return bool(getattr(self.simulator, "no_closed_orbit", False))
+
     def _set(self, values: dict[str, Any]) -> None:
         """Apply a batch atomically, its faults before its channel variables.
 
@@ -544,16 +867,144 @@ class PyATLatticeModel(LUMEPyATModel):
         and :meth:`reset`, which names every writable -- writes the
         calibration first, whatever order the mapping gives. Each part keeps
         its own order.
+
+        A batch that raises a request is one shot, taken after the batch's
+        solve from the lattice the batch left. What the batch makes of the
+        armed flag, the shot count, the last request seen and the series is
+        worked out beside the write and adopted only once the write has
+        committed, so a refused batch changes none of them.
         """
         faults = {name: value for name, value in values.items() if name in self._fault_names}
         rest = {name: value for name, value in values.items() if name not in self._fault_names}
-        super()._set({**faults, **rest})
+        self._pending_shot = self._shot_after(values)
+        try:
+            super()._set({**faults, **rest})
+            shot = self._pending_shot
+        finally:
+            self._pending_shot = None
+        self._armed, self._shot_count, self._seen = shot.armed, shot.count, shot.seen
+        if shot.buffers is not None:
+            self._buffers = shot.buffers
+
+    def reset(self) -> None:
+        """Write every writable's default back, and return the shot to rest.
+
+        One atomic batch, as the base class describes. No shot is taken: the
+        armed flag is cleared, the shot count is zero, every series is zero
+        and each request has been seen at its default.
+
+        Raises:
+            OrbitSolveError: the default configuration has no stable solve.
+                The lattice and the shot state are left as they were.
+        """
+        self._restoring = True
+        try:
+            super().reset()
+        finally:
+            self._restoring = False
+
+    # -- the shot: commands, the armed flag and the turn series -------------
+
+    def _shot_at_rest(self) -> _Shot:
+        """The shot state of a model no command has reached."""
+        return _Shot(
+            armed=False,
+            count=0,
+            seen=dict(self._requests),
+            buffers={name: np.zeros(self._samples, dtype=np.float64) for name in self._series},
+        )
+
+    def _shot_after(self, values: Mapping[str, Any]) -> _Shot:
+        """The shot state ``values`` leads to, before any of it is tracked.
+
+        An ``arm`` command written 1 arms, whatever its place in the batch. A
+        request written above the value last seen, and not at its default, is
+        one shot; every written request is seen.
+        """
+        if self._restoring:
+            return self._shot_at_rest()
+        shot = _Shot(armed=self._armed, count=self._shot_count, seen=dict(self._seen))
+        fired = 0
+        for name, value in values.items():
+            command = self._commands.get(name)
+            if command == ARM and float(value) == _ARMING:
+                shot.armed = True
+            elif command == INJECT:
+                if float(value) > shot.seen[name] and float(value) != self._requests[name]:
+                    fired += 1
+                shot.seen[name] = float(value)
+        if fired:
+            shot.count += fired
+            shot.track = shot.armed
+            shot.armed = False
+        return shot
+
+    def _track_shot(self, count: int) -> dict[str, np.ndarray]:
+        """Every series, filled by one particle tracked from the injection.
+
+        A periodic model tracks the lattice from its marker, one sample per
+        turn until the series is full; a single-pass model tracks its line
+        once, for one sample. The samples before the launch, and any after
+        the last tracked one, are zero.
+
+        A position is read by its monitor before its record publishes it, with
+        the readout faults the monitor's element carries as the batch left
+        them; the noise is drawn for shot ``count``.
+
+        Raises:
+            Whatever pyAT raises for a lattice it cannot track.
+        """
+        buffers = {name: np.zeros(self._samples, dtype=np.float64) for name in self._series}
+        if not buffers:
+            return buffers
+        first = int(self.injection.pre_trigger_samples)
+        order = sorted(self._series_index, key=self._series_index.__getitem__)
+        if self.solve == SINGLE_PASS:
+            lattice, turns = self.lattice, 1
+            indexes = [self._series_index[monitor] for monitor in order]
+        else:
+            start = int(self.injection.index)
+            lattice, turns = self.lattice.rotate(start), self._samples - first
+            order.sort(key=lambda monitor: (self._series_index[monitor] - start) % len(lattice))
+            indexes = [(self._series_index[monitor] - start) % len(lattice) for monitor in order]
+        launch = np.array(self.injection.launch, dtype=np.float64).reshape(6, 1)
+        tracked, _, _ = at.lattice_track(
+            lattice, launch, nturns=turns, refpts=np.array(indexes, dtype=np.uint32), losses=True
+        )
+        column = {monitor: place for place, monitor in enumerate(order)}
+        for name, variable in self._series.items():
+            x = tracked[0, 0, column[variable.monitor], :]
+            passed = ~np.isnan(x)
+            if variable.axis == "sum":
+                physics, lost = np.ones(turns, dtype=np.float64), 0.0
+            else:
+                physics, lost = (
+                    shot_read(
+                        self,
+                        variable.monitor,
+                        variable.axis,
+                        x,
+                        tracked[2, 0, column[variable.monitor], :],
+                        address=name,
+                        shot=count,
+                        first=first,
+                    ),
+                    np.nan,
+                )
+            samples = np.full(turns, lost, dtype=np.float64)
+            samples[passed] = samples_to_hardware(
+                variable.calibration, variable.inverse, physics[passed]
+            )
+            buffers[name][first : first + turns] = samples
+        return buffers
 
     # -- the optics arrays, which bind no element and are read on demand ----
 
     def _validate_binding(self, name: str, variable: Variable) -> None:
-        """Check a variable's binding; an optics array or a readback binds none."""
-        if isinstance(variable, (PyATReadOnlyNDVariable, ReadbackVariable)):
+        """Check a variable's binding; an optics array, a readback and the shot's bind none."""
+        if isinstance(
+            variable, (PyATReadOnlyNDVariable, ReadbackVariable, CommandVariable, ArmedVariable)
+        ):
             return
         super()._validate_binding(name, variable)
 
@@ -563,14 +1014,22 @@ class PyATLatticeModel(LUMEPyATModel):
         This runs after every solve, so leaving the optics out is what keeps a
         setpoint write from paying for them; :meth:`_get` computes them, and
         every readback, when one is read.
+
+        A batch that takes an armed shot tracks it here: after the batch's
+        solve, and inside the write the base class rolls back on any failure.
         """
-        return {
+        outputs = {
             name: variable._get(self.simulator)
             for name, variable in self.supported_variables.items()
             if not isinstance(
-                variable, (WritableActionMixin, PyATReadOnlyNDVariable, ReadbackVariable)
+                variable,
+                (WritableActionMixin, PyATReadOnlyNDVariable, ReadbackVariable, ArmedVariable),
             )
         }
+        shot = self._pending_shot
+        if shot is not None and shot.track:
+            shot.buffers = self._track_shot(shot.count)
+        return outputs
 
     def _get(self, names: list[str]) -> dict[str, Any]:
         """Return one value per name, in the order asked.
@@ -579,11 +1038,29 @@ class PyATLatticeModel(LUMEPyATModel):
         copies, so a caller that edits one cannot alter what the next read
         returns; the chromatic solve runs only when ``names`` holds
         ``chromaticity`` or a readback of it. A readback is computed from its
-        source. Everything else is the base class's cached answer.
+        source. A turn series is a copy of what the last tracked shot left,
+        and an armed reading is the flag, 1 or 0. Everything else is the base
+        class's cached answer.
 
         Raises:
             UnknownElementError: a name is not a variable of this model.
         """
+        if any(name in self._series or name in self._armed_names for name in names):
+            others = self._get(
+                [
+                    name
+                    for name in names
+                    if name not in self._series and name not in self._armed_names
+                ]
+            )
+            return {
+                name: self._buffers[name].copy()
+                if name in self._series
+                else float(self._armed)
+                if name in self._armed_names
+                else others[name]
+                for name in names
+            }
         readbacks = {name: self._readbacks[name] for name in names if name in self._readbacks}
         wanted = {name for name in names if name in self._optics_names}
         wanted.update(
@@ -635,7 +1112,8 @@ class PyATLatticeModel(LUMEPyATModel):
         to a later solve.
 
         A single-pass model's beta functions are the ones its solve
-        propagated from ``twiss_in``, and it has no tunes.
+        propagated from ``twiss_in``, and it has no tunes. A lattice with no
+        closed orbit has no optics either: every array is NaN.
 
         Raises:
             OrbitSolveError: no solve has succeeded yet.
@@ -644,6 +1122,15 @@ class PyATLatticeModel(LUMEPyATModel):
         if self._optics_memo is not None and self._optics_memo[0] is solution:
             return self._optics_memo[1]
         orbit = np.array([solution[element] for element in self._monitor_order], dtype=np.float64)
+        if self.no_closed_orbit:
+            # pyAT raises on a lattice with no closed orbit, so it is not asked.
+            optics = {
+                TUNES: np.full((self._planes,), np.nan, dtype=np.float64),
+                BETA_AT_MONITORS: np.full((len(self._monitor_order), 2), np.nan, dtype=np.float64),
+                ORBIT_AT_MONITORS: orbit.reshape(len(self._monitor_order), 2),
+            }
+            self._optics_memo = (solution, optics)
+            return optics
         if self.solve == SINGLE_PASS:
             optics = {
                 BETA_AT_MONITORS: np.array(
@@ -668,7 +1155,8 @@ class PyATLatticeModel(LUMEPyATModel):
 
         Keyed on the simulator's last solution exactly as :meth:`_optics` is,
         and kept apart from it, so a read of the linear optics never pays for
-        the chromatic solve.
+        the chromatic solve. A lattice with no closed orbit has no
+        chromaticity: both planes are NaN.
 
         Raises:
             OrbitSolveError: no solve has succeeded yet.
@@ -676,6 +1164,10 @@ class PyATLatticeModel(LUMEPyATModel):
         solution = self.simulator.last_solution
         if self._chromaticity_memo is not None and self._chromaticity_memo[0] is solution:
             return self._chromaticity_memo[1]
+        if self.no_closed_orbit:
+            chromaticity = np.full((self._planes,), np.nan, dtype=np.float64)
+            self._chromaticity_memo = (solution, chromaticity)
+            return chromaticity
         _, lattice_data, _ = at.get_optics(self.lattice, get_chrom=True)
         chromaticity = np.array(lattice_data.chromaticity[: self._planes], dtype=np.float64)
         self._chromaticity_memo = (solution, chromaticity)
