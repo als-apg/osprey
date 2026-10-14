@@ -127,15 +127,17 @@ a modelled column; a group with an unmodelled member has none, and its group
 step is refused.
 
 The run starts only on the view the build recorded and the approval prompt
-showed (``approved_view_sha256``), and every write runs inside one guarded run:
-a run that stops part-way is written back before the call returns. The result
+showed (``approved_view_sha256``), and every write runs under the target's run
+lock; nothing is written back. The result
 names every row, column and step by address and device id and carries the
 view's ``sha256``, the ``shape``, ``data_file`` and ``artifact_id``. The file
 saved is the one the run left in its own execution folder under the script's
 fixed name; a run that names any other file saves nothing, answers
-``data_file`` as ``null`` and says why in ``data_file_refused``. A stopped
-run carries its ``remainder`` and the ``restore`` report, taken from the run's
-execution record and never from a line the script printed. A refusal means no
+``data_file`` as ``null`` and says why in ``data_file_refused``. Every result
+carries ``moved``, each setpoint the call moved as ``{address, device, before}``
+with its value before the call; a stopped run also carries its ``remainder``
+and, when an error stopped it, ``error``; a killed run's failure names
+``written_channels``. A refusal means no
 setpoint moved; a completed run whose result cannot be read answers
 ``execution_error`` with the saved measurement named in ``details.data_file``,
 never a refusal.

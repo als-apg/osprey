@@ -5,19 +5,17 @@ Guarded Run Contract
 ====================
 
 A guarded run is the lock a read-write ``execute`` or ``execute_file`` run and
-a ``pyaml_measure`` run hold on their control target, and the journal a
-``pyaml_measure`` run keeps of each setpoint it displaces, so a run that dies
-half way is put back by the next. No other write path takes part.
+a ``pyaml_measure`` run hold on their control target, so two runs never drive
+one machine at once. No other write path takes part.
 :ref:`Guarded Runs <architecture-safety-chain-guarded-run>` places it among
 the write paths and says what it does not cover. This page is the exact
-behaviour: where the lock and the journal live, what the journal holds, when
-a restore writes and when it refuses, and the lines a run prints.
+behaviour: where the lock lives, who holds it, what a second run is told, and
+what a stopped run leaves.
 
-Every write of a guarded run is an ordinary write. It goes through the
+Every write made under the lock is an ordinary write. It goes through the
 connector like any other, so the kill switch, the limits check and the
 control-target check of :doc:`/architecture/safety-chain` all apply to it. The
-guarded run adds a lock and a journal around those writes; it replaces none of
-them.
+lock adds no check of its own to those writes; it replaces none of them.
 
 One run per target
 ==================
@@ -35,138 +33,78 @@ on the same target, of either kind, is refused before it starts, with the
 process id of the holder and the time it took the lock. A read-only run is
 refused before the lock is taken.
 
-A process has one guarded run. The lock it holds, the journal it has open and
-the call it was approved for belong to the process, not to the thread that
-took them: a thread or task the run starts runs under it, and its writes go
-into the same journal. Asking for the lock again from inside the process is
-refused like any other second run. A process holds the lock of one target at
-a time; asking for another target's lock while it holds one is refused before
-anything is opened:
+Who holds it
+============
+
+- A read-write ``execute`` or ``execute_file`` run takes the lock before its
+  code starts and releases it after its record is saved.
+- ``pyaml_measure`` runs its script through the same sandbox, so it takes the
+  lock the same way.
+- ``pyaml_cs_osprey.run_tool``, which runs every pyAML tool of a measurement,
+  runs under the lock the process already holds, and takes it when the process
+  holds none.
+
+The process holds it
+====================
+
+The lock belongs to the process, not to the thread that took it: a thread or
+task the run starts runs under it. Asking for the lock again from inside the
+process is refused like any other second run. A process holds the lock of one
+target at a time; asking for another target's lock while it holds one is
+refused before anything is opened:
 ``this process holds the run lock on <held>; it cannot take one on <asked>``.
 
-The journal
-===========
+A forked child never holds the lock, at any moment, from any thread: a fork
+waits for a lock entry or release in progress to finish, and the child closes
+its copies of the lock. A child started with ``subprocess`` or ``exec`` never
+inherits it.
 
-Beside the lock sits the journal, ``run.journal``, which only a
-``pyaml_measure`` run writes. Before it first writes an address, it reads the setpoint that address holds and appends it to
-the journal, flushed to disk before the write goes out. The journal keeps the
-first value per address only, the value from before the run, however often the
-run writes the address afterwards. Its header line records the control target,
-the target's generation, who is acting, the process id and the start time. The lock and
-the journal are regular files with one name each, opened inside the target's
+The lock file
+=============
+
+``run.lock`` is a regular file with one name, opened inside the target's
 directory without following a link at ``guarded_run``, at the target's
 directory or at the file. A link, a hard link, a FIFO or anything else that is
 not such a file is refused with its path named: the run does not start, and
-nothing is read or written through it. The approval prompt and the Python
-executor read the journal through the same open, so the journal a prompt lists
-is the file the run restores.
+nothing is read or written through it.
 
-A write through the guarded path is refused outside a journaled run and
-touches no channel, so no code path writes a device under the guard without
-the journal holding its way back.
+While a run holds the lock, the file records its holder, ``{"pid", "started"}``;
+the record is emptied on release. A created lock file has mode ``0o664``, and
+each created directory ``0o2775``, setgid, so every identity of the deployment
+sharing its group can take the lock. The directory holds no file but
+``run.lock``.
 
-A run that ends cleanly clears its journal and writes nothing back: leaving
-the machine as it found it is then the run's own work. A journal with records
-in it therefore means a guarded run left setpoints displaced: it was killed,
-or its restore could not put every address back, or could not run.
+The approval prompt probes the same file, opened the same way, and refuses a
+call on a held target before anyone is asked, naming the holder:
+``a guarded run is in progress on <target> (pid <pid>, started <time>)``.
 
-Restoring a killed run
-======================
+What the lock does not do
+=========================
 
-A guarded run puts back what it displaced in one place, the exit path of its
-outermost journaled run. When an exception escapes the run, an error in its
-code or an interrupt, that exit path writes each journaled address back to its
-recorded value before the exception goes on. While it does, it ignores
-``SIGINT`` on the main thread, so a second interrupt does not cut the restore
-short. A write already in flight on another thread finishes before the
-restore starts, and none is accepted after the run has ended.
+A killed or failed tool leaves setpoints where they stopped; the result lists
+them with their old values.
 
-Releasing the lock ends a run still open under it, as when the code holding
-the lock returns while a thread it started is still inside the run: the exit
-path puts back what the run displaced and reports the run as aborted. Whatever
-escapes a run opened inside another, on the same thread or on another one,
-stops the whole run: every later guarded write is refused with
-``the guarded run was stopped: <first line of the error>``, and the outer
-run's exit puts back what the run displaced, reports it as aborted and raises
-that error, even when its own code ended cleanly.
-
-A guarded write holds the run for as long as it takes: writes go out one at a
-time, and the exit path waits for the one in flight. A write that never
-returns is therefore ended by nothing inside the run. The execution deadline
-ends the process, no exit path runs, and the journal stays as the write left
-it. An interrupt that arrives while such a write is in flight waits for the
-same write and leaves the same journal. The next approved call on the target
-lists that journal and restores it before its own code runs, as for any run
-killed outright.
-
-A run killed outright reaches no exit path. The next guarded run on the target
-finds its journal. Holding the lock proves the run that wrote it is over, so
-before its own work starts it writes each journaled address back to its
-recorded value and prints one line,
-``restored <n> addresses from a dead run (pid <pid>)``, followed by any
-address it could not restore and why.
-
-The restore forces nothing:
-
-- Each address is written back through the same checked write as any other,
-  so limits, write gates and the control-target check apply.
-- An address reading exactly its journaled value is not written. Exactly
-  means equal (``readings_equal``); the comparison that confirms a write
-  landed (``values_match``) allows for the rounding of a float32 store and
-  does not decide this, so an address displaced by less than that is still
-  written back.
-- Where a channel has a ``max_step`` limit and the way back is longer, the
-  restore walks back in equal steps no larger than ``max_step``.
-- An address the connector refuses, or whose write is not confirmed, is
-  reported with its reason, and the restore goes on with the others. The
-  journal then keeps its header line and exactly the addresses left
-  displaced, for the next run to restore. A run whose own start finds an
-  address it cannot put back does not start: a person decides what to do with
-  a machine that could not be put back.
-- Where the guarded tool's approval prompt asks, the prompt lists the pending
-  journal, and the run restores it before the call's code runs only while the
-  file is byte for byte the one the prompt listed; it is then restored
-  whichever generation of the target wrote it. Any other journal is left
-  untouched and the call is refused, so the next prompt lists the journal as
-  it is.
-- Without an approved journal, a journal written for another control target,
-  or for an earlier generation of this one, is not replayed. The new run is
-  refused and the file is left.
-
-When the restore cannot run at all, nothing is written and the journal is left
-byte for byte as it was, for the next guarded run on the target. One untagged
-line on stderr says so:
-``restore not attempted: <reason>; the journal <path> stays for the next guarded run on <target>``.
-
-A write whose address reads NaN or an infinity before it, alone or anywhere in
-an array, has no value a restore could write back. A guarded run refuses it
-before it is journaled or written:
-``reads nan before the write, so a guarded run could not put it back``.
-
-Every outermost journaled run ends with exactly one report line on stderr,
-``OSPREY_GUARDED_RUN_RESTORE`` followed by the report as JSON: the addresses
-restored, the addresses already at their value, those refused with the value
-each was left at, those that failed, and whether the run was aborted. A clean
-run prints it too, with ``"aborted": false``. A journaled run opened inside
-another prints none, and where the restore could not run the untagged line
-takes its place. A restore of a killed run's journal prints one as well.
-
-The line is for people. The report is the run's account of what it put back;
-the journal is what the next run restores from. The Python executor takes a
-run's reports from its execution record, never from the printed line, and
-files them in the run's execution folder and the audit ledger beside what it
-reads in the target's journal itself after the run.
+- The lock records and restores nothing.
+- A run that is killed, fails or is interrupted leaves every setpoint where it
+  stopped, as the MATLAB Middle Layer and pyAML do.
+- ``pyaml_measure`` lists in its result every setpoint the call moved, with its
+  value before the call (``moved``), whether the run completed, stopped or
+  failed.
+- A run killed outright cannot list values, and its failure names the channels
+  it attempted. That includes a run that reaches the execution timeout:
+  nothing stops a tool early to leave time for a report, so it is killed like
+  any other run.
+- The agent's own Python lists nothing; its writes are in the run's write
+  ledger.
+- The putting back of a stepped knob inside a measurement is pyAML's own.
 
 .. seealso::
 
    :doc:`/architecture/safety-chain`
-      The checks every write passes, guarded or not.
+      The checks every write passes, under the lock or not.
 
    :doc:`connectors`
-      The checked write each restore goes through.
+      The checked write every write goes through.
 
    :doc:`/how-to/measure-with-pyaml`
-      ``pyaml_measure``, the one run that journals.
-
-   :doc:`/how-to/describe-your-facility`
-      ``limits.yaml``, where ``max_step`` is authored.
+      ``pyaml_measure`` and what its result lists.

@@ -38,7 +38,7 @@ grouping label used by the gallery UI.
 A render that carries a pyAML view adds two tools to the same server, and a
 render without one registers neither: ``pyaml_measure`` measures a response
 matrix or the chromaticity on the control target through a generated script,
-every write of one measurement inside one guarded run, and
+every write of one measurement under the control target's run lock, and
 ``model_response_matrix`` solves a served model's orbit response on its deck
 in a sandbox child (see :doc:`/how-to/measure-with-pyaml`).
 
@@ -129,21 +129,20 @@ Ten safety layers are applied in sequence:
    patterns. In ``readonly`` mode, detected writes cause immediate
    rejection.
 
-5. **Approved-call check** (``_approved_call_env``)---before it spawns a
+5. **Approved-call check** (``_check_approved_call``)---before it spawns a
    ``readwrite`` run of a guarded tool (``execute``, ``execute_file``,
    ``pyaml_measure``) whose approval policy asks, the executor reads the
    record the approval prompt left for this tool call. The call's
-   ``approved_journal_sha256`` and ``approved_target`` must equal what the
-   prompt recorded; for ``pyaml_measure`` the call's ``approved_view_sha256``
+   ``approved_target`` must equal what the prompt recorded and name the
+   run's own control target; for ``pyaml_measure`` the call's ``approved_view_sha256``
    must equal the recorded view digest as well. Without a record,
    or with a field that differs, nothing is spawned and the result carries
    ``failure_kind: approval_missing``. A stated ``approval.enabled`` that is
    not ``true`` or ``false`` (or an ``approval`` section that is not a
    mapping) runs nothing and carries ``failure_kind: approval_config_invalid``.
-   Only the fields the check confirmed
-   reach the subprocess, which evaluates no approval policy itself. A call
-   that reaches the server without passing the approval hook gets no
-   read-write guarded run on a deployment whose policy asks; such a
+   Nothing of the record reaches the subprocess, which evaluates no approval
+   policy itself. A call that reaches the server without passing the
+   approval hook gets no read-write run on a deployment whose policy asks; such a
    deployment states ``approval.enabled: false``.
 
 6. **Readonly runtime guard**---the declared mode is exported into the

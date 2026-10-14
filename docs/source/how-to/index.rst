@@ -95,7 +95,7 @@ Facility services
       :link-type: doc
 
       Measure orbit, dispersion, tune and chromaticity responses on the
-      control target, every write inside one guarded run, and read the
+      control target, every write under the control target's run lock, and read the
       model's orbit response.
 
    .. grid-item-card:: Use the Channel Finder

@@ -71,7 +71,7 @@ MIRROR_VAR = "OSPREY_ARIEL_MIRROR_DIR"
 #: The simulator's model logs, appended to by every container serving the
 #: simulated machine, each under its own uid.
 SIMULATOR_LOG_VAR = "OSPREY_SIMULATOR_LOG_DIR"
-#: Guarded runs' per-target locks and journals, shared by every container that
+#: Guarded runs' per-target locks, shared by every container that
 #: runs the agent, each under its own uid.
 GUARDED_RUN_VAR = "OSPREY_GUARDED_RUN_DIR"
 #: The control-target bind this container WRITES: one owner directory, the

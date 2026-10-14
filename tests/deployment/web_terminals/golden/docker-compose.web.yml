@@ -73,10 +73,10 @@ services:
       # deploy provisions the directory setgid + group-writable, and the
       # entrypoint joins its group (OSPREY_SIMULATOR_LOG_DIR above).
       - ./var/simulator:/app/dls_controls-assistant/var/simulator
-      # The DEPLOYMENT's guarded-run directory, read-write: one lock and one
-      # journal per control target, shared with every other container that
-      # runs the agent, so a run started here contends for the same lock and
-      # restores the same journal. The deploy provisions it setgid +
+      # The DEPLOYMENT's guarded-run directory, read-write: one lock per
+      # control target, shared with every other container that runs the
+      # agent, so a run started here contends for the same lock. The deploy
+      # provisions it setgid +
       # group-writable, and the entrypoint joins its group
       # (OSPREY_GUARDED_RUN_DIR above).
       - ./var/guarded_run:/app/dls_controls-assistant/var/guarded_run
@@ -140,10 +140,10 @@ services:
       # deploy provisions the directory setgid + group-writable, and the
       # entrypoint joins its group (OSPREY_SIMULATOR_LOG_DIR above).
       - ./var/simulator:/app/dls_controls-assistant/var/simulator
-      # The DEPLOYMENT's guarded-run directory, read-write: one lock and one
-      # journal per control target, shared with every other container that
-      # runs the agent, so a run started here contends for the same lock and
-      # restores the same journal. The deploy provisions it setgid +
+      # The DEPLOYMENT's guarded-run directory, read-write: one lock per
+      # control target, shared with every other container that runs the
+      # agent, so a run started here contends for the same lock. The deploy
+      # provisions it setgid +
       # group-writable, and the entrypoint joins its group
       # (OSPREY_GUARDED_RUN_DIR above).
       - ./var/guarded_run:/app/dls_controls-assistant/var/guarded_run

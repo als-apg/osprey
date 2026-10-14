@@ -1548,9 +1548,9 @@ def render_web_terminals(
             else ""
         ),
         "simulator_log_relpath": SIMULATOR_LOG_DIR_RELPATH,
-        # The ONE host directory guarded runs keep their per-target locks and
-        # journals in, mounted into every terminal: each runs the agent, and a
-        # run in any of them has to contend for the same lock.
+        # The ONE host directory guarded runs keep their per-target locks in,
+        # mounted into every terminal: each runs the agent, and a run in any
+        # of them has to contend for the same lock.
         "guarded_run_source": repo_relative_mount_source(guarded_run_relpath()),
         **auth_tls_ctx,
     }

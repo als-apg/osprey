@@ -58,10 +58,7 @@ Every ``pyaml_measure`` call for a kind the model's file lists asks for
 approval. The prompt shows the model, the
 kind, the modulation, the pyAML view's path and digest, and every setpoint the
 call steps. A call that would step more setpoints than a prompt lists (500) is
-refused without asking. When a guarded run on the target was interrupted, the
-prompt also lists the setpoints it left displaced, with the values they are
-restored to; approving the call restores them before the measurement steps
-anything.
+refused without asking.
 
 The call runs only on the view the build recorded and the prompt showed. A view
 edited after the build, or one that differs from what the prompt showed, is
@@ -75,24 +72,18 @@ single write exceeds half its ``max_step`` in ``data/facility/limits.yaml``. A
 strength, ``max_step`` or write that is not a finite number refuses the
 measurement.
 
-Every write of one measurement runs inside one guarded run on the control
-target:
+Every write of one measurement runs under the control target's run lock:
 
-- the run holds the target's lock, and a second guarded run on the same
-  target is refused while it does;
-- each setpoint is journaled under ``var/guarded_run/<target>/`` before its
-  first write;
-- a run that stops part-way writes every displaced setpoint back before the
-  call returns;
-- a run that is killed leaves its journal, and the next approved guarded call
-  on the target, from any session or container of the deployment, restores it
-  first.
+- a second read-write run on the target is refused while it runs;
+- a measurement that stops part-way, fails or is interrupted leaves each
+  setpoint where it stopped, and its result's ``moved`` lists each one with its
+  value before the call; report them to the operator;
+- a measurement that reaches the execution timeout is killed like any other
+  run, with no early stop; its failure lists only the channels it attempted;
+- a pyAML write from ``execute`` is refused; measurements go through
+  ``pyaml_measure``.
 
-With approval off, the next guarded run restores a killed run's journal without
-asking. A headless dispatch run that meets a pending journal is refused: only
-a call a person approved restores one. A pyAML write from ``execute`` is
-refused; measurements go through ``pyaml_measure``. :ref:`reference-guarded-run` has the
-restore rules in full.
+:ref:`reference-guarded-run` has the lock and what a stopped run leaves.
 
 The result
 ==========

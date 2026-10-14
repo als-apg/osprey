@@ -5528,10 +5528,10 @@ jobs:
     #     container of its own over the result under test_mml_trees_boot.py's
     #     `BOOT_TIMEOUT_S` of 240 s;
     #   - test_pyaml_measure_guarded.py, which builds the example deployment
-    #     twice — approval on and off — and boots one container over each
-    #     under the `BOOT_TIMEOUT_S` of 240 s in tests/va/e2e/_guarded_measure.py,
-    #     then runs a dozen measurements, five of them killed after their first
-    #     write;
+    #     once, with approval on, and boots one container over it under the
+    #     `BOOT_TIMEOUT_S` of 240 s in tests/va/e2e/_guarded_measure.py, then
+    #     runs about ten measurements, three of them killed and one stopped
+    #     after their first write;
     #   - test_mml_trees_boot.py, which installs a facility export from
     #     scratch for each of its three trees — init, import, emit, set,
     #     validate, build — and boots a container of its own per tree under

@@ -1,6 +1,6 @@
 """Every container that runs the agent shares one host ``var/guarded_run``.
 
-A guarded run's lock and journal have to be one per control target for the
+A guarded run's lock has to be one per control target for the
 whole deployment, so the deploy provisions ``var/guarded_run/<target>/`` on the
 host before compose runs and binds ``var/guarded_run`` read-write under the
 container repo root of every container that runs the agent.

@@ -128,7 +128,7 @@ services:
       # before dropping privileges, so the worker can append to a log another
       # container created.
       OSPREY_SIMULATOR_LOG_DIR: /app/golden-project/var/simulator
-      # WHERE this worker keeps guarded runs' locks and journals, mounted below.
+      # WHERE this worker keeps guarded runs' locks, mounted below.
       # Named for the entrypoint, whose root phase joins the directory's group
       # before dropping privileges, so the worker can take a lock another
       # container created.
@@ -223,9 +223,9 @@ services:
       # host before compose runs (compose_generator.ensure_simulator_log_dirs).
       - ./var/simulator:/app/golden-project/var/simulator
 
-      # Guarded runs' locks and journals, read-write: one directory per control
-      # target, shared with every other container that runs the agent, so a run
-      # started here contends for the same lock and restores the same journal.
+      # Guarded runs' locks, read-write: one directory per control target,
+      # shared with every other container that runs the agent, so a run
+      # started here contends for the same lock.
       # Provisioned setgid and group-writable on the host before compose runs
       # (compose_generator.ensure_guarded_run_dirs).
       - ./var/guarded_run:/app/golden-project/var/guarded_run

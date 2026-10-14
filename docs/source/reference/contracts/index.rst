@@ -79,9 +79,8 @@ guides are the better starting point.
       :link-type: doc
       :shadow: md
 
-      Which tool runs as a guarded run, where its lock and journal live, what the journal holds,
-      when a restore writes a setpoint back and when it refuses, and the
-      report line every run prints.
+      Which tools hold the run lock, where it lives, what a second run is
+      told, and what a stopped run leaves.
 
    .. grid-item-card:: Audit Trail Contract
       :link: audit-trail

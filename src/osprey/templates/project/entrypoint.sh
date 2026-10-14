@@ -220,7 +220,7 @@ PY
 # they are mounted, OSPREY_FACILITY_BUNDLE_DIR (the knowledge bundle),
 # OSPREY_ARIEL_MIRROR_DIR (the ARIEL qmd mirror this container's own exporter
 # writes), OSPREY_SIMULATOR_LOG_DIR (the simulator's model logs) and
-# OSPREY_GUARDED_RUN_DIR (guarded runs' locks and journals). Iterating what
+# OSPREY_GUARDED_RUN_DIR (guarded runs' locks). Iterating what
 # those name and skipping any that is unset or not a
 # directory is what lets one script serve a web terminal, a dispatch worker
 # with no bundle mount, and a bare `docker run` with none, without a single
@@ -560,9 +560,9 @@ join_mounted_groups() {
 #   * OSPREY_SIMULATOR_LOG_DIR    `var/simulator/`: the model logs every
 #                                 container serving the simulated machine
 #                                 appends to, each under its own uid.
-#   * OSPREY_GUARDED_RUN_DIR      `var/guarded_run/`: the per-target locks and
-#                                 journals every container running the agent
-#                                 takes and restores, each under its own uid.
+#   * OSPREY_GUARDED_RUN_DIR      `var/guarded_run/`: the per-target locks
+#                                 every container running the agent takes,
+#                                 each under its own uid.
 #
 # Chowning any of them rewrites a host directory the operator owns and drops
 # the setgid group that the whole shared-group design rests on; the next

@@ -314,7 +314,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         # SDK's disallow engine match tool names exactly, so a regex would gate
         # nothing there.
         #
-        # pyaml_measure steps setpoints through pyAML and writes them back, so
+        # pyaml_measure steps setpoints through pyAML, so
         # it is a pure-write tool: approval on every call and a hard deny when
         # writes are off, never the read/write-mixed exception execute is. Its
         # ask row and hook rule render whether or not the render carries a

@@ -28,7 +28,7 @@ configuration the build wrote; nothing else in the deployment edits it.
 ## Measure through `pyaml_measure`
 
 - Every measurement goes through `mcp__python__pyaml_measure`. Never step setpoints for a measurement in `mcp__python__execute`: pyAML writes there are refused.
-- `pyaml_measure` steps the setpoints inside one guarded run on the control target and writes back every setpoint a stopped run moved before it returns.
+- `pyaml_measure` steps the setpoints under the control target's run lock. Nothing is written back: a run that stops, fails or is interrupted leaves each setpoint where it stopped.
 - Every call asks for approval. The prompt shows the model, the kind, the pyAML view's digest and every setpoint it steps; the measurement runs only on that view.
 - Arguments:
   - `kind`: `orm`, `dispersion`, `trm`, `crm` or `chromaticity_monitor`.
@@ -60,7 +60,8 @@ configuration the build wrote; nothing else in the deployment edits it.
 
 - `rows` and `columns` name each reading and each stepped setpoint by its address and device id; `deltas` gives each step by address, or by group id for a group.
 - The matrix is in the file `data_file` names and in the artifact `artifact_id` names; the result carries its `shape`, never the matrix.
-- A result with `completed` false stopped part-way and was written back: report every `refused` and `failed` entry of its `restore` report to the operator, with its address and the value it was left at.
+- A result with `completed` false stopped part-way: report every entry of `moved` (address, device, value before the call) and the `error` when there is one to the operator; those setpoints are where the run left them.
+- A measurement that reaches the execution timeout is killed: its error names only the channels it attempted, without their values before the call. Read them and report them to the operator.
 - `remainder` names what was not measured.
 
 ---

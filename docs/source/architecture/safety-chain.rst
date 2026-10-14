@@ -96,7 +96,7 @@ in it. The Python executor takes over from there. Before the code runs, it is re
 patterns are refused, code that writes into the deployment's own files is refused, and
 read-only code may neither import a control-system client library nor spell a write;
 read-write code that plainly spells a client library's own put is refused by the approval hook
-before anyone is asked to approve it. Before a read-write guarded run starts, the executor
+before anyone is asked to approve it. Before a read-write run starts, the executor
 checks that the approval prompt recorded this call and that what the call carries matches
 what it recorded; otherwise nothing runs. This check runs beside the script on one host, not
 out of the script's reach. Then the code runs in its own process with guards in
@@ -122,7 +122,8 @@ passes the kill switch and the approval prompt. The prompt lists the model, the 
 digest of the view the tool runs on and every setpoint the call steps; a call that would step
 more setpoints than a prompt can list is refused without asking. The tool then runs in the
 same sandbox as the agent's Python, under the same guards, and each setpoint it moves is an
-ordinary write through the connector --- recorded in a journal first, inside a guarded run
+ordinary write through the connector --- under the target's run lock; the result lists each
+setpoint the call moved with its value before the call
 (:ref:`Guarded Runs <architecture-safety-chain-guarded-run>`). A pyAML write anywhere else,
 ``execute`` included, is refused. See :doc:`/how-to/measure-with-pyaml`.
 
@@ -186,10 +187,10 @@ Guarded Runs
 
 None of the five paths remembers what it moved. Each write is checked on its own, and a
 script, a plan or a cell that stops half way leaves the machine where it stopped. A *guarded
-run* adds two things around a run's writes, and only the two paths that run code in the
+run* adds a lock around a run's writes, and only the two paths that run code in the
 executor's sandbox take part in it: Python the agent wrote and a pyAML tool. A channel write,
-a Bluesky plan and a notebook cell neither hold the lock nor leave a journal, and nothing puts
-back what they moved.
+a Bluesky plan and a notebook cell do not hold the lock, and nothing puts back what any path
+moved.
 
 **One run per machine.** A read-write Python run and a pyAML tool run each hold a lock on
 their control target for as long as they run, from whichever terminal, job or container of
@@ -197,20 +198,11 @@ the deployment they were launched. A second run on that target, of either kind, 
 before it starts, naming the holder. The lock is between these two kinds of run only; it keeps
 no channel write, plan or cell off the machine.
 
-**A way back for what a pyAML tool moved.** Before a pyAML tool first writes an address, the
-value that address holds is recorded in a journal on disk. A tool that fails or is stopped
-writes every recorded value back before the call returns. A run killed outright leaves its
-journal behind; the next guarded run on that target, a pyAML tool or a read-write Python run,
-lists the displaced setpoints in its approval prompt, and approving it writes them back
-before its own work starts. The agent's own Python is not journaled: a script that dies half
-way is not put back, and what an approved script writes after that restore is its own.
-
-The way back forces nothing. Each value is restored through the same checked write as any
-other, so a limit or a narrowing can refuse it; an address that could not be put back stays in
-the journal, is reported, and the run that found it does not start. A guarded run puts back
-what the pyAML tool moved, to the value it read first --- not what another path changed
-meanwhile, and not a machine that drifted on its own. :ref:`reference-guarded-run` has the
-journal, the restore rules and what a run reports.
+**What a stopped tool leaves.** Nothing is written back. A pyAML tool that stops, fails or is
+interrupted leaves the machine where it stopped, and its result lists each setpoint it moved
+with its value before the call; a run killed outright, at its time limit or otherwise, lists
+only the channels it attempted. :ref:`reference-guarded-run` has the lock and what a run
+reports.
 
 .. _architecture-safety-chain-shared:
 

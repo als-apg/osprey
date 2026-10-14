@@ -3370,7 +3370,7 @@ def ensure_guarded_run_dirs(repo_root, config, relative_to=None):
 
     ``var/guarded_run/`` and one ``<target>/`` below it per configured control
     target, each setgid and group-writable (see :func:`ensure_shared_corpus_dir`):
-    a guarded run's lock and journal are shared by every container of the
+    a guarded run's lock is shared by every container of the
     deployment, each under its own uid, and the setgid group is what they
     share. Created here, before compose runs, for the root-owned-mount-source
     reason every provisioned bind has.
@@ -3393,7 +3393,7 @@ def ensure_guarded_run_dirs(repo_root, config, relative_to=None):
         "relative_to": relative_to,
         "label": "Guarded-run dir",
         "noun": "guarded-run directory",
-        "consequence": "A guarded run may be unable to take its lock or keep its journal.",
+        "consequence": "A guarded run may be unable to take its lock.",
     }
     gid = _ensure_group_shared_dir(root, **provision)
     for target in configured_targets(section):
