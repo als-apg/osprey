@@ -161,3 +161,80 @@ def test_the_checks_would_catch_a_broken_map(tmp_path: Path) -> None:
     assert "absolute" in reasons["gone-scheme"]
     assert ".html suffix" in reasons["gone-suffix"]
     assert "no such page" in reasons["gone-dangling"]
+
+
+# The html build itself refuses a missing stub: conf.py connects a build-finished
+# handler that looks for one stub page per key in the output directory. The
+# handler's refusal raises Sphinx's own error class, which only the docs extra
+# installs, so these cases drive the check and the handler's guards without it.
+
+
+class _FakeBuilder:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+class _FakeConfig:
+    def __init__(self, redirects: dict[str, str]) -> None:
+        self.redirects = redirects
+
+
+class _FakeApp:
+    def __init__(self, builder: str, outdir: Path, redirects: dict[str, str]) -> None:
+        self.builder = _FakeBuilder(builder)
+        self.outdir = outdir
+        self.config = _FakeConfig(redirects)
+        self.connected: list[tuple[str, Any]] = []
+
+    def connect(self, event: str, handler: Any) -> None:
+        self.connected.append((event, handler))
+
+
+def _write_stubs(outdir: Path, keys: list[str]) -> None:
+    for key in keys:
+        stub = outdir / f"{key}.html"
+        stub.parent.mkdir(parents=True, exist_ok=True)
+        stub.write_text("<html></html>\n", encoding="utf-8")
+
+
+def test_the_build_connects_the_stub_check_to_build_finished(monkeypatch, tmp_path: Path) -> None:
+    ns = _run_conf(monkeypatch)
+    app = _FakeApp("html", tmp_path, {})
+    ns["setup"](app)
+    assert app.connected == [("build-finished", ns["_check_redirect_stubs"])]
+
+
+def test_the_stub_check_names_each_missing_stub(
+    monkeypatch, tmp_path: Path, redirects: dict[str, str]
+) -> None:
+    ns = _run_conf(monkeypatch)
+    keys = sorted(redirects)
+    assert keys, "conf.py defines no redirects; this check is vacuous"
+    _write_stubs(tmp_path, keys)
+    assert ns["_missing_redirect_stubs"](tmp_path, redirects) == []
+    (tmp_path / f"{keys[0]}.html").unlink()
+    assert ns["_missing_redirect_stubs"](tmp_path, redirects) == [keys[0]]
+
+
+def test_the_stub_check_passes_a_complete_html_build(
+    monkeypatch, tmp_path: Path, redirects: dict[str, str]
+) -> None:
+    ns = _run_conf(monkeypatch)
+    _write_stubs(tmp_path, sorted(redirects))
+    assert ns["_check_redirect_stubs"](_FakeApp("html", tmp_path, redirects), None) is None
+
+
+@pytest.mark.parametrize("builder", ["linkcheck", "dirhtml"])
+def test_the_stub_check_ignores_builders_that_write_no_stubs(
+    monkeypatch, tmp_path: Path, redirects: dict[str, str], builder: str
+) -> None:
+    ns = _run_conf(monkeypatch)
+    assert ns["_check_redirect_stubs"](_FakeApp(builder, tmp_path, redirects), None) is None
+
+
+def test_the_stub_check_leaves_a_failed_build_its_own_error(
+    monkeypatch, tmp_path: Path, redirects: dict[str, str]
+) -> None:
+    ns = _run_conf(monkeypatch)
+    app = _FakeApp("html", tmp_path, redirects)
+    assert ns["_check_redirect_stubs"](app, RuntimeError("the build broke")) is None

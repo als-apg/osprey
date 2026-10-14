@@ -378,3 +378,32 @@ copybutton_prompt_is_regexp = True
 
 # Enable sphinx-design components
 sd_fontawesome_latex = True
+
+# -- Redirect stubs ---------------------------------------------------------
+
+
+def _missing_redirect_stubs(outdir, redirects):
+    """The redirect keys whose stub page is absent from *outdir*, in key order."""
+    return [key for key in redirects if not os.path.isfile(os.path.join(outdir, f"{key}.html"))]
+
+
+def _check_redirect_stubs(app, exception):
+    """Fail the html build when a redirect key has no stub page.
+
+    sphinx_reredirects writes one stub page per ``redirects`` key on
+    html-collect-pages, which the html builder emits before build-finished. A
+    stub that never got written means a moved page's old URL 404s for every
+    reader who bookmarked it. Other builders write no stubs, and a build that
+    already failed keeps its own error.
+    """
+    if exception is not None or app.builder.name != "html":
+        return
+    missing = _missing_redirect_stubs(app.outdir, app.config.redirects)
+    if missing:
+        from sphinx.errors import SphinxError
+
+        raise SphinxError("redirect stubs missing from the build: " + " ".join(missing))
+
+
+def setup(app):
+    app.connect("build-finished", _check_redirect_stubs)
