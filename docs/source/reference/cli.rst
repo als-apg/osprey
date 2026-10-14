@@ -1102,7 +1102,9 @@ the current directory is used.
 
 ``osprey sim status [--target <live|va|standin>] [--repo DIRECTORY]``
    Print one ``<model>: <status>`` line per served physics model, sorted by
-   name, where the status is ``ok`` or the model's error text. One
+   name, where the status is ``ok``, a condition text the model's engine
+   lists while the model serves degraded (``no closed orbit`` for a ring
+   with no closed orbit), or the error text of a failed model. One
    ``log: <absolute path>`` line per model follows, naming the log the
    simulator appends to under ``var/simulator/``, each followed by any
    scenario-overlap records from that log. ``--target`` selects the control

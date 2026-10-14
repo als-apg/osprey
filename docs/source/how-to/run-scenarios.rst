@@ -49,6 +49,12 @@ The control-assistant preset ships six scenarios in
    * - ``orm-dual-fault``
      - The BPM 17 inversion and corrector HCM01 at half its nominal gain at
        once, both visible only through an orbit-response measurement.
+   * - ``first-turn-errors``
+     - A seeded errored ring: every quadrupole and sextupole is misaligned in
+       both planes and every element with length has an elliptical aperture.
+       An injected bunch is lost partway round the first turn and the ring
+       has no closed orbit; steering the first turn with the correctors
+       brings the beam around.
 
 The preset starts a fresh deployment in ``rf-thermal``, as the profile key
 ``simulation.default_scenarios`` names (see

@@ -394,7 +394,7 @@ what they use:
 
 .. code-block:: yaml
 
-   kinds: [orm, dispersion, trm, crm, chromaticity_monitor]
+   kinds: [orm, dispersion, trm, crm, chromaticity_monitor, trajectory]
    groups:
      bpm: SR/BPM
      hcor: SR/HCM
@@ -404,6 +404,8 @@ what they use:
    instruments:
      tune: SR:DIAG:TUNE:X
      rf: SR:RF:CAVITY:01:FREQUENCY:SP
+     injection_request: SR:DIAG:INJECTION:REQUEST
+     injection_busy: SR:DIAG:INJECTION:BUSY
    n_step: 5
    n_avg_meas: 1
    fit_order: 2
@@ -413,12 +415,16 @@ what they use:
    quad_delta: 0.001
    sextu_delta: 0.01
    frequency_delta: 100.0
+   alpha: 0.0
+   n_discard: 0
+   gain: 1.0
 
 ``kinds`` names the allowed measurements: ``orm``, ``dispersion``, ``trm``,
-``crm`` and ``chromaticity_monitor``. ``groups`` names the group that plays
-each part (``bpm``, ``hcor``, ``vcor``, ``quad``, ``sext``) and
-``instruments`` the channel each instrument is read or stepped on (``tune``,
-``rf``). Each kind needs its own members and step keys, and the build stops
+``crm``, ``chromaticity_monitor`` and ``trajectory``. ``groups`` names the
+group that plays each part (``bpm``, ``hcor``, ``vcor``, ``quad``, ``sext``)
+and ``instruments`` the channel each instrument is read, stepped or fired on
+(``tune``, ``rf``, ``injection_request``, ``injection_busy``, and the optional
+``bunch_clean_enable``, ``beam_current`` and ``rf_status``). Each kind needs its own members and step keys, and the build stops
 when the file allows a kind without them, names a member its model does
 not wire, or names a ``tune`` reading of one plane that no single reading of
 the other plane pairs with:
@@ -446,8 +452,26 @@ the other plane pairs with:
      - ``tune``, ``rf``
      - ``n_step``, ``n_avg_meas``, ``fit_order``, ``sleep_between_step``,
        ``sleep_between_meas``
+   * - ``trajectory``
+     - ``bpm``, ``hcor``, ``vcor``, ``injection_request``,
+       ``injection_busy``; optionally ``bunch_clean_enable``,
+       ``beam_current``, ``rf_status``
+     - ``corrector_delta``, ``alpha``, ``n_discard``, ``gain``
 
-A model solved in a single pass allows ``orm`` alone. Each group role names a
+A model solved in a single pass allows ``orm`` and ``trajectory`` alone.
+
+``trajectory`` is the first-turn measurement: it arms the monitors'
+turn-by-turn acquisition, requests one injected shot and reads where the beam
+went. The model must wire ``injection_request``; ``injection_busy`` must be a
+channel of the facility, and so must each optional instrument it names. A
+periodic model that allows it states where its shots start, in the
+``injection`` block of its ``settings.pyat``. Every device of the ``bpm``
+group carries a turn-by-turn ``x``, ``y`` and ``sum`` record, an arm command
+and an armed reading, under the signals named in
+:ref:`architecture-facility-schema`, and no other device of the model carries
+a turn-by-turn record.
+
+Each group role names a
 group of its own; only ``hcor`` and ``vcor`` may name one group. The tools
 that run these measurements are in :doc:`measure-with-pyaml`.
 

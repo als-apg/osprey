@@ -92,6 +92,15 @@ guides are the better starting point.
       fields of every record, who can read the files, and what the trail does
       not promise.
 
+   .. grid-item-card:: Trajectory Model Contract
+      :link: trajectory-model
+      :link-type: doc
+      :shadow: md
+
+      The three states a served model reports, the command slots, what a
+      shot writes into the turn-by-turn buffers, the first-turn response
+      files, the model-wide scenario faults and the archived channel set.
+
 .. toctree::
    :hidden:
 
@@ -104,3 +113,4 @@ guides are the better starting point.
    guarded-run
    audit-trail
    bridge-dispatch
+   trajectory-model
