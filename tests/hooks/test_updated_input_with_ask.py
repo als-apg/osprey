@@ -51,7 +51,7 @@ from tests.hooks.test_hook_docstring_frontmatter import HOOKS_DIR
 GUARDED_TOOL = "mcp__python__execute"
 
 #: The binding keys the approval hook adds to a guarded tool's input.
-BINDING_KEYS = ("approved_journal_sha256", "approved_target", "approved_view_sha256")
+BINDING_KEYS = ("approved_target", "approved_view_sha256")
 
 #: The versions the live proof of both approval paths ran against.
 PROVEN_CLI_VERSION = "2.1.267"
@@ -137,7 +137,7 @@ async def _answer_permission_request(approver, tool_input: dict[str, Any]) -> di
 
 def test_the_envelope_uses_only_keys_the_sdk_declares_for_pretooluse() -> None:
     declared = _declared_pretooluse_keys()
-    envelope = ask_with_updated_input({"code": "print(1)"}, {"approved_journal_sha256": "none"})
+    envelope = ask_with_updated_input({"code": "print(1)"}, {"approved_target": "demo"})
 
     assert set(envelope["hookSpecificOutput"]) <= set(declared)
     assert {"permissionDecision", "updatedInput"} <= set(declared)
@@ -148,17 +148,13 @@ def test_ask_is_a_pretooluse_decision() -> None:
 
 
 def test_updated_input_is_the_agents_input_plus_the_binding() -> None:
-    agent_input = {"code": "print(1)", "approved_journal_sha256": "agent-chosen"}
-    binding = {
-        "approved_journal_sha256": "none",
-        "approved_target": "demo",
-        "approved_view_sha256": "0" * 64,
-    }
+    agent_input = {"code": "print(1)", "approved_target": "agent-chosen"}
+    binding = {"approved_target": "demo", "approved_view_sha256": "0" * 64}
 
     updated = ask_with_updated_input(agent_input, binding)["hookSpecificOutput"]["updatedInput"]
 
     assert updated == {"code": "print(1)", **binding}
-    assert agent_input["approved_journal_sha256"] == "agent-chosen"
+    assert agent_input["approved_target"] == "agent-chosen"
     assert set(BINDING_KEYS) <= set(updated)
 
 
@@ -210,7 +206,7 @@ def test_a_bare_allow_leaves_updated_input_unset() -> None:
 async def test_a_bare_allow_returns_the_hook_rewritten_input_unchanged(approver) -> None:
     rewritten = ask_with_updated_input(
         {"code": "print(1)"},
-        {"approved_journal_sha256": "none", "approved_target": "demo"},
+        {"approved_target": "demo"},
     )["hookSpecificOutput"]["updatedInput"]
 
     response = await _answer_permission_request(approver, dict(rewritten))

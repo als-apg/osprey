@@ -925,7 +925,7 @@ def _stamp_ask(hook_input, approved=None) -> None:
 
     *approved* holds the ``approved_*`` fields this hook computed for the
     call; the python executor reads them back before it starts a read-write
-    guarded run, and refuses a call whose own fields differ or that carries
+    run, and refuses a call whose own fields differ or that carries
     one the stamp does not hold.
     """
     try:
@@ -2946,49 +2946,41 @@ def _deny_approval_config_invalid(hook_input, tool_name, reason):
 
 
 # ---------------------------------------------------------------------------
-# Guarded runs: the target's run lock and the journal a killed run left
+# Guarded runs: the target's run lock
 # ---------------------------------------------------------------------------
-# A readwrite `execute` / `execute_file` runs its code under the control target's
-# guarded-run lock, and the runtime restores a killed run's journal before user
-# code starts. Which journal it restores is bound to THIS prompt: the human sees
-# the displaced setpoints listed here, and the call carries the sha256 of exactly
-# those bytes and the target they belong to. A journal that changed after the
-# prompt is refused by the runtime and left for the next prompt to list.
+# A readwrite `execute` / `execute_file` / `pyaml_measure` runs under the control
+# target's run lock. The prompt names the target the call is bound to, and the
+# call carries it (`approved_target`); a target whose lock is held is refused
+# before anyone is asked.
 #
-# The names below are the runtime's (`osprey.runtime.guarded_run`,
+# The names below are the runtime's lock names (`osprey.runtime.guarded_run`,
 # `osprey_connectors.workspace`), restated because this hook is deployed
-# standalone, and so is the way the two files are opened
-# (`osprey.runtime.journal._open_dir`, `_open_regular`);
+# standalone, and so is the way the lock file is opened
+# (`osprey.runtime.guarded_run._open_dir`, `_open_regular`);
 # tests/hooks/test_guarded_run_constants_drift.py pins them.
 
 #: The repo's state zone and the guarded-run directory under it.
 _STATE_DIR_NAME = "var"
 _GUARDED_RUN_DIR = "guarded_run"
 
-#: The lock a guarded run holds, and the journal beside it.
+#: The lock a guarded run holds.
 _GUARDED_RUN_LOCK_FILE = "run.lock"
-_GUARDED_RUN_JOURNAL_FILE = "run.journal"
 
 #: The keys of the holder record a guarded run writes into its lock file.
 _HOLDER_PID_KEY = "pid"
 _HOLDER_STARTED_KEY = "started"
 
-#: The approved digest when the prompt listed no pending journal.
-_APPROVED_NO_JOURNAL = "none"
-
-#: The tool arguments that carry the approved journal digest and target.
-_APPROVED_JOURNAL_KEY = "approved_journal_sha256"
+#: The tool argument that carries the approved target.
 _APPROVED_TARGET_KEY = "approved_target"
 
-#: The most setpoint addresses an approval prompt lists. A journal holding more,
-#: or a measurement stepping more, is refused: no approval is asked for a list
-#: the prompt cannot show in full.
-_JOURNAL_MAX_LISTED = 500
+#: The most setpoint addresses an approval prompt lists. A measurement stepping
+#: more is refused: no approval is asked for a list the prompt cannot show in
+#: full.
+_PROMPT_MAX_LISTED = 500
 
-#: Audit reasons of the three guarded-run refusals.
+#: Audit reasons of the two guarded-run refusals.
 _GUARDED_RUN_BUSY_AUDIT_REASON = "guarded_run_busy"
-_GUARDED_RUN_UNREADABLE_AUDIT_REASON = "guarded_run_journal_unreadable"
-_GUARDED_RUN_DISPATCH_AUDIT_REASON = "guarded_run_journal_pending_in_dispatch"
+_GUARDED_RUN_UNREADABLE_AUDIT_REASON = "guarded_run_lock_unreadable"
 
 
 class _GuardedRunRefused(Exception):
@@ -3005,67 +2997,15 @@ class _GuardedRunRefused(Exception):
         self.audit_reason = audit_reason
 
 
-def _journal_optional(value, kind):
+def _typed_or_none(value, kind):
     """*value* when it is a *kind* (never a bool), else ``None``."""
     if isinstance(value, bool) or not isinstance(value, kind):
         return None
     return value
 
 
-def _parse_pending_journal(raw: bytes, path) -> dict | None:
-    """Parse a journal's bytes; ``None`` when it holds no record.
-
-    The stdlib restatement of ``osprey.runtime.journal.parse_pending_journal``,
-    rule for rule: anything after the last newline is torn by a kill; a last
-    complete line that is unreadable or not a record is ignored; any earlier
-    such line raises. An empty file, a header-only file or a first line that is
-    no header holds no record. Each address keeps its first journaled value.
-
-    Returns:
-        ``{target, generation, identity, pid, started, values}`` with ``values``
-        in record order, or ``None``.
-
-    Raises:
-        ValueError: A line other than the last is not a header or record.
-    """
-    complete = raw.split(b"\n")[:-1]
-    parsed = []
-    for index, line in enumerate(complete):
-        try:
-            parsed.append(json.loads(line))
-        except ValueError:
-            if index == len(complete) - 1:
-                break
-            raise ValueError(f"journal {path}: line {index + 1} is unreadable") from None
-    if (
-        not parsed
-        or not isinstance(parsed[0], dict)
-        or not isinstance(parsed[0].get("header"), dict)
-    ):
-        return None
-    header = parsed[0]["header"]
-    values: dict = {}
-    for index, record in enumerate(parsed[1:], start=2):
-        address = record.get("address") if isinstance(record, dict) else None
-        if not isinstance(address, str) or "value" not in record:
-            if index == len(parsed):
-                break
-            raise ValueError(f"journal {path}: line {index} is not a record")
-        values.setdefault(address, record["value"])
-    if not values:
-        return None
-    return {
-        "target": _journal_optional(header.get("target"), str),
-        "generation": _journal_optional(header.get("generation"), int),
-        "identity": _journal_optional(header.get("identity"), str),
-        "pid": _journal_optional(header.get("pid"), int),
-        "started": _journal_optional(header.get("started"), str),
-        "values": values,
-    }
-
-
-def _journal_text(value) -> str:
-    """*value*, a string read from a journal or lock file, as one line of printable ASCII.
+def _prompt_text(value) -> str:
+    """*value*, a string read from a lock file or the agent's input, as one line of printable ASCII.
 
     JSON-quoted, so every control and format character is escaped and two
     different strings never render alike.
@@ -3077,7 +3017,7 @@ def _holder_text(raw: bytes) -> tuple[str, str]:
     """The ``(pid, started)`` a lock file's holder record names, ``unknown`` for each gap.
 
     ``started`` is the holder's own text with every control and format
-    character escaped as in :func:`_journal_text`, without the quotes.
+    character escaped as in :func:`_prompt_text`, without the quotes.
     """
     try:
         holder = json.loads(raw or b"null")
@@ -3085,11 +3025,11 @@ def _holder_text(raw: bytes) -> tuple[str, str]:
         holder = None
     if not isinstance(holder, dict):
         holder = {}
-    pid = _journal_optional(holder.get(_HOLDER_PID_KEY), int)
-    started = _journal_optional(holder.get(_HOLDER_STARTED_KEY), str)
+    pid = _typed_or_none(holder.get(_HOLDER_PID_KEY), int)
+    started = _typed_or_none(holder.get(_HOLDER_STARTED_KEY), str)
     return (
         "unknown" if pid is None else str(pid),
-        "unknown" if started is None else _journal_text(started)[1:-1],
+        "unknown" if started is None else _prompt_text(started)[1:-1],
     )
 
 
@@ -3109,7 +3049,7 @@ def _guarded_open_dir(repo_root: str, target: str) -> int | None:
 
     ``<repo_root>/var`` is opened as named; ``guarded_run`` and *target* are
     opened relative to their parent's descriptor, never through a link. A
-    directory that does not exist holds no lock and no journal.
+    directory that does not exist holds no lock.
 
     Returns:
         The directory's descriptor, which the caller closes.
@@ -3154,9 +3094,9 @@ def _guarded_open_dir(repo_root: str, target: str) -> int | None:
 def _guarded_open_regular(
     name: str, flags: int, *, dir_fd: int, where: str, create: bool = False
 ) -> tuple[int, bool]:
-    """Open the lock or the journal *name* in the open directory *dir_fd*, as the runtime does.
+    """Open the lock file *name* in the open directory *dir_fd*, as the runtime does.
 
-    The body of the runtime's ``osprey.runtime.journal._open_regular``: a link
+    The body of the runtime's ``osprey.runtime.guarded_run._open_regular``: a link
     at *name* is not followed, the open never waits for the other end of a
     FIFO, and the descriptor is accepted only when it is a regular file with
     exactly one name, checked on the descriptor before anything reads or
@@ -3227,34 +3167,6 @@ def _guarded_open_regular(
         replaced = True
 
 
-def _guarded_read_journal(dir_fd: int | None, journal_path: str) -> bytes:
-    """The bytes of the journal in the open directory *dir_fd*; empty when there is none.
-
-    Raises:
-        _GuardedRunNotRegular: The journal is not a regular file with one name.
-        OSError: The journal exists but cannot be read.
-    """
-    if dir_fd is None:
-        return b""
-    try:
-        fd, _created = _guarded_open_regular(
-            _GUARDED_RUN_JOURNAL_FILE, os.O_RDONLY, dir_fd=dir_fd, where=journal_path
-        )
-    except FileNotFoundError:
-        return b""
-    try:
-        chunks: list[bytes] = []
-        offset = 0
-        while True:
-            chunk = os.pread(fd, 1 << 20, offset)
-            if not chunk:
-                return b"".join(chunks)
-            chunks.append(chunk)
-            offset += len(chunk)
-    finally:
-        os.close(fd)
-
-
 def _guarded_run_holder(dir_fd: int | None, lock_path: str) -> tuple[str, str] | None:
     """The holder of the run lock in the open directory *dir_fd*, ``None`` when free.
 
@@ -3300,49 +3212,32 @@ def _guarded_run_target(hook_input, read_record) -> str:
     return target
 
 
-def _guarded_run_lines(hook_input, read_record) -> tuple[list[str], dict[str, str]]:
-    """The prompt lines and the input binding for a call that runs a guarded run.
+def _guarded_run_binding(hook_input, read_record) -> dict[str, str]:
+    """The input binding for a call that runs under the target's run lock.
 
-    The target's lock is tried first: a live run on the target refuses this call
-    as busy. Otherwise the target's journal is read. A journal holding records
-    is what a killed run left; it is listed (who, pid, started, the target and
-    generation its header records, then every address with the value it is
-    restored to) and its sha256 is the approved digest. Every string read from
-    the journal is JSON-quoted. A journal holding more than
-    :data:`_JOURNAL_MAX_LISTED` addresses refuses the call. With no record the
-    digest is :data:`_APPROVED_NO_JOURNAL`. Under a dispatch run no human reads
-    the prompt, so a pending journal refuses the call.
+    The target's lock is tried: a live run on the target refuses this call as
+    busy, before anyone is asked.
 
     The directory is ``<repo root>/var/guarded_run/<target>``, the one every
     process of the deployment resolves for the target. It is opened once,
     without following a link at ``guarded_run`` or at the target, and the lock
-    and the journal are opened in it as the runtime opens them: a name that
-    is not a regular file with one name refuses the call with the runtime's
-    sentence, naming the path.
+    is opened in it as the runtime opens it: a name that is not a regular file
+    with one name refuses the call with the runtime's sentence, naming the path.
 
     Returns:
-        ``(lines, binding)``: the lines to add to the prompt, empty when nothing
-        is pending, and the ``approved_journal_sha256`` and ``approved_target``
-        values the call's input carries.
+        The ``approved_target`` value the call's input carries.
 
     Raises:
-        _GuardedRunRefused: The target is busy, its journal cannot be read or
-            listed in full, or a dispatch run meets a pending journal.
+        _GuardedRunRefused: The target is busy, or its lock cannot be read.
     """
     target = _guarded_run_target(hook_input, read_record)
     repo_root = get_repo_root(hook_input)
     directory = os.path.join(repo_root, _STATE_DIR_NAME, _GUARDED_RUN_DIR, target)
     lock_path = os.path.join(directory, _GUARDED_RUN_LOCK_FILE)
-    journal_path = os.path.join(directory, _GUARDED_RUN_JOURNAL_FILE)
-    reading = lock_path
     try:
         dir_fd = _guarded_open_dir(repo_root, target)
         try:
             holder = _guarded_run_holder(dir_fd, lock_path)
-            if holder is None:
-                reading = journal_path
-                raw = _guarded_read_journal(dir_fd, journal_path)
-                pending = _parse_pending_journal(raw, journal_path)
         finally:
             if dir_fd is not None:
                 os.close(dir_fd)
@@ -3350,7 +3245,7 @@ def _guarded_run_lines(hook_input, read_record) -> tuple[list[str], dict[str, st
         raise _GuardedRunRefused(str(exc), _GUARDED_RUN_UNREADABLE_AUDIT_REASON) from None
     except Exception:
         raise _GuardedRunRefused(
-            f"pending guarded-run journal unreadable: {reading}",
+            f"guarded-run lock unreadable: {lock_path}",
             _GUARDED_RUN_UNREADABLE_AUDIT_REASON,
         ) from None
     if holder is not None:
@@ -3359,39 +3254,7 @@ def _guarded_run_lines(hook_input, read_record) -> tuple[list[str], dict[str, st
             f"a guarded run is in progress on {target} (pid {pid}, started {started})",
             _GUARDED_RUN_BUSY_AUDIT_REASON,
         )
-
-    binding = {_APPROVED_JOURNAL_KEY: _APPROVED_NO_JOURNAL, _APPROVED_TARGET_KEY: target}
-    if pending is None:
-        return [], binding
-    if os.environ.get("OSPREY_DISPATCH_RUN") == "1":
-        raise _GuardedRunRefused(
-            f"pending guarded-run journal on {target} needs a human-approved call: {journal_path}",
-            _GUARDED_RUN_DISPATCH_AUDIT_REASON,
-        )
-    values = pending["values"]
-    if len(values) > _JOURNAL_MAX_LISTED:
-        raise _GuardedRunRefused(
-            f"pending guarded-run journal on {target} holds {len(values)} setpoints, "
-            f"more than an approval prompt lists: {journal_path}",
-            _GUARDED_RUN_UNREADABLE_AUDIT_REASON,
-        )
-    binding[_APPROVED_JOURNAL_KEY] = hashlib.sha256(raw).hexdigest()
-
-    def known(text):
-        return "unknown" if text is None else _journal_text(text)
-
-    pid = "unknown" if pending["pid"] is None else str(pending["pid"])
-    generation = "unknown" if pending["generation"] is None else str(pending["generation"])
-    lines = [
-        "",
-        f"{known(pending['identity'])}'s interrupted run (pid {pid}, started "
-        f"{known(pending['started'])}) left {len(values)} setpoints displaced; approving "
-        "this call restores them first",
-        f"  recorded on {known(pending['target'])}, generation {generation}",
-    ]
-    for address, value in values.items():
-        lines.append(f"  {_journal_text(address)} = {json.dumps(value)}")
-    return lines, binding
+    return {_APPROVED_TARGET_KEY: target}
 
 
 def _deny_guarded_run(hook_input, tool_name, refusal):
@@ -3426,20 +3289,20 @@ def _deny_guarded_run(hook_input, tool_name, refusal):
 
 
 def _guarded_call(hook_input, tool_name, tool_input, read_record):
-    """The guarded-run lines, rewritten input and binding of a readwrite call, or a deny.
+    """The rewritten input and binding of a readwrite call, or a deny.
 
-    A readonly call never enters a guarded run, so it gets no lines, keeps its
-    input as the agent sent it (``None``) and has no binding (``None``). A
-    readwrite call's input is the agent's with every approved field replaced by
-    the binding; the binding alone is what the ask stamp records.
+    A readonly call takes no run lock, so it keeps its input as the agent sent
+    it (``None``) and has no binding (``None``). A readwrite call's input is the
+    agent's with every approved field replaced by the binding; the binding
+    alone is what the ask stamp records.
     """
     if tool_input.get("execution_mode") != "readwrite":
-        return [], None, None
+        return None, None
     try:
-        lines, binding = _guarded_run_lines(hook_input, read_record)
+        binding = _guarded_run_binding(hook_input, read_record)
     except _GuardedRunRefused as refusal:
         _deny_guarded_run(hook_input, tool_name, refusal)
-    return lines, _bound_input(tool_input, binding), binding
+    return _bound_input(tool_input, binding), binding
 
 
 def _bound_input(tool_input, binding) -> dict:
@@ -3557,7 +3420,7 @@ def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str] | None
             setpoints.extend(address for address in named if address not in setpoints)
         else:
             setpoints.extend(str(address) for address in groups.get(role) or [])
-    if len(setpoints) > _JOURNAL_MAX_LISTED:
+    if len(setpoints) > _PROMPT_MAX_LISTED:
         raise _GuardedRunRefused(
             f"pyaml_measure: {kind} on {model} steps {len(setpoints)} setpoints, "
             "more than an approval prompt lists",
@@ -3570,10 +3433,10 @@ def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str] | None
     lines = [
         f"Model: {model}",
         f"Kind: {kind}",
-        f"Modulation: {_journal_text(modulation)}",
+        f"Modulation: {_prompt_text(modulation)}",
     ]
     if by is not None:
-        lines.append(f"By: {_journal_text(by)}")
+        lines.append(f"By: {_prompt_text(by)}")
         if by == _PYAML_GROUP:
             for role, array in sorted(stepped.items()):
                 if role == _PYAML_RF:
@@ -3583,27 +3446,27 @@ def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str] | None
     lines.append(f"pyAML view: {relative}")
     lines.append(f"  sha256 {digest}")
     lines.append(f"Setpoints stepped: {len(setpoints)}")
-    lines.extend(f"  {_journal_text(address)}" for address in setpoints)
+    lines.extend(f"  {_prompt_text(address)}" for address in setpoints)
     return lines, digest
 
 
 def _measure_call(hook_input, tool_name, tool_input, read_record):
     """The prompt lines, rewritten input and binding of a measurement, or a deny.
 
-    A measurement always runs a guarded run: its binding is the guarded run's
-    plus the view digest, each set over any value the agent supplied. ``None``
-    when the block does not map the call.
+    A measurement always runs under the target's run lock: its binding is
+    ``approved_target`` plus ``approved_view_sha256``, each set over any value
+    the agent supplied. ``None`` when the block does not map the call.
     """
     try:
         described = _pyaml_measure_lines(tool_input, hook_input)
         if described is None:
             return None
         lines, digest = described
-        guarded_lines, binding = _guarded_run_lines(hook_input, read_record)
+        binding = _guarded_run_binding(hook_input, read_record)
     except _GuardedRunRefused as refusal:
         _deny_guarded_run(hook_input, tool_name, refusal)
     binding = {**binding, _APPROVED_VIEW_KEY: digest}
-    return [*lines, *guarded_lines], _bound_input(tool_input, binding), binding
+    return lines, _bound_input(tool_input, binding), binding
 
 
 def main():
@@ -3739,13 +3602,12 @@ def main():
             needs_approval = exec_mode == "readwrite" or writes_detected
             if needs_approval:
                 read_record = _record_reader(hook_input)
-                guarded_lines, updated_input, binding = _guarded_call(
+                updated_input, binding = _guarded_call(
                     hook_input, tool_name, tool_input, read_record
                 )
                 reason_parts = [f"Python execution (mode: {exec_mode or 'unspecified'})"]
                 if writes_detected:
                     reason_parts.append("Code contains control system write patterns.")
-                reason_parts.extend(guarded_lines)
                 if code.strip():
                     gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
                     if gallery_link:
@@ -3790,19 +3652,13 @@ def main():
     if short_name == "execute":
         code = tool_input.get("code", "")
         exec_mode = tool_input.get("execution_mode", "")
-        guarded_lines, updated_input, binding = _guarded_call(
-            hook_input, tool_name, tool_input, read_record
-        )
-        reason_parts.extend(guarded_lines)
+        updated_input, binding = _guarded_call(hook_input, tool_name, tool_input, read_record)
         if code.strip():
             gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
             if gallery_link:
                 reason_parts.append(f"\nReview notebook: {gallery_link}")
     elif short_name == "execute_file":
-        guarded_lines, updated_input, binding = _guarded_call(
-            hook_input, tool_name, tool_input, read_record
-        )
-        reason_parts.extend(guarded_lines)
+        updated_input, binding = _guarded_call(hook_input, tool_name, tool_input, read_record)
     elif short_name == "pyaml_measure":
         measured = _measure_call(hook_input, tool_name, tool_input, read_record)
         if measured is None:

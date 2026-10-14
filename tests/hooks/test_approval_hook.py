@@ -21,7 +21,9 @@ from tests._guarded_run import (
     LINKED_DIRECTORY_REFUSAL,
     PLANTED_REFUSAL,
     PLANTED_REFUSED,
+    held_lock,
     link_directory,
+    lock_path,
     plant_kind,
 )
 
@@ -2058,7 +2060,7 @@ def test_raw_client_write_deny_files_a_refused_record(
 
 
 # ---------------------------------------------------------------------------
-# Guarded runs: the target's run lock and pending journal on the execute prompt
+# Guarded runs: the target's run lock on the execute prompt
 # ---------------------------------------------------------------------------
 
 #: Asks for every execute call, on a deployment whose baseline target is ``va``.
@@ -2081,44 +2083,12 @@ GUARDED_SELECTIVE_CONFIG = {
     "control_system": {"type": "virtual_accelerator", "writes_enabled": True},
 }
 
-#: A helper process that holds a target's run lock with *content* in it until
-#: its stdin closes, the way a live guarded run holds it.
-_LOCK_HOLDER = """
-import fcntl, os, sys
-fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o664)
-fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-os.ftruncate(fd, 0)
-os.pwrite(fd, sys.argv[2].encode("utf-8"), 0)
-print("held", flush=True)
-sys.stdin.read()
-"""
 
-
-def _guarded_dir(repo_root, target):
-    directory = repo_root / "var" / "guarded_run" / target
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory
-
-
-def _plant_journal(repo_root, target, entries, *, identity="operator", pid=4242, tail=b""):
-    """Write a killed run's journal for *target*; return its raw bytes."""
-    import json
-
-    lines = [
-        {
-            "header": {
-                "target": target,
-                "generation": 1,
-                "identity": identity,
-                "pid": pid,
-                "started": "2026-10-01T08:00:00Z",
-            }
-        },
-        *({"address": address, "value": value} for address, value in entries),
-    ]
-    raw = b"".join(json.dumps(line).encode("utf-8") + b"\n" for line in lines) + tail
-    (_guarded_dir(repo_root, target) / "run.journal").write_bytes(raw)
-    return raw
+def _lock(repo_root, target="va"):
+    """The run lock of *target* under *repo_root*, its directory created."""
+    path = lock_path(target, repo_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def _run_guarded(hook_runner, make_config, tmp_path, tool_input, *, tool="execute", config=None):
@@ -2140,133 +2110,23 @@ def _updated(result):
     return result["hookSpecificOutput"].get("updatedInput")
 
 
-def test_a_pending_journal_is_listed_and_bound_to_the_call(tmp_path, hook_runner, make_config):
-    import hashlib
-
-    raw = _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5), ("SR:QD:SP", -0.25)])
-    tool_input = {
-        "code": "print(1)",
-        "execution_mode": "readwrite",
-        "approved_journal_sha256": "agent-chosen",
-        "approved_target": "live",
-    }
+@pytest.mark.parametrize("present", [False, True], ids=["no-lock-file", "free-lock-file"])
+def test_a_free_target_binds_its_name(tmp_path, hook_runner, make_config, present):
+    if present:
+        _lock(tmp_path).touch()
+    tool_input = {"code": "print(1)", "execution_mode": "readwrite", "approved_target": "live"}
 
     result = _run_guarded(hook_runner, make_config, tmp_path, tool_input)
 
     assert _decision(result) == "ask"
-    reason = _reason(result)
-    assert (
-        '"operator"\'s interrupted run (pid 4242, started "2026-10-01T08:00:00Z") left 2 '
-        "setpoints displaced; approving this call restores them first\n"
-        '  recorded on "va", generation 1\n'
-        '  "SR:QF:SP" = 1.5\n'
-        '  "SR:QD:SP" = -0.25'
-    ) in reason
     assert _updated(result) == {
         "code": "print(1)",
         "execution_mode": "readwrite",
-        "approved_journal_sha256": hashlib.sha256(raw).hexdigest(),
         "approved_target": "va",
     }
 
 
-def test_the_listing_names_every_displaced_setpoint(tmp_path, hook_runner, make_config):
-    entries = [(f"SR:C{index:02d}:SP", float(index)) for index in range(21)]
-    _plant_journal(tmp_path, "va", entries)
-
-    result = _run_guarded(
-        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
-    )
-
-    reason = _reason(result)
-    assert "left 21 setpoints displaced" in reason
-    for address, value in entries:
-        assert f'  "{address}" = {value}' in reason
-    assert "more" not in reason
-
-
-def test_a_journal_longer_than_a_prompt_lists_is_denied(tmp_path, hook_runner, make_config):
-    entries = [(f"SR:C{index:03d}:SP", float(index)) for index in range(501)]
-    raw = _plant_journal(tmp_path, "va", entries)
-    path = tmp_path / "var" / "guarded_run" / "va" / "run.journal"
-
-    result = _run_guarded(
-        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
-    )
-
-    assert _decision(result) == "deny"
-    assert _reason(result) == (
-        "pending guarded-run journal on va holds 501 setpoints, more than an approval prompt "
-        f"lists: {path}"
-    )
-    assert _updated(result) is None
-    assert path.read_bytes() == raw
-
-
-_HOSTILE = "SR\u009bQF\u202e:\u200bSP\n = 9"
-
-
-def test_journal_text_renders_as_one_printable_line_each(tmp_path, hook_runner, make_config):
-    _plant_journal(
-        tmp_path,
-        "va",
-        [(_HOSTILE, 1.0), (_HOSTILE.replace("\u200b", ""), 2.0)],
-        identity=_HOSTILE,
-    )
-
-    result = _run_guarded(
-        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
-    )
-
-    lines = _reason(result).splitlines()
-    start = next(i for i, line in enumerate(lines) if "interrupted run" in line)
-    listing = lines[start : start + 4]
-    assert all(line.isascii() and line.isprintable() for line in listing)
-    assert listing[0].startswith(json.dumps(_HOSTILE) + "'s interrupted run")
-    first, second = listing[2], listing[3]
-    assert first == f"  {json.dumps(_HOSTILE)} = 1.0"
-    assert second == f"  {json.dumps(_HOSTILE.replace(chr(0x200B), ''))} = 2.0"
-    assert first.split(" = ")[0] != second.split(" = ")[0]
-
-
-def test_the_listing_names_the_target_its_header_records(tmp_path, hook_runner, make_config):
-    raw = _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5)])
-    path = tmp_path / "var" / "guarded_run" / "va" / "run.journal"
-    path.write_bytes(raw.replace(b'"target": "va"', b'"target": "live"', 1))
-
-    result = _run_guarded(
-        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
-    )
-
-    assert '  recorded on "live", generation 1' in _reason(result).splitlines()
-
-
-@pytest.mark.parametrize(
-    "content",
-    [
-        pytest.param(None, id="absent"),
-        pytest.param(b"", id="empty"),
-        pytest.param(b'{"header": {"target": "va", "pid": 1}}\n', id="header-only"),
-        pytest.param(b'{"header": {"target": "va", "pid": 1}}\n{"address": "SR', id="torn"),
-    ],
-)
-def test_no_pending_record_binds_none(tmp_path, hook_runner, make_config, content):
-    if content is not None:
-        (_guarded_dir(tmp_path, "va") / "run.journal").write_bytes(content)
-
-    result = _run_guarded(
-        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
-    )
-
-    assert _decision(result) == "ask"
-    assert "interrupted run" not in _reason(result)
-    assert _updated(result)["approved_journal_sha256"] == "none"
-    assert _updated(result)["approved_target"] == "va"
-
-
 def test_execute_file_carries_the_binding(tmp_path, hook_runner, make_config):
-    _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5)])
-
     result = _run_guarded(
         hook_runner,
         make_config,
@@ -2276,7 +2136,6 @@ def test_execute_file_carries_the_binding(tmp_path, hook_runner, make_config):
     )
 
     assert _decision(result) == "ask"
-    assert "left 1 setpoints displaced" in _reason(result)
     assert _updated(result)["approved_target"] == "va"
     assert _updated(result)["file_path"] == "scan.py"
 
@@ -2285,8 +2144,6 @@ def test_execute_file_carries_the_binding(tmp_path, hook_runner, make_config):
 def test_a_readonly_call_keeps_its_prompt_and_carries_no_binding(
     tmp_path, hook_runner, make_config, tool
 ):
-    _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5)])
-
     result = _run_guarded(
         hook_runner,
         make_config,
@@ -2296,60 +2153,14 @@ def test_a_readonly_call_keeps_its_prompt_and_carries_no_binding(
     )
 
     assert _decision(result) == "ask"
-    assert "interrupted run" not in _reason(result)
     assert _updated(result) is None
 
 
-def test_selective_readwrite_lists_the_recorded_targets_journal(tmp_path, hook_runner, make_config):
-    _write_session_state(tmp_path, "live")
-    _plant_journal(tmp_path, "live", [("SR:QF:SP", 1.5)])
-    _plant_journal(tmp_path, "va", [("SR:QD:SP", 2.0)])
-
-    result = _run_guarded(
-        hook_runner,
-        make_config,
-        tmp_path,
-        {"code": "print(1)", "execution_mode": "readwrite"},
-        config=GUARDED_SELECTIVE_CONFIG,
-    )
-
-    assert _decision(result) == "ask"
-    assert '"SR:QF:SP" = 1.5' in _reason(result)
-    assert "SR:QD:SP" not in _reason(result)
-    assert _updated(result)["approved_target"] == "live"
-
-
-@pytest.fixture
-def held_lock(tmp_path):
-    """Hold ``va``'s run lock from another process with the given content."""
-    import subprocess
-
-    holders = []
-
-    def hold(content):
-        lock_path = _guarded_dir(tmp_path, "va") / "run.lock"
-        child = subprocess.Popen(
-            [sys.executable, "-c", _LOCK_HOLDER, str(lock_path), content],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            text=True,
+def test_a_held_lock_refuses_busy_naming_its_holder(tmp_path, hook_runner, make_config):
+    with held_lock("va", '{"pid": 31337, "started": "2026-10-02T09:30:00Z"}', root=tmp_path):
+        result = _run_guarded(
+            hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
         )
-        holders.append(child)
-        assert child.stdout.readline().strip() == "held"
-        return child
-
-    yield hold
-    for child in holders:
-        child.stdin.close()
-        child.wait(timeout=60)
-
-
-def test_a_held_lock_refuses_busy_naming_its_holder(tmp_path, hook_runner, make_config, held_lock):
-    held_lock('{"pid": 31337, "started": "2026-10-02T09:30:00Z"}')
-
-    result = _run_guarded(
-        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
-    )
 
     assert _decision(result) == "deny"
     assert _reason(result) == (
@@ -2357,76 +2168,53 @@ def test_a_held_lock_refuses_busy_naming_its_holder(tmp_path, hook_runner, make_
     )
 
 
-def test_a_held_lock_with_no_holder_record_names_it_unknown(
-    tmp_path, hook_runner, make_config, held_lock
-):
-    held_lock("")
-
-    result = _run_guarded(
-        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
-    )
+def test_a_held_lock_with_no_holder_record_names_it_unknown(tmp_path, hook_runner, make_config):
+    with held_lock("va", "", root=tmp_path):
+        result = _run_guarded(
+            hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+        )
 
     assert _decision(result) == "deny"
     assert _reason(result) == "a guarded run is in progress on va (pid unknown, started unknown)"
 
 
 def test_a_free_lock_is_left_empty(tmp_path, hook_runner, make_config):
-    lock_path = _guarded_dir(tmp_path, "va") / "run.lock"
+    path = _lock(tmp_path)
 
     _run_guarded(
         hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
     )
 
-    assert lock_path.read_bytes() == b""
+    assert path.read_bytes() == b""
 
 
-def test_an_unreadable_journal_is_denied(tmp_path, hook_runner, make_config):
-    path = _guarded_dir(tmp_path, "va") / "run.journal"
-    path.write_bytes(b'{"header": {"target": "va"}}\nnot json\n{"address": "A", "value": 1}\n')
-
-    result = _run_guarded(
-        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
-    )
+@pytest.mark.skipif(os.geteuid() == 0, reason="root opens a file of mode 000")
+def test_an_unreadable_lock_is_denied(tmp_path, hook_runner, make_config):
+    path = _lock(tmp_path)
+    path.touch()
+    path.chmod(0o000)
+    try:
+        result = _run_guarded(
+            hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+        )
+    finally:
+        path.chmod(0o664)
 
     assert _decision(result) == "deny"
-    assert _reason(result) == f"pending guarded-run journal unreadable: {path}"
-
-
-def _killed_run_journal(path, target="va"):
-    """A journal a killed run on *target* left at *path*."""
-    header = {"target": target, "generation": 1, "identity": "operator", "pid": 4242}
-    lines = [{"header": header}, {"address": "SR:QF:SP", "value": 1.5}]
-    path.write_bytes(b"".join(json.dumps(line).encode("utf-8") + b"\n" for line in lines))
-    return path
+    assert _reason(result) == f"guarded-run lock unreadable: {path}"
 
 
 def _planted_victim(tmp_path):
-    """A well-formed journal outside the guarded-run directory; ``(path, its bytes)``."""
-    victim = _killed_run_journal(tmp_path / "victim")
+    """A file outside the guarded-run directory; ``(path, its bytes)``."""
+    victim = tmp_path / "victim"
+    victim.write_bytes(b"keep\n")
     return victim, victim.read_bytes()
-
-
-@pytest.mark.parametrize("kind", PLANTED_REFUSED)
-def test_a_planted_journal_name_is_denied_by_name(kind, tmp_path, hook_runner, make_config):
-    victim, before = _planted_victim(tmp_path)
-    path = _guarded_dir(tmp_path, "va") / "run.journal"
-    plant_kind(path, kind, victim)
-
-    result = _run_guarded(
-        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
-    )
-
-    assert _decision(result) == "deny"
-    assert _reason(result) == f"{path} {PLANTED_REFUSAL[kind]}"
-    assert "unreadable" not in _reason(result)
-    assert _updated(result) is None
-    assert victim.read_bytes() == before
 
 
 @pytest.mark.parametrize("kind", PLANTED_REFUSED)
 def test_a_planted_lock_name_is_denied_by_name(kind, tmp_path, hook_runner, make_config):
     victim, before = _planted_victim(tmp_path)
-    path = _guarded_dir(tmp_path, "va") / "run.lock"
+    path = _lock(tmp_path)
     plant_kind(path, kind, victim)
 
     result = _run_guarded(
@@ -2441,10 +2229,10 @@ def test_a_planted_lock_name_is_denied_by_name(kind, tmp_path, hook_runner, make
 
 
 def test_a_linked_target_directory_is_denied_by_name(tmp_path, hook_runner, make_config):
-    level = _guarded_dir(tmp_path, "va")
-    _killed_run_journal(level / "run.journal")
+    path = _lock(tmp_path)
+    path.touch()
+    level = path.parent
     real = link_directory(level)
-    before = (real / "run.journal").read_bytes()
 
     result = _run_guarded(
         hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
@@ -2453,35 +2241,8 @@ def test_a_linked_target_directory_is_denied_by_name(tmp_path, hook_runner, make
     assert _decision(result) == "deny"
     assert _reason(result) == f"{level} {LINKED_DIRECTORY_REFUSAL}"
     assert _updated(result) is None
-    assert (real / "run.journal").read_bytes() == before
-    assert sorted(entry.name for entry in real.iterdir()) == ["run.journal"]
-
-
-def test_a_dispatch_run_with_a_pending_journal_is_denied(
-    tmp_path, hook_runner, make_config, monkeypatch
-):
-    monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
-    _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5)])
-
-    result = _run_guarded(
-        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
-    )
-
-    assert _decision(result) == "deny"
-    assert str(tmp_path / "var" / "guarded_run" / "va" / "run.journal") in _reason(result)
-
-
-def test_a_dispatch_run_with_no_pending_journal_still_asks(
-    tmp_path, hook_runner, make_config, monkeypatch
-):
-    monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
-
-    result = _run_guarded(
-        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
-    )
-
-    assert _decision(result) == "ask"
-    assert _updated(result)["approved_journal_sha256"] == "none"
+    assert (real / path.name).read_bytes() == b""
+    assert sorted(entry.name for entry in real.iterdir()) == [path.name]
 
 
 # ---------------------------------------------------------------------------
@@ -2550,21 +2311,16 @@ def _approved(mapping):
 def test_the_ask_stamp_carries_the_approved_fields_of_the_envelope(
     tmp_path, hook_runner, make_config, stamp_dir, tool, config, tool_input
 ):
-    _plant_journal(tmp_path, "va", [("SR:QF:SP", 1.5)])
-    agent_input = {
-        **tool_input,
-        "approved_journal_sha256": "agent-chosen",
-        "approved_target": "agent-target",
-    }
+    agent_input = {**tool_input, "approved_target": "agent-target"}
 
     result = _asked(hook_runner, make_config, tmp_path, tool, agent_input, config, "toolu_rw1")
 
     assert _decision(result) == "ask"
     stamp = _stamp(stamp_dir, "toolu_rw1")
     assert _approved(stamp) == _approved(_updated(result))
-    assert set(_approved(stamp)) == {"approved_journal_sha256", "approved_target"}
+    assert set(_approved(stamp)) == {"approved_target"}
     assert stamp["approved_target"] == "va"
-    assert "agent-chosen" not in stamp.values()
+    assert "agent-target" not in stamp.values()
 
 
 def test_an_agent_supplied_field_the_hook_did_not_bind_never_reaches_the_stamp(
@@ -2588,7 +2344,7 @@ def test_an_agent_supplied_field_the_hook_did_not_bind_never_reaches_the_stamp(
 
     assert _decision(result) == "ask"
     stamp = _stamp(stamp_dir, "toolu_rw2")
-    assert set(_approved(stamp)) == {"approved_journal_sha256", "approved_target"}
+    assert set(_approved(stamp)) == {"approved_target"}
     assert "approved_view_sha256" not in stamp
 
 
@@ -2598,7 +2354,6 @@ def test_an_agent_supplied_field_never_reaches_a_readonly_stamp(
     tool_input = {
         "code": "print(1)",
         "execution_mode": "readonly",
-        "approved_journal_sha256": "agent-chosen",
         "approved_target": "live",
     }
 
@@ -2634,7 +2389,7 @@ def test_an_ask_the_harness_never_received_leaves_no_approved_stamp(
     output = {
         "hookSpecificOutput": {
             "permissionDecision": "ask",
-            "updatedInput": {"approved_journal_sha256": "none", "approved_target": "va"},
+            "updatedInput": {"approved_target": "va"},
         }
     }
 
@@ -2642,7 +2397,7 @@ def test_an_ask_the_harness_never_received_leaves_no_approved_stamp(
         approval._emit_ask(
             output,
             {"tool_use_id": "toolu_lost", "tool_name": "x"},
-            {"approved_journal_sha256": "none", "approved_target": "va"},
+            {"approved_target": "va"},
         )
 
     assert list(tmp_path.glob("approval_ask_*.json")) == []
@@ -2878,7 +2633,6 @@ def test_the_binding_overwrites_what_the_agent_supplied(tmp_path, hook_runner, m
     _plant_view(tmp_path)
     agent_input = {
         "kind": "orm",
-        "approved_journal_sha256": "agent-chosen",
         "approved_target": "agent-target",
         "approved_view_sha256": "ab" * 32,
     }
@@ -2887,24 +2641,30 @@ def test_the_binding_overwrites_what_the_agent_supplied(tmp_path, hook_runner, m
 
     assert _updated(result) == {
         "kind": "orm",
-        "approved_journal_sha256": "none",
         "approved_target": "va",
         "approved_view_sha256": hashlib.sha256(_VIEW_BYTES).hexdigest(),
     }
 
 
-def test_a_planted_journal_is_listed_in_the_measurement_prompt(tmp_path, hook_runner, make_config):
-    import hashlib
+_HOSTILE = "SR\u009bQF\u202e:\u200bSP\n = 9"
 
+
+def test_prompt_text_renders_each_setpoint_as_one_printable_line(
+    tmp_path, hook_runner, make_config
+):
     _plant_view(tmp_path)
-    raw = _plant_journal(tmp_path, "va", [("SR:QF:01:SP", 1.5)])
+    hostile = [_HOSTILE, _HOSTILE.replace("\u200b", "")]
+    block = _measurement_block(groups={**_measurement_block()["groups"], "quad": hostile})
 
-    result = _measure(hook_runner, make_config, tmp_path, {"kind": "trm"})
+    result = _measure(hook_runner, make_config, tmp_path, {"kind": "trm"}, block=block)
 
-    reason = _reason(result)
-    assert "left 1 setpoints displaced; approving this call restores them first" in reason
-    assert '  "SR:QF:01:SP" = 1.5' in reason
-    assert _updated(result)["approved_journal_sha256"] == hashlib.sha256(raw).hexdigest()
+    lines = _reason(result).splitlines()
+    start = lines.index("Setpoints stepped: 2")
+    first, second = lines[start + 1 : start + 3]
+    assert all(line.isascii() and line.isprintable() for line in (first, second))
+    assert first == f"  {json.dumps(hostile[0])}"
+    assert second == f"  {json.dumps(hostile[1])}"
+    assert first != second
 
 
 def test_a_view_whose_bytes_differ_from_the_record_is_denied(tmp_path, hook_runner, make_config):
@@ -2973,7 +2733,7 @@ def test_a_host_and_a_container_render_resolve_the_same_view(
     assert f"pyAML view: {_VIEW_RELATIVE}\n" in _reason(result)
 
 
-def test_the_measurement_stamp_holds_its_three_approved_fields(
+def test_the_measurement_stamp_holds_its_two_approved_fields(
     tmp_path, hook_runner, make_config, stamp_dir
 ):
     _plant_view(tmp_path)
@@ -2988,11 +2748,7 @@ def test_the_measurement_stamp_holds_its_three_approved_fields(
 
     stamp = _stamp(stamp_dir, "toolu_pm1")
     assert _approved(stamp) == _approved(_updated(result))
-    assert set(_approved(stamp)) == {
-        "approved_journal_sha256",
-        "approved_target",
-        "approved_view_sha256",
-    }
+    assert set(_approved(stamp)) == {"approved_target", "approved_view_sha256"}
 
 
 @pytest.mark.parametrize(
@@ -3018,7 +2774,7 @@ def test_a_view_digest_rides_only_in_a_measurements_input(
     assert _decision(result) == "ask"
     assert "approved_view_sha256" not in _updated(result)
     stamp = _stamp(stamp_dir, "toolu_nv1")
-    assert set(_approved(stamp)) == {"approved_journal_sha256", "approved_target"}
+    assert set(_approved(stamp)) == {"approved_target"}
 
 
 def test_the_hook_restates_what_the_tool_steps_and_its_defaults(hook_module):
