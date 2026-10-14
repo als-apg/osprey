@@ -64,6 +64,7 @@ def _assert_point_in_bounds(point: dict[str, float], vocs: VOCS) -> None:
 # CustomXoptObjective is abstract, so the rejection path needs a real subclass
 class _MinimalCustomObjective(CustomXoptObjective):  # type: ignore[misc]
     def forward(self, samples: torch.Tensor, X: torch.Tensor | None = None) -> torch.Tensor:
+        del X  # the objective is the samples themselves
         return samples
 
 

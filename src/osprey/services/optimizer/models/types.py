@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import math
-from enum import Enum
+from enum import StrEnum
 from typing import Any, TypeAlias
 
 
-class Direction(str, Enum):  # noqa: UP042 - str() and serialized form kept from tuning_scripts
+class Direction(StrEnum):
     """Objective direction. ``str`` mixin keeps wire/string comparisons working."""
 
     MAXIMIZE = "MAXIMIZE"

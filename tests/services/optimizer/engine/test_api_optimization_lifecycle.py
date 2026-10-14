@@ -204,6 +204,7 @@ def test_create_survives_direction_lookup_failure(seam_redis_mock: MagicMock) ->
     assert persisted.objective_direction is None
 
 
+@pytest.mark.usefixtures("seam_redis_mock")
 @pytest.mark.parametrize(
     ("config", "registry", "detail_token"),
     [
@@ -231,7 +232,7 @@ def test_create_survives_direction_lookup_failure(seam_redis_mock: MagicMock) ->
     ],
 )
 def test_create_rejects_invalid_config(
-    seam_redis_mock: MagicMock, config: OptimizationConfig, registry: MagicMock, detail_token: str
+    config: OptimizationConfig, registry: MagicMock, detail_token: str
 ) -> None:
     """Each row must be refused by ITS gate — the token pins the rejection reason
     so a row can't silently start failing at a different 422 gate."""
@@ -251,7 +252,7 @@ def test_start_rejects_job_not_in_created_state(stored_status: JobStatus | None)
     with patch(f"{_OL}.get_optimization_reader") as reader_f:
         reader_f.return_value.get_status.return_value = stored_status
         with pytest.raises(HTTPException) as exc:
-            ol.start_optimization_job("job-1", MagicMock(), MagicMock())
+            ol.start_optimization_job("job-1", MagicMock())
     assert exc.value.status_code == 409
 
 
@@ -268,7 +269,7 @@ def test_start_launches_when_created(seam_redis_mock: MagicMock) -> None:
         read_f.return_value = JobResponse(
             job_id="job-1", job_type=JobType.OPTIMIZATION, status=JobStatus.RUNNING
         )
-        resp = ol.start_optimization_job("job-1", tracker, MagicMock())
+        resp = ol.start_optimization_job("job-1", tracker)
 
     assert resp.status is JobStatus.RUNNING
     assert resp.job_id == "job-1"
@@ -291,7 +292,7 @@ def test_start_registers_results_path_after_successful_launch(seam_redis_mock: M
         recorder.attach_mock(launch_f, "launch")
         recorder.attach_mock(writer_f.return_value.set_last_results_path, "set_path")
         launch_f.return_value = 4321
-        ol.start_optimization_job("job-1", MagicMock(), MagicMock())
+        ol.start_optimization_job("job-1", MagicMock())
 
     # The path is registered only once the launch succeeded (never for a
     # 409'd draft), hence launch strictly before set_path.
@@ -309,7 +310,7 @@ def test_start_does_not_register_results_path_when_launch_fails(seam_redis_mock:
     ):
         reader_f.return_value.get_status.return_value = JobStatus.CREATED
         with pytest.raises(HTTPException):
-            ol.start_optimization_job("job-1", MagicMock(), MagicMock())
+            ol.start_optimization_job("job-1", MagicMock())
 
     writer_f.return_value.set_last_results_path.assert_not_called()
 
@@ -319,7 +320,7 @@ def test_start_config_expired_returns_409(seam_redis_mock: MagicMock) -> None:
     with patch(f"{_OL}.get_optimization_reader") as reader_f:
         reader_f.return_value.get_status.return_value = JobStatus.CREATED
         with pytest.raises(HTTPException) as exc:
-            ol.start_optimization_job("job-1", MagicMock(), MagicMock())
+            ol.start_optimization_job("job-1", MagicMock())
     assert exc.value.status_code == 409
     assert "stored config not found" in exc.value.detail  # this 409, not the not-CREATED one
 
@@ -332,7 +333,7 @@ def test_start_results_dir_failure_returns_500(seam_redis_mock: MagicMock) -> No
     ):
         reader_f.return_value.get_status.return_value = JobStatus.CREATED
         with pytest.raises(HTTPException) as exc:
-            ol.start_optimization_job("job-1", MagicMock(), MagicMock())
+            ol.start_optimization_job("job-1", MagicMock())
     assert exc.value.status_code == 500
 
 

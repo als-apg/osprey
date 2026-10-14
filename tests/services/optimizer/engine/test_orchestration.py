@@ -130,6 +130,7 @@ def _env_efficiency_only() -> MagicMock:
 
 
 class TestOptimizationEngineValidation:
+    @pytest.mark.usefixtures("patched_engine_collaborators")
     @pytest.mark.parametrize(
         ("environment_factory", "config", "match"),
         [
@@ -196,7 +197,6 @@ class TestOptimizationEngineValidation:
     )
     def test_run_raises_value_error(
         self,
-        patched_engine_collaborators: MagicMock,
         environment_factory: MagicMock,
         config: OptimizationConfig,
         match: str,
@@ -417,7 +417,7 @@ class TestOptimizationEngineValidation:
         """
         bus = EventBus()
 
-        def callback(event: object) -> None:
+        def callback(_event: object) -> None:
             return None
 
         bus.subscribe_all(callback)

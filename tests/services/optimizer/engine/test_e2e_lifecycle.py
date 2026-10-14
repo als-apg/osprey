@@ -257,8 +257,9 @@ def _run_service(
 class TestNormalCompletion:
     """Optimization completes all iterations without pause/cancel."""
 
+    @pytest.mark.usefixtures("mock_plugin_env")
     def test_creates_all_artifacts_and_reloads_via_load_results(
-        self, redis_server: str, tmp_path: Path, mock_plugin_env: object
+        self, redis_server: str, tmp_path: Path
     ) -> None:
         """One real run covers both halves of the completion contract: the artifact
         set it writes, and the round-trip back through ``load_results`` (full
@@ -287,9 +288,8 @@ class TestNormalCompletion:
 class TestPauseResumeCompletion:
     """Optimization is paused, then resumed, and completes normally."""
 
-    def test_pause_resume_creates_all_artifacts(
-        self, lifecycle_worker: Any, mock_plugin_env: object
-    ) -> None:
+    @pytest.mark.usefixtures("mock_plugin_env")
+    def test_pause_resume_creates_all_artifacts(self, lifecycle_worker: Any) -> None:
         control_key = "test_lifecycle_pause_resume"
         first_iter_done, on_event = _make_iteration_signal()
 
@@ -319,9 +319,8 @@ class TestPauseResumeCompletion:
 class TestCancelWhileRunning:
     """Optimization is cancelled after at least one iteration."""
 
-    def test_cancel_saves_partial_results(
-        self, lifecycle_worker: Any, mock_plugin_env: object
-    ) -> None:
+    @pytest.mark.usefixtures("mock_plugin_env")
+    def test_cancel_saves_partial_results(self, lifecycle_worker: Any) -> None:
         control_key = "test_lifecycle_cancel_running"
         control_token = lifecycle_worker.make_token(control_key)
         # Cancel from inside the first-iteration callback so the next
@@ -339,9 +338,8 @@ class TestCancelWhileRunning:
 class TestCancelWhilePaused:
     """Optimization is paused, then cancelled while blocked in wait_if_paused."""
 
-    def test_cancel_while_paused_saves_partial_results(
-        self, lifecycle_worker: Any, mock_plugin_env: object
-    ) -> None:
+    @pytest.mark.usefixtures("mock_plugin_env")
+    def test_cancel_while_paused_saves_partial_results(self, lifecycle_worker: Any) -> None:
         control_key = "test_lifecycle_cancel_paused"
         control_token = lifecycle_worker.make_token(control_key)
         # Pause from inside the first-iteration callback so the worker blocks

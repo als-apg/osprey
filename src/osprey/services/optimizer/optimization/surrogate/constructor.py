@@ -171,11 +171,17 @@ class SklearnModelConstructor(ModelConstructor):  # type: ignore[misc]
         input_names: list[str],
         outcome_names: list[str],
         data: pd.DataFrame,
-        input_bounds: dict[str, list[float]] | None = None,  # noqa: ARG002 - Xopt ModelConstructor signature
-        dtype: torch.dtype = torch.double,  # noqa: ARG002 - Xopt ModelConstructor signature
-        device: torch.device | str = "cpu",  # noqa: ARG002 - Xopt ModelConstructor signature
+        input_bounds: dict[str, list[float]] | None = None,
+        dtype: torch.dtype = torch.double,
+        device: torch.device | str = "cpu",
     ) -> ModelList:
-        """Build a ModelList containing one SklearnBoTorchModel per outcome."""
+        """Build a ModelList containing one SklearnBoTorchModel per outcome.
+
+        Xopt passes bounds, dtype and device to every model constructor; an
+        sklearn surrogate fits on the raw data and holds no tensors, so it
+        needs none of them.
+        """
+        del input_bounds, dtype, device
         models: list[Model] = []
         for outcome in outcome_names:
             sklearn_model = (

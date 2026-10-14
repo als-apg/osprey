@@ -1,13 +1,13 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class JobType(str, Enum):  # noqa: UP042 - str() and serialized form kept from tuning_scripts
+class JobType(StrEnum):
     """Type of background job tracked by the API."""
 
     OPTIMIZATION = "optimization"
 
 
-class JobStatus(str, Enum):  # noqa: UP042 - str() and serialized form kept from tuning_scripts
+class JobStatus(StrEnum):
     """Status of a background job."""
 
     CREATED = "created"
@@ -25,7 +25,7 @@ class JobStatus(str, Enum):  # noqa: UP042 - str() and serialized form kept from
         return self in (JobStatus.COMPLETED, JobStatus.ERROR, JobStatus.CANCELLED)
 
 
-class AlgorithmType(str, Enum):  # noqa: UP042 - str() and serialized form kept from tuning_scripts
+class AlgorithmType(StrEnum):
     """Available optimization algorithms."""
 
     # Sampling
@@ -47,7 +47,7 @@ class AlgorithmType(str, Enum):  # noqa: UP042 - str() and serialized form kept 
     CNSGA = "cnsga"
 
 
-class ConstraintType(str, Enum):  # noqa: UP042 - str() and serialized form kept from tuning_scripts
+class ConstraintType(StrEnum):
     """Outcome-constraint relation applied to an observable during optimization.
 
     The values match xopt's VOCS constraint spelling (``[type, threshold]``):
@@ -77,7 +77,7 @@ CONSTRAINT_WARN_ALGORITHMS: frozenset[AlgorithmType] = frozenset(
 )
 
 
-class SurrogateModelType(str, Enum):  # noqa: UP042 - str() and serialized form kept from tuning_scripts
+class SurrogateModelType(StrEnum):
     """Available surrogate model types for Bayesian optimization."""
 
     DEFAULT = "default"
@@ -87,7 +87,7 @@ class SurrogateModelType(str, Enum):  # noqa: UP042 - str() and serialized form 
     XOPT_GP = "xopt_gp"
 
 
-class EnvironmentType(str, Enum):  # noqa: UP042 - str() and serialized form kept from tuning_scripts
+class EnvironmentType(StrEnum):
     """Available environment types."""
 
     PRODUCTION = "production"

@@ -43,14 +43,14 @@ class TestEventSystem:
         fail here: a subscriber crashing unseen has bitten us before)."""
         bus = EventBus()
 
-        def crasher(e: OptimizationEvent) -> None:
+        def crasher(_event: OptimizationEvent) -> None:
             raise RuntimeError("Crash")
 
         bus.subscribe(EventType.OPTIMIZATION_STARTED, crasher)
 
         worked = False
 
-        def success(e: OptimizationEvent) -> None:
+        def success(_event: OptimizationEvent) -> None:
             nonlocal worked
             worked = True
 

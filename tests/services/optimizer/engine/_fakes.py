@@ -60,9 +60,10 @@ class FakeInjectorEnvironment(EnvironmentProtocol):
         *,
         check_cancellation: Callable[[], None] | None = None,
     ) -> None:
-        # Bounds/unknown-name validation mirrors
-        # ALSInjectorEnvironment.set_variables (same exception type and
-        # message shape) so tests driving Evaluator error-propagation behave
+        if check_cancellation is not None:
+            check_cancellation()
+        # Bounds/unknown-name validation mirrors the facility injector
+        # plugin's set_variables (same exception type and message shape) so tests driving Evaluator error-propagation behave
         # the same against the fake as against the real env.
         for name, value in variable_inputs.items():
             if name not in VARIABLES:
@@ -104,6 +105,8 @@ class FakeInjectorEnvironment(EnvironmentProtocol):
         *,
         check_cancellation: Callable[[], None] | None = None,
     ) -> dict[str, PVReading]:
+        if check_cancellation is not None:
+            check_cancellation()
         return {n: PVReading(value=self._observable_value(n)) for n in observable_names}
 
     def evaluate(
@@ -219,6 +222,8 @@ class MockEnvironment(EnvironmentProtocol):
         *,
         check_cancellation: Callable[[], None] | None = None,
     ) -> dict[str, PVReading]:
+        if check_cancellation is not None:
+            check_cancellation()
         return {
             n: PVReading(value=None) if n == "obs_faulted" else PVReading(value=10.0)
             for n in observable_names
@@ -276,6 +281,8 @@ class EchoEnv:
         *,
         check_cancellation: Callable[[], None] | None = None,
     ) -> dict[str, PVReading]:
+        if check_cancellation is not None:
+            check_cancellation()
         self.last_inputs = variable_inputs
         self.last_observable_names = observable_names
         missing = [name for name in observable_names if name not in self._result]

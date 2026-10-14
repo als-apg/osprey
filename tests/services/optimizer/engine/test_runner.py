@@ -152,11 +152,14 @@ class FakeOptimizer:
         self.ingested: list[dict[str, Any]] = []
 
     def suggest(self, num_points: int | None = None) -> list[dict[str, Any]]:
+        return [self._next() for _ in range(num_points or 1)]
+
+    def _next(self) -> dict[str, Any]:
         if self._i < len(self._suggestions):
             point = self._suggestions[self._i]
             self._i += 1
-            return [dict(point)]
-        return [{"x": 0.5}]
+            return dict(point)
+        return {"x": 0.5}
 
     def ingest(self, points: list[dict[str, Any]]) -> None:
         self.ingested.extend(dict(p) for p in points)
@@ -510,7 +513,7 @@ class TestLoopRecordSemantics:
         proposed off-grid values."""
         opt = FakeOptimizer(suggestions=[{"x": 0.26}])
 
-        def evaluate(point: dict[str, float]) -> dict[str, float]:
+        def evaluate(_point: dict[str, float]) -> dict[str, float]:
             # Emulate the app evaluator snapping 0.26 -> 0.5 before returning.
             return {"x": 0.5, "f": 1.0}
 

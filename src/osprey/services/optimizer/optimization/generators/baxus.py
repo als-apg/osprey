@@ -26,10 +26,7 @@ Tutorial: https://botorch.org/docs/tutorials/baxus
 import logging
 import math
 import warnings
-from typing import (  # noqa: F401 -- ClassVar is used in a `# type:` comment below, invisible to ruff
-    Any,
-    ClassVar,
-)
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -185,10 +182,10 @@ class BAxUSGenerator(ExpectedImprovementGenerator, StateOwner):  # type: ignore[
     )
 
     # BAxUS manages its own trust region in the embedded target space.
-    # Unannotated on purpose (type comment only): pydantic strips annotated
-    # underscore attributes into private attrs, which would let EI's non-empty
-    # controller list show through on class-level lookup.
-    _compatible_turbo_controllers = []  # type: ClassVar[list[Any]]
+    # Unannotated on purpose: pydantic strips annotated underscore attributes
+    # into private attrs, which would let EI's non-empty controller list show
+    # through on class-level lookup. ``list[Any]()`` gives mypy the type instead.
+    _compatible_turbo_controllers = list[Any]()
 
     target_dim_init: PositiveInt = Field(
         default=2,

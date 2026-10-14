@@ -722,9 +722,6 @@ ignore-variadic-names = true
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
 "tests/*" = ["B011", "B017", "B018"]  # Allow assert False, useless attribute access, assert blind exception
 "tests/e2e/conftest.py" = ["F811"]  # Allow pytest hook redefinition
-# Ported verbatim from tuning_scripts: fixtures requested for their side effects
-# (Redis, patched registries) and fakes that mirror protocol signatures.
-"tests/services/optimizer/engine/*" = ["ARG001", "ARG002"]
 "tests/documentation/test_workflow_autodoc.py" = ["E402"]  # Late imports after path manipulation
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation
 "src/osprey/services/channel_finder/__init__.py" = ["E402"]  # Grouped imports with section comments

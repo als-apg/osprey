@@ -82,6 +82,8 @@ class _StaleMeasurementEnvironment:
         *,
         check_cancellation: Callable[[], None] | None = None,
     ) -> None:
+        if check_cancellation is not None:
+            check_cancellation()
         # Simulate the shot-boundary wait: the machine cycles and the active
         # setpoint catches up to the requested one before observables are read.
         self._active_setpoint = inputs
@@ -92,6 +94,8 @@ class _StaleMeasurementEnvironment:
         *,
         check_cancellation: Callable[[], None] | None = None,
     ) -> dict[str, PVReading]:
+        if check_cancellation is not None:
+            check_cancellation()
         assert self._active_setpoint is not None, "set_variables must be called first"
         value = sum(self._active_setpoint.values())
         return {name: PVReading(value=value) for name in observable_names}

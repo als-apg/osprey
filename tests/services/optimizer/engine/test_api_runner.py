@@ -80,6 +80,7 @@ class TestRunOptimizationProcess:
 @pytest.fixture()
 def clean_redis(redis_server: str) -> Generator[None, None, None]:
     """Real-Redis backing that flushes the shared DB after the test (no key leaks)."""
+    del redis_server  # wanted for the server it starts, not its URL
     yield
     get_redis_client(binary=True).flushdb()
 
@@ -87,7 +88,8 @@ def clean_redis(redis_server: str) -> Generator[None, None, None]:
 class TestRunOptimizationProcessCrashState:
     """Real-Redis integration: a crash must propagate clean ERROR state via JobLifecycle."""
 
-    def test_runner_crash_state_propagation(self, clean_redis: None) -> None:
+    @pytest.mark.usefixtures("clean_redis")
+    def test_runner_crash_state_propagation(self) -> None:
         """Verify that a crash in the runner correctly updates Redis state via JobLifecycle."""
         job_id = str(uuid.uuid4())
         # Malformed config to ensure we trigger the lifecycle's error handling

@@ -181,7 +181,8 @@ def created_job_client(
 
 
 @pytest.fixture
-def client(mock_job_tracker: MagicMock, seam_redis_mock: MagicMock) -> Generator[TestClient]:
+def client(seam_redis_mock: MagicMock, mock_job_tracker: MagicMock) -> Generator[TestClient]:
+    del seam_redis_mock  # wanted for the Redis it patches, not its value
     app.dependency_overrides[get_job_tracker] = lambda: mock_job_tracker
     with TestClient(app) as test_client:
         yield test_client
@@ -326,8 +327,9 @@ class TestGetJobStatus:
         assert resp.status_code == 200
         mock_job_tracker.mark_completed.assert_called_once_with("test-job-id")
 
+    @pytest.mark.usefixtures("mock_job_tracker")
     def test_returns_503_when_real_reader_hits_redis_error(
-        self, client: TestClient, mock_job_tracker: MagicMock, seam_redis_mock: MagicMock
+        self, client: TestClient, seam_redis_mock: MagicMock
     ) -> None:
         """Real OptimizationState propagates redis.exceptions.ConnectionError
         from get() through the jobs router wrapper, yielding 503."""
@@ -338,8 +340,9 @@ class TestGetJobStatus:
         assert "Failed to read job state" in resp.json()["detail"]
         assert "boom" in resp.json()["detail"]
 
+    @pytest.mark.usefixtures("mock_job_tracker")
     def test_running_job_returns_200_before_first_log_flush(
-        self, client: TestClient, mock_job_tracker: MagicMock, seam_redis_mock: MagicMock
+        self, client: TestClient, seam_redis_mock: MagicMock
     ) -> None:
         """Polling a freshly-launched job before its first log flush must return
         200 with empty logs — not 503.
@@ -435,8 +438,9 @@ class TestCancelJob:
         seam_redis_mock.register_script.return_value.assert_not_called()
         mock_job_tracker.mark_completed.assert_not_called()
 
+    @pytest.mark.usefixtures("mock_job_tracker")
     def test_cancel_returns_500_when_real_writer_hits_redis_error(
-        self, client: TestClient, mock_job_tracker: MagicMock, seam_redis_mock: MagicMock
+        self, client: TestClient, seam_redis_mock: MagicMock
     ) -> None:
         """Real OptimizationState.set_status_cas propagates
         redis.exceptions.ConnectionError from the CAS Lua EVAL through the cancel
@@ -450,7 +454,8 @@ class TestCancelJob:
         assert resp.status_code == 500
         assert "boom" in resp.json()["detail"]
 
-    def test_cancel_cas_loses_to_worker_terminal_write(self, redis_server: str) -> None:
+    @pytest.mark.usefixtures("redis_server")
+    def test_cancel_cas_loses_to_worker_terminal_write(self) -> None:
         """A5: status goes COMPLETED between the cancel op's initial read and its
         CAS. The CAS fails, the op 409s, and the final status stays COMPLETED."""
         tracker = JobTracker()
@@ -465,7 +470,7 @@ class TestCancelJob:
         # Patch the endpoint's *initial* read to return RUNNING once, while the
         # real Redis status is flipped COMPLETED before the CAS — deterministic
         # interleave, no sleeps. The CAS reads the real (COMPLETED) bytes.
-        def racing_get_status(self: object) -> JobStatus:
+        def racing_get_status(_self: object) -> JobStatus:
             # Worker reaches terminal in the gap between this read and the CAS.
             get_optimization_writer(job_id).set_status(JobStatus.COMPLETED)
             return JobStatus.RUNNING
@@ -518,11 +523,10 @@ class TestStartJob:
         assert resp.json()["status"] == "running"
         assert resp.json()["job_id"] == "test-job-id"
         gates.assert_called_once_with(read_cfg.return_value, ANY, env_name="als_injector_sim")
-        start.assert_called_once_with(
-            "test-job-id", mock_job_tracker, app.state.environment_registry
-        )
+        start.assert_called_once_with("test-job-id", mock_job_tracker)
 
-    def test_start_missing_job_404(self, client: TestClient, mock_job_tracker: MagicMock) -> None:
+    @pytest.mark.usefixtures("mock_job_tracker")
+    def test_start_missing_job_404(self, client: TestClient) -> None:
         no_config = MagicMock()
         no_config.get.return_value = None
         with patch(
@@ -549,7 +553,8 @@ class TestStartJob:
         assert "control_target" in resp.json()["detail"]
         start.assert_not_called()
 
-    def test_contended_start_preserves_created_job_then_succeeds(self, redis_server: str) -> None:
+    @pytest.mark.usefixtures("redis_server")
+    def test_contended_start_preserves_created_job_then_succeeds(self) -> None:
         """A1/A2: with the slot occupied, starting a CREATED job 409s and leaves
         it intact; once the slot frees, the same start succeeds."""
         real_tracker = JobTracker()
@@ -598,9 +603,8 @@ class TestStartJob:
             app.dependency_overrides.clear()
             redis.flushdb()
 
-    def test_start_412_on_machine_check_failure_leaves_job_created_and_no_spawn(
-        self, redis_server: str
-    ) -> None:
+    @pytest.mark.usefixtures("redis_server")
+    def test_start_412_on_machine_check_failure_leaves_job_created_and_no_spawn(self) -> None:
         """A machine-settings failure at start must 412, never mutate job state
         (status stays CREATED), and never reach the spawn seam (launch_job)."""
         job_id = "gate-fail-job"
@@ -621,7 +625,8 @@ class TestStartJob:
             launch.assert_not_called()
             assert get_optimization_reader(job_id).get_status() is JobStatus.CREATED
 
-    def test_start_builds_gate_env_with_job_environment_config(self, redis_server: str) -> None:
+    @pytest.mark.usefixtures("redis_server")
+    def test_start_builds_gate_env_with_job_environment_config(self) -> None:
         """The gate env is loaded with the job's stored ``environment_config``,
         not an empty dict -- matching what draft resolution and the worker
         itself use it for (regression guard for the start-gate/resolution/worker
@@ -753,9 +758,8 @@ class TestGetJobDetail:
         assert body["job_type"] == "optimization"
         mock_build.assert_called_once_with("test-job-id", "summary", mock_job_tracker)
 
-    def test_get_job_detail_full_serializes_nan_objective_as_null(
-        self, client: TestClient, mock_job_tracker: MagicMock
-    ) -> None:
+    @pytest.mark.usefixtures("mock_job_tracker")
+    def test_get_job_detail_full_serializes_nan_objective_as_null(self, client: TestClient) -> None:
         """A NaN objective (failed read) must serialize as JSON null, not 500.
 
         Starlette renders with ``json.dumps(allow_nan=False)``, so a NaN that
@@ -779,9 +783,8 @@ class TestGetJobDetail:
         body = resp.json()
         assert body["data"] == [{"charge_ltb": None, "LTB:HCM1:Setpoint": 1.0}]
 
-    def test_get_job_detail_full_drops_nan_snapshot_entry(
-        self, client: TestClient, mock_job_tracker: MagicMock
-    ) -> None:
+    @pytest.mark.usefixtures("mock_job_tracker")
+    def test_get_job_detail_full_drops_nan_snapshot_entry(self, client: TestClient) -> None:
         """A NaN inside a captured snapshot (e.g. initial objective unreadable)
         must not 500. Snapshots are sparse reference points, so the non-finite
         entry is dropped (mirroring summary.py), leaving finite entries intact."""
@@ -1166,7 +1169,7 @@ class TestListJobsIncludesCreated:
             job_meta("done", status=JobStatus.COMPLETED),
         ]
 
-        def fake_read(tracker, job_id):
+        def fake_read(_tracker, job_id):
             status_map = {
                 "c": JobStatus.CREATED,
                 "r": JobStatus.RUNNING,
@@ -1272,7 +1275,7 @@ def _stub_optimization_start(
     monkeypatch.setattr(f"{jobs}.run_start_gates", lambda *a, **k: None)
     monkeypatch.setattr(
         f"{jobs}.start_optimization_job",
-        lambda jid, tracker, registry: JobResponse(
+        lambda jid, _tracker: JobResponse(
             job_id=jid, job_type=JobType.OPTIMIZATION, status=JobStatus.RUNNING
         ),
     )

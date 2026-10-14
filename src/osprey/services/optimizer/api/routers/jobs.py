@@ -234,7 +234,7 @@ def start_job(
         **machine_config(target, config.execution_mode),
     }
     run_start_gates(config, load_environment(env_name, registry, env_config), env_name=env_name)
-    return start_optimization_job(job_id, tracker, registry)
+    return start_optimization_job(job_id, tracker)
 
 
 @router.put("/{job_id}/config", response_model=JobResponse)

@@ -255,7 +255,7 @@ class TestOptimizerProtocol:
     def test_minimal_implementation_passes_isinstance(self) -> None:
         class FakeOptimizer:
             def suggest(self, num_points: int | None = None) -> list[dict[str, object]]:
-                return [{"x": 0.0}]
+                return [{"x": 0.0}] * (num_points or 1)
 
             def ingest(self, points: list[dict[str, object]]) -> None:
                 pass
@@ -265,7 +265,7 @@ class TestOptimizerProtocol:
     def test_missing_method_fails_isinstance(self) -> None:
         class MissingIngest:
             def suggest(self, num_points: int | None = None) -> list[dict[str, object]]:
-                return []
+                return [{"x": 0.0}] * (num_points or 1)
 
         assert not isinstance(MissingIngest(), OptimizerProtocol)
 

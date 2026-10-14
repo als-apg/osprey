@@ -95,8 +95,10 @@ def make_environment_class(models_package: str) -> type:
             self,
             variable_inputs: dict[str, float],
             *,
-            check_cancellation: Any = None,  # noqa: ARG002 - EnvironmentProtocol signature
+            check_cancellation: Any = None,
         ) -> None:
+            if check_cancellation is not None:
+                check_cancellation()
             for name, value in variable_inputs.items():
                 meta = VARIABLES[name]
                 if not meta.min_value <= value <= meta.max_value:
@@ -108,8 +110,10 @@ def make_environment_class(models_package: str) -> type:
             self,
             observable_names: list[str],
             *,
-            check_cancellation: Any = None,  # noqa: ARG002 - EnvironmentProtocol signature
+            check_cancellation: Any = None,
         ) -> dict[str, Any]:
+            if check_cancellation is not None:
+                check_cancellation()
             return {
                 n: protocols.PVReading(value=self._sim.get_observable(OBSERVABLES[n]))
                 for n in observable_names
@@ -120,8 +124,10 @@ def make_environment_class(models_package: str) -> type:
             variable_inputs: dict[str, float],
             observable_names: list[str],
             *,
-            check_cancellation: Any = None,  # noqa: ARG002 - EnvironmentProtocol signature
+            check_cancellation: Any = None,
         ) -> dict[str, Any]:
+            if check_cancellation is not None:
+                check_cancellation()
             self.set_variables(variable_inputs)
             return self.get_observables(observable_names)
 

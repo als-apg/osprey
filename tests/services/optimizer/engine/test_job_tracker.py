@@ -105,6 +105,7 @@ def test_register_created_job_writes_created_meta_without_claiming_slot(
 @pytest.fixture
 def tracker(redis_server: str) -> JobTracker:
     """Real-Redis-backed tracker; flush the DB so each test starts clean."""
+    del redis_server  # wanted for the server it starts, not its URL
     t = JobTracker()
     t._get_redis().flushdb()
     return t
@@ -504,6 +505,7 @@ class TestJobLifecycle:
         writer.set_status.assert_called_once_with(expected_status)
         writer.set_error_message.assert_called_once_with(expected_message)
 
+    @pytest.mark.usefixtures("redis_mocks")
     @pytest.mark.parametrize(
         ("refresh_error", "wait_results", "beats", "warnings"),
         [
@@ -515,7 +517,6 @@ class TestJobLifecycle:
     )
     def test_heartbeat_loop(
         self,
-        redis_mocks,
         refresh_error: Exception | None,
         wait_results: list[bool],
         beats: int,
@@ -605,15 +606,14 @@ class TestJobLifecycle:
 
         assert "Error during lifecycle cleanup" in caplog.text
 
+    @pytest.mark.usefixtures("redis_mocks")
     @pytest.mark.parametrize(
         ("job_type", "expected_cls"),
         [
             pytest.param(JobType.OPTIMIZATION, OptimizationStateWriter, id="optimization"),
         ],
     )
-    def test_job_type_creates_matching_writer(
-        self, redis_mocks, job_type: JobType, expected_cls: type
-    ):
+    def test_job_type_creates_matching_writer(self, job_type: JobType, expected_cls: type):
         lc = JobLifecycle("job-w", job_type=job_type)
         lc.__enter__()
         assert isinstance(lc.writer, expected_cls)
@@ -696,9 +696,8 @@ class TestJobLifecycleIntegration:
 class TestJobLifecycleBranches:
     """__exit__ branch coverage (hand-mocked collaborators)."""
 
-    def test_exit_no_exception_sets_completed_without_heartbeat_thread(
-        self, seam_redis_mock: MagicMock
-    ) -> None:
+    @pytest.mark.usefixtures("seam_redis_mock")
+    def test_exit_no_exception_sets_completed_without_heartbeat_thread(self) -> None:
         """__exit__ is the single owner of terminal status: no exception → COMPLETED
         and no error message. With no heartbeat thread there is nothing to join, and
         the terminal status is still written."""

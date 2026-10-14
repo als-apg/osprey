@@ -244,8 +244,9 @@ class TestInitialBoundsEndpoint:
         resp = client.get("/environments/sim/initial-bounds")
         assert resp.status_code == 503
 
+    @pytest.mark.usefixtures("mock_registry")
     def test_initial_bounds_get_variables_error_500(
-        self, client: TestClient, mock_registry: MagicMock, mock_env: MockEnvironment
+        self, client: TestClient, mock_env: MockEnvironment
     ) -> None:
         """An unexpected get_variables error while reading current values -> 500."""
         with patch.object(mock_env, "get_variables", side_effect=RuntimeError("read broke")):

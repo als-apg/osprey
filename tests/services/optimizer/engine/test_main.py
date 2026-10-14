@@ -104,21 +104,22 @@ class TestOpenAPIContract:
         ]:
             assert status in schema["paths"][path][method]["responses"], f"{method} {path}"
 
-    def test_custom_openapi_caches_and_returns_same_schema(self, fresh_openapi_cache: None) -> None:
+    @pytest.mark.usefixtures("fresh_openapi_cache")
+    def test_custom_openapi_caches_and_returns_same_schema(self) -> None:
         """Calling again returns the cached schema (early-return path)."""
         schema = main.custom_openapi()
         assert main.custom_openapi() is schema
 
-    def test_custom_openapi_documents_503_for_503_ops(self, fresh_openapi_cache: None) -> None:
+    @pytest.mark.usefixtures("fresh_openapi_cache")
+    def test_custom_openapi_documents_503_for_503_ops(self) -> None:
         """Collection listings and env-reads must document 503 in the published contract."""
         paths = main.custom_openapi()["paths"]
         for path in ("/jobs", "/results", "/models"):
             assert "503" in paths[path]["get"]["responses"], f"{path} GET missing documented 503"
         assert "503" in paths["/environments/{name}/evaluate"]["post"]["responses"]
 
-    def test_custom_openapi_skips_non_dict_and_responseless_ops(
-        self, fresh_openapi_cache: None
-    ) -> None:
+    @pytest.mark.usefixtures("fresh_openapi_cache")
+    def test_custom_openapi_skips_non_dict_and_responseless_ops(self) -> None:
         """An operation lacking 'responses' is skipped without error."""
 
         def fake_get_openapi(**_: object) -> dict[str, object]:
@@ -137,7 +138,8 @@ class TestOpenAPIContract:
             out = main.custom_openapi()
         assert out["paths"]["/weird"]["get"] == {"operationId": "noResponses"}
 
-    def test_custom_openapi_detail_already_anyof_branch(self, fresh_openapi_cache: None) -> None:
+    @pytest.mark.usefixtures("fresh_openapi_cache")
+    def test_custom_openapi_detail_already_anyof_branch(self) -> None:
         """HTTPValidationError.detail already carrying anyOf is left untouched."""
 
         def fake_get_openapi(**_: object) -> dict[str, object]:
@@ -316,7 +318,7 @@ class TestBodySizeLimit:
         # at the ASGI layer because httpx rejects malformed Content-Length before it ships.
         forwarded: dict[str, bool] = {"called": False}
 
-        async def dummy_app(scope: object, receive: object, send: object) -> None:
+        async def dummy_app(_scope: object, _receive: object, _send: object) -> None:
             forwarded["called"] = True
 
         middleware = BodySizeLimitMiddleware(dummy_app)

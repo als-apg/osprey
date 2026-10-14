@@ -211,7 +211,7 @@ class TestErrorTranslation:
     def test_construction_failure_becomes_optimizer_error(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        def _boom(algorithm: object) -> None:
+        def _boom(_algorithm: object) -> None:
             raise XoptError("No generator named nope")
 
         monkeypatch.setattr(

@@ -76,6 +76,7 @@ class OrbitMachine:
         return dict(channel_inputs)
 
     def check_connection(self, pv_name: str | None = None) -> bool:
+        del pv_name  # the simulated machine is always reachable
         return True
 
     def rms(self) -> float:

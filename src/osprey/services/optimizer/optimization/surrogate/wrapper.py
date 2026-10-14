@@ -139,7 +139,7 @@ class SklearnBoTorchModel(Model):
     def posterior(  # type: ignore[override]
         self,
         X: Tensor,
-        observation_noise: bool = False,  # noqa: ARG002 - BoTorch Model.posterior signature
+        observation_noise: bool = False,
         posterior_transform: Any | None = None,
         **kwargs: Any,
     ) -> GPyTorchPosterior:
@@ -147,7 +147,10 @@ class SklearnBoTorchModel(Model):
 
         Uses a custom autograd function so that gradients flow back to X
         via finite differences, enabling gradient-based acquisition optimization.
+        The sklearn variance is already the predictive spread, so there is no
+        separate observation-noise term to add.
         """
+        del observation_noise
         mean_t, var_t = _SklearnPredictFunction.apply(  # type: ignore[no-untyped-call]
             X, self._inner, self._variance_method
         )

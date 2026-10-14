@@ -15,6 +15,7 @@ from osprey.services.optimizer.models.enums import JobStatus, JobType
 from osprey.services.optimizer.models.protocols import JobStateReader, JobStateWriter
 from osprey.services.optimizer.models.types import Direction
 from osprey.services.optimizer.optimization.state import (
+    OptimizationStateReader,
     OptimizationStateWriter,
     _OptimizationState,
     get_optimization_reader,
@@ -45,6 +46,7 @@ def _flush_job_state(job_id: str) -> None:
 
 @pytest.fixture
 def writer(seam_redis_mock: MagicMock) -> _OptimizationState:
+    del seam_redis_mock  # wanted for the Redis it patches, not its value
     w = get_optimization_writer(_TEST_JOB_ID)
     assert isinstance(w, _OptimizationState)  # narrow for mypy; no cast
     return w
@@ -52,6 +54,7 @@ def writer(seam_redis_mock: MagicMock) -> _OptimizationState:
 
 @pytest.fixture
 def reader(seam_redis_mock: MagicMock) -> _OptimizationState:
+    del seam_redis_mock  # wanted for the Redis it patches, not its value
     r = get_optimization_reader(_TEST_JOB_ID)
     assert isinstance(r, _OptimizationState)
     return r
@@ -581,7 +584,7 @@ _ALL_FACTORIES = [
     ),
     pytest.param(
         get_optimization_reader,
-        OptimizationStateWriter,
+        OptimizationStateReader,
         _OptimizationState,
         id="optimization-reader",
     ),
@@ -603,6 +606,7 @@ class TestStateFactories:
             accessor = factory("job-3")
 
         mock_get_redis.assert_called_once_with(binary=True)
+        assert isinstance(accessor, protocol_cls)
         assert isinstance(accessor, concrete_cls)
         assert accessor._redis_client is mock_redis_client
         assert accessor._redis_key_prefix == state_prefix("job-3")

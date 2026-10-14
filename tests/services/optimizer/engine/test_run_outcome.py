@@ -19,7 +19,8 @@ _EXECUTION = "osprey.services.optimizer.services.execution"
 
 
 @pytest.fixture
-def exec_service(mock_redis: None, tmp_path: Path) -> ExecutionService:
+def exec_service(mock_redis: MagicMock, tmp_path: Path) -> ExecutionService:
+    del mock_redis  # wanted for the Redis it patches, not its value
     return ExecutionService(results_dir=tmp_path / "results", control_key="outcome-job")
 
 
@@ -130,7 +131,7 @@ def test_a_failed_restore_makes_the_job_an_error_naming_both(
     )
     real_restore = ExecutionService._restore_initial_values
 
-    def failing_restore(self: ExecutionService, *args: Any) -> None:
+    def failing_restore(_self: ExecutionService, *args: Any) -> None:
         raise ConnectionError("gateway down")
 
     monkeypatch.setattr(ExecutionService, "_restore_initial_values", failing_restore)

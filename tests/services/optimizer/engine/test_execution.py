@@ -84,7 +84,8 @@ def _seed_env_midpoints(env: object, n_active: int = 2) -> list[str]:
 
 
 @pytest.fixture
-def exec_service(mock_redis: None, tmp_path: Path) -> ExecutionService:
+def exec_service(mock_redis: MagicMock, tmp_path: Path) -> ExecutionService:
+    del mock_redis  # wanted for the Redis it patches, not its value
     return ExecutionService(results_dir=tmp_path / "results", control_key="test-job")
 
 
@@ -95,6 +96,7 @@ class TestControlKeyRequired:
     """ExecutionService raises ValueError when control_key is None or empty
     instead of silently using 'default_control'. (regression guard for #41)"""
 
+    @pytest.mark.usefixtures("mock_redis")
     @pytest.mark.parametrize(
         "kwargs",
         [
@@ -104,14 +106,13 @@ class TestControlKeyRequired:
         ],
         ids=["none", "empty", "omitted"],
     )
-    def test_missing_control_key_raises(
-        self, mock_redis: None, tmp_path: Path, kwargs: dict[str, Any]
-    ) -> None:
+    def test_missing_control_key_raises(self, tmp_path: Path, kwargs: dict[str, Any]) -> None:
         """Passing control_key=None/'' or omitting it entirely raises ValueError."""
         with pytest.raises(ValueError, match="control_key is required"):
             ExecutionService(results_dir=tmp_path / "results", **kwargs)
 
-    def test_explicit_key_is_used(self, mock_redis: None, tmp_path: Path) -> None:
+    @pytest.mark.usefixtures("mock_redis")
+    def test_explicit_key_is_used(self, tmp_path: Path) -> None:
         """Passing an explicit control_key uses it."""
         svc = ExecutionService(results_dir=tmp_path / "results", control_key="job-abc-123")
         assert svc._control_state_key == "job-abc-123"
@@ -133,6 +134,7 @@ class TestGetCancellationToken:
         svc_call_count = 0
 
         def counting_redis(binary: bool = False) -> MagicMock:
+            del binary  # one mock serves both client kinds
             nonlocal svc_call_count
             svc_call_count += 1
             return _pingable_redis_mock()
@@ -190,9 +192,8 @@ class TestMeasureInitialState:
         ):
             exec_service._measure_initial_state(config)
 
-    def test_objective_missing_raises(
-        self, exec_service: ExecutionService, mock_plugin_env
-    ) -> None:
+    @pytest.mark.usefixtures("mock_plugin_env")
+    def test_objective_missing_raises(self, exec_service: ExecutionService) -> None:
         config = _config(objective_name="nonexistent_obj")
         with pytest.raises(ValueError, match="Objective 'nonexistent_obj' not found"):
             exec_service._measure_initial_state(config)
@@ -235,6 +236,7 @@ class TestMeasureInitialState:
         assert untuned, "fixture must expose untuned env variables for this test to be meaningful"
         assert not (untuned & set(initial_data))
 
+    @pytest.mark.usefixtures("mock_plugin_env")
     @pytest.mark.parametrize(
         ("objective_direction", "expected"),
         [
@@ -246,7 +248,6 @@ class TestMeasureInitialState:
     def test_resolves_objective_direction_onto_config(
         self,
         exec_service: ExecutionService,
-        mock_plugin_env,
         objective_direction: Direction | None,
         expected: str,
     ) -> None:
@@ -269,8 +270,9 @@ class TestMeasureInitialState:
 
         assert config.objective_direction == expected
 
+    @pytest.mark.usefixtures("mock_plugin_env")
     def test_saves_metadata(
-        self, exec_service: ExecutionService, mock_plugin_env, monkeypatch: pytest.MonkeyPatch
+        self, exec_service: ExecutionService, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """_measure_initial_state saves variable & observable metadata."""
         save_metadata_spy = MagicMock(wraps=exec_service._writer.save_metadata)
@@ -391,10 +393,10 @@ class TestStartOptimizationCancellation:
 class TestStartOptimizationOrchestration:
     """Verify ExecutionService composes OptimizationEngine and process_results correctly."""
 
+    @pytest.mark.usefixtures("fake_initial_state")
     def test_runs_engine_then_processes_results(
         self,
         exec_service: ExecutionService,
-        fake_initial_state: None,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
@@ -426,10 +428,10 @@ class TestStartOptimizationOrchestration:
         status_calls = [c.args[0] for c in exec_service._writer.set_status.call_args_list]
         assert JobStatus.COMPLETED not in status_calls
 
+    @pytest.mark.usefixtures("fake_initial_state")
     def test_cancellation_before_engine_skips_engine_run(
         self,
         exec_service: ExecutionService,
-        fake_initial_state: None,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         mock_engine_cls = MagicMock()
@@ -437,7 +439,7 @@ class TestStartOptimizationOrchestration:
             "osprey.services.optimizer.services.execution.OptimizationEngine", mock_engine_cls
         )
 
-        def fake_check(token: object) -> None:
+        def fake_check(_token: object) -> None:
             raise CancellationError("cancelled before engine")
 
         monkeypatch.setattr(
@@ -667,9 +669,8 @@ class TestCreateApplyFn:
 
 
 class TestSpecificRunDir:
-    def test_resolved_as_output_dir_and_recorded_on_reset(
-        self, mock_redis: None, tmp_path: Path
-    ) -> None:
+    @pytest.mark.usefixtures("mock_redis")
+    def test_resolved_as_output_dir_and_recorded_on_reset(self, tmp_path: Path) -> None:
         """A pre-initialized run dir is the resolved output dir, and _reset_state_for_run
         records it as the results path."""
         run_dir = tmp_path / "specific"
@@ -868,9 +869,9 @@ def test_start_optimization_propagates_optimizer_error_verbatim(
 
 
 class TestStartOptimizationSpecificRunDir:
+    @pytest.mark.usefixtures("mock_redis")
     def test_specific_run_dir_calls_save_early_results(
         self,
-        mock_redis: None,
         mock_plugin_env,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,

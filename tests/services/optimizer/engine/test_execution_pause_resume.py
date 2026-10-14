@@ -110,6 +110,7 @@ def simulate_background_worker(
 class TestBackgroundPauseResumeSimulation:
     """Test pause/resume in a background task scenario."""
 
+    @pytest.mark.usefixtures("fake_initial_state")
     @pytest.mark.parametrize(
         "post_pause_action,expected_status",
         # "completed:3" pins that ALL n_iterations ran after the resume —
@@ -122,7 +123,6 @@ class TestBackgroundPauseResumeSimulation:
         redis_server,
         tmp_path,
         monkeypatch,
-        fake_initial_state,
         post_pause_action,
         expected_status,
     ):
@@ -187,9 +187,8 @@ class TestBackgroundPauseResumeSimulation:
             redis_client.delete(cancellation_key(control_key))
             redis_client.close()
 
-    def test_cancel_before_worker_starts_is_honoured(
-        self, redis_server, tmp_path, monkeypatch, fake_initial_state
-    ):
+    @pytest.mark.usefixtures("fake_initial_state")
+    def test_cancel_before_worker_starts_is_honoured(self, redis_server, tmp_path, monkeypatch):
         """A cancel issued before the worker reaches start_optimization must stick.
 
         The API accepts POST /jobs/{id}/cancel from any non-terminal state, but the

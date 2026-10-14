@@ -78,8 +78,9 @@ def mock_now():
 
 
 class TestInitializeResultsDir:
+    @pytest.mark.usefixtures("mock_now")
     def test_creates_timestamped_dir_with_config_and_no_metadata(
-        self, tmp_path: Path, config: OptimizationConfig, mock_now
+        self, tmp_path: Path, config: OptimizationConfig
     ):
         """A non-default output_dir gets a bare timestamp dir (environment_name is
         NOT appended) holding the serialized config; metadata.json is written only
@@ -93,17 +94,17 @@ class TestInitializeResultsDir:
             assert json.load(f) == config.model_dump()
         assert not (run_dir / "metadata.json").exists()
 
+    @pytest.mark.usefixtures("mock_now")
     def test_default_dir_appends_env_name(
-        self, tmp_path: Path, monkeypatch, config: OptimizationConfig, mock_now
+        self, tmp_path: Path, monkeypatch, config: OptimizationConfig
     ):
         """When output_dir is the default Path('results'), environment_name is appended."""
         monkeypatch.chdir(tmp_path)
         run_dir = initialize_results_dir(config)
         assert run_dir == Path("results") / "test_env" / FIXED_TIMESTAMP
 
-    def test_same_second_starts_get_distinct_dirs(
-        self, tmp_path: Path, config: OptimizationConfig, mock_now
-    ):
+    @pytest.mark.usefixtures("mock_now")
+    def test_same_second_starts_get_distinct_dirs(self, tmp_path: Path, config: OptimizationConfig):
         first = initialize_results_dir(config, "job-a", output_dir=tmp_path)
         second = initialize_results_dir(config, "job-b", output_dir=tmp_path)
         assert first != second
@@ -115,7 +116,8 @@ class TestInitializeResultsDir:
 
 
 class TestSaveEarlyResults:
-    def test_refreshes_config_json_with_resolved_direction(self, tmp_path: Path, mock_now):
+    @pytest.mark.usefixtures("mock_now")
+    def test_refreshes_config_json_with_resolved_direction(self, tmp_path: Path):
         """The API path writes config.json before the worker resolves the
         objective direction; save_early_results must refresh it so the
         persisted config records the direction the run actually used."""
@@ -132,7 +134,8 @@ class TestSaveEarlyResults:
         with (run_dir / "config.json").open() as f:
             assert json.load(f)["objective_direction"] == "MAXIMIZE"
 
-    def test_config_json_untouched_without_config(self, tmp_path: Path, mock_now):
+    @pytest.mark.usefixtures("mock_now")
+    def test_config_json_untouched_without_config(self, tmp_path: Path):
         """Without a config argument the existing config.json is left alone."""
         config = OptimizationConfig(
             environment_name="test_env", objective_name="obj", n_iterations=5
@@ -169,8 +172,9 @@ class TestSaveEarlyResults:
 
 
 class TestSaveOptimizationResults:
+    @pytest.mark.usefixtures("mock_now")
     def test_saves_all_required_files(
-        self, tmp_path: Path, config: OptimizationConfig, sample_df: pl.DataFrame, mock_now
+        self, tmp_path: Path, config: OptimizationConfig, sample_df: pl.DataFrame
     ):
         run_dir = _save(
             tmp_path / "results", data=sample_df, best_point={"x": 2.0, "obj": 0.2}, config=config
@@ -181,8 +185,9 @@ class TestSaveOptimizationResults:
         # Without metadata there is no initial point to write.
         assert not (run_dir / "initial_point.json").exists()
 
+    @pytest.mark.usefixtures("mock_now")
     def test_saves_initial_point_when_provided(
-        self, tmp_path: Path, config: OptimizationConfig, sample_df: pl.DataFrame, mock_now
+        self, tmp_path: Path, config: OptimizationConfig, sample_df: pl.DataFrame
     ):
         run_dir = _save(
             tmp_path / "results",
@@ -195,16 +200,18 @@ class TestSaveOptimizationResults:
         with ip_path.open() as f:
             assert json.load(f) == {"var1": 0.5}
 
+    @pytest.mark.usefixtures("mock_now")
     def test_pre_initialized_dir_reuses_existing(
-        self, tmp_path: Path, config: OptimizationConfig, sample_df: pl.DataFrame, mock_now
+        self, tmp_path: Path, config: OptimizationConfig, sample_df: pl.DataFrame
     ):
         pre_dir = initialize_results_dir(config, output_dir=tmp_path / "results")
         run_dir = _save(pre_dir, data=sample_df, config=config)
         assert run_dir == pre_dir
         assert (run_dir / "results.parquet").exists()
 
+    @pytest.mark.usefixtures("mock_now")
     def test_writes_metadata_when_job_id_provided(
-        self, tmp_path: Path, config: OptimizationConfig, sample_df: pl.DataFrame, mock_now
+        self, tmp_path: Path, config: OptimizationConfig, sample_df: pl.DataFrame
     ):
         run_dir = _save(
             tmp_path / "results",
@@ -300,8 +307,9 @@ class TestSaveOptimizationResults:
 
 
 class TestLoadResults:
+    @pytest.mark.usefixtures("mock_now")
     def test_loads_new_format(
-        self, tmp_path: Path, config: OptimizationConfig, sample_df: pl.DataFrame, mock_now
+        self, tmp_path: Path, config: OptimizationConfig, sample_df: pl.DataFrame
     ):
         run_dir = _save(
             tmp_path / "results", data=sample_df, best_point={"x": 2.0, "obj": 0.2}, config=config
@@ -347,9 +355,8 @@ class TestLoadResults:
         _, _, config_dict = load_results(str(run_dir))
         assert config_dict == {}
 
-    def test_initial_point_merged_into_snapshots(
-        self, tmp_path: Path, config: OptimizationConfig, mock_now
-    ):
+    @pytest.mark.usefixtures("mock_now")
+    def test_initial_point_merged_into_snapshots(self, tmp_path: Path, config: OptimizationConfig):
         run_dir = _save(
             tmp_path / "results",
             config=config,

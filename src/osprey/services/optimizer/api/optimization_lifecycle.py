@@ -244,7 +244,6 @@ def read_optimization_config(job_id: str) -> OptimizationConfig:
 def start_optimization_job(
     job_id: str,
     tracker: JobTracker,
-    registry: EnvironmentRegistry,  # noqa: ARG001 - kept for the router's call shape
 ) -> JobResponse:
     """Start the worker for a CREATED optimization job.
 
