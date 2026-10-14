@@ -249,7 +249,7 @@ def _measuring(served: Any) -> gm.Deployment:
 async def test_a_pyaml_measure_on_the_chain_writes_the_simulator_alone(
     served: Any, tmp_path: Any
 ) -> None:
-    """The orbit response of LTB, approved, in one guarded run that ends with no journal."""
+    """The orbit response of LTB, approved, under the run lock, which it releases."""
     deployment = _measuring(served)
     readings = sorted(
         {b.address for b in served.tree.view.bindings(model=MEASURED, served_only=False)}
@@ -265,9 +265,10 @@ async def test_a_pyaml_measure_on_the_chain_writes_the_simulator_alone(
     assert f"Model: {MEASURED}\nKind: orm\n" in asked.reason
     assert answer.error is None, answer.text
     assert answer.result is not None and answer.result["completed"] is True, answer.text
-    assert gm.pending(deployment) is None
-    guarded = deployment.journal().parent.parent
-    assert sorted(path.name for path in guarded.iterdir()) == [gm.VA_TARGET]
+    assert gm.holder(deployment) is None
+    lock = deployment.lock()
+    assert sorted(path.name for path in lock.parent.parent.iterdir()) == [gm.VA_TARGET]
+    assert sorted(path.name for path in lock.parent.iterdir()) == [lock.name]
 
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:

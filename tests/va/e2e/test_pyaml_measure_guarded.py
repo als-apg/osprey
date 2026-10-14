@@ -1,4 +1,4 @@
-"""``pyaml_measure`` on a served machine: every write inside one guarded run, under approval.
+"""``pyaml_measure`` on a served machine: every write under the run lock, under approval.
 
 A real build of the control-assistant deployment, whose one control target is
 the virtual accelerator on loopback, is served by a container over the build's
@@ -12,20 +12,18 @@ What the lanes hold:
 * **The prompt shows the measurement.** Model, kind, modulation, every
   setpoint the call steps and the pyAML view's digest as the build recorded
   it.
-* **A killed run is restored by the next approved run.** A measurement whose
-  sandbox is killed after its first write leaves the journal of the
-  setpoints it displaced; the next call's prompt lists it, and approving that
-  call writes every one back before the measurement starts. For the bipolar
-  and unipolar orbit response and the tune response stepped by group.
-* **Whose journal does not matter.** A journal left by another identity's
-  killed run, and one left by a killed run of another container of the
-  deployment (another agent-data root), are listed and restored alike.
-* **An approval binds the journal it listed.** A journal planted after the
-  prompt refuses the run with ``OspreyJournalChanged`` and no write, and
-  leaves the journal byte for byte; an approved ``execute`` whose prompt lists
-  that journal restores it without a write, every value being already back.
-* **Without approval** a killed run's journal is restored by the next run.
-* **What is refused.** A headless dispatch run meeting a pending journal; a
+* **A killed run leaves the machine where it stopped.** A measurement whose
+  sandbox is SIGKILLed once a stepped setpoint reads displaced leaves that
+  setpoint displaced; its failure names the channels it attempted, and the
+  next approved measurement lists nothing extra and writes no old value back.
+  For the bipolar and unipolar orbit response and the tune response stepped by
+  group.
+* **A stopped run lists what it moved.** A measurement whose sandbox gets
+  ``SIGINT`` once a stepped setpoint reads displaced stops through pyAML's own
+  abort path and answers a stopped result whose ``moved`` lists each setpoint
+  with its value before the call. ``SIGINT`` is the stop: the executor's own
+  cancel sends it, and it lands deterministically on the served machine.
+* **What is refused.** A measurement on a held target, naming the holder; a
   call no hook stamped; a pyAML write from ``execute``; a view whose bytes
   differ from the facts record; a measurement while writes are off.
 
@@ -42,12 +40,14 @@ from __future__ import annotations
 
 import json
 import shutil
+import signal
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from tests._guarded_run import held_lock
 from tests.va._still import assert_readings_still
 from tests.va.e2e import _guarded_measure as gm
 
@@ -60,20 +60,17 @@ pytestmark = [
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
-# Three killed runs, two foreign journals, approval off, the planted journal,
-# dispatch, the unstamped call, the pyAML write from execute, the edited view,
-# writes off and the render's targets; the guard test itself is the
-# fourteenth item, so a floor of 13 reds on the loss of a single lane.
-MIN_COLLECTED_TESTS = 13
+# Three killed runs, the stopped run, the held target, the unstamped call, the
+# pyAML write from execute, the edited view, writes off and the render's
+# targets; the guard test itself is the eleventh item, so a floor of 10 reds on
+# the loss of a single lane.
+MIN_COLLECTED_TESTS = 10
 
 #: The model measured: the example facility's periodic lattice.
 MODEL = "SR"
 
 #: A channel every container here serves, read to know it is up.
 PROBE = "SR:VAC:GAUGE:SR01:PRESSURE:RB"
-
-#: The identity a planted journal names: not the one this module's runs act as.
-OTHER_OPERATOR = "operator-b"
 
 
 def _repo(parent: Path, name: str) -> Path:
@@ -98,27 +95,14 @@ def deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[gm.Deployme
         yield served
 
 
-@pytest.fixture(scope="module")
-def unasked(tmp_path_factory: pytest.TempPathFactory) -> Iterator[gm.Deployment]:
-    """The same deployment with approval off, built and served."""
-    repo = _repo(tmp_path_factory.mktemp("unasked"), "unasked")
-    with gm.deployed(
-        repo,
-        lambda port, pva_port: gm.isolation_settings(port, pva_port, PROBE, approval=False),
-        prefix="osprey-va-e2e-unasked",
-        probe=PROBE,
-    ) as served:
-        yield served
-
-
 @pytest.fixture
 def session(deployment: gm.Deployment, tmp_path: Path) -> Iterator[Path]:
     """This test acting in one container of the deployment; its agent-data root."""
     root = tmp_path / "agent_data_a"
     with gm.acting_in(deployment, root):
-        assert gm.pending(deployment) is None, "an earlier lane left a journal pending"
+        assert gm.holder(deployment) is None, "an earlier lane left the target held"
         yield root
-    assert gm.pending(deployment) is None, "this lane left a journal pending"
+    assert gm.holder(deployment) is None, "this lane left the target held"
 
 
 # ---------------------------------------------------------------------------
@@ -152,57 +136,35 @@ def _assert_still(deployment: gm.Deployment, addresses: Any) -> None:
     assert_readings_still(deployment.view(), addresses, deployment.active_scenarios())
 
 
-def _assert_journal_listed(reason: str, journal: Any) -> None:
-    """The prompt names whose run left the journal and lists every value in it."""
-    assert f'"{journal.identity}"\'s interrupted run (pid {journal.pid}' in reason, reason
-    assert f"left {len(journal.values)} setpoints displaced" in reason, reason
-    for address, value in journal.values.items():
-        assert f'  "{address}" = {json.dumps(value)}' in reason, reason
+def _assert_still_displaced(deployment: gm.Deployment, left: dict[str, Any]) -> None:
+    """Every setpoint the stopped run left displaced still reads where it was left."""
+    served = gm.ca_read(deployment.port, list(left))
+    assert served == left, f"a setpoint moved after the run stopped: {served} against {left}"
 
 
-def _assert_back(deployment: gm.Deployment, journal: Any) -> None:
-    """Every journaled setpoint reads its journaled value and the journal is clear."""
-    served = gm.ca_read(deployment.port, list(journal.values))
-    off = {
-        address: (served[address], value)
-        for address, value in journal.values.items()
-        if served[address] != pytest.approx(value, abs=1e-12)
-    }
-    assert not off, f"setpoints not restored to their journaled value: {off}"
-    assert gm.pending(deployment) is None
-
-
-def _assert_displaced(deployment: gm.Deployment, journal: Any) -> None:
-    """The killed run left at least one journaled setpoint away from its journaled value."""
-    served = gm.ca_read(deployment.port, list(journal.values))
-    assert any(
-        served[address] != pytest.approx(value, abs=1e-12)
-        for address, value in journal.values.items()
-    ), f"the kill landed before any write: {served} against {journal.values}"
-
-
-#: The replay: a short approved measurement, one corrector, which restores
-#: the journal before it steps anything.
-REPLAY = {"kind": "orm", "model": MODEL, "correctors": None}
-
-
-def _replay_input(deployment: gm.Deployment) -> dict[str, Any]:
-    return {**REPLAY, "correctors": [_stepped(deployment, "orm")[-1]]}
-
-
-async def _replay(deployment: gm.Deployment, journal: Any) -> None:
-    """Ask for the replay, hold its prompt to the journal, approve it and check the restore."""
-    asked = gm.ask(deployment, "pyaml_measure", _replay_input(deployment))
-    assert asked.decision == "ask", asked.reason
-    _assert_journal_listed(asked.reason, journal)
-    answer = await gm.call("pyaml_measure", asked.updated_input, asked.tool_use_id)
+async def _put_back(deployment: gm.Deployment, home: dict[str, Any]) -> None:
+    """Write the setpoints a lane displaced back, as the operator's own approved Python would."""
+    code = f"import osprey.runtime\nosprey.runtime.write_channels({home!r})\n"
+    asked, answer = await gm.approved(
+        deployment,
+        "execute",
+        {"code": code, "description": "put back", "execution_mode": "readwrite"},
+    )
+    del asked
     assert answer.error is None, answer.text
-    assert answer.result is not None and answer.result["completed"] is True, answer.text
-    _assert_back(deployment, journal)
+    assert gm.ca_read(deployment.port, list(home)) == home
+
+
+#: The next measurement: a short approved one, one corrector.
+NEXT = {"kind": "orm", "model": MODEL, "correctors": None}
+
+
+def _next_input(deployment: gm.Deployment) -> dict[str, Any]:
+    return {**NEXT, "correctors": [_stepped(deployment, "orm")[-1]]}
 
 
 # ---------------------------------------------------------------------------
-# Killed after the first write, restored by the next approved run
+# Killed after the first write: the machine is left where it stopped
 # ---------------------------------------------------------------------------
 
 
@@ -214,12 +176,13 @@ async def _replay(deployment: gm.Deployment, journal: Any) -> None:
         pytest.param({"kind": "trm", "model": MODEL, "by": "group"}, id="trm-by-group"),
     ],
 )
-async def test_a_killed_measurement_is_restored_by_the_next_approved_run(
+async def test_a_killed_measurement_leaves_the_machine_where_it_stopped(
     deployment: gm.Deployment, session: Path, arguments: dict[str, Any]
 ) -> None:
     del session
     stepped = _stepped(deployment, str(arguments["kind"]))
     _assert_still(deployment, stepped)
+    home = gm.ca_read(deployment.port, stepped)
 
     asked = gm.ask(deployment, "pyaml_measure", arguments)
 
@@ -230,131 +193,68 @@ async def test_a_killed_measurement_is_restored_by_the_next_approved_run(
     assert f"Setpoints stepped: {len(stepped)}{listed}" in asked.reason
     assert asked.updated_input["approved_view_sha256"] == _view_digest(deployment)
 
-    journal, answer = await gm.killed_after_first_write(
-        deployment, "pyaml_measure", asked.updated_input, asked.tool_use_id
+    answer, left = await gm.signalled_after_first_write(
+        deployment,
+        "pyaml_measure",
+        asked.updated_input,
+        asked.tool_use_id,
+        stepped,
+        signal.SIGKILL,
     )
 
     assert answer.error is not None, answer.text
-    assert set(journal.values) <= set(stepped)
-    _assert_displaced(deployment, journal)
-    await _replay(deployment, journal)
-
-
-async def test_another_identitys_journal_is_listed_and_restored(
-    deployment: gm.Deployment, session: Path
-) -> None:
-    del session
-    asked = gm.ask(deployment, "pyaml_measure", {"kind": "orm", "model": MODEL})
-    killed, _ = await gm.killed_after_first_write(
-        deployment, "pyaml_measure", asked.updated_input, asked.tool_use_id
-    )
-    assert killed.identity != OTHER_OPERATOR
-    _plant(deployment, killed.values, identity=OTHER_OPERATOR)
-    journal = gm.pending(deployment)
-    assert (journal.identity, journal.values) == (OTHER_OPERATOR, killed.values)
-    _assert_displaced(deployment, journal)
-
-    await _replay(deployment, journal)
-
-
-async def test_another_containers_killed_run_is_listed_and_restored(
-    deployment: gm.Deployment, tmp_path: Path
-) -> None:
-    with gm.acting_in(deployment, tmp_path / "container_b"):
-        asked = gm.ask(deployment, "pyaml_measure", {"kind": "orm", "model": MODEL})
-        journal, _ = await gm.killed_after_first_write(
-            deployment, "pyaml_measure", asked.updated_input, asked.tool_use_id
-        )
-    _assert_displaced(deployment, journal)
-
-    with gm.acting_in(deployment, tmp_path / "container_a"):
-        await _replay(deployment, journal)
-
-
-async def test_without_approval_a_killed_runs_journal_is_restored_by_the_next_run(
-    unasked: gm.Deployment, tmp_path: Path
-) -> None:
-    with gm.acting_in(unasked, tmp_path / "agent_data"):
-        assert gm.ask(unasked, "pyaml_measure", {"kind": "orm"}).decision != "ask"
-        journal, _ = await gm.killed_after_first_write(
-            unasked, "pyaml_measure", {"kind": "orm", "model": MODEL}, None
-        )
-        _assert_displaced(unasked, journal)
-
-        answer = await gm.call("pyaml_measure", _replay_input(unasked))
-
-        assert answer.error is None, answer.text
-        assert answer.result is not None and answer.result["completed"] is True
-        _assert_back(unasked, journal)
-
-
-# ---------------------------------------------------------------------------
-# A journal the prompt did not list
-# ---------------------------------------------------------------------------
-
-
-def _plant(
-    deployment: gm.Deployment, values: dict[str, Any], *, identity: str = OTHER_OPERATOR
-) -> bytes:
-    """Write a dead run's journal of ``values`` over the target's journal; its bytes.
-
-    The run named is ``identity``'s, in a process that is not this lock's
-    holder: the free lock is what proves a run dead, never its pid.
-    """
-    from osprey.runtime.journal import DurableJournal
-
-    path = deployment.journal()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(b"")
-    journal = DurableJournal(path)
+    attempted = answer.error["details"]["written_channels"]
+    displaced = {address: value for address, value in left.items() if value != home[address]}
+    assert displaced and set(displaced) <= set(attempted) <= set(stepped), answer.text
+    assert "left where the run stopped" in answer.error["error_message"], answer.text
     try:
-        journal.start(
-            target=gm.VA_TARGET,
-            generation=None,
-            identity=identity,
-            pid=1,
-            started="2026-01-01T00:00:00+00:00",
-        )
-        for address, value in values.items():
-            journal.record(address, value)
+        _assert_still_displaced(deployment, left)
+        following = gm.ask(deployment, "pyaml_measure", _next_input(deployment))
+        assert following.decision == "ask", following.reason
+        assert "Setpoints stepped: 1\n" in following.reason, following.reason
+        assert "interrupted run" not in following.reason
+        next_answer = await gm.call("pyaml_measure", following.updated_input, following.tool_use_id)
+        assert next_answer.error is None, next_answer.text
+        assert next_answer.result is not None and next_answer.result["completed"] is True
+        untouched = {
+            a: v for a, v in left.items() if a not in _next_input(deployment)["correctors"]
+        }
+        _assert_still_displaced(deployment, untouched)
     finally:
-        journal.close()
-    return path.read_bytes()
+        await _put_back(deployment, home)
 
 
-async def test_a_journal_planted_after_the_prompt_refuses_the_run_and_execute_restores_it(
+async def test_a_stopped_measurement_lists_each_setpoint_it_moved_with_its_value_before(
     deployment: gm.Deployment, session: Path
 ) -> None:
     del session
-    addresses = _stepped(deployment, "orm")[:2]
-    _assert_still(deployment, addresses)
+    stepped = _stepped(deployment, "orm")
+    _assert_still(deployment, stepped)
+    home = gm.ca_read(deployment.port, stepped)
     asked = gm.ask(deployment, "pyaml_measure", {"kind": "orm", "model": MODEL})
-    assert asked.updated_input["approved_journal_sha256"] == "none"
-    home = gm.ca_read(deployment.port, addresses)
-    raw = _plant(deployment, {address: float(home[address]) for address in addresses})
-
-    answer = await gm.call("pyaml_measure", asked.updated_input, asked.tool_use_id)
-
-    assert answer.error is not None and "OspreyJournalChanged" in answer.text, answer.text
-    assert deployment.journal().read_bytes() == raw
-    assert gm.ca_read(deployment.port, addresses) == home
-
-    planted = gm.pending(deployment)
-    asked = gm.ask(
-        deployment,
-        "execute",
-        {"code": "restored = True\n", "description": "restore", "execution_mode": "readwrite"},
-    )
     assert asked.decision == "ask", asked.reason
-    _assert_journal_listed(asked.reason, planted)
 
-    answer = await gm.call(
-        "execute", {**asked.updated_input, "save_output": False}, asked.tool_use_id
+    answer, left = await gm.signalled_after_first_write(
+        deployment,
+        "pyaml_measure",
+        asked.updated_input,
+        asked.tool_use_id,
+        stepped,
+        signal.SIGINT,
     )
 
-    assert answer.error is None, answer.text
-    assert gm.pending(deployment) is None
-    assert gm.ca_read(deployment.port, addresses) == home
+    try:
+        assert answer.error is None, answer.text
+        assert answer.result is not None and answer.result["completed"] is False, answer.text
+        moved = {entry["address"]: entry["before"] for entry in answer.result["moved"]}
+        assert moved, answer.text
+        assert set(moved) <= set(stepped)
+        for address, before in moved.items():
+            assert before == pytest.approx(home[address], abs=1e-12), address
+        assert "GUARDED_RUN_RESTORE" not in answer.text
+        _assert_still_displaced(deployment, left)
+    finally:
+        await _put_back(deployment, home)
 
 
 # ---------------------------------------------------------------------------
@@ -362,26 +262,17 @@ async def test_a_journal_planted_after_the_prompt_refuses_the_run_and_execute_re
 # ---------------------------------------------------------------------------
 
 
-async def test_a_headless_dispatch_run_meeting_a_pending_journal_is_denied(
+async def test_a_measurement_on_a_held_target_is_denied_naming_its_holder(
     deployment: gm.Deployment, session: Path
 ) -> None:
     del session
-    address = _stepped(deployment, "orm")[0]
-    home = gm.ca_read(deployment.port, [address])
-    _plant(deployment, {address: float(home[address])})
-    try:
-        asked = gm.ask(
-            deployment,
-            "pyaml_measure",
-            {"kind": "orm", "model": MODEL},
-            environment={"OSPREY_DISPATCH_RUN": "1"},
-        )
+    with held_lock(gm.VA_TARGET, root=deployment.repo) as holder:
+        asked = gm.ask(deployment, "pyaml_measure", {"kind": "orm", "model": MODEL})
 
-        assert asked.decision == "deny", asked.reason
-        assert "needs a human-approved call" in asked.reason
-    finally:
-        deployment.journal().write_bytes(b"")
-    assert gm.pending(deployment) is None
+    assert asked.decision == "deny", asked.reason
+    assert asked.reason.startswith(
+        f"a guarded run is in progress on {gm.VA_TARGET} (pid {holder.pid}, started "
+    ), asked.reason
 
 
 async def test_a_call_no_approval_prompt_stamped_is_refused_before_anything_runs(

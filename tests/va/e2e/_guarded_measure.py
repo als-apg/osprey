@@ -31,7 +31,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import signal
 import socket
 import subprocess
 import sys
@@ -203,11 +202,11 @@ class Deployment:
         document: dict[str, Any] = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
         return document
 
-    def journal(self, target: str = VA_TARGET) -> Path:
-        """The guarded-run journal of ``target``: deployment-wide, under the repo's state zone."""
-        from osprey.runtime.guarded_run import GUARDED_RUN_DIR, JOURNAL_FILE_NAME
+    def lock(self, target: str = VA_TARGET) -> Path:
+        """The run lock of ``target``: deployment-wide, under the repo's state zone."""
+        from osprey.runtime.guarded_run import GUARDED_RUN_DIR, LOCK_FILE_NAME
 
-        return self.repo / "var" / GUARDED_RUN_DIR / target / JOURNAL_FILE_NAME
+        return self.repo / "var" / GUARDED_RUN_DIR / target / LOCK_FILE_NAME
 
     def view(self) -> Any:
         """The simulator view the container serves."""
@@ -604,66 +603,80 @@ async def approved(
 
 
 # ---------------------------------------------------------------------------
-# A run killed after its first write
+# A run stopped after its first write
 # ---------------------------------------------------------------------------
 
-#: How often the journal is read while a run is waited on.
-JOURNAL_POLL_S = 0.02
-
-#: How long after the journal records its first setpoint the run is killed.
-#: The write follows the record at once and the measurement then waits its
-#: settle time (:data:`SETTLE_S`) before the next write, so the kill lands
-#: after the first write and before the second.
-KILL_AFTER_RECORD_S = 0.5
+#: How often the lock and the machine are read while a run is waited on.
+POLL_S = 0.2
 
 #: The settle time the deployments here give every measurement step, in
-#: seconds: long enough that a kill timed from the first record lands inside
-#: it.
+#: seconds: long enough that a signal sent once a stepped setpoint reads
+#: displaced lands before the next write.
 SETTLE_S = 2.0
 
 #: Bound on a run reaching its first write.
 FIRST_WRITE_TIMEOUT_S = 300.0
 
 
-def pending(deployment: Deployment, target: str = VA_TARGET) -> Any:
-    """The pending journal of ``target``, or ``None`` when it holds no record."""
-    from osprey.runtime.journal import parse_pending_journal
+def holder(deployment: Deployment, target: str = VA_TARGET) -> dict[str, Any] | None:
+    """The lock file's ``{pid, started}`` while a live process holds it, else ``None``.
 
-    path = deployment.journal(target)
-    if not path.is_file():
+    Read without touching the lock: a probe that took it, however briefly,
+    could refuse the run it is waiting for. A record naming a process that is
+    gone is a killed holder's, and the lock is free.
+    """
+    path = deployment.lock(target)
+    try:
+        record = json.loads(path.read_text(encoding="utf-8") or "null")
+    except (OSError, ValueError):
         return None
-    return parse_pending_journal(path.read_bytes(), path)
+    if not isinstance(record, dict) or not isinstance(record.get("pid"), int):
+        return None
+    try:
+        os.kill(record["pid"], 0)
+    except ProcessLookupError:
+        return None
+    return record
 
 
-async def killed_after_first_write(
-    deployment: Deployment, tool: str, arguments: Mapping[str, Any], tool_use_id: str | None
-) -> tuple[Any, Answer]:
-    """Start a call, kill its sandbox once its first setpoint is written; what it left.
+async def signalled_after_first_write(
+    deployment: Deployment,
+    tool: str,
+    arguments: Mapping[str, Any],
+    tool_use_id: str | None,
+    watched: Sequence[str],
+    signum: int,
+) -> tuple[Answer, dict[str, Any]]:
+    """Start a call, signal its sandbox once a watched setpoint reads displaced; the outcome.
 
-    The journal's header names the process the guarded run runs in, and its
-    first record is written immediately before the first write; the kill comes
-    :data:`KILL_AFTER_RECORD_S` later, inside the step's settle time.
+    The sandbox holds the target's run lock, so its pid is the lock's holder.
+    The signal is sent once that holder is known and a setpoint of
+    ``watched`` reads, over Channel Access, other than it did before the call;
+    the measurement then waits its settle time (:data:`SETTLE_S`) before its
+    next write, so the signal lands after the first write and before the next.
 
     Returns:
-        The pending journal the killed run left, and what the call answered.
+        What the call answered, and the watched setpoints' readings at the signal.
     """
     from osprey.audit.call import call_scope
 
-    assert pending(deployment) is None, "a journal is pending before the run starts"
+    assert holder(deployment) is None, "the target is held before the run starts"
+    home = ca_read(deployment.port, list(watched))
     with call_scope(tool_use_id, None):
         task = asyncio.ensure_future(_answer(_tool(tool)(**dict(arguments))))
     deadline = time.monotonic() + FIRST_WRITE_TIMEOUT_S
-    left = None
+    held: dict[str, Any] | None = None
+    displaced: dict[str, Any] = {}
     while time.monotonic() < deadline and not task.done():
-        left = pending(deployment)
-        if left is not None and left.pid is not None:
-            break
-        await asyncio.sleep(JOURNAL_POLL_S)
+        held = holder(deployment)
+        if held is not None:
+            readings = ca_read(deployment.port, list(watched))
+            displaced = {a: v for a, v in readings.items() if v != home[a]}
+            if displaced:
+                break
+        await asyncio.sleep(POLL_S)
     assert not task.done(), f"the run ended before its first write: {(await task).text}"
-    assert left is not None, f"no setpoint was journaled within {FIRST_WRITE_TIMEOUT_S}s"
-    await asyncio.sleep(KILL_AFTER_RECORD_S)
-    os.kill(int(left.pid), signal.SIGKILL)
+    assert held is not None and displaced, f"no setpoint moved within {FIRST_WRITE_TIMEOUT_S}s"
+    os.kill(int(held["pid"]), signum)
     answer = await task
-    journal = pending(deployment)
-    assert journal is not None, "the killed run left no journal"
-    return journal, answer
+    return answer, ca_read(deployment.port, list(watched))
