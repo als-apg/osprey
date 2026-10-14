@@ -9,7 +9,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `quick_check.sh` | Fast pre-commit validation | < 30s | Before every commit |
 | `ci_check.sh` | Full CI replication | 2-3 min | Before pushing |
 | `premerge_check.sh` | Pre-merge validation | 1-2 min | Before creating PR |
-| `gate.sh` | The merge gate: `full`, or `fast <paths>` | as long as the suite | Before a merge; called by automation that gates a branch |
+| `gate.sh` | The merge gate: every CI step that needs no secret or Docker; `full [--base <ref>]`, or `fast [--base <ref>] <paths>` | as long as the suite | Before a merge; called by automation that gates a branch |
 | `check_config_keys.py` | Config-key resurrection guard | 2-5s | After touching a `config.yml.j2`, a preset, or config-reading code |
 | `changelog_fragments.py` | Changelog-fragment gate and release fold | < 1s | After touching `src/` or `packages/`; when cutting a release |
 | `plugin_version.py` | Show, bump and check the plugin version | < 1s | After touching `plugins/`, `.claude-plugin/` or `.agents/plugins/` |
@@ -178,7 +178,7 @@ and deletes the fragment files.
 
 **Usage**:
 ```bash
-# What the `lint` CI job and premerge_check.sh run
+# What the `lint` CI job, `scripts/gate.sh` and premerge_check.sh run
 uv run python scripts/changelog_fragments.py check --base origin/main
 
 # The release fold — run once while cutting a release
@@ -220,7 +220,7 @@ plain branch name such as `main` is read as `origin/main` first, as
 uv run python scripts/plugin_version.py show
 uv run python scripts/plugin_version.py bump
 
-# What the `lint` CI job and premerge_check.sh run
+# What the `lint` CI job, `scripts/gate.sh` and premerge_check.sh run
 uv run python scripts/plugin_version.py check --base origin/main
 ```
 

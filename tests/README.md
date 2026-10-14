@@ -26,7 +26,9 @@ The `pty` and `wallclock` markers are run serially by `scripts/ci_check.sh`,
 by `scripts/gate.sh` and by their own CI steps.
 
 `scripts/gate.sh` is the one local spelling of the merge gate: anything that
-gates a branch calls it and adds nothing to its marker expression.
+gates a branch calls it and adds nothing to its marker expression. It runs every
+CI step that needs no secret or Docker, and `--base <ref>` (default
+`origin/main`) is what its changelog and plugin-version checks compare against.
 
 Both must pass. Parallel is the real gate; serial is the one that gives you
 readable output when something is wrong.
@@ -39,7 +41,7 @@ just run one of them:
 | `scripts/quick_check.sh` | Fast loop while working; skips `@pytest.mark.slow` |
 | `scripts/premerge_check.sh` | Quiet pass/fail before opening a PR |
 | `scripts/ci_check.sh` | Full CI mirror, with coverage |
-| `scripts/gate.sh full` | The merge gate: lint, types, the parallel sweep, each serial step, JS tests. `fast <paths>` runs the same over named tests |
+| `scripts/gate.sh full` | The merge gate: lint, lockfile, config keys, changelog, plugin version, types, the parallel sweep, each serial step, JS typecheck/lint/tests, and the docs build. `fast [--base <ref>] <paths>` sends `.py` paths to pytest and `*.test.js`/`*.test.mjs` to vitest |
 
 Each script bounds its pytest runs with `scripts/run_bounded.py`, which exits
 124 when a run passes its bound. A run that outlives its last test prints the
