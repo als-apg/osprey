@@ -40,7 +40,7 @@ from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
 from osprey.interfaces.web_terminal.process_tree import ProcessGroup, ProcessRow
 from osprey.interfaces.web_terminal.session_key import is_posture_key
-from osprey.utils.config import get_facility_timezone
+from osprey_connectors.config import get_facility_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ def build_operator_child_env(
     not at all, and a test pins that.
 
     The same key is also stamped as ``OSPREY_SESSION_ID``, which is what
-    :func:`osprey_connectors.workspace.resolve_agent_data_root` reads to scope
+    the agent-data root resolution in :mod:`osprey_connectors.workspace` reads to scope
     a child's execution root to ``sessions/<key>`` — where the python and
     sandbox executors put their run directories. One key, one root: a
     conversation is one session whichever view is showing it, so the chat

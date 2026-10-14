@@ -54,8 +54,8 @@ from osprey.services.mml.mapping.schema import (
 from osprey.services.mml.va.elements import ElementBinding, ElementSlice
 from osprey.services.virtual_accelerator.bindings import Table, load_bindings
 from osprey.services.virtual_accelerator.lattice.calibration import to_hardware, to_physics
-from osprey_connectors.control_system.limits_validator import LimitsValidator
-from osprey_connectors.simulation.machine import parse_machine
+from osprey_connectors.control_system._limits_validator import LimitsValidator
+from osprey_connectors.simulation._machine import parse_machine
 
 SYSTEM = "RING"
 

@@ -21,8 +21,8 @@ from typing import Any
 import pytest
 
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system import base as connector_base
-from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system import _base as connector_base
+from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.types import (
     EPICS,
@@ -41,9 +41,15 @@ from osprey_connectors.types import (
     target_writes_enabled,
     target_writes_enabled_key,
     type_writes_enabled,
-    writes_enabled_answering_key,
-    writes_enabled_key,
-    writes_enabled_remedy,
+)
+from osprey_connectors.types import (
+    _writes_enabled_answering_key as writes_enabled_answering_key,
+)
+from osprey_connectors.types import (
+    _writes_enabled_key as writes_enabled_key,
+)
+from osprey_connectors.types import (
+    _writes_enabled_remedy as writes_enabled_remedy,
 )
 from tests._control_context_fixtures import write_control_context
 from tests.connectors._write_fakes import RecordingConnector, config_reader
@@ -149,7 +155,7 @@ def test_the_one_line_remedy_is_yaml_an_operator_can_paste():
 def test_a_refusal_carries_the_remedy_the_profile_can_express():
     """The blocked-write message is where an operator meets the remedy."""
     result = connector_base._writes_disabled_result(
-        "SR:CH", 1.0, CUSTOM_TYPE, None, store_verdict=posture_store.StoreVerdict.PERMITTED
+        "SR:CH", 1.0, CUSTOM_TYPE, None, store_verdict=posture_store._StoreVerdict.PERMITTED
     )
 
     assert result.outcome is WriteOutcome.REFUSED
@@ -939,17 +945,17 @@ def store(tmp_path, monkeypatch):
     reach.
     """
     root = tmp_path / "agent_data"
-    (root / posture_store.STATE_DIR_NAME).mkdir(parents=True)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    (root / posture_store.CONTROL_STATE_DIR_NAME).mkdir(parents=True)
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     # The executor's run-level pin, cleared like the mode: it is ANDed into
     # every store answer, so a stamp inherited from the environment this suite
     # runs in would refuse writes in tests that are about the record alone.
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
     class _Store:
-        path = control_context.record_path_under(root)
+        path = control_context._record_path_under(root)
 
         @classmethod
         def narrow(cls, **targets: str) -> None:
@@ -961,7 +967,7 @@ def store(tmp_path, monkeypatch):
             write_control_context(root, posture=posture)
 
     yield _Store
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 class TestTheConnectorReferenceMonitor:
@@ -1134,7 +1140,7 @@ class TestTheConnectorReferenceMonitor:
         assert message.index("writes are disabled") < message.index("control-target chip")
         assert "Turn writes back on" not in message
         assert "config.yml is not the gate here" not in message
-        assert message.rstrip(".").endswith(posture_store.StoreVerdict.NARROWING.value)
+        assert message.rstrip(".").endswith(posture_store._StoreVerdict.NARROWING.value)
 
     @pytest.mark.asyncio
     async def test_a_readonly_run_still_wins_the_wording(self, deployment, store, monkeypatch):
@@ -1264,13 +1270,13 @@ class TestOneStoreReadPerWrite:
     @staticmethod
     def _counted(monkeypatch) -> list[str | None]:
         calls: list[str | None] = []
-        real = posture_store.store_verdict_detail
+        real = posture_store._store_verdict_detail
 
         def _counting(target, owner=None):
             calls.append(target)
             return real(target, owner)
 
-        monkeypatch.setattr(posture_store, "store_verdict_detail", _counting)
+        monkeypatch.setattr(posture_store, "_store_verdict_detail", _counting)
         return calls
 
     @staticmethod
@@ -1447,7 +1453,7 @@ class TestTheMemoCarriesAVerdictNotABool:
     Three things can come back from the store clause and only one of them is a
     grant; a bool collapses the other two into each other, and the operator is
     then told a chip refused a write that no chip was consulted about. So the
-    memo holds a :class:`~osprey_connectors.posture_store.StoreVerdict`, the
+    memo holds a :class:`~osprey_connectors.posture_store._StoreVerdict`, the
     refusal compares it against ``PERMITTED`` by name, and the sentence for the
     one verdict whose remedy this process cannot compose rides beside it.
     """
@@ -1465,7 +1471,7 @@ class TestTheMemoCarriesAVerdictNotABool:
 
         # Assert
         assert result.outcome is WriteOutcome.REFUSED
-        assert connector._last_store_verdict is posture_store.StoreVerdict.NARROWING
+        assert connector._last_store_verdict is posture_store._StoreVerdict.NARROWING
         assert connector._last_store_reason is None
 
     @pytest.mark.asyncio
@@ -1481,7 +1487,7 @@ class TestTheMemoCarriesAVerdictNotABool:
 
         # Assert
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert connector._last_store_verdict is posture_store.StoreVerdict.PERMITTED
+        assert connector._last_store_verdict is posture_store._StoreVerdict.PERMITTED
         assert connector._last_store_reason is None
 
     @pytest.mark.usefixtures("store")
@@ -1494,7 +1500,7 @@ class TestTheMemoCarriesAVerdictNotABool:
         """
         # Arrange
         deployment(ARMED_SECTION)
-        assert bool(posture_store.StoreVerdict.NARROWING) is True
+        assert bool(posture_store._StoreVerdict.NARROWING) is True
 
         # Act
         refusal = connector_base._writes_disabled_result(
@@ -1502,7 +1508,7 @@ class TestTheMemoCarriesAVerdictNotABool:
             0.5,
             EPICS,
             TARGET_STANDIN,
-            store_verdict=posture_store.StoreVerdict.NARROWING,
+            store_verdict=posture_store._StoreVerdict.NARROWING,
         )
 
         # Assert
@@ -1540,7 +1546,9 @@ class TestEveryStoreClauseEndsInItsVerdict:
         # Assert
         assert result.refusal_reason == "WRITES_DISABLED"
         assert "control-target chip in the header" in result.error_message
-        assert result.error_message.rstrip(".").endswith(posture_store.StoreVerdict.NARROWING.value)
+        assert result.error_message.rstrip(".").endswith(
+            posture_store._StoreVerdict.NARROWING.value
+        )
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("store")
@@ -1570,13 +1578,13 @@ class TestEveryStoreClauseEndsInItsVerdict:
         assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "WRITES_DISABLED"
         assert connector._last_store_verdict is (
-            posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+            posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
         )
         assert posture_store.CONTROL_CONTEXT_TREE_ENV_VAR in connector._last_store_reason
         assert connector._last_store_reason in result.error_message
         assert posture_store.CONTROL_CONTEXT_TREE_ENV_VAR in result.error_message
         assert result.error_message.rstrip(".").endswith(
-            posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE.value
+            posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE.value
         )
         # The remedy for a decision nobody made must not be a chip to go and flip.
         assert "Turn writes back on" not in result.error_message
@@ -1597,12 +1605,12 @@ class TestEveryStoreClauseEndsInItsVerdict:
             0.5,
             EPICS,
             TARGET_STANDIN,
-            store_verdict=posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE,
+            store_verdict=posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE,
         )
 
         # Assert
         assert refusal.error_message.rstrip(".").endswith(
-            posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE.value
+            posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE.value
         )
         assert "Turn writes back on" not in refusal.error_message
 
@@ -1643,7 +1651,7 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
         assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "WRITES_DISABLED"
         # The pin that could name a target is somebody's narrowing...
-        assert connector._last_store_verdict is posture_store.StoreVerdict.NARROWING
+        assert connector._last_store_verdict is posture_store._StoreVerdict.NARROWING
         # ...and a story about the RUN, with a remedy that exists
         assert f"launched while writes were off for '{TARGET_STANDIN}'" in result.error_message
         assert "not to one already in flight" in result.error_message
@@ -1676,7 +1684,7 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
         # Assert — the pin that could name none is nobody's decision
         assert result.outcome is WriteOutcome.REFUSED
         assert connector._last_store_verdict is (
-            posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+            posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
         )
         assert "most restrictive write state" in result.error_message
         assert "neither its control target nor the recorded write state" in result.error_message
@@ -2013,7 +2021,7 @@ class TestARefusedWriteNamesEveryReason:
             0.5,
             EPICS,
             TARGET_STANDIN,
-            store_verdict=posture_store.StoreVerdict.PERMITTED,
+            store_verdict=posture_store._StoreVerdict.PERMITTED,
         )
 
         # Assert
@@ -2057,12 +2065,12 @@ class TestARefusedWriteNamesEveryReason:
         assert "could not be read" in message
         assert message.index("launched while") < message.index("could not be read")
         assert message.rstrip(".").endswith(
-            posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE.value
+            posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE.value
         )
         assert "Turn writes back on" not in message
-        assert connector._last_store_verdict is posture_store.StoreVerdict.NARROWING
+        assert connector._last_store_verdict is posture_store._StoreVerdict.NARROWING
         assert connector._last_record_verdict is (
-            posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+            posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
         )
 
     @pytest.mark.asyncio
@@ -2083,7 +2091,7 @@ class TestARefusedWriteNamesEveryReason:
         assert "could not be read" in message
         assert message.index("writes are disabled") < message.index("could not be read")
         assert message.rstrip(".").endswith(
-            posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE.value
+            posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE.value
         )
 
     @pytest.mark.asyncio
@@ -2099,7 +2107,7 @@ class TestARefusedWriteNamesEveryReason:
         message = (await _built(EPICS, TARGET_STANDIN).write_channel("S:C:1:SP", 0.5)).error_message
 
         # Assert
-        assert message.rstrip(".").endswith(posture_store.StoreVerdict.NARROWING.value)
+        assert message.rstrip(".").endswith(posture_store._StoreVerdict.NARROWING.value)
         assert "config.yml is not the gate here" not in message
 
     @pytest.mark.asyncio
@@ -2115,14 +2123,14 @@ class TestARefusedWriteNamesEveryReason:
 
         # Act / Assert — pinned and narrowed on the chip
         await connector.write_channel("S:C:1:SP", 0.5)
-        assert connector._last_store_verdict is posture_store.StoreVerdict.NARROWING
-        assert connector._last_record_verdict is posture_store.StoreVerdict.NARROWING
+        assert connector._last_store_verdict is posture_store._StoreVerdict.NARROWING
+        assert connector._last_record_verdict is posture_store._StoreVerdict.NARROWING
 
         # Act / Assert — the chip lifted, the pin still in force
         store.write({})
         await connector.write_channel("S:C:1:SP", 0.5)
-        assert connector._last_store_verdict is posture_store.StoreVerdict.NARROWING
-        assert connector._last_record_verdict is posture_store.StoreVerdict.PERMITTED
+        assert connector._last_store_verdict is posture_store._StoreVerdict.NARROWING
+        assert connector._last_record_verdict is posture_store._StoreVerdict.PERMITTED
 
     @pytest.mark.asyncio
     async def test_an_unpinned_run_memoises_one_answer_twice(self, deployment, store, monkeypatch):

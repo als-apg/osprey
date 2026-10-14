@@ -17,9 +17,9 @@ from osprey.services.ariel_search.attachments import fetchable_url
 from osprey.services.ariel_search.exceptions import IngestionError
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter, parse_entry_time
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
-from osprey.utils.config import get_facility_timezone
-from osprey.utils.logger import get_logger
-from osprey.utils.relative_time import RelativeTimestamp, resolve_relative_timestamp
+from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.logger import get_logger
+from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig

@@ -9,7 +9,7 @@ import asyncio
 import os
 import time
 
-from osprey_connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.control_system._mock_connector import MockConnector
 
 #: Channels whose reads and writes take far longer than any test waits.
 SLOW_PREFIX = "SLOW:"

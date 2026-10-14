@@ -16,13 +16,24 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from osprey_connectors import types
-from osprey_connectors.control_system.base import ControlSystemConnector
+from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     # Import only for annotations: pulling in the archiver base eagerly would
     # make pandas a hard dependency of the lean control-system import chain.
-    from osprey_connectors.archiver.base import ArchiverConnector
+    from osprey_connectors.archiver._base import ArchiverConnector
+
+__all__ = [
+    "BUILTIN_CONNECTORS",
+    "BuiltinConnector",
+    "ConnectorFactory",
+    "ConnectorRegistrySnapshot",
+    "isolated_connector_registries",
+    "register_builtin_connectors",
+    "restore_connector_registries",
+    "snapshot_connector_registries",
+]
 
 logger = get_logger("connector_factory")
 
@@ -398,21 +409,120 @@ def isolated_connector_registries(*, clear: bool = False) -> Iterator[ConnectorR
         restore_connector_registries(snapshot)
 
 
-_BUILTIN_CONTROL_SYSTEMS = (
-    types.MOCK,
-    types.EPICS,
-    types.VIRTUAL_ACCELERATOR,
-    types.DOOCS,
-    types.TANGO,
-    types.LIVE_STANDIN,
+@dataclass(frozen=True)
+class BuiltinConnector:
+    """One connector this package ships, as a registry names it.
+
+    The module path names an implementation module of this package, which only
+    this table spells: a registry that loads connectors lazily by path takes
+    its entries from here rather than restating the private paths.
+    """
+
+    #: The type name a config selects it by, and the key it registers under.
+    name: str
+    #: ``"control_system"`` or ``"archiver"``.
+    kind: str
+    module_path: str
+    class_name: str
+    description: str
+
+    def load(self) -> Any:
+        """Import the module and return the connector class."""
+        return getattr(importlib.import_module(self.module_path), self.class_name)
+
+
+#: Every built-in connector, in registration order.
+BUILTIN_CONNECTORS: tuple[BuiltinConnector, ...] = (
+    BuiltinConnector(
+        types.MOCK,
+        "control_system",
+        "osprey_connectors.control_system._mock_connector",
+        "MockConnector",
+        "Mock control system connector for development and testing",
+    ),
+    BuiltinConnector(
+        types.EPICS,
+        "control_system",
+        "osprey_connectors.control_system._epics_connector",
+        "EPICSConnector",
+        "EPICS Channel Access control system connector",
+    ),
+    BuiltinConnector(
+        types.VIRTUAL_ACCELERATOR,
+        "control_system",
+        "osprey_connectors.control_system._va_connector",
+        "VirtualAcceleratorConnector",
+        "Virtual Accelerator connector for PyAT-backed soft-IOC simulations",
+    ),
+    BuiltinConnector(
+        types.DOOCS,
+        "control_system",
+        "osprey_connectors.control_system._doocs_connector",
+        "DOOCSConnector",
+        "DOOCS control system connector (requires doocs4py)",
+    ),
+    BuiltinConnector(
+        types.TANGO,
+        "control_system",
+        "osprey_connectors.control_system._tango_connector",
+        "TangoConnector",
+        "TANGO Controls control system connector (requires PyTango)",
+    ),
+    # The live stand-in is a soft IOC, so the EPICS connector is what reaches
+    # it — but it registers under its own name rather than sharing 'epics'.
+    # The registry key is what build_control_system_connector() stamps onto
+    # the instance as its connector type, and that stamp is what selects the
+    # connector block ('control_system.connector.live_standin') and the write
+    # posture read from it. Registering the stand-in as 'epics' would give it
+    # the facility's authored block and the facility's arming.
+    BuiltinConnector(
+        types.LIVE_STANDIN,
+        "control_system",
+        "osprey_connectors.control_system._epics_connector",
+        "EPICSConnector",
+        "Live stand-in connector: the facility-shaped soft IOC a deployment runs "
+        "for itself, served over Channel Access",
+    ),
+    BuiltinConnector(
+        types.MOCK_ARCHIVER,
+        "archiver",
+        "osprey_connectors.archiver._mock_archiver_connector",
+        "MockArchiverConnector",
+        "Mock archiver connector for development and testing",
+    ),
+    BuiltinConnector(
+        types.EPICS_ARCHIVER,
+        "archiver",
+        "osprey_connectors.archiver._epics_archiver_connector",
+        "EPICSArchiverConnector",
+        "EPICS Archiver Appliance connector",
+    ),
+    BuiltinConnector(
+        types.MONGODB_ARCHIVER,
+        "archiver",
+        "osprey_connectors.archiver._mongodb_archiver_connector",
+        "MongoDBArchiverConnector",
+        "MongoDB archiver connector for time-series PV data",
+    ),
+    BuiltinConnector(
+        types.DOOCS_ARCHIVER,
+        "archiver",
+        "osprey_connectors.archiver._doocs_archiver_connector",
+        "DOOCSArchiverConnector",
+        "DOOCS local history connector (requires doocs4py)",
+    ),
+    BuiltinConnector(
+        types.MYA_ARCHIVER,
+        "archiver",
+        "osprey_connectors.archiver._mya_archiver_connector",
+        "MYAArchiverConnector",
+        "MYA archiver connector, read over the myquery HTTP service "
+        "(requires jlab-archiver-client)",
+    ),
 )
-_BUILTIN_ARCHIVERS = (
-    types.MOCK_ARCHIVER,
-    types.EPICS_ARCHIVER,
-    types.MONGODB_ARCHIVER,
-    types.DOOCS_ARCHIVER,
-    types.MYA_ARCHIVER,
-)
+
+_BUILTIN_CONTROL_SYSTEMS = tuple(c.name for c in BUILTIN_CONNECTORS if c.kind == "control_system")
+_BUILTIN_ARCHIVERS = tuple(c.name for c in BUILTIN_CONNECTORS if c.kind == "archiver")
 
 
 def register_builtin_connectors() -> None:
@@ -443,43 +553,9 @@ def register_builtin_connectors() -> None:
     # to leave it out of _BUILTIN_ARCHIVERS, which broke convergence: a registry
     # holding the other built-ins satisfied the early return above and never
     # healed the missing mongodb_archiver entry.
-    from osprey_connectors.archiver.doocs_archiver_connector import DOOCSArchiverConnector
-    from osprey_connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
-    from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
-    from osprey_connectors.archiver.mongodb_archiver_connector import MongoDBArchiverConnector
-    from osprey_connectors.archiver.mya_archiver_connector import MYAArchiverConnector
-    from osprey_connectors.control_system.doocs_connector import DOOCSConnector
-    from osprey_connectors.control_system.epics_connector import EPICSConnector
-    from osprey_connectors.control_system.mock_connector import MockConnector
-    from osprey_connectors.control_system.tango_connector import TangoConnector
-    from osprey_connectors.control_system.va_connector import VirtualAcceleratorConnector
-
-    control_systems: list[tuple[str, type[ControlSystemConnector]]] = [
-        (types.MOCK, MockConnector),
-        (types.EPICS, EPICSConnector),
-        (types.VIRTUAL_ACCELERATOR, VirtualAcceleratorConnector),
-        (types.DOOCS, DOOCSConnector),
-        (types.TANGO, TangoConnector),
-        # The live stand-in is a soft IOC, so the EPICS connector is what reaches
-        # it — but it registers under its own name rather than sharing 'epics'.
-        # The registry key is what build_control_system_connector() stamps onto
-        # the instance as _connector_type, and that stamp is what selects the
-        # connector block ('control_system.connector.live_standin') and the write
-        # posture read from it. Registering the stand-in as 'epics' would give it
-        # the facility's authored block and the facility's arming.
-        (types.LIVE_STANDIN, EPICSConnector),
-    ]
-    archivers: list[tuple[str, type[ArchiverConnector]]] = [
-        (types.MOCK_ARCHIVER, MockArchiverConnector),
-        (types.EPICS_ARCHIVER, EPICSArchiverConnector),
-        (types.MONGODB_ARCHIVER, MongoDBArchiverConnector),
-        (types.DOOCS_ARCHIVER, DOOCSArchiverConnector),
-        (types.MYA_ARCHIVER, MYAArchiverConnector),
-    ]
-
-    for name, connector_class in control_systems:
-        if name not in ConnectorFactory._control_system_connectors:
-            ConnectorFactory.register_control_system(name, connector_class)
-    for name, archiver_class in archivers:
-        if name not in ConnectorFactory._archiver_connectors:
-            ConnectorFactory.register_archiver(name, archiver_class)
+    for builtin in BUILTIN_CONNECTORS:
+        if builtin.kind == "control_system":
+            if builtin.name not in ConnectorFactory._control_system_connectors:
+                ConnectorFactory.register_control_system(builtin.name, builtin.load())
+        elif builtin.name not in ConnectorFactory._archiver_connectors:
+            ConnectorFactory.register_archiver(builtin.name, builtin.load())

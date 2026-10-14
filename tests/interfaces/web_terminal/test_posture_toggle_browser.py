@@ -288,7 +288,7 @@ def _chip_hub(
     The companion-backend patches are the ones every hub browser suite uses.
     What is specific to this feature is the environment rather than a patch:
 
-    * ``posture_store.AGENT_DATA_ROOT_ENV_VAR`` — the ONE stamp both the
+    * ``posture_store._AGENT_DATA_ROOT_ENV_VAR`` — the ONE stamp both the
       control-context record reader and ``posture_store`` resolve through, and
       the stamp this feature puts in every session child's environment. Pinning
       it to *tmp_path* keeps every write off the real agent-data tree. Patching
@@ -323,10 +323,10 @@ def _chip_hub(
     workspace = tmp_path / "_agent_data"
     workspace.mkdir(exist_ok=True)
     root = tmp_path / "agent_data"
-    (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
+    (root / posture_store.CONTROL_STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
     config = _write_config(tmp_path / "config.yml")
 
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
     _reset_process_memos()
@@ -370,8 +370,8 @@ def _reset_process_memos() -> None:
     reused across tests could otherwise serve one test's record, render or
     narrowing to the next.
     """
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
+    posture_store._invalidate_cache()
+    control_context._invalidate_cache()
     websocket_routes.reset_rendered_config_memo()
 
 
@@ -427,13 +427,13 @@ def _publish_report(
 
 def _recorded_posture() -> dict[str, str]:
     """The narrowings on disk, as the connector and the hook will read them."""
-    posture_store.invalidate_cache()
-    return dict(posture_store.recorded_posture())
+    posture_store._invalidate_cache()
+    return dict(posture_store._recorded_posture())
 
 
 def _read_record():
     """The deployment's control-context record, re-read from disk."""
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     return control_context.read_record()
 
 
@@ -605,7 +605,7 @@ def test_narrowing_asks_nothing_lands_in_the_record_and_respawns_nothing(
 
     * no confirm — narrowing only ever removes reach, so asking would be
       ceremony over a gesture one click undoes;
-    * the record agrees, because ``posture_store.recorded_posture`` reading
+    * the record agrees, because ``posture_store._recorded_posture`` reading
       that field is what the connector and the hook consult — a row that
       agreed with nothing would be a target the operator believes is sandboxed
       and the agent is not. The map is keyed by TARGET and by nothing else:

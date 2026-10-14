@@ -28,12 +28,14 @@ from osprey.utils.workspace import (
     rendered_config_path,
     repo_root_for_agent_data,
     reset_config_cache,
-    resolve_agent_data_root,
     resolve_config_path,
     resolve_path,
     resolve_project_root,
     resolve_shared_data_root,
     resolve_workspace_root,
+)
+from osprey.utils.workspace import (
+    _resolve_agent_data_root as resolve_agent_data_root,
 )
 
 

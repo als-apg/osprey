@@ -19,7 +19,7 @@ from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS, is_protected_
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.workspace.server import mcp
-from osprey.utils.workspace import (
+from osprey_connectors.workspace import (
     agent_data_base_dir,
     anchored_path,
     load_osprey_config,
@@ -248,7 +248,7 @@ def _unexpanded_config(config_path: Path) -> dict:
         The unexpanded document, or an empty dict when it cannot be read.
     """
     try:
-        from osprey.utils.config import get_config_builder
+        from osprey_connectors.config import get_config_builder
 
         return get_config_builder(config_path=str(config_path)).get_unexpanded_config()
     except Exception:

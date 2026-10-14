@@ -46,8 +46,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import BUILD_DIR_NAME
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 logger = get_logger("deployment.staleness")
 

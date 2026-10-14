@@ -71,7 +71,7 @@ def resolve_config_dir() -> Path | None:
         take the caller down.
     """
     try:
-        from osprey.utils.workspace import resolve_config_path
+        from osprey_connectors.workspace import resolve_config_path
 
         return Path(resolve_config_path()).parent
     except Exception:
@@ -94,7 +94,7 @@ def project_root_for_config_dir(config_dir: Path) -> Path:
         The project root — ``<repo>`` for a host render at ``<repo>/build``, the
         directory itself for a container project or a flat legacy one.
     """
-    from osprey.utils.workspace import repo_root_for_config
+    from osprey_connectors.workspace import repo_root_for_config
 
     return repo_root_for_config(Path(config_dir) / "config.yml")
 

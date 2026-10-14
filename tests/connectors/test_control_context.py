@@ -32,26 +32,26 @@ def data_root(tmp_path, monkeypatch):
     this module to that deployment's directory and never look at the root the
     test just laid down.
     """
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     yield tmp_path
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
 
 
 @pytest.fixture
 def rootless(monkeypatch):
     """No stamp, no bind and no derivable root: the record has nowhere to live."""
-    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.setattr(
         posture_store,
         "resolve_shared_data_root",
         lambda: (_ for _ in ()).throw(RuntimeError("no project root")),
     )
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     yield
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
 
 
 def _payload(**overrides):
@@ -78,7 +78,7 @@ def _payload(**overrides):
 
 
 def _write_raw(root: Path, payload, *, encoding: str = "utf-8") -> Path:
-    path = control_context.record_path_under(root)
+    path = control_context._record_path_under(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     text = payload if isinstance(payload, str) else json.dumps(payload)
     path.write_bytes(text.encode(encoding))
@@ -99,20 +99,20 @@ def test_record_lives_beside_the_posture_store(data_root, monkeypatch):
 
     identity = pin_identity(monkeypatch)
 
-    assert control_context.STATE_DIR_NAME == "control_target"
-    assert control_context.RECORD_FILENAME == "control_context.json"
+    assert posture_store.CONTROL_STATE_DIR_NAME == "control_target"
+    assert control_context._RECORD_FILENAME == "control_context.json"
     assert (
         control_context.record_path()
         == data_root / "control_target" / identity / "control_context.json"
     )
-    assert control_context.record_path() == control_context.record_path_under(data_root)
-    assert control_context.state_dir() == posture_store.state_dir()
+    assert control_context.record_path() == control_context._record_path_under(data_root)
+    assert control_context._state_dir() == posture_store.state_dir()
 
 
 @pytest.mark.usefixtures("rootless")
 def test_record_path_is_none_without_a_root():
     assert control_context.record_path() is None
-    assert control_context.state_dir() is None
+    assert control_context._state_dir() is None
 
 
 # --- writing ---------------------------------------------------------------
@@ -136,7 +136,7 @@ def test_write_creates_the_state_directory(data_root):
     assert not (data_root / "control_target").exists()
     control_context.write_record(control_context.ControlContext(target="live", generation=0))
     assert control_context.record_path().is_file()
-    assert control_context.record_path().parent == control_context.state_dir()
+    assert control_context.record_path().parent == control_context._state_dir()
 
 
 @pytest.mark.usefixtures("data_root")
@@ -150,7 +150,7 @@ def test_write_payload_carries_exactly_the_record_contract():
     )
     payload = json.loads(control_context.record_path().read_text(encoding="utf-8"))
     assert set(payload) == {"schema", "owner", "target", "generation", "posture", "last_switch"}
-    assert payload["schema"] == control_context.SCHEMA_VERSION == 1
+    assert payload["schema"] == control_context._SCHEMA_VERSION == 1
     assert payload["owner"] == {"kind": "controls_server", "pid": 4242, "port": None}
     assert payload["posture"] == {}
     assert payload["last_switch"] is None
@@ -164,13 +164,13 @@ def test_write_replaces_atomically_and_leaves_no_litter():
     before = first.stat().st_ino
     control_context.write_record(control_context.ControlContext(target="va", generation=1))
     assert first.stat().st_ino != before
-    assert [p.name for p in control_context.state_dir().iterdir()] == ["control_context.json"]
+    assert [p.name for p in control_context._state_dir().iterdir()] == ["control_context.json"]
 
 
 @pytest.mark.usefixtures("data_root")
 def test_a_written_record_is_group_readable_and_not_owner_only():
     """Mode 0640 exactly: the worker uid reads the record through the shared group."""
-    state = control_context.state_dir()
+    state = control_context._state_dir()
     state.mkdir(parents=True)
     os.chmod(state, 0o2770)
 
@@ -222,7 +222,7 @@ def test_an_existing_state_dir_keeps_the_mode_it_was_provisioned_with():
     identity hop and set ITS mode, so the assertion would pass on a directory
     nobody had provisioned.
     """
-    state = control_context.state_dir()
+    state = control_context._state_dir()
     state.mkdir(parents=True)
     os.chmod(state, 0o2750)
 
@@ -320,7 +320,7 @@ def test_non_object_record_reads_as_none(data_root):
 
 
 def test_non_utf8_record_reads_as_none(data_root):
-    path = control_context.record_path_under(data_root)
+    path = control_context._record_path_under(data_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"\xff\xfe{}")
     assert control_context.read_record() is None
@@ -329,7 +329,7 @@ def test_non_utf8_record_reads_as_none(data_root):
 def test_unreadable_record_reads_as_none(data_root):
     # A directory where the file belongs: the read fails with OSError, which
     # must arrive as "no record" like every other degraded outcome.
-    control_context.record_path_under(data_root).mkdir(parents=True)
+    control_context._record_path_under(data_root).mkdir(parents=True)
     assert control_context.read_record() is None
 
 
@@ -477,7 +477,7 @@ def test_an_unchanged_signature_is_not_re_parsed(data_root):
     assert path.stat().st_size == signature.st_size
 
     assert control_context.read_record() is first
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     assert control_context.read_record().generation == 8
 
 
@@ -511,10 +511,10 @@ def test_a_removed_record_stops_being_served_from_the_cache():
 
 def test_parse_record_accepts_text_and_objects():
     payload = _payload()
-    assert control_context.parse_record(payload) == control_context.parse_record(
+    assert control_context._parse_record(payload) == control_context._parse_record(
         json.dumps(payload)
     )
-    assert control_context.parse_record("{not json") is None
+    assert control_context._parse_record("{not json") is None
 
 
 # --- process liveness ------------------------------------------------------
@@ -589,7 +589,7 @@ def _report_payload(pid, **overrides):
 
 
 def _write_report(root: Path, pid, payload=None) -> Path:
-    path = control_context.report_path_under(root, pid)
+    path = control_context._report_path_under(root, pid)
     path.parent.mkdir(parents=True, exist_ok=True)
     text = payload if isinstance(payload, str) else json.dumps(payload)
     path.write_text(text, encoding="utf-8")
@@ -598,17 +598,17 @@ def _write_report(root: Path, pid, payload=None) -> Path:
 
 def test_reports_live_beside_the_record(data_root):
     """Every family of file in this directory moves together, identity hop included."""
-    expected = control_context.state_dir() / "server_4321.json"
+    expected = control_context._state_dir() / "server_4321.json"
     assert control_context.REPORT_FILE_PREFIX == "server_"
     assert control_context.REPORT_FILE_GLOB == "server_*.json"
-    assert control_context.report_path(4321) == expected
-    assert control_context.report_path_under(data_root, 4321) == expected
+    assert control_context._report_path(4321) == expected
+    assert control_context._report_path_under(data_root, 4321) == expected
     assert expected.parent == control_context.record_path().parent
 
 
 @pytest.mark.usefixtures("rootless")
 def test_report_path_is_none_without_a_root():
-    assert control_context.report_path(4321) is None
+    assert control_context._report_path(4321) is None
     assert control_context.report_paths() == []
 
 
@@ -666,11 +666,11 @@ def test_a_degraded_report_field_degrades_alone(field, value, expected):
 
 
 def test_an_absent_or_degraded_report_file_reads_as_none(data_root):
-    assert control_context.read_report(control_context.report_path(4321)) is None
+    assert control_context.read_report(control_context._report_path(4321)) is None
     _write_report(data_root, 4322, "{not json")
-    assert control_context.read_report(control_context.report_path(4322)) is None
+    assert control_context.read_report(control_context._report_path(4322)) is None
     _write_report(data_root, 4323, "[1, 2, 3]")
-    assert control_context.read_report(control_context.report_path(4323)) is None
+    assert control_context.read_report(control_context._report_path(4323)) is None
 
 
 def test_an_unchanged_report_signature_is_not_re_parsed(data_root):
@@ -684,7 +684,7 @@ def test_an_unchanged_report_signature_is_not_re_parsed(data_root):
     assert path.stat().st_size == signature.st_size
 
     assert control_context.read_report(path) is first
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     assert control_context.read_report(path).applied_generation == 8
 
 
@@ -699,7 +699,7 @@ def test_caching_a_report_does_not_evict_the_record(data_root):
     control_context.write_record(control_context.ControlContext(target="va", generation=1))
     record = control_context.read_record()
     _write_report(data_root, 4321, _report_payload(4321))
-    control_context.read_report(control_context.report_path(4321))
+    control_context.read_report(control_context._report_path(4321))
     assert control_context.read_record() is record
 
 
@@ -721,7 +721,7 @@ def test_live_reports_ask_the_liveness_predicate_they_are_given(data_root):
 def test_live_report_payloads_keep_the_keys_this_version_does_not_know(data_root):
     _write_report(data_root, os.getpid(), _report_payload(os.getpid(), owner_ppid=os.getppid()))
 
-    payloads = control_context.live_report_payloads(control_context.report_paths())
+    payloads = control_context._live_report_payloads(control_context.report_paths())
 
     assert [p["owner_ppid"] for p in payloads] == [os.getppid()]
 
@@ -734,7 +734,7 @@ def test_live_report_payloads_drop_a_report_whose_server_pid_is_a_bool(data_root
         raise AssertionError(f"os.kill called with {pid!r}")
 
     monkeypatch.setattr(os, "kill", explode)
-    assert control_context.live_report_payloads(control_context.report_paths()) == []
+    assert control_context._live_report_payloads(control_context.report_paths()) == []
 
 
 # --- sweeping --------------------------------------------------------------
@@ -753,7 +753,7 @@ def test_a_dead_owners_file_is_swept(data_root, monkeypatch):
     dead = _write_report(data_root, 4321, _report_payload(4321))
     monkeypatch.setattr(os, "kill", _kill_with_dead({4321}))
 
-    assert _sweep(control_context.state_dir()) == [dead]
+    assert _sweep(control_context._state_dir()) == [dead]
     assert not dead.exists()
 
 
@@ -761,7 +761,7 @@ def test_a_live_owners_file_is_left_alone(data_root, monkeypatch):
     alive = _write_report(data_root, 4321, _report_payload(4321))
     monkeypatch.setattr(os, "kill", _kill_with_dead(set()))
 
-    assert _sweep(control_context.state_dir()) == []
+    assert _sweep(control_context._state_dir()) == []
     assert alive.exists()
 
 
@@ -769,13 +769,13 @@ def test_the_kept_file_is_never_probed(data_root, monkeypatch):
     own = _write_report(data_root, 1234, _report_payload(1234))
     monkeypatch.setattr(os, "kill", _kill_with_dead({1234}))
 
-    assert _sweep(control_context.state_dir(), keep=own.name) == []
+    assert _sweep(control_context._state_dir(), keep=own.name) == []
     assert own.exists()
 
 
 @pytest.mark.usefixtures("data_root")
 def test_a_filename_that_encodes_no_pid_is_swept():
-    directory = control_context.state_dir()
+    directory = control_context._state_dir()
     directory.mkdir(parents=True)
     junk = directory / "server_notapid.json"
     junk.write_text("{}", encoding="utf-8")
@@ -790,7 +790,7 @@ def test_salvage_sees_the_file_before_it_goes(data_root, monkeypatch):
     seen = []
 
     _sweep(
-        control_context.state_dir(),
+        control_context._state_dir(),
         salvage=lambda path: seen.append(control_context.read_report(path)),
     )
 
@@ -799,8 +799,8 @@ def test_salvage_sees_the_file_before_it_goes(data_root, monkeypatch):
 
 @pytest.mark.usefixtures("data_root")
 def test_a_missing_directory_sweeps_to_empty():
-    assert not control_context.state_dir().exists()
-    assert _sweep(control_context.state_dir()) == []
+    assert not control_context._state_dir().exists()
+    assert _sweep(control_context._state_dir()) == []
 
 
 # --- convergence -----------------------------------------------------------
@@ -1218,13 +1218,13 @@ def test_the_report_fixture_round_trips_through_read_report(data_root):
         applied_generation=7,
         children=[9001, 9002],
         reachability={"va": {"reachable": True}},
-        last_switch={"generation": 7, "status": control_context.REPORT_APPLIED},
+        last_switch={"generation": 7, "status": control_context._REPORT_APPLIED},
         last_posture_realign={"at": "2026-01-01T00:00:00Z"},
         targets={"va": {"selected_role": "primary"}},
         updated_at="2026-01-01T00:00:01Z",
     )
 
-    assert path == control_context.report_path(4321)
+    assert path == control_context._report_path(4321)
     report = control_context.read_report(path)
     assert report == control_context.ServerReport(
         server_pid=4321,
@@ -1233,7 +1233,7 @@ def test_the_report_fixture_round_trips_through_read_report(data_root):
         applied_generation=7,
         children=(9001, 9002),
         reachability={"va": {"reachable": True}},
-        last_switch={"generation": 7, "status": control_context.REPORT_APPLIED},
+        last_switch={"generation": 7, "status": control_context._REPORT_APPLIED},
         last_posture_realign={"at": "2026-01-01T00:00:00Z"},
         targets={"va": {"selected_role": "primary"}},
         updated_at="2026-01-01T00:00:01Z",
@@ -1246,7 +1246,7 @@ def test_the_report_fixture_defaults_to_a_server_that_has_answered_nothing(data_
 
     write_server_report(data_root, 4321)
 
-    report = control_context.read_report(control_context.report_path(4321))
+    report = control_context.read_report(control_context._report_path(4321))
     assert report is not None
     assert report.applied_target is None
     assert report.applied_generation is None
@@ -1266,13 +1266,13 @@ def test_the_record_fixture_drops_the_read_cache_after_every_write(data_root, mo
     from tests._control_context_fixtures import write_control_context
 
     drops = []
-    real_invalidate = control_context.invalidate_cache
+    real_invalidate = control_context._invalidate_cache
 
     def spy():
         drops.append(True)
         real_invalidate()
 
-    monkeypatch.setattr(control_context, "invalidate_cache", spy)
+    monkeypatch.setattr(control_context, "_invalidate_cache", spy)
 
     write_control_context(data_root, target="va", generation=7)
     assert drops, "write_control_context did not drop the read cache"
@@ -1306,6 +1306,6 @@ def test_the_fixture_writes_a_degraded_record_through_the_raw_payload_hatch(data
     """A record too broken to build from the dataclass still has to be writable."""
     from tests._control_context_fixtures import write_payload
 
-    write_payload(control_context.record_path_under(data_root), {"target": "va"})
+    write_payload(control_context._record_path_under(data_root), {"target": "va"})
 
     assert control_context.read_record() is None

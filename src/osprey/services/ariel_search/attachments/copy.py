@@ -47,7 +47,7 @@ from osprey.services.ariel_search.attachments.formats import (
     is_markup,
     sniff,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     import aiohttp

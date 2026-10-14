@@ -50,12 +50,12 @@ def state_root(tmp_path, monkeypatch):
     """
     root = tmp_path / "var" / "agent_data"
     state_dir_under(root).mkdir(parents=True)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
 
 
 def write_record(
@@ -66,14 +66,14 @@ def write_record(
     posture: dict[str, str] | None = None,
 ) -> Path:
     """Write the deployment's control-context record. Defaults describe ``va``/0."""
-    path = control_context.record_path_under(root)
+    path = control_context._record_path_under(root)
     record = control_context.ControlContext(
         target=target,
         generation=generation,
         posture=dict(posture or {}),
     )
     control_context.write_record(record, path=path)
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     return path
 
 
@@ -103,9 +103,9 @@ def write_report(
         "targets": {},
         "updated_at": datetime.now(UTC).isoformat(),
     }
-    path = control_context.report_path_under(root, pid)
+    path = control_context._report_path_under(root, pid)
     path.write_text(json.dumps(payload), encoding="utf-8")
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     return path
 
 
@@ -130,7 +130,7 @@ def write_swapping_report(root: Path, pid: int, *, session: str, generation: int
 def applying(generation: int, *, seconds_left: float = 60.0) -> dict[str, Any]:
     """A switch block saying this server is mid-swap and still within its bound."""
     return {
-        "status": control_context.REPORT_APPLYING,
+        "status": control_context._REPORT_APPLYING,
         "generation": generation,
         "expires_at": (datetime.now(UTC) + timedelta(seconds=seconds_left)).isoformat(),
     }
@@ -138,7 +138,7 @@ def applying(generation: int, *, seconds_left: float = 60.0) -> dict[str, Any]:
 
 def failed(generation: int) -> dict[str, Any]:
     """A switch block saying this server could not follow the fleet."""
-    return {"status": control_context.REPORT_FAILED, "generation": generation}
+    return {"status": control_context._REPORT_FAILED, "generation": generation}
 
 
 def stamp_env(monkeypatch, *, target: str, generation: str) -> None:
@@ -270,31 +270,31 @@ class TestDeploymentRecordLookup:
         assert host_executor._deployment_record() is None
 
     def test_corrupt_record_is_ignored(self, state_root):
-        control_context.record_path_under(state_root).write_text("{not json", encoding="utf-8")
-        control_context.invalidate_cache()
+        control_context._record_path_under(state_root).write_text("{not json", encoding="utf-8")
+        control_context._invalidate_cache()
 
         assert host_executor._deployment_record() is None
 
     def test_a_record_without_a_generation_cannot_pin_a_run(self, state_root):
         """Generation is half the pin, so a record missing it describes nothing."""
-        control_context.record_path_under(state_root).write_text(
+        control_context._record_path_under(state_root).write_text(
             json.dumps({"schema": 1, "target": "va"}), encoding="utf-8"
         )
-        control_context.invalidate_cache()
+        control_context._invalidate_cache()
 
         assert host_executor._deployment_record() is None
 
     def test_unknown_target_name_is_not_a_record(self, state_root):
-        control_context.record_path_under(state_root).write_text(
+        control_context._record_path_under(state_root).write_text(
             json.dumps({"schema": 1, "target": "production", "generation": 1}), encoding="utf-8"
         )
-        control_context.invalidate_cache()
+        control_context._invalidate_cache()
 
         assert host_executor._deployment_record() is None
 
     def test_an_unresolvable_root_is_not_an_error(self, tmp_path, monkeypatch):
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path / "never-created"))
-        control_context.invalidate_cache()
+        monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(tmp_path / "never-created"))
+        control_context._invalidate_cache()
 
         assert host_executor._deployment_record() is None
 

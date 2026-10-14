@@ -34,7 +34,7 @@ import click
 from osprey.cli.output import fail, machine_mode, note, report, warn
 from osprey.cli.repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from osprey.cli.styles import Styles
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("users")
 
@@ -258,7 +258,7 @@ def _roster_usernames(config_path: str) -> list[str]:
         The usernames, empty for a deployment with no web-terminal roster.
     """
     from osprey.deployment.web_terminals.personas import normalize_users
-    from osprey.utils.config import load_project_config
+    from osprey_connectors.config import load_project_config
 
     config = load_project_config(config_path)
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
@@ -366,7 +366,7 @@ def _purge_terminal_secret(session: _Repo, user: str) -> None:
         purge_terminal_secret,
         terminal_secret_var,
     )
-    from osprey.utils.dotenv import ENV_LOCAL_FILENAME
+    from osprey_connectors.dotenv import ENV_LOCAL_FILENAME
 
     variable = terminal_secret_var(user)
     try:
@@ -411,7 +411,7 @@ def _purge_orphan_terminal_secrets(session: _Repo) -> None:
         TERMINAL_SECRET_VAR_PREFIX,
         purge_orphan_terminal_secrets,
     )
-    from osprey.utils.dotenv import ENV_LOCAL_FILENAME
+    from osprey_connectors.dotenv import ENV_LOCAL_FILENAME
 
     try:
         purge_orphan_terminal_secrets(session.root, _roster_usernames(session.config))
@@ -832,8 +832,8 @@ def login_url(user: str, repo: Path | None) -> None:
             deployment_external_origin,
             terminal_login_url,
         )
-        from osprey.utils.config import load_project_config
-        from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
+        from osprey_connectors.config import load_project_config
+        from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
 
         roster = _roster_usernames(session.config)
         if user not in roster:
@@ -1029,8 +1029,8 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
             _provider_endpoint_vars,
             render_env_users,
         )
-        from osprey.utils.config import load_project_config
-        from osprey.utils.dotenv import (
+        from osprey_connectors.config import load_project_config
+        from osprey_connectors.dotenv import (
             ENV_LOCAL_FILENAME,
             ENV_SHARED_FILENAME,
             chain_files,

@@ -20,7 +20,7 @@ can say *why* rather than merely *no*.
 
 **VERIFICATION** is answered after the connector-host child has connected, by
 comparing what the child says it did against what
-:func:`~osprey_connectors.ipc.verification.derive_endpoints` derived it should
+:func:`~osprey_connectors.ipc.derive_endpoints` derived it should
 do. It is positive and role-aware: not "nothing looked wrong" but "the child
 configured exactly this host, this port, this mode, for exactly the role the
 derivation selected". A mismatch names the field, the expected value and the
@@ -33,12 +33,13 @@ somewhere the config never described — the failure mode where every layer
 reports success and the tool calls land on the wrong machine.
 
 Both are computed from the same inputs the connector itself uses. The
-derivation and the verification live in :mod:`osprey_connectors.ipc.verification`,
-shared with the library's
-:class:`~osprey_connectors.ipc.pool.ConnectorHostPool`: it restates
+derivation and the verification are :mod:`osprey_connectors.ipc`'s
+(:func:`~osprey_connectors.ipc.derive_endpoints`,
+:func:`~osprey_connectors.ipc.verify_host_report`), shared with the package's
+own connector-host pool: it restates
 ``EPICSConnector.connect()``'s gateway selection and environment derivation
 *positively* — the role it would pick given the target's own write posture and
-:func:`~osprey_connectors.control_system.base.is_readonly_run`, and the
+:func:`~osprey_connectors.control_system.is_readonly_run`, and the
 CA/PVA mode each gateway would produce — rather than re-deciding it, so this
 module and the process it describes cannot disagree about where a target lands,
 which port it lands on, or whether it may be written to once there.
@@ -93,7 +94,7 @@ the deployment's control-context record (read through
 child reads it on every write and on its own gateway selection, so a parent
 that derived the *configured* posture would derive ``write_access`` for a
 target the child has just connected to on ``read_only`` — and
-:func:`~osprey_connectors.ipc.verification.verify_child_report`, doing its
+the connector host's own check of its child's report, doing its
 job, would abort the switch on a
 disagreement that is nobody's misconfiguration.
 
@@ -115,14 +116,12 @@ from typing import Any
 
 from osprey.audit.posture import posture_session
 from osprey_connectors import posture_store
-from osprey_connectors.control_system.base import is_readonly_run
+from osprey_connectors.control_system import is_readonly_run
 from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_for_target
-from osprey_connectors.ipc.verification import (
+from osprey_connectors.ipc import (
     Endpoint,
     TargetDerivation,
-    _config_writes_enabled,
-    _section,
-    _sub,
+    config_writes_enabled,
     connector_block,
     derive_endpoints,
     live_collision,
@@ -239,6 +238,27 @@ class TargetAvailability:
 # ---------------------------------------------------------------------------
 # Config access
 # ---------------------------------------------------------------------------
+
+
+# The connector-host verification reads config sections the same lenient way,
+# but keeps its helpers private; these two are cheaper to restate than to make
+# part of the connectors package's public surface.
+def _section(config: Any, name: str) -> dict[str, Any]:
+    """One top-level section of a rendered config, or an empty mapping.
+
+    Nested sections only, the way ``MCPServerConfig`` and ``ConfigBuilder`` read
+    this file: a top-level dotted line in ``config.yml`` configures nothing.
+    """
+    if not isinstance(config, dict):
+        return {}
+    value = config.get(name)
+    return value if isinstance(value, dict) else {}
+
+
+def _sub(section: dict[str, Any], name: str) -> dict[str, Any]:
+    """One nested mapping of *section*, or an empty mapping."""
+    value = section.get(name)
+    return value if isinstance(value, dict) else {}
 
 
 def effective_writes_for_target(section: Any, target: str) -> bool:
@@ -1263,7 +1283,7 @@ def evaluate_switch(
     # ``readonly_run`` is pinned false rather than read again: rung 1 already
     # answered that question, and a second read could disagree with the first.
     resolved_writes = (
-        _config_writes_enabled(config, wanted) if writes_enabled is None else bool(writes_enabled)
+        config_writes_enabled(config, wanted) if writes_enabled is None else bool(writes_enabled)
     )
     availability = target_availability(
         config,

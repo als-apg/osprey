@@ -59,19 +59,19 @@ ARMED = {
 @pytest.fixture
 def data_root(tmp_path, monkeypatch):
     """A scratch agent-data root, stamped, with every posture env name cleared."""
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION_KEY)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     yield tmp_path
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 def write_store(root: Path, posture) -> None:
     """Write the narrowings both the gate and the sandbox read."""
     write_control_context(root, posture=posture)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -90,13 +90,13 @@ class TestStampFormat:
         """A run that cannot name its machine is pinned for all of them."""
         stamp = posture_store.launch_posture_stamp(None, "sandbox")
 
-        assert stamp == f"{posture_store.LAUNCH_POSTURE_ALL_TARGETS}=sandbox"
-        assert set(posture_store.parse_launch_posture(stamp)) == set(posture_store.CONTROL_TARGETS)
+        assert stamp == f"{posture_store._LAUNCH_POSTURE_ALL_TARGETS}=sandbox"
+        assert set(posture_store._parse_launch_posture(stamp)) == set(posture_store.CONTROL_TARGETS)
 
     def test_writes_narrows_nothing(self):
         """Recorded for the marker, inert for the decision — nothing may widen."""
-        assert posture_store.parse_launch_posture("standin=writes") == {}
-        assert posture_store.parse_launch_posture("*=writes") == {}
+        assert posture_store._parse_launch_posture("standin=writes") == {}
+        assert posture_store._parse_launch_posture("*=writes") == {}
 
     @pytest.mark.parametrize(
         "raw",
@@ -113,7 +113,7 @@ class TestStampFormat:
     )
     def test_an_unparseable_stamp_is_inert(self, raw):
         """Every process that is not an executor sandbox is untouched by this term."""
-        assert posture_store.parse_launch_posture(raw) == {}
+        assert posture_store._parse_launch_posture(raw) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -214,12 +214,12 @@ class TestLaunchPinAnddedWithTheStore:
         narrowing it launched under.
         """
         # Arrange — a store path that cannot resolve at all.
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, "   ")
+        monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, "   ")
         monkeypatch.setattr(
             posture_store, "resolve_shared_data_root", lambda: (_ for _ in ()).throw(OSError())
         )
         monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "standin=sandbox")
-        posture_store.invalidate_cache()
+        posture_store._invalidate_cache()
 
         # Act / Assert
         assert control_context.record_path() is None
@@ -267,7 +267,7 @@ class TestExecutorStampsThePin:
         # Assert — the record is where the reader looks, and it is what refused.
         state_dir = state_dir_under(data_root)
         assert state_dir.name == identity
-        assert (state_dir / control_context.RECORD_FILENAME).exists()
+        assert (state_dir / control_context._RECORD_FILENAME).exists()
         assert posture_store.store_permits("standin") is False
         assert stamp == posture_store.launch_posture_stamp("standin", posture_store.POSTURE_SANDBOX)
 
@@ -303,7 +303,7 @@ class TestMarkerCarriesThePin:
 
         root = tmp_path / "var" / "agent_data"
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-        monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+        monkeypatch.delenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, raising=False)
         (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
 
         # Act

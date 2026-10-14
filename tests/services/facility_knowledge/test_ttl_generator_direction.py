@@ -30,7 +30,7 @@ from osprey.services.facility_knowledge.ttl_generator.direction import (
     resolve_limits_path,
 )
 from osprey.services.facility_knowledge.ttl_generator.model import build_model
-from osprey_connectors.control_system.limits_validator import (
+from osprey_connectors.control_system._limits_validator import (
     LIMITS_DATABASE_CONFIG_KEY,
     LimitsValidator,
 )

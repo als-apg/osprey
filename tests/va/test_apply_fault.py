@@ -244,7 +244,7 @@ def _wait_until(predicate, *, timeout: float = SETTLE_TIMEOUT_S) -> Any:
 
 def _on_ca_loop(coro: Coroutine[Any, Any, Any]) -> Any:
     """Run one aioca coroutine on the process's CA loop; block for its result."""
-    from osprey_connectors.control_system.ca_loop import get_ca_loop
+    from osprey_connectors.control_system._ca_loop import get_ca_loop
 
     return get_ca_loop().run_sync(coro, timeout=CA_TIMEOUT_S + 5.0)
 
@@ -284,7 +284,7 @@ def _monitor(address: str) -> Iterator[list[float]]:
     """
     import aioca
 
-    from osprey_connectors.control_system.ca_loop import get_ca_loop
+    from osprey_connectors.control_system._ca_loop import get_ca_loop
 
     connected: list[float] = []
     seen: list[float] = []

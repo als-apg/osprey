@@ -35,7 +35,7 @@ from osprey.services.facility_knowledge.ttl_generator.ontology_map import (
     OntologyMap,
     load_demo_ontology,
 )
-from osprey_connectors.control_system.limits_validator import LimitsValidator
+from osprey_connectors.control_system._limits_validator import LimitsValidator
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _CONTROL_ASSISTANT_DATA = _REPO_ROOT / "src/osprey/templates/apps/control_assistant/data"

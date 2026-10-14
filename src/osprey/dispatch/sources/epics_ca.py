@@ -28,9 +28,9 @@ from osprey.dispatch.pool import QueueFullError
 if TYPE_CHECKING:
     from fastmcp import FastMCP
 
-    from osprey.connectors.control_system.base import ChannelValue, ControlSystemConnector
     from osprey.dispatch.sources.base import FireCallback
     from osprey.dispatch.trigger_config import TriggerConfig
+    from osprey_connectors.control_system import ChannelValue, ControlSystemConnector
 
 logger = logging.getLogger("osprey.dispatch.sources.epics_ca")
 
@@ -57,7 +57,7 @@ async def _connect() -> ControlSystemConnector:
     name an address only the agent's own network reaches. With no gateway
     configured, ``connect()`` leaves the environment as it stands.
     """
-    from osprey.connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
 
     register_builtin_connectors()  # idempotent; the factory resolves "epics" through it
     return await ConnectorFactory.create_control_system_connector({"type": "epics"})

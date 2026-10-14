@@ -80,7 +80,7 @@ async def move_the_deployment(manager: Any, target: str) -> dict[str, Any]:
     assert record is not None, "no control-context record to move — claim_the_record first"
     generation = record.generation + 1
     control_context.write_record(replace(record, target=target, generation=generation))
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     return await manager.reconcile(target, generation)
 
 

@@ -12,15 +12,17 @@ import pandas as pd
 import pytest
 
 from osprey.connectors.archiver.base import ArchiverMetadata
-from osprey.connectors.archiver.mongodb_archiver_connector import (
-    DEPLOY_HINT,
-    HOST_OVERRIDE_ENV,
-    PORT_OVERRIDE_ENV,
-    MongoDBArchiverConnector,
-    address_overrides,
-)
 from osprey.connectors.factory import ConnectorFactory
 from osprey.port_layout import default_port
+from osprey_connectors.archiver._mongo_client import (
+    HOST_OVERRIDE_ENV,
+    PORT_OVERRIDE_ENV,
+    address_overrides,
+)
+from osprey_connectors.archiver._mongodb_archiver_connector import (
+    DEPLOY_HINT,
+    MongoDBArchiverConnector,
+)
 from tests.connectors._bundled_mongo import BUNDLED_CLIENT_KWARGS, bundled_block
 
 # xdist_group("docker"): the session ``mongodb_container`` fixture starts a real
@@ -461,7 +463,7 @@ class TestQueryShapeWithoutDocker:
         """Return a connector wired to an in-memory stub collection."""
         from unittest.mock import MagicMock
 
-        from osprey.connectors.archiver.mongodb_archiver_connector import (
+        from osprey_connectors.archiver._mongodb_archiver_connector import (
             MongoDBArchiverConnector,
         )
 
@@ -917,7 +919,7 @@ class TestUrlWithoutDocker:
 
     @pytest.mark.asyncio
     async def test_the_route_is_logged_once_per_process(self, monkeypatch, caplog):
-        from osprey_connectors.archiver import mongodb_archiver_connector as module
+        from osprey_connectors.archiver import _mongodb_archiver_connector as module
 
         monkeypatch.setattr(module, "_ROUTE_LOGGED", False)
         monkeypatch.setattr(module.logger, "propagate", True, raising=False)

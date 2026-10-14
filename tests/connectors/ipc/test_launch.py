@@ -19,7 +19,7 @@ import time
 
 import pytest
 
-from osprey_connectors.ipc.launch import terminate_host
+from osprey_connectors.ipc._launch import terminate_host
 
 GRACE_S = 5.0
 

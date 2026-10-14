@@ -82,11 +82,11 @@ def agent_data_root(tmp_path, monkeypatch):
     state_dir_under(root).mkdir(parents=True)
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
+    posture_store._invalidate_cache()
+    control_context._invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
+    posture_store._invalidate_cache()
+    control_context._invalidate_cache()
 
 
 @pytest.fixture
@@ -223,7 +223,7 @@ def only_alive(*pids):
 
 
 def state_dir() -> Path:
-    return control_context.state_dir()
+    return control_context._state_dir()
 
 
 def write_inflight_marker(
@@ -291,14 +291,14 @@ def applying_block(generation=1, *, expires_in_s=30.0):
     """A server's ``last_switch`` while it is mid-swap, with its own bound."""
     return {
         "generation": generation,
-        "status": control_context.REPORT_APPLYING,
+        "status": control_context._REPORT_APPLYING,
         "at": datetime.now(UTC).isoformat(),
         "expires_at": (datetime.now(UTC) + timedelta(seconds=expires_in_s)).isoformat(),
     }
 
 
 def read_record():
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     return control_context.read_record()
 
 

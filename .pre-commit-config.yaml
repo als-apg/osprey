@@ -13,6 +13,11 @@ repos:
         args: [--fix, --exit-non-zero-on-fix]
       # Run the formatter
       - id: ruff-format
+      # import-private-name for the framework, preview-only in ruff, so it runs
+      # in an invocation of its own; pyproject.toml scopes it to src/osprey.
+      - id: ruff
+        name: ruff (import-private-name)
+        args: [--preview, --select=PLC2701]
 
   # General file quality checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -79,6 +84,17 @@ repos:
     hooks:
       - id: gitleaks
 
+  # Import boundaries between the framework and the connectors package; the
+  # contracts are in [tool.importlinter] in pyproject.toml.
+  - repo: local
+    hooks:
+      - id: lint-imports
+        name: lint-imports (import boundaries)
+        entry: uv run lint-imports --no-logo
+        language: system
+        pass_filenames: false
+        types: [python]
+
 # pre-commit.ci configuration
 ci:
   autofix_commit_msg: |
@@ -90,3 +106,6 @@ ci:
   autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
   autoupdate_schedule: monthly
   submodules: false
+  # lint-imports runs on the project's own environment, which pre-commit.ci
+  # does not build; CI's lint job runs it instead.
+  skip: [lint-imports]

@@ -181,7 +181,7 @@ def _archiver_block(config: Mapping[str, Any] | None) -> Mapping[str, Any]:
         block = config.get("archiver")
         return block if isinstance(block, Mapping) else {}
     try:
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         block = get_config_value("archiver", {})
     except Exception:  # config unavailability degrades to no block

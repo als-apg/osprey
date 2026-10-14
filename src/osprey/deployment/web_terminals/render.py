@@ -79,8 +79,13 @@ from osprey.services.auth_sidecar.roster_env import env_var_suffix, env_var_suff
 # validity predicate, shared with the sidecar that builds the throttle.
 from osprey.services.auth_sidecar.throttle import THROTTLE_DEFAULTS, throttle_problems
 from osprey.utils.facility import resolve_facility_name
-from osprey.utils.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
-from osprey_connectors.posture_store import CONTROL_CONTEXT_DIR_ENV_VAR, STATE_DIR_NAME
+from osprey_connectors.posture_store import (
+    CONTROL_CONTEXT_DIR_ENV_VAR,
+)
+from osprey_connectors.posture_store import (
+    CONTROL_STATE_DIR_NAME as STATE_DIR_NAME,
+)
+from osprey_connectors.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
 
 # Package-relative location of the .j2 sources (Tasks 1.3/1.6). Resolved via
 # importlib.resources, NOT Path(__file__).parent, so this works from an installed
@@ -538,7 +543,7 @@ def _container_agent_data_dir(config: Any, container_project_dir: str) -> str:
 
     The mount target has to be the directory the process inside the container
     actually writes to, and that directory is decided by ``agent_data.base_dir``
-    — the same key :func:`osprey.utils.workspace.resolve_agent_data_root`
+    — the same key :func:`osprey.utils.workspace._resolve_agent_data_root`
     resolves at runtime, anchored on the config's ``project_root`` (in-container:
     *container_project_dir*). Derived through the shared
     :func:`~osprey.utils.workspace.agent_data_base_dir` reader for that reason:
@@ -694,7 +699,7 @@ def _container_control_context_dir(container_agent_data_dir: str, identity: str)
     layer, and every owned write in the deployment goes on as if nothing were
     narrowed.
 
-    The ``control_target`` half is :data:`~osprey_connectors.posture_store.STATE_DIR_NAME`,
+    The ``control_target`` half is :data:`~osprey_connectors.posture_store.CONTROL_STATE_DIR_NAME`,
     never a literal, for the reason that constant exists: a record the writer
     puts in one directory and a reader looks for in another is a narrowing that
     silently never applies.

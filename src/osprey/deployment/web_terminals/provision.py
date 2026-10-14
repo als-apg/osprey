@@ -97,7 +97,7 @@ from osprey.deployment.web_terminals.render import (
 )
 from osprey.deployment.web_terminals.seeding import seed_user_containers
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
 

@@ -48,9 +48,9 @@ from typing import Any
 from osprey.deployment.reach import dotted_get
 from osprey.port_layout import VA_PVA_PORT_CONFIG_KEY
 from osprey_connectors.types import (
-    _SIMULATED_TYPES,
     EPICS,
     LIVE_STANDIN,
+    SIMULATED_TYPES,
     STANDIN_TYPES,
     VIRTUAL_ACCELERATOR,
     resolve_control_system_type,
@@ -94,7 +94,7 @@ _CONTROL_SYSTEM_KEY = "control_system"
 #: Baseline types a deployment's own recorded store may legally belong to: the
 #: machines a deployment stands up for itself. Spelled as the union the target
 #: vocabulary already defines, so widening either half widens this rule with it.
-_OWN_MACHINE_TYPES = _SIMULATED_TYPES + STANDIN_TYPES
+_OWN_MACHINE_TYPES = SIMULATED_TYPES + STANDIN_TYPES
 
 
 def live_standin_errors(
@@ -353,7 +353,7 @@ def effective_standin_bpm_errors(project_root: Path, build_dir: Path | None = No
         default_bpm_errors_for_lattice,
         served_data_root,
     )
-    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, merge_chain, resolved_va_lattice
+    from osprey_connectors.dotenv import VA_LATTICE_DEFAULT, merge_chain, resolved_va_lattice
 
     chain: dict[str, str] = merge_chain(Path(project_root))
     if STANDIN_BPM_ERRORS_ENV in chain:
@@ -399,7 +399,7 @@ def live_standin_lattice_errors(project_root: Path, build_dir: Path | None = Non
         The accumulated failures, empty when the stand-in has a lattice or
         ships no perturbation to need one.
     """
-    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, resolved_va_lattice
+    from osprey_connectors.dotenv import VA_LATTICE_DEFAULT, resolved_va_lattice
 
     if not effective_standin_bpm_errors(project_root, build_dir):
         return []

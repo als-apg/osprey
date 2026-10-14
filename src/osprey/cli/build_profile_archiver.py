@@ -35,15 +35,15 @@ import difflib
 from dataclasses import dataclass, fields
 from typing import Any
 
-from osprey.connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_profile
-from osprey.connectors.types import (
+from osprey.port_layout import default_port
+from osprey_connectors.connection import ENV_NAME_RE
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_profile
+from osprey_connectors.types import (
     INVENTED_HISTORY_TYPES,
     MONGODB_ARCHIVER,
     resolve_control_system_type,
 )
-from osprey.errors import BuildProfileError
-from osprey.port_layout import default_port
-from osprey_connectors.connection import ENV_NAME_RE
 
 #: Block compressors ``mongod`` accepts for a WiredTiger collection. The value
 #: reaches the container as a command flag and the collection inherits it at

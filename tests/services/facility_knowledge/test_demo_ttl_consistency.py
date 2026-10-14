@@ -401,7 +401,7 @@ def test_demo_ttl_writes_exactly_the_limits_writable_set(committed_graph: Any) -
     here from raw JSON would risk agreeing with the corpus about the wrong
     thing.
     """
-    from osprey_connectors.control_system.limits_validator import LimitsValidator
+    from osprey_connectors.control_system._limits_validator import LimitsValidator
 
     writable = set(LimitsValidator.writable_addresses(LIMITS_PATH))
     written = _pvs_of_bindings_with(committed_graph, "writesSignal")
@@ -425,7 +425,7 @@ def test_demo_ttl_reads_everything_the_limits_file_withholds(
     committed_graph: Any, corpus_pvs: set[str]
 ) -> None:
     """The read set is the complement — no channel is both, and none is neither."""
-    from osprey_connectors.control_system.limits_validator import LimitsValidator
+    from osprey_connectors.control_system._limits_validator import LimitsValidator
 
     writable = set(LimitsValidator.writable_addresses(LIMITS_PATH))
     read = _pvs_of_bindings_with(committed_graph, "readsSignal")

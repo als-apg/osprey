@@ -33,10 +33,10 @@ import yaml
 # there is no cycle.
 from osprey_connectors import yaml_loader
 from osprey_connectors.workspace import (
+    _SIMULATION_STATE_DIR_CONFIG_KEY,
     DEFAULT_AGENT_DATA_BASE_DIR,
-    SIMULATION_STATE_DIR_CONFIG_KEY,
+    _dotted_config_str,
     anchored_path,
-    dotted_config_str,
     repo_root_for_config,
 )
 
@@ -44,6 +44,30 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
     from datetime import datetime
     from zoneinfo import ZoneInfo
+
+__all__ = [
+    "DEFAULT_EXECUTION_TIMEOUT_SECONDS",
+    "EXECUTION_METHOD_SUBPROCESS",
+    "RUNTIME_WRITE_PATH_KEYS",
+    "ConfigBuilder",
+    "config_anchored_at",
+    "default_config_path",
+    "dotenv_shell_overrides",
+    "get_agent_dir",
+    "get_config_builder",
+    "get_config_value",
+    "get_facility_timezone",
+    "get_full_configuration",
+    "is_unresolved_placeholder",
+    "load_config",
+    "load_project_config",
+    "load_project_dotenv",
+    "localize_facility",
+    "mapping_or_empty",
+    "resolve_env_vars",
+    "resolve_execution_method",
+    "to_facility_iso",
+]
 
 # Use standard logging (not get_logger) to avoid circular imports with logger.py
 # The short name 'CONFIG' enables easy filtering: quiet_logger(['registry', 'CONFIG'])
@@ -178,7 +202,7 @@ _FLAG_ON = frozenset({"true", "yes", "on", "1"})
 _FLAG_OFF = frozenset({"false", "no", "off", "0", ""})
 
 
-def config_flag(value: object, *, key: str) -> bool:
+def _config_flag(value: object, *, key: str) -> bool:
     """Read an on/off config value for what it spells.
 
     :func:`resolve_env_vars` substitutes text, so ``${USE_NS:-false}`` reaches a
@@ -236,12 +260,12 @@ _container_method_warned = False
 
 #: Directory the build owns end to end: every file under it is rendered from the
 #: profile/preset and checksummed into the manifest.
-BUILD_OWNED_DATA_DIR = "data"
+_BUILD_OWNED_DATA_DIR = "data"
 
 #: Directory runtime state belongs in — the durable ``var/`` zone, outside the
 #: render entirely, so it survives every rebuild of ``build/``. Named in the
 #: advisory that fires when a runtime writer is pointed at build-owned ``data/``.
-RUNTIME_STATE_DIR = DEFAULT_AGENT_DATA_BASE_DIR
+_RUNTIME_STATE_DIR = DEFAULT_AGENT_DATA_BASE_DIR
 
 #: Config keys whose value names a path something writes to *at run time*.
 #: These must stay out of ``data/``: that tree is build-owned and checksummed by
@@ -249,12 +273,12 @@ RUNTIME_STATE_DIR = DEFAULT_AGENT_DATA_BASE_DIR
 #: write landing there reads as project drift and is erased by the next
 #: ``osprey build``.
 RUNTIME_WRITE_PATH_KEYS = (
-    SIMULATION_STATE_DIR_CONFIG_KEY,
+    _SIMULATION_STATE_DIR_CONFIG_KEY,
     "services.channel_finder.pipelines.hierarchical.feedback.store_path",
 )
 
 
-def find_runtime_write_paths_under_data(
+def _find_runtime_write_paths_under_data(
     config: "Mapping[str, Any]", project_root: Path
 ) -> list[tuple[str, str]]:
     """Find configured runtime-write paths that resolve inside ``<root>/data/``.
@@ -267,11 +291,11 @@ def find_runtime_write_paths_under_data(
         ``(config_key, configured_value)`` pairs for every offending key, in
         :data:`RUNTIME_WRITE_PATH_KEYS` order. Empty when the config is clean.
     """
-    data_root = (project_root / BUILD_OWNED_DATA_DIR).resolve()
+    data_root = (project_root / _BUILD_OWNED_DATA_DIR).resolve()
     offenders: list[tuple[str, str]] = []
 
     for key in RUNTIME_WRITE_PATH_KEYS:
-        value = dotted_config_str(config, key)
+        value = _dotted_config_str(config, key)
         if value is None:
             continue
 
@@ -574,7 +598,7 @@ class ConfigBuilder:
 
         self.raw_config, self._unexpanded_config = self._load_config()
 
-        from osprey_connectors.control_system.call_timeout import refuse_renamed_timeout_keys
+        from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
 
         refuse_renamed_timeout_keys(self.raw_config)
 
@@ -595,7 +619,7 @@ class ConfigBuilder:
             Path(configured_root) if configured_root else repo_root_for_config(self.config_path)
         ).expanduser()
 
-        for key, value in find_runtime_write_paths_under_data(self.raw_config, project_root):
+        for key, value in _find_runtime_write_paths_under_data(self.raw_config, project_root):
             logger.warning(
                 "Runtime-write path '%s' = %r resolves inside the build-owned "
                 "'%s/' tree (%s). That directory is re-rendered and checksummed on "
@@ -603,9 +627,9 @@ class ConfigBuilder:
                 "are erased by the next 'osprey build'. Point it at '%s/' instead.",
                 key,
                 value,
-                BUILD_OWNED_DATA_DIR,
+                _BUILD_OWNED_DATA_DIR,
                 self.config_path,
-                RUNTIME_STATE_DIR,
+                _RUNTIME_STATE_DIR,
             )
 
     def _load_yaml_file(self, file_path: Path) -> dict[str, Any]:
@@ -1061,7 +1085,7 @@ def load_config(config_path: str | None = None) -> dict[str, Any]:
     return _get_config(config_path).raw_config
 
 
-def get_framework_service_config(
+def _get_framework_service_config(
     service_name: str, config_path: str | None = None
 ) -> dict[str, Any]:
     """Get framework service configuration with automatic context detection.

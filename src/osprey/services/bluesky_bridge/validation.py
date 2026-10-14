@@ -134,8 +134,8 @@ def _assert_limits_readable_if_writable() -> None:
             whether the database path was configured/found/parseable) — never
             the database's file contents or any other secret value.
     """
-    from osprey.utils.config import get_config_value
     from osprey_connectors import posture_store
+    from osprey_connectors.config import get_config_value
     from osprey_connectors.types import target_limits_posture, target_writes_enabled_key
 
     from .queue_backend import resolve_lane_identity
@@ -166,10 +166,7 @@ def _assert_limits_readable_if_writable() -> None:
 
     limits_key = posture.key("enabled")
 
-    from osprey_connectors.control_system.limits_validator import (
-        LIMITS_DATABASE_CONFIG_KEY,
-        LimitsValidator,
-    )
+    from osprey_connectors.control_system import LIMITS_DATABASE_CONFIG_KEY, LimitsValidator
 
     try:
         configured = LimitsValidator.configured_database_path()

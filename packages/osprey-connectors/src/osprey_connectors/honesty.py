@@ -74,6 +74,14 @@ from .types import (
     resolve_target,
 )
 
+__all__ = [
+    "VA_MOCK_ARCHIVER_WHY",
+    "ArchiverPairing",
+    "pairing_for_target",
+    "pairing_in_profile",
+    "pairing_in_rendered_config",
+]
+
 #: Why the pairing is refused, in one sentence pair every site shares so the
 #: explanation cannot drift between them. Each site supplies its own fix.
 VA_MOCK_ARCHIVER_WHY = (

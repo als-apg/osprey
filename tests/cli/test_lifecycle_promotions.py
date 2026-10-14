@@ -726,7 +726,7 @@ def _stub_label_sweep(monkeypatch: pytest.MonkeyPatch, *, container_ids: list[st
 
 def _seed_state(name: str):
     """The archiver seeder's fingerprint verdict, by ``SeedState`` member name."""
-    from osprey.simulation import archiver_seed
+    from osprey_connectors.simulation import _archiver_seed as archiver_seed
 
     return getattr(archiver_seed.SeedState, name)
 
@@ -740,7 +740,8 @@ def archiver_stubs(monkeypatch: pytest.MonkeyPatch) -> dict:
     of them says something, and at what altitude.
     """
     from osprey.simulation import apply as apply_mod
-    from osprey.simulation import archiver_seed as seed_mod
+    from osprey_connectors import simulation
+    from osprey_connectors.simulation import _archiver_seed as seed_mod
 
     state: dict = {"state": _seed_state("ABSENT")}
 
@@ -780,21 +781,21 @@ def archiver_stubs(monkeypatch: pytest.MonkeyPatch) -> dict:
         retention_days=7, hot_span_hours=6, hot_cadence_sec=1, tail_cadence_sec=60
     )
     monkeypatch.setattr(
-        seed_mod, "SeedKnobs", SimpleNamespace(from_config=staticmethod(lambda config: knobs))
+        simulation, "SeedKnobs", SimpleNamespace(from_config=staticmethod(lambda config: knobs))
     )
-    monkeypatch.setattr(seed_mod, "seed_fingerprint", lambda *a, **k: "fp")
+    monkeypatch.setattr(simulation, "seed_fingerprint", lambda *a, **k: "fp")
     # The real comparison object, not a stand-in: the knob diff is rendered from
     # its `differences` and recorded from its `describe()`, so a fake carrying
     # only one of the two would let the other half of that pairing rot.
     monkeypatch.setattr(
-        seed_mod,
+        simulation,
         "compare_fingerprint",
         lambda collection, fingerprint: seed_mod.FingerprintComparison(
             state=state["state"], differences=(("retention_days", 5, 7),)
         ),
     )
     monkeypatch.setattr(
-        seed_mod,
+        simulation,
         "seed_base",
         lambda *a, **k: SimpleNamespace(describe=lambda: "seeded 10 documents x 2 channels"),
     )

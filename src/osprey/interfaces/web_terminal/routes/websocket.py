@@ -48,7 +48,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system.base import is_readonly_run
+from osprey_connectors.control_system import is_readonly_run
 
 if TYPE_CHECKING:
     from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
@@ -468,7 +468,7 @@ def _build_extra_env(
     ``claude_session_id or telemetry_session_id`` the handler keys the pool on
     — so it is set on every spawn this function serves, the brand-new session
     included. It scopes the child's execution root
-    (:func:`osprey_connectors.workspace.resolve_agent_data_root` appends
+    (the agent-data root resolution in :mod:`osprey_connectors.workspace` appends
     ``sessions/<key>``) and tags the artifacts it files. One key, one root: a
     conversation is one session whichever view is showing it, so the chat
     child spawned under that key
@@ -2558,7 +2558,7 @@ def _row_selected_role(config: Any, target: str, writes_enabled: bool) -> str | 
     """The gateway role a connector would select for *target* under this posture.
 
     The reachability collapse keys on it, so it is derived through
-    :func:`~osprey_connectors.ipc.verification.derive_endpoints`
+    :func:`~osprey_connectors.ipc.derive_endpoints`
     — the function the connector-host child's own selection is verified against
     — with the recorded effective posture rather than the configured one. A
     role derived from config alone would name the write gateway for a target the
@@ -2571,7 +2571,7 @@ def _row_selected_role(config: Any, target: str, writes_enabled: bool) -> str | 
     if config is _UNREADABLE_SECTION:
         return None
     try:
-        from osprey_connectors.ipc.verification import derive_endpoints
+        from osprey_connectors.ipc import derive_endpoints
 
         return derive_endpoints(config, target, writes_enabled=writes_enabled).selected_role
     except Exception:  # an underivable target selects no role

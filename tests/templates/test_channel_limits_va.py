@@ -50,7 +50,7 @@ from osprey.services.virtual_accelerator.bindings import (
     load_bindings,
 )
 from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS, ManifestPaths
-from osprey_connectors.control_system.limits_validator import LimitsValidator
+from osprey_connectors.control_system._limits_validator import LimitsValidator
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEMO_DATA = PACKAGE_PATHS.data_root

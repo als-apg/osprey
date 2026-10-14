@@ -40,8 +40,8 @@ from osprey.mcp_server.control_system.connector_host_manager import (
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import posture_store
-from osprey_connectors.control_system.base import ChannelValue
-from osprey_connectors.ipc.verification import derive_endpoints
+from osprey_connectors.control_system._base import ChannelValue
+from osprey_connectors.ipc._verification import derive_endpoints
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
 
 # The live-child half runs on the switch harness's fixture connector: a mock
@@ -134,12 +134,12 @@ def store_root(tmp_path, monkeypatch):
     The root is the anchor: the record beneath it is what every process on this
     deployment reads its narrowings from.
     """
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     yield tmp_path
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 # ---------------------------------------------------------------------------

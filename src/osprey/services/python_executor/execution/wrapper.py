@@ -30,8 +30,8 @@ from osprey.services.python_executor.write_surface import (
     _FRAMEWORK_WRITE_TARGETS,
     _READONLY_WRITE_TARGETS,
 )
-from osprey.utils.logger import get_logger
 from osprey_connectors.errors import RAW_CLIENT_WRITE_MARKER
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("execution_wrapper")
 
@@ -51,7 +51,7 @@ READONLY_REFUSAL = (
 #: The substring every readonly refusal message carries, whichever layer
 #: raised it. The wrapper guard raises :data:`READONLY_REFUSAL`; the connector
 #: reference monitor raises its own, channel-named message
-#: (``osprey_connectors.control_system.base._writes_disabled_result``). Both
+#: (the control-system connector base's writes-disabled refusal). Both
 #: reach the tool layer only as a traceback on the subprocess's stderr, so the
 #: tool matches on what they share rather than on either full message — which
 #: is what lets a write refused through the *approved* ``write_channel`` path
@@ -473,7 +473,7 @@ if not _execution_dir.exists():
             # Runtime Channel Limits Checking (Embedded Config)
             try:
                 import json
-                from osprey.connectors.control_system.limits_validator import (
+                from osprey_connectors.control_system import (
                     LimitsValidator, ChannelLimitsConfig
                 )
 
@@ -997,7 +997,7 @@ if not _execution_dir.exists():
         deferred half, patched when the script imports their module.
 
         The connector side of the same contract lives in
-        ``osprey_connectors.control_system.base`` (refuses ``write_channel``
+        :class:`osprey_connectors.control_system.ControlSystemConnector` (refuses ``write_channel``
         when ``OSPREY_EXECUTION_MODE`` says readonly) and in the EPICS
         connector's gateway selection (stays on the read_only gateway).
         """
@@ -1267,7 +1267,7 @@ if not _execution_dir.exists():
         run's outcome from.
 
         The process then leaves with :func:`os._exit`, the way
-        ``osprey_connectors.ipc.host`` does, rather than through interpreter
+        the connector-host child does, rather than through interpreter
         shutdown. A control-system client holds native state whose shutdown
         hooks can block or crash the process — under aioca those are aioca's
         ``atexit`` teardown, which calls ``ca_context_destroy``, and the

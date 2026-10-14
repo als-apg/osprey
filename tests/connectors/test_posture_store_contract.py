@@ -54,12 +54,12 @@ UNARMED = _section()
 @pytest.fixture
 def data_root(tmp_path, monkeypatch):
     """Stamp ``OSPREY_AGENT_DATA_ROOT`` at a scratch root, caches cleared."""
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     yield tmp_path
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 def _write_record(root: Path, posture, *, target: str = "live", generation: int = 3) -> Path:
@@ -71,7 +71,7 @@ def _write_record(root: Path, posture, *, target: str = "live", generation: int 
     path = write_control_context(
         root, target=target, generation=generation, posture=posture, owned_by=None
     )
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     return path
 
 
@@ -79,36 +79,36 @@ def _write_record(root: Path, posture, *, target: str = "live", generation: int 
 
 
 def test_root_prefers_the_env_stamp(data_root):
-    assert posture_store.agent_data_root() == data_root
+    assert posture_store._agent_data_root() == data_root
     assert posture_store.state_dir() == data_root / "control_target" / acting_identity()
 
 
 def test_root_falls_back_to_the_shared_data_root(tmp_path, monkeypatch):
-    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.setattr(posture_store, "resolve_shared_data_root", lambda: tmp_path / "var")
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     assert posture_store.state_dir() == tmp_path / "var" / "control_target" / acting_identity()
 
 
 def test_blank_env_stamp_is_not_a_stamp(tmp_path, monkeypatch):
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, "   ")
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, "   ")
     monkeypatch.setattr(posture_store, "resolve_shared_data_root", lambda: tmp_path / "var")
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     assert posture_store.state_dir() == tmp_path / "var" / "control_target" / acting_identity()
 
 
 def test_unresolvable_root_answers_none(monkeypatch):
-    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, raising=False)
 
     def _boom():
         raise OSError("no project root")
 
     monkeypatch.setattr(posture_store, "resolve_shared_data_root", _boom)
-    posture_store.invalidate_cache()
-    assert posture_store.agent_data_root() is None
+    posture_store._invalidate_cache()
+    assert posture_store._agent_data_root() is None
     assert posture_store.state_dir() is None
     # A caller that cannot resolve the root sees no narrowings, not a crash.
-    assert posture_store.recorded_posture() == {}
+    assert posture_store._recorded_posture() == {}
 
 
 def test_the_next_read_answers_once_the_root_is_back(tmp_path, monkeypatch):
@@ -118,21 +118,21 @@ def test_the_next_read_answers_once_the_root_is_back(tmp_path, monkeypatch):
     would keep saying so after the root came back, which widens the deployment
     past narrowings that are on disk.
     """
-    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, raising=False)
 
     def _boom():
         raise RuntimeError("no project root")
 
     monkeypatch.setattr(posture_store, "resolve_shared_data_root", _boom)
-    posture_store.invalidate_cache()
-    assert posture_store.recorded_posture() == {}
+    posture_store._invalidate_cache()
+    assert posture_store._recorded_posture() == {}
 
     root = tmp_path / "recovered"
     write_control_context(root, posture={"standin": posture_store.POSTURE_SANDBOX})
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
 
-    posture_store.invalidate_cache()
-    assert posture_store.recorded_posture() == {"standin": posture_store.POSTURE_SANDBOX}
+    posture_store._invalidate_cache()
+    assert posture_store._recorded_posture() == {"standin": posture_store.POSTURE_SANDBOX}
 
 
 @pytest.mark.usefixtures("data_root")
@@ -140,7 +140,7 @@ def test_the_posture_sits_beside_the_target_state_file():
     """FR9: co-sited with the state file — one directory, not two."""
     from osprey.mcp_server.control_system import target_state
 
-    assert posture_store.STATE_DIR_NAME == target_state.STATE_DIR_NAME
+    assert posture_store.CONTROL_STATE_DIR_NAME == target_state.STATE_DIR_NAME
     assert control_context.record_path().parent == posture_store.state_dir()
 
 
@@ -150,60 +150,62 @@ def test_the_retired_store_file_is_gone(data_root):
     for retired in ("store_path", "load_store", "session_map"):
         assert not hasattr(posture_store, retired), retired
 
-    stale = data_root / posture_store.STATE_DIR_NAME / "session-postures.json"
+    stale = data_root / posture_store.CONTROL_STATE_DIR_NAME / "session-postures.json"
     stale.parent.mkdir(parents=True, exist_ok=True)
     stale.write_text(json.dumps({"s1": {"live": "sandbox"}}), encoding="utf-8")
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
-    assert posture_store.recorded_posture() == {}
+    assert posture_store._recorded_posture() == {}
     assert posture_store.store_permits("live") is True
 
 
 # --- parse_posture_value: the entry grammar ----------------------------------------
 #
 # The record carries ONE posture value of this grammar and applies this filter
-# to it (``control_context.parse_posture``). What survives it decides whether a
+# to it (``control_context._parse_posture``). What survives it decides whether a
 # real machine is written to.
 
 
 def test_bare_sandbox_expands_to_every_target():
-    assert posture_store.parse_posture_value("sandbox") == dict.fromkeys(CONTROL_TARGETS, "sandbox")
+    assert posture_store._parse_posture_value("sandbox") == dict.fromkeys(
+        CONTROL_TARGETS, "sandbox"
+    )
 
 
 def test_bare_writes_is_dropped():
-    assert posture_store.parse_posture_value("writes") == {}
+    assert posture_store._parse_posture_value("writes") == {}
 
 
 def test_unknown_values_are_dropped():
-    assert posture_store.parse_posture_value("readonly") == {}
-    assert posture_store.parse_posture_value(7) == {}
-    assert posture_store.parse_posture_value(None) == {}
+    assert posture_store._parse_posture_value("readonly") == {}
+    assert posture_store._parse_posture_value(7) == {}
+    assert posture_store._parse_posture_value(None) == {}
 
 
 def test_per_target_values_are_validated_the_same_way():
-    parsed = posture_store.parse_posture_value(
+    parsed = posture_store._parse_posture_value(
         {"live": "sandbox", "va": "writes", "standin": "nonsense", 7: "sandbox"}
     )
     assert parsed == {"live": "sandbox"}
 
 
 def test_a_map_that_narrows_nothing_is_dropped():
-    assert posture_store.parse_posture_value({"live": "writes"}) == {}
-    assert posture_store.parse_posture_value({}) == {}
+    assert posture_store._parse_posture_value({"live": "writes"}) == {}
+    assert posture_store._parse_posture_value({}) == {}
 
 
 def test_a_shape_the_grammar_does_not_know_is_tolerated():
-    assert posture_store.parse_posture_value([1, 2, 3]) == {}
-    assert posture_store.parse_posture_value({7: "sandbox"}) == {}
+    assert posture_store._parse_posture_value([1, 2, 3]) == {}
+    assert posture_store._parse_posture_value({7: "sandbox"}) == {}
 
 
 def test_the_record_applies_this_very_filter(data_root):
     """One grammar, one implementation: the record's field is filtered here."""
     _write_record(data_root, {"live": "sandbox", "va": "writes", "nonsense": "sandbox"})
-    assert posture_store.recorded_posture() == {"live": "sandbox", "nonsense": "sandbox"}
+    assert posture_store._recorded_posture() == {"live": "sandbox", "nonsense": "sandbox"}
     record = control_context.read_record()
     assert record is not None
-    assert record.posture == posture_store.recorded_posture()
+    assert record.posture == posture_store._recorded_posture()
 
 
 # --- lookups ---------------------------------------------------------------
@@ -211,14 +213,14 @@ def test_the_record_applies_this_very_filter(data_root):
 
 @pytest.mark.usefixtures("data_root")
 def test_no_record_is_no_narrowing():
-    assert posture_store.recorded_posture() == {}
+    assert posture_store._recorded_posture() == {}
     assert posture_store.target_posture("live") is None
     assert posture_store.store_permits("live") is True
 
 
 def test_recorded_posture_and_target_posture(data_root):
     _write_record(data_root, {"live": "sandbox"})
-    assert posture_store.recorded_posture() == {"live": "sandbox"}
+    assert posture_store._recorded_posture() == {"live": "sandbox"}
     assert posture_store.target_posture("live") == "sandbox"
     assert posture_store.target_posture("va") is None
     assert posture_store.target_posture(None) is None
@@ -233,13 +235,13 @@ def test_a_bare_sandbox_in_the_record_narrows_every_target(data_root):
 
 def test_a_recorded_writes_narrows_nothing(data_root):
     _write_record(data_root, {"live": "writes"})
-    assert posture_store.recorded_posture() == {}
+    assert posture_store._recorded_posture() == {}
     assert posture_store.store_permits("live") is True
 
 
 def test_a_degraded_record_narrows_nothing(data_root):
     """Every unusable record is "no record", and no record narrows anything."""
-    path = control_context.record_path_under(data_root)
+    path = control_context._record_path_under(data_root)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     for payload in (
@@ -249,8 +251,8 @@ def test_a_degraded_record_narrows_nothing(data_root):
         json.dumps({"schema": 1, "target": "live", "generation": -1, "posture": "sandbox"}),
     ):
         path.write_text(payload, encoding="utf-8")
-        posture_store.invalidate_cache()
-        assert posture_store.recorded_posture() == {}, payload
+        posture_store._invalidate_cache()
+        assert posture_store._recorded_posture() == {}, payload
         assert posture_store.store_permits("live") is True, payload
 
 
@@ -261,12 +263,12 @@ def test_an_undecodable_record_is_no_narrowing_not_an_exception(data_root):
     asks on each write — so an exception from one mis-encoded file would be
     raised into the write itself instead of leaving the ceiling in charge.
     """
-    path = control_context.record_path_under(data_root)
+    path = control_context._record_path_under(data_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"\xff\xfe{\x00k\x00: sandbox}")
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
-    assert posture_store.recorded_posture() == {}
+    assert posture_store._recorded_posture() == {}
     assert posture_store.store_permits("live") is True
 
 
@@ -278,7 +280,7 @@ def test_a_raising_reader_leaves_the_ceiling_in_charge(data_root, monkeypatch):
         raise RuntimeError("the state directory is on fire")
 
     monkeypatch.setattr(control_context, "read_record", _boom)
-    assert posture_store.recorded_posture() == {}
+    assert posture_store._recorded_posture() == {}
     assert posture_store.store_permits("live") is True
     assert posture_store.effective_writes(ARMED, "live") is True
 
@@ -292,7 +294,7 @@ def test_two_narrowings_within_one_second_are_both_seen(data_root):
     Both writes go through the atomic temp+rename the owner uses, so the
     signature moves on size and inode even when ``st_mtime_ns`` does not.
     """
-    path = control_context.record_path_under(data_root)
+    path = control_context._record_path_under(data_root)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     def _atomic(posture):
@@ -318,11 +320,11 @@ def test_two_narrowings_within_one_second_are_both_seen(data_root):
 
 
 def test_the_record_appearing_and_disappearing_is_seen(data_root):
-    assert posture_store.recorded_posture() == {}
+    assert posture_store._recorded_posture() == {}
     path = _write_record(data_root, "sandbox")
     assert posture_store.target_posture("live") == "sandbox"
     path.unlink()
-    assert posture_store.recorded_posture() == {}
+    assert posture_store._recorded_posture() == {}
 
 
 def test_a_moved_root_is_seen(data_root, tmp_path, monkeypatch):
@@ -330,8 +332,8 @@ def test_a_moved_root_is_seen(data_root, tmp_path, monkeypatch):
     assert posture_store.target_posture("live") == "sandbox"
     other = tmp_path / "elsewhere"
     other.mkdir()
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(other))
-    assert posture_store.recorded_posture() == {}
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(other))
+    assert posture_store._recorded_posture() == {}
 
 
 def test_invalidate_cache_forgets_the_records_cache(data_root, monkeypatch):
@@ -340,8 +342,8 @@ def test_invalidate_cache_forgets_the_records_cache(data_root, monkeypatch):
     assert posture_store.target_posture("live") == "sandbox"
 
     dropped: list[bool] = []
-    monkeypatch.setattr(control_context, "invalidate_cache", lambda: dropped.append(True))
-    posture_store.invalidate_cache()
+    monkeypatch.setattr(control_context, "_invalidate_cache", lambda: dropped.append(True))
+    posture_store._invalidate_cache()
     assert dropped == [True]
 
 
@@ -416,7 +418,7 @@ def test_a_bare_sandbox_refuses_every_target(data_root):
 
 
 def test_an_unresolvable_root_leaves_the_ceiling_in_charge(monkeypatch):
-    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
 
@@ -424,7 +426,7 @@ def test_an_unresolvable_root_leaves_the_ceiling_in_charge(monkeypatch):
         raise OSError("no project root")
 
     monkeypatch.setattr(posture_store, "resolve_shared_data_root", _boom)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     assert posture_store.effective_writes(ARMED, "live") is True
 
 
@@ -502,7 +504,7 @@ def test_the_launch_pin_refuses_ahead_of_the_record(monkeypatch):
 def test_the_launch_pin_leaves_other_targets_alone(monkeypatch):
     monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
     assert posture_store.store_permits("va") is True
-    assert posture_store.launch_narrowed_target() == "live"
+    assert posture_store._launch_narrowed_target() == "live"
 
 
 def test_a_launch_stamp_cannot_widen_a_recorded_narrowing(data_root, monkeypatch):
@@ -515,7 +517,7 @@ def test_a_launch_stamp_cannot_widen_a_recorded_narrowing(data_root, monkeypatch
 def test_an_unstamped_process_is_unaffected_by_the_launch_clause(monkeypatch):
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
     assert posture_store.launch_permits("live") is True
-    assert posture_store.launch_narrowed_target() is None
+    assert posture_store._launch_narrowed_target() is None
     assert posture_store.store_permits("live") is True
 
 
@@ -532,20 +534,20 @@ def test_an_unstamped_process_is_unaffected_by_the_launch_clause(monkeypatch):
 
 def _provision_tree(root: Path) -> Path:
     """A marked, readable tree at ``<root>/control_target`` — what the build leaves."""
-    tree = root / posture_store.STATE_DIR_NAME
+    tree = root / posture_store.CONTROL_STATE_DIR_NAME
     tree.mkdir(parents=True, exist_ok=True)
-    (tree / posture_store.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
+    (tree / posture_store._CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
     return tree
 
 
 def _write_tree_record(tree: Path, owner: str, posture, *, target: str = "live") -> Path:
     """One owner's record inside the tree, written the way its owner writes it."""
-    path = tree / owner / control_context.RECORD_FILENAME
+    path = tree / owner / control_context._RECORD_FILENAME
     control_context.write_record(
         control_context.ControlContext(target=target, generation=3, posture=dict(posture)),
         path=path,
     )
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     return path
 
 
@@ -553,8 +555,7 @@ def test_the_tree_marker_filename_agrees_with_the_build():
     """The reader restates the build's filename; a drift here fails the tree open."""
     from osprey.deployment.compose_generator import CONTROL_TREE_MARKER_NAME
 
-    assert posture_store.CONTROL_TREE_MARKER_NAME == CONTROL_TREE_MARKER_NAME
-    assert "CONTROL_TREE_MARKER_NAME" in posture_store.__all__
+    assert posture_store._CONTROL_TREE_MARKER_NAME == CONTROL_TREE_MARKER_NAME
 
 
 def test_a_record_in_the_tree_narrows_its_own_owner(tmp_path):
@@ -589,7 +590,7 @@ def test_a_record_in_the_tree_on_another_target_narrows_nothing_here(tmp_path):
 
 def test_an_unmarked_tree_is_unavailable(tmp_path):
     """A bind whose source the runtime auto-created empty must not fail open."""
-    tree = tmp_path / posture_store.STATE_DIR_NAME
+    tree = tmp_path / posture_store.CONTROL_STATE_DIR_NAME
     tree.mkdir()
     _write_tree_record(tree, "alice", {})
 
@@ -602,7 +603,7 @@ def test_an_unmarked_tree_is_unavailable(tmp_path):
 
 
 def test_a_missing_tree_is_unavailable(tmp_path):
-    tree = tmp_path / posture_store.STATE_DIR_NAME
+    tree = tmp_path / posture_store.CONTROL_STATE_DIR_NAME
 
     narrowed, unavailable = posture_store._read_tree_record(tree, "alice")
     assert narrowed == {}
@@ -654,7 +655,7 @@ def test_an_unreadable_record_in_the_tree_is_unavailable_naming_the_file(tmp_pat
 def test_a_directory_where_the_tree_record_belongs_is_unavailable(tmp_path):
     """EISDIR is a failure on a present path, not an absent record."""
     tree = _provision_tree(tmp_path)
-    (tree / "alice" / control_context.RECORD_FILENAME).mkdir(parents=True)
+    (tree / "alice" / control_context._RECORD_FILENAME).mkdir(parents=True)
 
     narrowed, unavailable = posture_store._read_tree_record(tree, "alice")
     assert narrowed == {}
@@ -665,7 +666,7 @@ def test_a_directory_where_the_tree_record_belongs_is_unavailable(tmp_path):
 def test_a_corrupt_or_foreign_record_in_the_tree_is_unavailable(tmp_path):
     """Where a host reader answers "no narrowing", this one answers unavailable."""
     tree = _provision_tree(tmp_path)
-    path = tree / "alice" / control_context.RECORD_FILENAME
+    path = tree / "alice" / control_context._RECORD_FILENAME
     path.parent.mkdir(parents=True)
 
     for payload in (
@@ -674,7 +675,7 @@ def test_a_corrupt_or_foreign_record_in_the_tree_is_unavailable(tmp_path):
         json.dumps({"schema": 1, "target": "elsewhere", "generation": 0, "posture": "sandbox"}),
     ):
         path.write_text(payload, encoding="utf-8")
-        posture_store.invalidate_cache()
+        posture_store._invalidate_cache()
         narrowed, unavailable = posture_store._read_tree_record(tree, "alice")
         assert narrowed == {}, payload
         assert unavailable is not None, payload
@@ -683,10 +684,10 @@ def test_a_corrupt_or_foreign_record_in_the_tree_is_unavailable(tmp_path):
 
 def test_an_undecodable_record_in_the_tree_is_unavailable(tmp_path):
     tree = _provision_tree(tmp_path)
-    path = tree / "alice" / control_context.RECORD_FILENAME
+    path = tree / "alice" / control_context._RECORD_FILENAME
     path.parent.mkdir(parents=True)
     path.write_bytes(b"\xff\xfe{\x00k\x00: sandbox}")
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
     narrowed, unavailable = posture_store._read_tree_record(tree, "alice")
     assert narrowed == {}
@@ -713,7 +714,7 @@ def test_the_tree_reader_does_not_route_through_the_host_readers(tmp_path, monke
         raise AssertionError("the tree reader went through a host reader")
 
     monkeypatch.setattr(control_context, "read_record", _boom)
-    monkeypatch.setattr(posture_store, "recorded_posture", _boom)
+    monkeypatch.setattr(posture_store, "_recorded_posture", _boom)
     assert posture_store._read_tree_record(tree, "alice").narrowed == {"live": "sandbox"}
 
 
@@ -753,7 +754,7 @@ def test_a_tree_or_dir_bind_naming_an_unknown_user_does_not_raise(monkeypatch):
     """``Path.expanduser`` raises for ``~nosuchuser``; the ``os.path`` form does not."""
     monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, "~nosuchuser0/state")
     monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "~nosuchuser0/control_target")
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, "~nosuchuser0/agent_data")
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, "~nosuchuser0/agent_data")
 
     # Left unexpanded it is not absolute, so it is no bind — and never an exception.
     assert posture_store.bound_state_dir() is None
@@ -771,7 +772,7 @@ def test_a_tree_or_dir_bind_naming_an_unknown_user_does_not_raise(monkeypatch):
 def test_a_symlinked_record_in_the_tree_is_unavailable(tmp_path):
     tree = _provision_tree(tmp_path)
     planted = _write_tree_record(_provision_tree(tmp_path / "elsewhere"), "alice", {})
-    record = tree / "alice" / control_context.RECORD_FILENAME
+    record = tree / "alice" / control_context._RECORD_FILENAME
     record.parent.mkdir(parents=True)
     record.symlink_to(planted)
 
@@ -798,11 +799,11 @@ def test_a_symlinked_owner_directory_in_the_tree_is_unavailable(tmp_path):
 
 def test_a_symlinked_tree_marker_is_unavailable(tmp_path):
     """A link here would let any account in the group declare an unbuilt tree built."""
-    tree = tmp_path / posture_store.STATE_DIR_NAME
+    tree = tmp_path / posture_store.CONTROL_STATE_DIR_NAME
     tree.mkdir()
     elsewhere = tmp_path / "somebodys-file"
     elsewhere.write_text("not the build's marker\n", encoding="utf-8")
-    marker = tree / posture_store.CONTROL_TREE_MARKER_NAME
+    marker = tree / posture_store._CONTROL_TREE_MARKER_NAME
     marker.symlink_to(elsewhere)
 
     narrowed, unavailable = posture_store._read_tree_record(tree, "alice")
@@ -813,8 +814,8 @@ def test_a_symlinked_tree_marker_is_unavailable(tmp_path):
 
 
 def test_a_tree_marker_that_is_not_a_file_is_unavailable(tmp_path):
-    tree = tmp_path / posture_store.STATE_DIR_NAME
-    (tree / posture_store.CONTROL_TREE_MARKER_NAME).mkdir(parents=True)
+    tree = tmp_path / posture_store.CONTROL_STATE_DIR_NAME
+    (tree / posture_store._CONTROL_TREE_MARKER_NAME).mkdir(parents=True)
 
     narrowed, unavailable = posture_store._read_tree_record(tree, "alice")
     assert narrowed == {}
@@ -840,24 +841,22 @@ def bound_tree(tmp_path, monkeypatch):
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.delenv(posture_store.CONTROL_OWNER_ENV_VAR, raising=False)
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     yield tree
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
-def test_store_verdict_is_public_api():
-    """The reason travels by name; consumers import the enum, not the wording."""
-    assert "StoreVerdict" in posture_store.__all__
-    assert "store_verdict" in posture_store.__all__
+def test_store_verdict_names_its_reasons():
+    """The reason travels by name; the connector compares the enum, not the wording."""
 
-    assert [member.value for member in posture_store.StoreVerdict] == [
+    assert [member.value for member in posture_store._StoreVerdict] == [
         "permitted",
         "narrowing",
         "control_context_unavailable",
     ]
     # A ``StrEnum``: the value crosses the connector IPC as a bare string, so a
     # far-side consumer compares the word and an identity check would fail.
-    assert posture_store.StoreVerdict.NARROWING == "narrowing"
+    assert posture_store._StoreVerdict.NARROWING == "narrowing"
 
 
 def test_store_verdict_takes_a_target_and_an_owner():
@@ -870,19 +869,19 @@ def test_store_verdict_takes_a_target_and_an_owner():
     person, it names the person whose one posture governs this write, which is
     the only question a container holding every identity's records can ask.
     """
-    assert list(inspect.signature(posture_store.store_verdict).parameters) == ["target", "owner"]
+    assert list(inspect.signature(posture_store._store_verdict).parameters) == ["target", "owner"]
 
 
 @pytest.mark.usefixtures("data_root")
 def test_nothing_narrowed_is_permitted():
-    assert posture_store.store_verdict("live") is posture_store.StoreVerdict.PERMITTED
+    assert posture_store._store_verdict("live") is posture_store._StoreVerdict.PERMITTED
     assert posture_store.store_permits("live") is True
 
 
 def test_a_recorded_narrowing_answers_narrowing(data_root):
     _write_record(data_root, {"live": "sandbox"})
 
-    assert posture_store.store_verdict("live") is posture_store.StoreVerdict.NARROWING
+    assert posture_store._store_verdict("live") is posture_store._StoreVerdict.NARROWING
     assert posture_store.store_permits("live") is False
 
 
@@ -890,8 +889,8 @@ def test_a_narrowing_on_another_target_permits_this_one(data_root):
     """Compare is target-only for every reader — the same rule the tree reader uses."""
     _write_record(data_root, {"va": "sandbox"}, target="va")
 
-    assert posture_store.store_verdict("live") is posture_store.StoreVerdict.PERMITTED
-    assert posture_store.store_verdict("va") is posture_store.StoreVerdict.NARROWING
+    assert posture_store._store_verdict("live") is posture_store._StoreVerdict.PERMITTED
+    assert posture_store._store_verdict("va") is posture_store._StoreVerdict.NARROWING
 
 
 @pytest.mark.usefixtures("data_root")
@@ -899,8 +898,8 @@ def test_a_launch_pin_naming_a_target_answers_narrowing(monkeypatch):
     """Somebody had this machine read-only when the run started — a decision."""
     monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
 
-    assert posture_store.store_verdict("live") is posture_store.StoreVerdict.NARROWING
-    assert posture_store.store_verdict("va") is posture_store.StoreVerdict.PERMITTED
+    assert posture_store._store_verdict("live") is posture_store._StoreVerdict.NARROWING
+    assert posture_store._store_verdict("va") is posture_store._StoreVerdict.PERMITTED
 
 
 @pytest.mark.usefixtures("data_root")
@@ -916,10 +915,10 @@ def test_a_launch_pin_on_every_target_answers_control_context_unavailable(monkey
         posture_store.launch_posture_stamp(None, posture_store.POSTURE_SANDBOX),
     )
 
-    verdict = posture_store.store_verdict("live")
-    assert verdict is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+    verdict = posture_store._store_verdict("live")
+    assert verdict is posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
     assert posture_store.store_permits("live") is False
-    assert posture_store.store_verdict(None) is verdict
+    assert posture_store._store_verdict(None) is verdict
 
 
 @pytest.mark.usefixtures("data_root")
@@ -929,11 +928,11 @@ def test_the_launch_pin_is_taken_before_any_record_is_read(monkeypatch):
     def _boom(*_args, **_kwargs):  # pragma: no cover - must not run
         raise AssertionError("the launch pin let a record read happen")
 
-    monkeypatch.setattr(posture_store, "recorded_posture", _boom)
+    monkeypatch.setattr(posture_store, "_recorded_posture", _boom)
     monkeypatch.setattr(posture_store, "_read_tree_record", _boom)
     monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
 
-    assert posture_store.store_verdict("live") is posture_store.StoreVerdict.NARROWING
+    assert posture_store._store_verdict("live") is posture_store._StoreVerdict.NARROWING
 
 
 @pytest.mark.usefixtures("bound_tree")
@@ -950,11 +949,11 @@ def test_work_that_belongs_to_nobody_reads_no_record(monkeypatch):
         raise AssertionError("an owner-less verdict read a record")
 
     monkeypatch.setattr(posture_store, "_read_tree_record", _boom)
-    monkeypatch.setattr(posture_store, "recorded_posture", _boom)
+    monkeypatch.setattr(posture_store, "_recorded_posture", _boom)
 
     assert (
-        posture_store.store_verdict("live", posture_store.NO_OWNER)
-        is posture_store.StoreVerdict.PERMITTED
+        posture_store._store_verdict("live", posture_store.NO_OWNER)
+        is posture_store._StoreVerdict.PERMITTED
     )
 
 
@@ -962,16 +961,16 @@ def test_the_tree_reader_answers_for_the_owner_a_plan_carries(bound_tree):
     _write_tree_record(bound_tree, "alice", {"live": "sandbox"})
     _write_tree_record(bound_tree, "bob", {})
 
-    assert posture_store.store_verdict("live", "alice") is posture_store.StoreVerdict.NARROWING
+    assert posture_store._store_verdict("live", "alice") is posture_store._StoreVerdict.NARROWING
     # One owner's chip never reaches another's plan, and never another target.
-    assert posture_store.store_verdict("live", "bob") is posture_store.StoreVerdict.PERMITTED
-    assert posture_store.store_verdict("va", "alice") is posture_store.StoreVerdict.PERMITTED
+    assert posture_store._store_verdict("live", "bob") is posture_store._StoreVerdict.PERMITTED
+    assert posture_store._store_verdict("va", "alice") is posture_store._StoreVerdict.PERMITTED
 
 
 @pytest.mark.usefixtures("bound_tree")
 def test_an_owner_with_no_record_in_the_tree_is_permitted():
     """The one absence that is an answer: nobody narrowed anything for this owner."""
-    assert posture_store.store_verdict("live", "carol") is posture_store.StoreVerdict.PERMITTED
+    assert posture_store._store_verdict("live", "carol") is posture_store._StoreVerdict.PERMITTED
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads a file at mode 0000")
@@ -988,14 +987,14 @@ def test_a_present_but_unreadable_record_in_the_tree_refuses(bound_tree, monkeyp
     path.chmod(0o000)
     try:
         with caplog.at_level(logging.WARNING, logger="osprey_connectors.posture_store"):
-            verdict = posture_store.store_verdict("live")
+            verdict = posture_store._store_verdict("live")
         # The bool spelling refuses on the same read, which is what keeps the
         # reference monitor from proceeding on an unreadable narrowing.
         permitted = posture_store.store_permits("live")
     finally:
         path.chmod(0o640)
 
-    assert verdict is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+    assert verdict is posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
     assert permitted is False
     assert str(path) in caplog.text
 
@@ -1003,15 +1002,16 @@ def test_a_present_but_unreadable_record_in_the_tree_refuses(bound_tree, monkeyp
 def test_an_unprovisioned_tree_bind_refuses_rather_than_permits(tmp_path, monkeypatch):
     """A bind the runtime auto-created empty is not "nobody narrowed anything"."""
     monkeypatch.setenv(
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tmp_path / posture_store.STATE_DIR_NAME)
+        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
+        str(tmp_path / posture_store.CONTROL_STATE_DIR_NAME),
     )
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
 
-    verdict = posture_store.store_verdict("live", "alice")
-    assert verdict is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+    verdict = posture_store._store_verdict("live", "alice")
+    assert verdict is posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
     # Nobody named: the ceiling governs, and no unreadable bind is consulted.
-    assert posture_store.store_verdict("live", posture_store.NO_OWNER) is (
-        posture_store.StoreVerdict.PERMITTED
+    assert posture_store._store_verdict("live", posture_store.NO_OWNER) is (
+        posture_store._StoreVerdict.PERMITTED
     )
 
 
@@ -1019,8 +1019,8 @@ def test_an_unprovisioned_tree_bind_refuses_rather_than_permits(tmp_path, monkey
 def test_an_owner_the_tree_cannot_hold_refuses():
     """A name nobody can look up is a lookup that did not happen, not one that found nothing."""
     assert (
-        posture_store.store_verdict("live", "../alice")
-        is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+        posture_store._store_verdict("live", "../alice")
+        is posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
     )
 
 
@@ -1029,16 +1029,16 @@ def test_the_bound_owner_decides_which_record_the_verdict_reads(bound_tree):
     _write_tree_record(bound_tree, "alice", {"live": "sandbox"})
 
     with posture_store.bind_owner({posture_store.RESERVED_OWNER_KWARG: "alice"}):
-        assert posture_store.store_verdict("live") is posture_store.StoreVerdict.NARROWING
+        assert posture_store._store_verdict("live") is posture_store._StoreVerdict.NARROWING
     # Outside the block the container holds no chip of its own.
-    assert posture_store.store_verdict("live") is posture_store.StoreVerdict.PERMITTED
+    assert posture_store._store_verdict("live") is posture_store._StoreVerdict.PERMITTED
 
 
 def test_the_owner_stamped_in_the_environment_decides_a_dispatch_job(bound_tree, monkeypatch):
     _write_tree_record(bound_tree, "alice", {"live": "sandbox"})
     monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "alice")
 
-    assert posture_store.store_verdict("live") is posture_store.StoreVerdict.NARROWING
+    assert posture_store._store_verdict("live") is posture_store._StoreVerdict.NARROWING
     assert posture_store.store_permits("live") is False
 
 
@@ -1047,7 +1047,7 @@ def test_without_a_tree_bind_the_host_record_decides(data_root, monkeypatch):
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
     _write_record(data_root, {"live": "sandbox"})
 
-    assert posture_store.store_verdict("live", "alice") is posture_store.StoreVerdict.NARROWING
+    assert posture_store._store_verdict("live", "alice") is posture_store._StoreVerdict.NARROWING
 
 
 @pytest.mark.usefixtures("data_root")
@@ -1059,9 +1059,9 @@ def test_a_raising_host_reader_still_leaves_the_ceiling_in_charge(monkeypatch):
         raise OSError("the record could not be read")
 
     monkeypatch.setattr(control_context, "read_record", _boom)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
-    assert posture_store.store_verdict("live") is posture_store.StoreVerdict.PERMITTED
+    assert posture_store._store_verdict("live") is posture_store._StoreVerdict.PERMITTED
 
 
 # The two rungs that answer PERMITTED without reading anything are the only
@@ -1084,8 +1084,8 @@ def test_an_owner_that_is_not_a_name_refuses(bound_tree, caplog):
     with caplog.at_level(logging.WARNING, logger="osprey_connectors.posture_store"):
         for junk in (b"alice", 17, Path("alice"), ["alice"], object()):
             assert (
-                posture_store.store_verdict("live", junk)
-                is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+                posture_store._store_verdict("live", junk)
+                is posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
             ), junk
     assert "not a name" in caplog.text
 
@@ -1094,8 +1094,8 @@ def test_an_owner_that_is_not_a_name_refuses(bound_tree, caplog):
 def test_an_owner_named_with_no_name_refuses():
     """A caller that named an owner spelled "" named a directory nobody can hold."""
     assert (
-        posture_store.store_verdict("live", "   ")
-        is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+        posture_store._store_verdict("live", "   ")
+        is posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
     )
 
 
@@ -1109,8 +1109,8 @@ def test_a_padded_owner_addresses_the_same_record(bound_tree):
     _write_tree_record(bound_tree, "alice", {"live": "sandbox"})
 
     assert posture_store.current_owner("  alice  ") == "alice"
-    assert posture_store.store_verdict("live", " alice") is posture_store.StoreVerdict.NARROWING
-    assert posture_store.store_verdict("live", "alice ") is posture_store.StoreVerdict.NARROWING
+    assert posture_store._store_verdict("live", " alice") is posture_store._StoreVerdict.NARROWING
+    assert posture_store._store_verdict("live", "alice ") is posture_store._StoreVerdict.NARROWING
 
 
 @pytest.mark.parametrize(
@@ -1131,7 +1131,7 @@ def test_a_bind_that_is_set_but_unusable_refuses(bind, monkeypatch, caplog):
     def _boom(*_args, **_kwargs):  # pragma: no cover - must not run
         raise AssertionError("an unusable tree bind fell through to the host reader")
 
-    monkeypatch.setattr(posture_store, "recorded_posture", _boom)
+    monkeypatch.setattr(posture_store, "_recorded_posture", _boom)
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
 
     monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, bind)
@@ -1140,8 +1140,8 @@ def test_a_bind_that_is_set_but_unusable_refuses(bind, monkeypatch, caplog):
     assert posture_store.current_owner() is posture_store.NO_OWNER
     with caplog.at_level(logging.WARNING, logger="osprey_connectors.posture_store"):
         assert (
-            posture_store.store_verdict("live", "alice")
-            is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+            posture_store._store_verdict("live", "alice")
+            is posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
         )
     assert posture_store.CONTROL_CONTEXT_TREE_ENV_VAR in caplog.text
 
@@ -1154,10 +1154,10 @@ def test_an_oversized_record_in_the_tree_is_unavailable(bound_tree):
     write. Over-long is neither a narrowing nor an absence — it is a record that
     could not be read.
     """
-    path = bound_tree / "alice" / control_context.RECORD_FILENAME
+    path = bound_tree / "alice" / control_context._RECORD_FILENAME
     path.parent.mkdir(parents=True)
     path.write_text("x" * (64 * 1024 + 1), encoding="utf-8")
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
     narrowed, unavailable = posture_store._read_tree_record(bound_tree, "alice")
     assert narrowed == {}
@@ -1168,8 +1168,8 @@ def test_an_oversized_record_in_the_tree_is_unavailable(bound_tree):
     assert "larger than" in unavailable
     assert "mode and group" not in unavailable
     assert (
-        posture_store.store_verdict("live", "alice")
-        is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+        posture_store._store_verdict("live", "alice")
+        is posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
     )
 
 
@@ -1177,7 +1177,7 @@ def test_a_record_of_ordinary_size_is_still_read(bound_tree):
     """The bound is headroom, not a limit a real record approaches."""
     _write_tree_record(bound_tree, "alice", {"live": "sandbox"})
 
-    assert posture_store.store_verdict("live", "alice") is posture_store.StoreVerdict.NARROWING
+    assert posture_store._store_verdict("live", "alice") is posture_store._StoreVerdict.NARROWING
 
 
 # --- store_verdict_detail: the verdict, and the sentence for the one arm ----
@@ -1190,13 +1190,11 @@ def test_a_record_of_ordinary_size_is_still_read(bound_tree):
 # target alone, so they carry no reason.
 
 
-def test_store_verdict_detail_is_public_api():
+def test_store_verdict_detail_is_a_named_pair():
     """The reason reaches a consumer through a named pair, not through the log."""
-    assert "StoreVerdictDetail" in posture_store.__all__
-    assert "store_verdict_detail" in posture_store.__all__
 
-    assert posture_store.StoreVerdictDetail._fields == ("verdict", "reason")
-    assert list(inspect.signature(posture_store.store_verdict_detail).parameters) == [
+    assert posture_store._StoreVerdictDetail._fields == ("verdict", "reason")
+    assert list(inspect.signature(posture_store._store_verdict_detail).parameters) == [
         "target",
         "owner",
     ]
@@ -1206,11 +1204,11 @@ def test_a_permitted_or_narrowed_answer_carries_no_reason(bound_tree):
     """A grant and a decision are both fully worded from the verdict and the target."""
     _write_tree_record(bound_tree, "alice", {"live": "sandbox"})
 
-    permitted = posture_store.store_verdict_detail("va", "alice")
-    narrowing = posture_store.store_verdict_detail("live", "alice")
+    permitted = posture_store._store_verdict_detail("va", "alice")
+    narrowing = posture_store._store_verdict_detail("live", "alice")
 
-    assert permitted == (posture_store.StoreVerdict.PERMITTED, None)
-    assert narrowing == (posture_store.StoreVerdict.NARROWING, None)
+    assert permitted == (posture_store._StoreVerdict.PERMITTED, None)
+    assert narrowing == (posture_store._StoreVerdict.NARROWING, None)
 
 
 def test_one_record_read_per_verdict(bound_tree, monkeypatch):
@@ -1230,10 +1228,10 @@ def test_one_record_read_per_verdict(bound_tree, monkeypatch):
 
     monkeypatch.setattr(posture_store, "_read_tree_record", _counting)
 
-    assert posture_store.store_verdict("live", "alice") is posture_store.StoreVerdict.NARROWING
+    assert posture_store._store_verdict("live", "alice") is posture_store._StoreVerdict.NARROWING
     assert reads == ["alice"]
-    assert posture_store.store_verdict_detail("live", "alice").verdict is (
-        posture_store.StoreVerdict.NARROWING
+    assert posture_store._store_verdict_detail("live", "alice").verdict is (
+        posture_store._StoreVerdict.NARROWING
     )
     assert reads == ["alice", "alice"]
 
@@ -1246,16 +1244,15 @@ def test_a_pin_on_every_target_hands_over_the_launch_remedy(monkeypatch):
         posture_store.launch_posture_stamp(None, posture_store.POSTURE_SANDBOX),
     )
 
-    detail = posture_store.store_verdict_detail("live")
+    detail = posture_store._store_verdict_detail("live")
 
-    assert detail.verdict is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+    assert detail.verdict is posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
     assert detail.reason == "pinned everywhere at launch — re-run the script"
 
 
-def test_record_verdict_detail_is_public_api():
+def test_record_verdict_detail_takes_target_and_owner():
     """The record clause without the pin is a name a refusal can ask by."""
-    assert "record_verdict_detail" in posture_store.__all__
-    assert list(inspect.signature(posture_store.record_verdict_detail).parameters) == [
+    assert list(inspect.signature(posture_store._record_verdict_detail).parameters) == [
         "target",
         "owner",
     ]
@@ -1266,9 +1263,9 @@ def test_without_a_pin_the_store_and_the_record_answer_alike(bound_tree):
     _write_tree_record(bound_tree, "alice", {"live": "sandbox"})
 
     for target in ("live", "va", None):
-        assert posture_store.store_verdict_detail(
+        assert posture_store._store_verdict_detail(
             target, "alice"
-        ) == posture_store.record_verdict_detail(target, "alice")
+        ) == posture_store._record_verdict_detail(target, "alice")
 
 
 def test_a_pin_hides_the_record_from_the_store_but_not_from_the_record_clause(
@@ -1289,13 +1286,13 @@ def test_a_pin_hides_the_record_from_the_store_but_not_from_the_record_clause(
 
     monkeypatch.setattr(posture_store, "_read_tree_record", _counting)
 
-    assert posture_store.store_verdict_detail("live", "alice") == (
-        posture_store.StoreVerdict.NARROWING,
+    assert posture_store._store_verdict_detail("live", "alice") == (
+        posture_store._StoreVerdict.NARROWING,
         None,
     )
     assert reads == []
-    assert posture_store.record_verdict_detail("live", "alice") == (
-        posture_store.StoreVerdict.NARROWING,
+    assert posture_store._record_verdict_detail("live", "alice") == (
+        posture_store._StoreVerdict.NARROWING,
         None,
     )
     assert reads == ["alice"]
@@ -1310,11 +1307,11 @@ def test_the_record_clause_reports_an_unreadable_record_under_a_pin(monkeypatch)
         posture_store.launch_posture_stamp("live", posture_store.POSTURE_SANDBOX),
     )
 
-    assert posture_store.store_verdict_detail("live").verdict is (
-        posture_store.StoreVerdict.NARROWING
+    assert posture_store._store_verdict_detail("live").verdict is (
+        posture_store._StoreVerdict.NARROWING
     )
-    detail = posture_store.record_verdict_detail("live")
-    assert detail.verdict is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+    detail = posture_store._record_verdict_detail("live")
+    assert detail.verdict is posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
     assert posture_store.CONTROL_CONTEXT_TREE_ENV_VAR in detail.reason
 
 
@@ -1323,8 +1320,8 @@ def test_a_pin_naming_a_target_carries_no_remedy(monkeypatch):
     """A named pin is an operator's decision, and its wording is the caller's."""
     monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
 
-    assert posture_store.store_verdict_detail("live") == (
-        posture_store.StoreVerdict.NARROWING,
+    assert posture_store._store_verdict_detail("live") == (
+        posture_store._StoreVerdict.NARROWING,
         None,
     )
 
@@ -1341,11 +1338,11 @@ def test_an_unreadable_record_hands_over_the_sentence_it_logs(bound_tree, monkey
     path.chmod(0o000)
     try:
         with caplog.at_level(logging.WARNING, logger="osprey_connectors.posture_store"):
-            detail = posture_store.store_verdict_detail("live")
+            detail = posture_store._store_verdict_detail("live")
     finally:
         path.chmod(0o640)
 
-    assert detail.verdict is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+    assert detail.verdict is posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
     assert str(path) in detail.reason
     assert "check the file's mode and group" in detail.reason
     assert detail.reason in caplog.text
@@ -1357,9 +1354,9 @@ def test_an_unusable_bind_hands_over_the_variable_that_names_no_path(monkeypatch
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
 
     with caplog.at_level(logging.WARNING, logger="osprey_connectors.posture_store"):
-        detail = posture_store.store_verdict_detail("live", "alice")
+        detail = posture_store._store_verdict_detail("live", "alice")
 
-    assert detail.verdict is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+    assert detail.verdict is posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
     assert posture_store.CONTROL_CONTEXT_TREE_ENV_VAR in detail.reason
     assert detail.reason in caplog.text
 
@@ -1369,9 +1366,9 @@ def test_an_owner_that_is_not_a_name_hands_over_a_sentence_saying_so(bound_tree,
     _write_tree_record(bound_tree, "alice", {"live": "sandbox"})
 
     with caplog.at_level(logging.WARNING, logger="osprey_connectors.posture_store"):
-        detail = posture_store.store_verdict_detail("live", ["alice"])
+        detail = posture_store._store_verdict_detail("live", ["alice"])
 
-    assert detail.verdict is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+    assert detail.verdict is posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
     assert "not a name" in detail.reason
     assert detail.reason in caplog.text
 
@@ -1382,6 +1379,6 @@ def test_every_unavailable_answer_carries_a_reason(bound_tree, monkeypatch):
     monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(bound_tree / "unbuilt"))
 
     for owner in ("alice", "../alice", 17):
-        detail = posture_store.store_verdict_detail("live", owner)
-        assert detail.verdict is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, owner
+        detail = posture_store._store_verdict_detail("live", owner)
+        assert detail.verdict is posture_store._StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, owner
         assert detail.reason, owner

@@ -6,7 +6,7 @@ while preserving Ollama-specific fallback URL logic for development workflows.
 
 from typing import Any
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 from . import _local_server
 from .base import BaseProvider

@@ -466,7 +466,7 @@ class TestRuntimeStepCheckReader:
     @staticmethod
     def _connector(reads):
         class ReadingConnector(MockConnector):
-            def _current_value_reader(self):
+            def current_value_reader(self):
                 def read_current(channel_address):
                     reads.append(channel_address)
                     return 50.0

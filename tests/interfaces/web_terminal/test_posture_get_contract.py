@@ -251,11 +251,11 @@ def agent_data_root(tmp_path, monkeypatch):
     # from whatever ran before it: it would zero every ``effective`` below.
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv(control_context_owner.WEB_PORT_ENV, raising=False)
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
+    posture_store._invalidate_cache()
+    control_context._invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
+    posture_store._invalidate_cache()
+    control_context._invalidate_cache()
 
 
 @pytest.fixture

@@ -64,7 +64,7 @@ from osprey.audit import writer
 from osprey.audit.tool_call import SURFACE_TOOL_CALL
 from osprey.audit.writer import LEDGER_SUFFIX, MAX_RECORD_BYTES
 from osprey.interfaces.web_terminal.routes.config import _require_config_panel
-from osprey.utils.identity import acting_identity
+from osprey_connectors.identity import acting_identity
 
 logger = logging.getLogger(__name__)
 

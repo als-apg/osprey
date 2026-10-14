@@ -83,7 +83,7 @@ from osprey.mcp_server.control_system.tools import channel_write as channel_writ
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system.base import ChannelValue
+from osprey_connectors.control_system._base import ChannelValue
 from tests.fixtures.control_context import (
     claim_the_record,
     context_for,
@@ -422,10 +422,10 @@ def state_root(tmp_path, monkeypatch):
     root = tmp_path / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    control_context.invalidate_cache()
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
+    control_context._invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
 
 
 @pytest.fixture(autouse=True)

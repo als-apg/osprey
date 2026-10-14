@@ -39,6 +39,25 @@ else
 fi
 echo ""
 
+echo "→ Running lint-imports (import boundaries)..."
+if ! uv run lint-imports; then
+    FAILED_CHECKS+=("lint-imports")
+    echo "❌ An import contract is broken"
+    echo "💡 The contracts are in [tool.importlinter] in pyproject.toml"
+else
+    echo "✅ Import contracts kept"
+fi
+echo ""
+
+echo "→ Running ruff import-private-name on the framework (PLC2701, preview)..."
+if ! uv run ruff check --preview --select=PLC2701 . --output-format=github; then
+    FAILED_CHECKS+=("ruff-private-imports")
+    echo "❌ The framework imports a private name from another package"
+else
+    echo "✅ No private-name imports across packages"
+fi
+echo ""
+
 echo "→ Running mypy (type checking)..."
 if ! uv run python scripts/mypy_gate.py; then
     FAILED_CHECKS+=("mypy")

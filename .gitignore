@@ -56,6 +56,8 @@ coverage.json
 /ci-diag/
 .pytest_cache/
 .mypy_cache/
+# The import graph lint-imports (import-linter) caches between runs.
+.import_linter_cache/
 
 # Jupyter Notebook
 .ipynb_checkpoints

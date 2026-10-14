@@ -157,10 +157,10 @@ class TestPathSafety:
         rule is what a future rung would be checked against, and a NUL splits a
         path at the syscall boundary.
         """
-        from osprey.utils.identity import _usable
+        from osprey.utils.identity import usable_identity
 
-        assert _usable("nul\0byte") == ""
-        assert _usable("alice") == "alice"
+        assert usable_identity("nul\0byte") == ""
+        assert usable_identity("alice") == "alice"
 
     @pytest.mark.usefixtures("no_identity_env")
     def test_unsafe_local_account_becomes_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:

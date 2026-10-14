@@ -161,7 +161,7 @@ def test_mcp_server_process_is_detected_from_the_real_entry_point(monkeypatch):
     Pinning it here means a move of the MCP server package fails loudly rather
     than silently reverting the deployment-wide text.
     """
-    from osprey.connectors.control_system.base import _in_mcp_server_process
+    from osprey_connectors.control_system._base import _in_mcp_server_process
 
     monkeypatch.setattr(sys, "argv", [str(_controls_server_main())])
     assert _in_mcp_server_process() is True

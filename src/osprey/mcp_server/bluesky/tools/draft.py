@@ -88,7 +88,7 @@ def _plans_panel_id() -> str:
     ``load_osprey_config`` (lazily imported), canonical default when the
     workspace has no matching ``web.panels`` entry — never a bare hardcode.
     """
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     panels = load_osprey_config().get("web", {}).get("panels", {})
     if not isinstance(panels, dict):

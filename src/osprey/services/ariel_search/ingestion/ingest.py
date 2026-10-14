@@ -35,7 +35,7 @@ from osprey.services.ariel_search.exceptions import DatabaseQueryError
 from osprey.services.ariel_search.ingestion.metadata_attachment import (
     extract_metadata_from_attachments,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.attachments.copy import CopyRun

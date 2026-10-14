@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from osprey.simulation.expressions import (
+from osprey_connectors.simulation._expressions import (
     ExpressionError,
     compile_expression,
     evaluate,

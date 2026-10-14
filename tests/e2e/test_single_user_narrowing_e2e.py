@@ -85,7 +85,13 @@ from osprey.deployment.compose_generator import (
 from osprey.dispatch import DISPATCHER_MCP_PATH
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey.utils.identity import acting_identity
-from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, write_record
+from osprey_connectors.control_context import (
+    _RECORD_FILENAME as RECORD_FILENAME,
+)
+from osprey_connectors.control_context import (
+    ControlContext,
+    write_record,
+)
 from osprey_connectors.posture_store import POSTURE_SANDBOX
 from osprey_connectors.types import CONTROL_TARGETS, TARGET_VA
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result

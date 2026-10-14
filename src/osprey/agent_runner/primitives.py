@@ -144,7 +144,7 @@ def _secrets_dir(project_dir: Path) -> Path:
     directory that holds its own ``config.yml`` still answers itself — the
     previous behaviour, kept for every caller that passes one.
     """
-    from osprey.utils.workspace import repo_root_for_config
+    from osprey_connectors.workspace import repo_root_for_config
 
     return repo_root_for_config(Path(project_dir) / "config.yml")
 

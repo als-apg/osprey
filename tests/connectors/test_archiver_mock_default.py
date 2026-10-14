@@ -20,8 +20,8 @@ import pytest
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.connectors import types
-from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
 from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
 
 FACTORY_LOGGER = "connector_factory"
 

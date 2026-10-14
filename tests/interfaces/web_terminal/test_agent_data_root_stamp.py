@@ -23,7 +23,7 @@ mean anything:
   the hook's fail-closed rules are written on the assumption that the halves
   arrive together.
 * **Survival.** The stamp has to reach the processes that read it, which sit
-  behind two deliberate scrubs. ``osprey_connectors.ipc.launch.host_env()`` drops the
+  behind two deliberate scrubs. ``osprey_connectors.ipc._launch.host_env()`` drops the
   EPICS family and is otherwise allow-by-default, so its test here is a
   regression pin: the day it grows a prefix rule, the connector-host child
   silently resolves a different directory from its parent. The execution
@@ -70,7 +70,7 @@ from osprey.interfaces.web_terminal.pty_manager import env_fingerprint
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey_connectors import posture_store
-from osprey_connectors.ipc.launch import host_env
+from osprey_connectors.ipc._launch import host_env
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -121,7 +121,7 @@ def shared_root(tmp_path, monkeypatch):
     ``var/agent_data/control_target/control_context.json``.
 
     The delenv is what makes that rebinding do anything at all:
-    ``posture_store.agent_data_root()`` reads the variable FIRST and falls back
+    ``posture_store._agent_data_root()`` reads the variable FIRST and falls back
     to the resolver only when it is unset. The suite-wide
     ``session_posture_leak_guard`` (``tests/conftest.py``) POINTS the variable
     at a throwaway root rather than clearing it, so here it must be cleared
@@ -139,9 +139,9 @@ def shared_root(tmp_path, monkeypatch):
         ),
         patch.object(posture_store, "resolve_shared_data_root", return_value=root),
     ):
-        posture_store.invalidate_cache()
+        posture_store._invalidate_cache()
         yield root
-        posture_store.invalidate_cache()
+        posture_store._invalidate_cache()
 
 
 # ``shared_root`` rebinds the agent-data resolver every app this factory builds reads.

@@ -644,7 +644,7 @@ def test_both_callers_get_identical_verdicts(
         write_server_report(
             root, live_pid, reachability=_reachability((LIVE, "read_only", "reached"))
         )
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
 
     route = _route_caller_verdict(config, wanted, LIVE)
     tool = _tool_caller_verdict(config, wanted, LIVE)
@@ -701,7 +701,7 @@ def test_each_parity_world_is_the_verdict_it_claims_to_be(
         write_server_report(
             root, live_pid, reachability=_reachability((LIVE, "read_only", "reached"))
         )
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
 
     verdict = _route_caller_verdict(config, wanted, LIVE)
 

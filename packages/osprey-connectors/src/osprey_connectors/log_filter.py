@@ -1,7 +1,7 @@
 """Log filtering utilities for selective suppression by logger name, level, or message pattern.
 
-Provides LoggerFilter for fine-grained suppression and context managers
-(suppress_logger_level, quiet_logger) for temporary filtering.
+Provides _LoggerFilter for fine-grained suppression and context managers
+(_suppress_logger_level, quiet_logger) for temporary filtering.
 """
 
 import logging
@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from re import Pattern
 
 
-class LoggerFilter(logging.Filter):
+class _LoggerFilter(logging.Filter):
     """Selective log suppression based on logger name, level, and message patterns.
 
     When multiple criteria are specified, they are combined with AND logic:
@@ -91,7 +91,7 @@ class LoggerFilter(logging.Filter):
 
 
 @contextmanager
-def suppress_logger_level(logger_name: str | list[str], level: int):
+def _suppress_logger_level(logger_name: str | list[str], level: int):
     """Context manager to temporarily raise logger level to suppress messages.
 
     Args:
@@ -122,7 +122,7 @@ def suppress_logger_level(logger_name: str | list[str], level: int):
 def quiet_logger(logger_name: str | list[str]):
     """Context manager to temporarily suppress INFO-level messages from logger(s).
 
-    This is a convenience wrapper around suppress_logger_level() that specifically
+    This is a convenience wrapper around _suppress_logger_level() that specifically
     suppresses INFO and DEBUG messages while preserving WARNING, ERROR, and CRITICAL.
     This is the most common use case for "quiet" operations.
 
@@ -145,15 +145,13 @@ def quiet_logger(logger_name: str | list[str]):
             ...     do_something()
 
     .. note::
-       This is equivalent to suppress_logger_level(logger_name, logging.WARNING)
+       This is equivalent to _suppress_logger_level(logger_name, logging.WARNING)
        but with a more intuitive name for the common "quiet mode" use case.
     """
-    with suppress_logger_level(logger_name, logging.WARNING) as levels:
+    with _suppress_logger_level(logger_name, logging.WARNING) as levels:
         yield levels
 
 
 __all__ = [
-    "LoggerFilter",
-    "suppress_logger_level",
     "quiet_logger",
 ]

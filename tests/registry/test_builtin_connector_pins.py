@@ -102,7 +102,7 @@ class TestBuiltinConnectorParity:
         entry = _provider_entry(types.LIVE_STANDIN)
 
         assert entry.connector_type == "control_system"
-        assert entry.module_path == "osprey.connectors.control_system.epics_connector"
+        assert entry.module_path == "osprey_connectors.control_system._epics_connector"
         assert entry.class_name == "EPICSConnector"
         assert entry.name != types.EPICS
 
@@ -119,6 +119,41 @@ class TestBuiltinConnectorParity:
 
             register_builtin_connectors()
             assert ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is loaded
+
+
+class TestEveryRegistrationResolves:
+    """Each provider entry loads, and is the class the factory registers under its name."""
+
+    def test_the_provider_lists_the_factory_table(self) -> None:
+        from osprey_connectors.factory import BUILTIN_CONNECTORS
+
+        provider = [
+            (r.name, r.connector_type, r.module_path, r.class_name)
+            for r in FrameworkRegistryProvider().get_registry_config().connectors
+        ]
+        assert provider == [
+            (b.name, b.kind, b.module_path, b.class_name) for b in BUILTIN_CONNECTORS
+        ]
+
+    @pytest.mark.parametrize(
+        "registration",
+        FrameworkRegistryProvider().get_registry_config().connectors,
+        ids=lambda registration: registration.name,
+    )
+    def test_the_entry_loads_the_registered_class(self, registration) -> None:
+        import importlib
+
+        loaded = getattr(importlib.import_module(registration.module_path), registration.class_name)
+        with isolated_connector_registries(clear=True):
+            from osprey_connectors.factory import register_builtin_connectors
+
+            register_builtin_connectors()
+            table = (
+                ConnectorFactory._control_system_connectors
+                if registration.connector_type == "control_system"
+                else ConnectorFactory._archiver_connectors
+            )
+            assert table[registration.name] is loaded
 
 
 class TestChoiceListsMatchTheFactoryBuiltins:
@@ -145,7 +180,7 @@ class TestChoiceListsMatchTheFactoryBuiltins:
         }
 
     def test_archiver_choices_are_the_factory_builtins(self) -> None:
-        assert sorted(types.CLI_ARCHIVER_TYPES) == sorted(_BUILTIN_ARCHIVERS)
+        assert sorted(types._CLI_ARCHIVER_TYPES) == sorted(_BUILTIN_ARCHIVERS)
 
 
 class TestRegistryInitializationRegistersTheStandIn:
@@ -184,7 +219,7 @@ class TestRegistryInitializationRegistersTheStandIn:
     @pytest.mark.usefixtures("framework_registry")
     def test_initialize_registry_registers_the_stand_in(self) -> None:
         """The bug: the sandbox's own setup step leaves the type unregistered."""
-        from osprey.connectors.control_system.epics_connector import EPICSConnector
+        from osprey_connectors.control_system._epics_connector import EPICSConnector
 
         assert types.LIVE_STANDIN in ConnectorFactory.list_control_systems()
         assert ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is EPICSConnector
@@ -204,7 +239,7 @@ class TestRegistryInitializationRegistersTheStandIn:
         before any posture was read, which is what a run stamped
         ``OSPREY_CONTROL_TARGET=standin`` died on.
         """
-        from osprey.connectors.control_system.epics_connector import EPICSConnector
+        from osprey_connectors.control_system._epics_connector import EPICSConnector
 
         # No gateways: connect() then touches no EPICS_* environment variable
         # and opens no CA context, so nothing here reaches a network.

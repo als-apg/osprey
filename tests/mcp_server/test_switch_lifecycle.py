@@ -1,7 +1,7 @@
 """The connector-host supervisor and the spawn-then-swap target switch.
 
 Every test that is about the *mechanics* of a switch spawns real
-``python -m osprey_connectors.ipc.host`` children and swaps between them, for
+``python -m osprey_connectors.ipc._host`` children and swaps between them, for
 the same reason the child's own tests do: the things worth pinning here — that
 the old process actually dies, that a hung read on it really does end, that a
 failed candidate leaves nothing behind — only exist between processes.
@@ -46,11 +46,11 @@ from osprey.mcp_server.control_system.target_eligibility import (
     REASON_PROBE_CHANNEL_MISSING,
     REASON_TARGET_UNRESOLVABLE,
 )
-from osprey_connectors.control_system.base import ChannelValue
+from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
-from osprey_connectors.ipc.launch import host_env
-from osprey_connectors.ipc.proxy import ConnectorHostProxy
-from osprey_connectors.ipc.verification import (
+from osprey_connectors.ipc._launch import host_env
+from osprey_connectors.ipc._proxy import ConnectorHostProxy
+from osprey_connectors.ipc._verification import (
     Endpoint,
     TargetDerivation,
     verify_host_report,
@@ -1384,7 +1384,7 @@ class TestStartupSweep:
         env = dict(os.environ)
         env["OSPREY_AGENT_DATA_ROOT"] = str(root) if root is not None else tempfile.mkdtemp()
         return subprocess.Popen(
-            [sys.executable, "-m", "osprey_connectors.ipc.host"],
+            [sys.executable, "-m", "osprey_connectors.ipc._host"],
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -1458,6 +1458,28 @@ class TestStartupSweep:
         finally:
             bystander.kill()
             bystander.wait(timeout=SETTLE_TIMEOUT_S)
+
+    def test_a_host_started_under_the_old_module_name_is_recognised(self):
+        """A child the release before the rename started runs ``-m osprey_connectors.ipc.host``.
+
+        It is still running after an upgrade, and it is exactly the orphan the
+        sweep exists for. The stand-in carries the old command line as its
+        arguments; ``ps`` reports them as part of the command.
+        """
+        old_host = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import time; time.sleep(120)",
+                "-m",
+                "osprey_connectors.ipc.host",
+            ]
+        )
+        try:
+            assert looks_like_a_connector_host(old_host.pid) is True
+        finally:
+            old_host.kill()
+            old_host.wait(timeout=SETTLE_TIMEOUT_S)
 
     def test_a_live_connector_host_is_recognised_as_one(self):
         orphan = self._orphan_host()
@@ -2046,7 +2068,7 @@ class TestNonCapableDeploymentIsUntouched:
 
         connector = await context.control_system()
 
-        from osprey_connectors.control_system.mock_connector import MockConnector
+        from osprey_connectors.control_system._mock_connector import MockConnector
 
         assert isinstance(connector, MockConnector)
         assert await context.control_system() is connector

@@ -57,10 +57,10 @@ _READ = {
 # ── fixtures / helpers ──────────────────────────────────────────────────────
 def write_corrupt_record(root, raw):
     """Put *raw* where the record belongs, bypassing the schema writer."""
-    path = control_context.record_path_under(root)
+    path = control_context._record_path_under(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(raw, encoding="utf-8")
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     return path
 
 
@@ -143,7 +143,7 @@ async def test_artifact_metadata_carries_the_same_stamp(
 
 async def test_absent_record_stamps_the_baseline_spelling(archiver_project, control_context_root):
     """No record at all — the read happened on the deployment baseline."""
-    assert not control_context.record_path_under(control_context_root).exists()
+    assert not control_context._record_path_under(control_context_root).exists()
 
     _, query = await read_and_load(archiver_project)
 

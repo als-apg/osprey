@@ -22,7 +22,7 @@ import aioca
 import numpy
 import pytest
 
-from osprey.connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system._epics_connector import EPICSConnector
 
 EPICS_CA_VARS = (
     "EPICS_CA_ADDR_LIST",
@@ -379,7 +379,7 @@ def install_fake_aioca(monkeypatch, channels: dict[str, FakeChannel] | None = No
     fake = FakeAioca(channels)
     monkeypatch.setitem(sys.modules, "aioca", fake)
     monkeypatch.setattr(
-        "osprey_connectors.control_system.epics_connector.get_ca_loop", InlineCaLoop
+        "osprey_connectors.control_system._epics_connector.get_ca_loop", InlineCaLoop
     )
     return fake
 

@@ -109,7 +109,7 @@ def _store_coordinates() -> dict[str, str]:
     """
     try:
         from osprey.deployment.openobserve_provision import store_org
-        from osprey.utils.workspace import load_osprey_config
+        from osprey_connectors.workspace import load_osprey_config
 
         config = load_osprey_config()
         telemetry = ((config.get("claude_code") or {}).get("telemetry")) or {}

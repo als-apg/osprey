@@ -15,41 +15,71 @@ the rest of the OSPREY framework (agents, capabilities, web UI, etc.).
 pip install osprey-connectors
 ```
 
-## Import map
+## Public API
 
-`osprey-framework` still imports every one of these from their historical
-`osprey.*` paths. Those old paths are compatibility shims — the real code
-now lives under `osprey_connectors.*`, and new code should import from there
-directly.
+Every public module lists its public names in `__all__`. Most modules are their
+own API: `config`, `workspace`, `dotenv`, `yaml_loader`, `connection`,
+`types`, `factory`, `call_timeout`, `errors`, `logger`, `log_filter`, `identity`,
+`relative_time`, `channel_taxonomy`, `control_context`, `posture_store`,
+`standin` and `honesty`, each imported by its own path.
 
-| Old path (`osprey.*`) | New path (`osprey_connectors.*`) |
+Four subpackages gather implementation modules behind one namespace, and their
+names are imported from the package itself:
+
+| Namespace | What it holds |
 | --- | --- |
-| `osprey.connectors` | `osprey_connectors` |
+| `osprey_connectors.control_system` | The control-system connector contract (`ControlSystemConnector`, `ChannelValue`, `ChannelWriteResult`, `WriteOutcome`, `values_match`, ...) and `LimitsValidator` |
+| `osprey_connectors.archiver` | The archiver connector contract (`ArchiverConnector`, `ArchiverMetadata`), the shared time-range helpers, the MongoDB client arguments |
+| `osprey_connectors.simulation` | `SimulationEngine`, the machine model, the deploy-time archive seed |
+| `osprey_connectors.ipc` | What a connector-host supervisor needs: frames, launch, proxy, endpoint verification |
+
+`osprey_connectors.control_system.write_door`, the door a connector opens around
+its own write, is a public module of its own.
+
+A module whose name starts with an underscore is internal and can change in any
+release. The concrete connectors are internal (`control_system._epics_connector`,
+`archiver._mongodb_archiver_connector`, ...): a caller builds one through
+`ConnectorFactory` from its registered type name.
+
+`osprey-framework` imports these packages only through their namespaces, and
+takes from every module only names its `__all__` lists. `lint-imports`
+(import-linter, configured in the repository's root `pyproject.toml`) holds the
+first, `tests/connectors/test_public_api.py` the second; import-linter also
+holds this package to never importing
+`osprey`, and holds the package's layers: the connector host above the factory,
+the factory above the control-system and archiver connectors, and those above
+the simulation engine.
+
+## Historical paths
+
+When these modules moved here from `osprey-framework`, each kept answering
+under its old `osprey.*` path. These still do, as the same module object:
+
+| Path (`osprey.*`) | Is (`osprey_connectors.*`) |
+| --- | --- |
 | `osprey.connectors.factory` | `osprey_connectors.factory` |
 | `osprey.connectors.types` | `osprey_connectors.types` |
 | `osprey.connectors.channel_taxonomy` | `osprey_connectors.channel_taxonomy` |
-| `osprey.connectors.control_system` | `osprey_connectors.control_system` |
-| `osprey.connectors.control_system.base` | `osprey_connectors.control_system.base` |
-| `osprey.connectors.control_system.epics_connector` | `osprey_connectors.control_system.epics_connector` |
-| `osprey.connectors.control_system.doocs_connector` | `osprey_connectors.control_system.doocs_connector` |
-| `osprey.connectors.control_system.mock_connector` | `osprey_connectors.control_system.mock_connector` |
-| `osprey.connectors.control_system.va_connector` | `osprey_connectors.control_system.va_connector` |
-| `osprey.connectors.control_system.limits_validator` | `osprey_connectors.control_system.limits_validator` |
-| `osprey.connectors.archiver` | `osprey_connectors.archiver` |
-| `osprey.connectors.archiver.base` | `osprey_connectors.archiver.base` |
-| `osprey.connectors.archiver.epics_archiver_connector` | `osprey_connectors.archiver.epics_archiver_connector` |
-| `osprey.connectors.archiver.doocs_archiver_connector` | `osprey_connectors.archiver.doocs_archiver_connector` |
-| `osprey.connectors.archiver.mongodb_archiver_connector` | `osprey_connectors.archiver.mongodb_archiver_connector` |
-| `osprey.connectors.archiver.mock_archiver_connector` | `osprey_connectors.archiver.mock_archiver_connector` |
+| `osprey.connectors.honesty` | `osprey_connectors.honesty` |
+| `osprey.connectors.control_system.base` | `osprey_connectors.control_system._base` |
+| `osprey.connectors.control_system.limits_validator` | `osprey_connectors.control_system._limits_validator` |
+| `osprey.connectors.archiver.base` | `osprey_connectors.archiver._base` |
+| `osprey.connectors.archiver._timerange` | `osprey_connectors.archiver._timerange` |
 | `osprey.errors` | `osprey_connectors.errors` |
-| `osprey.utils.config` | `osprey_connectors.config` |
-| `osprey.utils.logger` | `osprey_connectors.logger` |
-| `osprey.utils.relative_time` | `osprey_connectors.relative_time` |
-| `osprey.simulation` | `osprey_connectors.simulation` |
-| `osprey.simulation.engine` | `osprey_connectors.simulation.engine` |
-| `osprey.simulation.expressions` | `osprey_connectors.simulation.expressions` |
-| `osprey.simulation.machine` | `osprey_connectors.simulation.machine` |
-| `osprey.simulation.series` | `osprey_connectors.simulation.series` |
+| `osprey.utils.config`, `.workspace`, `.dotenv`, `.logger`, `.log_filter`, `.identity`, `.relative_time` | the module of the same name |
+
+The four paths that stand for a now-private module give code outside the
+framework exactly what they gave before; new code imports the namespace.
+`osprey.connectors` re-exports `ConnectorFactory` and a few connector type
+names, `osprey.connectors.control_system` and `osprey.connectors.archiver`
+re-export the connector contracts from the matching namespace, and
+`osprey.simulation` re-exports `SimulationEngine` and the engine's entry points
+from `osprey_connectors.simulation`. The framework itself imports none of these
+paths: a ruff `banned-api` rule (TID251) keeps them out of `src/osprey`. The
+old paths of the concrete connectors (`osprey.connectors.control_system.*_connector`,
+`osprey.connectors.archiver.*_archiver_connector`) and of the simulation
+internals (`osprey.simulation.engine`, `.machine`, `.series`, `.expressions`,
+`.procedural`, `.archiver_seed`) are gone.
 
 ## Optional runtime dependencies
 

@@ -150,7 +150,7 @@ def smoke_env(tmp_path, monkeypatch):
     # read exactly this file to decide whether writes are on the table at all,
     # and `_run_hook` copies the parent environment, so stamping the root here
     # is what puts the subprocesses in the same deployment.
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(ws))
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(ws))
     write_control_context(ws, target="live", generation=1)
 
     return {

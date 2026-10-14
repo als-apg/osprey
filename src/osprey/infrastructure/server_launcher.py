@@ -28,7 +28,7 @@ from osprey.registry.web import (
     resolve_web_server_address,
     web_server_config_section,
 )
-from osprey.utils.workspace import load_osprey_config
+from osprey_connectors.workspace import load_osprey_config
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp
@@ -569,7 +569,7 @@ class ServerLauncher:
                 import uvicorn
 
                 if self._pass_workspace:
-                    from osprey.utils.workspace import resolve_shared_data_root
+                    from osprey_connectors.workspace import resolve_shared_data_root
 
                     # Launched servers are daemons serving the shared store (they
                     # may be auto-launched from a session-scoped MCP process on

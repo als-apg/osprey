@@ -12,6 +12,33 @@ from typing import Any
 
 from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
 
+__all__ = [
+    "ARCHIVE_DIR_RELPATH",
+    "AUDIT_DIR_RELPATH",
+    "BUILD_DIR_NAME",
+    "DEFAULT_AGENT_DATA_BASE_DIR",
+    "IMAGE_DIR_NAME",
+    "RENDERED_CONFIG_RELPATH",
+    "RUNTIME_DATA_DIR_NAME",
+    "STATE_DIR_NAME",
+    "STATE_ZONE_DIRS",
+    "agent_data_base_dir",
+    "anchored_path",
+    "container_image_context",
+    "deployment_env_chain",
+    "load_osprey_config",
+    "rendered_config_path",
+    "repo_root_for_agent_data",
+    "repo_root_for_config",
+    "reset_config_cache",
+    "resolve_config_path",
+    "resolve_path",
+    "resolve_project_root",
+    "resolve_shared_data_root",
+    "resolve_simulation_state_dir",
+    "resolve_workspace_root",
+]
+
 logger = logging.getLogger("osprey_connectors.workspace")
 
 #: Zone directory names inside a deployment repo. ``build/`` is the render zone,
@@ -24,7 +51,7 @@ STATE_DIR_NAME = "var"
 #: The file that makes a directory a deployment repo root — the marker the
 #: CLI's repo walk and the hook library's anchor both look for. Spelled here
 #: because this layer must not import ``cli``.
-PROFILE_FILENAME = "profile.yml"
+_PROFILE_FILENAME = "profile.yml"
 
 #: Where the build stages the container-destined copy of a project, under the
 #: render zone. Each is a deployment REPO — ``profile.yml`` and the source zone
@@ -80,19 +107,19 @@ STATE_ZONE_DIRS: tuple[str, ...] = (DEFAULT_AGENT_DATA_BASE_DIR, AUDIT_DIR_RELPA
 
 #: Subdirectory of the agent-data root holding the simulation's mutable
 #: ``active_scenarios`` state file.
-SIMULATION_STATE_DIR_NAME = "simulation"
+_SIMULATION_STATE_DIR_NAME = "simulation"
 
 #: Config key naming that directory explicitly (relative paths resolve against
 #: the project root). Unset — the normal case — puts it under the agent-data
 #: root. It lives here, rather than in the simulation package, so
 #: :data:`osprey_connectors.config.RUNTIME_WRITE_PATH_KEYS` and
-#: :func:`osprey_connectors.simulation.engine.resolve_state_dir` share one spelling without
+#: the simulation engine's state-directory lookup share one spelling without
 #: ``config`` having to import the engine (which would pull numpy into every
 #: config load).
-SIMULATION_STATE_DIR_CONFIG_KEY = "simulation.state_dir"
+_SIMULATION_STATE_DIR_CONFIG_KEY = "simulation.state_dir"
 
 
-def dotted_config_str(config: Mapping[str, Any] | None, key: str) -> str | None:
+def _dotted_config_str(config: Mapping[str, Any] | None, key: str) -> str | None:
     """Read a dotted config key, or ``None`` if it does not name a real string.
 
     ``None`` is returned for every way the key can fail to answer — a missing
@@ -122,7 +149,7 @@ def dotted_config_str(config: Mapping[str, Any] | None, key: str) -> str | None:
 def anchored_path(value: str, project_root: Path) -> Path:
     """Expand ``~`` in a configured path and anchor a relative one at the project.
 
-    The other half of :func:`dotted_config_str`: a configured path is absolute,
+    The other half of :func:`_dotted_config_str`: a configured path is absolute,
     home-relative, or project-relative, and every consumer has to make the same
     three-way choice before comparing paths or creating directories.
     """
@@ -157,7 +184,7 @@ def agent_data_base_dir(config: Mapping[str, Any] | None) -> str:
     ``agent_data.base_dir`` is the only key that names this directory. Callers
     holding a config dict read it through here and anchor the result themselves
     (the health checks and the compose generator anchor on ``project_root``);
-    callers with no config in hand use :func:`resolve_agent_data_root`, which
+    callers with no config in hand use :func:`_resolve_agent_data_root`, which
     loads the config and anchors on the same ``project_root``.
 
     Args:
@@ -186,12 +213,12 @@ def resolve_simulation_state_dir(config: Mapping[str, Any] | None, project_root:
     must agree — the engine that writes the file, the compose generator that
     renders the container's bind-mount source, and the build injector that
     pre-creates it — resolve it identically without ``deployment`` importing
-    numpy through :mod:`osprey_connectors.simulation.engine`. Re-exported there as
+    numpy through :mod:`osprey_connectors.simulation._engine`. Re-exported there as
     ``resolve_state_dir``.
 
-    A mistyped :data:`SIMULATION_STATE_DIR_CONFIG_KEY` (anything but a non-empty
+    A mistyped :data:`_SIMULATION_STATE_DIR_CONFIG_KEY` (anything but a non-empty
     string) falls through to the default rather than raising, matching how
-    :func:`osprey_connectors.config.find_runtime_write_paths_under_data` reads the
+    :func:`osprey_connectors.config._find_runtime_write_paths_under_data` reads the
     same key.
 
     Args:
@@ -202,8 +229,8 @@ def resolve_simulation_state_dir(config: Mapping[str, Any] | None, project_root:
         Absolute path to the state directory (not created here).
     """
     config = config or {}
-    configured = dotted_config_str(config, SIMULATION_STATE_DIR_CONFIG_KEY)
-    relative = configured or f"{agent_data_base_dir(config)}/{SIMULATION_STATE_DIR_NAME}"
+    configured = _dotted_config_str(config, _SIMULATION_STATE_DIR_CONFIG_KEY)
+    relative = configured or f"{agent_data_base_dir(config)}/{_SIMULATION_STATE_DIR_NAME}"
     return anchored_path(relative, project_root)
 
 
@@ -302,7 +329,7 @@ def repo_root_for_config(config_path: Path | str) -> Path:
     return parent.parent if parent.name == BUILD_DIR_NAME else parent
 
 
-def deployment_env_path(config_path: Path | str) -> Path:
+def _deployment_env_path(config_path: Path | str) -> Path:
     """The ``.env`` that belongs to the deployment whose config is *config_path*.
 
     There is one ``.env`` per deployment and it sits at the repo ROOT, beside
@@ -329,7 +356,7 @@ def deployment_env_path(config_path: Path | str) -> Path:
 def deployment_env_chain(config_path: Path | str) -> list[Path]:
     """Every env-chain file of the deployment whose config is *config_path*.
 
-    The chain counterpart of :func:`deployment_env_path`, with the same
+    The chain counterpart of :func:`_deployment_env_path`, with the same
     root-then-container anchoring: the repo root's chain when any member exists
     there, else the config's own directory (the container case, whose project
     directory *is* the render). Paths come back in ascending precedence —
@@ -339,7 +366,7 @@ def deployment_env_chain(config_path: Path | str) -> list[Path]:
     Every member path is returned whether or not the file exists. A watcher
     has to stat the places a member could *appear*, or a ``.env`` created
     after start-up never invalidates anything — the same reason
-    :func:`deployment_env_path` is spelled once for its readers and watchers.
+    :func:`_deployment_env_path` is spelled once for its readers and watchers.
 
     Spelled here rather than at each caller because the callers that ask this
     have to agree exactly — a reader that loads one set of files and a
@@ -440,7 +467,7 @@ def resolve_project_root(config: Mapping[str, Any] | None = None) -> Path:
         config: Loaded ``config.yml`` mapping, or ``None`` to consult only the
             config *path* (callers that have not loaded one).
     """
-    configured = dotted_config_str(config, "project_root")
+    configured = _dotted_config_str(config, "project_root")
     candidate = Path(configured).expanduser() if configured else None
     if candidate is not None and candidate.is_dir():
         return candidate
@@ -450,12 +477,12 @@ def resolve_project_root(config: Mapping[str, Any] | None = None) -> Path:
         return repo_root_for_config(config_path)
     cwd = Path.cwd()
     for ancestor in (cwd, *cwd.parents):
-        if (ancestor / PROFILE_FILENAME).is_file():
+        if (ancestor / _PROFILE_FILENAME).is_file():
             return ancestor
     return candidate if candidate is not None else cwd
 
 
-def resolve_agent_data_root() -> Path:
+def _resolve_agent_data_root() -> Path:
     """Resolve the agent data root directory from config.
 
     Uses ``agent_data.base_dir`` from config.yml, anchored on the repo root that
@@ -497,7 +524,7 @@ def resolve_shared_data_root(config: Mapping[str, Any] | None = None) -> Path:
 
 
 # Backward-compatible alias
-resolve_workspace_root = resolve_agent_data_root
+resolve_workspace_root = _resolve_agent_data_root
 
 
 def resolve_path(path_str: str) -> Path:

@@ -15,7 +15,7 @@ following five rules as the contract; a change here is a change there.
 
 **1. Where the file is.** One directory per identity:
 :func:`~osprey_connectors.identity.acting_identity` under
-:data:`STATE_DIR_NAME` under the agent-data root, so one directory answers
+:data:`CONTROL_STATE_DIR_NAME` under the agent-data root, so one directory answers
 "control state for whoever this process is acting as". The narrowing is one
 operator's, not the deployment's, and a single shared directory would make one
 user's chip decide every other user's writes. The directory resolves by ONE
@@ -26,11 +26,11 @@ ladder, used by every writer and every reader:
   per-identity directory, so nothing is appended to it: a container sees its
   own dir at a path that has nothing to do with the host's tree, and deriving
   the identity hop inside it would name a directory nobody binds;
-* otherwise :data:`AGENT_DATA_ROOT_ENV_VAR` when it names a non-blank path —
+* otherwise :data:`_AGENT_DATA_ROOT_ENV_VAR` when it names a non-blank path —
   the stamp a session child carries — else
   :func:`~osprey_connectors.workspace.resolve_shared_data_root`, the config
   derivation the state file has always used; and then the two fixed hops,
-  :data:`STATE_DIR_NAME` and the acting identity.
+  :data:`CONTROL_STATE_DIR_NAME` and the acting identity.
 
 There is no third path and no fallback. A root that resolves to nothing makes
 :func:`state_dir` ``None``, which a route surfaces as ``store_unavailable``
@@ -46,8 +46,8 @@ assertion, so nothing in this field can ever widen. Anything else — an unknown
 value, a non-string key, a per-target leaf nobody recognises — is dropped
 rather than honoured: what survives this filter decides whether a real machine
 is written to, so a hand-edited or future-version field must not reach the
-decision. :func:`parse_posture_value` is that filter, applied to the record's field by
-:func:`~osprey_connectors.control_context.parse_posture` rather than restated
+decision. :func:`_parse_posture_value` is that filter, applied to the record's field by
+:func:`~osprey_connectors.control_context._parse_posture` rather than restated
 there — two filters that disagree about which narrowings survive is a
 narrowing that silently does not apply.
 
@@ -78,14 +78,14 @@ by the record read, while a WIDENING never reaches a run that started narrow,
 which would otherwise hand a running script write access to a machine the
 operator took away from it. See :func:`launch_permits`.
 
-The record clause alone is :func:`store_verdict`, which answers a
-:class:`StoreVerdict` — the reason a write may or may not proceed, not only
+The record clause alone is :func:`_store_verdict`, which answers a
+:class:`_StoreVerdict` — the reason a write may or may not proceed, not only
 whether it may — with :func:`store_permits` its bool spelling for the callers
 that have to decide whether to proceed and not what to say about it, and
-:func:`store_verdict_detail` the spelling that also hands back the operator
+:func:`_store_verdict_detail` the spelling that also hands back the operator
 sentence for the one verdict whose remedy the refusing process cannot compose
 for itself. All three are one read of the record, so a caller pays nothing for
-asking in the spelling that says the most; :func:`record_verdict_detail` is the
+asking in the spelling that says the most; :func:`_record_verdict_detail` is the
 same clause without the launch pin, for the refusal that has to name a
 narrowing the pin's answer hid. The clause is public for the one
 caller that holds a ceiling this module cannot derive: the connector's
@@ -95,7 +95,7 @@ exactly two implementations.
 
 **4. When a change is seen.** Every read re-stats the record and re-parses on
 ``(st_mtime_ns, st_size, st_ino)`` — the cache lives in
-:mod:`~osprey_connectors.control_context`, and :func:`invalidate_cache` is the
+:mod:`~osprey_connectors.control_context`, and :func:`_invalidate_cache` is the
 hook a process that moved roots (or a test) drops it through. A missing record
 is no narrowing, not an error.
 
@@ -134,7 +134,7 @@ join and a record written 0600 all look exactly like an operator who narrowed
 nothing, while being in fact an operator whose narrowing nobody could read. So
 the tree reader separates the one absence that is an answer — no record for this
 owner — from every failure on a path that is THERE, and the latter refuses.
-:data:`CONTROL_TREE_MARKER_NAME` is what makes the first question answerable at
+:data:`_CONTROL_TREE_MARKER_NAME` is what makes the first question answerable at
 all: a bind whose source does not exist is created empty by the container
 runtime, and an empty directory says nothing about whether it was ever built.
 
@@ -176,40 +176,26 @@ from osprey_connectors.workspace import resolve_shared_data_root
 logger = logging.getLogger("osprey_connectors.posture_store")
 
 __all__ = [
-    "AGENT_DATA_ROOT_ENV_VAR",
     "CONTROL_CONTEXT_DIR_ENV_VAR",
     "CONTROL_CONTEXT_TREE_ENV_VAR",
     "CONTROL_OWNER_ENV_VAR",
-    "CONTROL_TREE_MARKER_NAME",
-    "LAUNCH_POSTURE_ALL_TARGETS",
+    "CONTROL_STATE_DIR_NAME",
     "LAUNCH_POSTURE_ENV_VAR",
     "NO_OWNER",
     "POSTURE_SANDBOX",
     "POSTURE_WRITES",
     "RESERVED_OWNER_KWARG",
-    "STATE_DIR_NAME",
-    "StoreVerdict",
-    "StoreVerdictDetail",
-    "VALID_POSTURES",
-    "agent_data_root",
+    "NoOwner",
     "bind_owner",
     "bound_owner",
     "bound_state_dir",
     "current_owner",
     "effective_writes",
-    "invalidate_cache",
-    "launch_narrowed_target",
     "launch_permits",
     "launch_posture_stamp",
-    "parse_launch_posture",
-    "parse_posture_value",
-    "record_verdict_detail",
-    "recorded_posture",
     "stamped_agent_data_root",
     "state_dir",
     "store_permits",
-    "store_verdict",
-    "store_verdict_detail",
     "target_posture",
 ]
 
@@ -217,14 +203,14 @@ __all__ = [
 #: ``osprey.audit.posture``, which declares it for the stamping side: this
 #: package is the lean connector chain and must not grow an ``osprey`` import
 #: to learn one string.
-AGENT_DATA_ROOT_ENV_VAR = "OSPREY_AGENT_DATA_ROOT"
+_AGENT_DATA_ROOT_ENV_VAR = "OSPREY_AGENT_DATA_ROOT"
 
 #: Subdirectory of the agent-data root holding one directory per identity, each
 #: with that identity's control-context record, per-server reports and request
 #: files. The same tree ``target_state.state_dir()`` resolves, spelled here
 #: because a record the writer puts in one directory and a reader looks for in
 #: another is a narrowing that silently never applies.
-STATE_DIR_NAME = "control_target"
+CONTROL_STATE_DIR_NAME = "control_target"
 
 #: The container's OWN state directory, bound in by compose and named in the
 #: environment of every container that holds a chip: the terminal's
@@ -247,7 +233,7 @@ POSTURE_SANDBOX = "sandbox"
 POSTURE_WRITES = "writes"
 
 #: The two values a posture entry may spell. Everything else is dropped.
-VALID_POSTURES = frozenset({POSTURE_SANDBOX, POSTURE_WRITES})
+_VALID_POSTURES = frozenset({POSTURE_SANDBOX, POSTURE_WRITES})
 
 #: The launch-time pin, stamped into an executor sandbox's environment by
 #: ``osprey.mcp_server.python_executor.executor._apply_target_stamp`` and read
@@ -257,7 +243,7 @@ VALID_POSTURES = frozenset({POSTURE_SANDBOX, POSTURE_WRITES})
 #:
 #: * ``<target>`` is the control target the run was stamped against — a member
 #:   of :data:`~osprey_connectors.types.CONTROL_TARGETS` — or
-#:   :data:`LAUNCH_POSTURE_ALL_TARGETS` when the executor could not identify
+#:   :data:`_LAUNCH_POSTURE_ALL_TARGETS` when the executor could not identify
 #:   one, in which case the pin covers every target, exactly as a bare
 #:   ``"sandbox"`` in the record does;
 #: * ``<posture>`` is :data:`POSTURE_SANDBOX` or :data:`POSTURE_WRITES`.
@@ -279,7 +265,7 @@ LAUNCH_POSTURE_ENV_VAR = "OSPREY_LAUNCH_POSTURE"
 #: The launch stamp's target when the executor could not name one. Covers every
 #: target: a run that could not say which machine it is about must not be the
 #: one run a narrowing fails to reach.
-LAUNCH_POSTURE_ALL_TARGETS = "*"
+_LAUNCH_POSTURE_ALL_TARGETS = "*"
 
 #: The stamped owner of the work a process is doing, exported into a dispatch
 #: job's environment by the dispatch worker's ``sdk_runner`` — the one export
@@ -318,7 +304,7 @@ CONTROL_CONTEXT_TREE_ENV_VAR = "OSPREY_CONTROL_CONTEXT_TREE"
 #: deployment layer. The two spellings are pinned together by a test that
 #: imports both — a drift between them is a tree that reads as unprovisioned in
 #: every container.
-CONTROL_TREE_MARKER_NAME = ".osprey-control-tree"
+_CONTROL_TREE_MARKER_NAME = ".osprey-control-tree"
 
 #: The plan kwarg an owner rides on into a queueserver worker, popped by
 #: :func:`bind_owner` before the plan's own signature is validated against it.
@@ -335,7 +321,7 @@ RESERVED_OWNER_KWARG = "_osprey_owner"
 # -- owner ------------------------------------------------------------------
 
 
-class _NoOwner:
+class NoOwner:
     """The absence of an owner: one instance, compared by identity and nothing else.
 
     ``None`` cannot carry this meaning, because :func:`current_owner` already
@@ -363,8 +349,8 @@ class _NoOwner:
         return "<no owner>"
 
 
-#: The answer every owner-less path gives. See :class:`_NoOwner`.
-NO_OWNER: Final = _NoOwner()
+#: The answer every owner-less path gives. See :class:`NoOwner`.
+NO_OWNER: Final = NoOwner()
 
 #: Who the work running in this context belongs to.
 #:
@@ -385,12 +371,12 @@ NO_OWNER: Final = _NoOwner()
 #: gate rests on neither — every store verdict is decided before any offload, so
 #: the rule above holds whichever helper is used, and a gate moved behind a hop
 #: would start reading :data:`NO_OWNER` for the hops that do not copy.
-_owner_var: contextvars.ContextVar[str | _NoOwner] = contextvars.ContextVar(
+_owner_var: contextvars.ContextVar[str | NoOwner] = contextvars.ContextVar(
     "osprey_control_owner", default=NO_OWNER
 )
 
 
-def current_owner(owner: str | _NoOwner | None = None) -> str | _NoOwner:
+def current_owner(owner: str | NoOwner | None = None) -> str | NoOwner:
     """The owner a narrowing should be looked up for, by a four-rung ladder.
 
     Most specific first:
@@ -441,7 +427,7 @@ def current_owner(owner: str | _NoOwner | None = None) -> str | _NoOwner:
     return acting_identity()
 
 
-def bound_owner() -> str | _NoOwner:
+def bound_owner() -> str | NoOwner:
     """The owner :func:`bind_owner` bound for the running plan, and nothing else.
 
     Rung 2 of :func:`current_owner` alone: no caller argument, no environment
@@ -483,7 +469,7 @@ def bind_owner(kwargs: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """
     clean = {key: value for key, value in kwargs.items() if key != RESERVED_OWNER_KWARG}
     claimed = kwargs.get(RESERVED_OWNER_KWARG)
-    owner: str | _NoOwner = NO_OWNER
+    owner: str | NoOwner = NO_OWNER
     if isinstance(claimed, str) and claimed.strip():
         owner = claimed.strip()
 
@@ -537,7 +523,7 @@ def _absolute_bind(variable: str) -> Path | None:
 
 
 def stamped_agent_data_root() -> Path | None:
-    """The :data:`AGENT_DATA_ROOT_ENV_VAR` stamp as a path, or ``None`` unstamped.
+    """The :data:`_AGENT_DATA_ROOT_ENV_VAR` stamp as a path, or ``None`` unstamped.
 
     The stamp half of rule 1 on its own, so that the files under this root
     cannot read one environment variable two different ways. A blank or
@@ -557,14 +543,14 @@ def stamped_agent_data_root() -> Path | None:
     that module raises where this one answers ``None``, and a route turns its
     raise into a ``store_unavailable`` 503.
     """
-    stamped = (os.environ.get(AGENT_DATA_ROOT_ENV_VAR) or "").strip()
+    stamped = (os.environ.get(_AGENT_DATA_ROOT_ENV_VAR) or "").strip()
     return Path(os.path.expanduser(stamped)) if stamped else None
 
 
-def agent_data_root() -> Path | None:
+def _agent_data_root() -> Path | None:
     """The agent-data root the control state lives under.
 
-    Rule 1 of the module contract: the :data:`AGENT_DATA_ROOT_ENV_VAR` stamp
+    Rule 1 of the module contract: the :data:`_AGENT_DATA_ROOT_ENV_VAR` stamp
     when it names a non-blank path, else the config derivation. ``None`` when
     neither answers — a deployment whose project root cannot be resolved has
     no record, which is a different thing from having one that narrows nothing.
@@ -600,7 +586,7 @@ def state_dir() -> Path | None:
 
     Rule 1 of the module contract: the :func:`bound_state_dir` bind when a
     container carries one, else the acting identity under
-    :data:`STATE_DIR_NAME` under :func:`agent_data_root`.
+    :data:`CONTROL_STATE_DIR_NAME` under :func:`_agent_data_root`.
 
     The identity is resolved on every call rather than once at import, because
     :func:`~osprey_connectors.identity.acting_identity` reads an environment
@@ -616,8 +602,8 @@ def state_dir() -> Path | None:
     bound = bound_state_dir()
     if bound is not None:
         return bound
-    root = agent_data_root()
-    return None if root is None else root / STATE_DIR_NAME / acting_identity()
+    root = _agent_data_root()
+    return None if root is None else root / CONTROL_STATE_DIR_NAME / acting_identity()
 
 
 def _tree_is_bound() -> bool:
@@ -626,7 +612,7 @@ def _tree_is_bound() -> bool:
     The ONE spelling of that question, because two readings of it are a
     split-brain on the write path: :func:`current_owner` answers
     :data:`NO_OWNER` for a container that holds the tree (it holds no chip of
-    its own), while :func:`store_verdict` picks the reader that governs the
+    its own), while :func:`_store_verdict` picks the reader that governs the
     write. A variable that made one of them say "tree" and the other say "host"
     would send a container with no host record to the host reader, whose every
     way of not knowing is "nothing is narrowed" — the fail-open the tree reader
@@ -658,11 +644,11 @@ def _control_context_tree() -> Path | None:
 # -- parsing ----------------------------------------------------------------
 
 
-def parse_posture_value(value: Any) -> dict[str, str]:
+def _parse_posture_value(value: Any) -> dict[str, str]:
     """One posture value as ``{target: "sandbox"}`` — narrowings only.
 
     Rule 2 of the module contract, in one place. The record carries exactly one
-    posture value and :func:`~osprey_connectors.control_context.parse_posture`
+    posture value and :func:`~osprey_connectors.control_context._parse_posture`
     reaches this filter for it rather than restating the grammar: two filters
     that disagree about which narrowings survive is a narrowing that silently
     does not apply.
@@ -690,7 +676,7 @@ def parse_posture_value(value: Any) -> dict[str, str]:
 # -- reading ----------------------------------------------------------------
 
 
-def recorded_posture() -> dict[str, str]:
+def _recorded_posture() -> dict[str, str]:
     """The narrowings the control-context record carries — ``{target: "sandbox"}``.
 
     Rules 1, 2 and 4 together, and the one place this module reaches the record.
@@ -703,7 +689,7 @@ def recorded_posture() -> dict[str, str]:
         # Imported here, not at module scope: ``control_context`` imports THIS
         # module for the root and the posture grammar, and the two must not
         # import each other at load time. Same reason as ``effective_writes``'s
-        # local import of ``control_system.base``.
+        # local import of ``control_system._base``.
         from osprey_connectors import control_context
 
         record = control_context.read_record()
@@ -717,10 +703,10 @@ def target_posture(target: str | None) -> str | None:
     """The recorded posture for one target, or ``None`` when it is unnarrowed."""
     if not target:
         return None
-    return recorded_posture().get(target)
+    return _recorded_posture().get(target)
 
 
-def invalidate_cache() -> None:
+def _invalidate_cache() -> None:
     """Forget the parsed record. For tests and for a process that moved roots.
 
     The cache is the record reader's — this module holds none — so this is the
@@ -732,7 +718,7 @@ def invalidate_cache() -> None:
     try:
         from osprey_connectors import control_context
 
-        control_context.invalidate_cache()
+        control_context._invalidate_cache()
     except Exception:  # dropping a cache must not raise into a caller
         logger.debug("Could not drop the control-context cache", exc_info=True)
 
@@ -753,7 +739,7 @@ class _TreeRead(NamedTuple):
 
     Attributes:
         narrowed: The narrowings that record carries, ``{target: "sandbox"}``,
-            in the same grammar :func:`recorded_posture` answers in and empty
+            in the same grammar :func:`_recorded_posture` answers in and empty
             when nothing is narrowed. Empty whenever *unavailable* is set: a
             read that did not reach the record knows of no narrowing and must
             not be combined as though it did.
@@ -905,7 +891,7 @@ def _read_tree_record(tree: Path, owner: str) -> _TreeRead:
 
     The reader a container uses when it holds the whole tree and no chip of its
     own: a lane's queueserver, the dispatch worker. It fails CLOSED, and that is
-    the whole difference from the host readers above. :func:`recorded_posture`
+    the whole difference from the host readers above. :func:`_recorded_posture`
     answers "nothing is narrowed" for every way of not knowing, and
     :func:`~osprey_connectors.control_context.read_record` folds an unreadable
     file into ``None`` for the same reason — correct on the host, where the
@@ -953,11 +939,11 @@ def _read_tree_record(tree: Path, owner: str) -> _TreeRead:
     if not os.access(tree, os.R_OK | os.X_OK):
         return _TreeRead({}, _tree_unreadable(tree))
 
-    marker = tree / CONTROL_TREE_MARKER_NAME
+    marker = tree / _CONTROL_TREE_MARKER_NAME
     try:
         marker_mode = os.lstat(marker).st_mode
     except FileNotFoundError:
-        return _TreeRead({}, _tree_unprovisioned(tree, f"carries no {CONTROL_TREE_MARKER_NAME}"))
+        return _TreeRead({}, _tree_unprovisioned(tree, f"carries no {_CONTROL_TREE_MARKER_NAME}"))
     except OSError:
         return _TreeRead({}, _tree_unreadable(tree))
     if stat.S_ISLNK(marker_mode):
@@ -968,7 +954,7 @@ def _read_tree_record(tree: Path, owner: str) -> _TreeRead:
     if not stat.S_ISREG(marker_mode):
         return _TreeRead(
             {},
-            _tree_unprovisioned(tree, f"carries a {CONTROL_TREE_MARKER_NAME} that is not a file"),
+            _tree_unprovisioned(tree, f"carries a {_CONTROL_TREE_MARKER_NAME} that is not a file"),
         )
 
     # An owner that is not one path segment addresses no record in this tree,
@@ -983,7 +969,7 @@ def _read_tree_record(tree: Path, owner: str) -> _TreeRead:
             "one directory name",
         )
 
-    # Imported here, not at module scope, for the reason ``recorded_posture``
+    # Imported here, not at module scope, for the reason ``_recorded_posture``
     # does it: ``control_context`` imports THIS module for the root and the
     # grammar, and the two must not import each other at load time.
     from osprey_connectors import control_context
@@ -1004,9 +990,9 @@ def _read_tree_record(tree: Path, owner: str) -> _TreeRead:
         # the read just as effectively.
         return _TreeRead({}, _tree_planted_link(owner_dir, "directory"))
 
-    record_file = owner_dir / control_context.RECORD_FILENAME
+    record_file = owner_dir / control_context._RECORD_FILENAME
     try:
-        record = control_context.parse_record(_read_no_follow(record_file))
+        record = control_context._parse_record(_read_no_follow(record_file))
     except FileNotFoundError:
         # No record for this owner: the same answer as no directory.
         return _TreeRead({}, None)
@@ -1040,20 +1026,20 @@ def launch_posture_stamp(target: str | None, launch_posture: str) -> str:
     """Compose the :data:`LAUNCH_POSTURE_ENV_VAR` value for one launch.
 
     The one place the wire format is written, so the executor that stamps it
-    and :func:`parse_launch_posture` which reads it cannot disagree about the
+    and :func:`_parse_launch_posture` which reads it cannot disagree about the
     separator or about how "no target" is spelled.
 
     Args:
         target: The control target the run is stamped against, or ``None`` when
             the executor could not identify one — spelled
-            :data:`LAUNCH_POSTURE_ALL_TARGETS`, which covers every target.
+            :data:`_LAUNCH_POSTURE_ALL_TARGETS`, which covers every target.
         launch_posture: :data:`POSTURE_SANDBOX` or :data:`POSTURE_WRITES` — the
             recorded answer for that target at the moment of launch.
     """
-    return f"{target or LAUNCH_POSTURE_ALL_TARGETS}={launch_posture}"
+    return f"{target or _LAUNCH_POSTURE_ALL_TARGETS}={launch_posture}"
 
 
-def parse_launch_posture(raw: str | None) -> dict[str, str]:
+def _parse_launch_posture(raw: str | None) -> dict[str, str]:
     """Decode a launch stamp into ``{target: "sandbox"}`` — narrowings only.
 
     The same filter rule 2 applies to the record, on the environment's one-pair
@@ -1072,7 +1058,7 @@ def parse_launch_posture(raw: str | None) -> dict[str, str]:
     target = target.strip()
     if launch_posture.strip() != POSTURE_SANDBOX:
         return {}
-    if target == LAUNCH_POSTURE_ALL_TARGETS:
+    if target == _LAUNCH_POSTURE_ALL_TARGETS:
         return dict.fromkeys(CONTROL_TARGETS, POSTURE_SANDBOX)
     if not target:
         return {}
@@ -1093,17 +1079,17 @@ def _permits(narrowed: dict[str, str], target: str | None) -> bool:
     return POSTURE_SANDBOX not in narrowed.values()
 
 
-def launch_narrowed_target() -> str | None:
+def _launch_narrowed_target() -> str | None:
     """The target the launch stamp names when it narrows, else ``None``.
 
-    :data:`LAUNCH_POSTURE_ALL_TARGETS` when the executor could not name one, so
+    :data:`_LAUNCH_POSTURE_ALL_TARGETS` when the executor could not name one, so
     a caller composing a refusal can tell "the operator had this machine
     read-only when the run started" from "nothing could be resolved at launch,
     so the run was pinned everywhere". Those two send an operator to different
     places, and the second must not be reported as somebody's decision.
     """
     text = (os.environ.get(LAUNCH_POSTURE_ENV_VAR) or "").strip()
-    if not parse_launch_posture(text):
+    if not _parse_launch_posture(text):
         return None
     target = text.partition("=")[0].strip()
     return target or None
@@ -1132,13 +1118,13 @@ def launch_permits(target: str | None) -> bool:
     ``True`` — permitted — for every process that carries no stamp, which is
     every process except an executor sandbox.
     """
-    return _permits(parse_launch_posture(os.environ.get(LAUNCH_POSTURE_ENV_VAR)), target)
+    return _permits(_parse_launch_posture(os.environ.get(LAUNCH_POSTURE_ENV_VAR)), target)
 
 
 # -- the rule ---------------------------------------------------------------
 
 
-class StoreVerdict(StrEnum):
+class _StoreVerdict(StrEnum):
     """What the recorded clause found — rule 3's answer with the reason for it.
 
     A ``bool`` says a write was refused; only a name says what to put in front
@@ -1169,7 +1155,7 @@ class StoreVerdict(StrEnum):
 _LAUNCH_PIN_REASON: Final = "pinned everywhere at launch — re-run the script"
 
 
-class StoreVerdictDetail(NamedTuple):
+class _StoreVerdictDetail(NamedTuple):
     """A verdict and, where there is one, the sentence an operator needs with it.
 
     Attributes:
@@ -1178,7 +1164,7 @@ class StoreVerdictDetail(NamedTuple):
         reason: ``None`` for every verdict a consumer can word on its own — a
             grant, and a narrowing, whose remedy is the target's chip and
             therefore known to whoever refused. Set only for
-            :attr:`StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE`, whose four ways
+            :attr:`_StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE`, whose four ways
             of happening have four different remedies and whose facts — the
             record that could not be read, the bind that named no path, the
             owner that was not a name — exist only in this reader. Without this
@@ -1187,14 +1173,14 @@ class StoreVerdictDetail(NamedTuple):
             sees a message about it.
     """
 
-    verdict: StoreVerdict
+    verdict: _StoreVerdict
     reason: str | None
 
 
-def store_verdict(target: str | None, owner: str | _NoOwner | None = None) -> StoreVerdict:
+def _store_verdict(target: str | None, owner: str | NoOwner | None = None) -> _StoreVerdict:
     """The recorded clause of :func:`effective_writes` — rule 3, by name alone.
 
-    Exactly :func:`store_verdict_detail`'s verdict, for the callers that have
+    Exactly :func:`_store_verdict_detail`'s verdict, for the callers that have
     to decide what to do and not what to say about it. One read either way: the
     detail is what this asks for, so a caller never pays for the sentence by
     reading the record a second time.
@@ -1207,16 +1193,16 @@ def store_verdict(target: str | None, owner: str | _NoOwner | None = None) -> St
             :func:`current_owner`.
 
     Returns:
-        A :class:`StoreVerdict`. Never raises: this is read on a write path,
+        A :class:`_StoreVerdict`. Never raises: this is read on a write path,
         and a clause that cannot decide must produce a verdict.
     """
-    return store_verdict_detail(target, owner).verdict
+    return _store_verdict_detail(target, owner).verdict
 
 
-def record_verdict_detail(
-    target: str | None, owner: str | _NoOwner | None = None
-) -> StoreVerdictDetail:
-    """The record clause of :func:`store_verdict_detail`, without the launch pin.
+def _record_verdict_detail(
+    target: str | None, owner: str | NoOwner | None = None
+) -> _StoreVerdictDetail:
+    """The record clause of :func:`_store_verdict_detail`, without the launch pin.
 
     This is the clause without the launch pin, for a caller that already knows
     the pin refused and must still say whether the record refuses too. The
@@ -1229,7 +1215,7 @@ def record_verdict_detail(
        was meant — is a lookup that did not happen, and refuses.
     2. That owner's record — out of the read-only tree through
        :func:`_read_tree_record` when a tree is bound, else out of this host's
-       own record through :func:`recorded_posture`. A tree bound but unusable
+       own record through :func:`_recorded_posture`. A tree bound but unusable
        refuses rather than falling back to the host: the fall-back exists for a
        process that was given no tree, not for one whose tree cannot be opened.
        The two rungs differ in what a failed read means: the tree reader fails
@@ -1252,12 +1238,12 @@ def record_verdict_detail(
             identity and holds one narrowing per person.
 
     Returns:
-        A :class:`StoreVerdictDetail`. Never raises: this is read on a write
+        A :class:`_StoreVerdictDetail`. Never raises: this is read on a write
         path, and a clause that cannot decide must produce a verdict.
     """
     resolved = current_owner(owner)
     if resolved is NO_OWNER:
-        return StoreVerdictDetail(StoreVerdict.PERMITTED, None)
+        return _StoreVerdictDetail(_StoreVerdict.PERMITTED, None)
     if not isinstance(resolved, str):
         # An owner that is neither a name nor the sentinel is a lookup that did
         # not happen, which is the tree reader's classification too — and the
@@ -1267,7 +1253,7 @@ def record_verdict_detail(
         # ceiling, which is the one outcome the owner exists to prevent.
         reason = _owner_is_not_a_name(resolved)
         logger.warning("Write posture cannot be looked up: %s; refusing", reason)
-        return StoreVerdictDetail(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, reason)
+        return _StoreVerdictDetail(_StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, reason)
 
     tree = _control_context_tree()
     if tree is None:
@@ -1278,8 +1264,8 @@ def record_verdict_detail(
             # here would read a record this container does not have.
             reason = _tree_bind_unusable()
             logger.warning("Write posture unreadable for %r: %s", resolved, reason)
-            return StoreVerdictDetail(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, reason)
-        narrowed = recorded_posture()
+            return _StoreVerdictDetail(_StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, reason)
+        narrowed = _recorded_posture()
     else:
         read = _read_tree_record(tree, resolved)
         if read.unavailable is not None:
@@ -1288,17 +1274,17 @@ def record_verdict_detail(
             # whose refusal message may be the only one the person who ran the
             # write ever sees.
             logger.warning("Write posture unreadable for %r: %s", resolved, read.unavailable)
-            return StoreVerdictDetail(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, read.unavailable)
+            return _StoreVerdictDetail(_StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, read.unavailable)
         narrowed = read.narrowed
 
     if _permits(narrowed, target):
-        return StoreVerdictDetail(StoreVerdict.PERMITTED, None)
-    return StoreVerdictDetail(StoreVerdict.NARROWING, None)
+        return _StoreVerdictDetail(_StoreVerdict.PERMITTED, None)
+    return _StoreVerdictDetail(_StoreVerdict.NARROWING, None)
 
 
-def store_verdict_detail(
-    target: str | None, owner: str | _NoOwner | None = None
-) -> StoreVerdictDetail:
+def _store_verdict_detail(
+    target: str | None, owner: str | NoOwner | None = None
+) -> _StoreVerdictDetail:
     """The recorded clause of :func:`effective_writes` — rule 3, with its reason.
 
     The clause reads, in this order:
@@ -1307,11 +1293,11 @@ def store_verdict_detail(
        rather than about the deployment and costs one environment read, so a
        sandbox that launched narrow refuses without touching the disk. Its two
        arms are different reasons, not one — a named target is an operator's
-       decision (``narrowing``), while :data:`LAUNCH_POSTURE_ALL_TARGETS` says
+       decision (``narrowing``), while :data:`_LAUNCH_POSTURE_ALL_TARGETS` says
        the executor could resolve neither a target nor the record at launch and
        pinned the run everywhere, which nobody decided
        (``control_context_unavailable``).
-    2. The owner and that owner's record, through :func:`record_verdict_detail`,
+    2. The owner and that owner's record, through :func:`_record_verdict_detail`,
        which is this clause without the pin.
 
     Args:
@@ -1324,15 +1310,17 @@ def store_verdict_detail(
             identity and holds one narrowing per person.
 
     Returns:
-        A :class:`StoreVerdictDetail`. Never raises: this is read on a write
+        A :class:`_StoreVerdictDetail`. Never raises: this is read on a write
         path, and a clause that cannot decide must produce a verdict.
     """
     if not launch_permits(target):
-        if launch_narrowed_target() == LAUNCH_POSTURE_ALL_TARGETS:
-            return StoreVerdictDetail(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, _LAUNCH_PIN_REASON)
-        return StoreVerdictDetail(StoreVerdict.NARROWING, None)
+        if _launch_narrowed_target() == _LAUNCH_POSTURE_ALL_TARGETS:
+            return _StoreVerdictDetail(
+                _StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, _LAUNCH_PIN_REASON
+            )
+        return _StoreVerdictDetail(_StoreVerdict.NARROWING, None)
 
-    return record_verdict_detail(target, owner)
+    return _record_verdict_detail(target, owner)
 
 
 def store_permits(target: str | None) -> bool:
@@ -1340,15 +1328,15 @@ def store_permits(target: str | None) -> bool:
 
     Public because one caller needs this clause WITHOUT the ceiling
     :func:`effective_writes` derives: the connector's reference monitor
-    (``control_system.base``) reads a deployment ceiling keyed on the connector
+    (``control_system._base``) reads a deployment ceiling keyed on the connector
     TYPE, which is not a ceiling this module can produce from a target. It
     therefore ANDs its own ceiling with this function rather than restating the
     combining terms — the contract's rule 3 has exactly two implementations,
     this one and the stdlib restatement in the hooks, and a third would be a
     third thing to keep in step.
 
-    Exactly :func:`store_verdict` compared against
-    :attr:`StoreVerdict.PERMITTED`, so the two cannot answer differently. A
+    Exactly :func:`_store_verdict` compared against
+    :attr:`_StoreVerdict.PERMITTED`, so the two cannot answer differently. A
     caller that must say WHY a write was refused asks for the verdict instead;
     this spelling is for the callers that only have to decide whether to
     proceed.
@@ -1363,7 +1351,7 @@ def store_permits(target: str | None) -> bool:
             caller cannot name one — in which case the most restrictive
             narrowing decides.
     """
-    return store_verdict(target) is StoreVerdict.PERMITTED
+    return _store_verdict(target) is _StoreVerdict.PERMITTED
 
 
 def effective_writes(
@@ -1400,10 +1388,10 @@ def effective_writes(
         ceiling = any_target_writes_enabled(section)
     if not ceiling:
         return False
-    # Imported here, not at module scope: ``control_system.base`` is the
+    # Imported here, not at module scope: ``control_system._base`` is the
     # reference monitor that calls back into this module, and the two must not
     # import each other at load time.
-    from osprey_connectors.control_system.base import is_readonly_run
+    from osprey_connectors.control_system._base import is_readonly_run
 
     if is_readonly_run():
         return False

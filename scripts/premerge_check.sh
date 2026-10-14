@@ -156,6 +156,21 @@ else
   WARNINGS=$((WARNINGS + 1))
 fi
 
+# The connectors boundary: CI's lint job fails on either, so they block here.
+if uv run lint-imports --no-logo >/dev/null 2>&1; then
+  echo "✓ Import contracts kept"
+else
+  echo "✗ An import contract is broken (uv run lint-imports)"
+  ERRORS=$((ERRORS + 1))
+fi
+
+if uv run ruff check --preview --select=PLC2701 . --quiet >/dev/null 2>&1; then
+  echo "✓ No private-name imports across packages"
+else
+  echo "✗ The framework imports a private name from another package (PLC2701)"
+  ERRORS=$((ERRORS + 1))
+fi
+
 # MANUAL container checks
 #
 # tests/e2e/ is excluded from every automated lane in this script and in CI's

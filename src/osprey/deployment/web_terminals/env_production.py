@@ -24,7 +24,7 @@ from osprey.deployment.web_terminals.personas import (
     effective_persona,
     resolve_authorization_roles,
 )
-from osprey.utils.dotenv import (
+from osprey_connectors.dotenv import (
     ENV_CHAIN_FILENAMES,
     ENV_LOCAL_FILENAME,
     ENV_USERS_BANNER,
@@ -34,7 +34,7 @@ from osprey.utils.dotenv import (
     merge_chain,
     parse_dotenv_file,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
 

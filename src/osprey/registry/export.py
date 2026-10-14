@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 from .base import RegistryConfig
 

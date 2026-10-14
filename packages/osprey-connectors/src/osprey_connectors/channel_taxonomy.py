@@ -24,9 +24,12 @@ control connector and the Virtual Accelerator's engine source) call.
 
 from dataclasses import dataclass
 
-__all__ = ["POSITION_NOISE_SCALE", "ChannelKind", "classify_channel"]
+__all__ = [
+    "ChannelKind",
+    "classify_channel",
+]
 
-POSITION_NOISE_SCALE = 0.005
+_POSITION_NOISE_SCALE = 0.005
 """Absolute noise floor for the ``position`` kind, in mm.
 
 Roughly a BPM's single-shot resolution. Position is the one kind whose
@@ -107,7 +110,7 @@ def classify_channel(channel: str) -> ChannelKind:
     if "lifetime" in lower:
         return ChannelKind("lifetime", 10.0, "hours")
     if "position" in lower or "pos" in lower:
-        return ChannelKind("position", 0.0, "mm", noise_scale=POSITION_NOISE_SCALE)
+        return ChannelKind("position", 0.0, "mm", noise_scale=_POSITION_NOISE_SCALE)
     if "energy" in lower:
         return ChannelKind("energy", 1900.0, "MeV")
     return ChannelKind("default", 100.0, "")

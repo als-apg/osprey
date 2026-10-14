@@ -49,7 +49,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from osprey.errors import ConfigurationError
+from osprey_connectors.errors import ConfigurationError
 
 from .build_profile_deploy import SUPPORTED_CI_PLATFORMS, DeployConfig, parse_deploy_block
 from .build_profile_document import _read_profile_document

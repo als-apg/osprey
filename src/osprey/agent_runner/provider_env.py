@@ -39,9 +39,9 @@ from osprey.build.claude_code_telemetry import (
 from osprey.models.display import CLAUDE_CODE_ALIASES, claude_code_alias_candidates
 from osprey.models.provider_registry import PROVIDER_API_KEYS, get_provider_registry
 from osprey.models.spend_attribution import apply_attribution_env, gateway_for
-from osprey.utils.dotenv import chain_files
 from osprey_connectors import yaml_loader
 from osprey_connectors.config import is_unresolved_placeholder
+from osprey_connectors.dotenv import chain_files
 
 logger = logging.getLogger(__name__)
 
@@ -647,7 +647,7 @@ def load_provider_spec(
         ``None`` when no provider is configured.
     """
 
-    from osprey.utils.config import resolve_env_vars
+    from osprey_connectors.config import resolve_env_vars
 
     project_dir = Path(project_dir)
     raw = yaml_loader.safe_load((project_dir / "config.yml").read_text()) or {}

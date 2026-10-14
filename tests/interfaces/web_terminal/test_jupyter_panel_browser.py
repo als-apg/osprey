@@ -526,14 +526,14 @@ def _control_target_lab(
     workspace = tmp_path / "watch"
     workspace.mkdir(exist_ok=True)
     root = tmp_path / "agent_data"
-    (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
+    (root / posture_store.CONTROL_STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
 
     config = _write_config(tmp_path / "config.yml")
     document = yaml.safe_load(config.read_text(encoding="utf-8"))
     document["agent_data"] = {"base_dir": str(root)}
     config.write_text(yaml.safe_dump(document), encoding="utf-8")
 
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
     monkeypatch.setenv("OSPREY_WEB_THEME", "dark")
@@ -639,7 +639,7 @@ def _publish_fleet(root: Path, *, applied_target: str, applied_generation: int) 
 
 def _record() -> Any:
     """The deployment's control-context record, re-read from disk."""
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     return control_context.read_record()
 
 

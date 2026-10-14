@@ -1,6 +1,6 @@
 """The connector-host child, exercised as a real process.
 
-Every wire-level test here spawns ``python -m osprey_connectors.ipc.host`` for
+Every wire-level test here spawns ``python -m osprey_connectors.ipc._host`` for
 real and talks to it over pipes, because the things worth pinning are the ones
 that only exist in a separate process: what the child inherits, what it emits
 first, whether it dies when it should, and whether a failed request takes it
@@ -41,13 +41,14 @@ import yaml
 
 from osprey_connectors import posture_store
 from osprey_connectors.channel_taxonomy import classify_channel
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     WriteOutcome,
 )
-from osprey_connectors.control_system.mock_connector import MockConnector
-from osprey_connectors.ipc import frames, host
+from osprey_connectors.control_system._mock_connector import MockConnector
+from osprey_connectors.ipc import _frames as frames
+from osprey_connectors.ipc import _host as host
 from tests._control_context_fixtures import write_control_context
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -56,7 +57,7 @@ PYTHONPATH = os.pathsep.join(
 )
 
 #: The mock connector by dotted path, so ``live`` resolves to it.
-MOCK_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
+MOCK_TYPE = "osprey_connectors.control_system._mock_connector.MockConnector"
 
 CONTROL_SYSTEM = {
     "type": MOCK_TYPE,
@@ -106,7 +107,7 @@ class Child:
         env["PYTHONPATH"] = PYTHONPATH
         env.update(env_extra or {})
         self.proc = subprocess.Popen(
-            [sys.executable, "-m", "osprey_connectors.ipc.host"],
+            [sys.executable, "-m", "osprey_connectors.ipc._host"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -511,7 +512,7 @@ def test_the_watchdog_exits_a_child_whose_parent_died(tmp_path):
     launcher = (
         "import os, subprocess, sys\n"
         "proc = subprocess.Popen(\n"
-        "    [sys.executable, '-m', 'osprey_connectors.ipc.host'],\n"
+        "    [sys.executable, '-m', 'osprey_connectors.ipc._host'],\n"
         f"    stdin={read_fd}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,\n"
         ")\n"
         f"open({str(pid_file)!r}, 'w').write(str(proc.pid))\n"
@@ -933,10 +934,10 @@ def narrowed_va(tmp_path, monkeypatch):
     """
     root = tmp_path / "agent-data"
     write_control_context(root, posture={"va": posture_store.POSTURE_SANDBOX})
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    posture_store.invalidate_cache()
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
+    posture_store._invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 def _install_name_server(monkeypatch, address, port):
@@ -955,7 +956,7 @@ def _install_addr_list(monkeypatch, address, port):
 
 def _verify(config, report, writes_enabled):
     """Run the parent's own verification against a child's report."""
-    from osprey_connectors.ipc.verification import derive_endpoints, verify_child_report
+    from osprey_connectors.ipc._verification import derive_endpoints, verify_child_report
 
     derivation = derive_endpoints(config, "va", writes_enabled=writes_enabled)
     return derivation, verify_child_report(derivation, report)

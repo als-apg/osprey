@@ -1,0 +1,622 @@
+"""
+MongoDB archiver connector for historical channel data retrieval.
+
+Provides interface to MongoDB collections containing archived channel data.
+Documents are expected to have a 'date' field and channel addresses as fields.
+"""
+
+import asyncio
+import os
+import urllib.parse
+from collections.abc import Mapping
+from datetime import datetime
+from typing import Any
+
+import pandas as pd
+
+from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
+
+# The store's address and client arguments are shared with the archive recorder
+# and the deploy-time seed, which open a client without this connector.
+from osprey_connectors.archiver._mongo_client import (
+    CA_FILE_ERRORS,
+    address_overrides,
+    mongo_client_kwargs,
+)
+from osprey_connectors.archiver._timerange import (
+    aggregate_long_frame,
+    resolve_processing,
+    utc_window,
+)
+from osprey_connectors.connection import read_connection_settings
+from osprey_connectors.logger import get_logger
+
+logger = get_logger("mongodb_archiver_connector")
+
+#: The block's key, named in every message the connection reader raises.
+_WHERE = "archiver.settings"
+
+# Appended to every connect()-time failure. On an OSPREY-deployed stack the store
+# is a container the project brings up itself, and "built but never deployed" is
+# by far the most common way to reach these errors — the password is minted into
+# the project's .env by `osprey up`, so before that first run there is nothing to
+# authenticate with and nothing listening. Phrased as a likely remedy rather than
+# the only one, since a facility MongoDB may be administered elsewhere.
+DEPLOY_HINT = "If this project deploys its own MongoDB, run 'osprey up' to start it."
+
+# pymongo is a dependency of this package, so reaching this message means an
+# incomplete environment rather than an unselected option. It names the package
+# to reinstall, not an extra to add -- there is no longer an extra to select --
+# and it names pymongo too, so the message works whether or not the reader knows
+# what backs this connector.
+PYMONGO_INSTALL_HINT = (
+    "pymongo is required for the MongoDB archiver. It is a dependency of "
+    "osprey-connectors, so this environment is incomplete. "
+    "Reinstall it with: pip install --upgrade osprey-connectors"
+)
+
+#: The url schemes a MongoDB connection string takes.
+_MONGO_SCHEMES = ("mongodb", "mongodb+srv")
+
+#: Url options the block has its own key for. A keyword argument overrides the
+#: same option in the string without a word, so one fact would have two homes.
+_OPTIONS_WITH_A_KEY = {
+    "authsource": "auth.source",
+    "tlscafile": "tls.ca_bundle",
+    "serverselectiontimeoutms": "timeout_s",
+}
+
+#: Url options that carry a secret.
+_SECRET_OPTIONS = frozenset({"tlscertificatekeyfilepassword"})
+
+#: Url options that turn certificate verification off. No setting does.
+_VERIFY_OFF_OPTIONS = frozenset(
+    {"tlsinsecure", "tlsallowinvalidcertificates", "tlsallowinvalidhostnames"}
+)
+
+_ROUTE_LOGGED = False
+
+
+def check_mongo_url(url: str, *, key: str) -> None:
+    """Refuse a connection string the block cannot take.
+
+    Everything else in the url passes to pymongo verbatim: hosts, ``replicaSet``,
+    ``tls=true``, ``authMechanism``, ``tlsCertificateKeyFile``. Option names are
+    compared case-insensitively, as MongoDB reads them. No message repeats the
+    url, whose query can name key files.
+
+    Raises:
+        ValueError: The scheme is not ``mongodb`` or ``mongodb+srv``; the url
+            is not a valid connection string; it carries a user or password; it
+            carries a secret option; it turns certificate verification off; or
+            it sets an option this block has its own key for.
+    """
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        raise ValueError(f"`{key}` is not a valid connection string") from None
+    if parts.scheme.lower() not in _MONGO_SCHEMES:
+        raise ValueError(f"`{key}` must be a mongodb:// or mongodb+srv:// connection string")
+    if "@" in parts.netloc:
+        raise ValueError(
+            f"`{key}` may not carry a user or password; name them under "
+            "`auth.username` and `auth.password_env`"
+        )
+    # MongoDB also takes ';' as the option separator.
+    query = parts.query.replace(";", "&")
+    for name, _value in urllib.parse.parse_qsl(query, keep_blank_values=True):
+        option = name.lower()
+        if option in _SECRET_OPTIONS:
+            raise ValueError(f"`{key}` may not carry `{name}`, a secret")
+        if option in _VERIFY_OFF_OPTIONS:
+            raise ValueError(
+                f"`{key}` may not set `{name}`; no setting turns certificate verification off"
+            )
+        if option in _OPTIONS_WITH_A_KEY:
+            raise ValueError(
+                f"`{key}` may not set `{name}`; this block sets it as "
+                f"`{_OPTIONS_WITH_A_KEY[option]}`"
+            )
+
+
+def _log_route_once(by_url: bool, store: str) -> None:
+    """Log which key reaches the store, once per process."""
+    global _ROUTE_LOGGED
+    if _ROUTE_LOGGED:
+        return
+    _ROUTE_LOGGED = True
+    if by_url:
+        logger.info(
+            "MongoDB archiver reaches its store by `url`; host, port and the "
+            "OSPREY_ARCHIVER_MONGODB_* overrides are not applied"
+        )
+    else:
+        logger.info(f"MongoDB archiver reaches its store at {store} by `host` and `port`")
+
+
+class MongoDBArchiverConnector(ArchiverConnector):
+    """
+    MongoDB archiver connector for historical channel data.
+
+    Provides access to historical channel data stored in MongoDB collections.
+    Documents are expected to have the structure:
+    {date: ISODate(...), CHANNEL1: value1, CHANNEL2: value2, ...}
+
+    Example:
+        >>> config = {
+        >>>     'host': 'mongodb.example.org',
+        >>>     'port': 27017,  # osprey:not-a-port — an external facility store
+        >>>                     # on MongoDB's own protocol port. A store this
+        >>>                     # deployment publishes is on its `mongo` layout
+        >>>                     # slot instead, written by the build.
+        >>>     'name': 'my-archiver-database',
+        >>>     'collection': 'my-archiver-collection',
+        >>>     'auth': {
+        >>>         'source': 'database-auth',
+        >>>         'username': 'my-username',
+        >>>         'password_env': 'MONGODB_READONLY_PASSWORD',
+        >>>     },
+        >>>     'timeout_s': 60,
+        >>> }
+        >>> connector = MongoDBArchiverConnector()
+        >>> await connector.connect(config)
+        >>> df = await connector.get_data(
+        >>>     channels=['BEAM:CURRENT'],
+        >>>     start_date=datetime(2024, 1, 1),
+        >>>     end_date=datetime(2024, 1, 2)
+        >>> )
+    """
+
+    # pymongo exception classes, bound by connect(). Declared here so every
+    # method can reference them on a connector that never completed a connect()
+    # — including the stub connectors tests wire up by hand.
+    _MongoClient = None
+    _ConnectionFailure = None
+    _ConfigurationError = None
+
+    def __init__(self):
+        self._connected = False
+        self._client = None
+        self._collection = None
+        self._timeout = 60
+
+    async def connect(self, config: dict[str, Any]) -> None:
+        """
+        Initialize MongoDB connection.
+
+        Args:
+            config: Configuration with keys:
+                - url: A ``mongodb://`` or ``mongodb+srv://`` connection string
+                  (optional). When set it names the store verbatim: ``host``,
+                  ``port`` and the address overrides are not applied, and
+                  ``auth:`` is optional, ``auth.source`` included.
+                - host: MongoDB host (required without ``url``)
+                - port: MongoDB host port (required without ``url`` — no
+                  default; see the ``port`` resolution below for why there is none)
+                - name: Database name (required)
+                - collection: Collection name (required)
+                - auth.source: Authentication database, the one the user
+                  is defined in (required without ``url``)
+                - auth.username: MongoDB username (required without ``url``)
+                - auth.password_env: Environment variable name for password
+                  (required with ``auth.username``)
+                - timeout_s: Default timeout in seconds (default: 60)
+                - tls.ca_bundle: Absolute path of a CA file to trust (optional);
+                  setting it turns TLS on. Unset, a ``tls=true`` url checks the
+                  store's certificate against the image trust store.
+
+        Raises:
+            ImportError: If pymongo is not installed
+            ValueError: If required config *keys* are missing — an authoring
+                error in config.yml, not a runtime condition
+            ConnectionError: If the store cannot be reached or authenticated
+                against, including when ``auth.password_env`` names a variable that
+                is not set. These are the states a not-yet-deployed project is
+                in, so they carry the deploy hint and reach the agent as a
+                ``connection_error`` rather than an internal error.
+        """
+        try:
+            from pymongo import MongoClient
+            from pymongo.errors import ConfigurationError, ConnectionFailure
+
+            # Store classes in self for lazy import pattern:
+            # 1. Allows module import even if pymongo isn't installed (fails only when connect() is called)
+            # 2. Makes classes available in exception handlers (import scope is local to this method)
+            # 3. Enables reuse in other methods if needed
+            self._MongoClient = MongoClient
+            self._ConnectionFailure = ConnectionFailure
+            self._ConfigurationError = ConfigurationError
+        except ImportError as e:
+            raise ImportError(PYMONGO_INSTALL_HINT) from e
+
+        raw_url = config.get("url")
+        if raw_url is not None and not isinstance(raw_url, str):
+            raise ValueError(f"`{_WHERE}.url` must be a string")
+        url = raw_url if raw_url and raw_url.strip() else None
+        host: str | None = None
+        port: int | None = None
+        override_port: int | None = None
+        if url is not None:
+            # A url names the store verbatim: no host, port or address override applies.
+            check_mongo_url(url, key=f"{_WHERE}.url")
+        else:
+            # Where the store is. The configured value is the host-side truth; a
+            # containerized consumer is handed the in-network address through the
+            # environment and that wins (see _mongo_client.HOST_OVERRIDE_ENV). Resolved before the
+            # required-ness check so an environment-only address is a legitimate
+            # one, and the error below still fires when neither source names a host.
+            override_host, override_port = address_overrides()
+
+            host = override_host or config.get("host")
+            if not host:
+                raise ValueError("host is required for MongoDB archiver")
+
+        db_name = config.get("name")
+        if not db_name:
+            raise ValueError("name (database name) is required for MongoDB archiver")
+
+        collection_name = config.get("collection")
+        if not collection_name:
+            raise ValueError("collection is required for MongoDB archiver")
+
+        auth = config.get("auth")
+        auth_block = auth if isinstance(auth, Mapping) else {}
+        if url is None:
+            # No literal fallback, and deliberately not one. For a store this
+            # deployment publishes, the host port is its ``mongo`` layout slot —
+            # ``deployment.port_base + 801`` — which this package cannot compute:
+            # osprey-connectors is a separate wheel that does not depend on
+            # ``osprey``, so it has no access to ``osprey.port_layout``. The build
+            # always writes ``archiver.mongodb_archiver.port`` from the resolved
+            # base, and an external facility store names its own port, so a missing
+            # key is an authoring error rather than a number to guess: guessing
+            # would dial a port belonging to a different deployment's block.
+            port = override_port if override_port is not None else config.get("port")
+            if port is None:
+                raise ValueError(
+                    "port is required for MongoDB archiver: set "
+                    "archiver.mongodb_archiver.port in config.yml to the store's host "
+                    "port (a project that deploys its own MongoDB gets it written by "
+                    "'osprey build'), or set OSPREY_ARCHIVER_MONGODB_PORT for a "
+                    "container reaching the store on the compose network"
+                )
+
+            # The login is required on this path. A bearer-token block skips these
+            # checks and is refused by name by the reader below.
+            if "token_env" not in auth_block:
+                for leaf in ("username", "password_env"):
+                    if not auth_block.get(leaf):
+                        raise ValueError(f"auth.{leaf} is required for MongoDB archiver")
+                if not auth_block.get("source"):
+                    raise ValueError(
+                        "auth.source (authentication database) is required for MongoDB archiver"
+                    )
+
+        settings = read_connection_settings(
+            config,
+            where=_WHERE,
+            logins=frozenset({"password"}),
+            unsupported_because=(
+                "the MongoDB archiver takes a username and auth.password_env, not a bearer token"
+            ),
+            extra_auth_keys=frozenset({"source"}),
+        )
+        self._timeout = settings.timeout_or(60)
+        login = settings.login
+        username = login.username if login is not None else None
+        password_env = login.password_env if login is not None else None
+        source = auth_block.get("source")
+        auth_source = str(source) if source else None
+        ca_bundle = str(settings.ca_bundle) if settings.ca_bundle is not None else None
+
+        # Get password from environment variable. An unset variable is a
+        # deployment state, not a config error: `osprey up` mints the password
+        # into the project's .env, so this is what a built-but-never-deployed
+        # project hits. ConnectionError so the agent gets an actionable
+        # connection_error envelope instead of an opaque internal error.
+        password: str | None = None
+        if password_env is not None:
+            password = os.getenv(password_env)
+            if not password:
+                raise ConnectionError(
+                    f"Environment variable '{password_env}' is not set, so the MongoDB "
+                    f"archiver has no password to authenticate with. {DEPLOY_HINT}"
+                )
+
+        # The url itself is never logged or put in a message: its query can name key files.
+        store = f"the store named by {_WHERE}.url" if url is not None else f"{host}:{port}"
+        _log_route_once(url is not None, store)
+
+        try:
+            self._client = self._MongoClient(
+                **mongo_client_kwargs(
+                    url=url,
+                    host=host,
+                    port=port,
+                    username=username,
+                    password=password,
+                    auth_source=auth_source,
+                    ca_bundle=ca_bundle,
+                    timeout_s=self._timeout,
+                )
+            )
+
+            # Test connection
+            def test_connection():
+                self._client.admin.command("ping")
+
+            await asyncio.to_thread(test_connection)
+
+            # Get collection
+            self._collection = self._client[db_name][collection_name]
+
+            self._connected = True
+            logger.debug(
+                f"MongoDB Archiver connector initialized: {store}/{db_name}.{collection_name}"
+            )
+
+        except self._ConnectionFailure as e:
+            raise ConnectionError(
+                f"Cannot connect to MongoDB at {store}. "
+                f"Please check connectivity and authentication. {DEPLOY_HINT}"
+            ) from e
+        except self._ConfigurationError as e:
+            raise ConnectionError(f"MongoDB configuration error: {e}") from e
+        except (TimeoutError, OSError) as e:
+            # pymongo loads the CA file while it builds the client, before any ping.
+            if ca_bundle is not None and isinstance(e, CA_FILE_ERRORS):
+                raise ConnectionError(
+                    f"MongoDB TLS setup failed: the CA file named by {_WHERE}.tls.ca_bundle "
+                    f"could not be loaded: {e}"
+                ) from e
+            raise ConnectionError(f"MongoDB connection failed: {e}. {DEPLOY_HINT}") from e
+        except Exception as e:
+            # Last resort - log and re-raise as ConnectionError
+            logger.error(f"Unexpected error connecting to MongoDB: {e}", exc_info=True)
+            raise ConnectionError(f"MongoDB connection failed: {e}. {DEPLOY_HINT}") from e
+
+    async def disconnect(self) -> None:
+        """Cleanup MongoDB connection."""
+        if self._client:
+            try:
+
+                def close_connection():
+                    self._client.close()
+
+                await asyncio.to_thread(close_connection)
+            except Exception as e:
+                logger.warning(f"Error closing MongoDB connection: {e}")
+
+        self._client = None
+        self._collection = None
+        self._connected = False
+        logger.debug("MongoDB Archiver connector disconnected")
+
+    def _connection_error_types(self) -> tuple[type[BaseException], ...]:
+        """pymongo's connection-class exceptions, as an ``except``-ready tuple.
+
+        ``ConnectionFailure`` is the root of pymongo's network-and-server
+        family — ``AutoReconnect``, ``NetworkTimeout`` and
+        ``ServerSelectionTimeoutError`` all derive from it — so catching it
+        covers every way a live connection can go away mid-session. Returns an
+        empty tuple when ``connect()`` never ran and the classes were never
+        bound; an empty tuple in an ``except`` clause simply never matches,
+        which is the correct behaviour there.
+        """
+        return (self._ConnectionFailure,) if self._ConnectionFailure is not None else ()
+
+    def _require_connected(self) -> None:
+        """Raise ``RuntimeError`` unless a live collection is available.
+
+        Raises:
+            RuntimeError: If the connector is not connected.
+        """
+        if not self._connected or self._collection is None:
+            raise RuntimeError("MongoDB archiver not connected")
+
+    async def get_data(
+        self,
+        channels: list[str],
+        start_date: datetime,
+        end_date: datetime,
+        precision_ms: int = 1000,
+        timeout: int | None = None,
+        processing: str = "raw",
+    ) -> pd.DataFrame:
+        """
+        Retrieve historical data from MongoDB collection.
+
+        Args:
+            channels: Channel addresses to retrieve
+            start_date: Start of time range
+            end_date: End of time range
+            precision_ms: Time precision in milliseconds (for downsampling)
+            timeout: Optional timeout in seconds
+            processing: Aggregation applied within each precision_ms bin. One of
+                "raw", "mean", "min", "max", "median", "std", "count". Applied
+                client-side via pandas resampling. Anything else raises ValueError.
+
+        Returns:
+            The canonical long frame — see :meth:`ArchiverConnector.get_data`.
+
+        Raises:
+            RuntimeError: If archiver not connected
+            TimeoutError: If operation times out
+            ConnectionError: If MongoDB cannot be reached, or the connection is
+                lost mid-query — the caller is expected to drop this connector
+                and reconnect
+            TypeError: If start_date or end_date are not datetime objects
+            ValueError: If channels is empty, data retrieval fails, or a
+                non-raw processing mode is requested for a channel that
+                carries non-numeric values
+        """
+        timeout = timeout if timeout is not None else self._timeout
+
+        self._require_connected()
+
+        # pymongo reads naive datetimes as UTC; normalize so a bare wall-clock
+        # means facility-local, as in every other connector.
+        start_utc, end_utc = utc_window(start_date, end_date)
+
+        if not channels:
+            raise ValueError("channels cannot be empty")
+
+        resolved = resolve_processing(processing, precision_ms, start_utc)
+
+        def fetch_data():
+            """Synchronous data fetch function."""
+            # Match any document carrying at least one requested channel: ANDing
+            # existence would silently return nothing for channels archived apart.
+            query = {
+                "date": {"$gte": start_utc, "$lte": end_utc},
+                "$or": [{channel: {"$exists": True}} for channel in channels],
+            }
+
+            # Project only the fields we need: date and requested channels.
+            projection = {"date": 1, **dict.fromkeys(channels, 1)}
+
+            # Query MongoDB collection
+            cursor = self._collection.find(query, projection).sort("date", 1)
+
+            # Convert to list of documents
+            documents = list(cursor)
+
+            if not documents:
+                logger.debug(f"No documents found in date range {start_date} to {end_date}")
+
+            # Group documents into one series per requested channel. A channel absent
+            # from a given document contributes no sample for that channel.
+            timestamps: dict[str, list] = {channel: [] for channel in channels}
+            values: dict[str, list] = {channel: [] for channel in channels}
+            for doc in documents:
+                doc_date = doc.get("date")
+                if doc_date is None:
+                    logger.warning("Document missing 'date' field, skipping")
+                    continue
+                for channel in channels:
+                    if channel in doc:
+                        timestamps[channel].append(doc_date)
+                        values[channel].append(doc[channel])
+
+            # No server-side aggregation to defer to, so every mode — including
+            # "raw" — is binned client-side here.
+            return aggregate_long_frame(
+                {
+                    channel: pd.Series(
+                        values[channel],
+                        index=pd.to_datetime(timestamps[channel], utc=True),
+                        name=channel,
+                    )
+                    for channel in channels
+                },
+                resolved,
+            )
+
+        try:
+            # Use asyncio.wait_for for timeout, asyncio.to_thread for async execution
+            data = await asyncio.wait_for(asyncio.to_thread(fetch_data), timeout=timeout)
+
+            logger.debug(
+                f"Retrieved MongoDB archiver data: {len(data)} rows across {len(channels)} channels"
+            )
+            return data
+
+        except TimeoutError as e:
+            raise TimeoutError(f"MongoDB query timed out after {timeout}s") from e
+        except ConnectionError as e:
+            raise ConnectionError(f"Network connectivity issue with MongoDB: {e}") from e
+        except self._connection_error_types() as e:
+            # A pymongo connection-class failure means the store went away
+            # mid-session. Surfacing it as ConnectionError (rather than the
+            # ValueError the generic branch below would produce) is what makes
+            # connector_error_handler invalidate the cached connector, so the
+            # next tool call reconnects instead of reusing a dead client.
+            raise ConnectionError(f"Lost connection to MongoDB: {e}") from e
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Error retrieving data from MongoDB: {e}") from e
+        except Exception as e:
+            # Log unexpected errors for debugging
+            logger.error(f"Unexpected error retrieving data: {e}", exc_info=True)
+            raise ValueError(f"Error retrieving data from MongoDB: {e}") from e
+
+    async def get_metadata(self, channel: str) -> ArchiverMetadata:
+        """
+        Get archiving metadata for a channel.
+
+        ``archival_start`` and ``archival_end`` are the timestamps of the
+        oldest and newest documents actually holding this channel, read from the
+        store — not a declared or assumed coverage window. An agent that asks
+        how far back the history goes gets the real answer, so a query outside
+        the stored range reads as "not archived that far back" rather than as
+        missing data inside a range it was told existed.
+
+        Args:
+            channel: Name of the process variable
+
+        Returns:
+            ArchiverMetadata; ``is_archived`` is False and both bounds are None
+            when the channel has no stored samples or the store cannot be queried.
+
+        Raises:
+            RuntimeError: If archiver not connected
+        """
+        self._require_connected()
+
+        def stored_extent():
+            """Timestamps of the oldest and newest documents carrying this channel."""
+            # Sorting on 'date' rides the mandatory {date: 1} index, so this is
+            # two index-ordered lookups rather than a collection scan.
+            query = {channel: {"$exists": True}}
+            projection = {"date": 1}
+            oldest = self._collection.find_one(query, projection, sort=[("date", 1)])
+            if oldest is None:
+                return None, None
+            newest = self._collection.find_one(query, projection, sort=[("date", -1)])
+            return oldest.get("date"), (newest or {}).get("date")
+
+        try:
+            first, last = await asyncio.to_thread(stored_extent)
+        except Exception as e:
+            logger.warning(f"Error checking channel metadata: {e}")
+            first = last = None
+
+        return ArchiverMetadata(
+            channel=channel,
+            is_archived=first is not None,
+            archival_start=first,
+            archival_end=last,
+            description=f"MongoDB archived channel: {channel}",
+        )
+
+    async def check_availability(self, channels: list[str]) -> dict[str, bool]:
+        """
+        Check which channels are archived in the MongoDB collection.
+
+        Args:
+            channels: Channel addresses to check
+
+        Returns:
+            Dictionary mapping channel address to availability status
+
+        Raises:
+            RuntimeError: If archiver not connected
+        """
+        self._require_connected()
+
+        def check_channels() -> dict[str, bool]:
+            """Check which channels exist in the collection."""
+            availability = {}
+            for channel in channels:
+                query = {channel: {"$exists": True}}
+                count = self._collection.count_documents(query, limit=1)
+                availability[channel] = count > 0
+            return availability
+
+        try:
+            availability = await asyncio.to_thread(check_channels)
+        except Exception as e:
+            logger.warning(f"Error checking channel availability: {e}")
+            # Return all False on error
+            availability = dict.fromkeys(channels, False)
+
+        return availability

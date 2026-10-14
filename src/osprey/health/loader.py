@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from osprey.health.signatures import stat_signature
-from osprey.utils.workspace import deployment_env_chain, repo_root_for_config
+from osprey_connectors.workspace import deployment_env_chain, repo_root_for_config
 
 if TYPE_CHECKING:
     from osprey.health.config import CategoryRecord, HealthSettings
@@ -91,7 +91,7 @@ def _load_config(
     from osprey.health.records import _load_config_result
 
     def _load() -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        from osprey.utils.config import ConfigBuilder
+        from osprey_connectors.config import ConfigBuilder
 
         builder = ConfigBuilder(str(config_path), load_env=False)
         return builder.raw_config, builder.get_unexpanded_config()
@@ -162,7 +162,7 @@ class HealthConfigLoader:
     def _resolve_path(self) -> Path:
         if self._config_path_override is not None:
             return self._config_path_override
-        from osprey.utils.workspace import resolve_config_path
+        from osprey_connectors.workspace import resolve_config_path
 
         return resolve_config_path()
 

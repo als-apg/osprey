@@ -251,7 +251,7 @@ def _key_for_type(connector_type):
     underivable `live` have no block to name, and that key is the one their
     posture was read from anyway.
 
-    A deliberate restatement of `osprey_connectors.types.writes_enabled_key`.
+    A deliberate restatement of `osprey_connectors.types._writes_enabled_key`.
     A hook runs on the operator's stdlib Python with none of OSPREY installed,
     so it cannot import the framework spelling; the parity test is what keeps
     the two readings from drifting apart.

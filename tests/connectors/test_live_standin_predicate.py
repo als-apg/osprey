@@ -19,7 +19,9 @@ from __future__ import annotations
 import pytest
 
 from osprey_connectors.standin import (
-    ARCHIVER_RECORDER_BLOCK_KEY,
+    _ARCHIVER_RECORDER_BLOCK_KEY as ARCHIVER_RECORDER_BLOCK_KEY,
+)
+from osprey_connectors.standin import (
     ARCHIVER_RECORDER_SERVICE,
     LIVE_STANDIN_PORT_KEY,
     archive_belongs_to_standin,

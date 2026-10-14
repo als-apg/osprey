@@ -71,7 +71,7 @@ def sweep(
     """
     import aioca
 
-    from osprey_connectors.control_system.ca_loop import get_ca_loop
+    from osprey_connectors.control_system._ca_loop import get_ca_loop
 
     async def connect_then_read() -> tuple[list[str], list[str]]:
         # One connect per address, all in flight at once against one absolute

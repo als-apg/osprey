@@ -18,7 +18,7 @@ from fastmcp import FastMCP
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
 from osprey.phoebus_agent_access import DRIVE_TOOL, drive_offered
-from osprey.utils.workspace import load_osprey_config
+from osprey_connectors.workspace import load_osprey_config
 
 if TYPE_CHECKING:
     import mcp.types as mt
@@ -68,7 +68,7 @@ def create_server() -> FastMCP:
         prime_config_builder,
         startup_timer,
     )
-    from osprey.utils.workspace import resolve_workspace_root
+    from osprey_connectors.workspace import resolve_workspace_root
 
     # Snapshot results are persisted through the ArtifactStore, which lives in
     # the workspace singletons — prime them so phoebus_snapshot can save PNGs.

@@ -222,7 +222,7 @@ def configured_web_theme() -> str:
     if from_env:
         return from_env
 
-    from osprey.utils.config import get_config_value
+    from osprey_connectors.config import get_config_value
 
     return str(get_config_value("web.theme", DEFAULT_WEB_THEME) or DEFAULT_WEB_THEME)
 

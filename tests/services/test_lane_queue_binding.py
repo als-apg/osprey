@@ -258,8 +258,8 @@ def deployment(tmp_path, monkeypatch):
         # ``OSPREY_AGENT_DATA_ROOT`` stamp. Anchoring one and not the other is
         # how a lane test reads whatever record this machine last left behind.
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
-        control_context.invalidate_cache()
+        monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+        control_context._invalidate_cache()
 
         monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", _LANE_ONE_TOKEN)
         monkeypatch.setenv("BLUESKY_VA_LAUNCH_TOKEN", _VA_LANE_TOKEN)
@@ -293,7 +293,7 @@ def _session_on(target: str, generation: int = 0) -> None:
     to the host: :func:`target_banner.resolve_control_target` reads this file
     and nothing else.
     """
-    root = posture_store.agent_data_root()
+    root = posture_store._agent_data_root()
     assert root is not None, "the deployment fixture stamps OSPREY_AGENT_DATA_ROOT"
     write_control_context(root, target=target, generation=generation)
 

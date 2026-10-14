@@ -6,8 +6,8 @@ import pytest
 
 from osprey.connectors import types
 from osprey.connectors.control_system.base import WriteOutcome
-from osprey.connectors.control_system.mock_connector import MockConnector
 from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.control_system._mock_connector import MockConnector
 
 
 @pytest.fixture(autouse=True)

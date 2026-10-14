@@ -18,7 +18,7 @@ The file lives at::
 resolved here through :func:`osprey_connectors.workspace.resolve_shared_data_root`
 — that is ``project_root`` (the deployment repo holding ``profile.yml``) joined
 with ``agent_data.base_dir``, defaulting to ``var/agent_data``. The *shared*
-root, deliberately, not :func:`~osprey_connectors.workspace.resolve_agent_data_root`:
+root, deliberately, not the agent-data root resolution in :mod:`osprey_connectors.workspace`:
 the session-scoped root appends ``sessions/<OSPREY_SESSION_ID>``, which a reader
 outside the server's environment cannot reproduce.
 
@@ -195,7 +195,7 @@ TARGET_NAMES: tuple[str, ...] = (TARGET_LIVE, TARGET_VA, TARGET_STANDIN)
 #: names below are: the record and these reports share one directory, and two
 #: spellings of it would make it two. Only the stdlib-only hooks, which can
 #: import neither, restate the literal.
-STATE_DIR_NAME = control_context.STATE_DIR_NAME
+STATE_DIR_NAME = posture_store.CONTROL_STATE_DIR_NAME
 
 #: One report file per server process. The PID in the name is what makes a
 #: stale report sweepable without opening it. Taken from

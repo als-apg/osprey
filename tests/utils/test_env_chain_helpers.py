@@ -20,9 +20,11 @@ import stat
 import pytest
 
 from osprey.utils.dotenv import (
+    _ENV_MERGED_BANNER as ENV_MERGED_BANNER,
+)
+from osprey.utils.dotenv import (
     ENV_CHAIN_FILENAMES,
     ENV_LOCAL_FILENAME,
-    ENV_MERGED_BANNER,
     ENV_SHARED_FILENAME,
     chain_files,
     compose_unsafe_vars_in_chain,

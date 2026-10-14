@@ -9,9 +9,7 @@ import pytest
 from pandas.api.types import is_string_dtype
 
 from osprey.connectors.archiver._timerange import (
-    LONG_COLUMNS,
     PROCESSING_MODES,
-    aggregate_long_frame,
     aggregate_series,
     decimate_raw,
     long_frame,
@@ -19,6 +17,7 @@ from osprey.connectors.archiver._timerange import (
     resolve_processing,
     to_utc,
 )
+from osprey_connectors.archiver._timerange import LONG_COLUMNS, aggregate_long_frame
 
 #: The bin origin these fixtures resolve against. Their samples start at the
 #: epoch, which is exactly where the lattice used to be anchored implicitly,

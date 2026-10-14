@@ -707,7 +707,7 @@ def conceal_scenario_ground_truth(repo: Path, *scenarios: str) -> None:
     would only earn an "Unknown scenario ... ignoring" warning from the engine.
 
     ONLY valid for a scenario whose runtime effect is already materialized
-    somewhere the host-side :class:`~osprey.simulation.engine.SimulationEngine`
+    somewhere the host-side :class:`~osprey_connectors.simulation._engine.SimulationEngine`
     is not: a VA-backed physics fault lives in the container's ``VA_BPM_ERRORS``/
     ``VA_CORR_GAIN`` environment from boot, so the bundle is inert once the stack
     is up. A mock-connector telemetry/archiver scenario (``rf-thermal``,

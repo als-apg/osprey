@@ -40,21 +40,21 @@ _ROWS = [
         types.DOOCS,
         "doocs",
         "DOOCSConnector",
-        "osprey.connectors.control_system.doocs_connector",
+        "osprey_connectors.control_system._doocs_connector",
         "control_system",
     ),
     _Row(
         types.DOOCS_ARCHIVER,
         "doocs_archiver",
         "DOOCSArchiverConnector",
-        "osprey.connectors.archiver.doocs_archiver_connector",
+        "osprey_connectors.archiver._doocs_archiver_connector",
         "archiver",
     ),
     _Row(
         types.TANGO,
         "tango",
         "TangoConnector",
-        "osprey.connectors.control_system.tango_connector",
+        "osprey_connectors.control_system._tango_connector",
         "control_system",
     ),
 ]
@@ -82,7 +82,7 @@ class TestTypeConstants:
         cli_list = (
             types.CLI_CONTROL_SYSTEM_TYPES
             if row.kind == "control_system"
-            else types.CLI_ARCHIVER_TYPES
+            else types._CLI_ARCHIVER_TYPES
         )
         assert row.type_name in cli_list
 

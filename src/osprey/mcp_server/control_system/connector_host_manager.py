@@ -83,7 +83,7 @@ target the deployment has moved off.
 Why the launch handshake bypasses the proxy
 -------------------------------------------
 ``init`` and ``spawn_probe`` are *supervisor* methods, not connector methods,
-and :class:`~osprey_connectors.ipc.proxy.ConnectorHostProxy` deliberately
+and :class:`~osprey_connectors.ipc.ConnectorHostProxy` deliberately
 exposes only the connector surface. The handshake is spoken here on the child's
 raw pipes with the public frame codec, and the proxy is constructed only once
 the child has proven itself — so a child that fails to launch never becomes a
@@ -94,7 +94,7 @@ Attributing a killed child's outstanding requests
 When the drain deadline expires, the requests still in flight on child A have
 to fail, and they have to say *why*. The proxy fails them with whatever ended
 its read stream, so this module hands it a reader wrapper
-(:class:`~osprey_connectors.ipc.launch.AttributedReader`) that can be told the retirement reason before the
+(:class:`~osprey_connectors.ipc.AttributedReader`) that can be told the retirement reason before the
 kill; the resulting :class:`ConnectionError` then names the switch rather than
 an anonymous end-of-pipe.
 """
@@ -124,27 +124,28 @@ from osprey.mcp_server.control_system.target_eligibility import (
     endpoint_is_live_standin,
 )
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
-from osprey_connectors.control_system.base import is_readonly_run
-from osprey_connectors.ipc import frames
-from osprey_connectors.ipc.launch import CHILD_MODULE, AttributedReader, host_env, spawn_host
-from osprey_connectors.ipc.launch import terminate_host as _terminate_host
-from osprey_connectors.ipc.proxy import ConnectorHostProxy
-from osprey_connectors.ipc.verification import (
+from osprey_connectors.control_system import is_readonly_run
+from osprey_connectors.ipc import (
+    CHILD_MODULE,
     ROLE_READ_ONLY,
     ROLE_WRITE_ACCESS,
+    AttributedReader,
+    ConnectorHostProxy,
     Endpoint,
+    ErrorFrame,
+    FrameReader,
     TargetDerivation,
     Verification,
     connector_block,
     derive_endpoints,
+    encode_request,
+    host_env,
+    new_request_id,
+    spawn_host,
     verify_host_report,
 )
-from osprey_connectors.types import (
-    _SIMULATED_TYPES,
-    TARGET_LIVE,
-    TARGET_STANDIN,
-    TARGET_VA,
-)
+from osprey_connectors.ipc import terminate_host as _terminate_host
+from osprey_connectors.types import SIMULATED_TYPES, TARGET_LIVE, TARGET_STANDIN, TARGET_VA
 from osprey_connectors.types import baseline_target as types_baseline_target
 from osprey_connectors.types import switch_capable as types_switch_capable
 
@@ -175,7 +176,7 @@ __all__ = [
 # is the defense-in-depth half of that one rule, and a rule spelled in two
 # places is a rule its two halves can come to disagree about.
 #
-# ``_SIMULATED_TYPES`` names the connector types that serve a machine nobody
+# ``SIMULATED_TYPES`` names the connector types that serve a machine nobody
 # has to be careful around. It labels the state file's per-target display
 # metadata, and a type added to the connector package but forgotten in a local
 # copy would put "Real machine" on a simulator's row.
@@ -325,18 +326,18 @@ class _LaunchChannel:
     def __init__(self, target: str, process: Any) -> None:
         self._target = target
         self._process = process
-        self._frames = frames.FrameReader()
+        self._frames = FrameReader()
 
     async def request(self, method: str, kwargs: dict[str, Any], timeout: float, stage: str) -> Any:
-        request_id = frames.new_request_id()
+        request_id = new_request_id()
         try:
-            self._process.stdin.write(frames.encode_request(request_id, method, kwargs))
+            self._process.stdin.write(encode_request(request_id, method, kwargs))
             await self._process.stdin.drain()
         except (OSError, RuntimeError, ConnectionError, AttributeError) as exc:
             raise self._failure(stage, f"could not send its {method!r} request: {exc}") from exc
 
         frame = await self._reply(request_id, method, timeout, stage)
-        if isinstance(frame, frames.ErrorFrame):
+        if isinstance(frame, ErrorFrame):
             raise self._failure(stage, f"failed {method!r}: {frame.message}")
         return frame.value
 
@@ -589,7 +590,7 @@ def target_display_metadata(
             # asked: a stand-in is a real-machine posture, so every strict
             # limit, approval prompt and banner hardware gets, it gets. Only
             # the name on the label moves.
-            "real_machine": ceiling.connector_type not in _SIMULATED_TYPES,
+            "real_machine": ceiling.connector_type not in SIMULATED_TYPES,
             "probe_channel": str(block.get(PROBE_CHANNEL_KEY) or ""),
         }
     return metadata
@@ -638,7 +639,7 @@ def _label(target: str, connector_type: str | None, *, standin: bool = False) ->
         return "virtual accelerator (simulation)"
     if connector_type is None:
         return "live machine (not configured)"
-    if connector_type in _SIMULATED_TYPES:
+    if connector_type in SIMULATED_TYPES:
         return f"live target on a simulated connector ({connector_type})"
     # The parenthesis is the whole of what an operator is told differently, and
     # it belongs to the 'standin' target alone. Two conjuncts, both required:
@@ -675,7 +676,7 @@ def _display_name(
         return override.strip()
     if target == TARGET_VA:
         return _DISPLAY_NAME_DEFAULTS["va"]
-    if connector_type in _SIMULATED_TYPES:
+    if connector_type in SIMULATED_TYPES:
         return _DISPLAY_NAME_DEFAULTS["simulated"]
     if target == TARGET_STANDIN and standin:
         return _DISPLAY_NAME_DEFAULTS["standin"]
@@ -685,6 +686,13 @@ def _display_name(
 # ---------------------------------------------------------------------------
 # Startup sweep
 # ---------------------------------------------------------------------------
+
+
+#: Every module name a connector-host child has run under. A host started by the
+#: release before ``ipc/host.py`` became ``ipc/_host.py`` is still running under
+#: the old name after an upgrade, and the sweep exists precisely to clear the
+#: children a dead predecessor left behind, so it has to recognise both.
+CONNECTOR_HOST_MODULES = (CHILD_MODULE, "osprey_connectors.ipc.host")
 
 
 def looks_like_a_connector_host(pid: int) -> bool:
@@ -714,7 +722,7 @@ def looks_like_a_connector_host(pid: int) -> bool:
     if completed.returncode != 0 or not command:
         # ps found nothing: the process is gone, and the kill below will say so.
         return True
-    return CHILD_MODULE in command
+    return any(module in command for module in CONNECTOR_HOST_MODULES)
 
 
 def kill_orphans(pids: list[int], *, grace_s: float = TERMINATE_GRACE_S) -> list[int]:

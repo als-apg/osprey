@@ -212,7 +212,7 @@ def deployment(control_context_root, monkeypatch):
     """
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION_KEY)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     target_state.write_server_record({"live": {"label": "Live"}, "va": {"label": "VA"}})
     target_state.publish_reachability(
         {
@@ -228,7 +228,7 @@ def deployment(control_context_root, monkeypatch):
     )
     write_record()
     yield control_context_root
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 @pytest.fixture
@@ -463,7 +463,7 @@ class TestOwnership:
         """No record is not an error here: a claim that failed retries next tick."""
         manager = FakeManager()
         install_context(manager, monkeypatch)
-        fixtures.write_payload(control_context.record_path_under(root()), "not a record")
+        fixtures.write_payload(control_context._record_path_under(root()), "not a record")
         monkeypatch.setattr(
             control_context, "write_record", lambda *a, **k: (_ for _ in ()).throw(OSError("no"))
         )
@@ -821,7 +821,7 @@ class TestSwitchRequests:
             applied_generation=0,
             last_switch={
                 "generation": 0,
-                "status": control_context.REPORT_APPLYING,
+                "status": control_context._REPORT_APPLYING,
                 "at": datetime.now(UTC).isoformat(),
                 "expires_at": (datetime.now(UTC) + timedelta(seconds=60)).isoformat(),
             },
@@ -847,7 +847,7 @@ class TestSwitchRequests:
             applied_generation=0,
             last_switch={
                 "generation": 0,
-                "status": control_context.REPORT_APPLYING,
+                "status": control_context._REPORT_APPLYING,
                 "at": (datetime.now(UTC) - timedelta(seconds=120)).isoformat(),
                 "expires_at": (datetime.now(UTC) - timedelta(seconds=60)).isoformat(),
             },

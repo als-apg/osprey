@@ -163,7 +163,7 @@ from osprey.services.virtual_accelerator.manifest.standin_defaults import (
     STANDIN_BPM_ERRORS_DEFAULT,
     parse_standin_default,
 )
-from osprey_connectors.control_system.base import ChannelValue
+from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.types import LIVE_STANDIN, TARGET_LIVE, TARGET_STANDIN, TARGET_VA
 from tests.va.e2e import conftest as e2e_conftest

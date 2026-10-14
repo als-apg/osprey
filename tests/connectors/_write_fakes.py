@@ -14,7 +14,7 @@ from osprey.connectors.control_system.base import (
     ControlSystemConnector,
     WriteOutcome,
 )
-from osprey.connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.types import WRITES_ENABLED_KEY
 from tests.connectors._epics_fakes import FakeAioca, FakeChannel, ca_connector
 

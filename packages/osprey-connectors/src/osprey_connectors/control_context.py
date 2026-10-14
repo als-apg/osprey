@@ -3,8 +3,8 @@
 Which machine a deployment is pointed at, how many times that has moved, and
 what one operator has narrowed are properties of the deployment as that
 operator holds it, not of any process tree inside it. They live in a single
-JSON file, :data:`RECORD_FILENAME` inside the acting identity's directory
-under :data:`STATE_DIR_NAME` (:func:`state_dir`), and this module is where it
+JSON file, :data:`_RECORD_FILENAME` inside the acting identity's directory
+under :data:`~osprey_connectors.posture_store.CONTROL_STATE_DIR_NAME` (:func:`_state_dir`), and this module is where it
 is written and read.
 
 The file has exactly one writer at a time — its **owner**: the web terminal
@@ -16,7 +16,7 @@ them as the contract; a change here is a change there.
 
 **1. Where the file is.** :func:`record_path` — the record sits in the same
 directory as the posture store, and the root resolves by that store's rule 1
-(:func:`osprey_connectors.posture_store.agent_data_root`) rather than by a
+(:func:`osprey_connectors.posture_store._agent_data_root`) rather than by a
 second derivation here: a record one process writes and another looks for
 somewhere else is worse than no record at all. An unresolvable root makes
 :func:`record_path` ``None``, which reads as "no record" and makes
@@ -24,7 +24,7 @@ somewhere else is worse than no record at all. An unresolvable root makes
 rather than writing where no reader will look.
 
 **2. What a payload must carry.** ``schema`` (exactly
-:data:`SCHEMA_VERSION`), ``target`` (a member of
+:data:`_SCHEMA_VERSION`), ``target`` (a member of
 :data:`~osprey_connectors.types.CONTROL_TARGETS`) and ``generation`` (a
 non-negative integer) are the record's identity. If any of the three is
 absent, of the wrong type, or unrecognised, there is no record: this is a
@@ -36,7 +36,7 @@ own, because each has a meaningful "not stated" value that a reader can act
 on safely:
 
 * ``owner`` → ``None``, which is *ownerless* — the state a claim is for. An
-  owner that does not name one of :data:`OWNER_KINDS` and a live PID is not
+  owner that does not name one of :data:`_OWNER_KINDS` and a live PID is not
   an owner anybody should defer to, so reading it as ownerless is what lets
   the next process take the file over instead of stalling behind a ghost.
 * ``posture`` → ``{}``, no narrowings, the deployment ceiling in charge. It
@@ -114,18 +114,11 @@ from osprey_connectors.types import CONTROL_TARGETS
 logger = logging.getLogger("osprey_connectors.control_context")
 
 __all__ = [
-    "REPORT_APPLIED",
-    "REPORT_APPLYING",
-    "REPORT_FAILED",
     "OWNER_CONTROLS_SERVER",
-    "OWNER_KINDS",
     "OWNER_WEB_TERMINAL",
-    "RECORD_FILENAME",
     "REPORT_FILE_GLOB",
     "REPORT_FILE_PREFIX",
     "REPORT_FILE_SUFFIX",
-    "SCHEMA_VERSION",
-    "STATE_DIR_NAME",
     "SWITCH_APPLIED",
     "SWITCH_REFUSED",
     "ControlContext",
@@ -133,29 +126,21 @@ __all__ = [
     "ServerReport",
     "applied_detail",
     "blocking_pids",
-    "invalidate_cache",
-    "is_process_alive",
-    "live_owner",
-    "live_report_payloads",
-    "live_reports",
-    "owned_here",
-    "parse_posture",
     "converged",
     "file_signature",
-    "parse_record",
+    "is_process_alive",
+    "live_owner",
+    "live_reports",
+    "owned_here",
     "parse_report",
     "read_record",
     "read_report",
     "record_path",
-    "record_path_under",
-    "report_path",
-    "report_path_under",
     "report_paths",
-    "state_dir",
     "sweep_dead",
     "terminus",
-    "write_json_atomic",
     "unchanged_detail",
+    "write_json_atomic",
     "write_record",
     "write_terminus",
 ]
@@ -163,23 +148,18 @@ __all__ = [
 #: The payload version. There is exactly one, and a payload that does not
 #: spell it is not this record: hooks and record change together, and a
 #: deployment is regenerated rather than migrated.
-SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 1
 
-#: The record's filename inside :func:`state_dir`. The stdlib hooks restate
+#: The record's filename inside :func:`_state_dir`. The stdlib hooks restate
 #: this literal.
-RECORD_FILENAME = "control_context.json"
+_RECORD_FILENAME = "control_context.json"
 
-#: The tree of per-identity directories the record shares with the posture
-#: store, the per-server reports and the request files — one directory per
-#: identity, each holding every one of those families. Taken from the store
-#: rather than re-spelled so one directory cannot be two directories.
-STATE_DIR_NAME = posture_store.STATE_DIR_NAME
 
 #: The two kinds of process that can own the record. A web terminal outranks a
 #: controls server — it is the one an operator is looking at.
 OWNER_WEB_TERMINAL = "web_terminal"
 OWNER_CONTROLS_SERVER = "controls_server"
-OWNER_KINDS = frozenset({OWNER_WEB_TERMINAL, OWNER_CONTROLS_SERVER})
+_OWNER_KINDS = frozenset({OWNER_WEB_TERMINAL, OWNER_CONTROLS_SERVER})
 
 #: The two termini a switch request can reach in the record. ``applied`` moved
 #: the target and minted a generation; ``refused`` moved nothing.
@@ -193,11 +173,11 @@ SWITCH_REFUSED = "refused"
 #: whose server it is. Distinct from the record's :data:`SWITCH_APPLIED` /
 #: :data:`SWITCH_REFUSED`, which are a request's terminus rather than a
 #: server's progress.
-REPORT_APPLYING = "applying"
-REPORT_APPLIED = "applied"
-REPORT_FAILED = "failed"
+_REPORT_APPLYING = "applying"
+_REPORT_APPLIED = "applied"
+_REPORT_FAILED = "failed"
 
-#: One report file per controls server, in :func:`state_dir` beside the record.
+#: One report file per controls server, in :func:`_state_dir` beside the record.
 #: The PID in the name is the address and is what makes a report left behind by
 #: a killed server sweepable without opening it.
 REPORT_FILE_PREFIX = "server_"
@@ -226,7 +206,7 @@ class Owner:
     """The process currently allowed to write the record.
 
     Attributes:
-        kind: One of :data:`OWNER_KINDS`.
+        kind: One of :data:`_OWNER_KINDS`.
         pid: The owning process's PID — how every other process decides
             whether the owner is still alive.
         port: The web terminal's port, so a follower can name where the owner
@@ -274,11 +254,11 @@ class ControlContext:
         """This record as the JSON object :func:`write_record` stores.
 
         The five contract fields and the schema, and nothing else: a payload
-        round-trips through :func:`parse_record` unchanged, and a key some
+        round-trips through :func:`_parse_record` unchanged, and a key some
         future version added does not survive a rewrite by this one.
         """
         return {
-            "schema": SCHEMA_VERSION,
+            "schema": _SCHEMA_VERSION,
             "owner": None if self.owner is None else self.owner.to_payload(),
             "target": self.target,
             "generation": self.generation,
@@ -290,7 +270,7 @@ class ControlContext:
 # -- path resolution --------------------------------------------------------
 
 
-def state_dir() -> Path | None:
+def _state_dir() -> Path | None:
     """The directory the record lives in, or ``None`` when unresolvable.
 
     Rule 1 of the module contract — the acting identity's directory, or the
@@ -300,7 +280,7 @@ def state_dir() -> Path | None:
     return posture_store.state_dir()
 
 
-def record_path_under(root: Path) -> Path:
+def _record_path_under(root: Path) -> Path:
     """The record's path under an explicit agent-data *root*.
 
     The one place the three path hops are spelled, for a caller that holds a
@@ -308,7 +288,7 @@ def record_path_under(root: Path) -> Path:
     itself acting as — a test fixture, and any same-process writer.
 
     The identity hop is :func:`~osprey_connectors.identity.acting_identity`,
-    the same rung :func:`state_dir` ends on, so a caller that holds the root
+    the same rung :func:`_state_dir` ends on, so a caller that holds the root
     this process is stamped with names the file this process reads. A writer
     preparing ANOTHER identity's directory is not that caller and gets the
     wrong path here; it names the identity instead, through
@@ -316,7 +296,7 @@ def record_path_under(root: Path) -> Path:
     The container bind deliberately does not apply: a caller passing a root has
     said which tree it means, and that is a statement about the host layout.
     """
-    return root / STATE_DIR_NAME / acting_identity() / RECORD_FILENAME
+    return root / posture_store.CONTROL_STATE_DIR_NAME / acting_identity() / _RECORD_FILENAME
 
 
 def record_path() -> Path | None:
@@ -326,8 +306,8 @@ def record_path() -> Path | None:
     empty deployment, and for a writer it is what a route reports as
     ``store_unavailable``.
     """
-    directory = state_dir()
-    return None if directory is None else directory / RECORD_FILENAME
+    directory = _state_dir()
+    return None if directory is None else directory / _RECORD_FILENAME
 
 
 # -- parsing ----------------------------------------------------------------
@@ -356,22 +336,22 @@ def _parse_owner(value: Any) -> Owner | None:
         return None
     kind = value.get("kind")
     pid = _positive_int(value.get("pid"))
-    if kind not in OWNER_KINDS or pid is None:
+    if kind not in _OWNER_KINDS or pid is None:
         return None
     return Owner(kind=kind, pid=pid, port=_positive_int(value.get("port")))
 
 
-def parse_posture(value: Any) -> dict[str, str]:
+def _parse_posture(value: Any) -> dict[str, str]:
     """One ``posture`` value as ``{target: "sandbox"}`` — narrowings only.
 
     The posture entry grammar (rule 2 of the store's contract), applied by that
     module's own parser rather than restated here: two filters that disagree
     about which narrowings survive is a narrowing that silently does not apply.
     """
-    return posture_store.parse_posture_value(value)
+    return posture_store._parse_posture_value(value)
 
 
-def parse_record(raw: Any) -> ControlContext | None:
+def _parse_record(raw: Any) -> ControlContext | None:
     """Decode a record, or ``None`` when it states no usable context.
 
     Accepts the decoded JSON object or the raw text/bytes of one, so a reader
@@ -389,7 +369,7 @@ def parse_record(raw: Any) -> ControlContext | None:
             return None
     if not isinstance(raw, dict):
         return None
-    if raw.get("schema") is not SCHEMA_VERSION:
+    if raw.get("schema") is not _SCHEMA_VERSION:
         # Identity comparison, so a JSON ``true`` cannot pass for schema 1.
         return None
     target = raw.get("target")
@@ -403,7 +383,7 @@ def parse_record(raw: Any) -> ControlContext | None:
         target=target,
         generation=generation,
         owner=_parse_owner(raw.get("owner")),
-        posture=parse_posture(raw.get("posture")),
+        posture=_parse_posture(raw.get("posture")),
         last_switch=dict(last_switch) if isinstance(last_switch, dict) else None,
     )
 
@@ -467,7 +447,7 @@ def _read(path: Path) -> ControlContext | None:
         # "no record" instead of an exception raised inside a write path.
         logger.warning("Could not read the control-context record at %s", path, exc_info=True)
         return None
-    return parse_record(raw)
+    return _parse_record(raw)
 
 
 def read_record(*, path: Path | None = None) -> ControlContext | None:
@@ -492,7 +472,7 @@ def read_record(*, path: Path | None = None) -> ControlContext | None:
     return record
 
 
-def invalidate_cache() -> None:
+def _invalidate_cache() -> None:
     """Forget every parsed file. For tests and for a process that moved roots."""
     with _CACHE_LOCK:
         _CACHE.clear()
@@ -508,7 +488,7 @@ def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     only within one filesystem — and is removed if the dump fails, so a failed
     write leaves neither half a file nor litter beside it.
 
-    Every file in :func:`state_dir` is written this way, the record and the
+    Every file in :func:`_state_dir` is written this way, the record and the
     per-server reports and requests alike: they are read by processes that
     never coordinate with the writer, so a reader must never be able to see
     half of one.
@@ -624,7 +604,7 @@ def is_process_alive(pid: object) -> bool:
 def _pid_from_filename(name: str, prefix: str, suffix: str) -> int | None:
     """The PID *name* encodes, or ``None`` when it encodes none.
 
-    Shared by every family of file in :func:`state_dir`: each is named for the
+    Shared by every family of file in :func:`_state_dir`: each is named for the
     process that owns it precisely so a sweeper can judge it without opening
     it, and a name that does not follow the rule is judged the same way in all
     of them — no PID, therefore no live owner.
@@ -910,37 +890,37 @@ def parse_report(raw: Any) -> ServerReport | None:
     )
 
 
-def report_path_under(root: Path, server_pid: object) -> Path:
+def _report_path_under(root: Path, server_pid: object) -> Path:
     """The report path of *server_pid* under an explicit agent-data *root*.
 
-    Through the same three hops as :func:`record_path_under`, identity
+    Through the same three hops as :func:`_record_path_under`, identity
     included: every family of file in this directory moves together, so a
     caller that finds the record under a root finds the reports beside it.
     """
     return (
         root
-        / STATE_DIR_NAME
+        / posture_store.CONTROL_STATE_DIR_NAME
         / acting_identity()
         / f"{REPORT_FILE_PREFIX}{server_pid}{REPORT_FILE_SUFFIX}"
     )
 
 
-def report_path(server_pid: object) -> Path | None:
+def _report_path(server_pid: object) -> Path | None:
     """The report path of *server_pid*, or ``None`` without an agent-data root."""
-    directory = state_dir()
+    directory = _state_dir()
     if directory is None:
         return None
     return directory / f"{REPORT_FILE_PREFIX}{server_pid}{REPORT_FILE_SUFFIX}"
 
 
 def report_paths() -> list[Path]:
-    """Every report file in :func:`state_dir`, sorted. Empty when there is none.
+    """Every report file in :func:`_state_dir`, sorted. Empty when there is none.
 
     Never raises: no agent-data root, no directory and an unreadable one all
     answer "no reports", the same as an empty deployment, because a caller
     describing a fleet has the same nothing to say in each case.
     """
-    directory = state_dir()
+    directory = _state_dir()
     if directory is None:
         return []
     try:
@@ -997,7 +977,7 @@ def read_report(path: Path) -> ServerReport | None:
     return None if entry is None else entry[1]
 
 
-def live_report_payloads(
+def _live_report_payloads(
     entries: Iterable[Path],
     *,
     is_alive: Callable[[object], bool] = is_process_alive,
@@ -1039,7 +1019,7 @@ def live_reports(
 
     Args:
         entries: Report paths; :func:`report_paths` when omitted.
-        is_alive: As for :func:`live_report_payloads`.
+        is_alive: As for :func:`_live_report_payloads`.
     """
     paths = report_paths() if entries is None else entries
     reports: list[ServerReport] = []
@@ -1221,7 +1201,7 @@ def blocking_pids(
     for report in fleet:
         block = _switch_at(report, record.generation) or {}
         status = block.get("status")
-        if status == REPORT_APPLYING and not _holds_no_connector(report):
+        if status == _REPORT_APPLYING and not _holds_no_connector(report):
             bound = _bound_epoch(block)
             if bound is None or reference <= bound:
                 # A swap in flight: nobody launches anywhere until it lands,
@@ -1234,7 +1214,7 @@ def blocking_pids(
                 continue
         if not session or report.session != session:
             continue
-        if status in (REPORT_APPLYING, REPORT_FAILED) or _bound_off_record(report, record):
+        if status in (_REPORT_APPLYING, _REPORT_FAILED) or _bound_off_record(report, record):
             blocked.add(report.server_pid)
     return tuple(sorted(blocked))
 

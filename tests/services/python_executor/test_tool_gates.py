@@ -76,9 +76,9 @@ def _no_ambient_deployment(control_context_root, monkeypatch):
     from osprey_connectors import posture_store
 
     monkeypatch.delenv("OSPREY_CONTROL_TARGET", raising=False)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     yield control_context_root
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 @pytest.fixture
@@ -378,9 +378,9 @@ def narrowed_session(control_context_root, monkeypatch):
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
 
     write_control_context(control_context_root, target="live", posture={"live": "sandbox"})
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     yield control_context_root
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 #: The remedy sentence each source must carry, and the one it must NOT.

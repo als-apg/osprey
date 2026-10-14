@@ -61,9 +61,9 @@ def agent_root(tmp_path, monkeypatch):
         posture.CONTROL_TARGET_ENV_VAR,
     ):
         monkeypatch.delenv(marker, raising=False)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     yield tmp_path
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 def write_record(root, posture_field, *, target: str = "live"):
@@ -76,7 +76,7 @@ def write_record(root, posture_field, *, target: str = "live"):
     path = write_control_context(
         root, target=target, generation=0, posture=posture_field, owned_by=None
     )
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     return path
 
 
@@ -98,7 +98,7 @@ def rewrite_record(root, posture_field, *, target: str = "live"):
         posture=dict(posture_field),
         last_switch=None,
     )
-    return control_context.write_record(record, path=control_context.record_path_under(root))
+    return control_context.write_record(record, path=control_context._record_path_under(root))
 
 
 def in_session(monkeypatch, key: str = SESSION_KEY) -> None:
@@ -291,10 +291,10 @@ class TestDegradation:
         assert posture.posture() == posture.POSTURE_WRITES
 
     def test_a_corrupt_record(self, agent_root):
-        path = control_context.record_path_under(agent_root)
+        path = control_context._record_path_under(agent_root)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{not json at all")
-        posture_store.invalidate_cache()
+        posture_store._invalidate_cache()
 
         assert posture.posture() == posture.POSTURE_WRITES
 
@@ -419,7 +419,7 @@ class TestWireContract:
         assert posture.CONTROL_TARGET_ENV_VAR == executor.ENV_CONTROL_TARGET
 
     def test_the_agent_data_root_env_matches_the_record_reader(self):
-        assert posture.OSPREY_AGENT_DATA_ROOT == posture_store.AGENT_DATA_ROOT_ENV_VAR
+        assert posture.OSPREY_AGENT_DATA_ROOT == posture_store._AGENT_DATA_ROOT_ENV_VAR
 
     def test_the_posture_spellings_match_the_record_reader(self):
         assert posture.POSTURE_SANDBOX == posture_store.POSTURE_SANDBOX

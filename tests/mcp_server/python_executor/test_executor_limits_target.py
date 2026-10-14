@@ -22,7 +22,7 @@ import pytest
 
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context
-from osprey_connectors.control_system.limits_validator import LimitsValidator
+from osprey_connectors.control_system._limits_validator import LimitsValidator
 
 
 def _record(target: str) -> control_context.ControlContext:

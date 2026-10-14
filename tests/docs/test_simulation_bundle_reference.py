@@ -16,7 +16,7 @@ import textwrap
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
-from osprey.simulation.engine import SimulationEngine, resolve_active_scenarios
+from osprey_connectors.simulation._engine import SimulationEngine, resolve_active_scenarios
 
 PAGE = (
     Path(__file__).resolve().parents[2]
@@ -114,7 +114,7 @@ def test_the_page_names_the_loaders_vocabulary() -> None:
     """
     from dataclasses import fields
 
-    from osprey_connectors.simulation.machine import (
+    from osprey_connectors.simulation._machine import (
         _ATTACHMENT_KEYS,
         _COUPLING_KEYS,
         _DRIVER_KEYS,

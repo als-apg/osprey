@@ -468,7 +468,7 @@ def parse_time_bound(value: str | float, *, end: bool) -> datetime:
     Raises:
         ValueError: If `value` is none of the above.
     """
-    from osprey.utils.config import localize_facility
+    from osprey_connectors.config import localize_facility
 
     if isinstance(value, bool):
         raise ValueError(f"not a date, a time or epoch seconds: {value!r}")

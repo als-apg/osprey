@@ -47,7 +47,7 @@ REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-conne
 #: The mock connector by dotted path: what lets a test *serve* ``live`` from a
 #: real child on a machine with no Channel Access, which is what nearly every
 #: test here does — hence this module's default.
-SERVED_LIVE_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
+SERVED_LIVE_TYPE = "osprey_connectors.control_system._mock_connector.MockConnector"
 #: A Channel Access type, for the tests that need ``live`` to read as a real
 #: machine rather than be served by one. Nothing is spawned from it.
 CA_LIVE_TYPE = EPICS
@@ -98,8 +98,8 @@ gateway does to a put.
 import asyncio
 import os
 
-from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
-from osprey_connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._mock_connector import MockConnector
 
 REFUSE_CHANNEL = "FIXTURE:REFUSE"
 SLOW_CHANNEL = "FIXTURE:SLOW"
@@ -302,10 +302,10 @@ def state_root(tmp_path, monkeypatch):
     tests are running from.
     """
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
-    control_context.invalidate_cache()
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    control_context._invalidate_cache()
     yield tmp_path
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
 
 
 @pytest.fixture
@@ -380,12 +380,12 @@ def posture_root(tmp_path, monkeypatch):
     parent does.
     """
     root = tmp_path / "agent_data"
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", POSTURE_SESSION)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 # ------------------------------------------------------------------- helpers
@@ -402,4 +402,4 @@ async def started_on(factory, target, **overrides):
 def narrow(root, *targets):
     """Record the operator's narrowing of *targets* on this deployment."""
     write_control_context(root, posture=dict.fromkeys(targets, posture_store.POSTURE_SANDBOX))
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()

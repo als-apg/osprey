@@ -46,7 +46,8 @@ import pytest
 from osprey.cli import phase_reporter
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.deployment import container_lifecycle
-from osprey.simulation import archiver_seed as seed_mod
+from osprey_connectors import simulation
+from osprey_connectors.simulation import _archiver_seed as seed_mod
 
 #: The ``(1.2s)`` / ``(2m03s)`` suffix ``Phase.step`` appends to a slow lap.
 _DURATION = re.compile(r" \((?:\d+\.\d+s|\d+m\d{2}s)\)$")
@@ -290,16 +291,16 @@ def archiver_stubs(monkeypatch):
         retention_days=7, hot_span_hours=6, hot_cadence_sec=1, tail_cadence_sec=60
     )
     monkeypatch.setattr(
-        seed_mod, "SeedKnobs", SimpleNamespace(from_config=staticmethod(lambda config: knobs))
+        simulation, "SeedKnobs", SimpleNamespace(from_config=staticmethod(lambda config: knobs))
     )
-    monkeypatch.setattr(seed_mod, "seed_fingerprint", lambda *a, **k: "fp")
+    monkeypatch.setattr(simulation, "seed_fingerprint", lambda *a, **k: "fp")
     monkeypatch.setattr(
-        seed_mod,
+        simulation,
         "compare_fingerprint",
         lambda collection, fingerprint: SimpleNamespace(state=seed_mod.SeedState.ABSENT),
     )
     monkeypatch.setattr(
-        seed_mod, "seed_base", lambda *a, **k: SimpleNamespace(describe=lambda: "seeded")
+        simulation, "seed_base", lambda *a, **k: SimpleNamespace(describe=lambda: "seeded")
     )
 
     class _Collection:

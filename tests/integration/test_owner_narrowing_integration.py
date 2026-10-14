@@ -9,7 +9,7 @@ bluesky_bridge/test_runs*.py`` pins the run-record projection against literal
 manager documents. Here the whole chain runs at once and nobody stands in for
 the decision: a real plan wrapper binds the owner a queue item carried, a real
 ``RunEngine`` schedules a real device's ``set``, the REAL reference monitor in
-``osprey_connectors.control_system.base`` asks the REAL store, and the store
+``osprey_connectors.control_system._base`` asks the REAL store, and the store
 reads a real provisioned tree. What the monitor answers is then carried out to
 the two surfaces a person reads — the run record's ``error`` and the worker's
 log — rather than asserted at the seam it was decided in.
@@ -63,7 +63,7 @@ from osprey.services.bluesky_bridge.plan_fields import MovableChannel
 from osprey.services.bluesky_bridge.queue_backend import RUN_ID_META_KEY
 from osprey.services.bluesky_bridge.session_upload import install_session_plan
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system.mock_connector import MockConnector
+from osprey_connectors.control_system._mock_connector import MockConnector
 from osprey_connectors.factory import (
     ConnectorFactory,
     isolated_connector_registries,
@@ -71,7 +71,9 @@ from osprey_connectors.factory import (
 from osprey_connectors.posture_store import (
     NO_OWNER,
     RESERVED_OWNER_KWARG,
-    StoreVerdict,
+)
+from osprey_connectors.posture_store import (
+    _StoreVerdict as StoreVerdict,
 )
 
 #: The person whose chip narrows the target in every row that has a narrowing.
@@ -215,17 +217,17 @@ def control_context_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ite
     the way out as well as in: a run that failed mid-plan would otherwise hand
     its owner to the next test.
     """
-    tree = tmp_path / posture_store.STATE_DIR_NAME
+    tree = tmp_path / posture_store.CONTROL_STATE_DIR_NAME
     tree.mkdir(parents=True)
-    (tree / posture_store.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
+    (tree / posture_store._CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
     monkeypatch.delenv(posture_store.CONTROL_OWNER_ENV_VAR, raising=False)
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
     monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     posture_store._owner_var.set(NO_OWNER)
     yield tree
     posture_store._owner_var.set(NO_OWNER)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 @pytest.fixture
@@ -267,7 +269,7 @@ def connector(armed_deployment: None) -> Iterator[_RecordingMockConnector]:  # n
 
 def narrow_for(tree: Path, owner: str, target: str = _TARGET) -> Path:
     """Record *owner*'s narrowing of *target*, the way that owner's chip writes it."""
-    path = tree / owner / control_context.RECORD_FILENAME
+    path = tree / owner / control_context._RECORD_FILENAME
     control_context.write_record(
         control_context.ControlContext(
             target=target,
@@ -276,7 +278,7 @@ def narrow_for(tree: Path, owner: str, target: str = _TARGET) -> Path:
         ),
         path=path,
     )
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     return path
 
 
@@ -534,7 +536,7 @@ def test_an_unmounted_tree_refuses_every_owners_write_as_control_context_unavail
     monkeypatch.setenv(
         posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(control_context_tree.parent / "unmounted")
     )
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
     with caplog.at_level(logging.WARNING, logger=logger_name):
         with pytest.raises(FailedStatus) as failure:
@@ -575,8 +577,8 @@ def test_a_tree_without_its_marker_refuses_every_owners_write_as_control_context
     without one is unreadable rather than permissive.
     """
     plan_function, logger_name = wrapped_plan
-    (control_context_tree / posture_store.CONTROL_TREE_MARKER_NAME).unlink()
-    posture_store.invalidate_cache()
+    (control_context_tree / posture_store._CONTROL_TREE_MARKER_NAME).unlink()
+    posture_store._invalidate_cache()
 
     with caplog.at_level(logging.WARNING, logger=logger_name):
         with pytest.raises(FailedStatus) as failure:
@@ -588,7 +590,7 @@ def test_a_tree_without_its_marker_refuses_every_owners_write_as_control_context
     assert record["status"] == runs.STATUS_ERROR
     assert store_answered(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE) in record["error"]
     assert store_answered(StoreVerdict.NARROWING) not in record["error"]
-    assert posture_store.CONTROL_TREE_MARKER_NAME in record["error"]
+    assert posture_store._CONTROL_TREE_MARKER_NAME in record["error"]
 
     warnings = wrapper_warnings(caplog, logger_name)
     assert len(warnings) == 1
@@ -606,10 +608,10 @@ def plant_unreadable_record(tree: Path, owner: str) -> Path:
     control for the narrowing rows: same owner, same moment, same refusal —
     a different verdict.
     """
-    path = tree / owner / control_context.RECORD_FILENAME
+    path = tree / owner / control_context._RECORD_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("this is not a control-context record\n", encoding="utf-8")
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     return path
 
 

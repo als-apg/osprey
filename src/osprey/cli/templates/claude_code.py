@@ -27,11 +27,11 @@ from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, ownership_name
 from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates._rendering import render_template
-from osprey.errors import BuildProfileError
 from osprey.phoebus_agent_access import agent_access as phoebus_agent_access
-from osprey.utils.config import resolve_env_vars
 from osprey.utils.facility import resolve_facility_name
 from osprey_connectors import yaml_loader
+from osprey_connectors.config import resolve_env_vars
+from osprey_connectors.errors import BuildProfileError
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -56,7 +56,7 @@ def apply_agent_data_root(ctx: dict, project_dir: Path) -> None:
         project_dir: The project directory whose ``config.yml`` is read when
             the caller supplied no value.
     """
-    from osprey.utils.workspace import agent_data_base_dir
+    from osprey_connectors.workspace import agent_data_base_dir
 
     if ctx.get("agent_data_root"):
         return
@@ -324,7 +324,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     """
     from osprey.deployment.web_terminals.personas import config_needs_dispatcher_token
     from osprey.mcp_server.http import phoebus_bridge_default
-    from osprey.utils.workspace import agent_data_base_dir
+    from osprey_connectors.workspace import agent_data_base_dir
 
     control_system = config.get("control_system", {}) or {}
     declared_hooks = _build_declared_hook_rules(config, project_dir)

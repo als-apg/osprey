@@ -19,7 +19,9 @@ from rich.logging import RichHandler
 import osprey
 import osprey.utils.logger
 from osprey.utils.logger import (
-    QUIET_THIRD_PARTY_LOGGERS,
+    _QUIET_THIRD_PARTY_LOGGERS as QUIET_THIRD_PARTY_LOGGERS,
+)
+from osprey.utils.logger import (
     _build_rich_handler,
     configure_logging,
     get_logger,

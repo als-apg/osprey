@@ -416,8 +416,8 @@ def create_sandbox_execution_folder() -> Path:
 
     The folder is named for the facility-zone start time.
     """
-    from osprey.utils.config import get_facility_timezone
-    from osprey.utils.workspace import resolve_workspace_root
+    from osprey_connectors.config import get_facility_timezone
+    from osprey_connectors.workspace import resolve_workspace_root
 
     base = resolve_workspace_root() / "data" / "sandbox_executions"
     base.mkdir(parents=True, exist_ok=True)
@@ -481,7 +481,7 @@ async def execute_sandbox_code(
 
     # 2. Generate wrapper
     from osprey.mcp_server.python_executor.executor import resolve_secret_roots
-    from osprey.utils.workspace import (
+    from osprey_connectors.workspace import (
         load_osprey_config,
         resolve_project_root,
         resolve_workspace_root,

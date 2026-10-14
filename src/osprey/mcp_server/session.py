@@ -2,7 +2,7 @@
 
 import logging
 
-from osprey.utils.identity import acting_identity
+from osprey_connectors.identity import acting_identity
 
 logger = logging.getLogger("osprey.mcp_server.session")
 
@@ -24,7 +24,7 @@ def gather_session_metadata(created_via: str) -> dict:
     import os
     import subprocess
 
-    from osprey.utils.workspace import load_osprey_config, resolve_project_root
+    from osprey_connectors.workspace import load_osprey_config, resolve_project_root
 
     meta: dict = {"created_via": created_via}
 

@@ -48,9 +48,9 @@ SERVER = Owner(kind=control_context.OWNER_CONTROLS_SERVER, pid=7777)
 @pytest.fixture(autouse=True)
 def _forget_the_parsed_record():
     """The record cache is process-global; no test may inherit another's."""
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     yield
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
 
 
 @pytest.fixture
@@ -75,7 +75,7 @@ def context_owner(record_file: Path) -> ControlContextOwner:  # noqa: ARG001
 
 def read(path: Path) -> ControlContext | None:
     """The record as it is on disk right now, past the signature cache."""
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     return control_context.read_record(path=path)
 
 
@@ -247,7 +247,7 @@ async def test_the_path_is_resolved_on_each_mutation(tmp_path, monkeypatch):
     context_owner = ControlContextOwner(TERMINAL)
 
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(after))
-    path = control_context.record_path_under(after)
+    path = control_context._record_path_under(after)
     control_context.write_record(
         ControlContext(target="live", generation=1, owner=TERMINAL), path=path
     )
@@ -258,7 +258,7 @@ async def test_the_path_is_resolved_on_each_mutation(tmp_path, monkeypatch):
 
     stored = read(path)
     assert stored is not None and stored.target == "standin"
-    assert not control_context.record_path_under(before).exists()
+    assert not control_context._record_path_under(before).exists()
 
 
 # -- serialisation, which is the whole point --------------------------------

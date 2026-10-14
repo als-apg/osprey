@@ -85,7 +85,7 @@ def _make_validator(
             ``LimitsValidator._from_posture`` puts it into ``policy``.
     """
     validator = MagicMock()
-    validator._raw_db = TEST_LIMITS_DB
+    validator.raw_database = TEST_LIMITS_DB
     validator.resolve_confirm.side_effect = _resolve_confirm
 
     limits = {}

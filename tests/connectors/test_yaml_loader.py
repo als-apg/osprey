@@ -26,12 +26,12 @@ nested:
 
 @pytest.mark.skipif(not yaml.__with_libyaml__, reason="libyaml bindings not installed")
 def test_picks_the_c_loader_when_libyaml_is_present() -> None:
-    assert yaml_loader.safe_loader() is yaml.CSafeLoader
+    assert yaml_loader._safe_loader() is yaml.CSafeLoader
 
 
 def test_falls_back_to_the_pure_python_loader(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delattr(yaml, "CSafeLoader", raising=False)
-    assert yaml_loader.safe_loader() is yaml.SafeLoader
+    assert yaml_loader._safe_loader() is yaml.SafeLoader
     assert yaml_loader.safe_load(_DOCUMENT) == yaml.safe_load(_DOCUMENT)
 
 

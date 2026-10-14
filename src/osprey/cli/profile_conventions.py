@@ -40,16 +40,16 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from osprey.errors import BuildProfileError
 from osprey.profiles.providers import PROVIDERS_FILENAME
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import BUILD_DIR_NAME, STATE_DIR_NAME
 
 # Free at module level: ``osprey.utils.logger`` above already pulls
 # ``osprey_connectors.config`` into this module's import closure, so naming it
 # here adds no load time to the CLI's lazy-command budget. Imported rather than
 # restated — see :data:`PROTECTED_CONFIG_KEYS`.
 from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import BUILD_DIR_NAME, STATE_DIR_NAME
 
 logger = get_logger("build")
 

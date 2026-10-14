@@ -20,7 +20,7 @@ from osprey.connectors.control_system.base import (
     ChannelWriteResult,
     WriteOutcome,
 )
-from osprey_connectors.ipc import frames
+from osprey_connectors.ipc import _frames as frames
 
 # --------------------------------------------------------------------------------------
 # Helpers to build mock doocs4py objects
@@ -30,8 +30,8 @@ _EPOCH_S = 1_700_000_000  # arbitrary fixed timestamp
 _EPOCH_US = 500_000
 
 # Patch targets used in multiple test classes
-_LIMITS_PATCH = "osprey.connectors.control_system.doocs_connector.LimitsValidator.from_config"
-_TZ_PATCH = "osprey.connectors.control_system.doocs_connector.get_facility_timezone"
+_LIMITS_PATCH = "osprey_connectors.control_system._doocs_connector.LimitsValidator.from_config"
+_TZ_PATCH = "osprey_connectors.control_system._doocs_connector.get_facility_timezone"
 
 # How long an offload test waits on a threading.Event before giving up. It only
 # elapses when the code under test is broken; a passing run never waits on it.
@@ -108,7 +108,7 @@ async def connector():
         patch(_TZ_PATCH, return_value=UTC),
         patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
     ):
-        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+        from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
         await conn.connect({})
@@ -130,7 +130,7 @@ class TestConnect:
             patch(_TZ_PATCH, return_value=UTC),
             patch("osprey.utils.config.get_config_value", return_value=False),
         ):
-            from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+            from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
             assert conn._connected is False
@@ -140,7 +140,7 @@ class TestConnect:
 
     async def test_connect_raises_import_error_without_doocs4py(self):
         with patch.dict(sys.modules, {"doocs4py": None}):
-            from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+            from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
             with pytest.raises(ImportError, match="doocs4py"):
@@ -154,7 +154,7 @@ class TestConnect:
             patch(_LIMITS_PATCH, return_value=None),
             patch("osprey.utils.config.get_config_value", return_value=False),
         ):
-            from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+            from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
             with pytest.raises(ConnectionError, match="ENS") as raised:
@@ -172,7 +172,7 @@ class TestConnect:
                 patch(_LIMITS_PATCH, return_value=None),
                 patch("osprey.utils.config.get_config_value", return_value=False),
             ):
-                from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+                from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
                 conn = DOOCSConnector()
                 start = time.monotonic()
@@ -208,7 +208,7 @@ class TestConnect:
             patch(_LIMITS_PATCH, return_value=None),
             patch("osprey.utils.config.get_config_value", return_value=False),
         ):
-            from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+            from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
             ticker_task = asyncio.create_task(ticker())
@@ -239,7 +239,7 @@ class TestConnect:
             patch(_LIMITS_PATCH, return_value=None),
             patch("osprey.utils.config.get_config_value", return_value=False),
         ):
-            from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+            from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
             with pytest.raises(ValueError, match="control_system.connector.doocs.timeout_s"):
@@ -335,7 +335,7 @@ async def _write_with_validator(validator, value=10.0, readback=10.0, **kwargs):
         patch(_TZ_PATCH, return_value=UTC),
         patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
     ):
-        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+        from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
         await conn.connect({})
@@ -428,7 +428,7 @@ class TestWriteChannel:
             patch(_TZ_PATCH, return_value=UTC),
             patch("osprey.utils.config.get_config_value", return_value=False),
         ):
-            from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+            from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
             await conn.connect({})
@@ -534,7 +534,7 @@ class TestNonBlockingOffload:
             patch(_TZ_PATCH, return_value=UTC),
             patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
         ):
-            from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+            from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
             await conn.connect({})
@@ -584,7 +584,7 @@ class TestNonBlockingOffload:
             patch(_TZ_PATCH, return_value=UTC),
             patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
         ):
-            from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+            from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
             await conn.connect({})
@@ -600,7 +600,7 @@ class TestNonBlockingOffload:
 
 async def _bounded_connector(timeout_s):
     """A connected DOOCSConnector, patched by the caller, with the given ``timeout_s``."""
-    from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+    from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
     conn = DOOCSConnector()
     await conn.connect({"timeout_s": timeout_s})

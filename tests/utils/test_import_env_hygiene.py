@@ -263,9 +263,9 @@ def test_chain_records_the_shell_value_once_per_key(tmp_path, monkeypatch):
         "osprey.utils",
         # A module-level `logger = get_logger(...)` site. ~70 of these exist;
         # each one used to build a Config to resolve a colour nothing read.
-        "osprey.connectors.archiver.mock_archiver_connector",
+        "osprey_connectors.archiver._mock_archiver_connector",
         # A connector an application imports without asking for any config.
-        "osprey.connectors.control_system.mock_connector",
+        "osprey_connectors.control_system._mock_connector",
     ],
 )
 def test_import_does_not_publish_dotenv(tmp_path, module):

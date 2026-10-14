@@ -14,8 +14,8 @@ import aiohttp
 
 from osprey.services.ariel_search.exceptions import IngestionError
 from osprey.services.ariel_search.ingestion.http import build_ssl_context
-from osprey.utils.config import localize_facility
-from osprey.utils.logger import get_logger
+from osprey_connectors.config import localize_facility
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig, Origin

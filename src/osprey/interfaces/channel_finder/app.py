@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse
 
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.utils.facility import resolve_facility_name
-from osprey.utils.workspace import agent_data_base_dir
+from osprey_connectors.workspace import agent_data_base_dir
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Mapping
@@ -311,7 +311,7 @@ def _create_lifespan(project_cwd: str | None = None):
         import httpx
 
         from osprey.services.channel_finder.utils.detection import detect_pipeline_config
-        from osprey.utils.workspace import load_osprey_config
+        from osprey_connectors.workspace import load_osprey_config
 
         config = load_osprey_config()
         cf_config = config.get("channel_finder", {})

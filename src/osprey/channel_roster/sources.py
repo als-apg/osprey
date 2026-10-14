@@ -41,7 +41,7 @@ from osprey.channel_roster.records import (
     RosterSourceKind,
 )
 from osprey.deployment.graphdb_service import GRAPHDB_INDEX_PATH_CONFIG_KEY
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("channel_roster.sources")
 

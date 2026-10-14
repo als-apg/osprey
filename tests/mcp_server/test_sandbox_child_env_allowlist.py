@@ -84,7 +84,7 @@ def _child_read_names() -> list[tuple[str, str]]:
     from osprey_connectors import identity, posture_store
 
     return [
-        ("posture_store.AGENT_DATA_ROOT_ENV_VAR", posture_store.AGENT_DATA_ROOT_ENV_VAR),
+        ("posture_store._AGENT_DATA_ROOT_ENV_VAR", posture_store._AGENT_DATA_ROOT_ENV_VAR),
         ("posture_store.CONTROL_CONTEXT_DIR_ENV_VAR", posture_store.CONTROL_CONTEXT_DIR_ENV_VAR),
         ("posture_store.CONTROL_CONTEXT_TREE_ENV_VAR", posture_store.CONTROL_CONTEXT_TREE_ENV_VAR),
         ("posture_store.CONTROL_OWNER_ENV_VAR", posture_store.CONTROL_OWNER_ENV_VAR),

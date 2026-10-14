@@ -729,7 +729,7 @@ def _va_dial(config: Mapping[str, Any]) -> Dial | None:
     # fill_gateway_ports' rule: an explicit gateway port wins, else the port
     # the deployment publishes, else the connector's default — on the
     # gateway's own address.
-    from osprey_connectors.control_system.va_connector import DEFAULT_VA_PORT
+    from osprey_connectors.types import DEFAULT_VA_PORT
 
     published = dotted_get(config, "services.virtual_accelerator.port") or DEFAULT_VA_PORT
     gateways = as_dict(dotted_get(config, "control_system.connector.virtual_accelerator.gateways"))

@@ -21,7 +21,7 @@ names this container's own loopback. The compose template hands the container
 the store's network alias and container port instead, and those win.
 
 That override is NOT defined here. It is read through
-``MongoDBArchiverConnector``'s :func:`~osprey.connectors.archiver.mongodb_archiver_connector.address_overrides`,
+``MongoDBArchiverConnector``'s :func:`~osprey_connectors.archiver.address_overrides`,
 where the contract is stated, so this service and the agent's connector cannot
 drift apart on the variable names, on what an empty value means, or on how the
 port is typed. Two readers of one convention have to agree on its edges.
@@ -44,8 +44,8 @@ from typing import Any
 
 import yaml
 
-from osprey.connectors.archiver.mongodb_archiver_connector import address_overrides
 from osprey.mcp_server.control_system.target_eligibility import endpoint_is_live_standin
+from osprey_connectors.archiver import address_overrides
 
 # The recorded endpoint is derived, never re-read: `derive_endpoints` is the same
 # resolver the roster's label and the target switch use, so this service and the
@@ -54,7 +54,7 @@ from osprey.mcp_server.control_system.target_eligibility import endpoint_is_live
 # service does not already pay — it pulls in `osprey_connectors` and the standard
 # library and nothing else, no Channel Access stack, no PVA, no Mongo driver.
 from osprey_connectors.connection import read_connection_settings
-from osprey_connectors.ipc.verification import derive_endpoints
+from osprey_connectors.ipc import derive_endpoints
 
 # Whose past the store holds, decided in one place for the recorder's compose
 # entry, this enablement gate and the deploy-time archive seed alike. A guard
@@ -372,7 +372,7 @@ def _recorded_target_is_standin(config: dict[str, Any]) -> bool:
     reads the ``standin`` target — its own ``control_system.connector.live_standin``
     block — never the facility's authored ``epics`` block, which always means
     the real machine. The endpoint is derived by
-    :func:`~osprey_connectors.ipc.verification.derive_endpoints`
+    :func:`~osprey_connectors.ipc.derive_endpoints`
     and judged by
     :func:`~osprey.mcp_server.control_system.target_eligibility.endpoint_is_live_standin`,
     the same step the roster's label is minted through, so a recorder cannot

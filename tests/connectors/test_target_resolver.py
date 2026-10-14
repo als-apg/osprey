@@ -22,6 +22,9 @@ from typing import Any
 import pytest
 
 from osprey_connectors.types import (
+    _ONE_REAL_MACHINE as ONE_REAL_MACHINE,
+)
+from osprey_connectors.types import (
     CHANNEL_ACCESS_TYPES,
     CONTROL_TARGETS,
     DOOCS,
@@ -29,7 +32,6 @@ from osprey_connectors.types import (
     INVENTED_HISTORY_TYPES,
     LIVE_STANDIN,
     MOCK,
-    ONE_REAL_MACHINE,
     STANDIN_TYPES,
     TARGET_LIVE,
     TARGET_STANDIN,

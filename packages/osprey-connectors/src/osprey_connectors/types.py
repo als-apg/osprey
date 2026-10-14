@@ -56,6 +56,55 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+__all__ = [
+    "CHANNEL_ACCESS_TYPES",
+    "CLI_CONTROL_SYSTEM_TYPES",
+    "CONTROL_TARGETS",
+    "DEFAULT_VA_PORT",
+    "DOOCS",
+    "DOOCS_ARCHIVER",
+    "EPICS",
+    "EPICS_ARCHIVER",
+    "INVENTED_HISTORY_TYPES",
+    "LIMITS_CHECKING_LEAF",
+    "LIMITS_LEAVES",
+    "LIVE_STANDIN",
+    "MOCK",
+    "MOCK_ARCHIVER",
+    "MONGODB_ARCHIVER",
+    "MYA_ARCHIVER",
+    "SET_CONTROL_SYSTEM_TYPES",
+    "SIMULATED_TYPES",
+    "STANDIN_TYPES",
+    "TANGO",
+    "TARGET_LIVE",
+    "TARGET_STANDIN",
+    "TARGET_VA",
+    "TYPE_WRITES_ENABLED_LEAF",
+    "VIRTUAL_ACCELERATOR",
+    "WRITES_ENABLED_KEY",
+    "LimitsPosture",
+    "any_armed_target_checks_limits",
+    "any_target_writes_enabled",
+    "archiver_settings_errors",
+    "archiver_settings_key",
+    "baseline_target",
+    "configured_targets",
+    "incomplete_limits_blocks",
+    "resolve_archiver_settings",
+    "resolve_archiver_type",
+    "resolve_control_system_type",
+    "resolve_target",
+    "session_posture",
+    "switch_capable",
+    "target_configured",
+    "target_limits_posture",
+    "target_writes_enabled",
+    "target_writes_enabled_key",
+    "type_limits_posture",
+    "type_writes_enabled",
+]
+
 logger = logging.getLogger("osprey_connectors.types")
 
 #: Config shapes the second-real-block warning has already been said about, so
@@ -78,6 +127,12 @@ TANGO = "tango"
 #: ``control_system.connector.live_standin`` block to be configured from.
 LIVE_STANDIN = "live_standin"
 
+#: Channel Access port the shipped Virtual Accelerator soft-IOC serves on. It is
+#: here rather than only in the VA connector because the deployment layer fills
+#: the same default when it dials the VA, and it must not import a concrete
+#: connector (and the EPICS client stack behind it) to learn one integer.
+DEFAULT_VA_PORT = 5064
+
 # -- Archiver connector types --
 MOCK_ARCHIVER = "mock_archiver"
 EPICS_ARCHIVER = "epics_archiver"
@@ -87,7 +142,7 @@ MYA_ARCHIVER = "mya_archiver"
 
 # -- CLI choice lists (only types with implementations) --
 CLI_CONTROL_SYSTEM_TYPES = [MOCK, EPICS, VIRTUAL_ACCELERATOR, DOOCS, TANGO]
-CLI_ARCHIVER_TYPES = [
+_CLI_ARCHIVER_TYPES = [
     MOCK_ARCHIVER,
     EPICS_ARCHIVER,
     MONGODB_ARCHIVER,
@@ -123,7 +178,7 @@ CONTROL_TARGETS = [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
 #: which is also what keeps a session's posture, limits and archive about one
 #: machine each. Said here so a deployer meets it in the error and in the how-to
 #: rather than in the silence of a configured block nothing ever offers.
-ONE_REAL_MACHINE = (
+_ONE_REAL_MACHINE = (
     "A deployment names one real machine — exactly one connector block that is "
     "neither simulated nor the stand-in — and 'live' is that machine. A complex "
     "with two real machines runs one deployment per machine."
@@ -143,7 +198,7 @@ TYPE_WRITES_ENABLED_LEAF = "writes_enabled"
 #: Types that serve a machine nobody has to be careful around. They are the
 #: reason ``live`` cannot simply be "whatever the config selects": a deployment
 #: whose baseline is one of these has not yet said what its real machine is.
-_SIMULATED_TYPES = (MOCK, VIRTUAL_ACCELERATOR)
+SIMULATED_TYPES = (MOCK, VIRTUAL_ACCELERATOR)
 
 #: Types that serve the live stand-in. Reachable only through the ``standin``
 #: target: a stand-in is a machine in its own right, so it is never a candidate
@@ -205,11 +260,11 @@ def resolve_control_system_type(section: Any) -> str:
 #: The one block under ``archiver:`` a connector's settings are read from,
 #: whichever route selected the connector. It has no dot in it, so a profile's
 #: ``archiver.settings.<leaf>`` renders to exactly the block the factory reads.
-ARCHIVER_SETTINGS_LEAF = "settings"
+_ARCHIVER_SETTINGS_LEAF = "settings"
 
 #: Keys of the ``archiver:`` section that are not a connector's settings block:
 #: the selector, the settings block itself, and archiver_read's point budget.
-ARCHIVER_SECTION_LEAVES = ("type", ARCHIVER_SETTINGS_LEAF, "auto_bin_points")
+_ARCHIVER_SECTION_LEAVES = ("type", _ARCHIVER_SETTINGS_LEAF, "auto_bin_points")
 
 
 def _own_name_block(connector_type: str) -> str | None:
@@ -228,10 +283,10 @@ def _archiver_settings_homes(section: Any) -> list[tuple[str, Any]]:
     if not isinstance(section, dict):
         return []
     homes: list[tuple[str, Any]] = []
-    if ARCHIVER_SETTINGS_LEAF in section:
-        homes.append((ARCHIVER_SETTINGS_LEAF, section[ARCHIVER_SETTINGS_LEAF]))
+    if _ARCHIVER_SETTINGS_LEAF in section:
+        homes.append((_ARCHIVER_SETTINGS_LEAF, section[_ARCHIVER_SETTINGS_LEAF]))
     own = _own_name_block(resolve_archiver_type(section))
-    if own is not None and own != ARCHIVER_SETTINGS_LEAF and own in section:
+    if own is not None and own != _ARCHIVER_SETTINGS_LEAF and own in section:
         homes.append((own, section[own]))
     return homes
 
@@ -258,7 +313,7 @@ def archiver_settings_key(section: Any) -> str:
     the line an operator actually wrote.
     """
     homes = _archiver_settings_homes(section)
-    home = homes[0][0] if len(homes) == 1 else ARCHIVER_SETTINGS_LEAF
+    home = homes[0][0] if len(homes) == 1 else _ARCHIVER_SETTINGS_LEAF
     return f"archiver.{home}"
 
 
@@ -289,7 +344,7 @@ def archiver_settings_errors(section: Any) -> list[str]:
 
     A lint, like :func:`incomplete_limits_blocks`, and read by the build over the
     config a deployment runs. It reports, in section order: each mapping under a
-    key no reader takes (anything but :data:`ARCHIVER_SECTION_LEAVES`, a built-in
+    key no reader takes (anything but :data:`_ARCHIVER_SECTION_LEAVES`, a built-in
     archiver's name, or the selected type's own name when it has no dot); then
     the two refusals :func:`resolve_archiver_settings` raises, in its words. A
     scalar is not a block and is not reported. Never raises.
@@ -298,7 +353,7 @@ def archiver_settings_errors(section: Any) -> list[str]:
         return []
     selected = resolve_archiver_type(section)
     own = _own_name_block(selected)
-    known = {*ARCHIVER_SECTION_LEAVES, *CLI_ARCHIVER_TYPES, *([own] if own else [])}
+    known = {*_ARCHIVER_SECTION_LEAVES, *_CLI_ARCHIVER_TYPES, *([own] if own else [])}
     errors = [
         f"`{key}:` under `archiver:` is a block no archiver reads; the selected "
         f"archiver, {selected}, takes its settings from `archiver.settings`"
@@ -334,7 +389,7 @@ def resolve_target(section: Any, target: Any) -> str:
       does not recognize, which reaches the factory's "Unknown … type" error
       exactly as :func:`resolve_control_system_type` already lets it. A second
       non-simulated block beside it is not a second target: no name reaches it
-      (:data:`ONE_REAL_MACHINE`), so it is warned about rather than skipped in
+      (:data:`_ONE_REAL_MACHINE`), so it is warned about rather than skipped in
       silence.
     - When the section's own type is simulated or is a stand-in (or absent,
       which resolves to the mock), the deployment has not named its real machine
@@ -374,7 +429,7 @@ def resolve_target(section: Any, target: Any) -> str:
     raise ValueError(
         f"Unknown control target {target!r}. Valid targets are "
         f"{TARGET_LIVE!r}, {TARGET_VA!r} and {TARGET_STANDIN!r}, spelled "
-        f"exactly. {ONE_REAL_MACHINE} A control target is always stated, never "
+        f"exactly. {_ONE_REAL_MACHINE} A control target is always stated, never "
         "defaulted — there is no target a caller gets by saying nothing, "
         "because the one it would get could be the real machine."
     )
@@ -615,7 +670,7 @@ def target_writes_enabled(section: Any, target: Any) -> bool:
     return type_writes_enabled(section, connector_type)
 
 
-def writes_enabled_key(connector_type: str | None) -> str:
+def _writes_enabled_key(connector_type: str | None) -> str:
     """The config key that decides write posture for one connector *type*.
 
     ``control_system.connector.<type>.writes_enabled`` — the one line a facility
@@ -634,26 +689,26 @@ def writes_enabled_key(connector_type: str | None) -> str:
     return f"control_system.connector.{connector_type}.{TYPE_WRITES_ENABLED_LEAF}"
 
 
-def writes_enabled_answering_key(section: Any, connector_type: str | None) -> str:
+def _writes_enabled_answering_key(section: Any, connector_type: str | None) -> str:
     """The config key whose value refused a write for *connector_type*.
 
     The per-type key when that block carries the leaf, and
     :data:`WRITES_ENABLED_KEY` when it does not — the key a type inherits when
     it says nothing about itself. This is the key a refusal names as the REASON,
-    and it is not always :func:`writes_enabled_key`, which names the line an
+    and it is not always :func:`_writes_enabled_key`, which names the line an
     operator edits to arm one type and leave the others alone. The two differ
     exactly when a deployment states its posture once for everything, which is
     the shape a deployment has before anyone splits it per machine.
     """
     if _type_writes_block(section, connector_type) is None:
         return WRITES_ENABLED_KEY
-    return writes_enabled_key(connector_type)
+    return _writes_enabled_key(connector_type)
 
 
-def writes_enabled_remedy(connector_type: str | None, *, one_line: bool = False) -> str:
+def _writes_enabled_remedy(connector_type: str | None, *, one_line: bool = False) -> str:
     """The edit that arms writes for one connector *type*, as an operator makes it.
 
-    :func:`writes_enabled_key` names the key; this names the CHANGE, and for a
+    :func:`_writes_enabled_key` names the key; this names the CHANGE, and for a
     dotted connector type the two are not interchangeable. A build profile
     applies each of its dotted keys as a path, splitting on every dot, while
     this posture is looked up with the type held whole (see
@@ -694,7 +749,7 @@ def writes_enabled_remedy(connector_type: str | None, *, one_line: bool = False)
             "about itself.)"
         )
     return (
-        f"Set {writes_enabled_key(connector_type)}: true in the build profile "
+        f"Set {_writes_enabled_key(connector_type)}: true in the build profile "
         "(profile.yml on the host)."
     )
 
@@ -702,7 +757,7 @@ def writes_enabled_remedy(connector_type: str | None, *, one_line: bool = False)
 def target_writes_enabled_key(section: Any, target: Any) -> str:
     """The config key that decides write posture for one session *target*.
 
-    :func:`writes_enabled_key` for the type that target resolves to, and the
+    :func:`_writes_enabled_key` for the type that target resolves to, and the
     deployment-wide key for a target that resolves to none — the same two
     branches :func:`target_writes_enabled` reads the posture from, so the key a
     refusal names is always the key that answered it. Never raises.
@@ -711,7 +766,7 @@ def target_writes_enabled_key(section: Any, target: Any) -> str:
         connector_type = resolve_target(section, target)
     except ValueError:
         return WRITES_ENABLED_KEY
-    return writes_enabled_key(connector_type)
+    return _writes_enabled_key(connector_type)
 
 
 def session_posture(section: Any) -> dict[str, bool]:
@@ -816,7 +871,7 @@ class LimitsPosture:
             means the posture answered nothing — both leaves are ``None`` —
             and a reader that must act builds a failsafe rather than guessing
             which half of the block was meant. The one posture not read from a
-            single block, :func:`most_restrictive_limits_posture`'s fold, may
+            single block, :func:`_most_restrictive_limits_posture`'s fold, may
             carry definite leaves beside a non-empty tuple; readers check this
             field first for exactly that reason.
     """
@@ -838,7 +893,7 @@ class LimitsPosture:
         A posture holding no type at all — the deployment-wide answer, and the
         fallback a target that resolves to no type gets — spells the
         deployment-wide key, which is where such a posture was read from
-        anyway. Same reading :func:`writes_enabled_key` gives the same case.
+        anyway. Same reading :func:`_writes_enabled_key` gives the same case.
 
         Args:
             leaf: One of :data:`LIMITS_LEAVES`.
@@ -1003,7 +1058,7 @@ def target_limits_posture(section: Any, target: Any) -> LimitsPosture:
     return type_limits_posture(section, connector_type)
 
 
-def most_restrictive_limits_posture(section: Any) -> LimitsPosture:
+def _most_restrictive_limits_posture(section: Any) -> LimitsPosture:
     """The limits posture that holds across every target a session here can select.
 
     What a caller with no target of its own has to assume. The stdlib hook is
@@ -1093,7 +1148,7 @@ def any_armed_target_checks_limits(section: Any) -> bool:
     to be read off the SAME machine. A deployment can arm its simulator while
     only its read-only live block checks limits, and separate
     :func:`any_target_writes_enabled` and
-    :func:`most_restrictive_limits_posture` folds would answer "armed" and
+    :func:`_most_restrictive_limits_posture` folds would answer "armed" and
     "checked" from those two different blocks and report a pairing no target
     has.
 
@@ -1105,7 +1160,7 @@ def any_armed_target_checks_limits(section: Any) -> bool:
 
     ``enabled`` alone decides the limits half, because that is the leaf that
     decides whether a validator exists at all —
-    :meth:`~osprey_connectors.control_system.limits_validator.LimitsValidator._from_posture`
+    :meth:`~osprey_connectors.control_system._limits_validator.LimitsValidator._from_posture`
     builds none for anything else, and a target with no validator consults no
     database. ``allow_unlisted_channels`` governs what a built validator does
     with a channel the database omits, which is a different question.
@@ -1385,7 +1440,7 @@ def _report_second_real_block(section: Any, baseline: str, never_live: tuple[str
         ", ".join(repr(name) for name in others),
         baseline,
         "them" if len(others) > 1 else "it",
-        ONE_REAL_MACHINE,
+        _ONE_REAL_MACHINE,
     )
 
 
@@ -1399,12 +1454,12 @@ def _live_type(section: Any) -> str:
     the stand-in, or make ``live`` ambiguous on exactly the deployments that run
     the stand-in beside the block naming their facility's own machine.
 
-    Either way the answer is one machine — :data:`ONE_REAL_MACHINE` — and both
+    Either way the answer is one machine — :data:`_ONE_REAL_MACHINE` — and both
     ways of missing it are said out loud: a baseline that cannot derive one
     raises, and a baseline that *is* one, beside a second real block no target
     can reach, is warned about.
     """
-    never_live = _SIMULATED_TYPES + STANDIN_TYPES
+    never_live = SIMULATED_TYPES + STANDIN_TYPES
     baseline = resolve_control_system_type(section)
     if baseline not in never_live:
         _report_second_real_block(section, baseline, never_live)
@@ -1419,7 +1474,7 @@ def _live_type(section: Any) -> str:
         f"Target {TARGET_LIVE!r} has no control system on this deployment: "
         f"'control_system.type' resolves to {baseline!r}, which is simulated, "
         f"and the live blocks under 'control_system.connector' are: {found}. "
-        f"{ONE_REAL_MACHINE} Configure exactly one such block (an {EPICS!r} or "
+        f"{_ONE_REAL_MACHINE} Configure exactly one such block (an {EPICS!r} or "
         f"{DOOCS!r} block, say). It is not inferred, so that no session reaches "
         "a real machine this config never described."
     )
