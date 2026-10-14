@@ -1603,7 +1603,8 @@ keys:
       sandbox's MCP server process loaded at start-up and held for that
       process's lifetime, so a change needs a restart; a run that reaches it
       is killed and reported as a timeout rather than as the script's own
-      failure.
+      failure. A null, non-numeric, non-finite or non-positive value refuses
+      every run, since the kill is the run's one time bound.
     default: 600
   python_executor.child_env_passthrough:
     rendered: false

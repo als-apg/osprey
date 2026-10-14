@@ -275,12 +275,42 @@ class ExecutionResult:
     pid: int | None = None
 
 
+def execution_timeout_seconds(value: object) -> float:
+    """The configured execution timeout as a finite, positive number of seconds.
+
+    The executor's kill at this timeout is the run's one time bound, so a run
+    with no bound does not start: a bool, a non-number, a non-finite or a
+    non-positive value raises.
+
+    Raises:
+        ValueError: The value is not a finite, positive number; the message
+            names ``python_executor.execution_timeout_seconds`` and the value.
+    """
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise ValueError(
+            f"python_executor.execution_timeout_seconds is {value!r}; "
+            "it must be a finite, positive number of seconds"
+        )
+    return float(value)
+
+
 def _read_config() -> dict:
     """Read execution-related config values from config.yml.
 
     Returns:
         dict: ``execution_method`` (always the resolved backend name, never the
-        raw config string) and ``timeout`` in seconds.
+        raw config string) and ``timeout``, always a finite, positive float in
+        seconds; an absent key takes the shared default.
+
+    Raises:
+        ValueError: ``execution.execution_method`` is unknown, or
+            ``python_executor.execution_timeout_seconds`` is not a finite,
+            positive number (an explicit null included).
     """
     from osprey.utils.config import resolve_execution_method
     from osprey.utils.workspace import load_osprey_config
@@ -290,8 +320,10 @@ def _read_config() -> dict:
 
     return {
         "execution_method": resolve_execution_method(config),
-        "timeout": config.get("python_executor", {}).get(
-            "execution_timeout_seconds", DEFAULT_EXECUTION_TIMEOUT_SECONDS
+        "timeout": execution_timeout_seconds(
+            config.get("python_executor", {}).get(
+                "execution_timeout_seconds", DEFAULT_EXECUTION_TIMEOUT_SECONDS
+            )
         ),
     }
 

@@ -856,7 +856,9 @@ Raise it for a facility whose legitimate analyses run long — a fit over a
 day of archived data, a scan reconstruction — and lower it where a runaway
 script holding the sandbox is the worse outcome. The value is read once in
 the sandbox's MCP server process and held for that process's lifetime, so a
-change lands after ``osprey build`` and a restart of the stack.
+change lands after ``osprey build`` and a restart of the stack. The value
+must be a finite, positive number of seconds; any other value, ``null``
+included, refuses every run, so no run is left without a time bound.
 
 Agent Python — the python executor, the visualization tools and plan
 validation — starts with a fixed set of environment variables from the host:
