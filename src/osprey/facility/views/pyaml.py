@@ -21,6 +21,14 @@ that names a deck and has a ``measurement/<model>.yaml``::
                          finite column for every member; the correction tool
                          that loads one is added only when the matrix can
                          drive a two-plane correction (rank two)
+    trajectory_rm.json, trajectory_rm.index.json
+                         the first-turn response of the model's turn-by-turn
+                         readings to its correctors, for a model whose
+                         measurement file allows ``trajectory``, as the model's
+                         engine solves it on the deck: the matrix as a pyAML
+                         orbit response matrix whose names are channel
+                         addresses, and beside it the lattice index of every
+                         row and column
 
 A model solved ``single_pass`` has no design simulator (``simulators: []``):
 pyAML's design simulator solves a periodic orbit. Every other model the render
@@ -53,16 +61,21 @@ __all__ = [
     "CONFIGURATION_FILE",
     "CRM_FILE",
     "GROUP_ROLES",
+    "INSTRUMENT_CLASSES",
     "KIND_MEMBERS",
     "KIND_STEPPED",
     "LATTICE_FILE",
     "PYAML_DIR",
     "ROLE_PLANES",
     "TOOL_KEYS",
+    "TRAJECTORY_RM_FILE",
+    "TRAJECTORY_RM_INDEX_FILE",
     "TRM_FILE",
+    "hardware_width",
     "measured_models",
     "measurement_groups",
     "pyaml_view_wanted",
+    "trajectory_slots",
     "tune_references",
     "view_names",
     "write_pyaml_view",
@@ -83,6 +96,11 @@ LATTICE_FILE = "lattice.json"
 #: The response matrices the correction tools load.
 TRM_FILE = "trm.json"
 CRM_FILE = "crm.json"
+
+#: The first-turn response of a model measuring ``trajectory``, and the lattice
+#: indices of its rows and columns.
+TRAJECTORY_RM_FILE = "trajectory_rm.json"
+TRAJECTORY_RM_INDEX_FILE = "trajectory_rm.index.json"
 
 #: The measurement file's group roles, in the order the arrays are written.
 GROUP_ROLES: tuple[str, ...] = ("bpm", "hcor", "vcor", "quad", "sext")
@@ -114,12 +132,17 @@ INLINE_CURVE_TYPE = "pyaml.magnet.inline_curve"
 RF_PLANT_TYPE = "pyaml.rf.rf_plant"
 TUNE_MONITOR_TYPE = "pyaml.diagnostics.tune_monitor"
 RESPONSE_MATRIX_DATA_TYPE = "pyaml.tuning_tools.response_matrix_data"
+ORBIT_RESPONSE_MATRIX_DATA_TYPE = "pyaml.tuning_tools.orbit_response_matrix_data"
+
+#: pyAML's word for each transverse plane.
+PLANE_WORDS: dict[str, str] = {"x": "H", "y": "V"}
 
 #: pyAML exposes these as ``accelerator.design`` and ``accelerator.live``.
 SIMULATOR_NAME = "design"
 CONTROL_SYSTEM_NAME = "live"
 
-#: Each measurement kind's pyAML tool: its ``type:`` path and its name.
+#: Each measurement kind's pyAML tool: its ``type:`` path and its name. A kind
+#: without a row has no tool section in the configuration.
 KIND_TOOLS: dict[str, tuple[str, str]] = {
     "orm": ("pyaml.tuning_tools.orbit_response_matrix", "DEFAULT_ORBIT_RESPONSE_MATRIX"),
     "dispersion": ("pyaml.tuning_tools.dispersion", "DEFAULT_DISPERSION"),
@@ -152,10 +175,31 @@ KIND_MEMBERS: dict[str, tuple[str, ...]] = {
     "trm": ("quad", "tune"),
     "crm": ("sext", "tune", "rf"),
     "chromaticity_monitor": ("tune", "rf"),
+    "trajectory": (
+        "bpm",
+        "hcor",
+        "vcor",
+        "injection_request",
+        "injection_busy",
+        "bunch_clean_enable",
+        "beam_current",
+        "rf_status",
+    ),
+}
+
+#: What a kind asks of each instrument it lists, by requirement class:
+#: ``wired`` instruments must be named and wired by the model, ``exists``
+#: instruments must be named and be a channel of the facility, ``optional``
+#: instruments may be left out and must be a channel of the facility when named.
+INSTRUMENT_CLASSES: dict[str, tuple[str, ...]] = {
+    "wired": ("tune", "rf", "injection_request"),
+    "exists": ("injection_busy",),
+    "optional": ("bunch_clean_enable", "beam_current", "rf_status"),
 }
 
 #: The setpoints each kind writes: its group roles, and ``rf`` for the setpoint
-#: the view's RF plant steps. The approval prompt lists every one of them.
+#: the view's RF plant steps. The approval prompt lists every one of them. A
+#: kind without a row steps nothing through the view.
 KIND_STEPPED: dict[str, tuple[str, ...]] = {
     "orm": ("hcor", "vcor"),
     "dispersion": ("rf",),
@@ -178,6 +222,7 @@ TOOL_KEYS: dict[str, tuple[str, ...]] = {
         "sleep_between_step",
         "sleep_between_meas",
     ),
+    "trajectory": ("alpha", "n_discard", "gain"),
 }
 
 #: Upper bound of the chromaticity monitor's relative momentum step.
@@ -357,6 +402,68 @@ def measurement_groups(doc: Mapping[str, Any], model: str) -> dict[str, list[str
                 addresses.setdefault(address, None)
         found[role] = list(addresses)
     return found
+
+
+#: The measurement kind :func:`trajectory_slots` answers for, and whose model
+#: carries the first-turn response files.
+_TRAJECTORY_KIND = "trajectory"
+
+#: The vocabulary signal behind each per-device slot of the kind.
+_SLOT_SIGNALS: dict[str, str] = {"arm": "bpm_arm_command", "armed": "bpm_armed_status"}
+
+
+def trajectory_slots(doc: Mapping[str, Any], model: str) -> dict[str, Any]:
+    """The channels a model's ``trajectory`` measurement arms, fires and watches.
+
+    ``arm`` and ``armed`` are the channels carrying the signal
+    ``bpm_arm_command`` and ``bpm_armed_status`` on the member devices of the
+    group ``groups.bpm`` names, visiting the devices in ``(s, id)`` order: one
+    address per device, since the build holds every member device to one
+    channel of each signal. They are a set per device, in no way aligned with
+    the rows of a response matrix. The other slots are the kind's instruments
+    as the measurement file names them: ``injection_request`` and
+    ``injection_busy`` always, ``bunch_clean_enable``, ``beam_current`` and
+    ``rf_status`` each only when the file names it.
+
+    Args:
+        doc: The facility file.
+        model: The model's name.
+
+    Returns:
+        Slot to address: a list of addresses for ``arm`` and ``armed``, one
+        address for each instrument slot; the two per-device slots first, then
+        the instruments in :data:`KIND_MEMBERS` order.
+
+    Raises:
+        KeyError: The facility file has no model ``model``, or the model's
+            measurement file does not list the kind.
+    """
+    measurement = _model_record(doc, model).get("measurement") or {}
+    if _TRAJECTORY_KIND not in (measurement.get("kinds") or []):
+        raise KeyError(f"the measurement file of model {model!r} does not list {_TRAJECTORY_KIND}")
+    groups = {str(group["id"]): group for group in doc.get("groups", [])}
+    group_id = (measurement.get("groups") or {}).get("bpm")
+    members = (groups.get(str(group_id)) or {}).get("members") or []
+    signals = {str(channel["id"]): channel.get("signal") for channel in doc.get("channels", [])}
+    on_device = _channels_of(doc)
+    slots: dict[str, Any] = {}
+    for slot, signal in _SLOT_SIGNALS.items():
+        addresses: dict[str, None] = {}
+        for device in _device_order(doc, members):
+            for address in sorted(set(on_device.get(device, ()))):
+                if signals.get(address) == signal:
+                    addresses.setdefault(address, None)
+        slots[slot] = list(addresses)
+    instruments = measurement.get("instruments") or {}
+    for name in KIND_MEMBERS[_TRAJECTORY_KIND]:
+        if name in GROUP_ROLES:
+            continue
+        named = instruments.get(name)
+        if named is not None:
+            slots[name] = str(named)
+        elif name not in INSTRUMENT_CLASSES["optional"]:
+            slots[name] = None
+    return slots
 
 
 # --- the configuration ----------------------------------------------------------
@@ -738,6 +845,203 @@ def _tuning_matrix(
     return _response_matrix(columns, monitor)
 
 
+#: The engine function that solves the first-turn response, the word that
+#: function takes for this response, and the measurement-file key holding the
+#: kick-angle step.
+_RESPONSE_FUNCTION = "response_matrix"
+_RESPONSE_KIND = "trajectory"
+_RESPONSE_STEP_KEY = "corrector_delta"
+
+
+def hardware_width(record: Mapping[str, Any], delta: float) -> float:
+    """The hardware step of a setpoint whose physics span about its held value is ``delta``.
+
+    Raises:
+        ValueError: The record's calibration has no way back to hardware, or
+            the step it gives is zero or not finite.
+    """
+    from osprey.simulation.engines.calibration import curve_from_record, to_hardware, to_physics
+
+    calibration = record.get("calibration") or {}
+    try:
+        curve = curve_from_record(calibration.get("curve"))
+        inverse = curve_from_record(calibration.get("inverse"))
+        centre = to_physics(curve, float(record.get("default") or 0.0))
+        width = float(
+            to_hardware(curve, inverse, centre + 0.5 * delta)
+            - to_hardware(curve, inverse, centre - 0.5 * delta)
+        )
+    except TypeError as exc:
+        raise ValueError(str(exc)) from exc
+    if not math.isfinite(width) or width == 0.0:
+        raise ValueError(f"the hardware step is {width}")
+    return width
+
+
+def _trajectory_files(
+    inputs: ViewInputs, record: Mapping[str, Any], hcor: Sequence[str], vcor: Sequence[str]
+) -> dict[str, str]:
+    """The first-turn response of a model measuring ``trajectory``, as its two files.
+
+    The model's engine solves the response on the model's deck, wiring and
+    settings, each corrector stepped by the hardware width whose kick-angle
+    span is the measurement file's ``corrector_delta``. The matrix is hardware
+    reading per hardware setpoint, a row per turn-by-turn reading and a column
+    per corrector, each named by its channel address; the sidecar holds the
+    lattice index of every row (``bpm_index``) and of every column
+    (``hcor_index`` then ``vcor_index``).
+
+    Args:
+        inputs: The render's view inputs.
+        record: The model's record in the facility file.
+        hcor: The horizontal corrector setpoints of the model's measurement
+            groups, which are the first columns.
+        vcor: The vertical ones, which are the columns after them.
+
+    Returns:
+        Each file's name to its text.
+
+    Raises:
+        FacilityBuildError: ``engine-invalid``: the model's engine states no
+            ``response_matrix()``, refuses the response, or answers one that
+            is not a finite matrix of the correctors asked for with a plane
+            and an index for every row and column; ``value-invalid``: a corrector's calibration gives no
+            hardware step.
+    """
+    from importlib import metadata
+
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.facility.validate import stating_files
+    from osprey.facility.views.simulator import simulator_wiring
+    from osprey.simulation.engines import ENTRY_POINT_GROUP
+
+    model = str(record["name"])
+    engine_name = str(record["engine"])
+    correctors = [*hcor, *vcor]
+    asked = f"{_RESPONSE_FUNCTION}(kind={_RESPONSE_KIND!r})"
+
+    def stop(kind: str, detail: str, remedy: str) -> FacilityBuildError:
+        return FacilityBuildError(
+            kind,
+            model,
+            stating_files(record, None, fallback=_MODELS_FILE),
+            remedy,
+            record_kind="model",
+            detail=detail,
+        )
+
+    engines = metadata.entry_points(group=ENTRY_POINT_GROUP)
+    engine = engines[engine_name].load() if engine_name in engines.names else None
+    solve = getattr(engine, _RESPONSE_FUNCTION, None)
+    if solve is None:
+        raise stop(
+            "engine-invalid",
+            f"engine {engine_name} states no {_RESPONSE_FUNCTION}(), so model {model}'s "
+            "trajectory response has no solve",
+            f"add {asked} to the engine plug-in",
+        )
+
+    wiring = simulator_wiring(dict(inputs.doc), model)
+    by_address = {str(entry["address"]): entry for entry in wiring}
+    delta = float((record.get("measurement") or {})[_RESPONSE_STEP_KEY])
+    steps: dict[str, float] = {}
+    for address in correctors:
+        try:
+            steps[address] = hardware_width(by_address[address], delta)
+        except ValueError as exc:
+            raise stop(
+                "value-invalid",
+                f"corrector {address} of model {model} has no hardware step for "
+                f"`{_RESPONSE_STEP_KEY}` {delta}: {exc}",
+                "state a calibration with a way back to hardware for the corrector",
+            ) from exc
+
+    def unanswered(what: str) -> FacilityBuildError:
+        return stop(
+            "engine-invalid",
+            f"engine {engine_name} answers {asked} for model {model} with {what}",
+            f"make {_RESPONSE_FUNCTION}() answer a finite matrix with a plane and an index "
+            "for every row and column",
+        )
+
+    refusals = (ValueError, *getattr(engine, "SOLVE_ERRORS", ()))
+    try:
+        answer = solve(
+            inputs.facility_dir / str(record["deck"]),
+            wiring,
+            record.get("settings"),
+            list(correctors),
+            steps,
+            kind=_RESPONSE_KIND,
+        )
+    except FacilityBuildError:
+        raise
+    except refusals as exc:
+        raise stop(
+            "engine-invalid",
+            f"engine {engine_name} refuses {asked} for model {model}: {exc}",
+            "give the model a deck, wiring and settings its first turn solves on",
+        ) from exc
+
+    try:
+        rows, columns, matrix, bpm_index, hcor_index, vcor_index = answer
+    except (TypeError, ValueError) as exc:
+        raise unanswered("an answer that is not its six parts") from exc
+    try:
+        rows = [str(row) for row in rows]
+        columns = [str(column) for column in columns]
+        values = [[float(f"{float(value):.9g}") for value in row] for row in matrix]
+        indices = {
+            "bpm_index": [int(index) for index in bpm_index],
+            "hcor_index": [int(index) for index in hcor_index],
+            "vcor_index": [int(index) for index in vcor_index],
+        }
+    except (TypeError, ValueError) as exc:
+        raise unanswered("a value or an index that is no number") from exc
+    if columns != list(correctors):
+        raise unanswered(
+            f"columns {', '.join(columns) or 'none'}, which are not the correctors asked for "
+            f"({', '.join(correctors)})"
+        )
+    if len(values) != len(rows) or any(len(row) != len(columns) for row in values):
+        raise unanswered(f"a matrix that is not {len(rows)} rows by {len(columns)} columns")
+    if len(indices["bpm_index"]) != len(rows):
+        raise unanswered(f"{len(indices['bpm_index'])} row indices for {len(rows)} rows")
+    if len(indices["hcor_index"]) + len(indices["vcor_index"]) != len(columns):
+        raise unanswered(
+            f"{len(indices['hcor_index']) + len(indices['vcor_index'])} column indices for "
+            f"{len(columns)} columns"
+        )
+    if len(indices["hcor_index"]) != len(hcor):
+        raise unanswered(
+            f"{len(indices['hcor_index'])} horizontal column indices for {len(hcor)} "
+            "horizontal correctors"
+        )
+    if not all(math.isfinite(value) for row in values for value in row):
+        raise unanswered("a value that is not finite")
+    row_planes: list[str] = []
+    for row in rows:
+        plane = (by_address.get(row) or {}).get("plane")
+        if plane not in PLANE_WORDS:
+            raise unanswered(f"row {row}, which the model wires in no transverse plane")
+        row_planes.append(PLANE_WORDS[plane])
+    body = {
+        "type": ORBIT_RESPONSE_MATRIX_DATA_TYPE,
+        "matrix": values,
+        "observable_names": rows,
+        "variable_names": columns,
+        "observable_planes": row_planes,
+        "variable_planes": [
+            *(PLANE_WORDS["x"] for _ in indices["hcor_index"]),
+            *(PLANE_WORDS["y"] for _ in indices["vcor_index"]),
+        ],
+    }
+    return {
+        TRAJECTORY_RM_FILE: _matrix_text(body),
+        TRAJECTORY_RM_INDEX_FILE: _matrix_text(indices),
+    }
+
+
 def _names(
     magnets: Sequence[_Magnet], bpms: Sequence[_Bpm], groups_named: Mapping[str, Any], rf: Any
 ) -> ViewNames:
@@ -833,6 +1137,8 @@ def _configuration(
             and models[magnet.address] is not None
             and any(element in refused for element, _ in _slice_elements(magnet.entry))
         ]
+    if _TRAJECTORY_KIND in kinds:
+        files |= _trajectory_files(inputs, record, groups.get("hcor", ()), groups.get("vcor", ()))
     left_out = set(unmodelled) | set(unkicked)
     magnets = [magnet for magnet in magnets if magnet.address not in left_out]
     groups = {
@@ -927,6 +1233,8 @@ def _configuration(
 
     array_of = {role: names.array_name(role, str(group)) for role, group in groups_named.items()}
     for kind in kinds:
+        if kind not in KIND_TOOLS:
+            continue
         tool_type, tool_name = KIND_TOOLS[kind]
         section = {"type": tool_type}
         if kind == "orm":

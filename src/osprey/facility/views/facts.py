@@ -2,10 +2,11 @@
 
 Written to ``<render>/data/``::
 
-    facility_facts.json   {schema: osprey.facility.facility_facts/2, identity,
+    facility_facts.json   {schema: osprey.facility.facility_facts/3, identity,
                            place_levels, places, unplaced_devices,
                            device_classes, vocabulary, models,
-                           measurement_models, channel_count, snapshot}
+                           measurement_models, trajectory_slots,
+                           channel_count, snapshot}
     facility_facts.md     the same facts as one page, rendered once from
                           ``_facility_facts.md.j2``
 
@@ -25,8 +26,12 @@ and its engine's ``solve`` setting. ``measurement_models`` holds one record per
 pyAML view the render carries, ``{path, sha256, files}``: the configuration's
 path under the render and its digest, and the digest of each other file of the
 view by its name in the view's directory; the facts view is written after the
-pyAML view and reads it from disk. ``channel_count`` counts the channels, and
-``snapshot`` is ``null``.
+pyAML view and reads it from disk. ``trajectory_slots`` holds, for each model
+whose measurement file lists the ``trajectory`` kind and for no other model,
+the channels the measurement arms, fires and watches, as
+:func:`osprey.facility.views.pyaml.trajectory_slots` answers; it is read from
+the facility file, whether or not the render carries a pyAML view.
+``channel_count`` counts the channels, and ``snapshot`` is ``null``.
 
 A render with no facts file is read as the zero-source facts: the identity of
 its facility file or project name, no place, no class, ``texture`` alone and no
@@ -67,7 +72,10 @@ logger = logging.getLogger(__name__)
 
 FACTS_FILE = "facility_facts.json"
 FACTS_PAGE = "facility_facts.md"
-FACTS_SCHEMA = "osprey.facility.facility_facts/2"
+FACTS_SCHEMA = "osprey.facility.facility_facts/3"
+
+#: The measurement kind whose channel slots the facts carry.
+SLOTS_KIND = "trajectory"
 
 #: The class a classless device is counted under.
 NO_CLASS = "-"
@@ -232,6 +240,18 @@ def _models(doc: Mapping[str, Any], served: list[str]) -> list[dict[str, Any]]:
     return models
 
 
+def _trajectory_slots(doc: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """The slots of each model whose measurement file lists the kind, by model name."""
+    from osprey.facility.views.pyaml import trajectory_slots
+
+    names = sorted(
+        str(model["name"])
+        for model in doc.get("models", [])
+        if SLOTS_KIND in ((model.get("measurement") or {}).get("kinds") or [])
+    )
+    return {name: trajectory_slots(doc, name) for name in names}
+
+
 def facts_document(
     doc: Mapping[str, Any],
     served: list[str],
@@ -261,6 +281,7 @@ def facts_document(
         "vocabulary": _vocabulary(doc),
         "models": _models(doc, served),
         "measurement_models": dict(measurement_models or {}),
+        "trajectory_slots": _trajectory_slots(doc),
         "channel_count": len(doc.get("channels", [])),
         "snapshot": None,
     }
@@ -291,6 +312,7 @@ def zero_source_facts(identity: Mapping[str, Any]) -> dict[str, Any]:
         },
         "models": [{"name": TEXTURE, "engine": TEXTURE, "served": True, "solve": None}],
         "measurement_models": {},
+        "trajectory_slots": {},
         "channel_count": 0,
         "snapshot": None,
     }
@@ -431,6 +453,7 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
                     for role in KIND_STEPPED[str(kind)]
                 }
                 for kind in measurement.get("kinds") or []
+                if str(kind) in KIND_STEPPED
             },
             "groups": {
                 role: [

@@ -33,6 +33,9 @@ pytestmark = pytest.mark.xdist_group("mml_built")
 #: The demo SR model's kinds, sorted as the facility file carries them.
 DEMO_KINDS = ["chromaticity_monitor", "crm", "dispersion", "orm", "trm"]
 
+#: The kinds that have a pyAML tool, in the order the tables list them.
+DEMO_KINDS_IN_TABLE_ORDER = ["orm", "dispersion", "trm", "crm", "chromaticity_monitor"]
+
 
 def _model(document: dict[str, Any], name: str) -> dict[str, Any]:
     (record,) = [model for model in document["models"] if model["name"] == name]
@@ -63,10 +66,17 @@ def _stop(tmp_path: Path, tree: dict[str, Any]) -> FacilityBuildError:
 # --- what builds --------------------------------------------------------------------
 
 
-def test_the_demo_sr_model_builds_all_five_kinds(built_control_assistant: BuiltProject) -> None:
+def test_the_demo_sr_model_builds_the_five_kinds_and_trajectory(
+    built_control_assistant: BuiltProject,
+) -> None:
     measurement = _model(built_control_assistant.facility, "SR")["measurement"]
-    assert measurement["kinds"] == DEMO_KINDS
-    assert set(measurement["instruments"]) == {"tune", "rf"}
+    assert measurement["kinds"] == sorted([*DEMO_KINDS, "trajectory"])
+    assert set(measurement["instruments"]) == {
+        "tune",
+        "rf",
+        "injection_request",
+        "injection_busy",
+    }
 
 
 def test_the_demo_corrector_groups_are_their_planes(built_control_assistant: BuiltProject) -> None:
@@ -329,7 +339,12 @@ def test_the_words_a_measurement_file_may_use_are_the_words_the_view_reads() -> 
     """
     import yaml
 
-    from osprey.facility.views.pyaml import GROUP_ROLES, KIND_MEMBERS, TOOL_KEYS
+    from osprey.facility.views.pyaml import (
+        GROUP_ROLES,
+        INSTRUMENT_CLASSES,
+        KIND_MEMBERS,
+        TOOL_KEYS,
+    )
 
     schema_path = Path(__file__).resolve().parents[2] / "src/osprey/facility/schema/core.yaml"
     schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
@@ -343,4 +358,61 @@ def test_the_words_a_measurement_file_may_use_are_the_words_the_view_reads() -> 
     assert kinds == set(KIND_MEMBERS) == set(TOOL_KEYS)
     assert groups == set(GROUP_ROLES)
     assert instruments == members - set(GROUP_ROLES)
+    classed = [name for names in INSTRUMENT_CLASSES.values() for name in names]
+    assert sorted(classed) == sorted(instruments)
     assert keys == {key for needed in TOOL_KEYS.values() for key in needed}
+
+
+def test_each_instrument_carries_the_requirement_class_the_rules_read() -> None:
+    """The rules ask a different thing of each class, so the class of each name is fixed."""
+    from osprey.facility.views.pyaml import INSTRUMENT_CLASSES
+
+    assert INSTRUMENT_CLASSES == {
+        "wired": ("tune", "rf", "injection_request"),
+        "exists": ("injection_busy",),
+        "optional": ("bunch_clean_enable", "beam_current", "rf_status"),
+    }
+
+
+def test_the_trajectory_kind_has_members_and_keys_and_neither_a_tool_nor_a_stepped_row() -> None:
+    from osprey.facility.views.pyaml import KIND_MEMBERS, KIND_STEPPED, KIND_TOOLS, TOOL_KEYS
+
+    assert KIND_MEMBERS["trajectory"] == (
+        "bpm",
+        "hcor",
+        "vcor",
+        "injection_request",
+        "injection_busy",
+        "bunch_clean_enable",
+        "beam_current",
+        "rf_status",
+    )
+    assert TOOL_KEYS["trajectory"] == ("alpha", "n_discard", "gain")
+    assert "trajectory" not in KIND_TOOLS
+    assert "trajectory" not in KIND_STEPPED
+
+
+def test_the_tables_of_every_other_kind_are_what_they_were() -> None:
+    from osprey.facility.views.pyaml import KIND_MEMBERS, KIND_STEPPED, KIND_TOOLS, TOOL_KEYS
+
+    assert list(KIND_TOOLS) == list(KIND_STEPPED) == DEMO_KINDS_IN_TABLE_ORDER
+    assert {kind: KIND_MEMBERS[kind] for kind in DEMO_KINDS_IN_TABLE_ORDER} == {
+        "orm": ("bpm", "hcor", "vcor"),
+        "dispersion": ("bpm", "hcor", "vcor", "rf"),
+        "trm": ("quad", "tune"),
+        "crm": ("sext", "tune", "rf"),
+        "chromaticity_monitor": ("tune", "rf"),
+    }
+    assert {kind: TOOL_KEYS[kind] for kind in DEMO_KINDS_IN_TABLE_ORDER} == {
+        "orm": ("corrector_delta",),
+        "dispersion": ("frequency_delta",),
+        "trm": ("quad_delta",),
+        "crm": ("sextu_delta",),
+        "chromaticity_monitor": (
+            "n_step",
+            "n_avg_meas",
+            "fit_order",
+            "sleep_between_step",
+            "sleep_between_meas",
+        ),
+    }

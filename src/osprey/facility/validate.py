@@ -930,9 +930,9 @@ def stale_scenarios(facility_dir: Path, *, project_name: str) -> list[str]:
 
     A scenario counts when the reference stage finds a channel or model it
     names missing (``reference-missing``), or when a fault it keys under an
-    engine model is neither a channel nor one of that engine's variables
-    (``engine-invalid``). Both are the build's own checks, run over the tree
-    as it stands.
+    engine model is neither a channel nor one of that engine's variables, or
+    asks what that model's deck cannot give (``engine-invalid``). Both are
+    the build's own checks, run over the tree as it stands.
 
     Args:
         facility_dir: The ``data/facility`` directory.
@@ -970,7 +970,7 @@ def stale_scenarios(facility_dir: Path, *, project_name: str) -> list[str]:
     if engines <= set(registered):
         names |= {
             error.record_id
-            for error in check_scenario_engines(document)
+            for error in check_scenario_engines(document, facility_dir)
             if error.kind == "engine-invalid"
         }
     return sorted(names)
@@ -1566,11 +1566,14 @@ class _Records:
     # --- limits --------------------------------------------------------------------
 
     def _limits(self) -> Iterator[FacilityBuildError]:
+        requests = _request_channels(self.index.models.values())
         for record in self.index.limits:
             address = str(record.get("address"))
             channel = self.index.channels[address]
             value_type = self._type(address)
             files = ["limits.yaml"]
+            if channel.get("signal") == _ARM_COMMAND or address in requests:
+                yield from self._command_limits(record, address, files)
             if record.get("writable") is True and channel.get("role") != "setpoint":
                 yield self._error(
                     "limit-invalid",
@@ -1603,6 +1606,43 @@ class _Records:
                         f"{shown} on an int channel is not integral",
                         "write integral bounds",
                     )
+
+    def _command_limits(
+        self, record: Mapping[str, Any], address: str, files: Sequence[str]
+    ) -> Iterator[FacilityBuildError]:
+        """The stops of a limits record naming a command channel.
+
+        The record states both bounds and ``confirm: false``, and no
+        ``max_step``.
+        """
+        missing = [slot for slot in _COMMAND_BOUNDS if record.get(slot) is None]
+        if missing:
+            yield self._error(
+                "limit-invalid",
+                "limit",
+                address,
+                files,
+                f"the record of a command channel states no {quoted_slots(missing)}",
+                f"state {quoted_slots(missing)}; a command is written inside both bounds",
+            )
+        if record.get("confirm") is not False:
+            yield self._error(
+                "limit-invalid",
+                "limit",
+                address,
+                files,
+                "the record of a command channel does not state `confirm: false`",
+                "state `confirm: false`; a command is not read back after the write",
+            )
+        if record.get("max_step") is not None:
+            yield self._error(
+                "limit-invalid",
+                "limit",
+                address,
+                files,
+                "the record of a command channel states `max_step`",
+                "remove `max_step`; a command is no step from the value before it",
+            )
 
     # --- scenarios -----------------------------------------------------------------
 
@@ -1904,6 +1944,7 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
 def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]:
     from osprey.facility.views.pyaml import (
         GROUP_ROLES,
+        INSTRUMENT_CLASSES,
         KIND_MEMBERS,
         ROLE_PLANES,
         TOOL_KEYS,
@@ -1939,7 +1980,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
             )
         grouped = measurement_groups(document, name)
         for kind in measurement.get("kinds") or []:
-            if kind != "orm" and _single_pass(model):
+            if kind not in _SINGLE_PASS_KINDS and _single_pass(model):
                 yield _measurement_missing(
                     name,
                     f"kind {kind} needs a periodic solve; model {name} solves single_pass",
@@ -1952,6 +1993,8 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                     groups_named.get(member) if member in GROUP_ROLES else instruments.get(member)
                 )
                 if named is None:
+                    if member in INSTRUMENT_CLASSES["optional"]:
+                        continue
                     yield _measurement_missing(
                         name,
                         f"kind {kind} needs `{slot}`, which the file does not name",
@@ -1972,7 +2015,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                         f"model {name} wires",
                         f"name a group holding a {wiring} model {name} wires as `{slot}`",
                     )
-                elif member not in GROUP_ROLES and str(named) not in wired:
+                elif member in INSTRUMENT_CLASSES["wired"] and str(named) not in wired:
                     yield _measurement_missing(
                         name,
                         f"kind {kind} needs `{slot}`; model {name} does not wire {named}",
@@ -1986,7 +2029,9 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                         f"wire the other plane's tune reading in model {name}, or name a reading "
                         f"of both planes as `{slot}`",
                     )
-            for key in TOOL_KEYS[kind]:
+            for key in (
+                (*_TRAJECTORY_KEYS, *TOOL_KEYS[kind]) if kind == _TRAJECTORY else TOOL_KEYS[kind]
+            ):
                 if key not in measurement:
                     yield FacilityBuildError(
                         "value-invalid",
@@ -1996,6 +2041,316 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                         record_kind="measurement",
                         detail=f"kind {kind} needs `{key}`, which the file does not state",
                     )
+            if kind == _TRAJECTORY:
+                yield from _trajectory_stops(document, model)
+                yield from _command_stops(document, model, grouped)
+                yield from _wiring_stops(document, model)
+
+
+#: The kinds a ``single_pass`` model allows.
+_SINGLE_PASS_KINDS = ("orm", "trajectory")
+
+#: The kind measured from turn-by-turn readings after an injected shot.
+_TRAJECTORY = "trajectory"
+
+#: The step key the trajectory kind needs beside its tool's own keys.
+_TRAJECTORY_KEYS = ("corrector_delta",)
+
+#: The signals of a monitor's turn-by-turn readings.
+_TURN_SIGNALS = ("bpm_tbt_x", "bpm_tbt_y", "bpm_tbt_sum")
+
+#: The signal of the command that arms a monitor's turn-by-turn acquisition.
+_ARM_COMMAND = "bpm_arm_command"
+
+#: The instrument slot naming the command that requests one injected shot.
+_REQUEST_SLOT = "injection_request"
+
+#: The bounds a limits record states for a command channel.
+_COMMAND_BOUNDS = ("min_value", "max_value")
+
+#: The signal of the flag that reads whether a monitor's acquisition is armed.
+_ARMED_STATUS = "bpm_armed_status"
+
+#: The signals every device of a trajectory model's ``groups.bpm`` carries.
+_MONITOR_SIGNALS = (*_TURN_SIGNALS, _ARM_COMMAND, _ARMED_STATUS)
+
+
+def _bpm_members(document: Mapping[str, Any], model: Mapping[str, Any]) -> tuple[Any, set[str]]:
+    """The group a model's measurement names as ``groups.bpm``, and its member devices.
+
+    The group is ``None`` when the measurement names none, and then it has no
+    members.
+    """
+    group = ((model.get("measurement") or {}).get("groups") or {}).get("bpm")
+    members = {
+        str(member)
+        for record in document.get("groups", [])
+        if group is not None and str(record["id"]) == str(group)
+        for member in record.get("members") or []
+    }
+    return group, members
+
+
+def _trajectory_stops(
+    document: Mapping[str, Any], model: Mapping[str, Any]
+) -> Iterator[FacilityBuildError]:
+    """The stops of a model whose measurement file allows the trajectory kind.
+
+    A periodic model states the launch its shots track from. Every device of
+    the group ``groups.bpm`` names carries a channel of each signal in
+    :data:`_MONITOR_SIGNALS`, and no other device of the model carries a
+    channel of a signal in :data:`_TURN_SIGNALS`.
+    """
+    name = str(model["name"])
+    kind = _TRAJECTORY
+    files = [f"measurement/{name}.yaml"]
+    if not _single_pass(model) and not _states_injection(model):
+        yield FacilityBuildError(
+            "value-invalid",
+            name,
+            files,
+            f"state `settings.pyat.injection` in model {name}, or remove {kind} from `kinds`",
+            record_kind="measurement",
+            detail=(
+                f"kind {kind} needs `settings.pyat.injection`, which model {name} does not state"
+            ),
+        )
+    group, grouped = _bpm_members(document, model)
+    if group is None:
+        return
+    members = sorted(grouped)
+    carried: dict[str, dict[str, str]] = {}
+    for channel in document.get("channels", []):
+        device = (channel.get("on") or {}).get("device")
+        signal = channel.get("signal")
+        if device is not None and signal in _MONITOR_SIGNALS:
+            carried.setdefault(str(device), {}).setdefault(str(signal), str(channel["id"]))
+    for device in members:
+        for signal in _MONITOR_SIGNALS:
+            if signal not in carried.get(device, {}):
+                yield _measurement_missing(
+                    name,
+                    f"kind {kind} needs a channel of signal `{signal}` on every device of "
+                    f"`groups.bpm`; device {device} of group {group} carries none",
+                    f"add a channel of signal `{signal}` on device {device}, or remove {kind} "
+                    "from `kinds`",
+                )
+    modelled = sorted(
+        str(device["id"]) for device in document.get("devices", []) if device.get("model") == name
+    )
+    for device in modelled:
+        if device in members:
+            continue
+        for signal in _TURN_SIGNALS:
+            address = carried.get(device, {}).get(signal)
+            if address is None:
+                continue
+            yield FacilityBuildError(
+                "value-invalid",
+                name,
+                files,
+                f"add device {device} to group {group}, or remove signal `{signal}` from "
+                f"channel {address}",
+                record_kind="measurement",
+                detail=(
+                    f"channel {address} carries signal `{signal}` on device {device}, which is "
+                    f"not in group {group}, the `groups.bpm` of kind {kind}"
+                ),
+            )
+
+
+def _request_channels(models: Iterable[Mapping[str, Any]]) -> set[str]:
+    """The channels the measurement files of ``models`` name as the injection request."""
+    named: set[str] = set()
+    for model in models:
+        measurement = model.get("measurement")
+        instruments = measurement.get("instruments") if isinstance(measurement, dict) else None
+        request = instruments.get(_REQUEST_SLOT) if isinstance(instruments, dict) else None
+        if request is not None:
+            named.add(str(request))
+    return named
+
+
+def _command_stops(
+    document: Mapping[str, Any], model: Mapping[str, Any], grouped: Mapping[str, Sequence[str]]
+) -> Iterator[FacilityBuildError]:
+    """The stops of the channels a trajectory model's measurement writes commands to.
+
+    Those are every channel of the arm signal on a device of the model and the
+    channel ``instruments.injection_request`` names. Each is a setpoint of
+    value type int and is no corrector of the kind.
+
+    Args:
+        document: The facility file.
+        model: The model's record.
+        grouped: The model's measurement groups, role to addresses.
+    """
+    from osprey.facility.views.pyaml import ROLE_PLANES
+
+    name = str(model["name"])
+    files = [f"measurement/{name}.yaml"]
+    devices = {
+        str(device["id"]) for device in document.get("devices", []) if device.get("model") == name
+    }
+    channels = {str(channel["id"]): channel for channel in document.get("channels", [])}
+    slot = f"`instruments.{_REQUEST_SLOT}`"
+    # address -> (how the channel comes to be written, the way out for a corrector)
+    commands: dict[str, tuple[str, str]] = {}
+    for address, channel in sorted(channels.items()):
+        device = (channel.get("on") or {}).get("device")
+        if channel.get("signal") == _ARM_COMMAND and str(device) in devices:
+            commands[address] = (
+                f"which carries signal `{_ARM_COMMAND}`",
+                f"remove signal `{_ARM_COMMAND}` from channel {address}",
+            )
+    for request in sorted(_request_channels([model]) & set(channels)):
+        commands[request] = (
+            f"which {slot} names",
+            f"name a channel that is no corrector as {slot}",
+        )
+    correctors = {
+        address: role for role in reversed(ROLE_PLANES) for address in grouped.get(role) or []
+    }
+    for address, (named, way_out) in sorted(commands.items()):
+        channel = channels[address]
+        subject = f"kind {_TRAJECTORY} writes a command to channel {address}, {named}"
+        role = channel.get("role", "readback")
+        value_type = channel.get("value_type", "float")
+        stops = []
+        if address in correctors:
+            stops.append((f"it is a corrector of `groups.{correctors[address]}`", way_out))
+        if role != "setpoint":
+            stops.append((f"it is a {role} channel", f"set `role: setpoint` on channel {address}"))
+        if value_type != "int":
+            stops.append(
+                (f"its value type is {value_type}", f"set `value_type: int` on channel {address}")
+            )
+        for fact, remedy in stops:
+            yield FacilityBuildError(
+                "value-invalid",
+                name,
+                files,
+                remedy,
+                record_kind="measurement",
+                detail=f"{subject}; {fact}",
+            )
+
+
+#: The role an engine gives a read record holding one sample per turn.
+_TURN_SERIES = "turn_series"
+
+#: The key a wiring entry carries, ``True``, when its engine marks it a command.
+_COMMAND_MARK = "command"
+
+#: The plane of the turn series each signal's channel is wired as; ``None`` is
+#: a series of no plane.
+_SERIES_PLANES: dict[str, str | None] = {
+    "bpm_tbt_x": "x",
+    "bpm_tbt_y": "y",
+    "bpm_tbt_sum": None,
+    _ARMED_STATUS: None,
+}
+
+
+def _wired_as(entry: Mapping[str, Any]) -> str:
+    """How a wiring entry's engine describes it, in a stop line's words."""
+    if entry.get(_COMMAND_MARK) is True:
+        return "a command"
+    plane = entry.get("plane")
+    return f"`{entry.get('role')}` of {f'plane {plane}' if plane else 'no plane'}"
+
+
+def _wiring_stops(
+    document: Mapping[str, Any], model: Mapping[str, Any]
+) -> Iterator[FacilityBuildError]:
+    """The stops tying a trajectory model's signals to what its engine wires.
+
+    On every device of the group ``groups.bpm`` names, each channel of a
+    signal in :data:`_SERIES_PLANES` is wired by the model as a turn series
+    of that signal's plane, and each channel of the arm signal as a command;
+    so is the channel ``instruments.injection_request`` names, once the
+    model wires it. The other way round, a record the model's engine
+    describes as a turn series sits on a channel of a signal of its plane,
+    and one it marks a command sits on a channel of the arm signal or on the
+    one the request names.
+
+    Args:
+        document: The facility file.
+        model: The model's record.
+    """
+    from osprey.facility.views.simulator import simulator_wiring
+
+    name = str(model["name"])
+    kind = _TRAJECTORY
+    files = [f"measurement/{name}.yaml"]
+    wired = {str(entry["address"]): entry for entry in simulator_wiring(dict(document), name)}
+    channels = {str(channel["id"]): channel for channel in document.get("channels", [])}
+    requests = _request_channels([model])
+    _, members = _bpm_members(document, model)
+    command = {_COMMAND_MARK: True}
+    # address -> (how the kind comes to the channel, the entry it needs)
+    needed: dict[str, tuple[str, Mapping[str, Any]]] = {}
+    for address, channel in channels.items():
+        signal = channel.get("signal")
+        if str((channel.get("on") or {}).get("device")) not in members:
+            continue
+        if signal in _SERIES_PLANES:
+            needed[address] = (
+                f"which carries signal `{signal}`",
+                {"role": _TURN_SERIES, "plane": _SERIES_PLANES[signal]},
+            )
+        elif signal == _ARM_COMMAND:
+            needed[address] = (f"which carries signal `{signal}`", command)
+    for request in requests & set(wired):
+        needed[request] = (f"which `instruments.{_REQUEST_SLOT}` names", command)
+    for address, (named, want) in sorted(needed.items()):
+        entry = wired.get(address)
+        if entry is not None and _wired_as(entry) == _wired_as(want):
+            continue
+        fact = "does not wire it" if entry is None else f"wires it as {_wired_as(entry)}"
+        yield FacilityBuildError(
+            "value-invalid",
+            name,
+            files,
+            f"wire {address} in model {name} as {_wired_as(want)}, or remove {kind} from `kinds`",
+            record_kind="measurement",
+            detail=(
+                f"kind {kind} needs channel {address}, {named}, wired as {_wired_as(want)}; "
+                f"model {name} {fact}"
+            ),
+        )
+    for address, entry in sorted(wired.items()):
+        signal = channels.get(address, {}).get("signal")
+        if entry.get(_COMMAND_MARK) is True:
+            if signal == _ARM_COMMAND or address in requests:
+                continue
+            lacks = (
+                f"the channel carries no signal `{_ARM_COMMAND}` and "
+                f"`instruments.{_REQUEST_SLOT}` does not name it"
+            )
+            remedy = (
+                f"set signal `{_ARM_COMMAND}` on channel {address}, name it as "
+                f"`instruments.{_REQUEST_SLOT}`"
+            )
+        elif entry.get("role") == _TURN_SERIES:
+            plane = entry.get("plane")
+            signals = [
+                f"`{candidate}`" for candidate, its in _SERIES_PLANES.items() if its == plane
+            ] or [f"`{candidate}`" for candidate, its in _SERIES_PLANES.items() if its is None]
+            if f"`{signal}`" in signals:
+                continue
+            lacks = f"the channel carries no signal {' or '.join(signals)}"
+            remedy = f"set signal {' or '.join(signals)} on channel {address}"
+        else:
+            continue
+        yield FacilityBuildError(
+            "value-invalid",
+            name,
+            files,
+            f"{remedy}, or remove its wiring record from model {name}",
+            record_kind="measurement",
+            detail=f"model {name} wires channel {address} as {_wired_as(entry)}; {lacks}",
+        )
 
 
 def _measurement_missing(model: str, detail: str, remedy: str) -> FacilityBuildError:
@@ -2075,6 +2430,13 @@ def _single_pass(model: Mapping[str, Any]) -> bool:
     settings = model.get("settings")
     block = settings.get("pyat") if isinstance(settings, dict) else None
     return isinstance(block, dict) and block.get("solve") == "single_pass"
+
+
+def _states_injection(model: Mapping[str, Any]) -> bool:
+    """True when a model's ``pyat`` settings state the launch of a tracked shot."""
+    settings = model.get("settings")
+    block = settings.get("pyat") if isinstance(settings, dict) else None
+    return isinstance(block, dict) and block.get("injection") is not None
 
 
 def _reads_plane_optics(entry: Mapping[str, Any], attributes: Iterable[str]) -> bool:

@@ -16,6 +16,7 @@ from typing import Any
 from osprey.facility.build import build_facility
 from osprey.facility.sources import read_yaml, slot_names
 from osprey.facility.views.limits import limits_document
+from osprey.facility.views.pyaml import TOOL_KEYS
 from tests._builds import BuiltProject
 from tests.facility.test_cf_view_parity import load_golden
 
@@ -145,6 +146,15 @@ def test_every_limited_address_is_a_setpoint() -> None:
         assert channels[record["address"]].get("role") == "setpoint"
 
 
+def test_no_limited_address_is_a_command_channel() -> None:
+    """A command channel's record has a shape of its own, which no teaching record shows."""
+    channels = records_by_id("channel")
+    request = (measurement().get("instruments") or {}).get("injection_request")
+    for record in TEACHING_RECORDS:
+        assert channels[record["address"]].get("signal") != "bpm_arm_command"
+        assert record["address"] != request
+
+
 def test_cavity_band_holds_the_deck_operating_point() -> None:
     cavity = RESOLVED_ROWS["SR:RF:CAVITY:01:FREQUENCY:SP"]
     assert cavity["min_value"] < CAVITY_OPERATING_MHZ < cavity["max_value"]
@@ -171,13 +181,14 @@ def test_limits_golden_resolves_the_committed_records() -> None:
 # --- measurement -----------------------------------------------------------------
 
 
-def test_measurement_allows_the_five_kinds() -> None:
+def test_measurement_allows_the_six_kinds() -> None:
     assert measurement()["kinds"] == [
         "orm",
         "dispersion",
         "trm",
         "crm",
         "chromaticity_monitor",
+        "trajectory",
     ]
 
 
@@ -204,16 +215,22 @@ def test_measurement_instruments_are_served_channels() -> None:
     assert instruments == {
         "tune": "SR:DIAG:TUNE:X",
         "rf": "SR:RF:CAVITY:01:FREQUENCY:SP",
+        "injection_request": "SR:DIAG:INJECTION:REQUEST",
+        "injection_busy": "SR:DIAG:INJECTION:BUSY",
     }
     for address in instruments.values():
         assert address in channels
     assert channels[instruments["rf"]].get("role") == "setpoint"
+    assert channels[instruments["injection_request"]].get("role") == "setpoint"
 
 
 def test_measurement_carries_every_pyaml_step_and_settle_key() -> None:
+    """The file states the keys of the kinds it allows, and the kinds' keys are the schema's."""
     document = measurement()
     tuning = {key: value for key, value in document.items() if key not in _MEASUREMENT_ROLES}
-    assert set(tuning) == slot_names("Measurement") - _MEASUREMENT_ROLES
+    every_key = {key for keys in TOOL_KEYS.values() for key in keys}
+    assert every_key == slot_names("Measurement") - _MEASUREMENT_ROLES
+    assert set(tuning) == {key for kind in document["kinds"] for key in TOOL_KEYS[kind]}
     assert tuning == {
         "n_step": 5,
         "n_avg_meas": 1,
@@ -224,6 +241,9 @@ def test_measurement_carries_every_pyaml_step_and_settle_key() -> None:
         "quad_delta": 1.0e-3,
         "sextu_delta": 1.0e-2,
         "frequency_delta": 100.0,
+        "alpha": 0.0,
+        "n_discard": 0,
+        "gain": 1.0,
     }
 
 

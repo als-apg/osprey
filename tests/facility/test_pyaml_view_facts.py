@@ -21,8 +21,15 @@ from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.facility.views.facts import FACTS_FILE, hook_measurement
-from osprey.facility.views.pyaml import KIND_STEPPED, RF_PLANT_TYPE, measurement_groups
+from osprey.facility.views.pyaml import (
+    KIND_STEPPED,
+    RF_PLANT_TYPE,
+    TRAJECTORY_RM_FILE,
+    TRAJECTORY_RM_INDEX_FILE,
+    measurement_groups,
+)
 from tests.facility._pyaml_trees import built_document, measured_tree, with_rf
+from tests.facility._synthetic_trees import TRAJECTORY_KEYS
 
 pytest.importorskip("pyaml")
 
@@ -172,7 +179,7 @@ def test_the_block_lists_each_listed_kind_with_every_role_it_steps(
     block = hook_measurement(_facts(render), render)
     for model, entry in block.items():
         listed = built[f"measurement/{model}.yaml"]["kinds"]
-        assert set(entry["kinds"]) == set(listed)
+        assert set(entry["kinds"]) == {kind for kind in listed if kind in KIND_STEPPED}
         for kind, stepped in entry["kinds"].items():
             assert set(stepped) == set(KIND_STEPPED[kind])
 
@@ -187,3 +194,69 @@ def test_the_block_names_the_views_rf_plant_for_a_kind_that_steps_rf(tmp_path: P
     ]
     block = hook_measurement(_facts(render), render)
     assert block["SR"]["kinds"]["crm"] == {"rf": plant, "sext": "SR_S"}
+
+
+def _render_listing(tmp_path: Path, extra: list[str]) -> Path:
+    """A render of the measured tree whose SR model lists ``extra`` kinds after its own.
+
+    A listed ``trajectory`` brings the step and settle keys that kind needs and
+    launches the ring at its marker ``M1``.
+    """
+    document, facility = built_document(tmp_path / "tree", measured_tree())
+    (sr,) = [model for model in document["models"] if model["name"] == "SR"]
+    sr["measurement"]["kinds"] = [*sr["measurement"]["kinds"], *extra]
+    if "trajectory" in extra:
+        sr["measurement"] = {**TRAJECTORY_KEYS, **sr["measurement"]}
+        sr.setdefault("settings", {}).setdefault("pyat", {})["injection"] = {"marker": "M1"}
+    render = tmp_path / "render"
+    render.mkdir()
+    render_facility_outputs(render, document, {}, facility)
+    return render
+
+
+def test_a_kind_that_steps_nothing_through_the_view_is_in_no_block_and_no_configuration(
+    tmp_path: Path,
+) -> None:
+    plain = _render_listing(tmp_path / "plain", [])
+    listing = _render_listing(tmp_path / "listing", ["trajectory"])
+    document = json.loads((listing / FACILITY_FILE).read_text("utf-8"))
+    (sr,) = [model for model in document["models"] if model["name"] == "SR"]
+    assert "trajectory" in sr["measurement"]["kinds"]
+
+    block = hook_measurement(_facts(listing), listing)
+    assert block == hook_measurement(_facts(plain), plain)
+    assert "trajectory" not in json.dumps(block)
+    listed_models = _facts(listing)["measurement_models"]
+    plain_models = _facts(plain)["measurement_models"]
+    assert listed_models["LINE"] == plain_models["LINE"]
+    listed_files = dict(listed_models["SR"]["files"])
+    assert sorted(set(listed_files) - set(plain_models["SR"]["files"])) == [
+        TRAJECTORY_RM_INDEX_FILE,
+        TRAJECTORY_RM_FILE,
+    ]
+    for name in (TRAJECTORY_RM_FILE, TRAJECTORY_RM_INDEX_FILE):
+        del listed_files[name]
+    assert {**listed_models["SR"], "files": listed_files} == plain_models["SR"]
+    for model in ("LINE", "SR"):
+        written = listing / "data" / "pyaml" / model / "configuration.yaml"
+        assert (
+            written.read_bytes()
+            == (plain / "data" / "pyaml" / model / "configuration.yaml").read_bytes()
+        )
+        assert "trajectory" not in written.read_text("utf-8").lower()
+
+
+def test_the_measure_tools_refusal_names_no_kind_the_view_cannot_step(tmp_path: Path) -> None:
+    from fastmcp.exceptions import ToolError
+
+    from osprey.mcp_server.python_executor.tools._pyaml_measure_args import _refuse_lacking
+
+    render = _render_listing(tmp_path, ["trajectory"])
+    document = json.loads((render / FACILITY_FILE).read_text("utf-8"))
+    (sr,) = [model for model in document["models"] if model["name"] == "SR"]
+    block = hook_measurement(_facts(render), render)["SR"]
+    for kind in ("orm", "crm"):
+        with pytest.raises(ToolError) as refused:
+            _refuse_lacking(kind, "SR", block, sr["measurement"])
+        assert "trm" in str(refused.value)
+        assert "trajectory" not in str(refused.value)
