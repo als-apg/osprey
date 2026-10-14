@@ -54,6 +54,18 @@ def _takes_offline_build_env(tree: ast.Module) -> bool:
     )
 
 
+def _stubs_the_install(tree: ast.Module) -> bool:
+    return any(
+        isinstance(node, ast.Call)
+        and getattr(node.func, "attr", None) == "setattr"
+        and len(node.args) >= 2
+        and isinstance(node.args[1], ast.Constant)
+        and node.args[1].value in {"_create_project_venv", "_build_repo"}
+        and ast.unparse(node.args[0]).endswith("build_cmd")
+        for node in ast.walk(tree)
+    )
+
+
 def _is_word(node: ast.expr, word: str) -> bool:
     return isinstance(node, ast.Constant) and node.value == word
 
@@ -63,9 +75,26 @@ def _is_launcher(node: ast.expr) -> bool:
 
 
 def _build_argv(node: ast.AST) -> ast.List | ast.Tuple | None:
-    """The argument list of an out-of-process ``osprey build`` that ``node`` is, if any."""
+    """The argument list of an out-of-process or in-process ``osprey build`` that ``node`` is.
+
+    In process, a build is ``<runner>.invoke(cli, ["build", ...])`` or
+    ``<runner>.invoke(build, [...])``. The pin reads an argument list only when
+    it is a literal list: one held in a variable, a starred name inside the
+    list, or a global option ahead of ``build`` is not judged.
+    """
     if isinstance(node, ast.Call):
         func = node.func
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr == "invoke"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.List | ast.Tuple)
+            and (
+                (node.args[1].elts and _is_word(node.args[1].elts[0], "build"))
+                or (isinstance(node.args[0], ast.Name) and node.args[0].id == "build")
+            )
+        ):
+            return node.args[1]
         name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
         if (
             name == "_run_cli"
@@ -86,27 +115,31 @@ def _build_argv(node: ast.AST) -> ast.List | ast.Tuple | None:
 
 
 def _unguarded_builds(source: str) -> list[int]:
-    """The line of every out-of-process build in ``source`` that may reach an index.
+    """The line of every build in ``source`` that may reach an index.
 
-    A build is guarded when its argument list skips the install
-    (``--skip-deps``) or when the module takes the ``offline_build_env``
-    fixture, which some of them hand to the subprocess through a helper.
+    A build is guarded by any of three things: its argument list skips the
+    install (``--skip-deps``, or ``--help``, which installs nothing); the
+    module takes the ``offline_build_env`` fixture, which some of them hand to
+    the build through a helper; or the module stubs the install
+    (``build_cmd._create_project_venv`` or ``build_cmd._build_repo``).
     """
     # A module that spells no build word or no launcher holds no build, so
     # it is not parsed.
-    names_build = '"build"' in source or "'build'" in source
+    names_build = '"build"' in source or "'build'" in source or "invoke(build" in source
     names_launcher = any(
-        word in source for word in ("_run_cli", "osprey_bin", '"osprey"', "'osprey'")
+        word in source for word in ("_run_cli", "osprey_bin", '"osprey"', "'osprey'", ".invoke(")
     )
     if not (names_build and names_launcher):
         return []
     tree = ast.parse(source)
-    if _takes_offline_build_env(tree):
+    if _takes_offline_build_env(tree) or _stubs_the_install(tree):
         return []
     found = []
     for node in ast.walk(tree):
         argv = _build_argv(node)
-        if argv is not None and not any(_is_word(word, "--skip-deps") for word in argv.elts):
+        if argv is not None and not any(
+            _is_word(word, flag) for word in argv.elts for flag in ("--skip-deps", "--help")
+        ):
             found.append(argv.lineno)
     return sorted(found)
 
@@ -143,10 +176,17 @@ UNGUARDED_RUN_CLI = 'def test_it(project):\n    _run_cli(["build"], project)\n'
 UNGUARDED_SUBPROCESS = (
     'def test_it(osprey_bin, r):\n    subprocess.run([str(osprey_bin), "build", "--repo", r])\n'
 )
+UNGUARDED_IN_PROCESS = 'def test_it(runner, r):\n    runner.invoke(cli, ["build", "--repo", r])\n'
+UNGUARDED_IN_PROCESS_COMMAND = 'def test_it(runner, r):\n    runner.invoke(build, ["--repo", r])\n'
+STUBS_THE_INSTALL = (
+    '    monkeypatch.setattr(build_cmd, "_create_project_venv", lambda *a, **k: [])\n'
+)
 
 
 @pytest.mark.parametrize(
-    "source", [UNGUARDED_RUN_CLI, UNGUARDED_SUBPROCESS], ids=["run-cli", "subprocess"]
+    "source",
+    [UNGUARDED_RUN_CLI, UNGUARDED_SUBPROCESS, UNGUARDED_IN_PROCESS, UNGUARDED_IN_PROCESS_COMMAND],
+    ids=["run-cli", "subprocess", "in-process", "in-process-command"],
 )
 def test_every_real_build_under_tests_takes_the_offline_environment__mutation_builds_unguarded(
     source: str,
@@ -164,8 +204,25 @@ def test_every_real_build_under_tests_takes_the_offline_environment__mutation_bu
         UNGUARDED_SUBPROCESS.replace('"--repo"', '"--skip-deps", "--repo"'),
         UNGUARDED_RUN_CLI.replace("(project)", "(project, offline_build_env)"),
         UNGUARDED_SUBPROCESS.replace("(osprey_bin, r)", "(osprey_bin, r, offline_build_env)"),
+        UNGUARDED_IN_PROCESS.replace(
+            "(runner, r):\n", "(runner, r, monkeypatch):\n" + STUBS_THE_INSTALL
+        ),
+        UNGUARDED_IN_PROCESS.replace('"--repo"', '"--skip-deps", "--repo"'),
+        UNGUARDED_IN_PROCESS.replace("(runner, r)", "(runner, r, offline_build_env)"),
+        UNGUARDED_IN_PROCESS.replace('"--repo", r]', '"--help"]'),
+        UNGUARDED_IN_PROCESS_COMMAND.replace('"--repo"', '"--skip-deps", "--repo"'),
     ],
-    ids=["run-cli-skips", "subprocess-skips", "run-cli-offline", "subprocess-offline"],
+    ids=[
+        "run-cli-skips",
+        "subprocess-skips",
+        "run-cli-offline",
+        "subprocess-offline",
+        "in-process-stubbed",
+        "in-process-skips",
+        "in-process-offline",
+        "in-process-help",
+        "in-process-command-skips",
+    ],
 )
 def test_every_real_build_under_tests_takes_the_offline_environment__guarded_builds_pass(
     source: str,
