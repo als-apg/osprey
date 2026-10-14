@@ -44,7 +44,7 @@ import subprocess
 import sys
 import tomllib
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -1612,6 +1612,16 @@ def _host_invocations(wf: dict[str, Any], host: SerialHost) -> list[str]:
     ]
 
 
+def _per_pr_hosts(wf: dict[str, Any], row: LaneLeavingMarker) -> tuple[SerialHost, ...]:
+    """The row's hosts whose job gates the merge (``all-checks-passed.needs``).
+
+    A host outside the merge gate runs on demand, so nothing a pull request
+    triggers times its files; a local mirror owes exactly the files under the
+    hosts this returns."""
+    needs = set(_jobs(wf)[GATE_JOB]["needs"])
+    return tuple(host for host in row.hosts if host.job in needs)
+
+
 def _registered_markers(pyproject: dict[str, Any]) -> list[str]:
     """The marker NAMES declared in ``[tool.pytest.ini_options]``, without the
     ``name: description`` prose after the first colon."""
@@ -2071,9 +2081,29 @@ def _missing_serial_run(source: str, row: LaneLeavingMarker) -> list[str]:
     ]
 
 
+def _unreached_by_serial_runs(source: str, row: LaneLeavingMarker, files: list[str]) -> list[str]:
+    """The *files* that none of the script's serial runs for *row* collects
+    (empty = every one is reached).
+
+    Each line carrying the row's selection is read from ``uv run pytest`` up to
+    the next shell separator, the way ``_ci_pytest_invocations`` cuts a ci.yml
+    command, so a wrapper before it (``run_bounded.py … --``) and a ``; then``
+    after it are not read as paths. A line whose only path is ``"$@"`` reaches
+    nothing by ``_invocation_reaches``' shell-variable rule: a run over the
+    caller's paths owes no fixed file."""
+    runs = [
+        _SHELL_SEPARATOR_RE.split(line[line.index("uv run pytest ") :], maxsplit=1)[0]
+        for line in _script_pytest_lines(source)
+        if row.select() in line
+    ]
+    return [name for name in files if not any(_invocation_reaches(run, name) for run in runs)]
+
+
 @pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
 @pytest.mark.parametrize("script", SERIAL_MIRROR_SCRIPTS)
-def test_serial_mirror_scripts_run_what_they_deselect(script: str, row: LaneLeavingMarker) -> None:
+def test_serial_mirror_scripts_run_what_they_deselect(
+    script: str, row: LaneLeavingMarker, workflow: dict[str, Any]
+) -> None:
     """``ci_check.sh`` mirrors the CI lane and ``gate.sh`` is the merge gate, so
     each owes the same serial follow-up the lane has. The other two scripts are
     documented fast sweeps and legitimately stop at the deselection; these would
@@ -2081,8 +2111,8 @@ def test_serial_mirror_scripts_run_what_they_deselect(script: str, row: LaneLeav
     missing = _missing_serial_run(_script_source(script), row)
     assert missing == [], (
         f"{script} deselects the {row.marker!r} marker in its sweep but does not "
-        f"run it serially afterwards ({missing}): add `uv run pytest {row.hosts[0].path} "
-        f"{row.select()}`"
+        f"run it serially afterwards ({missing}): add `uv run pytest "
+        f"{' '.join(host.path for host in _per_pr_hosts(workflow, row))} {row.select()}`"
     )
 
 
@@ -2112,6 +2142,123 @@ def test_serial_mirror_scripts_run_what_they_deselect__mutation_parallelizes_it(
     mutated = re.sub(rf"({re.escape(row.select())})(?=\s)", r"\1 -n 4", source)
     assert mutated != source, f"serial {row.marker} run not found; mutation is stale"
     assert _missing_serial_run(mutated, row) != []
+
+
+@pytest.mark.parametrize(
+    ("marker", "jobs"), [("pty", ["test"]), ("wallclock", ["qmd-sidecar-e2e"])]
+)
+def test_per_pr_hosts_are_the_hosts_the_merge_gate_needs(
+    marker: str, jobs: list[str], workflow: dict[str, Any]
+) -> None:
+    """The scale guard's host is dispatched by hand and sits outside the merge
+    gate, so it is the one host a per-PR mirror does not owe."""
+    assert [host.job for host in _per_pr_hosts(workflow, _row(marker))] == jobs
+
+
+def test_unreached_by_serial_runs_reads_each_serial_line() -> None:
+    """Each serial line is read from ``uv run pytest`` to the next separator;
+    a file under neither line's path is the one reported."""
+    row = _row("wallclock")
+    source = (
+        "if ! uv run python scripts/run_bounded.py 900 -- uv run pytest tests/integration "
+        "-m wallclock -v; then\n"
+        "uv run pytest tests/cli/test_a.py -m wallclock && echo tests/elsewhere\n"
+    )
+    files = ["tests/integration/test_x.py", "tests/cli/test_a.py", "tests/elsewhere/test_y.py"]
+    assert _unreached_by_serial_runs(source, row, files) == ["tests/elsewhere/test_y.py"]
+
+
+def _per_pr_carriers(
+    wf: dict[str, Any], row: LaneLeavingMarker, sources: dict[str, str]
+) -> list[str]:
+    """The row's marked files under a host that runs on every pull request."""
+    paths = [host.path for host in _per_pr_hosts(wf, row)]
+    return [name for name in _carriers(row, sources) if any(name.startswith(p) for p in paths)]
+
+
+def _check_serial_reach(
+    script: str,
+    source: str,
+    row: LaneLeavingMarker,
+    wf: dict[str, Any],
+    sources: dict[str, str],
+) -> None:
+    paths = [host.path for host in _per_pr_hosts(wf, row)]
+    files = _per_pr_carriers(wf, row, sources)
+    if paths:
+        assert files, (
+            f"no {row.marker}-marked file under the per-PR host paths {paths}; "
+            f"the reach check is stale"
+        )
+    unreached = _unreached_by_serial_runs(source, row, files)
+    assert unreached == [], (
+        f"{script}'s serial {row.marker} runs reach none of {unreached}, which CI "
+        f"times on every pull request under {paths}: widen the script's serial path "
+        f"or move the file"
+    )
+
+
+@pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
+@pytest.mark.parametrize("script", SERIAL_MIRROR_SCRIPTS)
+def test_serial_runs_reach_every_per_pr_marked_file(
+    script: str, row: LaneLeavingMarker, workflow: dict[str, Any]
+) -> None:
+    """A serial run that exists but collects a narrower path than CI's host
+    drops the files in between: the sweep deselected them and the follow-up
+    never looks there, so the script reports green over tests it never ran."""
+    _check_serial_reach(script, _script_source(script), row, workflow, _test_module_sources())
+
+
+@pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
+@pytest.mark.parametrize("script", SERIAL_MIRROR_SCRIPTS)
+def test_serial_runs_reach_every_per_pr_marked_file__mutation_narrows_the_path(
+    script: str, row: LaneLeavingMarker, workflow: dict[str, Any]
+) -> None:
+    source = _script_source(script)
+    hosts = [host.path.rstrip("/") for host in _per_pr_hosts(workflow, row)]
+    host_re = re.compile(rf"(?<!\S)(?:{'|'.join(map(re.escape, hosts))})/?(?=\s)")
+    mutated = "\n".join(
+        host_re.sub("tests/_nowhere/test_x.py", line) if row.select() in line else line
+        for line in source.splitlines()
+    )
+    assert mutated != source, f"no serial {row.marker} run over {hosts} in {script}; stale"
+    files = _per_pr_carriers(workflow, row, _test_module_sources())
+    assert _unreached_by_serial_runs(mutated, row, files) == files
+
+
+@pytest.mark.parametrize("row", LANE_LEAVING_MARKERS, ids=_ROW_IDS)
+@pytest.mark.parametrize("script", SERIAL_MIRROR_SCRIPTS)
+def test_serial_runs_reach_every_per_pr_marked_file__mutation_adds_a_per_pr_directory(
+    script: str, row: LaneLeavingMarker, workflow: dict[str, Any]
+) -> None:
+    """A second per-PR host directory is owed too, not only the first."""
+    widened = replace(
+        row, hosts=(*row.hosts, SerialHost(UNIT_TEST_JOB, "x", "tests/cli/", row.select()))
+    )
+    sources = _test_module_sources()
+    phantom = f"tests/cli/test_future_{row.marker}.py"
+    assert phantom not in sources, f"{phantom} exists; mutation is stale"
+    sources[phantom] = f"pytestmark = [pytest.mark.{row.marker}]\n"
+    assert phantom in _per_pr_carriers(workflow, widened, sources)
+    assert _unreached_by_serial_runs(
+        _script_source(script), widened, _per_pr_carriers(workflow, widened, sources)
+    ) == [phantom]
+
+
+@pytest.mark.parametrize("script", SERIAL_MIRROR_SCRIPTS)
+def test_serial_runs_reach_every_per_pr_marked_file__mutation_gates_the_on_demand_host(
+    script: str,
+) -> None:
+    """The scale guard is exempt only because its job is outside the merge
+    gate; the day it gates the merge, a mirror owes it as well."""
+    row = _row("wallclock")
+    mutated = _load_workflow()
+    needs = _jobs(mutated)[GATE_JOB]["needs"]
+    assert BENCHMARKS_JOB not in needs, f"{BENCHMARKS_JOB} gates the merge; mutation is stale"
+    needs.append(BENCHMARKS_JOB)
+    files = _per_pr_carriers(mutated, row, _test_module_sources())
+    scale = "tests/services/channel_finder/graph_index/test_scale.py"
+    assert scale in _unreached_by_serial_runs(_script_source(script), row, files)
 
 
 # The gate is held tighter than the other scripts: every pytest line it runs is
