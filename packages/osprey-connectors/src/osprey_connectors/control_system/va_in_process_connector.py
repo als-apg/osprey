@@ -27,13 +27,20 @@ to ``<simulation state dir>/inprocess/writes.json``, a document
 ``writes.json.lock`` and replaced atomically. Every operation reads the active
 scenario set first, then the journal: when ``seq`` moved, the composite is
 reset and the journal applied as one write, provided every entry is a setpoint
-of the view, writable, inside its band, and was written under the current
-active set; otherwise nothing from it is applied, one line
+of the view, no command, writable, inside its band, and was written under the
+current active set; otherwise nothing from it is applied, one line
 ``writes journal rejected: <address>: <reason>`` is logged, a
 ``journal-rejected`` record is appended to every physics model's log, and the
 journal is emptied, so the writes that follow are journalled afresh. A reset or a
 change of the active set empties the journal. The journal is this connector's alone:
 no hardware path reads it.
+
+**Commands.** A command is a setpoint the view's bindings mark: its write acts
+and holds no setting. A write to one is put and never appended, and a journal
+naming one is rejected. What a command left behind lives in the connector that
+wrote it and counts as held state there, so every journal replay starts from a
+reset composite: turn series of zeros and an armed flag of 0. A second
+connector, or one whose composite was rebuilt, never repeats a command.
 
 ``lume`` and the simulation package are imported when used, never at module import.
 """
@@ -122,6 +129,9 @@ JOURNAL_REJECTED_EVENT = "journal-rejected"
 
 #: The line a write the journal could not record logs, before the error.
 JOURNAL_NOT_UPDATED = "writes journal not updated"
+
+#: Why a journal naming a command is not replayed.
+COMMAND_NOT_REPLAYED = "a command is never replayed"
 
 #: Why an operation on a connector that is not connected is refused.
 NOT_CONNECTED = "the in-process simulator is not connected"
@@ -292,6 +302,8 @@ class VAInProcessConnector(ControlSystemConnector):
         self._tick_task: asyncio.Task[None] | None = None
         self._tick_s = 1.0
         self._channels: frozenset[str] = frozenset()
+        # The addresses the view's bindings mark as commands, fixed at connect.
+        self._commands: frozenset[str] = frozenset()
         self._journal: _Journal | None = None
         self._active_sha: str | None = None
         self._journal_mark: int | str | None = None
@@ -337,6 +349,9 @@ class VAInProcessConnector(ControlSystemConnector):
             }
             self._channels = frozenset(view.channels())
             self._served = self._channels | frozenset(view.status_addresses().values())
+            self._commands = frozenset(
+                binding.address for binding in view.bindings() if binding.command
+            )
             self._composite = Composite(view, state_dir=state_dir, instance="inprocess")
         except ViewSchemaError as error:
             raise RuntimeError(str(error)) from None
@@ -369,6 +384,7 @@ class VAInProcessConnector(ControlSystemConnector):
         self._records = {}
         self._served = frozenset()
         self._channels = frozenset()
+        self._commands = frozenset()
         self._connected = False
         logger.debug("In-process simulator disconnected")
 
@@ -477,6 +493,8 @@ class VAInProcessConnector(ControlSystemConnector):
             record = self._records.get(address)
             if record is None or address not in self._channels:
                 return address, _NOT_IN_FACILITY
+            if address in self._commands:
+                return address, COMMAND_NOT_REPLAYED
             if record.get("role") != "setpoint":
                 return address, "not a setpoint"
             if record.get("writable") is not True:
@@ -712,7 +730,8 @@ class VAInProcessConnector(ControlSystemConnector):
         In order: an address outside the view, or a channel that is not a
         writable setpoint, is refused; the limits are validated; the value is
         put into the composite, whose refusal is a refusal with its text; the
-        subscriptions fire; the channel is re-read and compared.
+        write is journalled unless the channel is a command; the subscriptions
+        fire; the channel is re-read and compared.
 
         Args:
             channel_address: A writable setpoint of the view.
@@ -786,13 +805,18 @@ class VAInProcessConnector(ControlSystemConnector):
                 outcome=WriteOutcome.FAILED,
                 error_message=f"In-process write failed: {e}",
             )
-        try:
-            self._append(channel_address, stored)
-        except OSError as exc:
-            # The composite holds the write; only its survival across
-            # connectors is lost.
+        if channel_address in self._commands:
+            # What the command left behind is this connector's alone: held, so
+            # the next replay resets it, and never carried to another.
             self._holds_writes = True
-            logger.warning(f"{JOURNAL_NOT_UPDATED}: {exc}")
+        else:
+            try:
+                self._append(channel_address, stored)
+            except OSError as exc:
+                # The composite holds the write; only its survival across
+                # connectors is lost.
+                self._holds_writes = True
+                logger.warning(f"{JOURNAL_NOT_UPDATED}: {exc}")
         await self._notify(before)
 
         if not confirm:
