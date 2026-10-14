@@ -41,7 +41,7 @@ def _artifacts_dir() -> Path:
     store's own subdirectory (``ArtifactStore._subdir``). A second hand-built
     join is exactly how this endpoint came to read a directory nothing writes.
     """
-    from osprey.utils.workspace import resolve_shared_data_root
+    from osprey_connectors.workspace import resolve_shared_data_root
 
     return resolve_shared_data_root() / "artifacts"
 

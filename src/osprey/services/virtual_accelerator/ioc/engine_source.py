@@ -39,8 +39,8 @@ from typing import Any
 
 import numpy as np
 
-from osprey.connectors.channel_taxonomy import ChannelKind, classify_channel
 from osprey.services.virtual_accelerator.manifest import PARTITION_STATIC_NOISY, RECORD_TYPE_BINARY
+from osprey_connectors.channel_taxonomy import ChannelKind, classify_channel
 from osprey_connectors.simulation import SimulationEngine, engine_serves
 
 ACTIVE_SCENARIOS_FILENAME = "active_scenarios"

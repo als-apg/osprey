@@ -14,6 +14,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from osprey_connectors.call_timeout import call_timeout_s
 from osprey_connectors.config import config_flag, get_facility_timezone
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
@@ -25,7 +26,6 @@ from osprey_connectors.control_system._base import (
     values_match,
 )
 from osprey_connectors.control_system._ca_loop import CaLoop, current_ca_env, get_ca_loop
-from osprey_connectors.control_system._call_timeout import call_timeout_s
 from osprey_connectors.control_system._limits_validator import (
     DEFAULT_STEP_READ_TIMEOUT_SECONDS,
     c_numeral,

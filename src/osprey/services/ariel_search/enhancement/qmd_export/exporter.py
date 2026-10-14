@@ -27,7 +27,7 @@ from osprey.services.ariel_search.enhancement._offload import run_blocking
 from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule, HealthResult
 from osprey.services.ariel_search.enhancement.qmd_export.writer import write_entry
 from osprey.utils.config_paths import resolve_config_relative_path
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection

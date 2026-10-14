@@ -53,13 +53,13 @@ def disk_signature(config_path: str | Path | None) -> tuple[Any, ...]:
     if config_path is not None:
         path = Path(config_path)
     else:
-        from osprey.utils.workspace import resolve_config_path
+        from osprey_connectors.workspace import resolve_config_path
 
         path = resolve_config_path()
     # Same rule as `loader.HealthConfigLoader.load` — deliberately, and
     # through the same helper. A signature that stats different files
     # than the loader watches is a cache that never invalidates.
-    from osprey.utils.workspace import deployment_env_chain
+    from osprey_connectors.workspace import deployment_env_chain
 
     return (
         stat_signature(path),

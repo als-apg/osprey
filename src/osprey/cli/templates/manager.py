@@ -16,13 +16,13 @@ from osprey.build.build_tiers import (
 )
 from osprey.cli.templates import claude_code, manifest, scaffolding
 from osprey.cli.templates._rendering import render_template as _render_template
-from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.profiles.web_panels import BUILTIN_PANELS
-from osprey.utils.config import resolve_env_vars
 from osprey.utils.facility import resolve_facility_name
-from osprey.utils.workspace import repo_root_for_config
 from osprey_connectors import yaml_loader
+from osprey_connectors.config import resolve_env_vars
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.workspace import repo_root_for_config
 
 logger = logging.getLogger("osprey.cli.templates")
 

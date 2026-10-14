@@ -17,9 +17,9 @@ Extracted from :mod:`osprey.registry.manager` (RF-010).
 import importlib
 from typing import Any
 
-from osprey.errors import RegistryError
-from osprey.utils.config import get_config_value
-from osprey.utils.logger import get_logger
+from osprey_connectors.config import get_config_value
+from osprey_connectors.errors import RegistryError
+from osprey_connectors.logger import get_logger
 
 from .base import RegistryConfig
 
@@ -162,7 +162,7 @@ def initialize_connectors(
 
     # LAYERING NOTE: upward import from connectors (L4)
     try:
-        from osprey.connectors.factory import ConnectorFactory
+        from osprey_connectors.factory import ConnectorFactory
     except ImportError as e:
         logger.error(f"Failed to import ConnectorFactory: {e}")
         raise RegistryError(

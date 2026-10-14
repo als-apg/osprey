@@ -666,24 +666,26 @@ forbidden_modules = ["osprey"]
 [[tool.importlinter.contracts]]
 id = "connectors-public-api"
 name = "The framework reaches the connector packages only through their namespaces"
-# control_system, archiver, ipc and simulation gather underscore-private
-# implementation modules (the concrete connectors and archivers among them)
-# behind an `__init__` that lists the public names. Every module inside them is
-# protected, so one added later is private until it is exempted here. The
+# Every module inside a subpackage of osprey_connectors is protected, so the
+# implementation modules of control_system, archiver, ipc and simulation (the
+# concrete connectors among them) are reached through the subpackage itself, and
+# a subpackage or module added later is private until it is exempted here. The
 # package's top-level modules (config, types, posture_store, ...) are each their
-# own public API and are not covered by this contract.
+# own public API; of them only `_version` is private, and it is listed.
 type = "protected"
-protected_modules = [
-    "osprey_connectors.archiver.*",
-    "osprey_connectors.control_system.*",
-    "osprey_connectors.ipc.*",
-    "osprey_connectors.simulation.*",
-]
+protected_modules = ["osprey_connectors.*.*", "osprey_connectors._version"]
 allowed_importers = ["osprey_connectors"]
 ignore_imports = [
     # The door a connector opens around its own write is a public module of
     # its own: the runtime's raw-put guard reads it by this path.
     "osprey.** -> osprey_connectors.control_system.write_door",
+    # The historical paths of four modules that are now private stand for the
+    # module itself, so code outside the framework that imports them keeps
+    # exactly what it had. The framework is barred from these paths (TID251).
+    "osprey.connectors.control_system.base -> osprey_connectors.control_system._base",
+    "osprey.connectors.control_system.limits_validator -> osprey_connectors.control_system._limits_validator",
+    "osprey.connectors.archiver.base -> osprey_connectors.archiver._base",
+    "osprey.connectors.archiver._timerange -> osprey_connectors.archiver._timerange",
 ]
 
 [[tool.importlinter.contracts]]
@@ -699,12 +701,6 @@ layers = [
     "osprey_connectors.factory",
     "osprey_connectors.control_system | osprey_connectors.archiver",
     "osprey_connectors.simulation",
-]
-# The one path back up: the config loader refuses the renamed per-call timeout
-# keys by asking the module that owns them, imported inside the check. Without
-# the exemption every family would reach every other through the loader.
-ignore_imports = [
-    "osprey_connectors.config -> osprey_connectors.control_system._call_timeout",
 ]
 
 # Ruff configuration for modern Python linting
@@ -758,6 +754,24 @@ ignore-variadic-names = true
 # The harness adapter, src/osprey/agent_runner/, is the one package that imports
 # the agent SDK. Every other module reaches the agent through it.
 "claude_agent_sdk".msg = "reach the agent through osprey.agent_runner, the one package that imports the SDK"
+# The historical osprey.* paths of modules that moved into osprey_connectors stay
+# importable for code outside the framework, but the framework spells each name
+# where it lives. The paths are the shims; the per-file ignores below exempt them.
+"osprey.utils.config".msg = "import osprey_connectors.config instead; this path is kept for code outside the framework"
+"osprey.utils.workspace".msg = "import osprey_connectors.workspace instead; this path is kept for code outside the framework"
+"osprey.utils.dotenv".msg = "import osprey_connectors.dotenv instead; this path is kept for code outside the framework"
+"osprey.utils.logger".msg = "import osprey_connectors.logger instead; this path is kept for code outside the framework"
+"osprey.utils.log_filter".msg = "import osprey_connectors.log_filter instead; this path is kept for code outside the framework"
+"osprey.utils.identity".msg = "import osprey_connectors.identity instead; this path is kept for code outside the framework"
+"osprey.utils.relative_time".msg = "import osprey_connectors.relative_time instead; this path is kept for code outside the framework"
+"osprey.errors".msg = "import osprey_connectors.errors instead; this path is kept for code outside the framework"
+"osprey.connectors".msg = "import from osprey_connectors instead; this package is kept for code outside the framework"
+"osprey.simulation.DEFAULT_SCENARIO".msg = "import it from osprey_connectors.simulation; osprey.simulation re-exports it for code outside the framework"
+"osprey.simulation.ExpressionError".msg = "import it from osprey_connectors.simulation; osprey.simulation re-exports it for code outside the framework"
+"osprey.simulation.SimReading".msg = "import it from osprey_connectors.simulation; osprey.simulation re-exports it for code outside the framework"
+"osprey.simulation.SimulationEngine".msg = "import it from osprey_connectors.simulation; osprey.simulation re-exports it for code outside the framework"
+"osprey.simulation.engine_from_connector_config".msg = "import it from osprey_connectors.simulation; osprey.simulation re-exports it for code outside the framework"
+"osprey.simulation.engine_serves".msg = "import it from osprey_connectors.simulation; osprey.simulation re-exports it for code outside the framework"
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
@@ -771,6 +785,16 @@ ignore-variadic-names = true
 # scripts drive the SDK directly.
 "!{src,packages}/**" = ["TID251"]
 "src/osprey/agent_runner/**" = ["TID251"]
+# The shims behind the historical osprey.* paths, which import what they stand
+# for, and the two rendered hooks that import a historical path on purpose: a
+# deployed project runs them against whatever framework is installed there, and
+# every release still provides those paths. The limits hook allows a write when
+# its import fails, so it keeps the path that cannot be missing.
+"src/osprey/errors.py" = ["TID251"]
+"src/osprey/utils/{__init__,config,workspace,dotenv,logger,log_filter,identity,relative_time}.py" = ["TID251"]
+"src/osprey/connectors/**" = ["TID251"]
+"src/osprey/services/python_executor/execution/limits_validator.py" = ["TID251"]
+"src/osprey/templates/claude_code/claude/hooks/{osprey_limits,osprey_hook_log}.py" = ["TID251"]
 # import-private-name holds the framework to the connectors package's public
 # namespaces, at the level of names (lint-imports holds it at the level of
 # modules). Tests and the package itself reach implementation on purpose. The

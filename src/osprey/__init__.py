@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 from osprey.version import get_running_version
 
 if TYPE_CHECKING:
-    from osprey.utils.logger import configure_logging
+    from osprey_connectors.logger import configure_logging
 
 # Version information. Derived from the git tag at build time and resolved at import
 # by osprey.version — see that module for the resolution chain. Bound eagerly rather

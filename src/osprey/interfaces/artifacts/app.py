@@ -26,11 +26,11 @@ from osprey.agent_runner.artifact_resolve import deployed_render_dir
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.vendor import html_has_plotly_bundle, vendor_url
 from osprey.port_layout import default_port
-from osprey.utils.config import get_facility_timezone
 from osprey.utils.timeseries import (
     downsample_channel_map,
     extract_channel_series,
 )
+from osprey_connectors.config import get_facility_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -336,7 +336,7 @@ def _example_artifact_enabled() -> bool:
     cannot read its config must not invent an artifact.
     """
     try:
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         return bool(get_config_value("artifact_server.example_artifact", False))
     except Exception:
@@ -492,7 +492,7 @@ def _max_timeseries_file_bytes() -> int:
     """
     megabytes = DEFAULT_MAX_TIMESERIES_FILE_MB
     try:
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         configured = get_config_value(
             "artifact_server.max_timeseries_file_mb", DEFAULT_MAX_TIMESERIES_FILE_MB
@@ -523,7 +523,7 @@ def _page_size() -> int:
     """
     size = DEFAULT_PAGE_SIZE
     try:
-        from osprey.utils.config import get_config_value
+        from osprey_connectors.config import get_config_value
 
         configured = get_config_value("artifact_server.page_size", DEFAULT_PAGE_SIZE)
     except Exception:
@@ -685,7 +685,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         unregister_artifact_delete_listener,
         unregister_artifact_listener,
     )
-    from osprey.utils.workspace import resolve_shared_data_root
+    from osprey_connectors.workspace import resolve_shared_data_root
 
     data_root: Path = workspace_root if workspace_root is not None else resolve_shared_data_root()
     store = ArtifactStore(workspace_root=data_root)
@@ -699,11 +699,11 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # launch path that starts this app, and resolve_config_path falls back to
     # the render zone beneath the cwd otherwise.
     try:
-        from osprey.utils.workspace import resolve_config_path
+        from osprey_connectors.workspace import resolve_config_path
 
         config_path = resolve_config_path()
         if config_path.exists():
-            from osprey.utils.config import get_config_builder
+            from osprey_connectors.config import get_config_builder
 
             get_config_builder(config_path=str(config_path), set_as_default=True)
             from osprey.stores.type_registry import load_categories_from_config
@@ -719,7 +719,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     # Resolved once, after config priming like the theme pin: the spelling of
     # the artifact directory that the page's artifactPath hands the agent.
-    from osprey.utils.workspace import agent_data_base_dir, load_osprey_config
+    from osprey_connectors.workspace import agent_data_base_dir, load_osprey_config
 
     artifact_dir_for_agent = _agent_artifact_dir(
         store.artifact_dir, store.repo_root, agent_data_base_dir(load_osprey_config())

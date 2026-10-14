@@ -87,7 +87,7 @@ def load_config(
     """
 
     def _load() -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        from osprey.utils.config import get_config_builder
+        from osprey_connectors.config import get_config_builder
 
         builder = get_config_builder(str(config_path), set_as_default=True)
         return builder.raw_config, builder.get_unexpanded_config()
@@ -107,9 +107,9 @@ def _load_config_result(
     while this owns the exists-check, the raise-to-degrade branches, and the
     ``health:`` parse — none of which ever raise.
     """
-    from osprey.errors import ConfigurationError
     from osprey.health.config import parse_health_config
     from osprey.health.core.configuration import ConfigState
+    from osprey_connectors.errors import ConfigurationError
 
     if not config_path.exists():
         return (

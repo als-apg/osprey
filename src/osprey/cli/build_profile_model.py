@@ -32,11 +32,11 @@ from osprey.deployment.qmd_service import (
     QMD_SERVICE_NAME,
     resolve_qmd_service_config,
 )
-from osprey.errors import BuildProfileError
 from osprey.port_layout import LAYOUT, WORKER_MAX, PortSlot, default_port, resolve_port_base
 from osprey.profiles.providers import PROVIDERS_FILENAME
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 from osprey_connectors.connection import ENV_NAME_RE
+from osprey_connectors.errors import BuildProfileError
 
 from .build_profile_archiver import (
     VAArchiverConfig,

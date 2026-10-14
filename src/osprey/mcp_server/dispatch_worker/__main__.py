@@ -20,8 +20,8 @@ def main() -> None:
     the other one's port.
     """
     from osprey.mcp_server.dispatch_worker.credentials import worker_credentials
-    from osprey.utils.logger import configure_logging
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.logger import configure_logging
+    from osprey_connectors.workspace import load_osprey_config
 
     configure_logging()
 

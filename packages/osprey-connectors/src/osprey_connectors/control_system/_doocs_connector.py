@@ -13,6 +13,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
@@ -22,7 +23,6 @@ from osprey_connectors.control_system._base import (
     WriteOutcome,
     values_match,
 )
-from osprey_connectors.control_system._call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
 from osprey_connectors.control_system._limits_validator import LimitsValidator
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import DOOCS

@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, Field, create_model
 
 from osprey.models.config import get_provider_config
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.models.messages import ChatCompletionRequest

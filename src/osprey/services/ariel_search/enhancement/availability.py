@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from osprey.models.providers.health import failure_reason
 from osprey.services.ariel_search.enhancement.base import HealthResult, as_health_result
 from osprey.services.ariel_search.exceptions import ModuleConfigError, ModuleUnavailable
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.database.repository import ARIELRepository

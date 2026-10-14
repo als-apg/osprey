@@ -256,7 +256,7 @@ def _resolve_control_system_type() -> str:
     connector never touches Channel Access, so an unreadable config can never
     silently be reported as able to move hardware.
     """
-    from osprey.utils.config import get_config_value
+    from osprey_connectors.config import get_config_value
 
     try:
         control_system_type = get_config_value("control_system.type", "mock")
@@ -296,7 +296,7 @@ def _control_system_section() -> dict[str, Any]:
     resolver that takes this section already reads "nothing declared" as the
     fail-closed side.
     """
-    from osprey.utils.config import get_config_value
+    from osprey_connectors.config import get_config_value
 
     try:
         section = get_config_value("control_system", {})
@@ -312,7 +312,7 @@ def _declared_lane_target(lane: str) -> str | None:
     every project has rendered so far, whose block has never carried the key —
     the two want the same answer, which is "this lane declares no target".
     """
-    from osprey.utils.config import get_config_value
+    from osprey_connectors.config import get_config_value
 
     try:
         declared = get_config_value(f"services.{lane}.target", None)
@@ -561,7 +561,7 @@ def _resolve_connector_type() -> str | None:
     the config once to learn whether it is readable at all, then let the shared
     helper produce the value.
     """
-    from osprey.utils.config import get_config_value
+    from osprey_connectors.config import get_config_value
 
     try:
         get_config_value("control_system.type", "mock")

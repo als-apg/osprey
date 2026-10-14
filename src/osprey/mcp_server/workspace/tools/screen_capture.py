@@ -20,7 +20,7 @@ from osprey.mcp_server.workspace.tools.screen_capture_backends import (
     WindowNotFoundError,
     get_backend,
 )
-from osprey.utils.workspace import (
+from osprey_connectors.workspace import (
     agent_data_base_dir,
     anchored_path,
     load_osprey_config,

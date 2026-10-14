@@ -20,14 +20,14 @@ from typing import Any
 
 from osprey.config_guards import is_positive_int
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
-from osprey.errors import BuildProfileError
 from osprey.port_layout import (
     DEFAULT_PORT_BASE,
     PORT_BASE_CONFIG_KEY,
     default_port,
     resolve_port_base,
 )
-from osprey_connectors.control_system import refuse_renamed_timeout_keys
+from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
+from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import SET_CONTROL_SYSTEM_TYPES
 
 from .build_profile_archiver import parse_va_archiver_block

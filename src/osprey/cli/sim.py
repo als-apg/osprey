@@ -27,8 +27,8 @@ from pathlib import Path
 import click
 
 from osprey.cli import output
-from osprey.utils.config import load_config
-from osprey.utils.logger import get_logger
+from osprey_connectors.config import load_config
+from osprey_connectors.logger import get_logger
 
 from .repo_resolver import find_repo_root, repo_option
 
@@ -52,7 +52,7 @@ def _parse_now(now_iso: str) -> datetime:
         )
         raise SystemExit(1) from None
     if anchor.tzinfo is None:
-        from osprey.utils.config import get_facility_timezone
+        from osprey_connectors.config import get_facility_timezone
 
         anchor = anchor.replace(tzinfo=get_facility_timezone())
     return anchor
@@ -89,8 +89,8 @@ def _resolve_deployment(repo: Path | None) -> tuple[Path, dict]:
     Raises:
         RepoNotFoundError: When no ``profile.yml`` encloses the search start.
     """
-    from osprey.utils.config import config_anchored_at
-    from osprey.utils.workspace import BUILD_DIR_NAME, rendered_config_path
+    from osprey_connectors.config import config_anchored_at
+    from osprey_connectors.workspace import BUILD_DIR_NAME, rendered_config_path
 
     repo_root = find_repo_root(repo)
     config_path = rendered_config_path(repo_root)
@@ -110,12 +110,12 @@ def _load_project_engine(repo: Path | None):
 
     Exits with a clear message if the deployment is not simulation-backed.
     """
-    from osprey.connectors.types import MOCK
     from osprey_connectors.simulation import (
         SimulationEngine,
         resolve_simulation_file,
         resolve_state_dir,
     )
+    from osprey_connectors.types import MOCK
 
     repo_root, config = _resolve_deployment(repo)
     machine_path, active_type, type_key, mock_key = resolve_simulation_file(config, repo_root)

@@ -48,7 +48,7 @@ from osprey.services.ariel_search.enhancement.vision_errors import (
     short_error,
 )
 from osprey.services.ariel_search.exceptions import ModuleConfigError
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection

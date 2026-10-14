@@ -55,7 +55,7 @@ from osprey.channel_roster.records import (
     RosterSource,
 )
 from osprey.deployment.graphdb_service import GRAPHDB_BUILD_INDEX_COMMAND
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:  # pragma: no cover - typing only; the reader stays a lazy import
     from rdflib import Graph

@@ -68,8 +68,8 @@ from osprey.deployment.graphdb_service import (
 )
 from osprey.mcp_server.config_values import positive_int
 from osprey.port_layout import resolve_port_base
-from osprey.utils.config import get_config_value
-from osprey.utils.workspace import load_osprey_config
+from osprey_connectors.config import get_config_value
+from osprey_connectors.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.mcp_server.graph.server_context")
 

@@ -40,7 +40,7 @@ from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
 from osprey.interfaces.web_terminal.process_tree import ProcessGroup, ProcessRow
 from osprey.interfaces.web_terminal.session_key import is_posture_key
-from osprey.utils.config import get_facility_timezone
+from osprey_connectors.config import get_facility_timezone
 
 logger = logging.getLogger(__name__)
 

@@ -34,7 +34,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping, MutableMapping
 
-from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
 
 #: The one gateway kind OSPREY knows how to attribute spend on.
 LITELLM_GATEWAY = "litellm"

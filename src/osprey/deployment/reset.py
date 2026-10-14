@@ -142,9 +142,9 @@ from osprey.deployment.web_terminals.env_production import (
     USERS_ENV_FILENAME,
 )
 from osprey.deployment.web_terminals.lifecycle import confirm_destroy
-from osprey.utils.dotenv import BUILD_DERIVED_BANNER, parse_dotenv_text
-from osprey.utils.logger import get_logger
-from osprey.utils.workspace import STATE_DIR_NAME
+from osprey_connectors.dotenv import BUILD_DERIVED_BANNER, parse_dotenv_text
+from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import STATE_DIR_NAME
 
 logger = get_logger("deployment.reset")
 
@@ -877,7 +877,7 @@ def load_as_built_config(repo_root: Path) -> dict | None:
     if not config_path.is_file():
         return None
     try:
-        from osprey.utils.config import load_project_config
+        from osprey_connectors.config import load_project_config
 
         return load_project_config(str(config_path), wrap_errors=True) or None
     except Exception:  # an unreadable build must not block a reset
@@ -973,7 +973,7 @@ def resolve_agent_data_target(repo_root: Path, config: dict | None) -> tuple[Pat
     Returns:
         ``(resolved_path, is_inside_repo)``.
     """
-    from osprey.utils.workspace import agent_data_base_dir, anchored_path
+    from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
     repo_root = Path(repo_root).resolve()
     target = anchored_path(agent_data_base_dir(config), repo_root).resolve()
@@ -991,7 +991,7 @@ def _as_built_config(repo_root: Path) -> dict:
     if not config_path.is_file():
         return {}
     try:
-        from osprey.utils.config import ConfigBuilder
+        from osprey_connectors.config import ConfigBuilder
 
         return ConfigBuilder(str(config_path)).raw_config or {}
     except Exception as exc:  # an unreadable build must not block a reset
@@ -1595,7 +1595,7 @@ def runtime_selection_config(repo_root: Path) -> dict | None:
     if not config_path.is_file():
         return None
     try:
-        from osprey.utils.config import load_project_config
+        from osprey_connectors.config import load_project_config
 
         return load_project_config(str(config_path), wrap_errors=True)
     except Exception:  # runtime selection falls back to detection

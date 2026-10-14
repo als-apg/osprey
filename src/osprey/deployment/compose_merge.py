@@ -62,7 +62,7 @@ from typing import Any
 import yaml
 
 from osprey.deployment.errors import DeploymentError
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.compose_merge")
 

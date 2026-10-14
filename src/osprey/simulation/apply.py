@@ -25,11 +25,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from osprey.connectors.types import MOCK, MONGODB_ARCHIVER, resolve_archiver_type
 from osprey.port_layout import default_port, resolve_port_base
-from osprey.utils.config import get_facility_timezone, load_config
-from osprey.utils.logger import get_logger
-from osprey.utils.relative_time import resolve_relative_timestamp
+from osprey_connectors.config import get_facility_timezone, load_config
+from osprey_connectors.logger import get_logger
+from osprey_connectors.relative_time import resolve_relative_timestamp
 from osprey_connectors.simulation import (
     ACTIVE_SCENARIOS_FILENAME,
     DEFAULT_SCENARIO,
@@ -41,6 +40,7 @@ from osprey_connectors.simulation import (
     resolve_simulation_file,
     resolve_state_dir,
 )
+from osprey_connectors.types import MOCK, MONGODB_ARCHIVER, resolve_archiver_type
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Iterator, Mapping, Sequence
@@ -75,7 +75,7 @@ def _config_file(project_dir: Path) -> Path:
     deployment either way; only the config moved, so only the config lookup
     needs to know.
     """
-    from osprey.utils.workspace import rendered_config_path
+    from osprey_connectors.workspace import rendered_config_path
 
     rendered = rendered_config_path(project_dir)
     return rendered if rendered.is_file() else project_dir / "config.yml"
@@ -569,8 +569,8 @@ def archiver_store_connection(config: dict, project_dir: Path) -> dict | None:
     if not isinstance(store, dict) or not store.get("host") or store.get("url"):
         return None
 
-    from osprey.utils.dotenv import parse_dotenv_file
     from osprey_connectors.connection import read_connection_settings
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     env_path = Path(project_dir) / ".env"
     env = parse_dotenv_file(env_path) if env_path.is_file() else {}

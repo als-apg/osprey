@@ -598,7 +598,7 @@ class ConfigBuilder:
 
         self.raw_config, self._unexpanded_config = self._load_config()
 
-        from osprey_connectors.control_system._call_timeout import refuse_renamed_timeout_keys
+        from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
 
         refuse_renamed_timeout_keys(self.raw_config)
 

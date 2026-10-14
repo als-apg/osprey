@@ -79,8 +79,8 @@ from osprey.services.auth_sidecar.roster_env import env_var_suffix, env_var_suff
 # validity predicate, shared with the sidecar that builds the throttle.
 from osprey.services.auth_sidecar.throttle import THROTTLE_DEFAULTS, throttle_problems
 from osprey.utils.facility import resolve_facility_name
-from osprey.utils.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
 from osprey_connectors.posture_store import CONTROL_CONTEXT_DIR_ENV_VAR, STATE_DIR_NAME
+from osprey_connectors.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
 
 # Package-relative location of the .j2 sources (Tasks 1.3/1.6). Resolved via
 # importlib.resources, NOT Path(__file__).parent, so this works from an installed

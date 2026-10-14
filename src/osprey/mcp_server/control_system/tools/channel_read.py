@@ -36,7 +36,7 @@ def _config_int(path: str, default: int) -> int:
     hardware answered. Anything unusable - missing, unloadable, non-numeric or
     negative - degrades to the documented default.
     """
-    from osprey.utils.config import get_config_value
+    from osprey_connectors.config import get_config_value
 
     try:
         raw = get_config_value(path, default)

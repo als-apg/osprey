@@ -6,7 +6,7 @@ that all Osprey applications build upon.
 .. seealso:: :class:`RegistryConfigProvider`, :class:`RegistryManager`
 """
 
-from osprey.connectors.types import (
+from osprey_connectors.types import (
     DOOCS,
     DOOCS_ARCHIVER,
     EPICS,

@@ -34,9 +34,9 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import click
 
-from osprey.errors import BuildProfileError
 from osprey.profiles.providers import PROVIDERS_FILENAME
-from osprey.utils.logger import get_logger
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
 
 from . import profile_expand
 from .output import report, section, warn
@@ -1009,7 +1009,7 @@ def _write_secret_channel(
     Returns:
         Profile-relative names of the files written, for the caller's summary.
     """
-    from osprey.utils.dotenv import append_profile_env
+    from osprey_connectors.dotenv import append_profile_env
 
     from .templates.scaffolding import (
         provider_api_key_entries,
@@ -1609,7 +1609,7 @@ def _materialize_profile_directory(
     """
     import shutil
 
-    from osprey.utils.dotenv import env_lock_path
+    from osprey_connectors.dotenv import env_lock_path
 
     from .build_profile import (
         EXTENDS_OVERRIDE_REFUSAL,

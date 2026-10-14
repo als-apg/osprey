@@ -15,7 +15,7 @@ from osprey.services.ariel_search.ingestion.adapters.als import (
     clean_als_text,
     merge_als_text,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection

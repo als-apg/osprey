@@ -15,7 +15,7 @@ from pathlib import Path
 
 import click
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 from .output import fail, note, report, section, warn
 

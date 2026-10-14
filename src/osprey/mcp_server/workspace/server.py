@@ -25,7 +25,7 @@ def create_server() -> FastMCP:
         prime_config_builder,
         startup_timer,
     )
-    from osprey.utils.workspace import resolve_workspace_root
+    from osprey_connectors.workspace import resolve_workspace_root
 
     # Prime the main ConfigBuilder and registry so downstream services
     # (LimitsValidator, pattern_detection) find their config when tools

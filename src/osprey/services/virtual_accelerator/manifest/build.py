@@ -46,7 +46,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from osprey.errors import BuildProfileError
+from osprey_connectors.errors import BuildProfileError
 
 from ..bindings import BindingsDocument, load_bindings
 from . import classify, loaders

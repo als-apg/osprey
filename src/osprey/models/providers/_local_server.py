@@ -21,7 +21,7 @@ import threading
 import time
 from urllib.parse import urlsplit, urlunsplit
 
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("local_server")
 

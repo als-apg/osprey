@@ -61,7 +61,7 @@ def web_terminal_url() -> str:
     import os
 
     from osprey.port_layout import default_port, resolve_port_base
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     config = load_osprey_config()
     wt = config.get("web_terminal", {})
@@ -104,7 +104,7 @@ def phoebus_bridge_url() -> str:
     """
     import os
 
-    from osprey.utils.workspace import load_osprey_config
+    from osprey_connectors.workspace import load_osprey_config
 
     full = os.environ.get("PHOEBUS_BRIDGE_URL")
     if full:

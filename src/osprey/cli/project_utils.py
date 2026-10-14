@@ -97,7 +97,7 @@ def project_config_path(project_path: Path) -> Path:
     Returns:
         The config path, which is not required to exist.
     """
-    from osprey.utils.workspace import rendered_config_path
+    from osprey_connectors.workspace import rendered_config_path
 
     from .repo_resolver import PROFILE_FILENAME
 
@@ -120,7 +120,7 @@ def _is_project_directory(candidate: Path) -> bool:
     persona render does, in ``build/``) would be silently redirected to that
     repo — reporting on the wrong project rather than on the one named.
     """
-    from osprey.utils.workspace import rendered_config_path
+    from osprey_connectors.workspace import rendered_config_path
 
     return rendered_config_path(candidate).is_file() or (candidate / "config.yml").is_file()
 

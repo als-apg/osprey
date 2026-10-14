@@ -124,7 +124,7 @@ def _resolve_anchors(project_path: Path) -> tuple[Path, Path, list[Path]]:
         ``(config_path, repo_root, env_paths)``. Nothing is required to exist;
         a missing config is reported by the ``configuration`` category.
     """
-    from osprey.utils.workspace import deployment_env_chain, repo_root_for_config
+    from osprey_connectors.workspace import deployment_env_chain, repo_root_for_config
 
     from .project_utils import project_config_path
 

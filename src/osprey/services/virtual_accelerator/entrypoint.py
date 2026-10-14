@@ -632,7 +632,7 @@ class _RunnerRefresh(TypedDict, total=False):
 
 
 def main() -> None:
-    from osprey.utils.logger import configure_logging
+    from osprey_connectors.logger import configure_logging
 
     # Container entry point: without this the serving/PyAT/framework log records
     # this process drives would have no handler. Records go to stderr.

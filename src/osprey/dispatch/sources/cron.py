@@ -75,7 +75,7 @@ class CronSource:
 
     def _resolve_zone(self) -> tzinfo:
         if self._zone is None:
-            from osprey.utils.config import get_facility_timezone
+            from osprey_connectors.config import get_facility_timezone
 
             self._zone = get_facility_timezone()
         return self._zone

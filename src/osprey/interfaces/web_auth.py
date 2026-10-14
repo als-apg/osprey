@@ -94,8 +94,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from osprey.utils.identity import TERMINAL_USER_ENV, acting_identity, usable_identity
 from osprey.utils.sensitive_env import guard_process_memory
+from osprey_connectors.identity import TERMINAL_USER_ENV, acting_identity, usable_identity
 
 logger = logging.getLogger(__name__)
 

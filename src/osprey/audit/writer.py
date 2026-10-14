@@ -86,8 +86,8 @@ from typing import Any
 
 from osprey.audit.call import current_tool_use_id
 from osprey.audit.envelope import DECISION_REFUSED, SURFACE_EXECUTOR, AuditEnvelope
-from osprey.utils.identity import acting_identity
-from osprey.utils.logger import get_logger
+from osprey_connectors.identity import acting_identity
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("audit_writer")
 
@@ -188,7 +188,7 @@ def audit_dir() -> Path:
     the MCP middleware and the HTTP layer without dragging the workspace
     resolver (and its config load) behind it.
     """
-    from osprey.utils.workspace import (
+    from osprey_connectors.workspace import (
         AUDIT_DIR_RELPATH,
         load_osprey_config,
         resolve_project_root,

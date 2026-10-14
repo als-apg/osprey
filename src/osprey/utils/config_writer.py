@@ -422,7 +422,7 @@ def config_backup_path(config_path: Path) -> Path:
     Returns:
         The path the backup should be written to. Nothing is created.
     """
-    from osprey.utils.workspace import agent_data_base_dir, anchored_path, repo_root_for_config
+    from osprey_connectors.workspace import agent_data_base_dir, anchored_path, repo_root_for_config
 
     try:
         config = load_config_document(config_path)

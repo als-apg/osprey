@@ -21,8 +21,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from osprey.errors import BuildProfileError
-from osprey.utils.logger import get_logger
+from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("build")
 
@@ -51,7 +51,7 @@ def _dotenv_keys(path: Path) -> dict[str, str]:
     """
     if not path.is_file():
         return {}
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey_connectors.dotenv import parse_dotenv_file
 
     try:
         return {key: value for key, value in parse_dotenv_file(path).items() if value}

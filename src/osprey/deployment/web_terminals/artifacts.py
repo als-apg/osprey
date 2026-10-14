@@ -62,9 +62,9 @@ from osprey.deployment.web_terminals.render import (
     clear_nginx_templates_dir,
     render_web_terminals,
 )
-from osprey.utils.dotenv import ENV_LOCAL_FILENAME, merge_chain, parse_dotenv_file
-from osprey.utils.workspace import BUILD_DIR_NAME
+from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, merge_chain, parse_dotenv_file
 from osprey_connectors.types import WRITES_ENABLED_KEY
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 #: Filename of the rendered web-stack compose file, as
 #: :func:`~osprey.deployment.web_terminals.render.render_web_terminals` keys it.

@@ -78,7 +78,7 @@ from osprey.services.auth_sidecar.roster_env import (
     env_var_suffix,
     env_var_suffix_collisions,
 )
-from osprey.utils.dotenv import (
+from osprey_connectors.dotenv import (
     DEPLOY_MINTED_BANNER,
     ENV_AUTH_BANNER,
     ENV_LOCAL_FILENAME,
@@ -89,7 +89,7 @@ from osprey.utils.dotenv import (
     env_file_lock,
     parse_dotenv_file,
 )
-from osprey.utils.logger import get_logger
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
 

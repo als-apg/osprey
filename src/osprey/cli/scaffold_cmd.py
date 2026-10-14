@@ -56,9 +56,9 @@ from osprey.cli.repo_resolver import find_repo_root, repo_option
 from osprey.cli.styles import console
 from osprey.cli.templates.manager import TemplateManager
 from osprey.docs_links import setup_remedy
-from osprey.errors import ConfigurationError
-from osprey.utils.config import load_project_config
-from osprey.utils.logger import get_logger
+from osprey_connectors.config import load_project_config
+from osprey_connectors.errors import ConfigurationError
+from osprey_connectors.logger import get_logger
 
 logger = get_logger("scaffold")
 
