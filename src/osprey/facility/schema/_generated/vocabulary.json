@@ -643,6 +643,24 @@
       "name": "beam_intensity_readback"
     },
     {
+      "aliases": [
+        "arm bpm",
+        "arm turn-by-turn acquisition",
+        "bpm arm"
+      ],
+      "description": "Command that arms a BPM's turn-by-turn acquisition for the next trigger.",
+      "name": "bpm_arm_command"
+    },
+    {
+      "aliases": [
+        "bpm armed",
+        "turn-by-turn acquisition armed",
+        "armed state"
+      ],
+      "description": "Armed-state readback of a BPM's turn-by-turn acquisition.",
+      "name": "bpm_armed_status"
+    },
+    {
       "aliases": [],
       "description": "Fast-orbit-feedback channel-index readback for a BPM.",
       "name": "bpm_fofb_index"
@@ -656,6 +674,33 @@
       "aliases": [],
       "description": "BPM sum-signal readback (intensity proxy from button electrodes).",
       "name": "bpm_sum_readback"
+    },
+    {
+      "aliases": [
+        "turn-by-turn sum signal",
+        "turn-by-turn sum",
+        "tbt sum"
+      ],
+      "description": "Turn-by-turn sum-signal record of a BPM, one sample per turn of the last acquisition (intensity proxy from button electrodes).",
+      "name": "bpm_tbt_sum"
+    },
+    {
+      "aliases": [
+        "turn-by-turn horizontal position",
+        "turn-by-turn x",
+        "tbt x"
+      ],
+      "description": "Turn-by-turn horizontal-position record of a BPM, one sample per turn of the last acquisition.",
+      "name": "bpm_tbt_x"
+    },
+    {
+      "aliases": [
+        "turn-by-turn vertical position",
+        "turn-by-turn y",
+        "tbt y"
+      ],
+      "description": "Turn-by-turn vertical-position record of a BPM, one sample per turn of the last acquisition.",
+      "name": "bpm_tbt_y"
     },
     {
       "aliases": [],
@@ -861,6 +906,24 @@
       "aliases": [],
       "description": "High-voltage setpoint for an electron gun or its HVPS (preset demand, kV).",
       "name": "gun_voltage_setpoint"
+    },
+    {
+      "aliases": [
+        "injection busy",
+        "injection in progress",
+        "shot in progress"
+      ],
+      "description": "Readback that is set while a requested injection shot is in progress.",
+      "name": "injection_busy_status"
+    },
+    {
+      "aliases": [
+        "request injection",
+        "injection request",
+        "request a shot"
+      ],
+      "description": "Command that requests one injection shot.",
+      "name": "injection_request_command"
     },
     {
       "aliases": [],

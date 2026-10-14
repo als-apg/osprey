@@ -266,6 +266,33 @@ enums:
       current_y_readback:
         description: Power-supply current readback of the coil that acts in the vertical plane.
         aliases: [vertical current readback, vertical coil readback, y current readback]
+      bpm_tbt_x:
+        description: >-
+          Turn-by-turn horizontal-position record of a BPM, one sample per turn of the
+          last acquisition.
+        aliases: [turn-by-turn horizontal position, turn-by-turn x, tbt x]
+      bpm_tbt_y:
+        description: >-
+          Turn-by-turn vertical-position record of a BPM, one sample per turn of the
+          last acquisition.
+        aliases: [turn-by-turn vertical position, turn-by-turn y, tbt y]
+      bpm_tbt_sum:
+        description: >-
+          Turn-by-turn sum-signal record of a BPM, one sample per turn of the last
+          acquisition (intensity proxy from button electrodes).
+        aliases: [turn-by-turn sum signal, turn-by-turn sum, tbt sum]
+      bpm_arm_command:
+        description: Command that arms a BPM's turn-by-turn acquisition for the next trigger.
+        aliases: [arm bpm, arm turn-by-turn acquisition, bpm arm]
+      bpm_armed_status:
+        description: Armed-state readback of a BPM's turn-by-turn acquisition.
+        aliases: [bpm armed, turn-by-turn acquisition armed, armed state]
+      injection_request_command:
+        description: Command that requests one injection shot.
+        aliases: [request injection, injection request, request a shot]
+      injection_busy_status:
+        description: Readback that is set while a requested injection shot is in progress.
+        aliases: [injection busy, injection in progress, shot in progress]
 
   property_name_enum:
     description: >-
