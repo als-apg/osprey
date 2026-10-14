@@ -16,6 +16,8 @@ if TYPE_CHECKING:
     from osprey_connectors.ipc._frames import (
         ErrorFrame,
         FrameReader,
+        RequestFrame,
+        ResultFrame,
         encode_request,
         new_request_id,
     )
@@ -37,6 +39,7 @@ if TYPE_CHECKING:
         ROLE_READ_ONLY,
         ROLE_WRITE_ACCESS,
         Endpoint,
+        LiveCollision,
         TargetDerivation,
         Verification,
         config_writes_enabled,
@@ -47,6 +50,9 @@ if TYPE_CHECKING:
     )
 
 __all__ = [
+    "LiveCollision",
+    "RequestFrame",
+    "ResultFrame",
     "AttributedReader",
     "CHILD_MODULE",
     "ConnectorHostProxy",
@@ -73,6 +79,9 @@ __all__ = [
 
 #: Public name -> the module that defines it.
 _LAZY_EXPORTS: dict[str, str] = {
+    "LiveCollision": "osprey_connectors.ipc._verification",
+    "RequestFrame": "osprey_connectors.ipc._frames",
+    "ResultFrame": "osprey_connectors.ipc._frames",
     "ErrorFrame": "osprey_connectors.ipc._frames",
     "FrameReader": "osprey_connectors.ipc._frames",
     "encode_request": "osprey_connectors.ipc._frames",

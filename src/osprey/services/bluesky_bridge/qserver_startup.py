@@ -247,7 +247,7 @@ async def create_connector() -> Any:
         # the declared target is still the honest answer to "which machine does
         # this worker address", and it indexes the posture store rather than any
         # config block.
-        connector._connector_type = None
+        connector.connector_type = None
     await connector.connect(type_config)
     logger.info(
         "qserver_startup: connected the worker's OSPREY connector (type=%s, %s, writes %s)",

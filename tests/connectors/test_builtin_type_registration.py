@@ -82,7 +82,7 @@ class TestTypeConstants:
         cli_list = (
             types.CLI_CONTROL_SYSTEM_TYPES
             if row.kind == "control_system"
-            else types.CLI_ARCHIVER_TYPES
+            else types._CLI_ARCHIVER_TYPES
         )
         assert row.type_name in cli_list
 

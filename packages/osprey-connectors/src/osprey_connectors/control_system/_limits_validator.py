@@ -13,7 +13,7 @@ from typing import Any
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import (
     LimitsPosture,
-    most_restrictive_limits_posture,
+    _most_restrictive_limits_posture,
     target_limits_posture,
     type_limits_posture,
 )
@@ -299,6 +299,18 @@ class LimitsValidator:
         # one — the two conditions need different operator responses.
         self.failsafe_reason = failsafe_reason
 
+    @property
+    def raw_database(self) -> dict[str, Any] | None:
+        """The limits database as it was loaded, metadata keys included.
+
+        The per-channel entries are what :attr:`limits` holds; this is the rest
+        of the file as written (``_version``, ``defaults``), for a caller that
+        reports on the database rather than checking a write against it.
+        ``None`` for a validator built without one.
+        """
+        raw: dict[str, Any] | None = self._raw_db
+        return raw
+
     @staticmethod
     def resolve_database_path(
         db_path: str, project_root: str | None, config_path: str | None = None
@@ -547,7 +559,7 @@ class LimitsValidator:
         machine it is deciding about is any of the ones a session here can
         select.
 
-        The fold is :func:`osprey_connectors.types.most_restrictive_limits_posture`'s:
+        The fold is :func:`osprey_connectors.types._most_restrictive_limits_posture`'s:
         limits checking is on when any reachable target has it on, and unlisted
         channels are allowed only where every reachable target allows them. The
         result names the deployment-wide keys, because no per-type line decides
@@ -567,7 +579,7 @@ class LimitsValidator:
             logger.debug(f"Limits validator not initialized (config unavailable): {e}")
             return None
 
-        return cls._from_posture(most_restrictive_limits_posture(section))
+        return cls._from_posture(_most_restrictive_limits_posture(section))
 
     @classmethod
     def _from_posture(cls, posture: LimitsPosture) -> "LimitsValidator | None":

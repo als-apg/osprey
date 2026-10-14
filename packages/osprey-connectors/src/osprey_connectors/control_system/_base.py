@@ -24,10 +24,10 @@ from typing import TYPE_CHECKING, Any
 from osprey_connectors.control_system.write_door import open_door
 from osprey_connectors.types import (
     WRITES_ENABLED_KEY,
+    _writes_enabled_answering_key,
+    _writes_enabled_key,
+    _writes_enabled_remedy,
     type_writes_enabled,
-    writes_enabled_answering_key,
-    writes_enabled_key,
-    writes_enabled_remedy,
 )
 
 if TYPE_CHECKING:
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     # string annotations name these types and nothing else in this module's
     # runtime namespace does. A reader of annotations — a schema generator, a
     # doc builder, a test — has to supply the two names itself.
-    from osprey_connectors.posture_store import StoreVerdict, StoreVerdictDetail
+    from osprey_connectors.posture_store import _StoreVerdict, _StoreVerdictDetail
 
 logger = logging.getLogger("osprey_connectors.control_system")
 
@@ -391,7 +391,7 @@ def _in_mcp_server_process() -> bool:
     return any(parts[i : i + span] == _MCP_SERVER_PACKAGE_PARTS for i in range(len(parts)))
 
 
-def _posture_store_verdict(control_target: str | None) -> "StoreVerdictDetail":
+def _posture_store_verdict(control_target: str | None) -> "_StoreVerdictDetail":
     """What the operator's record says about writing to *control_target*.
 
     The answer is a verdict and not a bool, because three things are findable
@@ -404,7 +404,7 @@ def _posture_store_verdict(control_target: str | None) -> "StoreVerdictDetail":
     nowhere this connector could reconstruct it from.
 
     This function is the ENV read and nothing else: the clause itself is
-    :func:`osprey_connectors.posture_store.store_verdict_detail`, and it is
+    :func:`osprey_connectors.posture_store._store_verdict_detail`, and it is
     delegated to rather than restated. The store contract's rule 3 has exactly
     two implementations — that module and the stdlib-only hook — and a
     connector that spelled the combining terms a third time would be a third
@@ -426,7 +426,7 @@ def _posture_store_verdict(control_target: str | None) -> "StoreVerdictDetail":
     # loading.
     from osprey_connectors import posture_store
 
-    return posture_store.store_verdict_detail(control_target)
+    return posture_store._store_verdict_detail(control_target)
 
 
 def _posture_store_permits(control_target: str | None) -> bool:
@@ -444,19 +444,21 @@ def _posture_store_permits(control_target: str | None) -> bool:
     against the store's own two. A reader finding no other caller is looking at
     a contract rather than at dead code.
     """
-    from osprey_connectors.posture_store import StoreVerdict
+    from osprey_connectors.posture_store import (
+        _StoreVerdict,
+    )
 
-    return _posture_store_verdict(control_target).verdict is StoreVerdict.PERMITTED
+    return _posture_store_verdict(control_target).verdict is _StoreVerdict.PERMITTED
 
 
-def _posture_record_verdict(control_target: str | None) -> "StoreVerdictDetail":
+def _posture_record_verdict(control_target: str | None) -> "_StoreVerdictDetail":
     """The record clause without the launch pin, for *control_target*.
 
     :func:`_posture_store_verdict` is the pin followed by this, and is what
     decides a write. This exists for the one caller that must tell a pin
     refusal from a record refusal: a refusal naming the pin alone would send an
     operator to re-run a script into a narrowing nobody mentioned. Delegated to
-    :func:`osprey_connectors.posture_store.record_verdict_detail` rather than
+    :func:`osprey_connectors.posture_store._record_verdict_detail` rather than
     restated, for the reason :func:`_posture_store_verdict` gives.
 
     Reads the record, which the pin's own refusal does not, so it is asked only
@@ -466,7 +468,7 @@ def _posture_record_verdict(control_target: str | None) -> "StoreVerdictDetail":
     # two modules may not import each other while loading.
     from osprey_connectors import posture_store
 
-    return posture_store.record_verdict_detail(control_target)
+    return posture_store._record_verdict_detail(control_target)
 
 
 def _deployment_posture(connector_type: str | None) -> tuple[bool, str]:
@@ -489,10 +491,10 @@ def _deployment_posture(connector_type: str | None) -> tuple[bool, str]:
         section = get_config_value("control_system", {})
         return (
             type_writes_enabled(section, connector_type),
-            writes_enabled_answering_key(section, connector_type),
+            _writes_enabled_answering_key(section, connector_type),
         )
     except (FileNotFoundError, RuntimeError):
-        return False, writes_enabled_key(connector_type)
+        return False, _writes_enabled_key(connector_type)
 
 
 def _deployment_writes_enabled(connector_type: str | None) -> bool:
@@ -529,10 +531,10 @@ def _deployment_reason(
     *one_line* keeps the sentence on one line, for a message that carries more
     than this reason.
     """
-    remedy = writes_enabled_remedy(connector_type, one_line=one_line)
+    remedy = _writes_enabled_remedy(connector_type, one_line=one_line)
     speak_key = (
         answering_key is not None
-        and answering_key != writes_enabled_key(connector_type)
+        and answering_key != _writes_enabled_key(connector_type)
         and answering_key not in remedy
     )
     named = f" by {answering_key}" if speak_key else ""
@@ -573,15 +575,15 @@ def _launch_reason(control_target: str | None) -> str | None:
     # Imported here for the reason :func:`_posture_store_verdict` gives: the
     # two modules may not import each other while loading.
     from osprey_connectors.posture_store import (
-        LAUNCH_POSTURE_ALL_TARGETS,
-        launch_narrowed_target,
+        _LAUNCH_POSTURE_ALL_TARGETS,
+        _launch_narrowed_target,
         launch_permits,
     )
 
     if launch_permits(control_target):
         return None
-    launched = launch_narrowed_target()
-    if launched == LAUNCH_POSTURE_ALL_TARGETS:
+    launched = _launch_narrowed_target()
+    if launched == _LAUNCH_POSTURE_ALL_TARGETS:
         # The executor could not name a target, or could not read the store at
         # all, and pinned the run everywhere. Nobody decided this, so the message
         # must not send anyone to the chip to undo a decision they never made.
@@ -651,9 +653,9 @@ def _writes_disabled_result(
     connector_type: str | None = None,
     control_target: str | None = None,
     *,
-    store_verdict: "StoreVerdict | None" = None,
+    store_verdict: "_StoreVerdict | None" = None,
     store_reason: str | None = None,
-    record_verdict: "StoreVerdict | None" = None,
+    record_verdict: "_StoreVerdict | None" = None,
     record_reason: str | None = None,
 ) -> ChannelWriteResult:
     """Build the refusal result for a write the monitor never attempted.
@@ -696,7 +698,7 @@ def _writes_disabled_result(
        connector knows its type, the deployment-wide key when it does not —
        while the reason names the key that answered, which on a deployment with
        one posture for everything is the deployment-wide key
-       (:func:`~osprey_connectors.types.writes_enabled_answering_key`).
+       (:func:`~osprey_connectors.types._writes_enabled_answering_key`).
     2. the run is **readonly** — the whole deployment started that way
        (``OSPREY_EXECUTION_MODE=readonly``, which refuses control-system writes
        for every session and cannot be lifted from the chip), or this one
@@ -724,7 +726,9 @@ def _writes_disabled_result(
     """
     # Imported here for the reason :func:`_posture_store_verdict` gives: the
     # two modules may not import each other while loading.
-    from osprey_connectors.posture_store import StoreVerdict
+    from osprey_connectors.posture_store import (
+        _StoreVerdict,
+    )
 
     # The run's own terms and the store are read BEFORE any config: the first
     # config read of a process loads the deployment's .env chain into the
@@ -763,9 +767,9 @@ def _writes_disabled_result(
         # Anything that is not the unavailable verdict and not a grant words as
         # a narrowing, so a verdict added later refuses rather than reads as
         # permitted.
-        if record_verdict is StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE:
+        if record_verdict is _StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE:
             run_reasons.append(_unreadable_reason(control_target, record_reason))
-        elif record_verdict is not StoreVerdict.PERMITTED:
+        elif record_verdict is not _StoreVerdict.PERMITTED:
             run_reasons.append(_chip_reason(control_target, deployment_arms=deployment_arms))
 
     reasons: list[str] = []
@@ -898,7 +902,7 @@ class ControlSystemConnector(ABC):
     # did before this memo existed. It holds the VERDICT, not whether the write
     # may proceed: one of the three answers is nobody's decision, and a refusal
     # that cannot tell it from a chip flip words it as one.
-    _last_store_verdict: "StoreVerdict | None" = None
+    _last_store_verdict: "_StoreVerdict | None" = None
     # The operator sentence that belongs with the verdict above, and only ever
     # set for the one verdict that has one: which record could not be read,
     # which bind names no path. The reader composes it and no other process can,
@@ -909,7 +913,7 @@ class ControlSystemConnector(ABC):
     # and are read separately only when the pin refused ahead of the record —
     # which is what lets that refusal name a narrowing or an unreadable record
     # the pin's own answer hid, off one record read per write or batch.
-    _last_record_verdict: "StoreVerdict | None" = None
+    _last_record_verdict: "_StoreVerdict | None" = None
     _last_record_reason: str | None = None
 
     @property
@@ -965,7 +969,10 @@ class ControlSystemConnector(ABC):
             return False
         # Imported here for the reason :func:`_posture_store_verdict` gives:
         # the two modules may not import each other while loading.
-        from osprey_connectors.posture_store import StoreVerdict, launch_permits
+        from osprey_connectors.posture_store import (
+            _StoreVerdict,
+            launch_permits,
+        )
 
         store = _posture_store_verdict(self._control_target)
         self._last_store_verdict = store.verdict
@@ -981,11 +988,26 @@ class ControlSystemConnector(ABC):
             record = _posture_record_verdict(self._control_target)
             self._last_record_verdict = record.verdict
             self._last_record_reason = record.reason
-        if store.verdict is not StoreVerdict.PERMITTED:
+        if store.verdict is not _StoreVerdict.PERMITTED:
             return False
         return _deployment_writes_enabled(self._connector_type)
 
-    def _current_value_reader(self) -> Callable[[str], Any] | None:
+    @property
+    def connector_type(self) -> str | None:
+        """The connector type this instance was built as, or ``None``.
+
+        Stamped by :class:`~osprey_connectors.factory.ConnectorFactory`; it
+        selects the per-type connector block the write posture is read from. A
+        caller that must answer from the deployment-wide posture instead clears
+        it before ``connect()``.
+        """
+        return self._connector_type
+
+    @connector_type.setter
+    def connector_type(self, value: str | None) -> None:
+        self._connector_type = value
+
+    def current_value_reader(self) -> Callable[[str], Any] | None:
         """This connector's own way to read a channel's present value.
 
         Handed to :meth:`LimitsValidator.validate` so the ``max_step`` check

@@ -38,9 +38,9 @@ from osprey_connectors.simulation import (
     read_machine_json,
     resolve_active_scenarios,
     resolve_simulation_file,
-    resolve_state_dir,
 )
 from osprey_connectors.types import MOCK, MONGODB_ARCHIVER, resolve_archiver_type
+from osprey_connectors.workspace import resolve_simulation_state_dir
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Iterator, Mapping, Sequence
@@ -231,7 +231,7 @@ def apply_scenarios(
         "`sim apply` only applies to simulation-backed projects (guards a real DB).",
     )
     engine = SimulationEngine.from_file(
-        machine_path, state_dir=resolve_state_dir(config, project_dir)
+        machine_path, state_dir=resolve_simulation_state_dir(config, project_dir)
     )
 
     # Default anchor in the FACILITY zone (not UTC): the anchor's tzinfo is the
@@ -327,7 +327,7 @@ def activate_default_scenarios(config: dict, project_dir: Path | str) -> tuple[s
     machine_path, _, _, _ = resolve_simulation_file(config, project_dir)
     if machine_path is None or not machine_path.is_file():
         return ()
-    if (resolve_state_dir(config, project_dir) / ACTIVE_SCENARIOS_FILENAME).is_file():
+    if (resolve_simulation_state_dir(config, project_dir) / ACTIVE_SCENARIOS_FILENAME).is_file():
         return ()
     defaults = parse_machine(read_machine_json(machine_path), machine_path).default_scenarios
     if not defaults:
@@ -370,7 +370,7 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
         return [], datetime.now(get_facility_timezone())
 
     engine = SimulationEngine.from_file(
-        machine_path, state_dir=resolve_state_dir(config, project_dir)
+        machine_path, state_dir=resolve_simulation_state_dir(config, project_dir)
     )
     # Read in the facility zone, as the engine reads the same anchor: a logbook
     # entry's ``days_ago`` and an ``at_when`` event's count the same calendar days.
@@ -623,7 +623,7 @@ def persisted_scenario_anchor(config: dict, project_dir: Path) -> datetime | Non
         which case there is no established timeline to preserve and a fresh
         anchor is the right answer.
     """
-    state_dir = resolve_state_dir(config, project_dir)
+    state_dir = resolve_simulation_state_dir(config, project_dir)
     path = state_dir / ACTIVE_SCENARIOS_FILENAME
     if not path.is_file():
         return None
@@ -631,7 +631,7 @@ def persisted_scenario_anchor(config: dict, project_dir: Path) -> datetime | Non
     # (and its naive-value timezone rule) is the engine's to define, and a
     # copy here would be free to drift from the file the engine actually
     # reads. This is the one reader of it outside the engine.
-    _names, anchor_epoch = SimulationEngine._parse_state(path.read_text(encoding="utf-8"))
+    _names, anchor_epoch = SimulationEngine.parse_state(path.read_text(encoding="utf-8"))
     if anchor_epoch is not None:
         return datetime.fromtimestamp(anchor_epoch, UTC)
     return None

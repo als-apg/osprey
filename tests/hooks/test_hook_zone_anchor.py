@@ -655,8 +655,10 @@ def test_hook_constants_match_the_framework(hook_module):
     would let them drift silently, so the drift is asserted here instead.
     """
     from osprey.cli.repo_resolver import PROFILE_FILENAME
+    from osprey.utils.workspace import (
+        _PROFILE_FILENAME as WORKSPACE_PROFILE_FILENAME,
+    )
     from osprey.utils.workspace import BUILD_DIR_NAME
-    from osprey.utils.workspace import PROFILE_FILENAME as WORKSPACE_PROFILE_FILENAME
 
     hook_log = hook_module("osprey_hook_log")
 

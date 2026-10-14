@@ -13,7 +13,9 @@ from osprey_connectors.connection import (
     read_ca_bundle,
     read_connection_settings,
     read_credential_env_names,
-    urllib_opener,
+)
+from osprey_connectors.connection import (
+    _urllib_opener as urllib_opener,
 )
 from tests.connectors._loopback_https import Reply, loopback_pair
 

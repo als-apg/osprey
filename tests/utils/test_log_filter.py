@@ -6,7 +6,12 @@ functionality that is used throughout the codebase to suppress verbose output.
 
 import logging
 
-from osprey.utils.log_filter import LoggerFilter, quiet_logger
+from osprey.utils.log_filter import (
+    _LoggerFilter as LoggerFilter,
+)
+from osprey.utils.log_filter import (
+    quiet_logger,
+)
 
 
 class TestQuietLogger:

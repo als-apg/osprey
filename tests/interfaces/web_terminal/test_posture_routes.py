@@ -136,11 +136,11 @@ def agent_data_root(tmp_path, monkeypatch):
     state_dir_under(root).mkdir(parents=True)
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
+    posture_store._invalidate_cache()
+    control_context._invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
+    posture_store._invalidate_cache()
+    control_context._invalidate_cache()
 
 
 @pytest.fixture
@@ -232,13 +232,13 @@ class _RecordingChatPool:
 
 def recorded_posture():
     """The deployment's narrowings, straight off the record."""
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     record = control_context.read_record()
     return {} if record is None else dict(record.posture)
 
 
 def read_record():
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     return control_context.read_record()
 
 

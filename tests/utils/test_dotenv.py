@@ -25,9 +25,11 @@ from osprey.utils.dotenv import (
     VA_LATTICE_DEFAULT,
     _dotenv_raw_lines,
     env_lock_path,
-    merge_env_preserving_existing,
     parse_dotenv_file,
     resolved_va_lattice,
+)
+from osprey.utils.dotenv import (
+    _merge_env_preserving_existing as merge_env_preserving_existing,
 )
 
 

@@ -157,9 +157,9 @@ def _no_ambient_deployment(control_context_root, monkeypatch):
         posture_module.CONTROL_TARGET_ENV_VAR,
     ):
         monkeypatch.delenv(marker, raising=False)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     yield control_context_root
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 @pytest.fixture

@@ -382,6 +382,6 @@ class TestBlueskyWorker:
 
         connector = await qserver_startup.create_connector()
 
-        assert connector._connector_type is None
+        assert connector.connector_type is None
         assert connector._control_target == "live"
         assert recording_factory.target == "live"

@@ -38,7 +38,9 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors.types import (
-    CLI_ARCHIVER_TYPES,
+    _CLI_ARCHIVER_TYPES as CLI_ARCHIVER_TYPES,
+)
+from osprey_connectors.types import (
     CLI_CONTROL_SYSTEM_TYPES,
     SET_CONTROL_SYSTEM_TYPES,
 )

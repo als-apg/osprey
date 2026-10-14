@@ -329,7 +329,7 @@ class TangoConnector(ControlSystemConnector):
                 f"TANGO attribute '{channel_address}' did not answer within {ceiling}s"
             ) from None
 
-    def _current_value_reader(self) -> Callable[[str], Any] | None:
+    def current_value_reader(self) -> Callable[[str], Any] | None:
         """The attribute's present value, read through this connector's own proxy."""
 
         def read_current(channel_address: str) -> Any:
@@ -398,7 +398,7 @@ class TangoConnector(ControlSystemConnector):
             if self._limits_validator:
                 try:
                     self._limits_validator.validate(
-                        channel_address, value, read_current=self._current_value_reader()
+                        channel_address, value, read_current=self.current_value_reader()
                     )
                     logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
                 except ChannelLimitsViolationError:

@@ -1098,7 +1098,7 @@ def set_control_system_type(
             or a custom connector's dotted module path. Written as given; not
             validated here.
         archiver_type: The connector name to write as ``archiver.type`` — a
-            built-in from :data:`osprey_connectors.types.CLI_ARCHIVER_TYPES`, or a
+            built-in from :data:`osprey_connectors.types._CLI_ARCHIVER_TYPES`, or a
             custom connector's dotted module path — or ``None`` to leave the key
             untouched.
         create_backup: If True, copies the file into the agent-data state zone

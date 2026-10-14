@@ -95,7 +95,9 @@ from osprey.mcp_server.control_system.target_state import (
 )
 from osprey.mcp_server.control_system.tools.control_target import target_rows
 from osprey_connectors.control_context import (
-    RECORD_FILENAME,
+    _RECORD_FILENAME as RECORD_FILENAME,
+)
+from osprey_connectors.control_context import (
     SWITCH_APPLIED,
     live_reports,
     read_record,

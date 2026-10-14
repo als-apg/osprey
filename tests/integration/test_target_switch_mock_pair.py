@@ -181,10 +181,10 @@ def state_root(tmp_path, monkeypatch):
     reads a record left behind by whatever last ran on this machine.
     """
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
-    control_context.invalidate_cache()
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    control_context._invalidate_cache()
     yield tmp_path
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
 
 
 @pytest.fixture

@@ -6,7 +6,9 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.config import config_flag
+from osprey_connectors.config import (
+    _config_flag as config_flag,
+)
 
 
 @pytest.mark.parametrize(

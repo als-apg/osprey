@@ -113,7 +113,13 @@ from osprey.deployment.compose_generator import (
     resolve_project_name,
 )
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
-from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, write_record
+from osprey_connectors.control_context import (
+    _RECORD_FILENAME as RECORD_FILENAME,
+)
+from osprey_connectors.control_context import (
+    ControlContext,
+    write_record,
+)
 from osprey_connectors.posture_store import POSTURE_SANDBOX
 from osprey_connectors.types import (
     CONTROL_TARGETS,

@@ -103,15 +103,15 @@ def deployment(tmp_path, monkeypatch):
         # that at tmp_path is what keeps one test's deployment out of another's,
         # and out of whatever record this machine happens to be carrying.
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
-        control_context.invalidate_cache()
+        monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+        control_context._invalidate_cache()
 
         monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", _TOKEN)
         initialize_server_context()
         return tmp_path
 
     yield _stage
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
 
 
 def _deployment_on(root: Path, target: str, generation: int = 0, **kwargs: Any) -> Path:
@@ -130,10 +130,10 @@ def _switch_to(root: Path, target: str) -> Path:
 
 def _write_raw_record(root: Path, body: str) -> Path:
     """Drop a control-context record with arbitrary bytes in it."""
-    path = control_context.record_path_under(root)
+    path = control_context._record_path_under(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     return path
 
 

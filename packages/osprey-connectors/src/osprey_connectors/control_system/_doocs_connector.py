@@ -175,7 +175,7 @@ class DOOCSConnector(ControlSystemConnector):
 
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
-    def _current_value_reader(self) -> Callable[[str], Any] | None:
+    def current_value_reader(self) -> Callable[[str], Any] | None:
         """The property's present value, read through this connector's own client.
 
         ``get_data()`` is what :meth:`_read_channel_sync` unwraps an ``EqData``
@@ -242,7 +242,7 @@ class DOOCSConnector(ControlSystemConnector):
             if self._limits_validator:
                 try:
                     self._limits_validator.validate(
-                        channel_address, value, read_current=self._current_value_reader()
+                        channel_address, value, read_current=self.current_value_reader()
                     )
                     logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
                 except ChannelLimitsViolationError:

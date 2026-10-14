@@ -540,7 +540,7 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
     # every max_step channel before the connector that CAN measure it is reached.
     if _limits_validator is not None:
         _limits_validator.validate(
-            channel_address, value, read_current=connector._current_value_reader()
+            channel_address, value, read_current=connector.current_value_reader()
         )  # Raises ChannelLimitsViolationError
 
     # write_channel_checked is the reference monitor's denial contract: it raises
@@ -595,7 +595,7 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
         # Validate every value before any of them is sent, with the same
         # connector-supplied reader the single-channel path uses.
         if _limits_validator is not None:
-            read_current = connector._current_value_reader()
+            read_current = connector.current_value_reader()
             for channel_address, value in channel_values.items():
                 _limits_validator.validate(channel_address, value, read_current=read_current)
 

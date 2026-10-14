@@ -1380,14 +1380,14 @@ def session(project, monkeypatch):
     from osprey_connectors import posture_store
 
     root = project.root / "agent_data"
-    directory = root / posture_store.STATE_DIR_NAME
+    directory = root / posture_store.CONTROL_STATE_DIR_NAME
     directory.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv(posture_module.OSPREY_AGENT_DATA_ROOT, str(root))
     monkeypatch.setenv(am.POSTURE_SESSION_ENV, SESSION_KEY)
     monkeypatch.delenv(posture_module.CONTROL_TARGET_ENV_VAR, raising=False)
 
     def _drop_caches() -> None:
-        posture_store.invalidate_cache()
+        posture_store._invalidate_cache()
 
     class _Session:
         key = SESSION_KEY

@@ -100,7 +100,7 @@ async def contract(prefix: str) -> dict[str, Any]:
     await asyncio.sleep(0.5)
     out["monitor"] = updates
 
-    read_current = connector._current_value_reader()
+    read_current = connector.current_value_reader()
     out["max_step"] = [
         await asyncio.to_thread(read_current, f"{prefix}:AO"),
         await asyncio.to_thread(read_current, f"{prefix}:NOPE"),

@@ -55,6 +55,7 @@ __all__ = [
     "AUDIT_IDENTITY_ENV",
     "IDENTITY_ENV_LADDER",
     "TERMINAL_USER_ENV",
+    "UNKNOWN_IDENTITY",
     "acting_identity",
     "usable_identity",
 ]

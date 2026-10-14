@@ -510,7 +510,7 @@ def module_environment(tmp_path_factory, endpoints):
     records: list[dict] = []
 
     with pytest.MonkeyPatch.context() as patch_env:
-        patch_env.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+        patch_env.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
         patch_env.setenv(audit_posture.POSTURE_SESSION_ENV_VAR, SESSION_ID)
         patch_env.setenv("PYTHONPATH", os.pathsep.join(REPO_PATHS))
         patch_env.setenv("CONFIG_FILE", str(written))
@@ -518,10 +518,10 @@ def module_environment(tmp_path_factory, endpoints):
         patch_env.delenv("OSPREY_EXECUTION_MODE", raising=False)
         patch_env.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
         patch_env.setattr(target_state, "resolve_shared_data_root", lambda: root)
-        posture_store.invalidate_cache()
+        posture_store._invalidate_cache()
         with patch.object(audit_writer, "record", side_effect=lambda **f: records.append(f)):
             yield SimpleNamespace(root=root, config_path=written)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 @pytest.fixture(scope="module")

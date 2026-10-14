@@ -25,8 +25,10 @@ from pathlib import Path
 import pytest
 
 from osprey.utils.dotenv import (
+    _ENV_LOCAL_BANNER as ENV_LOCAL_BANNER,
+)
+from osprey.utils.dotenv import (
     DEPLOY_MINTED_BANNER,
-    ENV_LOCAL_BANNER,
     append_profile_env,
     parse_dotenv_file,
     replace_profile_env_value,

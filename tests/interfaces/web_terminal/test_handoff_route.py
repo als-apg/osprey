@@ -68,10 +68,10 @@ def shared_root(tmp_path, monkeypatch):
     """
     root = tmp_path / "shared_agent_data"
     root.mkdir()
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    posture_store.invalidate_cache()
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
+    posture_store._invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 # ---------------------------------------------------------------------------

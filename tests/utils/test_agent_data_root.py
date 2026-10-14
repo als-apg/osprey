@@ -49,7 +49,9 @@ def _mkdir_loop_subdirs(root: Path) -> list[str]:
     because every container that reads it binds it read-only and so can create
     none of it, and no config key declares it.
     """
-    from osprey_connectors.posture_store import STATE_DIR_NAME
+    from osprey_connectors.posture_store import (
+        CONTROL_STATE_DIR_NAME as STATE_DIR_NAME,
+    )
 
     return sorted(entry.name for entry in root.iterdir() if entry.name != STATE_DIR_NAME)
 

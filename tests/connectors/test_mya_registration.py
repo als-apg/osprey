@@ -27,7 +27,7 @@ class TestTypeConstants:
         assert types.MYA_ARCHIVER == "mya_archiver"
 
     def test_constant_appears_in_cli_choice_list(self):
-        assert types.MYA_ARCHIVER in types.CLI_ARCHIVER_TYPES
+        assert types.MYA_ARCHIVER in types._CLI_ARCHIVER_TYPES
 
 
 class TestBuiltinRegistration:
@@ -51,26 +51,25 @@ class TestBuiltinRegistration:
         module scope, registering the built-ins would raise ImportError on
         every machine without the library and take the whole framework down.
 
-        The connector module (and its shim alias) is dropped from
-        ``sys.modules`` first: in a suite run it is already cached, and a
-        cached module never re-runs its module-scope imports.
+        The connector module is dropped from ``sys.modules`` first: in a suite
+        run it is already cached, and a cached module never re-runs its
+        module-scope imports.
         """
         import sys
 
         import osprey_connectors.archiver as archiver_pkg
+        import osprey_connectors.archiver._mya_archiver_connector  # noqa: F401 - cached before it is dropped
 
         canonical = "osprey_connectors.archiver._mya_archiver_connector"
-        shim = "osprey_connectors.archiver._mya_archiver_connector"
         cached = sys.modules.get(canonical)
         # The re-import rebinds the package attribute; put it back afterwards.
-        monkeypatch.setattr(archiver_pkg, "mya_archiver_connector", cached, raising=False)
+        monkeypatch.setattr(archiver_pkg, "_mya_archiver_connector", cached)
 
         with (
             patch.dict(sys.modules, {"jlab_archiver_client": None}),
             isolated_connector_registries(clear=True),
         ):
             sys.modules.pop(canonical, None)
-            sys.modules.pop(shim, None)
 
             register_builtin_connectors()
 
@@ -93,15 +92,3 @@ class TestFrameworkRegistryEntries:
             by_name[types.MYA_ARCHIVER].module_path
             == "osprey_connectors.archiver._mya_archiver_connector"
         )
-
-
-class TestCompatibilityShim:
-    """The ``osprey.connectors`` spelling resolves to the same class."""
-
-    def test_shim_reexports_the_connector(self):
-        from osprey_connectors.archiver._mya_archiver_connector import MYAArchiverConnector
-        from osprey_connectors.archiver._mya_archiver_connector import (
-            MYAArchiverConnector as Canonical,
-        )
-
-        assert MYAArchiverConnector is Canonical

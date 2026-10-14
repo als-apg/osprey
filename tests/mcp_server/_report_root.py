@@ -36,7 +36,7 @@ def state_root(tmp_path, monkeypatch):
     would assert against the machine it ran on.
     """
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
-    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
     return tmp_path

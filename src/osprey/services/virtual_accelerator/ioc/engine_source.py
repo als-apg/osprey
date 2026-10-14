@@ -201,11 +201,10 @@ class EngineSource:
 
         if changed:
             # Force the engine to reparse active_scenarios even if ITS OWN
-            # mtime-only signature didn't move (see module docstring): the
-            # same escape hatch SimulationEngine.set_active_scenarios() uses
-            # internally ("Force a re-read even if filesystem mtime
-            # granularity hides the write" -- osprey/simulation/engine.py).
-            self._engine._state_signature = ("", -1)
+            # mtime-only signature didn't move (see module docstring), the
+            # same way SimulationEngine.set_active_scenarios() does after its
+            # own write.
+            self._engine.invalidate_state()
 
         return changed
 

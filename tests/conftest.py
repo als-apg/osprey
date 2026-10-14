@@ -17,7 +17,9 @@ import pytest
 from rich.logging import RichHandler
 
 from osprey.services.bluesky_bridge import session_dir as _session_plan_dir
-from osprey.utils.logger import QUIET_THIRD_PARTY_LOGGERS
+from osprey.utils.logger import (
+    _QUIET_THIRD_PARTY_LOGGERS as QUIET_THIRD_PARTY_LOGGERS,
+)
 from tests import _env_scope_guard, _live_threads, _repo_cleanliness, ci_diagnostics
 from tests._agent_cli import STUB_AGENT_CLI
 from tests._env_scope_guard import restore_module_environment
@@ -231,7 +233,7 @@ def session_posture_leak_guard(monkeypatch):
         otherwise hand every record-touching test a session id and an
         agent-data root no test asked for — and, worse, a test that
         redirects the record by patching ``resolve_shared_data_root`` would be
-        silently inert, because ``posture_store.agent_data_root()`` reads the
+        silently inert, because ``posture_store._agent_data_root()`` reads the
         variable FIRST and only falls back to the resolver.
 
         Two more carry the container's own control-state binds:
@@ -1931,11 +1933,11 @@ def control_context_root(tmp_path, monkeypatch):
     from osprey_connectors import control_context, posture_store
 
     root = tmp_path / "agent_data"
-    (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    control_context.invalidate_cache()
+    (root / posture_store.CONTROL_STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
+    control_context._invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
 
 
 # ===================================================================

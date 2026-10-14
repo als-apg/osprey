@@ -59,8 +59,8 @@ from osprey_connectors.simulation._series import (
 )
 from osprey_connectors.types import MOCK
 from osprey_connectors.workspace import (
-    SIMULATION_STATE_DIR_CONFIG_KEY,
-    SIMULATION_STATE_DIR_NAME,
+    _SIMULATION_STATE_DIR_CONFIG_KEY,
+    _SIMULATION_STATE_DIR_NAME,
     resolve_simulation_state_dir,
 )
 
@@ -73,10 +73,10 @@ ACTIVE_SCENARIOS_FILENAME = "active_scenarios"
 #: agent-data root. Defined in :mod:`osprey_connectors.workspace` and re-exported
 #: here so this module and :data:`osprey_connectors.config.RUNTIME_WRITE_PATH_KEYS`
 #: cannot drift to different spellings.
-STATE_DIR_CONFIG_KEY = SIMULATION_STATE_DIR_CONFIG_KEY
+STATE_DIR_CONFIG_KEY = _SIMULATION_STATE_DIR_CONFIG_KEY
 
 #: Subdirectory of the agent-data root holding the scenario state file.
-STATE_DIR_NAME = SIMULATION_STATE_DIR_NAME
+STATE_DIR_NAME = _SIMULATION_STATE_DIR_NAME
 
 
 #: Resolve the directory holding the ``active_scenarios`` state file. Defined in
@@ -475,7 +475,7 @@ class SimulationEngine:
         tmp_path.write_text("\n".join(body) + "\n")
         os.replace(tmp_path, self._state_path)
         # Force a re-read even if filesystem mtime granularity hides the write.
-        self._state_signature = ("", -1)
+        self.invalidate_state()
         self._refresh_scenario()
         return self._active
 
@@ -761,7 +761,7 @@ class SimulationEngine:
                 text = state_file.read_text()
             except FileNotFoundError:
                 text = ""
-            raw_names, anchor_epoch = self._parse_state(text)
+            raw_names, anchor_epoch = self.parse_state(text)
             for raw in raw_names:
                 if raw in self._scenarios:
                     if raw not in names:
@@ -795,8 +795,17 @@ class SimulationEngine:
             )
         self._recompose()
 
+    def invalidate_state(self) -> None:
+        """Make the next read reparse the active-scenarios file.
+
+        The engine notices a changed file by its modification time, and a
+        filesystem whose mtime granularity hides a rewrite would hide the
+        change with it. A caller that knows the file moved says so here.
+        """
+        self._state_signature = ("", -1)
+
     @staticmethod
-    def _parse_state(text: str) -> tuple[list[str], float | None]:
+    def parse_state(text: str) -> tuple[list[str], float | None]:
         """Parse state-file text into (scenario names, anchor epoch seconds or None).
 
         Skips blank lines and ``#`` comments; any ``key=value`` line is metadata

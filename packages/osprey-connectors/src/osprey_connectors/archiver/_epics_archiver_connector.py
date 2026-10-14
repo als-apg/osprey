@@ -24,7 +24,10 @@ from osprey_connectors.archiver._timerange import (
     resolve_processing,
     utc_window,
 )
-from osprey_connectors.connection import read_connection_settings, urllib_opener
+from osprey_connectors.connection import (
+    _urllib_opener,
+    read_connection_settings,
+)
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("epics_archiver_connector")
@@ -100,7 +103,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         self._timeout = settings.timeout_or(60)
         retrieval_path = config.get("retrieval_path") or self.DEFAULT_RETRIEVAL_PATH
         self._retrieval_path = "/" + retrieval_path.strip("/")
-        self._opener = urllib_opener(settings)
+        self._opener = _urllib_opener(settings)
         if settings.login is not None:
             self._login_key = settings.login.env_key
             (self._login_env,) = settings.login.env_names

@@ -40,9 +40,11 @@ from osprey_connectors.types import (
     LimitsPosture,
     any_armed_target_checks_limits,
     incomplete_limits_blocks,
-    most_restrictive_limits_posture,
     target_limits_posture,
     type_limits_posture,
+)
+from osprey_connectors.types import (
+    _most_restrictive_limits_posture as most_restrictive_limits_posture,
 )
 
 CUSTOM_TYPE = "mypackage.MoatConnector"
@@ -118,7 +120,7 @@ class TestLimitsPosture:
     def test_key_treats_an_empty_type_as_no_type(self) -> None:
         """An empty type names nothing, so the deployment-wide key answers.
 
-        Same reading :func:`~osprey_connectors.types.writes_enabled_key` gives a
+        Same reading :func:`~osprey_connectors.types._writes_enabled_key` gives a
         caller holding no type: a key with an empty segment in it would send an
         operator to a line that cannot exist.
         """

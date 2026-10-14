@@ -55,9 +55,13 @@ from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.posture_store import (
     NO_OWNER,
     RESERVED_OWNER_KWARG,
-    StoreVerdict,
     current_owner,
-    store_verdict,
+)
+from osprey_connectors.posture_store import (
+    _store_verdict as store_verdict,
+)
+from osprey_connectors.posture_store import (
+    _StoreVerdict as StoreVerdict,
 )
 from tests.services.bluesky_bridge.test_connector_devices import FakeConnector
 
@@ -160,9 +164,9 @@ def control_context_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ite
     is reset on the way out as well as in: a run that failed mid-plan would
     otherwise hand its owner to the next test.
     """
-    tree = tmp_path / posture_store.STATE_DIR_NAME
+    tree = tmp_path / posture_store.CONTROL_STATE_DIR_NAME
     tree.mkdir(parents=True)
-    (tree / posture_store.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
+    (tree / posture_store._CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
     monkeypatch.delenv(posture_store.CONTROL_OWNER_ENV_VAR, raising=False)
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
     monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
@@ -173,7 +177,7 @@ def control_context_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ite
 
 def narrow_for(tree: Path, owner: str, target: str = _TARGET) -> Path:
     """Record *owner*'s narrowing of *target*, the way that owner's chip writes it."""
-    path = tree / owner / control_context.RECORD_FILENAME
+    path = tree / owner / control_context._RECORD_FILENAME
     control_context.write_record(
         control_context.ControlContext(
             target=target,
@@ -182,7 +186,7 @@ def narrow_for(tree: Path, owner: str, target: str = _TARGET) -> Path:
         ),
         path=path,
     )
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     return path
 
 

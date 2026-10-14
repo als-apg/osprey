@@ -80,9 +80,9 @@ def shared_root(tmp_path, monkeypatch):
         ),
         patch.object(posture_store, "resolve_shared_data_root", return_value=root),
     ):
-        posture_store.invalidate_cache()
+        posture_store._invalidate_cache()
         yield root
-        posture_store.invalidate_cache()
+        posture_store._invalidate_cache()
 
 
 # ``shared_root`` rebinds the agent-data resolver the app under test reads.
@@ -179,7 +179,7 @@ class TestBothSurfacesResolveOneRoot:
 
         A flip tears one child down and starts the other under the same key.
         Resolved from either child's environment,
-        :func:`osprey_connectors.workspace.resolve_agent_data_root` has to name
+        :func:`osprey_connectors.workspace._resolve_agent_data_root` has to name
         the same directory, or the conversation's execution artefacts land in
         two places.
         """
@@ -210,7 +210,7 @@ class TestBothSurfacesResolveOneRoot:
         ):
             if SESSION_ID_ENV not in env:
                 os.environ.pop(SESSION_ID_ENV, None)
-            return workspace.resolve_agent_data_root()
+            return workspace._resolve_agent_data_root()
 
 
 # --------------------------------------------------------------------------- #

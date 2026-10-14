@@ -26,7 +26,12 @@ import pytest
 
 from osprey.services.virtual_accelerator.bindings import Binding
 from osprey_connectors.control_system import WriteOutcome
-from osprey_connectors.types import VIRTUAL_ACCELERATOR, writes_enabled_key
+from osprey_connectors.types import (
+    VIRTUAL_ACCELERATOR,
+)
+from osprey_connectors.types import (
+    _writes_enabled_key as writes_enabled_key,
+)
 from tests.va.e2e import conftest as e2e_conftest
 
 #: Which writable corrector this lane drives, as a slot in the served tree's

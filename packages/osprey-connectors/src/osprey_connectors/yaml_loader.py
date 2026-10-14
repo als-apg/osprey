@@ -21,7 +21,7 @@ __all__ = [
 ]
 
 
-def safe_loader() -> type[Any]:
+def _safe_loader() -> type[Any]:
     """The safe loader class to parse with: libyaml's when present, else PyYAML's.
 
     Resolved at call time rather than at import, so a build that runs without
@@ -43,4 +43,4 @@ def safe_load(stream: str | bytes | IO[str] | IO[bytes]) -> Any:
     Raises:
         yaml.YAMLError: On a document that does not parse.
     """
-    return yaml.load(stream, Loader=safe_loader())
+    return yaml.load(stream, Loader=_safe_loader())

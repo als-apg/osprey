@@ -18,7 +18,12 @@ from pathlib import Path
 
 import pytest
 
-from osprey.utils.config import ConfigBuilder, get_framework_service_config
+from osprey.utils.config import (
+    ConfigBuilder,
+)
+from osprey.utils.config import (
+    _get_framework_service_config as get_framework_service_config,
+)
 
 EXPECTED_CONFIGURABLE_KEYS = {
     "model_configs",

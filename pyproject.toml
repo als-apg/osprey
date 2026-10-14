@@ -739,6 +739,10 @@ select = [
     "RUF100",  # unused noqa: a suppression names an enabled rule that fires on its line
     "TID251",  # banned-api: the agent SDK is imported only inside the harness adapter
 ]
+# Rules this config does not select but code may name in a `noqa`: PLC2701
+# (import-private-name) runs in a preview-only invocation of its own, so RUF100
+# must not report a suppression of it as unused.
+external = ["PLC2701"]
 ignore = [
     "E501",  # line too long, handled by formatter
     "B008",  # do not perform function calls in argument defaults
@@ -792,7 +796,8 @@ ignore-variadic-names = true
 # its import fails, so it keeps the path that cannot be missing.
 "src/osprey/errors.py" = ["TID251"]
 "src/osprey/utils/{__init__,config,workspace,dotenv,logger,log_filter,identity,relative_time}.py" = ["TID251"]
-"src/osprey/connectors/**" = ["TID251"]
+# The four paths that stand for a now-private module import that module by name.
+"src/osprey/connectors/**" = ["TID251", "PLC2701"]
 "src/osprey/services/python_executor/execution/limits_validator.py" = ["TID251"]
 "src/osprey/templates/claude_code/claude/hooks/{osprey_limits,osprey_hook_log}.py" = ["TID251"]
 # import-private-name holds the framework to the connectors package's public

@@ -113,9 +113,9 @@ def _load_project_engine(repo: Path | None):
     from osprey_connectors.simulation import (
         SimulationEngine,
         resolve_simulation_file,
-        resolve_state_dir,
     )
     from osprey_connectors.types import MOCK
+    from osprey_connectors.workspace import resolve_simulation_state_dir
 
     repo_root, config = _resolve_deployment(repo)
     machine_path, active_type, type_key, mock_key = resolve_simulation_file(config, repo_root)
@@ -130,7 +130,7 @@ def _load_project_engine(repo: Path | None):
             )
         raise SystemExit(1)
     engine = SimulationEngine.from_file(
-        machine_path, state_dir=resolve_state_dir(config, repo_root)
+        machine_path, state_dir=resolve_simulation_state_dir(config, repo_root)
     )
     return repo_root, config, engine
 
@@ -304,10 +304,11 @@ def apply_command(
     physics: dict[str, str] | None = None
     store: dict | None = None
     if machine_path is not None:
-        from osprey_connectors.simulation import SimulationEngine, resolve_state_dir
+        from osprey_connectors.simulation import SimulationEngine
+        from osprey_connectors.workspace import resolve_simulation_state_dir
 
         engine = SimulationEngine.from_file(
-            machine_path, state_dir=resolve_state_dir(config, repo_root)
+            machine_path, state_dir=resolve_simulation_state_dir(config, repo_root)
         )
         # validate_composition RETURNS its problems (unknown names, channel
         # collisions) rather than raising; an empty list is the only "OK".

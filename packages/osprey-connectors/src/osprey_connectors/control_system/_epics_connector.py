@@ -15,7 +15,10 @@ from datetime import datetime
 from typing import Any
 
 from osprey_connectors.call_timeout import call_timeout_s
-from osprey_connectors.config import config_flag, get_facility_timezone
+from osprey_connectors.config import (
+    _config_flag,
+    get_facility_timezone,
+)
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
@@ -32,7 +35,9 @@ from osprey_connectors.control_system._limits_validator import (
     step_read_timeout_seconds,
 )
 from osprey_connectors.logger import get_logger
-from osprey_connectors.types import writes_enabled_key
+from osprey_connectors.types import (
+    _writes_enabled_key,
+)
 
 logger = get_logger("epics_connector")
 
@@ -603,7 +608,7 @@ class EPICSConnector(ControlSystemConnector):
             if readonly_run and write_gateway:
                 logger.debug("EPICS connector: readonly run, staying on read_only gateway")
             elif writes_enabled and not write_gateway:
-                posture_key = writes_enabled_key(self._connector_type)
+                posture_key = _writes_enabled_key(self._connector_type)
                 logger.warning(
                     f"{posture_key} is true but no gateways.write_access "
                     "is configured; routing through the read_only gateway, which may "
@@ -616,7 +621,7 @@ class EPICSConnector(ControlSystemConnector):
         if gateway_config:
             address = gateway_config.get("address", "")
             port = gateway_config.get("port", 5064)
-            use_name_server = config_flag(
+            use_name_server = _config_flag(
                 gateway_config.get("use_name_server"),
                 key=f"control_system.connector.{self._connector_type}.gateways."
                 f"{gateway_role}.use_name_server",
@@ -663,7 +668,7 @@ class EPICSConnector(ControlSystemConnector):
         # Every Channel Access read now asks the IOC, so the key changes
         # nothing; it is still read, so a deployment that sets it keeps
         # loading, and a misspelt value still refuses to connect.
-        self._fresh_reads = config_flag(
+        self._fresh_reads = _config_flag(
             config.get("fresh_reads"),
             key=f"control_system.connector.{self._connector_type}.fresh_reads",
         )
@@ -695,7 +700,7 @@ class EPICSConnector(ControlSystemConnector):
             if pva_gateway:
                 pva_address = str(pva_gateway.get("address", ""))
                 pva_port = pva_gateway.get("port")
-                pva_use_name_server = config_flag(
+                pva_use_name_server = _config_flag(
                     pva_gateway.get("use_name_server"),
                     key=f"control_system.connector.{self._connector_type}.pva_gateway."
                     "use_name_server",
@@ -1197,7 +1202,7 @@ class EPICSConnector(ControlSystemConnector):
         raw_metadata["shape"] = list(getattr(array, "shape", ()))
         return {"value": array, "raw_metadata": raw_metadata}
 
-    def _current_value_reader(self) -> Callable[[str], Any] | None:
+    def current_value_reader(self) -> Callable[[str], Any] | None:
         """The channel's present value, read with the client this connector connected with.
 
         The limits validator calls this synchronously from a worker thread, so
@@ -1299,7 +1304,7 @@ class EPICSConnector(ControlSystemConnector):
             if self._limits_validator:
                 try:
                     self._limits_validator.validate(
-                        channel_address, value, read_current=self._current_value_reader()
+                        channel_address, value, read_current=self.current_value_reader()
                     )
                     logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
                 except ChannelLimitsViolationError:

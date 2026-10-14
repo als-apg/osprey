@@ -887,7 +887,7 @@ class TestCurrentValueReader:
     @pytest.mark.asyncio
     async def test_reads_the_channel_as_a_plain_value(self):
         connector = _channel_connector(ca_reading(3.5))
-        read_current = connector._current_value_reader()
+        read_current = connector.current_value_reader()
 
         assert await asyncio.to_thread(read_current, "SR:CH") == 3.5
 
@@ -895,7 +895,7 @@ class TestCurrentValueReader:
     async def test_a_channel_that_does_not_answer_reads_as_none(self):
         """``None`` fails the step check closed."""
         connector = _connector(aioca=FakeAioca())
-        read_current = connector._current_value_reader()
+        read_current = connector.current_value_reader()
 
         assert await asyncio.to_thread(read_current, "SR:NOPE") is None
 
@@ -903,7 +903,7 @@ class TestCurrentValueReader:
     async def test_the_read_uses_the_step_read_timeout(self):
         connector = _channel_connector(ca_reading(3.5))
         connector._step_read_timeout = 0.75
-        read_current = connector._current_value_reader()
+        read_current = connector.current_value_reader()
 
         await asyncio.to_thread(read_current, "SR:CH")
 

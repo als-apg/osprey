@@ -60,8 +60,10 @@ from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFaile
 from osprey_connectors.posture_store import (
     NO_OWNER,
     RESERVED_OWNER_KWARG,
-    StoreVerdict,
     current_owner,
+)
+from osprey_connectors.posture_store import (
+    _StoreVerdict as StoreVerdict,
 )
 
 pytest.importorskip("bluesky")

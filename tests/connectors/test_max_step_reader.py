@@ -67,7 +67,7 @@ async def test_the_simulator_reads_its_own_store(monkeypatch):
     await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
     connector._state["SIM:CHANNEL:SP"] = CURRENT
 
-    assert connector._current_value_reader()("SIM:CHANNEL:SP") == CURRENT
+    assert connector.current_value_reader()("SIM:CHANNEL:SP") == CURRENT
 
     await connector.disconnect()
 
@@ -80,7 +80,7 @@ def _ca_connector_holding(value) -> EPICSConnector:
 def test_the_epics_connector_reads_with_the_client_it_connected_with():
     connector = _ca_connector_holding(CURRENT)
 
-    assert connector._current_value_reader()("SR:CH") == CURRENT
+    assert connector.current_value_reader()("SR:CH") == CURRENT
     assert [c[:2] for c in connector._aioca.calls] == [("caget", "SR:CH")]
 
 
@@ -94,7 +94,7 @@ def test_the_epics_connector_refuses_to_read_a_pva_routed_address():
     connector = _ca_connector_holding(CURRENT)
     connector._pva_channel_globs = ["PVA:*"]
 
-    assert connector._current_value_reader()("PVA:IMAGE") is None
+    assert connector.current_value_reader()("PVA:IMAGE") is None
     assert connector._aioca.calls == []
 
 
@@ -116,7 +116,7 @@ async def test_the_doocs_connector_reads_with_doocs4py():
         conn = DOOCSConnector()
         await conn.connect({})
 
-        assert conn._current_value_reader()("FAC/DEV/LOC/PROP") == CURRENT
+        assert conn.current_value_reader()("FAC/DEV/LOC/PROP") == CURRENT
         doocs4py.get.assert_called_once_with("FAC/DEV/LOC/PROP")
 
         await conn.disconnect()
@@ -143,7 +143,7 @@ async def test_the_tango_connector_reads_with_its_device_proxy():
         conn = TangoConnector()
         await conn.connect({})
 
-        assert conn._current_value_reader()("sr/power_supply/ps01/Current") == CURRENT
+        assert conn.current_value_reader()("sr/power_supply/ps01/Current") == CURRENT
         proxy.read_attribute.assert_called_once_with("Current")
 
         await conn.disconnect()
@@ -245,7 +245,7 @@ def test_the_epics_connector_reads_with_the_budget_its_block_declares() -> None:
     connector = _ca_connector_holding(CURRENT)
     connector._step_read_timeout = step_read_timeout_seconds({"step_read_timeout_s": 0.5})
 
-    connector._current_value_reader()("SR:CH")
+    connector.current_value_reader()("SR:CH")
 
     assert connector._aioca.calls[-1][2]["timeout"] == 0.5
 

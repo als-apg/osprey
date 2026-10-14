@@ -66,7 +66,7 @@ def workspace_dir(tmp_path):
 def shared_root(tmp_path, monkeypatch):
     """Stand in for the deployment's shared agent-data root.
 
-    Stamped, not patched. ``posture_store.agent_data_root()`` reads
+    Stamped, not patched. ``posture_store._agent_data_root()`` reads
     ``OSPREY_AGENT_DATA_ROOT`` FIRST and only falls back to
     ``resolve_shared_data_root``, so patching the resolver is inert for any
     developer whose shell carries the stamp — which is exactly the environment
@@ -77,11 +77,11 @@ def shared_root(tmp_path, monkeypatch):
     """
     root = tmp_path / "shared_agent_data"
     root.mkdir()
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 # ``shared_root`` stamps the agent-data root the app under test reads.

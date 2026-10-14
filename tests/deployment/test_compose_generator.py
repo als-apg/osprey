@@ -951,7 +951,9 @@ def test_control_tree_source_accepts_an_absolute_agent_data_root() -> None:
 def test_control_tree_directory_name_comes_from_the_writer() -> None:
     """Restating the directory name here would be a second spelling of the one
     constant the record writer resolves its own path through."""
-    from osprey_connectors.posture_store import STATE_DIR_NAME
+    from osprey_connectors.posture_store import (
+        CONTROL_STATE_DIR_NAME as STATE_DIR_NAME,
+    )
 
     source, _ = _tree_keys()
 
@@ -10270,7 +10272,9 @@ class TestControlTargetPathSeam:
         """Restating it here would be a second spelling of the one constant the
         writer resolves its own path through, free to drift from it."""
         from osprey.deployment.compose_generator import control_target_tree_dir
-        from osprey_connectors.posture_store import STATE_DIR_NAME
+        from osprey_connectors.posture_store import (
+            CONTROL_STATE_DIR_NAME as STATE_DIR_NAME,
+        )
 
         assert control_target_tree_dir({}, tmp_path).name == STATE_DIR_NAME
 

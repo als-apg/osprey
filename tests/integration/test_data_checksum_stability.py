@@ -31,7 +31,9 @@ from osprey.cli.templates.manifest import calculate_file_checksums
 from osprey.interfaces.channel_finder.app import feedback_dir
 from osprey.utils.config import (
     ConfigBuilder,
-    find_runtime_write_paths_under_data,
+)
+from osprey.utils.config import (
+    _find_runtime_write_paths_under_data as find_runtime_write_paths_under_data,
 )
 from osprey.utils.workspace import agent_data_base_dir
 

@@ -432,9 +432,11 @@ def _endpoint_matches(gateway: Any, mode: str | None, host: str | None, port: An
         return False
     if "port" in gateway and str(gateway["port"]) != str(port):
         return False
-    from osprey_connectors.config import config_flag
+    from osprey_connectors.config import (
+        _config_flag,
+    )
 
-    name_server = config_flag(gateway.get("use_name_server"), key="gateways.use_name_server")
+    name_server = _config_flag(gateway.get("use_name_server"), key="gateways.use_name_server")
     return ("name_server" if name_server else "addr_list") == mode
 
 

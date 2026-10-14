@@ -178,7 +178,7 @@ def build_operator_child_env(
     not at all, and a test pins that.
 
     The same key is also stamped as ``OSPREY_SESSION_ID``, which is what
-    :func:`osprey_connectors.workspace.resolve_agent_data_root` reads to scope
+    :func:`osprey_connectors.workspace._resolve_agent_data_root` reads to scope
     a child's execution root to ``sessions/<key>`` — where the python and
     sandbox executors put their run directories. One key, one root: a
     conversation is one session whichever view is showing it, so the chat

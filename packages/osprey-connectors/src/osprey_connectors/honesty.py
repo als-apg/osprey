@@ -76,6 +76,7 @@ from .types import (
 
 __all__ = [
     "VA_MOCK_ARCHIVER_WHY",
+    "ArchiverPairing",
     "pairing_for_target",
     "pairing_in_profile",
     "pairing_in_rendered_config",

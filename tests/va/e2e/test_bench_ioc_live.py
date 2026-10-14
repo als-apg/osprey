@@ -420,10 +420,10 @@ def state_root(tmp_path, monkeypatch):
     root = tmp_path / "var" / "agent_data"
     (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    control_context.invalidate_cache()
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
+    control_context._invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
 
 
 @pytest.fixture(autouse=True)

@@ -100,7 +100,7 @@ def _build_summary(validator) -> dict:
             "has_step_limit": has_step,
             "has_range": has_range,
             "confirm_breakdown": {"true": confirmed, "false": total - confirmed},
-            "version": validator._raw_db.get("_version"),
+            "version": (validator.raw_database or {}).get("_version"),
         },
         "access_details": {
             # The posture's own fields are restated so that the two the caller
@@ -111,7 +111,7 @@ def _build_summary(validator) -> dict:
                 "allow_unlisted_channels": allow_unlisted,
                 "allow_unlisted_key": answering_key,
             },
-            "defaults": validator._raw_db.get("defaults"),
+            "defaults": (validator.raw_database or {}).get("defaults"),
         },
     }
 

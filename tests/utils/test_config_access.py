@@ -20,10 +20,12 @@ from pathlib import Path
 import pytest
 
 from osprey.utils.config import (
+    _get_framework_service_config as get_framework_service_config,
+)
+from osprey.utils.config import (
     get_agent_dir,
     get_config_builder,
     get_config_value,
-    get_framework_service_config,
     get_full_configuration,
     load_config,
     load_project_config,

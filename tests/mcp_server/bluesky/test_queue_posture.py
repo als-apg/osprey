@@ -71,11 +71,11 @@ def _reset_bluesky_context():
 def _clean_posture_env(monkeypatch):
     """No ambient posture: every test states its own session key and root."""
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     yield
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 def _configure(
@@ -114,8 +114,8 @@ def _narrow(tmp_path, monkeypatch, entry) -> Path:
     """
     root = tmp_path / "agent_data"
     path = write_control_context(root, posture=entry)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    posture_store.invalidate_cache()
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
+    posture_store._invalidate_cache()
     return path
 
 

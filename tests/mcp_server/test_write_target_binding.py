@@ -126,13 +126,13 @@ def _prepare(tmp_path, monkeypatch, *, session=None):
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
     root = tmp_path / "var" / "agent_data"
     state_dir_under(root).mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
     if session is None:
         monkeypatch.delenv(POSTURE_SESSION_ENV_VAR, raising=False)
     else:
         monkeypatch.setenv(POSTURE_SESSION_ENV_VAR, session)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     initialize_server_context()
     return root
 
@@ -148,7 +148,7 @@ def _root():
     the ``control_target/<identity>`` hops itself, so a directory that already
     carries them names a file no reader ever resolves.
     """
-    return posture_store.agent_data_root()
+    return posture_store._agent_data_root()
 
 
 def _write_record(target, generation, **fields):
@@ -183,7 +183,7 @@ def _applying(generation, *, expires_in_s=60.0):
     only the session whose server it is.
     """
     return {
-        "status": control_context.REPORT_APPLYING,
+        "status": control_context._REPORT_APPLYING,
         "generation": generation,
         "at": _iso(),
         "expires_at": _iso(expires_in_s),
@@ -193,7 +193,7 @@ def _applying(generation, *, expires_in_s=60.0):
 def _failed(generation):
     """A ``failed`` switch block for *generation* — a server that could not follow."""
     return {
-        "status": control_context.REPORT_FAILED,
+        "status": control_context._REPORT_FAILED,
         "generation": generation,
         "at": _iso(),
     }

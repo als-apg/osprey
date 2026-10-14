@@ -180,7 +180,7 @@ class MockConnector(ControlSystemConnector):
             ),
         )
 
-    def _current_value_reader(self) -> Callable[[str], Any] | None:
+    def current_value_reader(self) -> Callable[[str], Any] | None:
         """What the simulated control system holds, read without noise.
 
         The same store, and the same noise-free reading, that
@@ -232,7 +232,7 @@ class MockConnector(ControlSystemConnector):
 
             try:
                 self._limits_validator.validate(
-                    channel_address, value, read_current=self._current_value_reader()
+                    channel_address, value, read_current=self.current_value_reader()
                 )
                 logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
             except ChannelLimitsViolationError:

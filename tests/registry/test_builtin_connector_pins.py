@@ -121,6 +121,41 @@ class TestBuiltinConnectorParity:
             assert ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is loaded
 
 
+class TestEveryRegistrationResolves:
+    """Each provider entry loads, and is the class the factory registers under its name."""
+
+    def test_the_provider_lists_the_factory_table(self) -> None:
+        from osprey_connectors.factory import BUILTIN_CONNECTORS
+
+        provider = [
+            (r.name, r.connector_type, r.module_path, r.class_name)
+            for r in FrameworkRegistryProvider().get_registry_config().connectors
+        ]
+        assert provider == [
+            (b.name, b.kind, b.module_path, b.class_name) for b in BUILTIN_CONNECTORS
+        ]
+
+    @pytest.mark.parametrize(
+        "registration",
+        FrameworkRegistryProvider().get_registry_config().connectors,
+        ids=lambda registration: registration.name,
+    )
+    def test_the_entry_loads_the_registered_class(self, registration) -> None:
+        import importlib
+
+        loaded = getattr(importlib.import_module(registration.module_path), registration.class_name)
+        with isolated_connector_registries(clear=True):
+            from osprey_connectors.factory import register_builtin_connectors
+
+            register_builtin_connectors()
+            table = (
+                ConnectorFactory._control_system_connectors
+                if registration.connector_type == "control_system"
+                else ConnectorFactory._archiver_connectors
+            )
+            assert table[registration.name] is loaded
+
+
 class TestChoiceListsMatchTheFactoryBuiltins:
     """The connector choice lists and the factory's built-in tuples agree.
 
@@ -145,7 +180,7 @@ class TestChoiceListsMatchTheFactoryBuiltins:
         }
 
     def test_archiver_choices_are_the_factory_builtins(self) -> None:
-        assert sorted(types.CLI_ARCHIVER_TYPES) == sorted(_BUILTIN_ARCHIVERS)
+        assert sorted(types._CLI_ARCHIVER_TYPES) == sorted(_BUILTIN_ARCHIVERS)
 
 
 class TestRegistryInitializationRegistersTheStandIn:

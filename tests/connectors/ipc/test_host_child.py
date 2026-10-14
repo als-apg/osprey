@@ -934,10 +934,10 @@ def narrowed_va(tmp_path, monkeypatch):
     """
     root = tmp_path / "agent-data"
     write_control_context(root, posture={"va": posture_store.POSTURE_SANDBOX})
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    posture_store.invalidate_cache()
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
+    posture_store._invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 def _install_name_server(monkeypatch, address, port):

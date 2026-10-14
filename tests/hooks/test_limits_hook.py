@@ -18,7 +18,12 @@ import types
 import pytest
 import yaml
 
-from osprey_connectors.types import most_restrictive_limits_posture, target_limits_posture
+from osprey_connectors.types import (
+    _most_restrictive_limits_posture as most_restrictive_limits_posture,
+)
+from osprey_connectors.types import (
+    target_limits_posture,
+)
 from tests._control_context_fixtures import state_dir_under, write_control_context
 
 

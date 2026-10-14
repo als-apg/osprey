@@ -30,7 +30,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from osprey_connectors.config import config_flag
+from osprey_connectors.config import (
+    _config_flag,
+)
 from osprey_connectors.control_system._base import is_readonly_run
 from osprey_connectors.types import (
     MOCK,
@@ -171,7 +173,7 @@ def config_writes_enabled(config: Any, target: str) -> bool:
 
 
 def _mode(gateway: dict[str, Any], key: str) -> str:
-    name_server = config_flag(gateway.get("use_name_server"), key=f"{key}.use_name_server")
+    name_server = _config_flag(gateway.get("use_name_server"), key=f"{key}.use_name_server")
     return MODE_NAME_SERVER if name_server else MODE_ADDR_LIST
 
 
@@ -258,7 +260,7 @@ def derive_endpoints(
         ValueError: Propagated from
             :func:`~osprey_connectors.types.resolve_target` when the target is
             unknown, or is ``live`` on a deployment that has never named its real
-            machine, and from :func:`~osprey_connectors.config.config_flag` when a
+            machine, and from :func:`~osprey_connectors.config._config_flag` when a
             ``use_name_server`` spells neither true nor false.
             :func:`~osprey.mcp_server.control_system.target_eligibility.evaluate_eligibility`
             is where that becomes a reason rather than an exception.

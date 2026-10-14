@@ -94,7 +94,7 @@ def test_control_context_imports_no_osprey_module():
         "import osprey_connectors.control_context as cc, sys;"
         "bad = sorted(m for m in sys.modules if m == 'osprey' or m.startswith('osprey.'));"
         "assert not bad, f'the control-context record eagerly imported: {bad}';"
-        "assert cc.RECORD_FILENAME == 'control_context.json';"
+        "assert cc._RECORD_FILENAME == 'control_context.json';"
         "print('CLEAN')"
     )
     _run_clean(code)

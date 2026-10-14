@@ -8,7 +8,9 @@ the machine model and the deploy-time archive seed.
 
 from osprey_connectors.simulation._archiver_seed import (
     MANIFEST_ID,
+    FingerprintComparison,
     SeedKnobs,
+    SeedReport,
     SeedState,
     compare_fingerprint,
     oldest_sample,
@@ -24,7 +26,6 @@ from osprey_connectors.simulation._engine import (
     engine_serves,
     resolve_active_scenarios,
     resolve_simulation_file,
-    resolve_state_dir,
 )
 from osprey_connectors.simulation._expressions import (
     ExpressionError,
@@ -32,9 +33,16 @@ from osprey_connectors.simulation._expressions import (
 from osprey_connectors.simulation._machine import (
     DEFAULT_SCENARIO,
     BpmErrorSpec,
+    DriverCoupling,
+    NoiseOverride,
+    ParsedMachine,
+    PhysicsFault,
+    PlotSeries,
     PlotSpec,
     Scenario,
     ScenarioLogEntry,
+    SimChannel,
+    TextureSpec,
     load_narratives,
     parse_machine,
     read_machine_json,
@@ -45,6 +53,15 @@ from osprey_connectors.simulation._series import (
 )
 
 __all__ = [
+    "DriverCoupling",
+    "NoiseOverride",
+    "PhysicsFault",
+    "PlotSeries",
+    "SimChannel",
+    "TextureSpec",
+    "FingerprintComparison",
+    "ParsedMachine",
+    "SeedReport",
     "ACTIVE_SCENARIOS_FILENAME",
     "BpmErrorSpec",
     "DEFAULT_SCENARIO",
@@ -68,7 +85,6 @@ __all__ = [
     "read_machine_json",
     "resolve_active_scenarios",
     "resolve_simulation_file",
-    "resolve_state_dir",
     "seed_base",
     "seed_fingerprint",
     "tier_expiry",

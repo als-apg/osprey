@@ -44,6 +44,10 @@ from typing import Any, Literal
 
 __all__ = [
     "ENV_NAME_RE",
+    "ConnectionSettings",
+    "Credential",
+    "Login",
+    "LoginKind",
     "read_ca_bundle",
     "read_connection_settings",
     "read_credential_env_names",
@@ -52,7 +56,7 @@ __all__ = [
 LoginKind = Literal["token", "password"]
 
 #: Every login form the shape defines.
-ALL_LOGINS: frozenset[LoginKind] = frozenset({"token", "password"})
+_ALL_LOGINS: frozenset[LoginKind] = frozenset({"token", "password"})
 
 #: What an environment variable name looks like, wherever a config names one. ``\A`` and
 #: ``\Z`` anchor the whole string, so ``match`` and ``fullmatch`` agree; a ``$`` anchor would
@@ -190,7 +194,7 @@ def read_connection_settings(
     block: Mapping[str, Any] | None,
     *,
     where: str,
-    logins: frozenset[LoginKind] = ALL_LOGINS,
+    logins: frozenset[LoginKind] = _ALL_LOGINS,
     tls: bool = True,
     unsupported_because: str = "",
     extra_auth_keys: frozenset[str] = frozenset(),
@@ -216,7 +220,7 @@ def read_connection_settings(
         ValueError: The block breaks the shape. The message starts with the key
             and never repeats a value from under ``auth:`` or a url's userinfo.
     """
-    if (logins != ALL_LOGINS or not tls) and not unsupported_because:
+    if (logins != _ALL_LOGINS or not tls) and not unsupported_because:
         raise TypeError("a restricted login or tls reader needs unsupported_because")
     if block is None:
         block = {}
@@ -436,7 +440,7 @@ class _OriginAuthorization(urllib.request.BaseHandler):
     https_request = _add
 
 
-def urllib_opener(
+def _urllib_opener(
     settings: ConnectionSettings, *, environ: Mapping[str, str] | None = None
 ) -> urllib.request.OpenerDirector:
     """Build the one ``urllib`` opener an HTTP client sends every request through.

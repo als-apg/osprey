@@ -13,7 +13,7 @@ environment: a test that has not stamped ``OSPREY_AGENT_DATA_ROOT`` yet still
 has to be able to lay down the deployment it is about to point at.
 
 The ``<identity>`` hop is nobody's literal here either. Both writers reach it
-through :func:`~osprey_connectors.control_context.record_path_under`, the one
+through :func:`~osprey_connectors.control_context._record_path_under`, the one
 place the hops are spelled, and a suite that needs the directory itself asks
 :func:`state_dir_under` for it rather than joining the name again — a fixture
 that created one directory while the reader under test resolved another is a
@@ -60,7 +60,7 @@ def state_dir_under(root: Path) -> Path:
 
     For suites that need the directory rather than a file in it — one to create
     before a reader is aimed at it, one to list, one to hand a path seam. Taken
-    from :func:`~osprey_connectors.control_context.record_path_under` rather than
+    from :func:`~osprey_connectors.control_context._record_path_under` rather than
     joined here, so the identity hop has exactly one spelling in the tests as
     well as in the code: a suite that built this path itself would keep passing
     after the layout moved, against a directory no reader resolves.
@@ -68,7 +68,7 @@ def state_dir_under(root: Path) -> Path:
     Args:
         root: The agent-data root. Nothing is created.
     """
-    return control_context.record_path_under(Path(root)).parent
+    return control_context._record_path_under(Path(root)).parent
 
 
 def pin_identity(monkeypatch: Any, identity: str = FIXTURE_IDENTITY) -> str:
@@ -121,7 +121,7 @@ def owner(
     """An owner record, defaulting to a live web terminal at this PID.
 
     Args:
-        kind: One of :data:`control_context.OWNER_KINDS`.
+        kind: One of :data:`control_context._OWNER_KINDS`.
         pid: The owning process. Defaults to this one, which is alive.
         port: The web terminal's port, or ``None``.
     """
@@ -166,13 +166,13 @@ def write_control_context(
         posture={} if verbatim else dict(posture or {}),
         last_switch=None if last_switch is None else dict(last_switch),
     )
-    path = control_context.record_path_under(root)
+    path = control_context._record_path_under(root)
     if verbatim:
         payload = record.to_payload()
         payload["posture"] = posture
         return write_payload(path, payload)
     control_context.write_record(record, path=path)
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     return path
 
 
@@ -225,7 +225,7 @@ def write_server_report(
         targets=dict(targets or {}),
         updated_at=updated_at,
     )
-    path = control_context.report_path_under(root, pid)
+    path = control_context._report_path_under(root, pid)
     write_payload(path, report.to_payload())
     return path
 
@@ -251,5 +251,5 @@ def write_payload(path: Path, payload: Any) -> Path:
         except OSError:
             pass
         raise
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
     return path

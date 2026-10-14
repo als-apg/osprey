@@ -88,11 +88,11 @@ def record_root(state_root, monkeypatch):
     """
     from osprey_connectors import posture_store
 
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(state_root))
-    (state_root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
-    control_context.invalidate_cache()
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(state_root))
+    (state_root / posture_store.CONTROL_STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
+    control_context._invalidate_cache()
     yield state_root
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
 
 
 @pytest.fixture(autouse=True)

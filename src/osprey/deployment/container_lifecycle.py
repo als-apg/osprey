@@ -5309,8 +5309,8 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
         SimulationEngine,
         read_machine_json,
         resolve_simulation_file,
-        resolve_state_dir,
     )
+    from osprey_connectors.workspace import resolve_simulation_state_dir
 
     env = parse_dotenv_file(project_dir / ".env") if (project_dir / ".env").is_file() else {}
     named = (env.get("VA_CHANNELS_FILE") or os.environ.get("VA_CHANNELS_FILE") or "").strip()
@@ -5340,7 +5340,7 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     if machine_path is None or not machine_path.is_file():
         return channels, None, {}, transform, transform_fingerprint
 
-    state_dir = resolve_state_dir(config, project_dir)
+    state_dir = resolve_simulation_state_dir(config, project_dir)
     baselines = _solved_monitor_baselines(project_dir, channels)
     if baselines:
         # Built directly rather than through the engine cache: this engine's

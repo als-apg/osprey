@@ -6,19 +6,7 @@ that all Osprey applications build upon.
 .. seealso:: :class:`RegistryConfigProvider`, :class:`RegistryManager`
 """
 
-from osprey_connectors.types import (
-    DOOCS,
-    DOOCS_ARCHIVER,
-    EPICS,
-    EPICS_ARCHIVER,
-    LIVE_STANDIN,
-    MOCK,
-    MOCK_ARCHIVER,
-    MONGODB_ARCHIVER,
-    MYA_ARCHIVER,
-    TANGO,
-    VIRTUAL_ACCELERATOR,
-)
+from osprey_connectors.factory import BUILTIN_CONNECTORS
 
 from .base import (
     ArielEnhancementModuleRegistration,
@@ -58,110 +46,22 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
             # osprey.models.provider_registry (single source of truth).
             # RegistryManager._initialize_providers() delegates to it.
             providers=[],
-            # Framework connectors for control systems and archivers
+            # The connectors the connectors package ships, from its own table:
+            # the module paths name implementation modules of that package,
+            # which only it spells. Listed here and not only registered by the
+            # factory because the two paths populate the registry independently:
+            # ``initialize_registry()`` registers what this provider lists and
+            # nothing else, and it is the setup step every python executor
+            # sandbox runs.
             connectors=[
-                # Control system connectors
                 ConnectorRegistration(
-                    name=MOCK,
-                    connector_type="control_system",
-                    module_path="osprey_connectors.control_system._mock_connector",
-                    class_name="MockConnector",
-                    description="Mock control system connector for development and testing",
-                ),
-                ConnectorRegistration(
-                    name=EPICS,
-                    connector_type="control_system",
-                    module_path="osprey_connectors.control_system._epics_connector",
-                    class_name="EPICSConnector",
-                    description="EPICS Channel Access control system connector",
-                ),
-                ConnectorRegistration(
-                    name=VIRTUAL_ACCELERATOR,
-                    connector_type="control_system",
-                    module_path="osprey_connectors.control_system._va_connector",
-                    class_name="VirtualAcceleratorConnector",
-                    description="Virtual Accelerator connector for PyAT-backed soft-IOC simulations",
-                ),
-                ConnectorRegistration(
-                    name=DOOCS,
-                    connector_type="control_system",
-                    module_path="osprey_connectors.control_system._doocs_connector",
-                    class_name="DOOCSConnector",
-                    description="DOOCS control system connector (requires doocs4py)",
-                ),
-                ConnectorRegistration(
-                    name=TANGO,
-                    connector_type="control_system",
-                    module_path="osprey_connectors.control_system._tango_connector",
-                    class_name="TangoConnector",
-                    description="TANGO Controls control system connector (requires PyTango)",
-                ),
-                # The live stand-in is a soft IOC, so the EPICS connector is
-                # what reaches it — but it is registered under its own name,
-                # exactly as ``register_builtin_connectors`` registers it. The
-                # registration name is what the factory stamps onto the
-                # instance as ``_connector_type``, and that stamp selects both
-                # the connector block the instance is configured from
-                # (``control_system.connector.live_standin``) and the write
-                # posture read out of it; sharing the ``epics`` name would hand
-                # the stand-in the facility's authored block and arming.
-                #
-                # Listed here and not only in the factory's built-in tuple
-                # because the two paths populate the registry independently:
-                # ``initialize_registry()`` registers what this provider lists
-                # and nothing else, and it is the setup step every python
-                # executor sandbox runs. A stand-in missing here is a sandbox
-                # stamped for ``standin`` dying on "Unknown control system type:
-                # 'live_standin'" before any posture is read.
-                ConnectorRegistration(
-                    name=LIVE_STANDIN,
-                    connector_type="control_system",
-                    module_path="osprey_connectors.control_system._epics_connector",
-                    class_name="EPICSConnector",
-                    description=(
-                        "Live stand-in connector: the facility-shaped soft IOC a "
-                        "deployment runs for itself, served over Channel Access"
-                    ),
-                ),
-                # Archiver connectors
-                ConnectorRegistration(
-                    name=MOCK_ARCHIVER,
-                    connector_type="archiver",
-                    module_path="osprey_connectors.archiver._mock_archiver_connector",
-                    class_name="MockArchiverConnector",
-                    description="Mock archiver connector for development and testing",
-                ),
-                ConnectorRegistration(
-                    name=EPICS_ARCHIVER,
-                    connector_type="archiver",
-                    module_path="osprey_connectors.archiver._epics_archiver_connector",
-                    class_name="EPICSArchiverConnector",
-                    description="EPICS Archiver Appliance connector",
-                ),
-                ConnectorRegistration(
-                    name=MONGODB_ARCHIVER,
-                    connector_type="archiver",
-                    module_path="osprey_connectors.archiver._mongodb_archiver_connector",
-                    class_name="MongoDBArchiverConnector",
-                    description="MongoDB archiver connector for time-series PV data",
-                ),
-                ConnectorRegistration(
-                    name=DOOCS_ARCHIVER,
-                    connector_type="archiver",
-                    module_path="osprey_connectors.archiver._doocs_archiver_connector",
-                    class_name="DOOCSArchiverConnector",
-                    description="DOOCS local history connector (requires doocs4py)",
-                ),
-                ConnectorRegistration(
-                    name=MYA_ARCHIVER,
-                    connector_type="archiver",
-                    module_path="osprey_connectors.archiver._mya_archiver_connector",
-                    class_name="MYAArchiverConnector",
-                    description=(
-                        "MYA archiver connector, read over the myquery HTTP "
-                        "service (requires jlab-archiver-client)"
-                    ),
-                ),
+                    name=builtin.name,
+                    connector_type=builtin.kind,
+                    module_path=builtin.module_path,
+                    class_name=builtin.class_name,
+                    description=builtin.description,
+                )
+                for builtin in BUILTIN_CONNECTORS
             ],
             # ARIEL search modules
             ariel_search_modules=[

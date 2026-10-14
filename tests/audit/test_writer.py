@@ -1047,9 +1047,11 @@ class TestAuditDirSeam:
         MCP middleware and the HTTP layer without dragging the workspace
         resolver — and so tests have one seam instead of a project root."""
         source = Path(writer.__file__).read_text()
-        assert "from osprey.utils.workspace import" in source
+        assert "from osprey_connectors.workspace import" in source
         module_scope_imports = [
-            line for line in source.splitlines() if line.startswith("from osprey.utils.workspace")
+            line
+            for line in source.splitlines()
+            if line.startswith("from osprey_connectors.workspace")
         ]
         assert module_scope_imports == []
 

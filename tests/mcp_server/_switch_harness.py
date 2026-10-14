@@ -302,10 +302,10 @@ def state_root(tmp_path, monkeypatch):
     tests are running from.
     """
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
-    control_context.invalidate_cache()
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    control_context._invalidate_cache()
     yield tmp_path
-    control_context.invalidate_cache()
+    control_context._invalidate_cache()
 
 
 @pytest.fixture
@@ -380,12 +380,12 @@ def posture_root(tmp_path, monkeypatch):
     parent does.
     """
     root = tmp_path / "agent_data"
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", POSTURE_SESSION)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
     yield root
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
 
 
 # ------------------------------------------------------------------- helpers
@@ -402,4 +402,4 @@ async def started_on(factory, target, **overrides):
 def narrow(root, *targets):
     """Record the operator's narrowing of *targets* on this deployment."""
     write_control_context(root, posture=dict.fromkeys(targets, posture_store.POSTURE_SANDBOX))
-    posture_store.invalidate_cache()
+    posture_store._invalidate_cache()
