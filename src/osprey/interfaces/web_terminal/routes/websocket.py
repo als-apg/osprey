@@ -468,7 +468,7 @@ def _build_extra_env(
     ``claude_session_id or telemetry_session_id`` the handler keys the pool on
     — so it is set on every spawn this function serves, the brand-new session
     included. It scopes the child's execution root
-    (:func:`osprey_connectors.workspace._resolve_agent_data_root` appends
+    (the agent-data root resolution in :mod:`osprey_connectors.workspace` appends
     ``sessions/<key>``) and tags the artifacts it files. One key, one root: a
     conversation is one session whichever view is showing it, so the chat
     child spawned under that key

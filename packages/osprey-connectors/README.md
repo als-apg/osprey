@@ -19,7 +19,7 @@ pip install osprey-connectors
 
 Every public module lists its public names in `__all__`. Most modules are their
 own API: `config`, `workspace`, `dotenv`, `yaml_loader`, `connection`,
-`types`, `factory`, `errors`, `logger`, `log_filter`, `identity`,
+`types`, `factory`, `call_timeout`, `errors`, `logger`, `log_filter`, `identity`,
 `relative_time`, `channel_taxonomy`, `control_context`, `posture_store`,
 `standin` and `honesty`, each imported by its own path.
 
@@ -28,7 +28,7 @@ names are imported from the package itself:
 
 | Namespace | What it holds |
 | --- | --- |
-| `osprey_connectors.control_system` | The control-system connector contract (`ControlSystemConnector`, `ChannelValue`, `ChannelWriteResult`, `WriteOutcome`, `values_match`, ...), call timeouts, `LimitsValidator` |
+| `osprey_connectors.control_system` | The control-system connector contract (`ControlSystemConnector`, `ChannelValue`, `ChannelWriteResult`, `WriteOutcome`, `values_match`, ...) and `LimitsValidator` |
 | `osprey_connectors.archiver` | The archiver connector contract (`ArchiverConnector`, `ArchiverMetadata`), the shared time-range helpers, the MongoDB client arguments |
 | `osprey_connectors.simulation` | `SimulationEngine`, the machine model, the deploy-time archive seed |
 | `osprey_connectors.ipc` | What a connector-host supervisor needs: frames, launch, proxy, endpoint verification |
@@ -41,9 +41,11 @@ release. The concrete connectors are internal (`control_system._epics_connector`
 `archiver._mongodb_archiver_connector`, ...): a caller builds one through
 `ConnectorFactory` from its registered type name.
 
-`osprey-framework` imports these packages only through their namespaces.
-`lint-imports` (import-linter, configured in the repository's root
-`pyproject.toml`) holds it to that, holds this package to never importing
+`osprey-framework` imports these packages only through their namespaces, and
+takes from every module only names its `__all__` lists. `lint-imports`
+(import-linter, configured in the repository's root `pyproject.toml`) holds the
+first, `tests/connectors/test_public_api.py` the second; import-linter also
+holds this package to never importing
 `osprey`, and holds the package's layers: the connector host above the factory,
 the factory above the control-system and archiver connectors, and those above
 the simulation engine.
@@ -59,13 +61,21 @@ under its old `osprey.*` path. These still do, as the same module object:
 | `osprey.connectors.types` | `osprey_connectors.types` |
 | `osprey.connectors.channel_taxonomy` | `osprey_connectors.channel_taxonomy` |
 | `osprey.connectors.honesty` | `osprey_connectors.honesty` |
-| `osprey.connectors.control_system.base`, `.limits_validator` | `osprey_connectors.control_system` |
-| `osprey.connectors.archiver.base`, `._timerange` | `osprey_connectors.archiver` |
+| `osprey.connectors.control_system.base` | `osprey_connectors.control_system._base` |
+| `osprey.connectors.control_system.limits_validator` | `osprey_connectors.control_system._limits_validator` |
+| `osprey.connectors.archiver.base` | `osprey_connectors.archiver._base` |
+| `osprey.connectors.archiver._timerange` | `osprey_connectors.archiver._timerange` |
 | `osprey.errors` | `osprey_connectors.errors` |
 | `osprey.utils.config`, `.workspace`, `.dotenv`, `.logger`, `.log_filter`, `.identity`, `.relative_time` | the module of the same name |
 
-`osprey.connectors`, `osprey.connectors.control_system` and
-`osprey.connectors.archiver` re-export names from the matching namespace. The
+The four paths that stand for a now-private module give code outside the
+framework exactly what they gave before; new code imports the namespace.
+`osprey.connectors` re-exports `ConnectorFactory` and a few connector type
+names, `osprey.connectors.control_system` and `osprey.connectors.archiver`
+re-export the connector contracts from the matching namespace, and
+`osprey.simulation` re-exports `SimulationEngine` and the engine's entry points
+from `osprey_connectors.simulation`. The framework itself imports none of these
+paths: a ruff `banned-api` rule (TID251) keeps them out of `src/osprey`. The
 old paths of the concrete connectors (`osprey.connectors.control_system.*_connector`,
 `osprey.connectors.archiver.*_archiver_connector`) and of the simulation
 internals (`osprey.simulation.engine`, `.machine`, `.series`, `.expressions`,

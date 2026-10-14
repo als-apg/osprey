@@ -689,7 +689,7 @@ def _recorded_posture() -> dict[str, str]:
         # Imported here, not at module scope: ``control_context`` imports THIS
         # module for the root and the posture grammar, and the two must not
         # import each other at load time. Same reason as ``effective_writes``'s
-        # local import of ``control_system.base``.
+        # local import of ``control_system._base``.
         from osprey_connectors import control_context
 
         record = control_context.read_record()
@@ -1328,7 +1328,7 @@ def store_permits(target: str | None) -> bool:
 
     Public because one caller needs this clause WITHOUT the ceiling
     :func:`effective_writes` derives: the connector's reference monitor
-    (``control_system.base``) reads a deployment ceiling keyed on the connector
+    (``control_system._base``) reads a deployment ceiling keyed on the connector
     TYPE, which is not a ceiling this module can produce from a target. It
     therefore ANDs its own ceiling with this function rather than restating the
     combining terms — the contract's rule 3 has exactly two implementations,
@@ -1388,7 +1388,7 @@ def effective_writes(
         ceiling = any_target_writes_enabled(section)
     if not ceiling:
         return False
-    # Imported here, not at module scope: ``control_system.base`` is the
+    # Imported here, not at module scope: ``control_system._base`` is the
     # reference monitor that calls back into this module, and the two must not
     # import each other at load time.
     from osprey_connectors.control_system._base import is_readonly_run

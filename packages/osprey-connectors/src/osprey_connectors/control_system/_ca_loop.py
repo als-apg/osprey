@@ -43,7 +43,9 @@ from typing import Any, TypeVar
 
 T = TypeVar("T")
 
-logger = logging.getLogger(__name__)
+# Named for the module it was before it became private, so log filters and
+# caplog assertions keep matching it.
+logger = logging.getLogger("osprey_connectors.control_system.ca_loop")
 
 #: Runs at interpreter shutdown before any ``atexit`` hook; private, but the
 #: stdlib's own ``concurrent.futures`` relies on it for the same reason.

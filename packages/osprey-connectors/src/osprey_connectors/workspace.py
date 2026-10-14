@@ -113,7 +113,7 @@ _SIMULATION_STATE_DIR_NAME = "simulation"
 #: the project root). Unset — the normal case — puts it under the agent-data
 #: root. It lives here, rather than in the simulation package, so
 #: :data:`osprey_connectors.config.RUNTIME_WRITE_PATH_KEYS` and
-#: :func:`osprey_connectors.simulation._engine.resolve_state_dir` share one spelling without
+#: the simulation engine's state-directory lookup share one spelling without
 #: ``config`` having to import the engine (which would pull numpy into every
 #: config load).
 _SIMULATION_STATE_DIR_CONFIG_KEY = "simulation.state_dir"

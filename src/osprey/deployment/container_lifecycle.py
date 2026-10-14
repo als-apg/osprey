@@ -1374,11 +1374,11 @@ def _refuse_invented_history(config: dict) -> None:
 
     Both keys are resolved through nested sections only, the way ``ConfigBuilder``
     reads a rendered ``config.yml`` — see
-    :func:`~osprey.connectors.honesty.pairing_in_rendered_config`.
+    :func:`~osprey_connectors.honesty.pairing_in_rendered_config`.
 
     The refused machine is *named* in the message rather than assumed: the
     pairing covers every type in
-    :data:`~osprey.connectors.types.INVENTED_HISTORY_TYPES`, so a deployment
+    :data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES`, so a deployment
     baselined on the live stand-in must be told about the stand-in and not about
     a virtual accelerator it does not run.
 
@@ -7759,7 +7759,7 @@ def _start_as_built(
 def _warn_on_timezone_drift(config: dict) -> None:
     """Promote a host-vs-facility timezone divergence at the start of an up.
 
-    The same divergence :func:`osprey_connectors.config._warn_on_tz_drift`
+    The same divergence the config loader's timezone-drift warning
     records when a timestamp is first stamped — but that record is a library
     warning the altitude gate keeps off the terminal while a lifecycle verb
     runs, and it fires minutes into the start, wherever the first timestamp

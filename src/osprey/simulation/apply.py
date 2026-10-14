@@ -1646,7 +1646,7 @@ def render_scenario_physics_env(
 
     The deploy-time counterpart to :func:`apply_scenarios`'s telemetry/logbook
     half (FR5). A scenario's optional ``physics`` block (see
-    :class:`~osprey_connectors.simulation._machine.PhysicsFault`) is deploy-time-only -- a
+    :class:`~osprey_connectors.simulation.PhysicsFault`) is deploy-time-only -- a
     physics fault applies once at VA container boot, and hot-swapping it needs
     a restart, unlike ``overrides``/``archiver`` -- so it is rendered here into
     the repo's ``.env`` as ``VA_BPM_ERRORS``/

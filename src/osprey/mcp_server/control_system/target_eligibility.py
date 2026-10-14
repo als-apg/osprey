@@ -33,9 +33,10 @@ somewhere the config never described — the failure mode where every layer
 reports success and the tool calls land on the wrong machine.
 
 Both are computed from the same inputs the connector itself uses. The
-derivation and the verification live in :mod:`osprey_connectors.ipc._verification`,
-shared with the library's
-:class:`~osprey_connectors.ipc._pool.ConnectorHostPool`: it restates
+derivation and the verification are :mod:`osprey_connectors.ipc`'s
+(:func:`~osprey_connectors.ipc.derive_endpoints`,
+:func:`~osprey_connectors.ipc.verify_host_report`), shared with the package's
+own connector-host pool: it restates
 ``EPICSConnector.connect()``'s gateway selection and environment derivation
 *positively* — the role it would pick given the target's own write posture and
 :func:`~osprey_connectors.control_system.is_readonly_run`, and the
@@ -93,7 +94,7 @@ the deployment's control-context record (read through
 child reads it on every write and on its own gateway selection, so a parent
 that derived the *configured* posture would derive ``write_access`` for a
 target the child has just connected to on ``read_only`` — and
-:func:`~osprey_connectors.ipc._verification.verify_child_report`, doing its
+the connector host's own check of its child's report, doing its
 job, would abort the switch on a
 disagreement that is nobody's misconfiguration.
 

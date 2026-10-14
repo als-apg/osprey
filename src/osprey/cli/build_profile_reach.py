@@ -5,8 +5,8 @@ scaffolds no services and so never reaches the build-step injectors that write
 ``services.<name>`` blocks into a deploying project's config. Its in-container
 clients still resolve their endpoints from those blocks — the bluesky MCP
 server through :func:`osprey.bluesky_bridge_connection.resolve_bridge_url`, the
-VA connector through
-:func:`osprey_connectors.control_system._va_connector.fill_gateway_ports`, hybrid
+VA connector through its gateway-port fill, which defaults every gateway's port
+to the deployed VA's (``services.virtual_accelerator.port``), hybrid
 logbook search through :func:`osprey.deployment.qmd_service.resolve_qmd_service_config`
 — and each either bottoms out in a compiled-in default when the block is
 absent, or refuses at first use inside a per-user container. At the shipped
