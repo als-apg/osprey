@@ -724,6 +724,7 @@ async def test_completed_script_is_reported_when_the_sandbox_fails_to_exit(tmp_p
     )
 
     proc = _hanging_proc()
+    proc.pid = 4241
     with patch(
         "osprey.mcp_server.python_executor.executor.asyncio.create_subprocess_exec",
         new_callable=AsyncMock,
@@ -732,6 +733,7 @@ async def test_completed_script_is_reported_when_the_sandbox_fails_to_exit(tmp_p
         result = await execute_code("print('x')", "readwrite", "test")
 
     proc.kill.assert_called_once()
+    assert result.pid == 4241
     assert result.success is True
     assert result.failure_kind is None
     assert result.stdout == "Before: 0.0\nAfter: 0.1\n"
@@ -749,6 +751,7 @@ async def test_a_script_still_running_at_the_timeout_is_a_timeout(tmp_path, monk
     )
 
     proc = _hanging_proc()
+    proc.pid = 4242
     with patch(
         "osprey.mcp_server.python_executor.executor.asyncio.create_subprocess_exec",
         new_callable=AsyncMock,
@@ -757,6 +760,7 @@ async def test_a_script_still_running_at_the_timeout_is_a_timeout(tmp_path, monk
         result = await execute_code("while True: pass", "readonly", "test")
 
     proc.kill.assert_called_once()
+    assert result.pid == 4242
     assert result.success is False
     assert result.failure_kind == "timeout"
     assert result.stdout == ""

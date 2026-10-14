@@ -645,6 +645,7 @@ class TestExecuteViaLocalStamping:
 
         class _FakeProc:
             returncode = 0
+            pid = 4243
 
             async def communicate(self):
                 return b"", b""

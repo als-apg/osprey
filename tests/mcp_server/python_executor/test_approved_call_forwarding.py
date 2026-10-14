@@ -326,6 +326,7 @@ def _launched_env(
 
     class _Proc:
         returncode = 0
+        pid = 4243
 
         async def communicate(self) -> tuple[bytes, bytes]:
             return b"", b""
@@ -663,6 +664,7 @@ def _filed(
         returncode=0,
         elapsed=0.1,
         control_target="live",
+        pid=None,
     )
 
 

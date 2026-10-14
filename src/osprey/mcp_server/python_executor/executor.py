@@ -270,6 +270,9 @@ class ExecutionResult:
     #: a tool reads back from its own run are named under it. ``None`` for a
     #: run that never started.
     execution_folder: Path | None = None
+    #: The process id of the sandbox child this run started; ``None`` for a
+    #: run that never started its child.
+    pid: int | None = None
 
 
 def _read_config() -> dict:
@@ -1171,6 +1174,7 @@ async def _execute_via_local(
                     returncode=proc.returncode,
                     elapsed=elapsed,
                     control_target=control_target,
+                    pid=proc.pid,
                     stderr_notice=notice,
                 )
             return ExecutionResult(
@@ -1183,6 +1187,7 @@ async def _execute_via_local(
                 control_target=control_target,
                 failure_kind=FAILURE_KIND_TIMEOUT,
                 written_channels=_read_written_channels(execution_folder),
+                pid=proc.pid,
             )
 
         return _result_from_run(
@@ -1193,6 +1198,7 @@ async def _execute_via_local(
             returncode=proc.returncode,
             elapsed=time.time() - start_time,
             control_target=control_target,
+            pid=proc.pid,
         )
 
 
@@ -1302,6 +1308,7 @@ def _result_from_run(
     returncode: int | None,
     elapsed: float,
     control_target: str,
+    pid: int | None,
     stderr_notice: str | None = None,
 ) -> ExecutionResult:
     """Build the result of a run that ran its script, from its record.
@@ -1348,6 +1355,7 @@ def _result_from_run(
         failure_kind=failure_kind,
         written_channels=_read_written_channels(execution_folder),
         execution_folder=execution_folder,
+        pid=pid,
     )
 
 
