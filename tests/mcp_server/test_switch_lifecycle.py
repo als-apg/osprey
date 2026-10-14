@@ -1459,6 +1459,28 @@ class TestStartupSweep:
             bystander.kill()
             bystander.wait(timeout=SETTLE_TIMEOUT_S)
 
+    def test_a_host_started_under_the_old_module_name_is_recognised(self):
+        """A child the release before the rename started runs ``-m osprey_connectors.ipc.host``.
+
+        It is still running after an upgrade, and it is exactly the orphan the
+        sweep exists for. The stand-in carries the old command line as its
+        arguments; ``ps`` reports them as part of the command.
+        """
+        old_host = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import time; time.sleep(120)",
+                "-m",
+                "osprey_connectors.ipc.host",
+            ]
+        )
+        try:
+            assert looks_like_a_connector_host(old_host.pid) is True
+        finally:
+            old_host.kill()
+            old_host.wait(timeout=SETTLE_TIMEOUT_S)
+
     def test_a_live_connector_host_is_recognised_as_one(self):
         orphan = self._orphan_host()
         try:

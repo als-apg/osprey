@@ -688,6 +688,13 @@ def _display_name(
 # ---------------------------------------------------------------------------
 
 
+#: Every module name a connector-host child has run under. A host started by the
+#: release before ``ipc/host.py`` became ``ipc/_host.py`` is still running under
+#: the old name after an upgrade, and the sweep exists precisely to clear the
+#: children a dead predecessor left behind, so it has to recognise both.
+CONNECTOR_HOST_MODULES = (CHILD_MODULE, "osprey_connectors.ipc.host")
+
+
 def looks_like_a_connector_host(pid: int) -> bool:
     """Whether *pid*'s command line still names the connector-host module.
 
@@ -715,7 +722,7 @@ def looks_like_a_connector_host(pid: int) -> bool:
     if completed.returncode != 0 or not command:
         # ps found nothing: the process is gone, and the kill below will say so.
         return True
-    return CHILD_MODULE in command
+    return any(module in command for module in CONNECTOR_HOST_MODULES)
 
 
 def kill_orphans(pids: list[int], *, grace_s: float = TERMINATE_GRACE_S) -> list[int]:
