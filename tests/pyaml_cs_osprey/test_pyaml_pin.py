@@ -54,6 +54,7 @@ def test_framework_pin_equals_member_specifier() -> None:
     )
 
 
+@pytest.mark.filterwarnings("ignore::ResourceWarning")
 def test_pyaml_save_still_refuses_numpy_values(tmp_path: pathlib.Path) -> None:
     import numpy as np
     from pyaml.tuning_tools.measurement_tool import MeasurementTool
