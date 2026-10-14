@@ -175,7 +175,7 @@ def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
 
     * the burst scenario (:data:`BURST_SCENARIO_NAME`), which moves one gauge;
     * the unstable scenario (:data:`UNSTABLE_SCENARIO_NAME`), under which the
-      physics model's closed-orbit solve fails;
+      physics model has no closed orbit and serves degraded;
     * the kick scenario (:data:`KICK_SCENARIO_NAME`), which puts a nonzero
       closed orbit at :data:`KICK_MONITOR`;
     * the seeded-readout scenario (:data:`SEEDED_READOUT_SCENARIO_NAME`),
@@ -212,7 +212,7 @@ def stage_demo_data_dir(root: Path, *, still_monitors: bool = True) -> Path:
             (
                 UNSTABLE_SCENARIO_NAME,
                 "e2e-only synthetic scenario: a focusing quadrupole at a current "
-                "with no stable closed orbit, so the physics model fails.",
+                "with no stable closed orbit, so the physics model serves degraded.",
                 {UNSTABLE_QUADRUPOLE: UNSTABLE_CURRENT},
             ),
             (
@@ -357,8 +357,9 @@ BURST_SCENARIO_NAME = "va-e2e-burst"
 BURST_CHANNEL = "SR:VAC:GAUGE:SR07:PRESSURE:RB"
 BURST_VALUE = 3.0e-6  # nominal machine.json baseline is 5e-8 Torr (3% noise) -- unambiguous jump
 
-#: Synthetic scenario under which the physics model's closed-orbit solve
-#: fails: the quadrupole at twice its demo current has no stable orbit.
+#: Synthetic scenario under which the physics model has no closed orbit: the
+#: quadrupole at twice its demo current has no stable orbit, so the model is
+#: degraded -- built and serving, its status ``no closed orbit``.
 UNSTABLE_SCENARIO_NAME = "va-e2e-unstable"
 UNSTABLE_QUADRUPOLE = "SR:MAG:QF:01:CURRENT:SP"
 UNSTABLE_CURRENT = 712.2

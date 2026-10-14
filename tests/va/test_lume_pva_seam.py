@@ -16,7 +16,7 @@ a server is started and ended in. The child answers a few commands over a pipe
 queue depth it observed, a one-shot failure of the next pass -- so what the
 wire cannot show is still measured where it happens.
 
-Three views are served, and the stub view once more for a start-up pass
+Four views are served, and the stub view once more for a start-up pass
 that fails, run the way the entrypoint runs it:
 
 * a hand-written tree of names in two separator conventions, built through
@@ -24,7 +24,9 @@ that fails, run the way the entrypoint runs it:
   boot with no alarm;
 * the control-assistant demo, whose SR model is a pyAT child -- the
   write safety, the chromaticity left for the next tick, the model RPC's
-  fault writes, and a child that fails to solve;
+  fault writes, a ring with no closed orbit degrading SR -- and the same
+  demo with SR's ``injection`` taken out, so such a ring fails the child
+  instead;
 * a hand-written view of stub children -- the alarm each kind of output
   carries, an integer channel's wire type, a float waveform served as the
   array it declares, and the run loop under a slow model and a pass that
@@ -71,9 +73,9 @@ def _free_port() -> str:
         return str(probe.getsockname()[1])
 
 
-#: The served views, each in a process of its own: the three below, and the
+#: The served views, each in a process of its own: the four below, and the
 #: stub view again for a start-up pass that fails.
-SERVERS = ("names", "demo", "stub", "first_pass")
+SERVERS = ("names", "demo", "strict_demo", "stub", "first_pass")
 
 # import-time required because libca latches the EPICS_CA_* environment when
 # the C library initialises, which happens below, before pcaspy is imported.
@@ -102,6 +104,8 @@ from osprey.services.virtual_accelerator.serving.model_rpc import (  # noqa: E40
     build_request,
     parse_reply,
 )
+from osprey.simulation.engines.pyat import CONDITIONS  # noqa: E402
+from osprey_connectors.simulation.composite import STATUS_OK  # noqa: E402
 from tests._builds import BuiltProject, init_project, run_build  # noqa: E402
 from tests.facility._synthetic_trees import write_tree  # noqa: E402
 
@@ -132,6 +136,8 @@ SAFETY = {
 #: (severity, status) of an undefined output on each wire.
 CA_UDF = (3, 17)
 PVA_UDF = (3, 6)
+#: What a model with no closed orbit reads on its status channel.
+NO_CLOSED_ORBIT_TEXT = "no closed orbit"
 #: (severity, status) of a float outside its range on PVAccess.
 PVA_RANGE = (2, 2)
 NO_ALARM = (0, 0)
@@ -174,6 +180,8 @@ BPM_X = "SR:DIAG:BPM:03:POSITION:X"
 TUNES = ("SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y")
 CHROMATICITY = ("SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y")
 SR_STATUS = "ca:SIM:SR:STATUS"
+#: BPM01's turn-by-turn horizontal record: a turn series, never read off the closed orbit.
+TBT_X = "SR:DIAG:BPM:01:TBT:X"
 
 #: BPM03's horizontal offset fault, as the model RPC names it.
 BPM_OFFSET = f"SR/{BPM_X}/offset"
@@ -184,7 +192,8 @@ OFFSET_M = 1e-3
 READING_TOLERANCE_M = 2e-5
 
 #: A scenario the demo view gains for these tests: twice the demo's QF01
-#: current, where the one-turn map has no stable orbit, so the pyAT child
+#: current, where the one-turn map has no stable orbit. With ``injection``
+#: stated SR is degraded there; on the strict demo, without it, the pyAT child
 #: fails to build.
 UNSTABLE = "zz-seam-unstable-quadrupole"
 UNSTABLE_QUADRUPOLE = {"SR:MAG:QF:01:CURRENT:SP": 712.2}
@@ -901,11 +910,8 @@ def demo_files(built_control_assistant: BuiltProject) -> dict[str, bytes]:
     return files
 
 
-@pytest.fixture(scope="class")
-def demo_server(
-    demo_files: dict[str, bytes], tmp_path_factory: pytest.TempPathFactory
-) -> Iterator[_Server]:
-    root = tmp_path_factory.mktemp("demo")
+def _demo_view(demo_files: dict[str, bytes], root: Path) -> Path:
+    """The demo's simulator view under ``root``, with :data:`UNSTABLE` among its scenarios."""
     prefix = "data/simulator/"
     view_dir = root / "data" / "simulator"
     for name, data in demo_files.items():
@@ -917,15 +923,69 @@ def demo_server(
     scenarios = json.loads(scenarios_file.read_text(encoding="utf-8"))
     scenarios["scenarios"].append({"name": UNSTABLE, "overrides": UNSTABLE_QUADRUPOLE})
     scenarios_file.write_text(json.dumps(scenarios), encoding="utf-8")
+    return view_dir
+
+
+def _without_injection(view_dir: Path) -> None:
+    """Take SR's ``injection`` out of a demo view: its closed-orbit solve is strict again.
+
+    The turn series and the shot commands need the injection block, so they
+    leave the view with it.
+    """
+    variables = view_dir / "variables.json"
+    document = json.loads(variables.read_text(encoding="utf-8"))
+    (sr,) = [model for model in document["models"] if model["name"] == "SR"]
+    del sr["settings"]["pyat"]["injection"]
+    shot = {
+        entry["address"]
+        for entry in sr["wiring"]
+        if ":TBT:" in entry["address"] or ":INJECTION:" in entry["address"]
+    }
+    assert shot
+    sr["wiring"] = [entry for entry in sr["wiring"] if entry["address"] not in shot]
+    document["channels"] = [
+        channel for channel in document["channels"] if channel["address"] not in shot
+    ]
+    variables.write_text(json.dumps(document), encoding="utf-8")
+    addresses = view_dir / "addresses.json"
+    listed = json.loads(addresses.read_text(encoding="utf-8"))
+    listed["channels"] = [address for address in listed["channels"] if address not in shot]
+    addresses.write_text(json.dumps(listed), encoding="utf-8")
+
+
+@pytest.fixture(scope="class")
+def demo_server(
+    demo_files: dict[str, bytes], tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[_Server]:
+    root = tmp_path_factory.mktemp("demo")
+    view_dir = _demo_view(demo_files, root)
     state_dir = root / "state"
     state_dir.mkdir()
     with _served(view_dir, "demo", state_dir=state_dir, physics=True) as served:
         yield served
 
 
+@pytest.fixture(scope="class")
+def strict_demo_server(
+    demo_files: dict[str, bytes], tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[_Server]:
+    """The demo served with SR's ``injection`` taken out."""
+    root = tmp_path_factory.mktemp("strict-demo")
+    view_dir = _demo_view(demo_files, root)
+    _without_injection(view_dir)
+    state_dir = root / "state"
+    state_dir.mkdir()
+    with _served(view_dir, "strict_demo", state_dir=state_dir, physics=True) as served:
+        yield served
+
+
 @contextmanager
-def _sr_failed(server: _Server) -> Iterator[None]:
-    """Serve the demo with its pyAT child failed, then serve it healthy again."""
+def _sr_unstable(server: _Server) -> Iterator[None]:
+    """Serve the demo with :data:`UNSTABLE` active, then with it cleared again.
+
+    With ``injection`` stated SR is degraded while it is active; on the strict
+    demo its pyAT child fails.
+    """
     assert server.state_dir is not None
     active = server.state_dir / "active_scenarios"
     active.write_text(f"{UNSTABLE}\n", encoding="utf-8")
@@ -1054,26 +1114,68 @@ class TestDemoComposite:
         assert restored["last_pass"]["outcome"] == "ok"
         assert restored_file == restored
 
-    def test_a_failed_pyat_childs_in_range_float_reports_udf_on_both_wires(
+    def test_a_ring_with_no_closed_orbit_degrades_sr_on_both_wires_and_clears_once_it_is_back(
         self, demo_server: _Server
     ) -> None:
-        with _sr_failed(demo_server):
+        with _sr_unstable(demo_server):
+            status = _ca_text(SR_STATUS)
+            orbit = _ca(BPM_X)
+            orbit_pva = demo_server.pva_get(BPM_X)
+            tunes = [_ca(address) for address in TUNES]
+            corrector = _ca_alarm(CORRECTOR)
+            corrector_pva = _pva_alarm(demo_server.pva_get(CORRECTOR))
+            turns = _ca_alarm(TBT_X)
+            turns_pva = _pva_alarm(demo_server.pva_get(TBT_X))
+            health = demo_server.rpc("status")["health"]
+        cleared_status = _ca_text(SR_STATUS)
+        cleared = _ca(BPM_X)
+        cleared_pva = demo_server.pva_get(BPM_X)
+
+        assert status == NO_CLOSED_ORBIT_TEXT
+        assert math.isnan(orbit["value"])
+        assert (orbit["severity"], orbit["status"]) == CA_UDF
+        assert math.isnan(orbit_pva["value"])
+        assert _pva_alarm(orbit_pva) == PVA_UDF
+        for address, tune in zip(TUNES, tunes, strict=True):
+            assert math.isnan(tune["value"]), address
+            assert (tune["severity"], tune["status"]) == CA_UDF, address
+        assert corrector == NO_ALARM
+        assert corrector_pva == NO_ALARM
+        assert turns == NO_ALARM
+        assert turns_pva == NO_ALARM
+        assert health["state"] == "serving"
+        assert cleared_status == STATUS_OK
+        assert math.isfinite(cleared["value"])
+        assert (cleared["severity"], cleared["status"]) == NO_ALARM
+        assert math.isfinite(cleared_pva["value"])
+        assert _pva_alarm(cleared_pva) == NO_ALARM
+
+
+class TestStrictDemoComposite:
+    """The demo without ``injection``: a ring with no closed orbit fails the pyAT child."""
+
+    def test_a_failed_pyat_childs_in_range_float_reports_udf_on_both_wires(
+        self, strict_demo_server: _Server
+    ) -> None:
+        with _sr_unstable(strict_demo_server):
             reading = _ca(CORRECTOR)
-            pva = demo_server.pva_get(CORRECTOR)
+            pva = strict_demo_server.pva_get(CORRECTOR)
             status = _ca_text(SR_STATUS)
 
         assert -12.0 <= reading["value"] <= 12.0
         assert (reading["severity"], reading["status"]) == CA_UDF
         assert -12.0 <= pva["value"] <= 12.0
         assert _pva_alarm(pva) == PVA_UDF
-        assert status != "ok"
+        assert status not in (STATUS_OK, *CONDITIONS), status
 
-    def test_a_rejected_write_on_a_failed_child_costs_no_solve(self, demo_server: _Server) -> None:
-        with _sr_failed(demo_server):
-            before = demo_server.ask("counts")
+    def test_a_rejected_write_on_a_failed_child_costs_no_solve(
+        self, strict_demo_server: _Server
+    ) -> None:
+        with _sr_unstable(strict_demo_server):
+            before = strict_demo_server.ask("counts")
             with pytest.raises(ModelRpcError, match="has failed"):
-                demo_server.rpc("set", values={BPM_OFFSET: OFFSET_M}, token=TOKEN)
-            after = demo_server.ask("counts")
+                strict_demo_server.rpc("set", values={BPM_OFFSET: OFFSET_M}, token=TOKEN)
+            after = strict_demo_server.ask("counts")
 
         assert after["passes"] > before["passes"]
         assert after["solves"] == before["solves"]
