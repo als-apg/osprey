@@ -287,6 +287,37 @@ def with_trajectory(
     return tree
 
 
+def with_shot_wiring(tree: dict[str, Any], name: str, element: str) -> dict[str, Any]:
+    """``tree`` with model ``name`` wiring the shot records :func:`with_trajectory` added.
+
+    The three turn series read at ``element``; the arm command and the armed
+    status name no element. The stem is ``<name>:BPM``, as in
+    :func:`with_trajectory`.
+
+    Args:
+        tree: A tree :func:`with_trajectory` has given model ``name``.
+        name: The model's name.
+        element: The deck element the series read at.
+
+    Returns:
+        ``tree``, edited in place.
+    """
+    stem = f"{name}:BPM"
+    model(tree, name)["wiring"] += [
+        *(
+            {
+                "address": f"{stem}:TBT:{plane.upper()}",
+                "element": element,
+                "engine": {"axis": plane, "series": "turn"},
+            }
+            for plane in ("x", "y", "sum")
+        ),
+        {"address": f"{stem}:ARM", "engine": {"attribute": "arm"}},
+        {"address": f"{stem}:ARMED", "engine": {"attribute": "armed"}},
+    ]
+    return tree
+
+
 def write_tree(root: Path, tree: Mapping[str, Any]) -> Path:
     """Write a tree under ``root``.
 
