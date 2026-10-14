@@ -117,13 +117,11 @@ blocks; the control target still comes only from the record. A single-lane
 deployment has nothing to address and renders exactly what it always did.
 """
 
-import errno
 import hashlib
 import io
 import json
 import os
 import re
-import stat
 import sys
 import time
 import tokenize
@@ -138,7 +136,6 @@ from osprey_hook_log import (
     emit_audit,
     get_hook_input,
     get_project_dir,
-    get_repo_root,
     is_write_call,
     is_write_tool,
     load_hook_config,
@@ -2948,27 +2945,9 @@ def _deny_approval_config_invalid(hook_input, tool_name, reason):
 # ---------------------------------------------------------------------------
 # Guarded runs: the target's run lock
 # ---------------------------------------------------------------------------
-# A readwrite `execute` / `execute_file` / `pyaml_measure` runs under the control
-# target's run lock. The prompt names the target the call is bound to, and the
-# call carries it (`approved_target`); a target whose lock is held is refused
-# before anyone is asked.
-#
-# The names below are the runtime's lock names (`osprey.runtime.guarded_run`,
-# `osprey_connectors.workspace`), restated because this hook is deployed
-# standalone, and so is the way the lock file is opened
-# (`osprey.runtime.guarded_run._open_dir`, `_open_regular`);
-# tests/hooks/test_guarded_run_constants_drift.py pins them.
-
-#: The repo's state zone and the guarded-run directory under it.
-_STATE_DIR_NAME = "var"
-_GUARDED_RUN_DIR = "guarded_run"
-
-#: The lock a guarded run holds.
-_GUARDED_RUN_LOCK_FILE = "run.lock"
-
-#: The keys of the holder record a guarded run writes into its lock file.
-_HOLDER_PID_KEY = "pid"
-_HOLDER_STARTED_KEY = "started"
+# A readwrite `execute` / `execute_file` and every `pyaml_measure` run under the
+# control target's run lock. The prompt binds the call to its target
+# (`approved_target`); the run alone refuses a held target.
 
 #: The tool argument that carries the approved target.
 _APPROVED_TARGET_KEY = "approved_target"
@@ -2978,13 +2957,9 @@ _APPROVED_TARGET_KEY = "approved_target"
 #: full.
 _PROMPT_MAX_LISTED = 500
 
-#: Audit reasons of the two guarded-run refusals.
-_GUARDED_RUN_BUSY_AUDIT_REASON = "guarded_run_busy"
-_GUARDED_RUN_UNREADABLE_AUDIT_REASON = "guarded_run_lock_unreadable"
 
-
-class _GuardedRunRefused(Exception):
-    """The call is refused before any human is asked.
+class _MeasureRefused(Exception):
+    """The measurement is refused before any human is asked.
 
     Attributes:
         reason: The deny text the agent sees.
@@ -2997,206 +2972,13 @@ class _GuardedRunRefused(Exception):
         self.audit_reason = audit_reason
 
 
-def _typed_or_none(value, kind):
-    """*value* when it is a *kind* (never a bool), else ``None``."""
-    if isinstance(value, bool) or not isinstance(value, kind):
-        return None
-    return value
-
-
 def _prompt_text(value) -> str:
-    """*value*, a string read from a lock file or the agent's input, as one line of printable ASCII.
+    """*value*, a string from the agent's input or the build's block, as one line of printable ASCII.
 
     JSON-quoted, so every control and format character is escaped and two
     different strings never render alike.
     """
     return json.dumps(value)
-
-
-def _holder_text(raw: bytes) -> tuple[str, str]:
-    """The ``(pid, started)`` a lock file's holder record names, ``unknown`` for each gap.
-
-    ``started`` is the holder's own text with every control and format
-    character escaped as in :func:`_prompt_text`, without the quotes.
-    """
-    try:
-        holder = json.loads(raw or b"null")
-    except ValueError:
-        holder = None
-    if not isinstance(holder, dict):
-        holder = {}
-    pid = _typed_or_none(holder.get(_HOLDER_PID_KEY), int)
-    started = _typed_or_none(holder.get(_HOLDER_STARTED_KEY), str)
-    return (
-        "unknown" if pid is None else str(pid),
-        "unknown" if started is None else _prompt_text(started)[1:-1],
-    )
-
-
-class _GuardedRunNotRegular(Exception):
-    """A guarded-run name is not what the runtime would open; the text is the runtime's refusal."""
-
-
-#: What every refusal of a name in a guarded-run directory ends with.
-_GUARDED_FILES_ONLY = "the guarded-run directory holds files only"
-
-#: The mode a lock created here gets, whatever the umask.
-_GUARDED_FILE_MODE = 0o664
-
-
-def _guarded_open_dir(repo_root: str, target: str) -> int | None:
-    """Open *target*'s guarded-run directory under *repo_root*, ``None`` when there is none.
-
-    ``<repo_root>/var`` is opened as named; ``guarded_run`` and *target* are
-    opened relative to their parent's descriptor, never through a link. A
-    directory that does not exist holds no lock.
-
-    Returns:
-        The directory's descriptor, which the caller closes.
-
-    Raises:
-        _GuardedRunNotRegular: ``guarded_run`` or *target* is a link or not a
-            directory.
-        OSError: A level exists but cannot be opened.
-    """
-    where = os.path.join(repo_root, _STATE_DIR_NAME)
-    try:
-        parent = os.open(where, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
-    except FileNotFoundError:
-        return None
-    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-    for name in (_GUARDED_RUN_DIR, target):
-        where = os.path.join(where, name)
-        try:
-            fd = os.open(name, flags, dir_fd=parent)
-        except FileNotFoundError:
-            return None
-        except OSError as exc:
-            # The open has failed; this only words the refusal.
-            is_link = False
-            try:
-                is_link = stat.S_ISLNK(os.lstat(name, dir_fd=parent).st_mode)
-            except OSError:
-                pass
-            if is_link:
-                raise _GuardedRunNotRegular(
-                    f"{where} is a link; a guarded-run directory is never a link"
-                ) from None
-            if exc.errno == errno.ENOTDIR:
-                raise _GuardedRunNotRegular(f"{where} is not a directory") from None
-            raise
-        finally:
-            os.close(parent)
-        parent = fd
-    return parent
-
-
-def _guarded_open_regular(
-    name: str, flags: int, *, dir_fd: int, where: str, create: bool = False
-) -> tuple[int, bool]:
-    """Open the lock file *name* in the open directory *dir_fd*, as the runtime does.
-
-    The body of the runtime's ``osprey.runtime.guarded_run._open_regular``: a link
-    at *name* is not followed, the open never waits for the other end of a
-    FIFO, and the descriptor is accepted only when it is a regular file with
-    exactly one name, checked on the descriptor before anything reads or
-    writes it.
-
-    Returns:
-        ``(fd, created)``: the blocking, close-on-exec descriptor and whether
-        this call created the file.
-
-    Raises:
-        _GuardedRunNotRegular: *name* is a link, has more than one hard link,
-            is not a regular file, or was replaced while it was opened.
-        FileNotFoundError: There is no *name* and *create* is not set.
-        OSError: Any other failure to open, unchanged.
-    """
-    flags |= os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
-    replaced = False
-    while True:
-        created = False
-        try:
-            if create:
-                for last in (False, True):
-                    try:
-                        fd = os.open(
-                            name, flags | os.O_CREAT | os.O_EXCL, _GUARDED_FILE_MODE, dir_fd=dir_fd
-                        )
-                        created = True
-                        break
-                    except FileExistsError:
-                        pass
-                    try:
-                        fd = os.open(name, flags, dir_fd=dir_fd)
-                        break
-                    except FileNotFoundError:
-                        if last:
-                            raise
-            else:
-                fd = os.open(name, flags, dir_fd=dir_fd)
-        except OSError as exc:
-            if exc.errno in (errno.ELOOP, errno.EMLINK):
-                raise _GuardedRunNotRegular(f"{where} is a link; {_GUARDED_FILES_ONLY}") from None
-            if exc.errno in (errno.EISDIR, errno.ENXIO):
-                raise _GuardedRunNotRegular(
-                    f"{where} is not a regular file; {_GUARDED_FILES_ONLY}"
-                ) from None
-            raise
-        try:
-            st = os.fstat(fd)
-            if not stat.S_ISREG(st.st_mode):
-                raise _GuardedRunNotRegular(f"{where} is not a regular file; {_GUARDED_FILES_ONLY}")
-            if st.st_nlink > 1:
-                raise _GuardedRunNotRegular(
-                    f"{where} has {st.st_nlink} hard links; {_GUARDED_FILES_ONLY}"
-                )
-            if st.st_nlink == 0 and replaced:
-                raise _GuardedRunNotRegular(f"{where} was replaced while it was opened")
-            if st.st_nlink == 1:
-                os.set_blocking(fd, True)
-                if created:
-                    os.fchmod(fd, _GUARDED_FILE_MODE)
-                return fd, created
-        except BaseException:
-            os.close(fd)
-            raise
-        # No name holds this file any more: a rename replaced it between the
-        # open and the check. The name is opened once more.
-        os.close(fd)
-        replaced = True
-
-
-def _guarded_run_holder(dir_fd: int | None, lock_path: str) -> tuple[str, str] | None:
-    """The holder of the run lock in the open directory *dir_fd*, ``None`` when free.
-
-    ``(pid, started)`` as text. The lock is tried without blocking and released
-    at once; the hook never writes a holder record, so a run that starts while
-    it looks is never told the hook holds its target. A directory that does
-    not exist (*dir_fd* is ``None``) holds no lock. When the holder releases
-    between the failed try and the read, the emptied file reads as ``unknown``
-    for both fields. *lock_path* names the lock in a refusal.
-
-    Raises:
-        _GuardedRunNotRegular: The lock is not a regular file with one name.
-        OSError: The lock file cannot be opened.
-    """
-    import fcntl
-
-    if dir_fd is None:
-        return None
-    fd, _created = _guarded_open_regular(
-        _GUARDED_RUN_LOCK_FILE, os.O_RDWR, dir_fd=dir_fd, where=lock_path, create=True
-    )
-    try:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return _holder_text(os.pread(fd, 4096, 0))
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        return None
-    finally:
-        os.close(fd)
 
 
 def _guarded_run_target(hook_input, read_record) -> str:
@@ -3215,50 +2997,18 @@ def _guarded_run_target(hook_input, read_record) -> str:
 def _guarded_run_binding(hook_input, read_record) -> dict[str, str]:
     """The input binding for a call that runs under the target's run lock.
 
-    The target's lock is tried: a live run on the target refuses this call as
-    busy, before anyone is asked.
-
-    The directory is ``<repo root>/var/guarded_run/<target>``, the one every
-    process of the deployment resolves for the target. It is opened once,
-    without following a link at ``guarded_run`` or at the target, and the lock
-    is opened in it as the runtime opens it: a name that is not a regular file
-    with one name refuses the call with the runtime's sentence, naming the path.
+    The binding names the target the call is approved for. The prompt never
+    opens the target's run directory: the run alone refuses a held target,
+    naming its holder.
 
     Returns:
         The ``approved_target`` value the call's input carries.
-
-    Raises:
-        _GuardedRunRefused: The target is busy, or its lock cannot be read.
     """
-    target = _guarded_run_target(hook_input, read_record)
-    repo_root = get_repo_root(hook_input)
-    directory = os.path.join(repo_root, _STATE_DIR_NAME, _GUARDED_RUN_DIR, target)
-    lock_path = os.path.join(directory, _GUARDED_RUN_LOCK_FILE)
-    try:
-        dir_fd = _guarded_open_dir(repo_root, target)
-        try:
-            holder = _guarded_run_holder(dir_fd, lock_path)
-        finally:
-            if dir_fd is not None:
-                os.close(dir_fd)
-    except _GuardedRunNotRegular as exc:
-        raise _GuardedRunRefused(str(exc), _GUARDED_RUN_UNREADABLE_AUDIT_REASON) from None
-    except Exception:
-        raise _GuardedRunRefused(
-            f"guarded-run lock unreadable: {lock_path}",
-            _GUARDED_RUN_UNREADABLE_AUDIT_REASON,
-        ) from None
-    if holder is not None:
-        pid, started = holder
-        raise _GuardedRunRefused(
-            f"a guarded run is in progress on {target} (pid {pid}, started {started})",
-            _GUARDED_RUN_BUSY_AUDIT_REASON,
-        )
-    return {_APPROVED_TARGET_KEY: target}
+    return {_APPROVED_TARGET_KEY: _guarded_run_target(hook_input, read_record)}
 
 
-def _deny_guarded_run(hook_input, tool_name, refusal):
-    """Emit a guarded-run refusal as a deny and exit 0. Does not return.
+def _deny_measure(hook_input, tool_name, refusal):
+    """Emit a measurement refusal as a deny and exit 0. Does not return.
 
     Filed as ``refused``, like every refusal this hook makes before asking;
     an unwritable log or audit zone costs the record, never the decision.
@@ -3288,8 +3038,8 @@ def _deny_guarded_run(hook_input, tool_name, refusal):
     sys.exit(0)
 
 
-def _guarded_call(hook_input, tool_name, tool_input, read_record):
-    """The rewritten input and binding of a readwrite call, or a deny.
+def _guarded_call(hook_input, tool_input, read_record):
+    """The rewritten input and binding of a readwrite call.
 
     A readonly call takes no run lock, so it keeps its input as the agent sent
     it (``None``) and has no binding (``None``). A readwrite call's input is the
@@ -3298,10 +3048,7 @@ def _guarded_call(hook_input, tool_name, tool_input, read_record):
     """
     if tool_input.get("execution_mode") != "readwrite":
         return None, None
-    try:
-        binding = _guarded_run_binding(hook_input, read_record)
-    except _GuardedRunRefused as refusal:
-        _deny_guarded_run(hook_input, tool_name, refusal)
+    binding = _guarded_run_binding(hook_input, read_record)
     return _bound_input(tool_input, binding), binding
 
 
@@ -3366,7 +3113,7 @@ def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str] | None
         stepped roles for its kind; the tool refuses such a call.
 
     Raises:
-        _GuardedRunRefused: The view's bytes differ from the digest the
+        _MeasureRefused: The view's bytes differ from the digest the
             build recorded, or the call steps more setpoints than a prompt
             lists.
     """
@@ -3391,12 +3138,12 @@ def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str] | None
         with open(path, "rb") as handle:
             digest = hashlib.sha256(handle.read()).hexdigest()
     except (OSError, ValueError):
-        raise _GuardedRunRefused(
+        raise _MeasureRefused(
             f"pyaml_measure: the pyAML view of {model} cannot be read: {relative}",
             _PYAML_VIEW_AUDIT_REASON,
         ) from None
     if not isinstance(recorded, str) or digest != recorded:
-        raise _GuardedRunRefused(
+        raise _MeasureRefused(
             f"pyaml_measure: the pyAML view of {model} differs from the one the build "
             f"recorded: {relative}",
             _PYAML_VIEW_AUDIT_REASON,
@@ -3409,7 +3156,7 @@ def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str] | None
         if role == _PYAML_RF:
             rf = [str(address) for address in block.get(_PYAML_RF) or []]
             if not rf:
-                raise _GuardedRunRefused(
+                raise _MeasureRefused(
                     f"pyaml_measure: {kind} steps the RF frequency and the pyAML view of "
                     f"{model} names no RF setpoint: {relative}",
                     _PYAML_VIEW_AUDIT_REASON,
@@ -3421,7 +3168,7 @@ def _pyaml_measure_lines(tool_input, hook_input) -> tuple[list[str], str] | None
         else:
             setpoints.extend(str(address) for address in groups.get(role) or [])
     if len(setpoints) > _PROMPT_MAX_LISTED:
-        raise _GuardedRunRefused(
+        raise _MeasureRefused(
             f"pyaml_measure: {kind} on {model} steps {len(setpoints)} setpoints, "
             "more than an approval prompt lists",
             _PYAML_VIEW_AUDIT_REASON,
@@ -3459,13 +3206,12 @@ def _measure_call(hook_input, tool_name, tool_input, read_record):
     """
     try:
         described = _pyaml_measure_lines(tool_input, hook_input)
-        if described is None:
-            return None
-        lines, digest = described
-        binding = _guarded_run_binding(hook_input, read_record)
-    except _GuardedRunRefused as refusal:
-        _deny_guarded_run(hook_input, tool_name, refusal)
-    binding = {**binding, _APPROVED_VIEW_KEY: digest}
+    except _MeasureRefused as refusal:
+        _deny_measure(hook_input, tool_name, refusal)
+    if described is None:
+        return None
+    lines, digest = described
+    binding = {**_guarded_run_binding(hook_input, read_record), _APPROVED_VIEW_KEY: digest}
     return lines, _bound_input(tool_input, binding), binding
 
 
@@ -3602,9 +3348,7 @@ def main():
             needs_approval = exec_mode == "readwrite" or writes_detected
             if needs_approval:
                 read_record = _record_reader(hook_input)
-                updated_input, binding = _guarded_call(
-                    hook_input, tool_name, tool_input, read_record
-                )
+                updated_input, binding = _guarded_call(hook_input, tool_input, read_record)
                 reason_parts = [f"Python execution (mode: {exec_mode or 'unspecified'})"]
                 if writes_detected:
                     reason_parts.append("Code contains control system write patterns.")
@@ -3652,13 +3396,13 @@ def main():
     if short_name == "execute":
         code = tool_input.get("code", "")
         exec_mode = tool_input.get("execution_mode", "")
-        updated_input, binding = _guarded_call(hook_input, tool_name, tool_input, read_record)
+        updated_input, binding = _guarded_call(hook_input, tool_input, read_record)
         if code.strip():
             gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
             if gallery_link:
                 reason_parts.append(f"\nReview notebook: {gallery_link}")
     elif short_name == "execute_file":
-        updated_input, binding = _guarded_call(hook_input, tool_name, tool_input, read_record)
+        updated_input, binding = _guarded_call(hook_input, tool_input, read_record)
     elif short_name == "pyaml_measure":
         measured = _measure_call(hook_input, tool_name, tool_input, read_record)
         if measured is None:

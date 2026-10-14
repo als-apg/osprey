@@ -189,7 +189,7 @@ FAILURE_KIND_APPROVAL_CONFIG_INVALID = "approval_config_invalid"
 #: :attr:`ExecutionResult.failure_kind` for a readwrite run that did not start
 #: because another guarded run holds its control target's lock. Nothing in the
 #: submitted code ran; the error message names the holder's pid and start time.
-#: Spelled like the approval hook's audit reason for the same refusal.
+#: Spelled like the sandbox wrapper's failure kind for the same refusal.
 FAILURE_KIND_GUARDED_RUN_BUSY = "guarded_run_busy"
 
 #: The call fields the approval prompt binds a guarded call to. Every one the

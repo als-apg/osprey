@@ -12,6 +12,7 @@ machine kept in a JSON file.
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import subprocess
@@ -202,6 +203,28 @@ def test_the_executor_spells_the_ask_stamp_like_the_hook() -> None:
     assert executor.APPROVAL_ASK_PREFIX == approval.APPROVAL_ASK_PREFIX
     assert executor.APPROVAL_ASK_SUFFIX == approval.APPROVAL_ASK_SUFFIX
     assert all(name.startswith(approval.APPROVED_FIELD_PREFIX) for name in executor.APPROVED_FIELDS)
+
+
+#: The tool modules whose calls the approval prompt binds to their target.
+_TOOLS_DIR = Path(guarded_run.__file__).parents[1] / "mcp_server" / "python_executor" / "tools"
+
+
+@pytest.mark.parametrize(
+    "module", ["python_execute.py", "python_execute_file.py", "pyaml_measure.py"]
+)
+def test_the_hooks_binding_key_is_the_tools_argument(module: str) -> None:
+    from tests.hooks.conftest import import_hook
+
+    approval = import_hook("osprey_approval")
+    tree = ast.parse((_TOOLS_DIR / module).read_text(encoding="utf-8"))
+    arguments = {
+        arg.arg
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef)
+        for arg in node.args.args
+    }
+
+    assert approval._APPROVED_TARGET_KEY in arguments
 
 
 def test_a_stamp_equal_to_the_call_is_admitted(stamps: Path) -> None:
@@ -620,12 +643,9 @@ class _Sandbox:
         return metadata
 
 
-def test_the_executor_spells_the_busy_failure_like_the_hooks_audit_reason() -> None:
+def test_the_wrapper_spells_the_busy_failure_like_the_executor() -> None:
     from osprey.services.python_executor.execution import wrapper
-    from tests.hooks.conftest import import_hook
 
-    approval = import_hook("osprey_approval")
-    assert executor.FAILURE_KIND_GUARDED_RUN_BUSY == approval._GUARDED_RUN_BUSY_AUDIT_REASON
     assert wrapper.FAILURE_KIND_GUARDED_RUN_BUSY == executor.FAILURE_KIND_GUARDED_RUN_BUSY
 
 

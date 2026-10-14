@@ -430,14 +430,26 @@ def test_a_killed_run_names_the_channels_it_attempted(gated, count):
         assert f"{count} channels" in message and channels[0] not in message
 
 
+#: What a run on a held target says, naming its holder.
+_BUSY = (
+    "another guarded run is live under /repo/var/guarded_run/va "
+    "(pid 31337, since 2026-10-02T09:30:00Z)"
+)
+
+
 @pytest.mark.parametrize(
     "failure_kind",
-    [executor.FAILURE_KIND_APPROVAL_MISSING, executor.FAILURE_KIND_SWITCH_IN_PROGRESS],
+    [
+        executor.FAILURE_KIND_APPROVAL_MISSING,
+        executor.FAILURE_KIND_SWITCH_IN_PROGRESS,
+        executor.FAILURE_KIND_GUARDED_RUN_BUSY,
+    ],
 )
 def test_a_run_the_executor_declined_reads_like_executes(gated, failure_kind):
+    busy = failure_kind == executor.FAILURE_KIND_GUARDED_RUN_BUSY
     gated.result = _result(
         success=False,
-        stderr="not run",
+        stderr=_BUSY if busy else "not run",
         failure_kind=failure_kind,
         execution_time_seconds=0.0,
     )
@@ -446,6 +458,8 @@ def test_a_run_the_executor_declined_reads_like_executes(gated, failure_kind):
 
     assert envelope["error_type"] == "execution_error"
     assert envelope["details"]["kind"] == failure_kind
+    if busy:
+        assert "pid 31337" in envelope["error_message"]
 
 
 # --- registration ------------------------------------------------------------------

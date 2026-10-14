@@ -4,8 +4,7 @@ Every test that takes the lock in process starts from a fresh run state
 (:func:`reset_run_state`), the one place the process's hold is kept.
 
 :data:`PLANTED_REFUSED` is the one table of what another account can leave at
-the lock's name; every opener of the lock file, in the runtime and the approval
-hook, is held to it.
+the lock's name; every opener of the lock file in the runtime is held to it.
 """
 
 from __future__ import annotations

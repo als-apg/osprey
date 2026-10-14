@@ -18,8 +18,6 @@ import pytest
 
 from tests._control_context_fixtures import write_control_context, write_server_report
 from tests._guarded_run import (
-    LINKED_DIRECTORY_REFUSAL,
-    PLANTED_REFUSAL,
     PLANTED_REFUSED,
     held_lock,
     link_directory,
@@ -2110,22 +2108,6 @@ def _updated(result):
     return result["hookSpecificOutput"].get("updatedInput")
 
 
-@pytest.mark.parametrize("present", [False, True], ids=["no-lock-file", "free-lock-file"])
-def test_a_free_target_binds_its_name(tmp_path, hook_runner, make_config, present):
-    if present:
-        _lock(tmp_path).touch()
-    tool_input = {"code": "print(1)", "execution_mode": "readwrite", "approved_target": "live"}
-
-    result = _run_guarded(hook_runner, make_config, tmp_path, tool_input)
-
-    assert _decision(result) == "ask"
-    assert _updated(result) == {
-        "code": "print(1)",
-        "execution_mode": "readwrite",
-        "approved_target": "va",
-    }
-
-
 def test_execute_file_carries_the_binding(tmp_path, hook_runner, make_config):
     result = _run_guarded(
         hook_runner,
@@ -2156,54 +2138,6 @@ def test_a_readonly_call_keeps_its_prompt_and_carries_no_binding(
     assert _updated(result) is None
 
 
-def test_a_held_lock_refuses_busy_naming_its_holder(tmp_path, hook_runner, make_config):
-    with held_lock("va", '{"pid": 31337, "started": "2026-10-02T09:30:00Z"}', root=tmp_path):
-        result = _run_guarded(
-            hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
-        )
-
-    assert _decision(result) == "deny"
-    assert _reason(result) == (
-        "a guarded run is in progress on va (pid 31337, started 2026-10-02T09:30:00Z)"
-    )
-
-
-def test_a_held_lock_with_no_holder_record_names_it_unknown(tmp_path, hook_runner, make_config):
-    with held_lock("va", "", root=tmp_path):
-        result = _run_guarded(
-            hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
-        )
-
-    assert _decision(result) == "deny"
-    assert _reason(result) == "a guarded run is in progress on va (pid unknown, started unknown)"
-
-
-def test_a_free_lock_is_left_empty(tmp_path, hook_runner, make_config):
-    path = _lock(tmp_path)
-
-    _run_guarded(
-        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
-    )
-
-    assert path.read_bytes() == b""
-
-
-@pytest.mark.skipif(os.geteuid() == 0, reason="root opens a file of mode 000")
-def test_an_unreadable_lock_is_denied(tmp_path, hook_runner, make_config):
-    path = _lock(tmp_path)
-    path.touch()
-    path.chmod(0o000)
-    try:
-        result = _run_guarded(
-            hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
-        )
-    finally:
-        path.chmod(0o664)
-
-    assert _decision(result) == "deny"
-    assert _reason(result) == f"guarded-run lock unreadable: {path}"
-
-
 def _planted_victim(tmp_path):
     """A file outside the guarded-run directory; ``(path, its bytes)``."""
     victim = tmp_path / "victim"
@@ -2211,38 +2145,118 @@ def _planted_victim(tmp_path):
     return victim, victim.read_bytes()
 
 
-@pytest.mark.parametrize("kind", PLANTED_REFUSED)
-def test_a_planted_lock_name_is_denied_by_name(kind, tmp_path, hook_runner, make_config):
-    victim, before = _planted_victim(tmp_path)
-    path = _lock(tmp_path)
-    plant_kind(path, kind, victim)
+def _run_tree(repo_root):
+    """Every name under *repo_root*'s guarded-run directory and what it is, ``None`` when absent.
 
-    result = _run_guarded(
-        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
+    Read without following a link and without opening anything but a regular
+    file that can be read, so a planted FIFO is never opened.
+    """
+    top = lock_path("va", repo_root).parent.parent
+    if not os.path.lexists(top):
+        return None
+    tree = {}
+    for where, dirs, files in os.walk(top):
+        for name in sorted(dirs + files):
+            path = os.path.join(where, name)
+            info = os.lstat(path)
+            relative = os.path.relpath(path, top)
+            if os.path.islink(path):
+                tree[relative] = ("link", os.readlink(path))
+            elif os.path.isdir(path):
+                tree[relative] = ("directory", info.st_mode)
+            elif not os.path.isfile(path):
+                tree[relative] = ("other", info.st_mode)
+            elif os.access(path, os.R_OK):
+                with open(path, "rb") as handle:
+                    tree[relative] = ("file", info.st_mode, info.st_nlink, handle.read())
+            else:
+                tree[relative] = ("file", info.st_mode, info.st_nlink, None)
+    return tree
+
+
+def _plant_nothing(tmp_path, _stack):
+    pass
+
+
+def _plant_empty_run_dir(tmp_path, _stack):
+    _lock(tmp_path)
+
+
+def _plant_free_lock(tmp_path, _stack):
+    _lock(tmp_path).touch()
+
+
+def _plant_held_with_holder(tmp_path, stack):
+    stack.enter_context(
+        held_lock("va", '{"pid": 31337, "started": "2026-10-02T09:30:00Z"}', root=tmp_path)
     )
 
-    assert _decision(result) == "deny"
-    assert _reason(result) == f"{path} {PLANTED_REFUSAL[kind]}"
-    assert "unreadable" not in _reason(result)
-    assert _updated(result) is None
-    assert victim.read_bytes() == before
+
+def _plant_held_empty(tmp_path, stack):
+    stack.enter_context(held_lock("va", "", root=tmp_path))
 
 
-def test_a_linked_target_directory_is_denied_by_name(tmp_path, hook_runner, make_config):
+def _plant_unreadable(tmp_path, stack):
     path = _lock(tmp_path)
     path.touch()
-    level = path.parent
-    real = link_directory(level)
+    path.chmod(0o000)
+    stack.callback(path.chmod, 0o664)
 
-    result = _run_guarded(
-        hook_runner, make_config, tmp_path, {"code": "print(1)", "execution_mode": "readwrite"}
-    )
 
-    assert _decision(result) == "deny"
-    assert _reason(result) == f"{level} {LINKED_DIRECTORY_REFUSAL}"
-    assert _updated(result) is None
-    assert (real / path.name).read_bytes() == b""
-    assert sorted(entry.name for entry in real.iterdir()) == [path.name]
+def _plant_linked_directory(tmp_path, _stack):
+    path = _lock(tmp_path)
+    path.touch()
+    link_directory(path.parent)
+
+
+def _planter(kind):
+    def plant(tmp_path, _stack):
+        victim, _ = _planted_victim(tmp_path)
+        plant_kind(_lock(tmp_path), kind, victim)
+
+    return plant
+
+
+_LOCK_STATES = [
+    pytest.param(_plant_nothing, id="no-run-dir"),
+    pytest.param(_plant_empty_run_dir, id="empty-run-dir"),
+    pytest.param(_plant_free_lock, id="free-lock-file"),
+    pytest.param(_plant_held_with_holder, id="held-with-holder"),
+    pytest.param(_plant_held_empty, id="held-empty-record"),
+    pytest.param(
+        _plant_unreadable,
+        id="unreadable",
+        marks=pytest.mark.skipif(os.geteuid() == 0, reason="root opens a file of mode 000"),
+    ),
+    *(pytest.param(_planter(kind), id=f"planted-{kind}") for kind in PLANTED_REFUSED),
+    pytest.param(_plant_linked_directory, id="linked-target-dir"),
+]
+
+
+@pytest.mark.parametrize("plant", _LOCK_STATES)
+def test_the_prompt_binds_the_target_whatever_holds_its_lock(
+    plant, tmp_path, hook_runner, make_config
+):
+    import contextlib
+
+    victim = tmp_path / "victim"
+    tool_input = {"code": "print(1)", "execution_mode": "readwrite", "approved_target": "live"}
+    with contextlib.ExitStack() as stack:
+        plant(tmp_path, stack)
+        planted = _run_tree(tmp_path)
+        victim_before = victim.read_bytes() if victim.exists() else None
+
+        result = _run_guarded(hook_runner, make_config, tmp_path, tool_input)
+
+        assert _run_tree(tmp_path) == planted
+        assert (victim.read_bytes() if victim.exists() else None) == victim_before
+
+    assert _decision(result) == "ask"
+    assert _updated(result) == {
+        "code": "print(1)",
+        "execution_mode": "readwrite",
+        "approved_target": "va",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -2625,6 +2639,22 @@ def test_each_group_line_counts_that_groups_own_setpoints(tmp_path, hook_runner,
     reason = _reason(result)
     assert f'By: "group"\n  group SR_S steps {len(_SEXTS)} setpoints as one knob\n' in reason
     assert f"Setpoints stepped: {len(_SEXTS) + len(_RF)}\n" in reason
+
+
+def test_a_measurement_on_a_held_target_is_asked_with_both_approved_fields(
+    tmp_path, hook_runner, make_config
+):
+    import hashlib
+
+    _plant_view(tmp_path)
+    with held_lock("va", '{"pid": 31337, "started": "2026-10-02T09:30:00Z"}', root=tmp_path):
+        result = _measure(hook_runner, make_config, tmp_path, {"kind": "orm"})
+
+    assert _decision(result) == "ask"
+    assert _approved(_updated(result)) == {
+        "approved_target": "va",
+        "approved_view_sha256": hashlib.sha256(_VIEW_BYTES).hexdigest(),
+    }
 
 
 def test_the_binding_overwrites_what_the_agent_supplied(tmp_path, hook_runner, make_config):

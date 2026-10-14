@@ -2,8 +2,8 @@
 
 ``var/guarded_run/`` and each ``<target>/`` under it are writable by every
 account of the deployment, so anything can be waiting at ``run.lock``, and
-either directory can have been swapped for a link. Every opener of the lock,
-in the runtime and the approval hook, is held to one table here
+either directory can have been swapped for a link. Every opener of the lock
+in the runtime is held to one table here
 (:data:`tests._guarded_run.PLANTED_REFUSED`): what is planted is refused with
 its path named, the call returns, and nothing is read, written, truncated or
 created through it. No control system is involved.
@@ -21,7 +21,6 @@ from typing import Any
 import pytest
 
 import osprey.runtime.guarded_run as guarded_run
-import osprey.templates.claude_code.claude.hooks.osprey_approval as hook
 from osprey.runtime import ENV_CONTROL_TARGET
 from osprey.runtime.guarded_run import (
     LOCK_FILE_NAME,
@@ -187,55 +186,11 @@ def test_a_regular_file_is_accepted_by_every_runtime_opener() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The approval hook's lock probe
-# ---------------------------------------------------------------------------
-
-
-def _hook_holder(repo: Path) -> tuple[str, str] | None:
-    """The hook's lock probe on ``live``, as its prompt builder runs it."""
-    dir_fd = hook._guarded_open_dir(str(repo), "live")
-    try:
-        return hook._guarded_run_holder(dir_fd, str(_lock_path()))
-    finally:
-        if dir_fd is not None:
-            os.close(dir_fd)
-
-
-@pytest.mark.parametrize("kind", PLANTED_REFUSED)
-def test_a_planted_name_refuses_the_hooks_lock_probe(kind: str, repo: Path, tmp_path: Path) -> None:
-    planted = _Planted(_lock_path(), kind, _victim(tmp_path))
-
-    with pytest.raises(hook._GuardedRunNotRegular) as refused:
-        planted.call(lambda: _hook_holder(repo))
-
-    assert str(refused.value) == f"{planted.path} {planted.refusal}"
-    planted.untouched()
-
-
-@pytest.mark.parametrize("level", LINKED_LEVELS)
-def test_a_linked_directory_refuses_the_hook(level: str, repo: Path) -> None:
-    linked, real_directory = _link_level(level)
-    real = _Real(real_directory)
-
-    with pytest.raises(hook._GuardedRunNotRegular) as refused:
-        hook._guarded_open_dir(str(repo), "live")
-
-    assert str(refused.value) == f"{linked} {LINKED_DIRECTORY_REFUSAL}"
-    real.untouched()
-
-
-def test_the_hook_finds_no_lock_where_there_is_no_directory(repo: Path) -> None:
-    assert hook._guarded_open_dir(str(repo), "live") is None
-    assert hook._guarded_run_holder(None, "unused") is None
-    assert not (repo / "var").exists()
-
-
-# ---------------------------------------------------------------------------
 # Structure
 # ---------------------------------------------------------------------------
 
 
-def test_no_name_is_checked_before_the_open(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_name_is_checked_before_the_open(monkeypatch: pytest.MonkeyPatch) -> None:
     """Whether a file was created is the open's answer, never a look at its name."""
 
     def refusing(real: Callable[..., bool]) -> Callable[..., bool]:
@@ -252,9 +207,7 @@ def test_no_name_is_checked_before_the_open(repo: Path, monkeypatch: pytest.Monk
 
     with lock("live"):
         pass
-    _lock_path().unlink()
 
-    assert _hook_holder(repo) is None
     assert _lock_path().read_bytes() == b""
 
 
