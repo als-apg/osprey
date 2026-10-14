@@ -663,6 +663,12 @@ environment overrides the recorded value for one invocation; use it only for
 a stack you know runs there. When a host has both runtimes installed and
 <code class="docutils literal notranslate"><span class="pre">auto</span></code> skips one because its probe failed, the build logs a warning naming
 the probe.</p>
+<p>On a host with the <code class="docutils literal notranslate"><span class="pre">podman-docker</span></code> package (standard on RHEL), <code class="docutils literal notranslate"><span class="pre">docker</span></code> is
+podman’s Docker-CLI emulation: it answers every probe because podman does.
+<code class="docutils literal notranslate"><span class="pre">auto</span></code> recognises it and records <code class="docutils literal notranslate"><span class="pre">podman</span></code>, which is what such a host runs
+on. A <code class="docutils literal notranslate"><span class="pre">docker</span></code> set explicitly on such a host is refused rather than quietly
+re-pointed, with the setting to change; a <code class="docutils literal notranslate"><span class="pre">docker</span></code> an earlier build recorded
+from <code class="docutils literal notranslate"><span class="pre">auto</span></code> is fixed by running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> again.</p>
 <section id="supported-compose-providers">
 <span id="compose-provider-compatibility"></span><h3>Supported compose providers<a class="headerlink" href="#supported-compose-providers" title="Link to this heading">#</a></h3>
 <p>Choosing the runtime is only half the answer. Before it starts anything,
@@ -858,6 +864,53 @@ rendered. Steps 1–9 happen at build time, step 10 at start:</p>
 <li><p>Write a flattened <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> per service. <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders are preserved (secrets stay out of the rendered output and are resolved at container start).</p></li>
 <li><p>Shell out to <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">compose</span></code> / <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">compose</span></code>.</p></li>
 </ol>
+<section id="how-osprey-up-waits">
+<span id="deployment-start-waits"></span><h3>How <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> waits<a class="headerlink" href="#how-osprey-up-waits" title="Link to this heading">#</a></h3>
+<p>A start is finished when the stack answers, not when compose returns.</p>
+<p><strong>Each compose start is watched and bounded.</strong> Every 30 seconds a <code class="docutils literal notranslate"><span class="pre">compose</span>
+<span class="pre">up</span></code> that is still running prints which of the project’s containers are not up
+yet (<code class="docutils literal notranslate"><span class="pre">created</span></code>, <code class="docutils literal notranslate"><span class="pre">starting</span></code>, <code class="docutils literal notranslate"><span class="pre">unhealthy</span></code>, <code class="docutils literal notranslate"><span class="pre">exited</span></code>) and the last line
+compose wrote. podman-compose waits on a dependency’s health with no limit of
+its own, so a dependency that is never created (a full disk) or never becomes
+healthy (a service that fails at startup) would otherwise hold the start
+forever. Past the time limit the start is stopped and fails with what it was
+waiting on and the last log lines of every container that exited or is
+unhealthy. Ctrl-C prints the same account.</p>
+<p><strong>Web terminals are waited for.</strong> With <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> enabled,
+<code class="docutils literal notranslate"><span class="pre">up</span></code> runs each web-stack service’s own healthcheck until it passes and
+reports each one as it does (<code class="docutils literal notranslate"><span class="pre">·</span> <span class="pre">terminal</span> <span class="pre">alice</span> <span class="pre">ready</span> <span class="pre">(21s)</span></code>). A terminal
+that stops, or does not answer within the window, fails the start; nothing is
+torn down, and the message names the terminals that are serving beside the
+ones that are not, with the log lines of each one that is not. While a
+terminal’s app is still starting, nginx answers for it with a page that
+reloads itself instead of a bare <code class="docutils literal notranslate"><span class="pre">502</span> <span class="pre">Bad</span> <span class="pre">Gateway</span></code>.</p>
+<p>Both limits are settings: the environment variable wins over the top-level
+config key, and each takes a number of seconds.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 35.0%" />
+<col style="width: 35.0%" />
+<col style="width: 30.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Config key</p></th>
+<th class="head"><p>Environment variable</p></th>
+<th class="head"><p>Default</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">compose_up_timeout</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_COMPOSE_UP_TIMEOUT</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1800</span></code> (30 minutes)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web_terminal_ready_timeout</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_WEB_TERMINAL_READY_TIMEOUT</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">300</span></code> (5 minutes)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
 </section>
 <section id="keeping-a-rendered-deployment-up-to-date">
 <h2>Keeping a Rendered Deployment Up to Date<a class="headerlink" href="#keeping-a-rendered-deployment-up-to-date" title="Link to this heading">#</a></h2>
@@ -1005,6 +1058,11 @@ hints; on macOS, start Docker Desktop or run <code class="docutils literal notra
 <span class="pre">ps</span></code>) to answer, says it is still waiting after 5 seconds, and stops after 2
 minutes. Run the same command yourself; if it hangs there too, restart the
 runtime.</p>
+<p><strong>A start stopped at its time limit, or a terminal was not ready:</strong> the
+failure lists what was still pending and the last log lines of each container
+that exited or is unhealthy; that log is usually the cause. If the start is
+only slow (images pulled over a slow link, a loaded host), raise the limit
+(<a class="reference internal" href="#deployment-start-waits"><span class="std std-ref">How osprey up waits</span></a>).</p>
 <p><strong>“Unsupported compose provider”:</strong> the host’s compose implementation is not
 one OSPREY can drive correctly, and it stopped before starting anything. The
 message prints the version banner it got; compare it against
@@ -1094,7 +1152,10 @@ co-deploy, documented with the ARIEL logbook search it serves.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#podman-s-network-backend-required-by-the-bluesky-stack">Podman’s network backend (required by the Bluesky stack)</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-workflow">Deployment Workflow</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-workflow">Deployment Workflow</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-osprey-up-waits">How <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> waits</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keeping-a-rendered-deployment-up-to-date">Keeping a Rendered Deployment Up to Date</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#going-deeper">Going Deeper</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#development-mode">Development Mode</a></li>

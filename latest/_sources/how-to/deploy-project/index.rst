@@ -163,6 +163,13 @@ a stack you know runs there. When a host has both runtimes installed and
 ``auto`` skips one because its probe failed, the build logs a warning naming
 the probe.
 
+On a host with the ``podman-docker`` package (standard on RHEL), ``docker`` is
+podman's Docker-CLI emulation: it answers every probe because podman does.
+``auto`` recognises it and records ``podman``, which is what such a host runs
+on. A ``docker`` set explicitly on such a host is refused rather than quietly
+re-pointed, with the setting to change; a ``docker`` an earlier build recorded
+from ``auto`` is fixed by running ``osprey build`` again.
+
 .. _compose-provider-compatibility:
 
 Supported compose providers
@@ -320,6 +327,49 @@ rendered. Steps 1–9 happen at build time, step 10 at start:
 9. Write a flattened ``config.yml`` per service. ``${VAR}`` placeholders are preserved (secrets stay out of the rendered output and are resolved at container start).
 10. Shell out to ``docker compose`` / ``podman compose``.
 
+.. _deployment-start-waits:
+
+How ``osprey up`` waits
+-----------------------
+
+A start is finished when the stack answers, not when compose returns.
+
+**Each compose start is watched and bounded.** Every 30 seconds a ``compose
+up`` that is still running prints which of the project's containers are not up
+yet (``created``, ``starting``, ``unhealthy``, ``exited``) and the last line
+compose wrote. podman-compose waits on a dependency's health with no limit of
+its own, so a dependency that is never created (a full disk) or never becomes
+healthy (a service that fails at startup) would otherwise hold the start
+forever. Past the time limit the start is stopped and fails with what it was
+waiting on and the last log lines of every container that exited or is
+unhealthy. Ctrl-C prints the same account.
+
+**Web terminals are waited for.** With ``modules.web_terminals`` enabled,
+``up`` runs each web-stack service's own healthcheck until it passes and
+reports each one as it does (``· terminal alice ready (21s)``). A terminal
+that stops, or does not answer within the window, fails the start; nothing is
+torn down, and the message names the terminals that are serving beside the
+ones that are not, with the log lines of each one that is not. While a
+terminal's app is still starting, nginx answers for it with a page that
+reloads itself instead of a bare ``502 Bad Gateway``.
+
+Both limits are settings: the environment variable wins over the top-level
+config key, and each takes a number of seconds.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 35 30
+
+   * - Config key
+     - Environment variable
+     - Default
+   * - ``compose_up_timeout``
+     - ``OSPREY_COMPOSE_UP_TIMEOUT``
+     - ``1800`` (30 minutes)
+   * - ``web_terminal_ready_timeout``
+     - ``OSPREY_WEB_TERMINAL_READY_TIMEOUT``
+     - ``300`` (5 minutes)
+
 Keeping a Rendered Deployment Up to Date
 ========================================
 
@@ -471,6 +521,12 @@ hints; on macOS, start Docker Desktop or run ``podman machine start``.
 ps``) to answer, says it is still waiting after 5 seconds, and stops after 2
 minutes. Run the same command yourself; if it hangs there too, restart the
 runtime.
+
+**A start stopped at its time limit, or a terminal was not ready:** the
+failure lists what was still pending and the last log lines of each container
+that exited or is unhealthy; that log is usually the cause. If the start is
+only slow (images pulled over a slow link, a loaded host), raise the limit
+(:ref:`deployment-start-waits`).
 
 **"Unsupported compose provider":** the host's compose implementation is not
 one OSPREY can drive correctly, and it stopped before starting anything. The
