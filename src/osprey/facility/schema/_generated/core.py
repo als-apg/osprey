@@ -509,6 +509,34 @@ class SignalRoleEnum(str, Enum):
     """
     Power-supply current readback of the coil that acts in the vertical plane.
     """
+    bpm_tbt_x = "bpm_tbt_x"
+    """
+    Turn-by-turn horizontal-position record of a BPM, one sample per turn of the last acquisition.
+    """
+    bpm_tbt_y = "bpm_tbt_y"
+    """
+    Turn-by-turn vertical-position record of a BPM, one sample per turn of the last acquisition.
+    """
+    bpm_tbt_sum = "bpm_tbt_sum"
+    """
+    Turn-by-turn sum-signal record of a BPM, one sample per turn of the last acquisition (intensity proxy from button electrodes).
+    """
+    bpm_arm_command = "bpm_arm_command"
+    """
+    Command that arms a BPM's turn-by-turn acquisition for the next trigger.
+    """
+    bpm_armed_status = "bpm_armed_status"
+    """
+    Armed-state readback of a BPM's turn-by-turn acquisition.
+    """
+    injection_request_command = "injection_request_command"
+    """
+    Command that requests one injection shot.
+    """
+    injection_busy_status = "injection_busy_status"
+    """
+    Readback that is set while a requested injection shot is in progress.
+    """
 
 
 class PropertyNameEnum(str, Enum):
@@ -648,6 +676,7 @@ class MeasurementKindEnum(str, Enum):
     trm = "trm"
     crm = "crm"
     chromaticity_monitor = "chromaticity_monitor"
+    trajectory = "trajectory"
 
 
 
@@ -1438,7 +1467,7 @@ class Curve(ConfiguredBaseModel):
 class LinearCurve(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    gain: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['LinearCurve']} })
+    gain: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['LinearCurve', 'Measurement']} })
     offset: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['LinearCurve']} })
 
 
@@ -1467,6 +1496,9 @@ class Measurement(ConfiguredBaseModel):
     quad_delta: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     sextu_delta: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     frequency_delta: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
+    alpha: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
+    n_discard: Optional[int] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
+    gain: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LinearCurve', 'Measurement']} })
 
 
 class MeasurementGroups(ConfiguredBaseModel):
@@ -1490,6 +1522,11 @@ class MeasurementInstruments(ConfiguredBaseModel):
 
     tune: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementInstruments']} })
     rf: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementInstruments']} })
+    injection_request: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementInstruments']} })
+    injection_busy: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementInstruments']} })
+    bunch_clean_enable: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementInstruments']} })
+    beam_current: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementInstruments']} })
+    rf_status: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementInstruments']} })
 
 
 class Limits(ConfiguredBaseModel):
