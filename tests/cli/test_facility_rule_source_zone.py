@@ -22,8 +22,6 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 
-BUILD_FLAGS = ["--skip-deps", "--skip-lifecycle"]
-
 #: A preset whose `rules:` selection includes the facility rule. hello-world
 #: deliberately leaves it out, and a deployment that does not select the rule
 #: has no facility description to keep anywhere.
@@ -36,7 +34,7 @@ def _init(repo: Path) -> None:
 
 
 def _build(repo: Path) -> None:
-    result = CliRunner().invoke(build, ["--repo", str(repo), *BUILD_FLAGS])
+    result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
 
 

@@ -1445,7 +1445,9 @@ class TestBuildCLI:
         from osprey.cli.main import cli
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["build", "test-proj", "/nonexistent/profile.yml"])
+        result = runner.invoke(
+            cli, ["build", "test-proj", "/nonexistent/profile.yml", "--skip-deps"]
+        )
         assert result.exit_code != 0
 
 
