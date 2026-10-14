@@ -53,7 +53,18 @@ from osprey.mcp_server.control_system.target_eligibility import endpoint_is_live
 # library and nothing else, no Channel Access stack, no PVA, no Mongo driver.
 from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.ipc.verification import derive_endpoints
-from osprey_connectors.simulation.view import ADDRESSES_FILE, NoSimulatorView, SimulatorView
+
+# Which channels of a view have archived history is one rule, the one the
+# deploy-time seed builds its documents from. The recorder asks it instead of
+# restating it, so the two authors of the store cannot come to cover different
+# channels.
+from osprey_connectors.simulation.archive import archived_channels
+from osprey_connectors.simulation.view import (
+    ADDRESSES_FILE,
+    VARIABLES_FILE,
+    NoSimulatorView,
+    SimulatorView,
+)
 
 # Whose past the store holds, decided in one place for the recorder's compose
 # entry, this enablement gate and the deploy-time archive seed alike. A guard
@@ -248,15 +259,24 @@ def read_control_system_type(config_path: Path) -> str:
 def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
     """The addresses to record, in the order the simulator view lists them.
 
-    The source is the ``channels`` list of the build's simulator view,
-    ``addresses.json``, the file the virtual accelerator serves its namespace
-    from, so the recorder covers precisely the facility's channels. The view's
-    ``status`` list names the simulator's own model status channels and is not
-    recorded. There is no fallback: a view that is missing or unreadable is
-    refused, because the only channel set this service could pick on its own is
-    one that is not this facility's, and an archive filled with those addresses
-    under this facility's name is indistinguishable, later, from a real record
-    of the facility.
+    The source is the archived channel set of the build's simulator view
+    (:func:`~osprey_connectors.simulation.archive.archived_channels`): every
+    address of the ``channels`` list in ``addresses.json``, the file the
+    virtual accelerator serves its namespace from, but the turn series of the
+    served models, which ``variables.json`` describes. A turn series holds the
+    samples of one shot and has no value at a sampling instant, so it has no
+    history to record. The deploy-time seed builds its documents from the same
+    set under the same served-models setting, so the seeded past and the
+    recorded present of the one store cover the same channels.
+
+    The view's ``status`` list names the simulator's own model status channels
+    and is not recorded. There is no fallback: a view that is missing or
+    unreadable is refused, because the only channel set this service could pick
+    on its own is one that is not this facility's, and an archive filled with
+    those addresses under this facility's name is indistinguishable, later,
+    from a real record of the facility. A view whose model records cannot be
+    read is refused on the same terms: recording every channel instead would
+    not be the archive the seed wrote.
 
     Args:
         data_dir: The simulator view's directory; :data:`DEFAULT_DATA_DIR`
@@ -264,24 +284,28 @@ def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
 
     Raises:
         RecorderConfigError: if ``addresses.json`` cannot be read or holds no
-            ``channels`` list of strings.
+            ``channels`` list of strings, or if ``variables.json`` cannot be
+            read, is of another schema or lacks the model records the turn
+            series are told from. The message names the file.
     """
     root = Path(data_dir) if data_dir is not None else Path(DEFAULT_DATA_DIR)
-    path = root / ADDRESSES_FILE
+    # The view file being read, so a failure names the file that caused it.
+    reading = ADDRESSES_FILE
     try:
         view = SimulatorView.open(root)
-    except (NoSimulatorView, OSError, ValueError) as exc:
+        channels = view.document(ADDRESSES_FILE).get("channels")
+        if not isinstance(channels, tuple) or not all(isinstance(c, str) for c in channels):
+            raise RecorderConfigError(
+                f"cannot record: the simulator view's {ADDRESSES_FILE} ({root / ADDRESSES_FILE}) "
+                f"holds no `channels` list of addresses. Rebuild the project with `osprey build`."
+            )
+        reading = VARIABLES_FILE
+        return list(archived_channels(view))
+    except (NoSimulatorView, KeyError, OSError, TypeError, ValueError) as exc:
         raise RecorderConfigError(
-            f"cannot record: the simulator view's {ADDRESSES_FILE} ({path}) could not be "
+            f"cannot record: the simulator view's {reading} ({root / reading}) could not be "
             f"loaded: {exc}. `osprey build` writes it under build/data/simulator."
         ) from exc
-    channels = view.document(ADDRESSES_FILE).get("channels")
-    if not isinstance(channels, tuple) or not all(isinstance(c, str) for c in channels):
-        raise RecorderConfigError(
-            f"cannot record: the simulator view's {ADDRESSES_FILE} ({path}) holds no "
-            f"`channels` list of addresses. Rebuild the project with `osprey build`."
-        )
-    return list(view.channels())
 
 
 # ---------------------------------------------------------------------------
