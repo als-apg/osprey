@@ -469,9 +469,23 @@ def middle_layer_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any
     }
 
 
+@pytest.fixture(scope="module")
+def served_recipes() -> dict[str, dict[str, Any]]:
+    """Every :func:`served_repo` recipe this module has driven, by tree.
+
+    A case that narrows ``served_repo`` to some trees with an indirect
+    parametrisation gets a fixture instance of its own, so pytest sets the
+    recipe up again for it, and again for the next case of the other order;
+    every case only reads the recipe, so each tree is driven once and shared.
+    """
+    return {}
+
+
 @pytest.fixture(scope="module", params=BUILT_TREES)
 def served_repo(
-    request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
+    request: pytest.FixtureRequest,
+    tmp_path_factory: pytest.TempPathFactory,
+    served_recipes: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     """The control-assistant recipe over a 2.0 export, driven once per supported tree.
 
@@ -485,12 +499,19 @@ def served_repo(
     The build then runs twice. The second run is what says the published tree
     is a function of the import and not of the run that wrote it.
     """
-    fixture = FIXTURES / request.param
+    if request.param not in served_recipes:
+        served_recipes[request.param] = _drive_served_recipe(request.param, tmp_path_factory)
+    return served_recipes[request.param]
+
+
+def _drive_served_recipe(tree: str, tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+    """Drive :func:`served_repo`'s recipe over the export of ``tree``."""
+    fixture = FIXTURES / tree
     exports = sorted(str(path) for path in fixture.glob("*.ao.json"))
-    assert exports, f"{request.param} commits no export"
+    assert exports, f"{tree} commits no export"
 
     runner = CliRunner()
-    repo = tmp_path_factory.mktemp(f"recipe-served-{request.param}") / "demo"
+    repo = tmp_path_factory.mktemp(f"recipe-served-{tree}") / "demo"
 
     invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
     cleared = clear_authored(runner, repo, exports)
@@ -512,14 +533,14 @@ def served_repo(
 
     validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
     stopped, remedied, build = build_past_the_seed_stops(
-        runner, repo, responses=expected_response_lines(request.param)
+        runner, repo, responses=expected_response_lines(tree)
     )
     first = published(repo)
     first_view = simulator_view(repo)
     invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
 
     return {
-        "fixture": request.param,
+        "fixture": tree,
         "repo": repo,
         "cleared": cleared,
         "scenario_stop": scenario_stop,
