@@ -54,6 +54,9 @@ target at a time; asking for another target's lock while it holds one is
 refused before anything is opened:
 ``this process holds the run lock on <held>; it cannot take one on <asked>``.
 
+Joining a run never extends its hold: the lock is released when the code that
+took it ends, whatever joined it; the executor takes it for the whole script.
+
 A forked child never holds the lock, at any moment, from any thread: a fork
 waits for a lock entry or release in progress to finish, and the child closes
 its copies of the lock. A child started with ``subprocess`` or ``exec`` never
@@ -74,9 +77,10 @@ each created directory ``0o2775``, setgid, so every identity of the deployment
 sharing its group can take the lock. The directory holds no file but
 ``run.lock``.
 
-The approval prompt probes the same file, opened the same way, and refuses a
-call on a held target before anyone is asked, naming the holder:
-``a guarded run is in progress on <target> (pid <pid>, started <time>)``.
+The approval prompt never opens this directory: it binds the call to its target
+(``approved_target``) and asks. Only the run refuses a held target, before its
+code starts and with nothing moved:
+``another guarded run is live under <directory> (pid <pid>, since <time>)``.
 
 What the lock does not do
 =========================
