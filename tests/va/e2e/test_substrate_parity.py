@@ -244,6 +244,18 @@ NOMINAL_ADDITIONS: dict[str, frozenset[str]] = {
         {"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
     ),
     "the physics model's status channel": frozenset({"ca:SIM:SR:STATUS"}),
+    # The golden captures the demo before the ring carried first-turn channels.
+    "first-turn threading: every monitor's turn series and arm, and the injection": frozenset(
+        {
+            "SR:DIAG:INJECTION:REQUEST",
+            "SR:DIAG:INJECTION:BUSY",
+            *(
+                f"SR:DIAG:BPM:{index:02d}:TBT:{suffix}"
+                for index in range(1, 73)
+                for suffix in ("X", "Y", "SUM", "ARM", "ARMED")
+            ),
+        }
+    ),
     # The golden captures the demo before it carried the transfer line.
     "the transfer line: its model's status and every channel it owns": frozenset(
         {
@@ -351,12 +363,20 @@ def _tolerance(address: str) -> float:
     return CHROMATICITY_TOL if address in CHROMATICITY else EXACT_TOL
 
 
-def _same(address: str, expected: Any, served: Any) -> bool:
-    if isinstance(expected, float) or isinstance(served, float):
-        return abs(float(served) - float(expected)) <= _tolerance(address) * max(
-            1.0, abs(float(expected))
-        )
-    return served == expected
+def _same(address: str, expected: Any, served: Any, band: float = 0.0) -> bool:
+    """Whether ``served`` is ``expected`` within ``band`` and the address's tolerance.
+
+    A text or a missing value compares exactly; a number or a series compares
+    element by element.
+    """
+    if expected is None or served is None or isinstance(expected, str) or isinstance(served, str):
+        return served == expected
+    want = np.asarray(expected, dtype=float)
+    got = np.asarray(served, dtype=float)
+    if want.shape != got.shape:
+        return False
+    scale = np.maximum(1.0, np.abs(want))
+    return bool(np.all(np.abs(got - want) <= band + _tolerance(address) * scale))
 
 
 def _family_z(count: int) -> float:
@@ -546,13 +566,7 @@ def test_the_served_nominals_are_the_captured_golden(
             expected = golden[address]["nominal"]
             served = raw
         band = session_view.motion_band(address, z) if session_view.moving(address) else 0.0
-        if isinstance(expected, str):
-            ok = served == expected
-        else:
-            ok = abs(float(served) - float(expected)) <= band + _tolerance(address) * max(
-                1.0, abs(float(expected))
-            )
-        if not ok:
+        if not _same(address, expected, served, band):
             differing[address] = (expected, served)
 
     assert set(golden) - set(session_view.addresses) == set()
