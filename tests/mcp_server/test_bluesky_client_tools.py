@@ -288,6 +288,35 @@ async def test_get_run_data_request_response_mapping(monkeypatch):
     assert data == body
 
 
+async def test_get_run_data_cuts_a_wide_window_to_the_byte_budget(monkeypatch):
+    """A row is as wide as the run, so a row budget alone does not bound the answer."""
+    from osprey.mcp_server.bluesky.tools.read_tools import RUN_DATA_MAX_BYTES
+
+    columns = [f"SR:DIAG:BPM:{index:03d}:POSITION:X" for index in range(300)]
+    rows = [[0.123456789 * (row + column) for column in range(300)] for row in range(400)]
+    body = {
+        "run_uid": "uid-1",
+        "columns": columns,
+        "rows": rows,
+        "row_count": 400,
+        "truncated": False,
+        "partial": False,
+    }
+    monkeypatch.setattr(f"{_MOD}._http_get_json", lambda path, **kwargs: (200, body))
+
+    for tail in (False, True):
+        result = await _fn("get_run_data")(run_id="run-1", max_rows=400, tail=tail)
+        data = extract_response_dict(result)
+
+        kept = len(data["rows"])
+        assert 0 < kept < 400
+        assert len(result) <= RUN_DATA_MAX_BYTES
+        assert data["rows"] == (rows[-kept:] if tail else rows[:kept])
+        assert data["truncated"] is True
+        assert data["row_count"] == 400
+        assert data["note"].startswith(f"{400 - kept} of the 400 rows asked for were left out")
+
+
 async def test_get_run_data_unreachable(monkeypatch):
     monkeypatch.setattr(f"{_MOD}._http_get_json", _unreachable)
     with assert_raises_error(error_type="bluesky_bridge_unreachable"):
