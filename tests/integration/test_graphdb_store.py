@@ -8,9 +8,9 @@ call shapes but not the two things that decide whether the feature works: that
 produces a graph the operator queries can traverse, and that the graph view the
 control-assistant build writes imports into exactly the corpus those queries
 were verified against.  So the assertions here are the four counts verified on
-that view (533 binding owners / 2952 bindings / 412 write-only + 2536 read-only
+that view (533 binding owners / 3314 bindings / 485 write-only + 2825 read-only
 / 398 magnets rolled up through the class hierarchy), plus n10s's own
-``terminationStatus`` and its 25000 triples.
+``terminationStatus`` and its 27186 triples.
 
 Counts only, never wall clock: seeding time depends on the host's disk and on
 whether the image was cold, and a timing assertion here would fail on a loaded
@@ -59,14 +59,14 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 # triple count were verified against a live n10s import of the same file.
 
 #: Triples n10s reports loading from the view.
-EXPECTED_TRIPLES_LOADED = 25000
+EXPECTED_TRIPLES_LOADED = 27186
 #: Distinct resources carrying at least one channel binding: the 532 devices
 #: and the top place ``SR``, which carries the tune and chromaticity channels.
 EXPECTED_DEVICES = 533
 #: ``(:ChannelBinding)`` nodes.
-EXPECTED_BINDINGS = 2952
-EXPECTED_WRITE_ONLY = 412
-EXPECTED_READ_ONLY = 2536
+EXPECTED_BINDINGS = 3314
+EXPECTED_WRITE_ONLY = 485
+EXPECTED_READ_ONLY = 2825
 #: Devices whose type rolls up to ``Magnet`` through ``rdfs:subClassOf`` —
 #: Dipole + Quadrupole + Sextupole + HCorrector + VCorrector.
 #: This is the count that proves the *hierarchy* imported, not just the nodes.

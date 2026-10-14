@@ -484,8 +484,13 @@ def test_the_middle_layer_view_holds_the_pre_line_addresses(
 ) -> None:
     golden = set().union(*middle_layer_cells(pre_line_index("middle_layer")))
     view = set().union(*middle_layer_cells(middle_layer_view))
-    line = {address for address in addition_addresses() if address.startswith("LINE:")}
-    assert view == golden | line
+    additions = addition_addresses()
+    line = {address for address in additions if address.startswith("LINE:")}
+    # The ring BPMs' turn-by-turn channels sit on devices and join their family;
+    # the injection request and busy flag sit on the place, in no family.
+    turn_by_turn = {address for address in additions if address.startswith("SR:DIAG:BPM:")}
+    assert len(turn_by_turn) == 360
+    assert view == golden | line | turn_by_turn
 
 
 @pytest.mark.slow

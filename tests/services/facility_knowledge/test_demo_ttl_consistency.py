@@ -54,9 +54,9 @@ NARAD_PROPERTY = "https://narad.example.org/property/"
 #: Expected sizes, spelled out rather than derived, so a change to *both* sides
 #: at once still trips something.
 #: ``EXPECTED_CHANNELS`` counts the channel database; the view carries those and
-#: ``EXPECTED_BINDINGS`` in all, the 44 addresses the facility adds included.
+#: ``EXPECTED_BINDINGS`` in all, the 406 addresses the facility adds included.
 EXPECTED_CHANNELS = 2908
-EXPECTED_BINDINGS = 2952
+EXPECTED_BINDINGS = 3314
 EXPECTED_DEVICES = 532
 
 #: Devices carrying each device prose predicate: every device carries its
@@ -174,11 +174,17 @@ def additions() -> set[str]:
 
 @pytest.fixture(scope="module")
 def place_bound_additions(built_control_assistant: BuiltProject, additions: set[str]) -> set[str]:
-    """The added addresses whose channel record sits on a place and names no device."""
+    """The added addresses whose channel record sits on a place and names no signal.
+
+    A place-bound channel that names a signal (the ring's injection request and
+    busy flag) carries its direction like any device channel.
+    """
     return {
         str(channel["id"])
         for channel in built_control_assistant.facility["channels"]
-        if channel["id"] in additions and "device" not in (channel.get("on") or {})
+        if channel["id"] in additions
+        and "device" not in (channel.get("on") or {})
+        and not channel.get("signal")
     }
 
 
@@ -232,8 +238,8 @@ def test_demo_ttl_gives_every_channel_binding_exactly_one_direction(
 ) -> None:
     """No channel is both read and written, and none is neither.
 
-    The added addresses that sit on a place name no signal, so they are the
-    only bindings with no direction.
+    The added addresses that sit on a place and name no signal are the only
+    bindings with no direction.
     """
     read = _pvs_of_bindings_with(committed_graph, "readsSignal")
     written = _pvs_of_bindings_with(committed_graph, "writesSignal")

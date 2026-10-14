@@ -283,6 +283,2526 @@
       "description": "LINE VCM 04 current setpoint (A)"
     },
     {
+      "address": "SR:DIAG:BPM:01:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 01 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:01:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 01 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:01:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 01 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:01:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 01 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:01:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 01 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:02:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 02 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:02:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 02 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:02:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 02 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:02:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 02 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:02:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 02 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:03:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 03 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:03:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 03 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:03:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 03 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:03:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 03 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:03:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 03 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:04:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 04 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:04:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 04 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:04:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 04 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:04:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 04 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:04:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 04 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:05:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 05 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:05:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 05 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:05:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 05 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:05:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 05 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:05:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 05 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:06:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 06 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:06:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 06 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:06:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 06 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:06:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 06 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:06:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 06 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:07:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 07 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:07:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 07 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:07:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 07 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:07:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 07 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:07:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 07 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:08:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 08 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:08:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 08 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:08:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 08 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:08:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 08 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:08:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 08 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:09:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 09 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:09:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 09 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:09:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 09 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:09:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 09 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:09:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 09 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:10:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 10 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:10:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 10 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:10:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 10 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:10:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 10 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:10:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 10 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:11:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 11 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:11:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 11 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:11:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 11 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:11:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 11 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:11:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 11 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:12:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 12 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:12:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 12 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:12:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 12 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:12:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 12 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:12:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 12 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:13:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 13 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:13:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 13 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:13:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 13 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:13:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 13 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:13:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 13 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:14:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 14 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:14:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 14 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:14:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 14 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:14:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 14 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:14:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 14 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:15:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 15 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:15:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 15 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:15:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 15 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:15:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 15 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:15:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 15 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:16:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 16 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:16:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 16 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:16:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 16 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:16:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 16 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:16:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 16 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:17:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 17 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:17:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 17 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:17:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 17 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:17:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 17 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:17:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 17 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:18:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 18 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:18:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 18 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:18:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 18 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:18:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 18 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:18:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 18 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:19:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 19 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:19:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 19 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:19:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 19 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:19:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 19 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:19:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 19 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:20:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 20 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:20:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 20 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:20:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 20 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:20:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 20 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:20:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 20 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:21:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 21 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:21:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 21 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:21:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 21 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:21:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 21 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:21:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 21 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:22:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 22 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:22:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 22 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:22:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 22 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:22:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 22 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:22:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 22 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:23:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 23 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:23:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 23 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:23:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 23 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:23:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 23 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:23:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 23 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:24:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 24 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:24:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 24 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:24:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 24 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:24:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 24 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:24:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 24 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:25:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 25 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:25:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 25 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:25:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 25 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:25:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 25 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:25:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 25 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:26:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 26 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:26:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 26 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:26:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 26 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:26:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 26 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:26:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 26 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:27:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 27 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:27:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 27 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:27:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 27 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:27:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 27 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:27:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 27 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:28:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 28 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:28:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 28 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:28:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 28 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:28:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 28 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:28:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 28 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:29:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 29 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:29:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 29 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:29:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 29 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:29:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 29 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:29:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 29 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:30:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 30 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:30:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 30 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:30:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 30 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:30:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 30 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:30:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 30 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:31:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 31 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:31:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 31 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:31:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 31 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:31:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 31 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:31:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 31 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:32:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 32 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:32:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 32 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:32:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 32 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:32:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 32 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:32:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 32 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:33:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 33 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:33:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 33 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:33:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 33 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:33:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 33 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:33:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 33 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:34:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 34 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:34:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 34 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:34:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 34 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:34:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 34 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:34:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 34 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:35:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 35 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:35:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 35 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:35:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 35 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:35:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 35 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:35:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 35 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:36:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 36 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:36:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 36 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:36:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 36 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:36:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 36 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:36:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 36 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:37:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 37 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:37:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 37 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:37:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 37 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:37:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 37 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:37:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 37 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:38:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 38 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:38:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 38 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:38:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 38 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:38:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 38 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:38:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 38 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:39:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 39 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:39:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 39 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:39:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 39 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:39:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 39 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:39:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 39 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:40:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 40 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:40:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 40 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:40:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 40 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:40:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 40 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:40:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 40 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:41:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 41 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:41:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 41 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:41:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 41 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:41:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 41 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:41:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 41 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:42:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 42 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:42:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 42 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:42:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 42 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:42:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 42 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:42:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 42 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:43:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 43 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:43:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 43 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:43:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 43 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:43:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 43 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:43:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 43 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:44:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 44 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:44:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 44 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:44:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 44 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:44:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 44 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:44:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 44 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:45:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 45 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:45:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 45 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:45:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 45 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:45:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 45 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:45:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 45 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:46:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 46 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:46:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 46 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:46:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 46 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:46:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 46 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:46:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 46 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:47:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 47 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:47:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 47 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:47:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 47 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:47:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 47 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:47:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 47 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:48:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 48 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:48:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 48 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:48:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 48 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:48:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 48 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:48:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 48 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:49:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 49 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:49:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 49 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:49:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 49 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:49:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 49 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:49:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 49 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:50:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 50 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:50:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 50 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:50:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 50 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:50:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 50 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:50:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 50 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:51:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 51 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:51:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 51 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:51:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 51 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:51:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 51 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:51:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 51 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:52:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 52 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:52:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 52 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:52:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 52 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:52:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 52 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:52:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 52 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:53:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 53 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:53:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 53 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:53:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 53 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:53:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 53 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:53:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 53 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:54:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 54 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:54:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 54 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:54:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 54 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:54:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 54 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:54:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 54 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:55:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 55 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:55:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 55 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:55:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 55 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:55:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 55 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:55:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 55 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:56:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 56 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:56:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 56 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:56:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 56 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:56:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 56 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:56:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 56 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:57:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 57 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:57:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 57 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:57:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 57 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:57:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 57 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:57:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 57 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:58:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 58 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:58:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 58 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:58:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 58 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:58:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 58 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:58:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 58 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:59:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 59 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:59:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 59 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:59:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 59 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:59:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 59 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:59:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 59 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:60:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 60 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:60:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 60 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:60:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 60 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:60:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 60 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:60:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 60 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:61:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 61 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:61:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 61 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:61:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 61 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:61:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 61 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:61:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 61 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:62:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 62 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:62:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 62 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:62:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 62 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:62:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 62 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:62:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 62 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:63:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 63 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:63:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 63 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:63:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 63 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:63:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 63 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:63:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 63 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:64:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 64 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:64:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 64 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:64:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 64 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:64:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 64 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:64:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 64 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:65:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 65 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:65:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 65 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:65:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 65 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:65:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 65 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:65:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 65 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:66:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 66 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:66:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 66 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:66:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 66 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:66:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 66 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:66:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 66 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:67:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 67 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:67:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 67 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:67:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 67 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:67:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 67 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:67:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 67 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:68:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 68 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:68:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 68 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:68:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 68 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:68:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 68 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:68:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 68 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:69:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 69 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:69:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 69 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:69:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 69 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:69:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 69 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:69:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 69 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:70:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 70 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:70:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 70 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:70:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 70 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:70:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 70 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:70:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 70 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:71:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 71 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:71:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 71 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:71:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 71 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:71:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 71 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:71:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 71 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:72:TBT:ARM",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 72 turn-by-turn arm. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Arm Command (write-only): Writing 1 arms the acquisition for the next injected shot."
+    },
+    {
+      "address": "SR:DIAG:BPM:72:TBT:ARMED",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring beam position monitor 72 turn-by-turn armed. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Armed Status (read-only): 1 while the acquisition waits for a shot, 0 once the shot is recorded."
+    },
+    {
+      "address": "SR:DIAG:BPM:72:TBT:SUM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 72 turn-by-turn sum. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Sum Signal Series (read-only): 1 on a turn the beam passes this BPM, 0 where it is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:72:TBT:X",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 72 turn-by-turn position horizontal. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Horizontal Position Series (read-only): Beam X position per turn, in meters; not a number where the beam is lost."
+    },
+    {
+      "address": "SR:DIAG:BPM:72:TBT:Y",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "Storage ring beam position monitor 72 turn-by-turn position vertical. Turn-by-Turn Data: Beam position and signal sum on every turn after an injected shot. Vertical Position Series (read-only): Beam Y position per turn, in meters; not a number where the beam is lost."
+    },
+    {
       "address": "SR:DIAG:CHROM:X",
       "role": "readback",
       "value_type": "float",
@@ -299,6 +2819,20 @@
         "StorageRing_Chromaticity_Y"
       ],
       "description": "Storage ring chromaticity vertical"
+    },
+    {
+      "address": "SR:DIAG:INJECTION:BUSY",
+      "role": "readback",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring injection busy. Injection Busy (read-only): 1 while a requested shot is under way, 0 when the injector is ready for the next request."
+    },
+    {
+      "address": "SR:DIAG:INJECTION:REQUEST",
+      "role": "setpoint",
+      "value_type": "int",
+      "names": [],
+      "description": "Storage ring injection request. Injection Request (write-only): Each increase of this counter asks for one injected shot."
     },
     {
       "address": "SR:DIAG:TUNE:X",
