@@ -94,7 +94,8 @@ def _refuse(message: str, suggestion: str) -> NoReturn:
 def _timeout(config: dict[str, Any]) -> object:
     """The configured sandbox timeout, defaulted the way the executor defaults it.
 
-    An explicit null stays null, so the resolver refuses it by name.
+    An explicit null stays null, so the resolver refuses it by name; the
+    executor refuses the same value too.
     """
     from osprey_connectors.config import DEFAULT_EXECUTION_TIMEOUT_SECONDS
 

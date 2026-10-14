@@ -292,8 +292,12 @@ def test_correctors_outside_orm_are_refused(config_path: Path, kind: str, why: s
 # --- the timeout ------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("timeout", [None, 0, -1, float("inf"), True, "600"])
+@pytest.mark.parametrize("timeout", [None, 0, -1, float("inf"), float("nan"), True, "600"])
 def test_a_measurement_needs_a_finite_positive_timeout(config_path: Path, timeout: Any):
-    assert _refusal(config_path, timeout=timeout).startswith(
-        "python_executor.execution_timeout_seconds is"
-    )
+    with pytest.raises(ToolError) as refused:
+        _resolve(config_path, timeout=timeout)
+    envelope = assert_error(str(refused.value), error_type="validation_error")
+
+    assert str(envelope["error_message"]).startswith("python_executor.execution_timeout_seconds is")
+    assert "time bound" in str(envelope["error_message"])
+    assert any("time bound" in suggestion for suggestion in envelope["suggestions"])

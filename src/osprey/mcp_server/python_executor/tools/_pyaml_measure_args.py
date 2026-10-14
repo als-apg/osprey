@@ -16,8 +16,11 @@ The checks:
 * ``kind`` is one of :data:`KINDS`;
 * ``model`` names a model with a pyAML view; it may be omitted only when
   exactly one model has one;
-* the model's measurement file allows the kind; a kind it lacks is refused as
-  ``<kind> needs <instrument or group>, which <model> does not have``;
+* the model's measurement file allows the kind; a kind whose instrument or
+  group the model lacks is refused as
+  ``<kind> needs <instrument or group>, which <model> does not have``, and a
+  kind whose members exist but which ``kinds`` leaves out is refused as
+  ``<kind> is not a kind measurement/<model>.yaml allows``;
 * ``by`` is one of :data:`BYS`, taken by ``trm`` and ``crm`` alone, ``magnet``
   when omitted;
 * ``modulation`` is one of :data:`MODULATIONS`; a group is stepped once from
@@ -29,13 +32,14 @@ The checks:
 * the view's configuration resolves under ``<render>/data/pyaml/`` (symlinks
   followed) and exists;
 * the execution timeout (``python_executor.execution_timeout_seconds``) is a
-  finite positive number: the executor kills the measurement at that time.
+  finite positive number: a measurement moves the machine, the executor's kill
+  at that timeout is its one time bound, and a measurement with no bound is
+  not started.
 """
 
 from __future__ import annotations
 
 import json
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -137,17 +141,24 @@ def _one_of(name: str, value: object, allowed: Sequence[str]) -> str:
 
 
 def _timeout(timeout: object) -> float:
-    if (
-        isinstance(timeout, bool)
-        or not isinstance(timeout, int | float)
-        or not math.isfinite(timeout)
-        or timeout <= 0
-    ):
+    """The measurement's time bound, in seconds.
+
+    A measurement moves the machine. The executor kills it at
+    ``python_executor.execution_timeout_seconds``, which is its one time
+    bound, so a measurement with no bound is not started. The executor's own
+    rule decides the value; this surface only words the refusal.
+    """
+    from osprey.mcp_server.python_executor.executor import execution_timeout_seconds
+
+    try:
+        return execution_timeout_seconds(timeout)
+    except ValueError:
         _refuse(
-            f"{TIMEOUT_KEY} is {timeout!r}; a measurement needs a finite, positive timeout",
-            f"Set {TIMEOUT_KEY} to a positive number of seconds.",
+            f"{TIMEOUT_KEY} is {timeout!r}; a measurement moves the machine and the "
+            "executor's kill at this timeout is its one time bound",
+            f"Set {TIMEOUT_KEY} to a finite, positive number of seconds; a measurement "
+            "does not start without a time bound.",
         )
-    return float(timeout)
 
 
 def _view_records(render_root: Path) -> dict[str, Mapping[str, Any]]:
