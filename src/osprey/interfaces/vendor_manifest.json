@@ -26,9 +26,9 @@
     {
       "name": "DOMPurify",
       "filename": "purify.min.js",
-      "version": "3.4.12",
-      "url": "https://cdn.jsdelivr.net/npm/dompurify@3.4.12/dist/purify.min.js",
-      "sha256": "c45ba939765574f96cbf35ee9b6d89f73756a17921814425e74b82f7c54603ce",
+      "version": "3.4.16",
+      "url": "https://cdn.jsdelivr.net/npm/dompurify@3.4.16/dist/purify.min.js",
+      "sha256": "2c90a9b46d6463f26038a29b686e82bc91de01fdac9d5229e7cfe3b360134ea2",
       "targets": [
         "web_terminal/static/vendor/"
       ]

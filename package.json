@@ -17,7 +17,7 @@
     "@eslint/js": "^10",
     "globals": "^17",
     "marked": "12.0.2",
-    "dompurify": "3.4.12",
+    "dompurify": "3.4.16",
     "jsdom": "^30.1.2"
   }
 }
