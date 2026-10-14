@@ -37,7 +37,8 @@ class EnginePlugin(Protocol):
     ``fault_variables(wiring)``                             every fault a model built from the wiring       the model declares no faults
                                                             declares
     ``polynomial_kicks(deck, elements)``                    a deck copy carrying named kicks as dipole      the pyAML view stops ``engine-invalid``
-                                                            polynomials                                     when design correctors need it
+                                                            polynomials; stand-in until pyAML reads a       when design correctors need it
+                                                            dipole kick held in ``KickAngle``
     ``response_matrix(deck, wiring, settings,               ``(rows, matrix)``, the orbit response of the   ``model_response_matrix`` ends without a
     correctors, step)``                                     wired monitors                                  result; the response check stops
     ``SOLVE_ERRORS``                                        the exceptions meaning "this request has no     every exception is a failure, never a

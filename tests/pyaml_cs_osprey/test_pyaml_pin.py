@@ -7,8 +7,13 @@ The two specifiers must be string-equal: a drift between them would let one
 package be built and tested against a pyAML the other refuses.
 
 The release's ``MeasurementTool.save`` cannot write a measurement holding numpy
-values as JSON, which is why the measurement script carries its own writer; the
-last test fails on the first pinned release that can.
+values as JSON, which is why the measurement script carries its own writer; its
+test fails on the first pinned release that can. The release reads a zero-length
+magnet's polynomials as zero, which is why the pyAT plug-in lends such a
+corrector a length; its test fails on the first pinned release that reads the
+integrated strength. The release reads no kick held in ``KickAngle``, which is
+why the pyAT plug-in copies kicks into polynomials; its test fails on the first
+pinned release that reads it.
 """
 
 from __future__ import annotations
@@ -80,4 +85,58 @@ def test_pyaml_save_still_refuses_numpy_values(tmp_path: pathlib.Path) -> None:
         "osprey/mcp_server/python_executor/tools/_pyaml_measure_script.py go with "
         "test_a_measurement_holding_arrays_is_saved_as_json_lists, this test and its row in "
         "tests/infrastructure/test_stand_in_canaries.py"
+    )
+
+
+def test_pyaml_still_reads_a_zero_length_magnet_as_zero() -> None:
+    import at
+    from pyaml.lattice.abstract_impl import RWStrengthScalar
+    from pyaml.lattice.polynom_info import PolynomInfo
+
+    reading = RWStrengthScalar(
+        [at.ThinMultipole("thin", [0.0], [2.0e-3])], PolynomInfo("PolynomB", 0), None
+    ).get()
+    if reading == 0.0:
+        return
+    pytest.fail(
+        "the pinned pyAML reads a zero-length magnet's polynomials as its integrated strength "
+        f"(reading {reading}): the length borrow in osprey/simulation/engines/pyat.py "
+        "(POLYNOMIAL_KICK_LENGTH_M and its __all__ entry, _DRIFT_PASS, _length_donor, _shorten, "
+        "PolynomialKicks.refused and the refusals in polynomial_kicks), the unkicked list and its "
+        "note in osprey/facility/views/pyaml.py, their tests, this test and its row in "
+        "tests/infrastructure/test_stand_in_canaries.py go"
+    )
+
+
+def test_pyaml_still_reads_no_kick_angle() -> None:
+    import at
+    import numpy as np
+    from pyaml.lattice.abstract_impl import RWStrengthScalar
+    from pyaml.lattice.polynom_info import PolynomInfo
+
+    kick = np.array([1.0e-3, 2.0e-3])
+    elements = {
+        "a CorrectorPass corrector": at.Corrector(
+            "corrector", 0.1, kick.copy(), PolynomA=np.zeros(1), PolynomB=np.zeros(1)
+        ),
+        "a multipole": at.Multipole("multipole", 0.1, [0.0], [0.0], KickAngle=kick.copy()),
+    }
+    read = sorted(
+        name
+        for name, element in elements.items()
+        if RWStrengthScalar([element], PolynomInfo("PolynomB", 0), None).get() != 0.0
+    )
+    if not read:
+        return
+    pytest.fail(
+        f"the pinned pyAML reads the kick held in KickAngle of {read}: polynomial_kicks, "
+        "PolynomialKicks, _polynomial_kick, _fold_kick, _KICK_PASS, _KICK_ONLY_ATTRIBUTES, "
+        "_json_text and the __all__ entries in osprey/simulation/engines/pyat.py, the "
+        "EnginePlugin row in "
+        "osprey/simulation/engines/__init__.py, _design_lattice's call and engine-invalid stop "
+        "in osprey/facility/views/pyaml.py (the view then writes the deck as it is), the mention "
+        "in docs/source/contributing/extending-osprey.rst, "
+        "tests/simulation/test_pyat_polynomial_kicks.py, the polynomial-kick tests in "
+        "tests/facility/test_pyaml_view_lattice.py and tests/facility/test_pyaml_view.py, this "
+        "test and its row in tests/infrastructure/test_stand_in_canaries.py go"
     )

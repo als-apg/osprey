@@ -1070,6 +1070,7 @@ def response_matrix(
     return [reading.name for reading in monitors], matrix
 
 
+# Stand-in until pyAML reads a zero-length magnet's polynomials as its integrated strength; the length borrow and its refusals go with it.
 #: The length a zero-length kick element is given in a polynomial-kick copy,
 #: taken from the nearest drift beside it, else the nearest thick element: the
 #: kick's centre moves by half of it.
@@ -1102,6 +1103,7 @@ class PolynomialKicks:
     refused: tuple[str, ...]
 
 
+# Stand-in until pyAML reads a dipole kick held in KickAngle; polynomial_kicks and its EnginePlugin row go with it.
 def polynomial_kicks(deck: Deck, elements: Iterable[str]) -> PolynomialKicks:
     """Copy a deck so each named element carries its kick as its dipole polynomials.
 
