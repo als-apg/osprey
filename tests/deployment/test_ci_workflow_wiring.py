@@ -38,6 +38,7 @@ import copy
 import functools
 import importlib.util
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -8169,6 +8170,319 @@ def test_premerge_check_runs_the_plugin_version_check__mutation_drops_the_line()
     assert mutated != source, "the check invocation moved; this mutation is stale"
     with pytest.raises(AssertionError):
         test_premerge_check_runs_the_plugin_version_check(mutated)
+
+
+# ---------------------------------------------------------------------------
+# the merge gate runs every CI step that needs no secret or Docker
+# ---------------------------------------------------------------------------
+#
+# scripts/gate.sh is the one local spelling of the merge gate, so each check CI
+# runs without a secret or a container is a line of the gate too, spelled the
+# way the CI step spells it. The table below holds those steps; a new
+# no-secret CI step is one row here plus its line in gate.sh, and a step that
+# drifts on either side is red.
+
+FRONTEND_JS_JOB = "frontend-js"
+DOCS_JOB = "docs"
+#: How each side spells the comparison base of the two diff checks: CI reads
+#: the pull request's base ref, the gate its ``--base`` argument.
+CI_BASE = '"origin/$BASE_REF"'
+GATE_BASE = '"$base"'
+#: CI installs the docs extra in a step of its own; the gate installs it on the
+#: build line, so the build runs in the venv every other gate step uses.
+GATE_DOCS_EXTRA = " --extra docs"
+#: The directory the docs build runs in, on both sides.
+_DOCS_CD = "cd docs"
+
+
+@dataclass(frozen=True)
+class GateCiStep:
+    """One CI step the gate runs too. ``template`` is the command, with
+    ``{base}`` where the side's comparison base goes and ``{extra}`` where the
+    gate installs the docs extra; ``ci_only`` is a suffix only the CI line
+    carries, for the reason in ``reason``."""
+
+    job: str
+    step: str
+    template: str
+    ci_only: str = ""
+    reason: str = ""
+
+    def ci_line(self) -> str:
+        return self.template.format(base=CI_BASE, extra="") + self.ci_only
+
+    def gate_line(self) -> str:
+        return self.template.format(base=GATE_BASE, extra=GATE_DOCS_EXTRA)
+
+
+GATE_CI_STEPS = (
+    GateCiStep(LINT_JOB, LOCK_CHECK_STEP, "uv lock --check"),
+    GateCiStep(
+        LINT_JOB,
+        "Run ruff (linting)",
+        "uv run ruff check .",
+        ci_only=" --output-format=github",
+        reason="the hosted log's annotation format",
+    ),
+    GateCiStep(LINT_JOB, "Run ruff (formatting)", "uv run ruff format --check ."),
+    GateCiStep(
+        LINT_JOB,
+        "Run config-key resurrection guard (with back-test)",
+        "uv run python scripts/check_config_keys.py --back-test",
+    ),
+    GateCiStep(
+        LINT_JOB, CHANGELOG_STEP, "python3 scripts/changelog_fragments.py check --base {base}"
+    ),
+    GateCiStep(
+        LINT_JOB, PLUGIN_VERSION_STEP, "python3 scripts/plugin_version.py check --base {base}"
+    ),
+    GateCiStep(LINT_JOB, "Run mypy (type checking)", "uv run python scripts/mypy_gate.py"),
+    GateCiStep(FRONTEND_JS_JOB, "Typecheck (tsc --noEmit)", "npm run typecheck"),
+    GateCiStep(FRONTEND_JS_JOB, "Lint (eslint)", "npm run lint"),
+    GateCiStep(
+        DOCS_JOB,
+        "Build documentation",
+        'uv run{extra} make html SPHINXOPTS="-W --keep-going"',
+        reason="CI installs the docs extra in its own step",
+    ),
+)
+#: The rows whose CI side the lint-job sections above already pin, step and
+#: command; the cases here pin only their gate side.
+_CI_SIDE_PINNED_ABOVE = frozenset({LOCK_CHECK_STEP, CHANGELOG_STEP, PLUGIN_VERSION_STEP})
+_CI_SIDE_ROWS = tuple(row for row in GATE_CI_STEPS if row.step not in _CI_SIDE_PINNED_ABOVE)
+assert len({row.step for row in GATE_CI_STEPS}) == len(GATE_CI_STEPS)
+
+
+def _ci_run_command(run: str) -> str:
+    """A step's ``run`` as one command: stripped, minus a leading ``cd docs``."""
+    lines = run.strip().splitlines()
+    if len(lines) > 1 and lines[0].strip() == _DOCS_CD:
+        lines = lines[1:]
+    return "\n".join(line.strip() for line in lines)
+
+
+def _gate_commands(source: str) -> list[str]:
+    """Every command line of the gate, stripped; a ``(cd docs && <cmd>)`` line
+    counts as ``<cmd>``. Comments and blank lines are not commands."""
+    commands = []
+    for line in source.splitlines():
+        text = line.strip()
+        if not text or text.startswith("#"):
+            continue
+        prefix = f"({_DOCS_CD} && "
+        if text.startswith(prefix) and text.endswith(")"):
+            text = text[len(prefix) : -1]
+        commands.append(text)
+    return commands
+
+
+@pytest.mark.parametrize("row", _CI_SIDE_ROWS, ids=lambda row: row.step)
+def test_each_gate_step_is_its_ci_line(row: GateCiStep, workflow: dict[str, Any]) -> None:
+    """The CI step exists in its job and runs exactly the row's command, so the
+    gate line rendered from the same row is the command CI runs."""
+    step = _find_named_step(workflow, row.job, row.step)
+    assert _ci_run_command(step["run"]) == row.ci_line(), (
+        f"{row.job}/{row.step} runs {step['run']!r}, the table says {row.ci_line()!r}"
+    )
+
+
+@pytest.mark.parametrize("row", _CI_SIDE_ROWS, ids=lambda row: row.step)
+def test_each_gate_step_is_its_ci_line__mutation_edits_the_ci_line(row: GateCiStep) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, row.job, row.step)
+    step["run"] = step["run"].rstrip() + " --edited\n"
+    with pytest.raises(AssertionError):
+        test_each_gate_step_is_its_ci_line(row, mutated)
+
+
+@pytest.mark.parametrize("row", GATE_CI_STEPS, ids=lambda row: row.step)
+def test_the_gate_runs_each_ci_step_once(row: GateCiStep, gate_source: str | None = None) -> None:
+    """The gate holds the row's command, spelled its way, exactly once."""
+    source = _script_source(GATE_SCRIPT) if gate_source is None else gate_source
+    count = _gate_commands(source).count(row.gate_line())
+    assert count == 1, f"{GATE_SCRIPT} runs {row.gate_line()!r} {count} times, not once"
+
+
+@pytest.mark.parametrize("row", GATE_CI_STEPS, ids=lambda row: row.step)
+def test_the_gate_runs_each_ci_step_once__mutation_drops_the_line(row: GateCiStep) -> None:
+    source = _script_source(GATE_SCRIPT)
+    mutated = "\n".join(line for line in source.splitlines() if row.gate_line() not in line)
+    assert mutated != source, f"{GATE_SCRIPT} has no {row.gate_line()!r}; mutation is stale"
+    with pytest.raises(AssertionError):
+        test_the_gate_runs_each_ci_step_once(row, mutated)
+
+
+def test_the_gate_runs_each_ci_step_once__mutation_hardcodes_a_second_base() -> None:
+    (row,) = [row for row in GATE_CI_STEPS if row.step == CHANGELOG_STEP]
+    source = _script_source(GATE_SCRIPT)
+    mutated = source.replace(row.gate_line(), row.gate_line() + " --base origin/main", 1)
+    assert mutated != source, f"{GATE_SCRIPT} has no {row.gate_line()!r}; mutation is stale"
+    with pytest.raises(AssertionError):
+        test_the_gate_runs_each_ci_step_once(row, mutated)
+
+
+def _first_index(commands: list[str], predicate: Callable[[str], bool]) -> int:
+    return next((i for i, command in enumerate(commands) if predicate(command)), len(commands))
+
+
+def test_the_gate_checks_the_lockfile_before_any_uv_run(gate_source: str | None = None) -> None:
+    """Any ``uv run`` re-locks a stale lockfile, so the check that the lockfile
+    is current comes before the first of them, as it comes before the install
+    step in CI."""
+    commands = _gate_commands(_script_source(GATE_SCRIPT) if gate_source is None else gate_source)
+    lock = _first_index(commands, lambda command: command == "uv lock --check")
+    first_run = _first_index(commands, lambda command: "uv run " in command)
+    assert lock < len(commands), f"{GATE_SCRIPT} never checks the lockfile"
+    assert lock < first_run, f"{GATE_SCRIPT} runs `uv run` before `uv lock --check`"
+
+
+def test_the_gate_checks_the_lockfile_before_any_uv_run__mutation_moves_it_after_ruff() -> None:
+    source = _script_source(GATE_SCRIPT)
+    lines = source.splitlines()
+    lines.remove("uv lock --check")
+    ruff = max(i for i, line in enumerate(lines) if line.startswith("uv run ruff "))
+    lines.insert(ruff + 1, "uv lock --check")
+    with pytest.raises(AssertionError):
+        test_the_gate_checks_the_lockfile_before_any_uv_run("\n".join(lines))
+
+
+#: A vitest ``include`` glob's test-file extension set: ``*.test.{js,mjs}``.
+_VITEST_INCLUDE_EXT_RE = re.compile(r"\.test\.(?:\{([^}]*)\}|(\w+))['\"]")
+#: One arm of the gate's runner split that sends a file to vitest.
+_GATE_JS_ARM_RE = re.compile(r"\*\.test\.(\w+)")
+VITEST_CONFIG = CI_YML.parents[2] / "vitest.config.js"
+
+
+def _vitest_include_extensions() -> set[str]:
+    (include,) = re.findall(r"include:\s*\[([^\]]*)\]", VITEST_CONFIG.read_text(encoding="utf-8"))
+    extensions: set[str] = set()
+    for braced, single in _VITEST_INCLUDE_EXT_RE.findall(include):
+        extensions.update(ext.strip() for ext in (braced or single).split(","))
+    return extensions
+
+
+def _gate_js_extensions(source: str) -> set[str]:
+    """The extensions the gate's ``case`` arm sends to vitest."""
+    arms = [
+        line.strip()
+        for line in source.splitlines()
+        if line.strip().startswith("*.test.") and ")" in line
+    ]
+    assert len(arms) == 1, f"{GATE_SCRIPT} has {len(arms)} vitest arms in its split, not one"
+    return set(_GATE_JS_ARM_RE.findall(arms[0].split(")", 1)[0]))
+
+
+def test_the_gate_sends_vitest_exactly_the_files_vitest_includes(
+    gate_source: str | None = None,
+) -> None:
+    """A JS test is sent to vitest by the extensions vitest's own ``include``
+    lists: an extension the split lacks is a named test refused, one vitest
+    lacks is a named test vitest never finds."""
+    source = _script_source(GATE_SCRIPT) if gate_source is None else gate_source
+    assert _vitest_include_extensions(), "vitest.config.js lists no test extension"
+    assert _gate_js_extensions(source) == _vitest_include_extensions()
+
+
+def test_the_gate_sends_vitest_exactly_the_files_vitest_includes__mutation_drops_mjs() -> None:
+    source = _script_source(GATE_SCRIPT)
+    mutated = source.replace(" | *.test.mjs", "", 1)
+    assert mutated != source, f"{GATE_SCRIPT} has no .mjs arm; mutation is stale"
+    with pytest.raises(AssertionError):
+        test_the_gate_sends_vitest_exactly_the_files_vitest_includes(mutated)
+
+
+_GATE_FAST_JS = 'npm run test:js -- "${js[@]}"'
+
+
+def test_the_fast_gate_hands_vitest_only_the_js_tests(gate_source: str | None = None) -> None:
+    """In fast mode vitest gets the JS list, never every argument: a Python path
+    handed to vitest is a filter that matches no file."""
+    source = _script_source(GATE_SCRIPT) if gate_source is None else gate_source
+    forwarded = [command for command in _gate_commands(source) if "npm run test:js --" in command]
+    assert forwarded == [_GATE_FAST_JS], (
+        f"{GATE_SCRIPT} hands vitest {forwarded}, not {[_GATE_FAST_JS]}"
+    )
+
+
+def test_the_fast_gate_hands_vitest_only_the_js_tests__mutation_hands_every_argument() -> None:
+    source = _script_source(GATE_SCRIPT)
+    mutated = source.replace('"${js[@]}"', '"$@"', 1)
+    assert mutated != source, f"{GATE_SCRIPT} hands vitest no JS list; mutation is stale"
+    with pytest.raises(AssertionError):
+        test_the_fast_gate_hands_vitest_only_the_js_tests(mutated)
+
+
+def _run_gate_with_tool_tripwires(
+    tmp_path: Path, *args: str
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    """Run the gate with ``uv``, ``npm`` and ``npx`` replaced by stand-ins that
+    leave a mark, so a stop can be proven to come before any of them."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    mark = tmp_path / "a tool ran"
+    for tool in ("uv", "npm", "npx"):
+        stand_in = bin_dir / tool
+        stand_in.write_text(f'#!/bin/sh\necho "$0" >> "{mark}"\nexit 99\n', encoding="utf-8")
+        stand_in.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+    result = subprocess.run(
+        ["bash", str(CI_YML.parents[2] / GATE_SCRIPT), *args],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+    )
+    return result, mark
+
+
+def test_the_gate_refuses_a_test_no_runner_takes(tmp_path: Path) -> None:
+    result, mark = _run_gate_with_tool_tripwires(tmp_path, "fast", "--base", "HEAD", "tests/x.txt")
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "gate: tests/x.txt belongs to no test runner" in result.stderr
+    assert not mark.exists(), f"a tool ran before the stop: {mark.read_text()}"
+
+
+def test_the_gate_refuses_a_base_that_does_not_resolve(tmp_path: Path) -> None:
+    result, mark = _run_gate_with_tool_tripwires(tmp_path, "full", "--base", "no/such/ref")
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "gate: base no/such/ref does not resolve; fetch it or pass --base" in result.stderr
+    assert not mark.exists(), f"a tool ran before the stop: {mark.read_text()}"
+
+
+#: The written-down copies of a gate step a contributor or a skill runs by hand,
+#: each held to its row's CI line.
+DOCUMENTED_GATE_STEPS = (("plugins/osprey/skills/doc-sync/SKILL.md", "Build documentation"),)
+
+
+def _documented_commands(source: str) -> list[str]:
+    """The doc's shell lines, each split at ``&&`` into commands."""
+    return [part.strip() for line in source.splitlines() for part in line.split("&&")]
+
+
+@pytest.mark.parametrize(
+    ("path", "step"), DOCUMENTED_GATE_STEPS, ids=[p for p, _ in DOCUMENTED_GATE_STEPS]
+)
+def test_documented_gate_steps_are_the_ci_line(
+    path: str, step: str, doc_source: str | None = None
+) -> None:
+    """A documented copy of a gate step is the command a reader runs, so it is
+    the CI line, not a variant of it."""
+    (row,) = [row for row in GATE_CI_STEPS if row.step == step]
+    source = _script_source(path) if doc_source is None else doc_source
+    assert row.ci_line() in _documented_commands(source), (
+        f"{path} no longer documents {row.ci_line()!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("path", "step"), DOCUMENTED_GATE_STEPS, ids=[p for p, _ in DOCUMENTED_GATE_STEPS]
+)
+def test_documented_gate_steps_are_the_ci_line__mutation_drops_a_flag(path: str, step: str) -> None:
+    source = _script_source(path)
+    mutated = source.replace(' SPHINXOPTS="-W --keep-going"', "", 1)
+    assert mutated != source, f"{path} documents no docs build; mutation is stale"
+    with pytest.raises(AssertionError):
+        test_documented_gate_steps_are_the_ci_line(path, step, mutated)
 
 
 # ---------------------------------------------------------------------------
