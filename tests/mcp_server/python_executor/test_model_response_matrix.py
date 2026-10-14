@@ -476,12 +476,7 @@ class TestRefusals:
 #: A plug-in whose solve holds the interpreter in pure Python until it is killed.
 SPIN_ENGINE = textwrap.dedent(
     """
-    import os
-    from pathlib import Path
-
-
     def response_matrix(deck, wiring, settings, correctors, step):
-        (Path(__file__).parent / "spin.pid").write_text(str(os.getpid()))
         while True:
             pass
     """
@@ -504,6 +499,16 @@ def test_a_solve_that_never_returns_is_refused_at_the_timeout(
     sandbox["timeout"] = SPIN_TIMEOUT_S
     monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "spin_engine")
     finished: dict[str, float] = {}
+    recorded: list[executor.ExecutionResult] = []
+    real_execute_code = executor.execute_code
+
+    async def spy(*args: Any, **kwargs: Any) -> executor.ExecutionResult:
+        result = await real_execute_code(*args, **kwargs)
+        if kwargs.get("tool") == tool.TOOL_NAME:
+            recorded.append(result)
+        return result
+
+    monkeypatch.setattr(executor, "execute_code", spy)
 
     async def solve() -> None:
         try:
@@ -527,7 +532,8 @@ def test_a_solve_that_never_returns_is_refused_at_the_timeout(
         f"the response of {LINE} was not solved within the executor's timeout"
     )
     assert envelope["details"] == {"model": LINE, "kind": executor.FAILURE_KIND_TIMEOUT}
-    pid = int((sandbox["folders"][0] / "spin.pid").read_text())
+    pid = recorded[0].pid
+    assert pid is not None
     assert _gone(pid)
     assert alongside.success, alongside.stderr
     assert alongside.stdout.strip() == "alongside"
