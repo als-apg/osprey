@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 13, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 14, 2026"/>
   </head>
   
   
@@ -696,6 +696,21 @@ embedded panel matches the terminal it sits in no matter what was set
 elsewhere. The embedded panel has no header of its own either — the
 terminal’s tile bar is the one header — so the sliders button does not
 appear there.</p>
+<p>The embedded panel’s tile bar offers Browse and New Entry, and opens on
+Browse: inside the terminal, the agent searches the logbook. A deployment that
+wants the Search view there too turns it on in its profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel.embedded_search</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p>The embedded panel then opens on Search, with Search ahead of Browse and New
+Entry. Keyword search works immediately against the ARIEL full-text index;
+semantic and hybrid choices are shown only when their configured services are
+available. The standalone interface always offers Search. Opening a stored,
+viewable picture from an entry also offers <strong>Use in Workspace</strong>. It copies the
+prepared rendition into the local Workspace gallery with its logbook
+provenance, then activates Workspace in the browser that clicked it. Ask the
+agent about that Workspace artifact; it resolves the provenance and reads the
+same stored attachment pixels rather than an external logbook URL.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/capabilities</span></code> endpoint the interface calls at startup, and the
 parameter descriptors it returns, are documented in
 <a class="reference internal" href="../../reference/contracts/ariel.html"><span class="doc">ARIEL Contracts</span></a>.</p>

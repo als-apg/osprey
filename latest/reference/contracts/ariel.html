@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 13, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 14, 2026"/>
   </head>
   
   
@@ -835,6 +835,7 @@ through the FastAPI lifespan. For cleanup in tests, use
 <section id="capabilities-api">
 <h2>Capabilities API<a class="headerlink" href="#capabilities-api" title="Link to this heading">#</a></h2>
 <p>The web interface discovers its search modes and tunable parameters dynamically at startup by calling <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/capabilities</span></code>.</p>
+<p>The payload’s <code class="docutils literal notranslate"><span class="pre">embedded_search</span></code> boolean is <code class="docutils literal notranslate"><span class="pre">ariel.embedded_search</span></code>: whether the panel embedded in the web terminal offers its Search view and opens on it. A page that cannot read it treats it as false, so embedded it opens on Browse; the standalone page offers Search either way.</p>
 <p><strong>The “add a module, get a UI knob for free” pattern:</strong> When you register a custom search module with <code class="docutils literal notranslate"><span class="pre">get_parameter_descriptors()</span></code>, its parameters automatically appear in the web interface’s advanced options panel. The <code class="docutils literal notranslate"><span class="pre">ParameterDescriptor</span></code> dataclass supports types <code class="docutils literal notranslate"><span class="pre">int</span></code>, <code class="docutils literal notranslate"><span class="pre">float</span></code>, <code class="docutils literal notranslate"><span class="pre">bool</span></code>, <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">date</span></code>, <code class="docutils literal notranslate"><span class="pre">select</span></code>, and <code class="docutils literal notranslate"><span class="pre">dynamic_select</span></code> (which fetches options from an API endpoint). Parameters are grouped by <code class="docutils literal notranslate"><span class="pre">section</span></code> for visual organization.</p>
 <div class="note admonition">
 <p class="admonition-title">Security &amp; Resilience</p>
