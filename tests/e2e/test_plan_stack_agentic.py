@@ -3549,7 +3549,9 @@ async def test_agent_measures_orbit_response_on_a_healthy_stack(
         # No Bash/Glob/Grep. The agent's compute path is the sanctioned python
         # executor; shell and filesystem search would let it inspect the
         # deployed project instead of measuring the machine it was asked about.
-        disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
+        # The pyAML measurement tool is a second route to the same request; the
+        # lane measures through the queue, which is the only route its floor reads.
+        disallowed_tools=[*SCENARIO_INTEGRITY_DISALLOWED_TOOLS, "mcp__python__pyaml_measure"],
     )
 
     # Before any assertion — see dump_agent_transcript. The judge's criterion 2
