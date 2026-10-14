@@ -364,7 +364,7 @@ async def get_run_data(
 RUN_DATA_MAX_BYTES = 64_000
 
 
-def _fit_to_budget(body: dict[str, Any], budget: int, *, tail: bool) -> str:
+def _fit_to_budget(body: dict[str, Any] | list[Any], budget: int, *, tail: bool) -> str:
     """``body`` as JSON, its window cut to the most rows whose answer fits ``budget`` bytes.
 
     The cut keeps the rows nearest the window's anchor: the first rows, or the
@@ -373,6 +373,8 @@ def _fit_to_budget(body: dict[str, Any], budget: int, *, tail: bool) -> str:
     fits the budget.
     """
     text = json.dumps(body)
+    if not isinstance(body, dict):
+        return text
     rows = body.get("rows")
     if len(text) <= budget or not isinstance(rows, list) or not rows:
         return text
