@@ -309,7 +309,7 @@ def _result_line(stdout: str) -> dict[str, Any] | None:
     value = json.loads(lines[-1])
     if not isinstance(value, dict):
         return None
-    if "error" in value or _SOLVED_KEYS <= value.keys():
+    if "refused" in value or _SOLVED_KEYS <= value.keys():
         return value
     return None
 
@@ -356,7 +356,9 @@ async def model_response_matrix(
         step}`` per solved corrector, ``step`` in its hardware unit),
         ``matrix`` (one list per row) and ``unsolved`` (each corrector whose
         step has no solve, mapped to the engine's text). When no corrector
-        solves, the call is refused with every unsolved text.
+        solves, the call is refused with every unsolved text and
+        ``details.unsolved`` holding the same map; when the engine refuses
+        the request, the call is refused with the engine's text.
     """
     from osprey.mcp_server.python_executor import executor
     from osprey.mcp_server.python_executor.tools._pyaml_measure_args import TIMEOUT_KEY
@@ -392,12 +394,19 @@ async def model_response_matrix(
             ["Read stderr for the reason."],
             details={"model": request.model, "stderr": (result.stderr or "")[-2000:]},
         )
-    if "error" in line:
+    if "refused" in line:
+        make_error(
+            "validation_error",
+            f"the response of {request.model} was refused: {line['refused']}",
+            [],
+            details={"model": request.model},
+        )
+    if not line["columns"]:
         make_error(
             "execution_error",
-            f"the response of {request.model} has no solve: {line['error']}",
+            f"the response of {request.model} has no solve: {'; '.join(line['unsolved'].values())}",
             [f"Name other correctors, or check {STEP_KEY} in measurement/{request.model}.yaml."],
-            details={"model": request.model},
+            details={"model": request.model, "unsolved": line["unsolved"]},
         )
     return json.dumps(_label(request, line))
 

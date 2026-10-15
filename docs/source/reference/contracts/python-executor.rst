@@ -172,7 +172,10 @@ change in its hardware unit per setpoint change in its own. The result carries
 ``rows`` and ``columns``, each named by address and device id, each column's
 ``step``, the ``matrix`` and ``unsolved``. A corrector whose step has no solve
 has no column; ``unsolved`` maps it to the engine's text. When no corrector
-solves, the call is refused with every unsolved text.
+solves, the call is refused as an ``execution_error`` with every unsolved text,
+and ``details.unsolved`` holds the same map as the result's ``unsolved``. When
+the engine refuses the request itself, the call is refused as a
+``validation_error`` with the engine's text.
 
 Installation
 ============

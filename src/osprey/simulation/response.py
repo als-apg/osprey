@@ -38,12 +38,13 @@ def _refusal(exc: Exception, engine: Any) -> bool:
 def solve_and_print(payload: Mapping[str, Any]) -> None:
     """Solve one request and print its :data:`RESULT_TAG` line.
 
-    Prints ``{"rows", "columns", "matrix", "unsolved"}`` when at least one
-    corrector solved: ``columns`` the solved correctors, ``matrix`` one column
-    each, ``unsolved`` each corrector whose step has no solve mapped to the
-    engine's text. Prints ``{"error"}`` with the engine's own text when the
-    engine refuses or no corrector solved, each unsolved text joined by
-    ``"; "``. Any other failure raises, and no result line is printed.
+    Prints ``{"refused"}`` with the engine's own text when the engine refuses
+    the request. Otherwise prints ``{"rows", "columns", "matrix",
+    "unsolved"}``: ``columns`` the solved correctors, possibly none,
+    ``matrix`` one column each, ``unsolved`` each corrector whose step has no
+    solve mapped to the engine's text; the tool decides that a line with no
+    column is a refusal. Any other failure raises, and no result line is
+    printed.
 
     Args:
         payload: ``render_root``, ``model``, ``engine_module``, ``correctors``
@@ -68,16 +69,12 @@ def solve_and_print(payload: Mapping[str, Any]) -> None:
     except Exception as exc:
         if not _refusal(exc, engine):
             raise
-        print(RESULT_TAG, json.dumps({"error": str(exc)}), flush=True)
-        return
-    unsolved = {str(address): str(text) for address, text in result.unsolved.items()}
-    if not result.columns:
-        print(RESULT_TAG, json.dumps({"error": "; ".join(unsolved.values())}), flush=True)
+        print(RESULT_TAG, json.dumps({"refused": str(exc)}), flush=True)
         return
     line = {
         "rows": [str(row) for row in result.rows],
         "columns": [str(column) for column in result.columns],
         "matrix": [[float(value) for value in row] for row in result.matrix],
-        "unsolved": unsolved,
+        "unsolved": {str(address): str(text) for address, text in result.unsolved.items()},
     }
     print(RESULT_TAG, json.dumps(line), flush=True)

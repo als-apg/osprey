@@ -395,6 +395,15 @@ class TestSolveErrors:
         assert envelope["error_type"] == "execution_error"
         assert envelope["error_message"].startswith(f"the response of {LINE} has no solve: lost")
         assert envelope["error_message"].endswith(f"(while stepping {LINE_KICK})")
+        assert envelope["details"].keys() == {"model", "unsolved"}
+        assert envelope["details"]["model"] == LINE
+        assert list(envelope["details"]["unsolved"]) == [LINE_KICK]
+        text = envelope["details"]["unsolved"][LINE_KICK]
+        assert text.startswith("lost")
+        assert text.endswith(f"(while stepping {LINE_KICK})")
+        assert envelope["suggestions"] == [
+            f"Name other correctors, or check corrector_delta in measurement/{LINE}.yaml."
+        ]
 
     def test_a_destabilising_step_on_sr_names_the_corrector(self, sandbox, sr_render, tmp_path):
         render = _copy_render(sr_render, tmp_path / "sr")
@@ -408,7 +417,7 @@ class TestSolveErrors:
         assert message.startswith("the response of SR has no solve:")
         assert message.endswith(f"(while stepping {CORRECTOR_X})")
 
-    def test_a_plug_in_declaring_its_solve_error_gets_its_text_back(
+    def test_an_engine_refusing_the_request_is_refused_with_its_text(
         self, sandbox, tmp_path, monkeypatch
     ):
         sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
@@ -419,10 +428,12 @@ class TestSolveErrors:
             _call(model=LINE)
 
         envelope = _envelope(raised)
-        assert envelope["error_type"] == "execution_error"
+        assert envelope["error_type"] == "validation_error"
         assert envelope["error_message"] == (
-            f"the response of {LINE} has no solve: no optics for this deck"
+            f"the response of {LINE} was refused: no optics for this deck"
         )
+        assert envelope["suggestions"] == []
+        assert envelope["details"] == {"model": LINE}
 
     def test_a_solve_error_the_plug_in_does_not_declare_ends_without_a_result(
         self, sandbox, tmp_path, monkeypatch
@@ -436,9 +447,16 @@ class TestSolveErrors:
 
         assert _envelope(raised)["error_message"] == (f"the solve of {LINE} ended without a result")
 
-    def test_a_result_line_without_a_matrix_ends_without_a_result(self, sr_render, monkeypatch):
+    @pytest.mark.parametrize(
+        "printed",
+        [{"rows": ["SR:BPM:01:X:RB"]}, {"error": "x"}],
+        ids=["without-a-matrix", "retired-error-key"],
+    )
+    def test_a_result_line_without_a_matrix_ends_without_a_result(
+        self, sr_render, monkeypatch, printed
+    ):
         async def solved(**_: Any) -> executor.ExecutionResult:
-            line = json.dumps({"rows": ["SR:BPM:01:X:RB"]})
+            line = json.dumps(printed)
             return executor.ExecutionResult(
                 success=True, stdout=f"{RESULT_TAG} {line}\n", stderr=""
             )
@@ -486,12 +504,13 @@ class TestSolveErrors:
             "SR", [CORRECTOR_X, CORRECTOR_Y], render_root=sr_render
         )
 
-        error = _child_line(request)["error"]
+        line = _child_line(request)
 
-        first, second = error.split("; ")
-        assert first.startswith("closed orbit solve raised AtError:")
-        assert first.endswith(f"(while stepping {CORRECTOR_X})")
-        assert second.endswith(f"(while stepping {CORRECTOR_Y})")
+        assert line["columns"] == []
+        assert list(line["unsolved"]) == [CORRECTOR_X, CORRECTOR_Y]
+        for address, text in line["unsolved"].items():
+            assert text.startswith("closed orbit solve raised AtError:")
+            assert text.endswith(f"(while stepping {address})")
 
 
 class TestRefusals:
