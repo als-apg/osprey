@@ -30,6 +30,15 @@ guides are the better starting point.
       come back, how a write reports whether it took effect and which safety
       gates it passes first, and the archiver's historical-data contract.
 
+   .. grid-item-card:: Partial Answers
+      :link: partial-answers
+      :link-type: doc
+      :shadow: md
+
+      How a tool asked for several things says what it did not answer: the
+      ``missing`` map, the ``nothing_answered`` error, and the tools that
+      carry them.
+
    .. grid-item-card:: Python Executor Contract
       :link: python-executor
       :link-type: doc
@@ -96,6 +105,7 @@ guides are the better starting point.
 
    health-json
    connectors
+   partial-answers
    python-executor
    ariel
    channel-finder

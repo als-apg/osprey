@@ -68,8 +68,8 @@ of its channels, and says so:
 
 The controls tools report both as error type ``not_found``, naming the address
 under ``details.channel``. A read that names several channels still succeeds
-for the ones that answered and lists the unknown address under
-``channels_failed``; a batch write reports the unknown address as its
+for the ones that answered and names the unknown address under ``missing``
+(see :doc:`partial-answers`); a batch write reports the unknown address as its
 ``refused`` row beside the rows that were written.
 
 A Channel Access connector cannot tell an unknown name from an unreachable one
