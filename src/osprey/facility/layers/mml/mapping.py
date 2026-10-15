@@ -1936,9 +1936,9 @@ def _draft_devices(
         devices with, all keyed by raw family.
     """
     from osprey.facility.layers.mml.identity import (
-        _lent_rows,
         axis_twins,
         device_ids,
+        lent_rows,
         stated_ids,
     )
 
@@ -1961,7 +1961,7 @@ def _draft_devices(
 
     def lends(other: str) -> bool:
         return all(
-            not _lent_rows(view, [d or "" for d in stated_ids(view, systems, models)])[1]
+            not lent_rows(view, [d or "" for d in stated_ids(view, systems, models)])[1]
             for view in carried[other]
         )
 

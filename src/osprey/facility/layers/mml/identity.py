@@ -70,6 +70,7 @@ __all__ = [
     "device_ids",
     "endpoints",
     "id_token",
+    "lent_rows",
     "row_coordinate",
     "split_identities",
     "stated_ids",
@@ -297,7 +298,7 @@ def _coordinate_ids(
     return ids
 
 
-def _lent_rows(target: FamilyView, target_ids: Sequence[str]) -> tuple[dict[Any, str], set[Any]]:
+def lent_rows(target: FamilyView, target_ids: Sequence[str]) -> tuple[dict[Any, str], set[Any]]:
     """Each row's id as the target's first slot at it, and the rows it states
     at slots that are different devices."""
     first: dict[Any, str] = {}
@@ -323,7 +324,7 @@ def _matched_ids(
     where it is matched, whatever the target's answer.
     """
     raw, key = view.raw_name, f"families.{view.raw_name}.devices"
-    first, repeated = _lent_rows(target, target_ids)
+    first, repeated = lent_rows(target, target_ids)
     ids: list[str] = []
     for row in view.device_rows or ():
         found = _row_key(row)
