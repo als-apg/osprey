@@ -174,6 +174,11 @@ class Exports:
         va: Each system's sampled model facts (``<stem>.va.json``).
         responses: Each system's response export (``<stem>.response.json``).
         states: Each system's ``state`` block of ``<stem>.model.json``.
+        correctors: Each system's families the export tags as tune (``quad``)
+            and chromaticity (``sext``) correctors, in export order: the
+            ``families`` keys of ``<stem>.model.json``'s ``tune_response`` and
+            ``chromaticity_response``. A refused or absent section gives no
+            entry.
         decks: Each system's saved deck (``<stem>.lattice.mat``).
     """
 
@@ -182,6 +187,7 @@ class Exports:
     va: dict[str, Any] = field(default_factory=dict)
     responses: dict[str, Path] = field(default_factory=dict)
     states: dict[str, dict[str, Any]] = field(default_factory=dict)
+    correctors: dict[str, dict[str, tuple[str, ...]]] = field(default_factory=dict)
     decks: dict[str, Path] = field(default_factory=dict)
 
     @property
@@ -251,13 +257,35 @@ def read_exports(paths: Sequence[Path]) -> Exports:
             exports.responses[system] = response
         model = paired_sibling(loaded.source, MODEL_SUFFIX)
         if model is not None:
-            state = load_sibling(model).get("state")
+            facts = load_sibling(model)
+            state = facts.get("state")
             if isinstance(state, dict):
                 exports.states[system] = state
+            correctors = _tagged_correctors(facts)
+            if correctors:
+                exports.correctors[system] = correctors
         deck = paired_sibling(loaded.source, LATTICE_SUFFIX)
         if deck is not None:
             exports.decks[system] = deck
     return exports
+
+
+#: Each tuning group role and the ``<stem>.model.json`` section naming its correctors.
+_CORRECTOR_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("quad", "tune_response"),
+    ("sext", "chromaticity_response"),
+)
+
+
+def _tagged_correctors(facts: dict[str, Any]) -> dict[str, tuple[str, ...]]:
+    """The families each tuning role's section of a model export names, in export order."""
+    tagged: dict[str, tuple[str, ...]] = {}
+    for role, section in _CORRECTOR_SECTIONS:
+        block = facts.get(section)
+        families = block.get("families") if isinstance(block, dict) else None
+        if isinstance(families, dict) and families:
+            tagged[role] = tuple(str(family) for family in families)
+    return tagged
 
 
 #: What every line about a deck that disagrees with its export ends in.

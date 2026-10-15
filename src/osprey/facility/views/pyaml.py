@@ -59,6 +59,7 @@ __all__ = [
     "LATTICE_FILE",
     "PYAML_DIR",
     "ROLE_PLANES",
+    "SINGLE_PASS_KINDS",
     "TOOL_KEYS",
     "TRM_FILE",
     "measured_models",
@@ -154,6 +155,9 @@ KIND_MEMBERS: dict[str, tuple[str, ...]] = {
     "crm": ("sext", "tune", "rf"),
     "chromaticity_monitor": ("tune", "rf"),
 }
+
+#: The kinds a model solved in a single pass allows.
+SINGLE_PASS_KINDS: tuple[str, ...] = ("orm",)
 
 #: The setpoints each kind writes: its group roles, and ``rf`` for the setpoint
 #: the view's RF plant steps. The approval prompt lists every one of them.

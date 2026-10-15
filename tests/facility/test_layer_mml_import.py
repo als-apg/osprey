@@ -18,7 +18,12 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.layers.mml.importer import LAYER_DIR, MappingProblems, import_mml
+from osprey.facility.layers.mml.importer import (
+    LAYER_DIR,
+    MappingProblems,
+    import_mml,
+    read_exports,
+)
 from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop
 from osprey.facility.validate import run_stages
 from tests.facility._mml_built import BuiltModel
@@ -576,3 +581,13 @@ def test_a_readback_several_setpoints_share_pairs_none_of_them(tmp_path: Path) -
         assert channels[setpoint]["role"] == "setpoint"
         assert "pair" not in channels[setpoint], setpoint
         assert built[setpoint]["pair"] == setpoint
+
+
+def test_the_export_tags_the_tune_and_chromaticity_correctors_in_export_order() -> None:
+    exports = read_exports([FIXTURES / "spear3" / "spear3.storagering.ao.json"])
+    (system,) = exports.systems
+    assert exports.correctors == {system: {"quad": ("QF", "QD"), "sext": ("SF", "SD")}}
+
+
+def test_an_export_refusing_its_corrector_sections_tags_no_corrector() -> None:
+    assert read_exports([FIXTURES / "synthetic" / "quokka.sr.ao.json"]).correctors == {}

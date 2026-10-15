@@ -1912,6 +1912,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
         GROUP_ROLES,
         KIND_MEMBERS,
         ROLE_PLANES,
+        SINGLE_PASS_KINDS,
         TOOL_KEYS,
         measurement_groups,
         tune_references,
@@ -1946,7 +1947,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
             )
         grouped = measurement_groups(document, name)
         for kind in measurement.get("kinds") or []:
-            if kind != "orm" and _single_pass(model):
+            if kind not in SINGLE_PASS_KINDS and _single_pass(model):
                 yield _measurement_missing(
                     name,
                     f"kind {kind} needs a periodic solve; model {name} solves single_pass",
