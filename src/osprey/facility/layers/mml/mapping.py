@@ -156,6 +156,7 @@ __all__ = [
     "read_mapping",
     "require_decided",
     "undecided_slots",
+    "vocabulary_parents",
 ]
 
 #: The values a ``directions.*.direction`` slot may hold; ``None`` is undecided.
@@ -1007,7 +1008,7 @@ _ANSWER_DEVICES = (
 
 
 @functools.cache
-def _vocabulary() -> dict[str, str | None]:
+def vocabulary_parents() -> dict[str, str | None]:
     """The vocabulary's device classes, each mapped to its parent (the root to None).
 
     The returned mapping is shared and read-only.
@@ -1021,7 +1022,7 @@ def _vocabulary() -> dict[str, str | None]:
 
 
 def _vocabulary_classes() -> frozenset[str]:
-    return frozenset(_vocabulary())
+    return frozenset(vocabulary_parents())
 
 
 def undecided_slots(mapping: Mapping) -> list[tuple[str, str]]:
@@ -1190,7 +1191,7 @@ def _unknown_class(name: str) -> str:
 
 
 def _family_classes(mapping: Mapping) -> Iterator[Problem]:
-    vocabulary = _vocabulary()
+    vocabulary = vocabulary_parents()
     for raw, family in mapping.families.items():
         path = f"families.{raw}"
         if family.class_ is None:
@@ -1238,7 +1239,7 @@ def _family_devices(mapping: Mapping) -> Iterator[Problem]:
 
 
 def _declared_branches(mapping: Mapping) -> Iterator[Problem]:
-    vocabulary = _vocabulary()
+    vocabulary = vocabulary_parents()
     for name, branch in mapping.branches.items():
         path = f"branches.{name}"
         if name in vocabulary:
@@ -2003,7 +2004,7 @@ def _device_sets(views: Sequence[Any]) -> list[tuple[list[str], list[tuple[Any, 
         Each set's raw families in import order, with its evidence as
         ``(address, (view index, field, slot), (view index, field, slot))``.
     """
-    from osprey.facility.layers.mml.identity import _coordinate
+    from osprey.facility.layers.mml.identity import row_coordinate
 
     bound: dict[tuple[str, str], dict[int, list[tuple[str, int]]]] = {}
     for at, view in enumerate(views):
@@ -2029,11 +2030,11 @@ def _device_sets(views: Sequence[Any]) -> list[tuple[list[str], list[tuple[Any, 
             if len(slots) == 1 and views[at].device_rows is not None
         ]
         for first, (at, (name, slot)) in enumerate(single):
-            row = _coordinate(views[at].device_rows[slot])
+            row = row_coordinate(views[at].device_rows[slot])
             for other, (other_name, other_slot) in single[first + 1 :]:
                 if views[other].raw_name == views[at].raw_name or row is None:
                     continue
-                if _coordinate(views[other].device_rows[other_slot]) != row:
+                if row_coordinate(views[other].device_rows[other_slot]) != row:
                     continue
                 evidence.append((address, (at, name, slot), (other, other_name, other_slot)))
                 parent[root(views[other].raw_name)] = root(views[at].raw_name)
@@ -2082,7 +2083,7 @@ def _one_identity(
     Returns:
         The other families of each set that stepped in, keyed by raw family.
     """
-    from osprey.facility.layers.mml.identity import _coordinate, _word
+    from osprey.facility.layers.mml.identity import id_token, row_coordinate
 
     shared: dict[str, list[str]] = {}
     for members, evidence in _device_sets(views):
@@ -2100,7 +2101,7 @@ def _one_identity(
             raw: [at for at, view in enumerate(views) if view.raw_name == raw] for raw in members
         }
         stated = {
-            at: [_coordinate(row) for row in views[at].device_rows or ()]
+            at: [row_coordinate(row) for row in views[at].device_rows or ()]
             for found in carried.values()
             for at in found
         }
@@ -2116,7 +2117,7 @@ def _one_identity(
         ):
             continue
 
-        stem = _word(largest)
+        stem = id_token(largest)
         for raw in members:
             if answers.get(raw) != "names" or not carried[raw]:
                 continue
