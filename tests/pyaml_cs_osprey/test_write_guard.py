@@ -383,3 +383,23 @@ class TestMovedListsOnlyWhatMoved:
             device.set(10.0)
 
         assert guarded.moved == {BATCH[0]: 1.0}
+
+    def test_an_interrupt_escaping_the_write_lists_every_pending_address(
+        self, serve: Any, guarded: RunRecord
+    ) -> None:
+        """A ``KeyboardInterrupt`` before any attempt: the write may still go out."""
+        machine = serve(_BatchConnector(lambda _a, _v: None))
+        interrupt = KeyboardInterrupt()
+
+        def write(**_kwargs: Any) -> None:
+            raise interrupt
+
+        def unmapped(exc: BaseException, *_args: Any) -> BaseException:
+            raise AssertionError(f"an interrupt is never mapped: {exc!r}")
+
+        with pytest.raises(KeyboardInterrupt) as info:
+            _run.write(BATCH, write, unmapped, map_read=unmapped, confirm=None)
+
+        assert info.value is interrupt, "the interrupt propagates unchanged"
+        assert guarded.moved == BATCH_HOME
+        assert machine._state == BATCH_HOME, "nothing was written"

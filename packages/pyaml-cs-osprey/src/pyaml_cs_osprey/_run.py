@@ -125,7 +125,9 @@ def write(
     The addresses not yet recorded are read in one ``read_channels`` call
     before the write. Each of them is recorded with that value once the runtime
     sent or landed its write, whether or not the call then raised; a refused
-    write records nothing. An address already recorded keeps its first value.
+    write records nothing. An escape that is not an ``Exception`` records every
+    one of them, since the write may still go out, and propagates unchanged. An
+    address already recorded keeps its first value.
 
     Args:
         addresses: Every address the write touches.
@@ -156,13 +158,16 @@ def write(
                 pending = dict(zip(missing, osprey.runtime.read_channels(missing), strict=True))
             except Exception as exc:
                 raise map_read(exc, list(addresses)) from exc
-        raised: Exception | None = None
+        raised: BaseException | None = None
         with osprey.runtime.record_writes() as records:
             try:
                 write(**({} if confirm is None else {"confirm": confirm}))
             except Exception as exc:
                 raised = exc
                 raise map_write(exc) from exc
+            except BaseException as exc:
+                raised = exc
+                raise
             finally:
                 run.moved.update(
                     (address, value)
@@ -171,19 +176,24 @@ def write(
                 )
 
 
-def _moved(address: str, records: Sequence[tuple[str, str]], raised: Exception | None) -> bool:
+def _moved(address: str, records: Sequence[tuple[str, str]], raised: BaseException | None) -> bool:
     """Whether ``address``'s write may have put its value on the control system.
 
-    The runtime's phases decide: ``sent`` or ``landed`` moved it, and no
-    ``attempt`` means it never reached a connector. An ``attempt`` with no
-    later phase is listed, failing closed, unless the call raised a refusal of
-    that address: a ``ChannelWriteBlockedError``, which the runtime raises only
-    after every channel of the call has reported its outcome, so a channel with
-    no outcome was refused; or a ``ChannelLimitsViolationError`` naming the
-    address, which a connector raises before that channel is sent. Any other
-    exception, such as a transport error partway through a batch, leaves
-    unknown whether the value went out.
+    An escape that is not an ``Exception``, such as a ``KeyboardInterrupt``
+    while the write keeps running elsewhere, lists every address, failing
+    closed: the write may still go out. Otherwise the runtime's phases decide:
+    ``sent`` or ``landed`` moved it, and no ``attempt`` means it never reached
+    a connector. An ``attempt`` with no later phase is listed, failing closed,
+    unless the call raised a refusal of that address: a
+    ``ChannelWriteBlockedError``, which the runtime raises only after every
+    channel of the call has reported its outcome, so a channel with no outcome
+    was refused; or a ``ChannelLimitsViolationError`` naming the address, which
+    a connector raises before that channel is sent. Any other exception, such
+    as a transport error partway through a batch, leaves unknown whether the
+    value went out.
     """
+    if raised is not None and not isinstance(raised, Exception):
+        return True
     phases = {phase for recorded, phase in records if recorded == address}
     if phases & {"sent", "landed"}:
         return True
