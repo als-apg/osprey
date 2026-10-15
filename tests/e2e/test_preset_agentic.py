@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.e2e.hello_world_channels import READ_CHANNEL, WRITE_CHANNEL, WRITE_VALUE
 from tests.e2e.judge import LLMJudge, WorkflowResult
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
@@ -128,7 +129,7 @@ async def _assert_approval_hook_fires(
 @pytest.mark.harness_benchmark
 @pytest.mark.asyncio
 async def test_hello_world_canonical_flow(tmp_path: Path) -> None:
-    """Hello-world preset: agent reads the example mock channel.
+    """Hello-world preset: agent reads a seeded facility channel.
 
     Asserts the agent reached for ``mcp__controls__channel_read``. If the
     preset wiring breaks, this fires within 5 min instead of the nested
@@ -137,7 +138,7 @@ async def test_hello_world_canonical_flow(tmp_path: Path) -> None:
     repo = init_project(tmp_path, "hello_demo", template="hello_world", provider="als-apg")
     judge = LLMJudge(provider="als-apg")
     query = (
-        "Use the controls MCP server to read the channel named 'example' "
+        f"Use the controls MCP server to read the channel named '{READ_CHANNEL}' "
         "and report its current value."
     )
     result = await run_sdk_query(repo, query, max_turns=4, max_budget_usd=0.25)
@@ -194,7 +195,7 @@ async def test_control_assistant_channel_finder_flow(tmp_path: Path) -> None:
 @pytest.mark.harness_benchmark
 @pytest.mark.asyncio
 async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
-    """Hello-world write probe: agent sets a mock channel; approval hook fires.
+    """Hello-world write probe: agent sets a writable facility setpoint; approval hook fires.
 
     Flips ``writes_enabled: true`` so the writes-disabled kill switch
     (``osprey_writes_check.py``, safety_layer 1) doesn't deny before the
@@ -207,8 +208,10 @@ async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
         repo,
         # Directive prompt: explicit tool name so the agent commits to the write
         # path on its first turn instead of dithering with reads or refusals.
-        "Use the mcp__controls__channel_write tool to write the value 1.5 "
-        "to the channel 'example'.",
+        # The channel holds a limits record whose band contains the value, so the
+        # limits hook (ahead of approval in the PreToolUse chain) passes it on.
+        f"Use the mcp__controls__channel_write tool to write the value {WRITE_VALUE} "
+        f"to the channel '{WRITE_CHANNEL}'.",
         expected_write_tool="mcp__controls__channel_write",
     )
 

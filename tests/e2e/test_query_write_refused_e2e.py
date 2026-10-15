@@ -38,6 +38,7 @@ from click.testing import CliRunner
 
 from osprey.agent_runner.write_tools import read_only_disallowed_tools
 from osprey.cli.query_cmd import query
+from tests.e2e.hello_world_channels import WRITE_CHANNEL, WRITE_VALUE
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     enable_writes_in_project,
@@ -57,7 +58,8 @@ pytestmark = [
 # Directive prompt: explicit tool name so the agent commits to the write path
 # on its first turn rather than dithering with reads or refusals.
 _WRITE_PROMPT = (
-    "Use the mcp__controls__channel_write tool to write the value 1.5 to the channel 'example'."
+    f"Use the mcp__controls__channel_write tool to write the value {WRITE_VALUE} "
+    f"to the channel '{WRITE_CHANNEL}'."
 )
 
 
@@ -65,7 +67,7 @@ _WRITE_PROMPT = (
 def test_query_refuses_write(tmp_path: Path, writes_enabled: bool) -> None:
     """``osprey query`` never executes ``channel_write``, regardless of the kill switch.
 
-    Preset used: ``hello_world`` (has the ``controls`` mock server with both
+    Preset used: ``hello_world`` (has the ``controls`` server with both
     ``channel_read`` and ``channel_write``; defaults to ``writes_enabled=False``).
 
     Guard 1 — disallowed_tools set contains the write tool at the SDK layer
