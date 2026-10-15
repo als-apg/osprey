@@ -1357,6 +1357,17 @@ class _Records:
                 ),
             )
             return
+        unit, theirs = channel.get("unit"), target.get("unit")
+        if unit and theirs and unit != theirs:
+            yield self._error(
+                "pair-invalid",
+                "channel",
+                address,
+                files,
+                f"`unit` {unit} differs from its pair {pair}'s {theirs}",
+                _pair_remedy(address, channel, f"give {address} and {pair} the same `unit`"),
+            )
+            return
         own = self.index.wired.get(address, set())
         theirs = self.index.wired.get(pair, set())
         if own and theirs and own != theirs and len(own) == 1 and len(theirs) == 1:
@@ -1423,10 +1434,9 @@ class _Records:
         elif not unit:
             problem = "a `tolerance` on a channel that states no `unit`"
             remedy = "state the channel's `unit`; the tolerance is in it"
-        elif pair != address and self.index.channels[pair].get("unit") != unit:
-            theirs = self.index.channels[pair].get("unit")
-            problem = f"`unit` {unit} differs from its pair {pair}'s {theirs}"
-            remedy = f"give {address} and {pair} the same `unit`; the tolerance is in it"
+        elif pair != address and not self.index.channels[pair].get("unit"):
+            problem = f"its pair {pair} states no `unit`"
+            remedy = f"state {pair}'s `unit`; the tolerance is in it"
         elif len(stated) != 1:
             problem = f"`tolerance` states {_terms_stated(list(record))}"
             remedy = "write `tolerance: {absolute: <x>}` or `tolerance: {relative: <fraction>}`"

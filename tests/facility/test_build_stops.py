@@ -344,6 +344,7 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("pair_invalid__pair_on_readback", "pair-invalid", "a `pair` on a readback channel"),
     ("pair_invalid__pair_on_none", "pair-invalid", "a `pair` on a `none` channel"),
     ("pair_invalid__type_mismatch", "pair-invalid", "pair type mismatch"),
+    ("pair_invalid__unit_mismatch", "pair-invalid", "pair unit mismatch"),
     ("pair_invalid__element_and_slices", "pair-invalid", "`element` and `slices` both present"),
     ("pair_invalid__weight_zero", "pair-invalid", "a slice weight zero"),
     ("pair_invalid__weight_non_finite", "pair-invalid", "a slice weight non-finite"),
@@ -411,9 +412,9 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("value_invalid__tolerance_non_float", "value-invalid", "`tolerance` on a non-float"),
     ("value_invalid__tolerance_no_unit", "value-invalid", "`tolerance` on a channel with no unit"),
     (
-        "value_invalid__tolerance_pair_unit",
+        "value_invalid__tolerance_pair_no_unit",
         "value-invalid",
-        "`tolerance` on a setpoint whose pair states another unit",
+        "a tolerance whose pair states no unit",
     ),
     ("value_invalid__tolerance_both_terms", "value-invalid", "a `tolerance` stating both terms"),
     ("value_invalid__tolerance_not_finite", "value-invalid", "a `tolerance` not finite"),
@@ -1246,6 +1247,16 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "`value_type`; fix: give Q1:SP and Q1:RB the same `value_type`"
         ),
     ),
+    "pair_invalid__unit_mismatch": (
+        _plain(
+            update("records/channels.yaml", 0, unit="A"),
+            update("records/channels.yaml", 1, unit="mA"),
+        ),
+        (
+            "facility: pair-invalid: channel Q1:SP — `unit` A differs from its pair Q1:RB's mA; "
+            "fix: give Q1:SP and Q1:RB the same `unit`"
+        ),
+    ),
     "pair_invalid__element_and_slices": (
         _plain(
             put(
@@ -1560,14 +1571,11 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "`unit`; fix: state the channel's `unit`; the tolerance is in it"
         ),
     ),
-    "value_invalid__tolerance_pair_unit": (
-        _plain(
-            update("records/channels.yaml", 0, unit="A", tolerance={"absolute": 0.1}),
-            update("records/channels.yaml", 1, unit="mA"),
-        ),
+    "value_invalid__tolerance_pair_no_unit": (
+        _plain(update("records/channels.yaml", 0, unit="A", tolerance={"absolute": 0.1})),
         (
-            "facility: value-invalid: channel Q1:SP — `unit` A differs from its pair Q1:RB's mA; "
-            "fix: give Q1:SP and Q1:RB the same `unit`; the tolerance is in it"
+            "facility: value-invalid: channel Q1:SP — its pair Q1:RB states no `unit`; "
+            "fix: state Q1:RB's `unit`; the tolerance is in it"
         ),
     ),
     "value_invalid__tolerance_both_terms": (

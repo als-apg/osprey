@@ -228,6 +228,23 @@ def test_a_derived_pair_stop_names_the_explicit_way_out(tmp_path: Path) -> None:
     assert "or state `pair: Q1:SP` on Q1:SP to leave it unpaired" in error.remedy
 
 
+def test_a_derived_pair_whose_units_differ_stops_with_the_way_out(tmp_path: Path) -> None:
+    files = _magnet(unit="A")
+    files["records/channels.yaml"][1]["unit"] = "mA"
+    result = _run(tmp_path, files)
+    assert result.failed == "records"
+    (error,) = result.errors
+    assert error.kind == "pair-invalid"
+    assert "Q1:SP" in error.format_message()
+    assert "Q1:RB" in error.format_message()
+    assert "or state `pair: Q1:SP` on Q1:SP to leave it unpaired" in error.remedy
+
+
+def test_a_pair_where_one_side_states_no_unit_builds(tmp_path: Path) -> None:
+    setpoint = _channels(_run(tmp_path, _magnet(unit="A")))["Q1:SP"]
+    assert setpoint["pair"] == "Q1:RB"
+
+
 # --- the demo ----------------------------------------------------------------------------
 
 
