@@ -9,7 +9,8 @@ import pytest
 import yaml
 from click.testing import CliRunner, Result
 
-from osprey.facility.layers.list import LAYER_DIR, ListSourceInvalid, import_list
+from osprey.facility.layers import LayerSourceInvalid
+from osprey.facility.layers.list import LAYER_DIR, import_list
 
 
 def _csv(tmp_path: Path, text: str, name: str = "list.csv") -> Path:
@@ -28,7 +29,7 @@ def _channels(facility_dir: Path) -> list[dict[str, Any]]:
 
 
 def _refused(tmp_path: Path, text: str) -> list[str]:
-    with pytest.raises(ListSourceInvalid) as stop:
+    with pytest.raises(LayerSourceInvalid) as stop:
         _import(tmp_path, text)
     assert not (tmp_path / "facility" / LAYER_DIR).exists()
     return [error.format_message() for error in stop.value.errors]
@@ -121,7 +122,7 @@ class TestRefusals:
     def test_a_file_that_is_not_utf8_is_source_invalid(self, tmp_path: Path) -> None:
         path = tmp_path / "list.csv"
         path.write_bytes(b"address\nT\xe9MP\n")
-        with pytest.raises(ListSourceInvalid) as stop:
+        with pytest.raises(LayerSourceInvalid) as stop:
             import_list(path, tmp_path / "facility")
         assert [error.kind for error in stop.value.errors] == ["source-invalid"]
 

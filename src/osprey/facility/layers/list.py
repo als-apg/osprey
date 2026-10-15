@@ -44,12 +44,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import click
 import yaml
 
 from osprey.facility.errors import FacilityBuildError, quoted_slots
+from osprey.facility.layers import LayerSourceInvalid
 
-__all__ = ["COLUMNS", "LAYER_DIR", "ListSourceInvalid", "import_list"]
+__all__ = ["COLUMNS", "LAYER_DIR", "import_list"]
 
 #: The layer's directory, relative to ``data/facility/``.
 LAYER_DIR = "imported/list"
@@ -72,29 +72,6 @@ COLUMNS: tuple[str, ...] = (
 _POSITION = ("s", "model")
 
 _ROLES = ("setpoint", "readback", "none")
-
-
-class ListSourceInvalid(click.ClickException):
-    """The list file holds rows the layer cannot write; nothing was written.
-
-    Attributes:
-        errors: One ``source-invalid`` error per problem, in file order.
-    """
-
-    exit_code = 1
-
-    def __init__(self, errors: list[FacilityBuildError]) -> None:
-        self.errors = errors
-        super().__init__("\n".join(error.format_message() for error in errors))
-
-    def show(self, file: Any = None) -> None:
-        """Write each error's line alone, with no ``Error: `` prefix.
-
-        Args:
-            file: The stream to write to; stderr when omitted.
-        """
-        for error in self.errors:
-            error.show(file)
 
 
 @dataclass
@@ -131,12 +108,12 @@ def import_list(path: Path, facility_dir: Path) -> list[Path]:
         Every file written.
 
     Raises:
-        ListSourceInvalid: The file has rows the layer refuses; nothing is
+        LayerSourceInvalid: The file has rows the layer refuses; nothing is
             written.
     """
     reading = _read(path)
     if reading.errors:
-        raise ListSourceInvalid(reading.errors)
+        raise LayerSourceInvalid(reading.errors)
     layer = facility_dir / LAYER_DIR
     layer.mkdir(parents=True, exist_ok=True)
     written = [
