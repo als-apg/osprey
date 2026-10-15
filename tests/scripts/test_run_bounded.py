@@ -73,19 +73,80 @@ def test_a_command_past_its_bound_is_stopped_with_its_process_group(tmp_path):
 def test_a_command_that_ignores_sigterm_is_killed_after_the_grace(tmp_path):
     marker = tmp_path / "sigterm-ignored"
     # An ignored signal stays ignored across exec, so the marker proves the
-    # sleep that receives SIGTERM is the one that ignores it.
-    command = ["sh", "-c", f"trap '' TERM; : > {shlex.quote(str(marker))}; exec sleep 60"]
+    # sleep that receives SIGABRT and SIGTERM is the one that ignores them.
+    command = [
+        "sh",
+        "-c",
+        f"trap '' TERM ABRT; : > {shlex.quote(str(marker))}; exec sleep 60",
+    ]
     started = time.monotonic()
-    result = _run("--grace", "1", "1", "--", *command)
+    result = _run("--dump", "1", "--grace", "1", "1", "--", *command)
     elapsed = time.monotonic() - started
     assert result.returncode == 124
     assert marker.exists(), (
         "the child was not ready inside the 1 s bound: SIGTERM was never ignored"
     )
-    # Bound plus grace: anything shorter means the command died of SIGTERM and
-    # the SIGKILL path never ran.
-    assert elapsed >= 2.0
+    # Bound plus dump wait plus grace: anything shorter means the command died
+    # of SIGABRT or SIGTERM and the SIGKILL path never ran.
+    assert elapsed >= 3.0
     assert elapsed < 10
+
+
+def test_a_command_past_its_bound_prints_its_python_stacks_before_it_is_stopped(tmp_path):
+    marker = tmp_path / "ready"
+    child = f"import pathlib, time; pathlib.Path({str(marker)!r}).touch(); time.sleep(60)"
+    result = _run("--dump", "5", "--grace", "1", "3", "--", sys.executable, "-c", child)
+    assert result.returncode == 124
+    assert marker.exists(), "the child was not ready inside the 3 s bound"
+    assert "most recent call first" in result.stderr
+
+
+def test_a_stop_waits_for_the_whole_group_when_its_leader_dies_first(tmp_path):
+    """The gate shape: a leader that dies of SIGABRT at once, Python beneath it.
+
+    ``uv run`` leads every gate's group and dies of SIGABRT without writing
+    anything, while pytest beneath it is still writing its stacks. A shell
+    stands in for it here. The Python child takes a second to "write its
+    stacks" and then ignores SIGTERM, so the stop is right only if it waits
+    out the dump for the group rather than the leader, and kills what is left
+    after the grace.
+    """
+    ready = tmp_path / "ready"
+    dumped = tmp_path / "dumped"
+    pid_file = tmp_path / "child.pid"
+    child = textwrap.dedent(
+        f"""
+        import os, pathlib, signal, time
+        def on_abort(*_):
+            time.sleep(1.0)
+            pathlib.Path({str(dumped)!r}).touch()
+        signal.signal(signal.SIGABRT, on_abort)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))
+        pathlib.Path({str(ready)!r}).touch()
+        while True:
+            time.sleep(60)
+        """
+    )
+    script = tmp_path / "child.py"
+    script.write_text(child)
+    # The child's streams are not the wrapper's pipes, so a child that
+    # outlives the stop fails the assertions below instead of holding the
+    # pipes open.
+    leader = f"{shlex.quote(sys.executable)} {shlex.quote(str(script))} >/dev/null 2>&1; :"
+    result = _run("--dump", "5", "--grace", "1", "3", "--", "sh", "-c", leader)
+    try:
+        assert result.returncode == 124
+        assert ready.exists(), "the child was not ready inside the 3 s bound"
+        assert dumped.exists(), "SIGTERM was sent before the group's stacks were written"
+        pid = int(pid_file.read_text())
+        assert _pid_is_gone(pid, within=1.0), "a process that survived SIGTERM was never killed"
+    finally:
+        if pid_file.exists():
+            try:
+                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
 
 def test_sigint_reaches_the_command_and_the_wrapper_dies_of_it():
