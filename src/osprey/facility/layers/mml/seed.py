@@ -767,9 +767,9 @@ def _parse(text: str) -> Any:
 
 
 def _write(path: Path, document: Any) -> Path:
-    import yaml
+    from osprey_connectors import yaml_loader
 
-    text = yaml.safe_dump(
+    text = yaml_loader.safe_dump(
         document, sort_keys=False, default_flow_style=False, allow_unicode=True, width=100
     )
     path.parent.mkdir(parents=True, exist_ok=True)

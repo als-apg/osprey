@@ -986,9 +986,9 @@ def _sorted(rows: Iterable[dict[str, Any]], key: str) -> list[dict[str, Any]]:
 
 
 def _dump(path: Path, rows: list[dict[str, Any]]) -> Path:
-    import yaml
+    from osprey_connectors import yaml_loader
 
-    text = yaml.safe_dump(
+    text = yaml_loader.safe_dump(
         rows, sort_keys=False, default_flow_style=False, allow_unicode=True, width=100
     )
     path.write_text(text, encoding="utf-8")

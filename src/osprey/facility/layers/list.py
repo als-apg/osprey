@@ -46,10 +46,10 @@ from pathlib import Path
 from typing import Any
 
 import click
-import yaml
 
 from osprey.facility.errors import FacilityBuildError, quoted_slots
 from osprey.facility.layers import LayerSourceInvalid
+from osprey_connectors import yaml_loader
 
 __all__ = ["COLUMNS", "LAYER_DIR", "import_list"]
 
@@ -355,7 +355,7 @@ def _add(reading: _Reading, number: int, record: dict[str, Any]) -> None:
 
 
 def _dump(path: Path, rows: list[dict[str, Any]]) -> Path:
-    text = yaml.safe_dump(
+    text = yaml_loader.safe_dump(
         rows, sort_keys=False, default_flow_style=False, allow_unicode=True, width=100
     )
     path.write_text(text, encoding="utf-8")

@@ -92,8 +92,6 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from osprey.channel_roster import ChannelRecord, RosterSource
 
 # Key names of the device-file document the worker parses. Imported rather
@@ -107,6 +105,7 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     SETTABLES_KEY,
     SETTLE_TOLERANCE_KEY,
 )
+from osprey_connectors import yaml_loader
 
 
 def devices_document(
@@ -227,7 +226,9 @@ def write_devices_file(
     """
     path = Path(path)
     document = devices_document(records, tolerances, motion_bands)
-    body = yaml.safe_dump(document, sort_keys=False, default_flow_style=False, allow_unicode=True)
+    body = yaml_loader.safe_dump(
+        document, sort_keys=False, default_flow_style=False, allow_unicode=True
+    )
 
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
     try:

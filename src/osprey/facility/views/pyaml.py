@@ -374,9 +374,9 @@ def measurement_groups(doc: Mapping[str, Any], model: str) -> dict[str, list[str
 
 def _yaml_text(body: Mapping[str, Any]) -> str:
     """``body`` as block-style YAML in insertion order, no line folded."""
-    import yaml
+    from osprey_connectors import yaml_loader
 
-    return yaml.safe_dump(
+    return yaml_loader.safe_dump(
         dict(body),
         sort_keys=False,
         default_flow_style=False,
