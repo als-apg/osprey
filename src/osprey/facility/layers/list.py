@@ -29,9 +29,10 @@ field and one declared nowhere else holds only its position. The layer writes
 A row naming both a device and a place, a role outside the three, an unknown or
 repeated column, a row with more cells than the header, a row with no address,
 an address on two rows, ``s`` or ``model`` on a row with no device, an ``s``
-that is not a finite number, two rows stating different ``s`` or ``model`` for
-one device, and a ``model`` for a device no row states ``s`` for are
-``source-invalid``, every one reported, and nothing is written.
+that is not a finite number, and two rows stating different ``s`` or ``model``
+for one device are ``source-invalid``, every one reported, and nothing is
+written. A ``model`` for a device no row states ``s`` for is ignored, with one
+warning line on stderr per device each time the file is read.
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import click
 import yaml
 
 from osprey.facility.errors import FacilityBuildError, quoted_slots
@@ -83,6 +85,7 @@ class _Reading:
     rows: dict[str, int] = field(default_factory=dict)
     positions: dict[str, dict[str, tuple[Any, int]]] = field(default_factory=dict)
     errors: list[FacilityBuildError] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     def refuse(self, record_kind: str, record_id: str, detail: str, remedy: str) -> None:
         self.errors.append(
@@ -112,6 +115,8 @@ def import_list(path: Path, facility_dir: Path) -> list[Path]:
             written.
     """
     reading = _read(path)
+    for warning in reading.warnings:
+        click.echo(warning, err=True)
     if reading.errors:
         raise LayerSourceInvalid(reading.errors)
     layer = facility_dir / LAYER_DIR
@@ -162,16 +167,15 @@ def _read(path: Path) -> _Reading:
 
 
 def _check_positions(reading: _Reading) -> None:
-    """Refuse a ``model`` stated for a device no row states ``s`` for."""
+    """Drop, with a warning, a ``model`` stated for a device no row states ``s`` for."""
     for device, stated in sorted(reading.positions.items()):
         if "s" in stated:
             continue
         model, number = stated["model"]
-        reading.refuse(
-            "device",
-            device,
-            f"{reading.name} row {number} states model {model} and no row states its s",
-            "fill `s` on a row of the device, or empty `model`",
+        reading.warnings.append(
+            f"import list: {reading.name} row {number} states model {model} for device "
+            f"{device} and no row states its s; the model is ignored; "
+            "fix: fill `s` on a row of the device, or empty `model`"
         )
     reading.positions = {
         device: stated for device, stated in reading.positions.items() if "s" in stated

@@ -211,11 +211,25 @@ class TestPositions:
             "and SR; fix: state one `model` for the device"
         ]
 
-    def test_a_model_without_an_s_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "address,device,model\nG1:RB,L/G1,LINE\n") == [
-            "facility: source-invalid: device L/G1 — list.csv row 2 states model LINE and no "
-            "row states its s; fix: fill `s` on a row of the device, or empty `model`"
+    def test_a_model_without_an_s_is_imported_with_a_warning(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        facility_dir, written = _import(tmp_path, "address,device,model\nG1:RB,L/G1,LINE\n")
+
+        assert capsys.readouterr().err.splitlines() == [
+            "import list: list.csv row 2 states model LINE for device L/G1 and no row states "
+            "its s; the model is ignored; fix: fill `s` on a row of the device, or empty `model`"
         ]
+        assert written == [facility_dir / LAYER_DIR / "channels.yaml"]
+        assert not (facility_dir / LAYER_DIR / "devices.yaml").exists()
+        assert _channels(facility_dir) == [{"id": "G1:RB", "on": {"device": "L/G1"}}]
+
+    def test_a_plain_list_prints_nothing(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _import(tmp_path, "address,device\nG1:RB,L/G1\n")
+
+        assert capsys.readouterr() == ("", "")
 
     def test_a_listed_s_off_the_deck_of_a_wired_device_is_a_place_conflict(
         self, tmp_path: Path

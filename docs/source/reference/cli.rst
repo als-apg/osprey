@@ -1078,10 +1078,12 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    states a role other than ``setpoint``, ``readback`` or ``none``, has no
    address or repeats one, states ``s`` or ``model`` with no device, or
    states an ``s`` that is not a finite number, a row with more cells than
-   the header, two rows stating different ``s`` or ``model`` for one device, a
-   ``model`` for a device no row states ``s`` for, and an unknown or repeated
-   column each print one ``facility: source-invalid:`` line; the import
-   writes nothing and exits 1.
+   the header, two rows stating different ``s`` or ``model`` for one device,
+   and an unknown or repeated column each print one ``facility:
+   source-invalid:`` line; the import writes nothing and exits 1. A ``model``
+   for a device no row states ``s`` for is ignored with one ``import list:``
+   warning on stderr naming the file, row, device and model; the rest of the
+   device's rows are imported.
 
 .. _cli-osprey-sim:
 
