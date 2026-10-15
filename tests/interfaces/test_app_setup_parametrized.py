@@ -2,11 +2,12 @@
 
 Every OSPREY app that delegates its middleware + static-mount wiring to
 :func:`osprey.interfaces._app_setup.configure_interface_app` is built here —
-all nine: ``web_terminal``, ``artifacts``, ``ariel``, ``channel_finder``,
+all ten: ``web_terminal``, ``artifacts``, ``ariel``, ``channel_finder``,
 ``lattice_dashboard``, ``health``, ``okf_panel``, ``bluesky_web`` (which
-assembles its app at module scope rather than via a ``create_app()`` factory)
-and ``theme_lab`` (whose factory lives in ``osprey.cli.theme_lab_cmd``, not
-under ``osprey/interfaces/``). This module builds each real app and asserts the
+assembles its app at module scope rather than via a ``create_app()`` factory),
+``theme_lab`` (whose factory lives in ``osprey.cli.theme_lab_cmd``, not
+under ``osprey/interfaces/``) and ``trajectory`` (a service whose factory lives
+in ``osprey.services.trajectory.app``). This module builds each real app and asserts the
 shared invariants hold uniformly:
 
 1. The three static mounts (``/static/fonts``, ``/design-system``, ``/static``)
@@ -18,7 +19,7 @@ shared invariants hold uniformly:
    two ends of the shared block:
    :class:`WebAuthMiddleware` outermost of everything,
    :class:`HttpAuditMiddleware` inside every other layer
-   ``configure_interface_app`` installs. Pinned here, on the nine real apps,
+   ``configure_interface_app`` installs. Pinned here, on the ten real apps,
    and not only on a synthetic one — "this lands in every interface app" is
    the audit layer's own spec, and an interface that grew its own middleware
    around the shared block would break it silently.
@@ -134,6 +135,15 @@ def _build_bluesky_web(_tmp_path: Path) -> FastAPI:
     return app
 
 
+def _build_trajectory(_tmp_path: Path) -> FastAPI:
+    from osprey.services.trajectory.app import create_app
+
+    # Mirrors tests/services/trajectory/test_doors.py. The lifespan is never
+    # entered here, so the service's startup checks do not run; the factory
+    # returns the assembled app directly.
+    return create_app()
+
+
 INTERFACE_BUILDERS = [
     ("web_terminal", _build_web_terminal),
     ("artifacts", _build_artifacts),
@@ -144,16 +154,17 @@ INTERFACE_BUILDERS = [
     ("okf_panel", _build_okf_panel),
     ("bluesky_web", _build_bluesky_web),
     ("theme_lab", _build_theme_lab),
+    ("trajectory", _build_trajectory),
 ]
 
 
 #: Interfaces that ship no own ``static`` directory, so configure_interface_app's
 #: ``.exists()``-guarded ``/static`` catch-all is (correctly) not mounted. The
 #: two shared mounts (``/static/fonts``, ``/design-system``) are still present.
-#: bluesky_web serves its panel bundle at ``/bluesky`` instead. (theme_lab is
-#: not here: it passes the design-system directory as its own ``static_dir``,
-#: so it does mount ``/static``.)
-_INTERFACES_WITHOUT_OWN_STATIC = {"bluesky_web"}
+#: bluesky_web serves its panel bundle at ``/bluesky`` instead, and trajectory
+#: at ``/panel``. (theme_lab is not here: it passes the design-system directory
+#: as its own ``static_dir``, so it does mount ``/static``.)
+_INTERFACES_WITHOUT_OWN_STATIC = {"bluesky_web", "trajectory"}
 
 
 @pytest.fixture(params=INTERFACE_BUILDERS, ids=[name for name, _ in INTERFACE_BUILDERS])
@@ -223,12 +234,13 @@ _NOT_A_CALLER = {"_app_setup.py"}
 def _caller_name(path: Path) -> str:
     """The parametrization id for one file that calls ``configure_interface_app``.
 
-    ``src/osprey/interfaces/<name>/app.py`` is named for its interface package;
+    ``src/osprey/interfaces/<name>/app.py`` is named for its interface package
+    and ``src/osprey/services/<name>/app.py`` for its service package;
     anything else — the Theme Lab's factory in ``osprey/cli/theme_lab_cmd.py`` —
     is named for its module, with the CLI module suffix dropped, so the id reads
     the same as an interface's.
     """
-    if path.name == "app.py" and path.parent.parent.name == "interfaces":
+    if path.name == "app.py" and path.parent.parent.name in ("interfaces", "services"):
         return path.parent.name
     return path.stem.removesuffix("_cmd")
 

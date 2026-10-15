@@ -91,6 +91,11 @@ POSTURE_SOURCES: tuple[str, ...] = (
 #: a payload leak rather than evidence.
 SURFACE_EXECUTOR = "executor"
 
+#: The trajectory threading service's doors: one record per writing action —
+#: a session open, take-over or release — filed by the route that ran it, with
+#: the action's owner as the actor.
+SURFACE_TRAJECTORY_SERVICE = "trajectory_service"
+
 #: Canonical spellings for :attr:`AuditEnvelope.decision`. Unlike
 #: :data:`POSTURE_SOURCES` this set is *not* enforced — a future surface may
 #: need a word these two do not cover — but an emitter with nothing better to
