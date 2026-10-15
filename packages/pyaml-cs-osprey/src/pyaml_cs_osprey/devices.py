@@ -4,7 +4,8 @@ A read collects the distinct addresses of every device and issues one
 ``read_channels``; a write issues one ``write_channels`` carrying every setpoint,
 so the limits validator sees the whole batch and refuses it whole before anything
 is sent. A write runs only while a :func:`pyaml_cs_osprey.run_tool.run_tool` call is
-in progress, which records every address's prior value first; anywhere else it is
+in progress, which reads every address's prior value first and records each one whose
+write the runtime sent or landed; anywhere else it is
 refused as :data:`~pyaml_cs_osprey.device.OUTSIDE_A_RUN` and nothing is read or
 written. Connector
 exceptions surface as the pyAML exceptions of :mod:`pyaml_cs_osprey.errors`. A
@@ -129,7 +130,8 @@ class OspreyDeviceList(DeviceAccessList):
     def set(self, value: Any, *, confirm: bool | None = None) -> None:
         """Write one setpoint per device, in list order, as one batch.
 
-        Every address's prior value is recorded for the call's result first. A value
+        Every address's prior value is read first and recorded for the call's result
+        once the runtime sent or landed its write; a refused one records nothing. A value
         that violates any channel's limits refuses the whole batch before anything
         is sent. Devices sharing an address must be given the same value; that
         address is written once.
