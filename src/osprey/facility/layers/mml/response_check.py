@@ -77,6 +77,7 @@ from osprey.facility.layers.mml.mapping import (
     LAYER_DIR,
     MAPPING_FILE,
     exported_number,
+    exported_word,
     read_mapping,
 )
 from osprey.facility.layers.mml.rows import read_rows
@@ -557,10 +558,6 @@ def report(checks: Iterable[ModelCheck], file: IO[Any] | None = None) -> bool:
 # -- the exported document ---------------------------------------------------
 
 
-def _word(value: Any) -> str:
-    return value.strip() if isinstance(value, str) else ""
-
-
 def _first(value: Any) -> Any:
     """A one-entry list unwrapped, the way an exported column vector writes a scalar."""
     while isinstance(value, list) and len(value) == 1:
@@ -844,8 +841,8 @@ def compare(
 
     drafts: list[Block] = []
     for block in blocks:
-        monitor_family = _word(_side(block, "monitor").get("family"))
-        actuator_family = _word(_side(block, "actuator").get("family"))
+        monitor_family = exported_word(_side(block, "monitor").get("family"))
+        actuator_family = exported_word(_side(block, "actuator").get("family"))
         monitor_plane = plane(monitor_family, "read")
         actuator_plane = plane(actuator_family, "write")
         entries: list[Entry] = []
@@ -895,7 +892,7 @@ def compare(
             Block(
                 monitor_family=monitor_family,
                 actuator_family=actuator_family,
-                origin=_word(block.get("origin")) or "unstated",
+                origin=exported_word(block.get("origin")) or "unstated",
                 entries=tuple(entries),
                 judged=monitor_plane is not None and monitor_plane == actuator_plane,
                 left_out=left_out,

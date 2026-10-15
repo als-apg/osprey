@@ -58,9 +58,9 @@ from osprey.facility.layers.mml.mapping import (
     SETPOINT_ROLE,
     Mapping,
     Model,
-    _text,
     dump_mapping,
     exported_number,
+    exported_text,
     field_roles,
 )
 
@@ -266,7 +266,7 @@ def _claims(views: Iterable[FamilyView], mapping: Mapping) -> dict[str, _Claim]:
             found: dict[str, list[int]] = {}
             for key in fld.keys:
                 for index, slot in enumerate(fld.slots(key)[: view.n_devices]):
-                    address = _text(slot)
+                    address = exported_text(slot)
                     if address is None:
                         continue
                     held = claims.get(address)
@@ -633,7 +633,7 @@ def _device_address(fld: FieldView, device: int) -> str | None:
     """The address one device answers on through a field, or ``None``."""
     for key in fld.keys:
         slots = fld.slots(key)
-        address = _text(slots[device]) if device < len(slots) else None
+        address = exported_text(slots[device]) if device < len(slots) else None
         if address is not None:
             return address
     return None

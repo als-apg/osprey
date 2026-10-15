@@ -57,8 +57,8 @@ from osprey.facility.layers.mml.mapping import (
     DeviceIdentity,
     ImportStop,
     SameAs,
-    _text,
     _vocabulary,
+    exported_text,
 )
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
@@ -156,7 +156,7 @@ def _slot_addresses(view: FamilyView, index: int) -> list[str]:
     for fld in view.fields.values():
         for key in fld.keys:
             slots = fld.slots(key)
-            address = _text(slots[index]) if index < len(slots) else None
+            address = exported_text(slots[index]) if index < len(slots) else None
             if address is not None:
                 found.append(address)
     return found
@@ -478,7 +478,7 @@ def axis_twins(first: FamilyView, second: FamilyView) -> bool:
             if len(ours) != len(theirs):
                 return False
             for mine, yours in zip(ours, theirs, strict=True):
-                a, b = _text(mine), _text(yours)
+                a, b = exported_text(mine), exported_text(yours)
                 if a == b:
                     continue
                 if a is None or b is None or not _one_axis_apart(a, b):
@@ -505,7 +505,7 @@ def endpoints(views: Iterable[FamilyView], ids: Sequence[Sequence[str]]) -> dict
         for fld in view.fields.values():
             for key in fld.keys:
                 for index, slot in enumerate(fld.slots(key)[: view.n_devices]):
-                    address = _text(slot)
+                    address = exported_text(slot)
                     if address is None:
                         continue
                     devices = owners.setdefault(address, [])
@@ -539,7 +539,7 @@ def split_identities(
         for fld in view.fields.values():
             for key in fld.keys:
                 for index, slot in enumerate(fld.slots(key)[: view.n_devices]):
-                    address = _text(slot)
+                    address = exported_text(slot)
                     if address is None or address not in wired:
                         continue
                     found = bound.setdefault(address, {}).setdefault(view.raw_name, [])

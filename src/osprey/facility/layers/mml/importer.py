@@ -104,9 +104,9 @@ from osprey.facility.layers.mml.mapping import (
     Mapping,
     Problem,
     TuneBlock,
-    _text,
     check_mapping,
     exported_number,
+    exported_text,
     field_roles,
     load_or_draft,
 )
@@ -581,7 +581,7 @@ def _devices(view: FamilyView, klass: str | None, model: str) -> Iterable[dict[s
         device: dict[str, Any] = {}
         if klass is not None:
             device["class"] = klass
-        name = _text(names[index]) if names is not None else None
+        name = exported_text(names[index]) if names is not None else None
         if name is not None:
             device["label"] = name
         s = exported_number(positions[index]) if positions is not None else None
@@ -634,8 +634,8 @@ def _field_scalar(fld: FieldView, key: str, index: int, n_devices: int) -> str |
     """The scalar ``fld.body[key]`` gives one device: its slot of a per-device list, or itself."""
     value = fld.body.get(key)
     if isinstance(value, (list, tuple)):
-        return _text(value[index]) if len(value) == n_devices else None
-    return _text(value)
+        return exported_text(value[index]) if len(value) == n_devices else None
+    return exported_text(value)
 
 
 def _field_number(fld: FieldView, key: str, index: int, n_devices: int) -> float | None:
@@ -690,7 +690,7 @@ def _channels(
         signal = described.signal if described is not None else None
         for key in fld.keys:
             for index, slot in enumerate(fld.slots(key)[: view.n_devices]):
-                address = _text(slot)
+                address = exported_text(slot)
                 if address is None:
                     continue
                 writes = role is not None and role.role == SETPOINT_ROLE
@@ -835,7 +835,7 @@ def _is_transport(exports: Exports, system: str) -> bool:
     if stated is not None:
         return bool(stated)
     ad = exports.ad.get(system)
-    return isinstance(ad, dict) and _text(ad.get("MachineType")) == TRANSPORT
+    return isinstance(ad, dict) and exported_text(ad.get("MachineType")) == TRANSPORT
 
 
 def _model(exports: Exports, system: str, name: str) -> dict[str, Any]:

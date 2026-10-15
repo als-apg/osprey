@@ -146,6 +146,8 @@ __all__ = [
     "draft_text",
     "dump_mapping",
     "exported_number",
+    "exported_text",
+    "exported_word",
     "field_roles",
     "judgment_key",
     "load_or_draft",
@@ -1714,11 +1716,16 @@ _TRIM_ENGINE: dict[str, Any] = {"attribute": "KickAngle", "index": None}
 _WIRED_FIELDS = (SETPOINT_FIELD, MONITOR_FIELD)
 
 
-def _text(value: Any) -> str | None:
-    """Return stripped text when ``value`` is non-blank text, else ``None``."""
+def exported_text(value: Any) -> str | None:
+    """Non-blank exported text, stripped, or ``None``."""
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
+
+def exported_word(value: Any) -> str:
+    """Non-blank exported text, stripped, or ``""``."""
+    return exported_text(value) or ""
 
 
 def exported_number(value: Any) -> float | None:
@@ -1736,9 +1743,9 @@ def _plural(count: int, word: str) -> str:
 def _one_unit(value: Any) -> str | None:
     """The one unit ``HWUnits`` states, scalar or agreeing per device, else ``None``."""
     if isinstance(value, (list, tuple)):
-        distinct = {unit for item in value if (unit := _text(item)) is not None}
+        distinct = {unit for item in value if (unit := exported_text(item)) is not None}
         return distinct.pop() if len(distinct) == 1 else None
-    return _text(value)
+    return exported_text(value)
 
 
 def _system_order(ao: dict) -> list[str]:
@@ -1760,7 +1767,7 @@ def _draft_identity(ad: dict | None, systems: list[str]) -> dict | None:
     from osprey.facility import fold_code
 
     machine = next(
-        (found for raw in systems if (found := _text(_block(ad, raw).get("Machine")))), None
+        (found for raw in systems if (found := exported_text(_block(ad, raw).get("Machine")))), None
     )
     if machine is None:
         return None
@@ -1772,12 +1779,12 @@ def _draft_identity(ad: dict | None, systems: list[str]) -> dict | None:
 
 
 def _model_prose(raw: str, body: dict, ad_block: dict) -> tuple[str | None, str]:
-    native = _text(body.get("_description"))
+    native = exported_text(body.get("_description"))
     if native is not None:
         return native, IMPORTED
-    machine = _text(ad_block.get("Machine"))
-    sub = _text(ad_block.get("SubMachine"))
-    mode = _text(ad_block.get("OperationalMode"))
+    machine = exported_text(ad_block.get("Machine"))
+    sub = exported_text(ad_block.get("SubMachine"))
+    mode = exported_text(ad_block.get("OperationalMode"))
     if machine is None and sub is None and mode is None:
         return None, DERIVED
     prose = f"The {sub or raw} system"
@@ -1838,7 +1845,7 @@ def _draft_family(raw: str, views: list[Any], devices: Any = None) -> dict[str, 
             (
                 found
                 for view in views
-                if name in view.fields and (found := _text(view.fields[name].description))
+                if name in view.fields and (found := exported_text(view.fields[name].description))
             ),
             None,
         )
@@ -1999,7 +2006,7 @@ def _device_sets(views: Sequence[Any]) -> list[tuple[list[str], list[tuple[Any, 
         for name, fld in view.fields.items():
             for key in fld.keys:
                 for slot, value in enumerate(fld.slots(key)[: view.n_devices]):
-                    address = _text(value)
+                    address = exported_text(value)
                     if address is not None:
                         found = bound.setdefault((view.system, address), {})
                         found.setdefault(at, []).append((name, slot))
@@ -2163,7 +2170,7 @@ def _draft_judgments(views: dict[str, list[Any]]) -> dict[str, dict[str, Any]]:
 def _lattice_type(view: Any) -> str | None:
     """The lattice type a family states, folded to lower case; ``None`` when it states none."""
     lattice = view.body.get("AT")
-    token = _text(lattice.get("ATType")) if isinstance(lattice, dict) else None
+    token = exported_text(lattice.get("ATType")) if isinstance(lattice, dict) else None
     return token.lower() if token is not None else None
 
 
@@ -2175,7 +2182,7 @@ def _bound_type(view: Any) -> str | None:
     indices = lattice.get("ATIndex")
     if indices is None or (isinstance(indices, (list, tuple)) and not indices):
         return None
-    token = _text(lattice.get("ATType"))
+    token = exported_text(lattice.get("ATType"))
     return token.lower() if token is not None else ""
 
 
