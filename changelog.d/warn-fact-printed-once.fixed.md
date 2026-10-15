@@ -1,0 +1,1 @@
+`osprey facility validate` and `osprey facility show` print a warning from the render — a model the provider does not list, a knowledge corpus that could not become a channel search index — once, as `osprey build` does.
