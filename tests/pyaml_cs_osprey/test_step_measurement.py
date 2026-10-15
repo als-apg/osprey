@@ -265,7 +265,7 @@ class TestEveryPath:
         assert connector.setpoints() == _home()
         assert _files_under(guarded_repo) == before, "nothing is written under the project root"
 
-    def test_every_displaced_address_is_recorded_once_before_its_first_write(
+    def test_every_displaced_address_is_read_once_before_its_first_write(
         self, kind: str, sr: Accelerator, connector: ModelConnector
     ) -> None:
         served: list[tuple[str, str]] = []

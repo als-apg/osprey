@@ -139,7 +139,7 @@ class TestExecuteIsReadOnly:
 class TestRunToolWrites:
     """Inside ``run_tool`` the same set has its prior value read, then is written."""
 
-    def test_the_sets_first_value_is_recorded_before_it_is_written(
+    def test_the_sets_first_value_is_read_before_it_is_written(
         self, sr: Accelerator, connector: _CountingConnector
     ) -> None:
         run = run_tool(lambda: _strength(sr).set(1.5))
