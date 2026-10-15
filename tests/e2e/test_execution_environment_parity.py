@@ -333,7 +333,7 @@ def base_venv(tmp_path_factory) -> Path:
     output is then fully determined, and no incidental package can collide with
     OSPREY's own pins and fail the build for reasons unrelated to this test.
     """
-    uv = os.environ.get("UV") or shutil.which("uv")
+    uv = uv_path()
     if uv is None:
         pytest.skip("uv is required to build the fixture's base venv")
 
