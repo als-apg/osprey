@@ -27,6 +27,7 @@ import pytest
 import yaml
 
 from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.ipc import pool as pool_module
 from osprey_connectors.ipc.host import START_PHASES
 from osprey_connectors.ipc.pool import (
@@ -1050,8 +1051,9 @@ async def test_in_process_va_key_serves_from_the_composite(pools, spawns):
 
     reading = await asyncio.wait_for(va.read_channel("SR:A"), OK_TIMEOUT_S)
     assert reading.value is not None
-    with pytest.raises(Exception, match="not a channel of this facility"):
+    with pytest.raises(ChannelNotFoundError) as unknown:
         await asyncio.wait_for(va.read_channel("NOT:SERVED"), OK_TIMEOUT_S)
+    assert unknown.value.channel_address == "NOT:SERVED"
     assert len(spawns) == 1
 
 
