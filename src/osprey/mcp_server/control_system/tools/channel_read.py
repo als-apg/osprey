@@ -4,9 +4,12 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from osprey.mcp_server.control_system.error_handling import connector_error_handler
+from osprey.mcp_server.control_system.error_handling import (
+    connector_error_handler,
+    shared_typed_cause,
+)
 from osprey.mcp_server.control_system.server import mcp
-from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.errors import MISSING_KEY, NothingAnsweredError, make_error
 
 if TYPE_CHECKING:
     from osprey.stores.artifact_store import ArtifactEntry, ArtifactStore
@@ -632,6 +635,10 @@ async def _gather_readings(connector, channels: list[str]) -> tuple[dict, dict]:
         ``(readings, failures)`` - address to ``ChannelValue`` for the reads that
         answered, and address to error text for the ones that did not. Both are
         in request order.
+
+    Raises:
+        NothingAnsweredError: No address answered. Its cause is the one error
+            every address failed with when they all failed alike.
     """
     import asyncio
 
@@ -642,12 +649,11 @@ async def _gather_readings(connector, channels: list[str]) -> tuple[dict, dict]:
 
     readings: dict = {}
     failures: dict = {}
-    first_error: BaseException | None = None
+    errors: list[BaseException] = []
     for address, result in zip(channels, results, strict=True):
         if isinstance(result, BaseException):
             failures[address] = f"{type(result).__name__}: {result}"
-            if first_error is None:
-                first_error = result
+            errors.append(result)
         else:
             readings[address] = result
 
@@ -655,9 +661,8 @@ async def _gather_readings(connector, channels: list[str]) -> tuple[dict, dict]:
         logger.warning("channel_read could not read %d channel(s): %s", len(failures), failures)
 
     # Nothing answered: that is a failed read, not a successful read of nothing.
-    # Re-raising preserves the typed error envelope (connection, timeout, ...).
-    if not readings and first_error is not None:
-        raise first_error
+    if not readings and errors:
+        raise NothingAnsweredError(shared_typed_cause(errors), missing=failures, errors=errors)
 
     return readings, failures
 
@@ -684,8 +689,10 @@ async def channel_read(
             those here.
 
     Returns:
-        JSON with a summary of channel values, one entry per channel. Channels
-        that could not be read are listed under channels_failed with their error.
+        JSON with a summary of channel values, one entry per channel. The
+        summary's ``missing`` maps each channel that could not be read to its
+        error text (``{}`` when every channel answered); see the Partial
+        Answers contract page.
     """
     if not channels:
         return make_error(
@@ -770,10 +777,10 @@ async def channel_read(
         summary: dict = {
             "channels_read": len(readings_summary),
             "readings": readings_summary,
+            MISSING_KEY: failures,
         }
         description = f"Read {len(readings_summary)} channel(s)"
         if failures:
-            summary["channels_failed"] = failures
             description += f", {len(failures)} failed"
 
         access_details: dict = {

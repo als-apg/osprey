@@ -470,7 +470,7 @@ class TestThroughTheToolBody:
         assert "enum_label" not in readings[SCALAR]
         assert CA_UNREACHABLE not in readings
 
-        failures = data["summary"]["channels_failed"]
+        failures = data["summary"]["missing"]
         assert CA_UNREACHABLE in failures
         assert CA_UNREACHABLE in failures[CA_UNREACHABLE]
         assert failures[CA_UNREACHABLE].startswith("ConnectionError:")

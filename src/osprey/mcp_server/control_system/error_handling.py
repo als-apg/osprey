@@ -18,7 +18,12 @@ from osprey.errors import (
     ChannelNotFoundError,
     ChannelWriteBlockedError,
 )
-from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.errors import (
+    MISSING_KEY,
+    NothingAnsweredError,
+    make_error,
+    refuse_nothing_answered,
+)
 from osprey_connectors.ipc.pool import DEFAULT_PING_TIMEOUT_S
 from osprey_connectors.ipc.proxy import ChildUnresponsiveError
 
@@ -30,6 +35,7 @@ __all__ = [
     "connector_error_handler",
     "describe_active_target",
     "invalidate_active_connector",
+    "shared_typed_cause",
 ]
 
 
@@ -104,6 +110,35 @@ def _not_a_channel(tool_name: str, address: str, connector_name: str) -> _Envelo
         [NOT_READ_OR_WRITTEN, LOOK_IT_UP],
         {"channel": address, **({"active_target": identity} if identity else {})},
     )
+
+
+#: The errors the handler renders with an envelope of their own, in the order
+#: it tests them. A request whose every item failed with one of these, all of
+#: the same one, is answered with that error's envelope.
+TYPED_CAUSES: tuple[type[BaseException], ...] = (
+    ConnectionError,
+    ChildUnresponsiveError,
+    TimeoutError,
+    ChannelNotFoundError,
+)
+
+
+def shared_typed_cause(errors: list[BaseException]) -> BaseException | None:
+    """The first of ``errors`` when every one is the same typed cause, else ``None``.
+
+    "The same" is the first entry of :data:`TYPED_CAUSES` each error is an
+    instance of, so a ``ChildUnresponsiveError`` is never grouped with a plain
+    ``TimeoutError``. An error the handler renders only as ``internal_error`` is
+    never a cause.
+    """
+
+    def typed(exc: BaseException) -> type[BaseException] | None:
+        return next((kind for kind in TYPED_CAUSES if isinstance(exc, kind)), None)
+
+    kinds = {typed(exc) for exc in errors}
+    if not errors or len(kinds) != 1 or None in kinds:
+        return None
+    return errors[0]
 
 
 async def invalidate_active_connector(connector_name: str) -> None:
@@ -188,11 +223,38 @@ async def connector_error_handler(
     human clause in the message where the machine matters — so a dead-IOC
     timeout on the live machine can never be mistaken for one on the
     simulator. The archiver has no live/VA axis, so its envelopes carry none.
+
+    A :class:`~osprey.mcp_server.errors.NothingAnsweredError` is answered with
+    its cause's envelope, ``details.missing`` added, and with
+    ``nothing_answered`` when it has no cause. Without a cause, the connector
+    is still dropped once if any item failed with a ``ConnectionError``, and
+    the connector-host child still pinged once if any item found it
+    unresponsive.
     """
     try:
         yield
     except ToolError:
         raise  # Already a formatted envelope — propagate as-is
+    except NothingAnsweredError as exc:
+        if exc.cause is None:
+            if any(isinstance(error, ConnectionError) for error in exc.errors):
+                await invalidate_active_connector(connector_name)
+            if any(isinstance(error, ChildUnresponsiveError) for error in exc.errors):
+                await _answer_unresponsive_child(connector_name)
+            identity = describe_active_target() if connector_name == "control_system" else None
+            refuse_nothing_answered(
+                tool_name,
+                "channels",
+                exc.missing or {},
+                details={"active_target": identity} if identity else None,
+            )
+        error_type, message, suggestions, details = await _envelope(
+            exc.cause, tool_name, connector_name
+        )
+        details = dict(details or {})
+        if exc.missing is not None:
+            details[MISSING_KEY] = exc.missing
+        make_error(error_type, message, suggestions, details=details)
     except Exception as exc:
         error_type, message, suggestions, details = await _envelope(exc, tool_name, connector_name)
         make_error(error_type, message, suggestions, details=details)
