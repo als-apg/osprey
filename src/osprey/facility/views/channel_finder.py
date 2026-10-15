@@ -50,7 +50,9 @@ the index when its ``channel_finder.pipeline_mode`` is ``hierarchical``; a facil
 with no channel writes an empty tree. The build stops with
 ``view-unsupported`` when two place level words first appear at one depth, and
 when a tree key (a place or device id, a class, a signal, or an address used as
-a leaf key) begins with ``_``, which the loader reads as a meta key.
+a leaf key) begins with ``_``, which the loader reads as a meta key, and when
+two channels of one device node take one leaf key, which happens only when one
+channel's address is another's signal.
 
 The middle-layer index is written to
 ``<render>/data/channel_finder/middle_layer.json``, with the DuckDB database
@@ -101,7 +103,8 @@ of no family is not counted. A render carries the index when its
 the build with ``view-unsupported``, as does a host where DuckDB cannot load
 its full-text-search extension, which the database's search index needs, and a
 System or Family key the loader would not read back: one beginning with
-``_``, or a System ``schema`` or ``count``.
+``_``, or a System ``schema`` or ``count``, and a channel whose address is the
+signal another channel's Field in the same Family is keyed by.
 """
 
 from __future__ import annotations
@@ -312,6 +315,12 @@ def _checked_key(
     )
 
 
+#: The remedy of a stop on two channels that take one index key.
+_SHARED_KEY_REMEDY = (
+    "give one of them a signal or address that differs, or select another channel_finder_mode"
+)
+
+
 def _place_levels(places: Iterable[Mapping[str, Any]]) -> list[str]:
     """The place level words, ordered by the depth at which each first appears."""
     shallowest: dict[str, tuple[int, Mapping[str, Any]]] = {}
@@ -429,6 +438,31 @@ def _leaf_keys(channels: Sequence[Mapping[str, Any]]) -> list[str]:
     ]
 
 
+def _shared_leaf_key(
+    first: Mapping[str, Any], second: Mapping[str, Any], key: str, device: Mapping[str, Any] | None
+) -> Exception:
+    """The ``view-unsupported`` stop on two channels of one device node that take one leaf key.
+
+    The two channels are named in address order, so the line does not depend on
+    the order the facility file lists them in.
+    """
+    first, second = sorted((first, second), key=lambda channel: str(channel["id"]))
+    index = f"of the {HIERARCHICAL_MODE} index"
+    if device is None:
+        return _unsupported(
+            second,
+            "channel",
+            f"it and channel `{first['id']}` take the one leaf key `{key}` under no device {index}",
+            _SHARED_KEY_REMEDY,
+        )
+    return _unsupported(
+        device,
+        "device",
+        f"its channels `{first['id']}` and `{second['id']}` take the one leaf key `{key}` {index}",
+        _SHARED_KEY_REMEDY,
+    )
+
+
 def hierarchical_document(doc: Mapping[str, Any]) -> dict[str, Any]:
     """The hierarchical index of one facility file.
 
@@ -442,8 +476,9 @@ def hierarchical_document(doc: Mapping[str, Any]) -> dict[str, Any]:
     Raises:
         FacilityBuildError: ``view-unsupported`` when two place level words
             first appear at one depth, when a level word cannot be a level name,
-            when one branch orders two level words against their depths, or
-            when a tree key begins with ``_``.
+            when one branch orders two level words against their depths, when
+            a tree key begins with ``_``, or when two channels of one device
+            node take one leaf key.
     """
     places = {str(place["id"]): place for place in doc.get("places", [])}
     devices = {str(device["id"]): device for device in doc.get("devices", [])}
@@ -500,8 +535,12 @@ def hierarchical_document(doc: Mapping[str, Any]) -> dict[str, Any]:
                     child["_description"] = description
                 node[key] = child
             node = node[key]
+        holders: dict[str, Mapping[str, Any]] = {}
         for channel, key in zip(channels, _leaf_keys(channels), strict=True):
             _checked_key(key, channel, "channel")
+            if key in holders:
+                raise _shared_leaf_key(holders[key], channel, key, devices.get(device_node[-1]))
+            holders[key] = channel
             leaf: dict[str, Any] = {"_channel_part": str(channel["id"])}
             if channel.get("description"):
                 leaf["_description"] = channel["description"]
@@ -531,7 +570,8 @@ def write_hierarchical(root: Path, inputs: ViewInputs) -> list[Path]:
 
     Raises:
         FacilityBuildError: ``view-unsupported`` when the place levels cannot
-            be ordered into one hierarchy, or when a tree key begins with ``_``.
+            be ordered into one hierarchy, when a tree key begins with ``_``, or
+            when two channels of one device node take one leaf key.
     """
     from osprey.facility.views import view_bytes
 
@@ -784,7 +824,8 @@ def _common_description(channels: Sequence[Mapping[str, Any]]) -> str | None:
 
 
 def _family_fields(
-    members: Sequence[Mapping[str, Any]],
+    system: str,
+    family: _Family,
     channels_of: Mapping[str, Sequence[Mapping[str, Any]]],
     signal_texts: Mapping[str, str],
 ) -> tuple[dict[str, dict[str, Any]], int]:
@@ -795,9 +836,30 @@ def _family_fields(
     by the vocabulary's sentence for the signal, else by the description its
     channels share. Every other channel, and one with no signal, is its own
     Field keyed by its address and described by the channel.
+
+    Raises:
+        FacilityBuildError: ``view-unsupported`` naming the family's record,
+            when one channel's address is the signal another channel's Field
+            is keyed by.
     """
+    holders: dict[str, str] = {}
+
+    def hold(key: str, channel: Mapping[str, Any]) -> None:
+        address = str(channel["id"])
+        held = holders.setdefault(key, address)
+        if held == address:
+            return
+        first, second = sorted((held, address))
+        raise _unsupported(
+            family.record,
+            family.record_kind,
+            f"its Family `{family.name}` under System `{system}` gives channels `{first}` and "
+            f"`{second}` the one Field key `{key}` of the {_MIDDLE_LAYER_INDEX} index",
+            _SHARED_KEY_REMEDY,
+        )
+
     per_member: list[dict[str | None, list[Mapping[str, Any]]]] = []
-    for member in members:
+    for member in family.members:
         fields: dict[str | None, list[Mapping[str, Any]]] = defaultdict(list)
         for channel in channels_of.get(str(member["id"]), ()):
             signal = channel.get("signal")
@@ -810,6 +872,7 @@ def _family_fields(
     for key in sorted(keys, key=lambda key: (key is None, key or "")):
         if key is not None and all(len(fields.get(key, ())) == 1 for fields in per_member):
             channels = [fields[key][0] for fields in per_member]
+            hold(key, channels[0])
             field: dict[str, Any] = {"ChannelNames": [str(c["id"]) for c in channels]}
             description = signal_texts.get(key) or _common_description(channels)
             if description:
@@ -819,6 +882,7 @@ def _family_fields(
         for fields in per_member:
             for channel in fields.get(key, ()):
                 address = str(channel["id"])
+                hold(address, channel)
                 field = {"ChannelNames": [address]}
                 if channel.get("description"):
                     field["_description"] = channel["description"]
@@ -864,8 +928,9 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
 
     Raises:
         FacilityBuildError: ``view-unsupported`` when a System or Family key
-            begins with ``_``, or a System key is a document key of the index
-            (``schema``, ``count``).
+            begins with ``_``, a System key is a document key of the index
+            (``schema``, ``count``), or one channel's address is the signal
+            another channel's Field in the same Family is keyed by.
     """
     places = {str(place["id"]): place for place in doc.get("places", [])}
     indices = _place_indices(doc)
@@ -894,7 +959,7 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
             _checked_key(entry.name, entry.record, entry.record_kind, _MIDDLE_LAYER_INDEX)
             for member in entry.members:
                 in_family.update(str(c["id"]) for c in channels_of.get(str(member["id"]), ()))
-            fields, keyed = _family_fields(entry.members, channels_of, signal_texts)
+            fields, keyed = _family_fields(system, entry, channels_of, signal_texts)
             listed.update(address for field in fields.values() for address in field["ChannelNames"])
             by_address += keyed
             family: dict[str, Any] = {"_setup": _setup(entry.members, indices), **fields}

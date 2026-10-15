@@ -597,6 +597,23 @@ def test_a_system_named_by_a_document_key_stops_with_view_unsupported(key: str) 
     )
 
 
+def test_an_address_equal_to_a_sibling_signal_stops_with_view_unsupported() -> None:
+    from osprey.facility.errors import FacilityBuildError
+
+    doc = _one_family("M", "F")
+    doc["channels"].append({"id": "current_setpoint", "on": {"device": "A"}})
+
+    with pytest.raises(FacilityBuildError) as caught:
+        _document(doc)
+
+    assert caught.value.format_message() == (
+        "facility: view-unsupported: group F — its Family `F` under System `M` gives channels "
+        "`A:X` and `current_setpoint` the one Field key `current_setpoint` of the middle-layer "
+        "index; fix: give one of them a signal or address that differs, or select another "
+        "channel_finder_mode"
+    )
+
+
 def test_keys_not_beginning_with_an_underscore_are_unchanged() -> None:
     document, _left_out, _by_address = _document(_one_family("M_", "M_/X_"))
 

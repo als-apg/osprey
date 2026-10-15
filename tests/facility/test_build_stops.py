@@ -618,6 +618,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "a hierarchical tree key beginning with `_`",
     ),
     (
+        "view_unsupported__hierarchical_shared_leaf_key",
+        "view-unsupported",
+        "two channels of one device on one hierarchical leaf key",
+    ),
+    (
         "view_unsupported__hierarchical_two_level_words",
         "view-unsupported",
         "two place level words at one depth",
@@ -636,6 +641,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "view_unsupported__middle_layer_schema_key",
         "view-unsupported",
         "a top place whose id is `schema`",
+    ),
+    (
+        "view_unsupported__middle_layer_shared_field_key",
+        "view-unsupported",
+        "an address equal to the signal of another channel's Field in one Family",
     ),
     ("profile_invalid__mirrored_facility_file", "profile-invalid", "`project/facility.json`"),
     (
@@ -2286,6 +2296,22 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "channel_finder_mode"
         ),
     ),
+    "view_unsupported__hierarchical_shared_leaf_key": (
+        _plain(
+            append(
+                "records/channels.yaml",
+                {"id": "current_setpoint", "on": {"device": "SR/Q1"}, "signal": "current_readback"},
+                {"id": "current_readback", "on": {"device": "SR/Q1"}},
+                {"id": "Q1:X", "on": {"device": "SR/Q1"}, "signal": "current_setpoint"},
+            )
+        ),
+        (
+            "facility: view-unsupported: device SR/Q1 — its channels `Q1:X` and "
+            "`current_setpoint` take the one leaf key `current_setpoint` of the hierarchical index; fix: "
+            "give one of them a signal or address that differs, or select another "
+            "channel_finder_mode"
+        ),
+    ),
     "view_unsupported__hierarchical_two_level_words": (
         _plain(
             put(
@@ -2338,6 +2364,21 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility: view-unsupported: place schema — its System key `schema` is a document "
             "key of the middle-layer index; fix: give the place an id other than `schema`, or "
             "select another channel_finder_mode"
+        ),
+    ),
+    "view_unsupported__middle_layer_shared_field_key": (
+        _plain(
+            append(
+                "records/channels.yaml",
+                {"id": "Q1:I", "on": {"device": "SR/Q1"}, "signal": "current_setpoint"},
+                {"id": "current_setpoint", "on": {"device": "SR/Q1"}},
+            )
+        ),
+        (
+            f"facility: view-unsupported: class {QUAD} — its Family `{QUAD}` under System `-` "
+            "gives channels `Q1:I` and `current_setpoint` the one Field key `current_setpoint` "
+            "of the middle-layer index; fix: give one of them a signal or address that differs, "
+            "or select another channel_finder_mode"
         ),
     ),
     "profile_invalid__mirrored_facility_file": (
@@ -2646,10 +2687,12 @@ def _persona_serves_models(repo: Path) -> None:
 PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
     "view_unsupported__in_context_no_channel": _select_in_context_unprobed,
     "view_unsupported__hierarchical_meta_key": _select_hierarchical,
+    "view_unsupported__hierarchical_shared_leaf_key": _select_hierarchical,
     "view_unsupported__hierarchical_two_level_words": _select_hierarchical,
     "view_unsupported__middle_layer_no_groups": _select_middle_layer,
     "view_unsupported__middle_layer_meta_key": _select_middle_layer,
     "view_unsupported__middle_layer_schema_key": _select_middle_layer,
+    "view_unsupported__middle_layer_shared_field_key": _select_middle_layer,
     "profile_invalid__unknown_served_model": _serve_unknown_model,
     "profile_invalid__persona_served_models": _persona_serves_models,
     "profile_invalid__tier": _spell_tier,
