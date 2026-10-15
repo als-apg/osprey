@@ -85,7 +85,7 @@ from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix
 from osprey_connectors.simulation.state import STILL_SCENARIO, read_active_state
 from osprey_connectors.workspace import rendered_config_path, resolve_simulation_state_dir
-from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
 
@@ -190,7 +190,7 @@ def _assert_selected_readings_still(
     repo: Path, correctors: dict[str, tuple[str, str]], bpms: dict[str, str]
 ) -> None:
     """Fail before deploying if a reading this test compares moves under the `still` scenario."""
-    view = _orm_stack.repo_view(repo)
+    view = _facility_select.repo_view(repo)
     assert STILL_SCENARIO in {str(scenario["name"]) for scenario in view.scenarios()}, (
         f"the staged view lists no {STILL_SCENARIO!r} scenario: rebuild the render"
     )

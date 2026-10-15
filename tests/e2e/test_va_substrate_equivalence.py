@@ -89,7 +89,7 @@ import pytest
 import yaml
 
 from osprey.deployment.compose_generator import resolve_project_name
-from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import (
     container_logs,
     dead_container_logs,
@@ -961,7 +961,7 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     lo, hi = deployed_stack.bounds(sp)
     value = lo + 0.5 * (hi - lo)
     # The readback serves the written value plus the motion its seed declares.
-    band = _orm_stack.repo_view(deployed_stack.repo).motion_envelope(rb)
+    band = _facility_select.repo_view(deployed_stack.repo).motion_envelope(rb)
 
     # Host side (pyepics), isolated in its own process: arrange a known,
     # non-default state (rather than comparing two never-written 0.0 defaults,
@@ -1043,7 +1043,7 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     start = lo + 0.25 * (hi - lo)
     stop = lo + 0.75 * (hi - lo)
     num = 4
-    band = _orm_stack.repo_view(deployed_stack.repo).motion_envelope(rb)
+    band = _facility_select.repo_view(deployed_stack.repo).motion_envelope(rb)
     # Where the readback sits before any point of this run: its setpoint's seed
     # nominal, which the echo starts at.
     level = _seed_nominal(deployed_stack.repo, sp)
@@ -1201,7 +1201,7 @@ def _sim_apply(repo: Path, *scenarios: str) -> None:
 async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: DeployedStack) -> None:
     sp, rb = deployed_stack.pairs["p5"]
     lo, hi = deployed_stack.bounds(sp)
-    band = _orm_stack.repo_view(deployed_stack.repo).motion_envelope(rb)
+    band = _facility_select.repo_view(deployed_stack.repo).motion_envelope(rb)
 
     _sim_apply(deployed_stack.repo, P5_STUCK_SCENARIO)
     try:
@@ -1373,7 +1373,7 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
         assert gaps_before, (
             "diff reports no numeric channel at all, so there is nowhere to observe a model write"
         )
-        view = _orm_stack.repo_view(deployed_stack.repo)
+        view = _facility_select.repo_view(deployed_stack.repo)
         bands = {address: view.motion_envelope(address) for address in gaps_before}
         # Two snapshots of one reading each carry an independent draw of its
         # motion, so a reading counts as moved only past twice its band.

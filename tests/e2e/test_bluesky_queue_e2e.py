@@ -145,7 +145,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
     REASON_EXECUTABLE,
 )
 from osprey.services.bluesky_bridge.session_upload import REASON_UNVALIDATED
-from tests.e2e import _orm_stack
+from tests.e2e import _facility_select, _orm_stack
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -922,7 +922,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         # the answer is about the channels these containers serve, and a
         # deployment harvested from a facility export wires an entirely
         # different set.
-        modelled = _orm_stack.claimed_addresses(_orm_stack.repo_view(repo))
+        modelled = _facility_select.claimed_addresses(_facility_select.repo_view(repo))
         correctors = {name: pair for name, pair in correctors.items() if pair[0] in modelled}
         bpms = {name: pv for name, pv in bpms.items() if pv in modelled}
         assert correctors, "the build staged no modelled settable device -- nothing to drive"

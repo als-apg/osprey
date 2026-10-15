@@ -90,7 +90,7 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
 
@@ -450,7 +450,8 @@ def test_a_plan_naming_an_unserved_channel_is_refused_before_motion(
     # one read lies within `band` of that value, two reads within `2 * band` of
     # each other.
     band = max(
-        _orm_stack.repo_view(preflight_stack.repo).motion_envelope(readback), FLOAT_FORMAT_SLACK
+        _facility_select.repo_view(preflight_stack.repo).motion_envelope(readback),
+        FLOAT_FORMAT_SLACK,
     )
     before = _host_read(preflight_stack.repo, readback)
     assert min(abs(before - start), abs(before - stop)) > band, (

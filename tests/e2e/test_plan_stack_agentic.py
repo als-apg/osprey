@@ -158,7 +158,7 @@ from osprey import bluesky_tool_names
 from osprey.agent_runner import SDKWorkflowResult, ToolTrace
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.queue_backend import is_queue_active
-from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.judge import LLMJudge, WorkflowResult
@@ -3150,7 +3150,7 @@ class DeployedScanStack:
     a wired corrector and read a wired monitor checks against all of them.
 
     ``named`` is the ``(setpoint, model)`` of the corrector a limits record
-    bounds (``_orm_stack.bounded_corrector``), the one device a prompt or a
+    bounds (``_facility_select.bounded_corrector``), the one device a prompt or a
     protocol-side plan names when it depends on a range. ``named_bpms`` are
     that model's monitors, the readings that respond to it.
     """
@@ -3217,8 +3217,8 @@ def _describe_queue_deployment(repo: Path) -> None:
     bounded = next(
         (
             address
-            for address in sorted(_orm_stack.corrector_addresses(view))
-            if _orm_stack.has_band(limits.get(address))
+            for address in sorted(_facility_select.corrector_addresses(view))
+            if view.channel(address).value_range is not None
         ),
         None,
     )
@@ -3294,7 +3294,7 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     # what the liveness and hysteresis floors mean by "wired".
     correctors = _orm_stack.select_correctors(repo, count=None)
     bpms = _orm_stack.select_bpms(repo, count=None)
-    named_setpoint, _named_readback, named_model = _orm_stack.bounded_corrector(repo)
+    named_setpoint, _named_readback, named_model = _facility_select.bounded_corrector(repo)
     named_bpms = list(_orm_stack.select_bpms(repo, count=None, model=named_model))
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
@@ -4352,10 +4352,10 @@ def _long_grid_args(stack: DeployedScanStack, num_points: int) -> dict[str, Any]
     band.
 
     The axis is the corrector a limits record bounds
-    (``_orm_stack.bounded_corrector``), and the readback a monitor of that
+    (``_facility_select.bounded_corrector``), and the readback a monitor of that
     corrector's own model, the readings that respond to it.
     """
-    axis_name, _readback, _model = _orm_stack.bounded_corrector(stack.repo)
+    axis_name, _readback, _model = _facility_select.bounded_corrector(stack.repo)
     entry = _orm_stack.channel_limits(stack.repo)[axis_name]
     lo, hi = float(entry["min_value"]), float(entry["max_value"])
     return {

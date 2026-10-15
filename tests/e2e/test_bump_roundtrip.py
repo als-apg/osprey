@@ -108,7 +108,7 @@ import pytest
 
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
-from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
 
@@ -485,9 +485,9 @@ def _horizontal_devices(repo: Path) -> tuple[list[str], list[str]]:
     lists come from ``select_correctors``/``select_bpms``, so they are the
     staged view's devices in address order.
     """
-    view = _orm_stack.repo_view(repo)
-    kicks = _orm_stack.corrector_addresses(view, plane="x")
-    monitors = _orm_stack.monitor_addresses(view, plane="x")
+    view = _facility_select.repo_view(repo)
+    kicks = _facility_select.corrector_addresses(view, plane="x")
+    monitors = _facility_select.monitor_addresses(view, plane="x")
     correctors = [
         address for address in _orm_stack.select_correctors(repo, count=None) if address in kicks
     ]

@@ -32,8 +32,9 @@ tests need a live stack).
 Where the work is split. The build's view says which channels the worker
 holds; ``select_correctors``/``select_bpms`` are the HARNESS's own, because
 which of them a corrector-sweeping plan can do physics with is a question a
-lane asks of the repo's own simulator view (:func:`repo_view`) and has
-no place in a framework that must stay facility-agnostic. The limits table is
+lane asks of the repo's own simulator view
+(:func:`tests.e2e._facility_select.repo_view`) and has no place in a
+framework that must stay facility-agnostic. The limits table is
 the view of ``data/facility/limits.yaml``, the same table the render enforces,
 readable before the build through :func:`channel_limits`.
 """
@@ -52,19 +53,17 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import yaml
 
+from tests.e2e._facility_select import corrector_addresses, monitor_addresses, repo_view
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import forced_model
 
 if TYPE_CHECKING:
     from click.testing import CliRunner, Result
-
-    from osprey_connectors.simulation.view import SimulatorView
 
 #: What :func:`_keyed_by_address` keys -- a corrector ``(sp, rb)`` pair or a
 #: BPM address, both of which name their device by an address the selector
@@ -829,77 +828,6 @@ def restart_bridge(
     wait_for_health(f"{bridge_url}/health", health_timeout)
 
 
-@cache
-def _view_of_resolved(path: Path) -> SimulatorView:
-    """The memoized open behind :func:`repo_view`, keyed on a resolved view directory."""
-    from osprey_connectors.simulation.view import SimulatorView
-
-    return SimulatorView.open(path)
-
-
-def repo_view(repo: Path) -> SimulatorView:
-    """The simulator view the build rendered into ``repo``.
-
-    The one authority on which channels the accelerator model drives and what
-    each of them does to it: every binding of a served model names the
-    address, its role and the transverse plane it steers or reads. A lane
-    choosing devices with a plane or a role in mind reads them from here.
-
-    Opened once per view directory per process, keyed on the resolved path: a
-    lane that rebuilds a repo already read here must build it under a fresh
-    path to be served the new view.
-
-    Lives HERE rather than in the product because choosing a physics-appropriate
-    subset of a facility's channels is a harness concern: the staged view
-    holds every channel and says which way each points, and which of them a
-    given plan can do physics with is the lane's own question.
-    """
-    from osprey_connectors.simulation.view import SimulatorView
-
-    path = SimulatorView.path_for_project(repo)
-    if not path.is_dir():
-        raise AssertionError(f"the build rendered no simulator view at {path}")
-    return _view_of_resolved(path.resolve())
-
-
-def corrector_addresses(
-    view: SimulatorView, *, plane: str | None = None, model: str | None = None
-) -> frozenset[str]:
-    """Every corrector setpoint the view's bindings serve, optionally of one
-    plane and of one model.
-
-    A corrector is a setpoint binding that steers a transverse plane. Grouping
-    by what a binding DOES -- steer a plane, read one -- rather than by the
-    family name its address spells is what keeps a lane's device choice the
-    same question on every facility.
-    """
-    return frozenset(
-        binding.address
-        for binding in view.bindings(role="setpoint", model=model)
-        if binding.plane is not None and (plane is None or binding.plane == plane)
-    )
-
-
-def monitor_addresses(
-    view: SimulatorView, *, plane: str | None = None, model: str | None = None
-) -> frozenset[str]:
-    """Every monitor reading the view's bindings serve, optionally of one plane
-    and of one model."""
-    return frozenset(
-        binding.address for binding in view.bindings(role="monitor", plane=plane, model=model)
-    )
-
-
-def claimed_addresses(view: SimulatorView) -> frozenset[str]:
-    """Every corrector setpoint and monitor reading the view's bindings serve.
-
-    The single spelling of the channels a corrector-sweeping plan can do
-    physics with, so a lane narrowing the staged devices and a lane selecting
-    them read the rule from here.
-    """
-    return corrector_addresses(view) | monitor_addresses(view)
-
-
 def _keyed_by_address(
     items: list[_T], address_of: Callable[[_T], str], count: int | None, unit_label: str
 ) -> dict[str, _T]:
@@ -988,39 +916,6 @@ def select_bpms(
     _, readables = staged_devices(repo)
     addresses = sorted(address for address in readables.values() if address in monitors)
     return _keyed_by_address(addresses, lambda address: address, count, "monitor readbacks")
-
-
-def has_band(entry: Any) -> bool:
-    """Whether a limits record bounds its channel at both ends.
-
-    The one rule for "a channel a record bounds": a lane sizing a sweep from a
-    channel's own range needs both ``min_value`` and ``max_value``.
-    """
-    return isinstance(entry, dict) and "min_value" in entry and "max_value" in entry
-
-
-def bounded_corrector(repo: Path) -> tuple[str, str, str]:
-    """The first staged corrector, in address order, that a limits record
-    bounds at both ends, as ``(setpoint, readback, model)``.
-
-    The device a lane names when its request depends on a corrector having a
-    range: the limits table holds only the records the facility tree authors,
-    so a corrector without one has no range to sweep across. ``model`` is the
-    model whose binding wires the setpoint, so a lane reads the sweep's
-    response on that model's monitors (:func:`select_bpms` with ``model=``).
-    """
-    limits = channel_limits(repo)
-    view = repo_view(repo)
-    for setpoint, readback in select_correctors(repo, count=None).values():
-        if has_band(limits.get(setpoint)):
-            (binding,) = (
-                binding for binding in view.bindings(role="setpoint") if binding.address == setpoint
-            )
-            return setpoint, readback, binding.model
-    raise AssertionError(
-        "no staged corrector has a limits record with both min_value and max_value "
-        f"in the limits table of {repo / 'data' / 'facility' / 'limits.yaml'}"
-    )
 
 
 def seed_repo_env(repo: Path) -> None:
