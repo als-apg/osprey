@@ -2095,15 +2095,15 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
 
   /**
    * Boot with a healthy 'artifacts' panel, an unhealthy-but-present 'ariel'
-   * entry, and a MUTABLE history ring behind /api/agent-activity/recent. Both
+   * entry, and a MUTABLE history buffer behind /api/agent-activity/recent. Both
    * SSE seams are exposed: `emit` for frames, and `open` for the hook that
-   * re-reads the ring (a reload's first open and every reconnect run it).
+   * re-reads the buffer (a reload's first open and every reconnect run it).
    * @param {{events?: any[]}} [opts]
    */
   async function bootAck({ events = [] } = {}) {
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
-    const ring = { events };
+    const buffer = { events };
     const reads = { recent: 0 };
     vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
       if (url === '/api/panels') {
@@ -2112,7 +2112,7 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
       if (url === '/api/artifact-server') return jsonOk({ url: '/panel/artifacts', available: true });
       if (url === '/api/agent-activity/recent') {
         reads.recent += 1;
-        return jsonOk({ events: [...ring.events] });
+        return jsonOk({ events: [...buffer.events] });
       }
       return jsonOk({ status: 'ok' });  // ariel: no url ⇒ entry present, disabled
     }));
@@ -2136,11 +2136,11 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
     const artifacts = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="artifacts"]'));
     await settled(() => expect(artifacts.classList.contains('disabled')).toBe(false));
     return {
-      mod, ring, artifacts,
+      mod, buffer, artifacts,
       /** @param {object} frame */
       emit: (frame) => { for (const s of sources) s.onmessage?.({ data: JSON.stringify(frame) }); },
       open: () => { for (const s of sources) s.onopen?.(); },
-      // Wait until the open() hook has actually READ the ring, then flush the
+      // Wait until the open() hook has actually READ the buffer, then flush the
       // handler that consumes it. A "no badge appeared" assertion is only
       // evidence once the restore has genuinely run.
       settle: async () => {
@@ -2166,7 +2166,7 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
     expect(localStorage.getItem(`${ACK}artifacts`)).toBe('1000.5');
   });
 
-  test('no ack ⇒ an unseen ring event restores the badge on SSE open', async () => {
+  test('no ack ⇒ an unseen buffer event restores the badge on SSE open', async () => {
     const { open } = await bootAck({
       events: [{ type: 'agent_activity', tool: 'search_logbook', target: { kind: 'panel', panel: 'ariel' }, ts: 1000 }],
     });
@@ -2177,7 +2177,7 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
     await settled(() => expect(badged('ariel')).toBe(true));
   });
 
-  test('a ring event at or before the ack does NOT resurrect the badge', async () => {
+  test('a buffer event at or before the ack does NOT resurrect the badge', async () => {
     localStorage.setItem(`${ACK}ariel`, '1000');
     const { open, settle } = await bootAck({
       events: [
@@ -2192,7 +2192,7 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
     expect(badged('ariel')).toBe(false);
   });
 
-  test('a ring event after the ack restores the badge', async () => {
+  test('a buffer event after the ack restores the badge', async () => {
     localStorage.setItem(`${ACK}ariel`, '1000');
     const { open } = await bootAck({
       events: [{ type: 'agent_activity', tool: 'search_logbook', target: { kind: 'panel', panel: 'ariel' }, ts: 1000.5 }],
@@ -2203,7 +2203,7 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
     await settled(() => expect(badged('ariel')).toBe(true));
   });
 
-  test('non-panel-kind ring rows never badge the rail', async () => {
+  test('non-panel-kind buffer rows never badge the rail', async () => {
     const { open, settle } = await bootAck({
       events: [
         { type: 'agent_activity', tool: 'read_channel', target: { kind: 'channel', detail: 'SR01C:BPM1:X' }, ts: 2000 },
@@ -2247,14 +2247,14 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
     // A client clock written as an ack would be ~2e12 here and would swallow
     // every future server ts — badges would never come back after one clear.
     vi.spyOn(Date, 'now').mockReturnValue(2_000_000_000_000);
-    const { emit, ring, open } = await bootAck();
+    const { emit, buffer, open } = await bootAck();
 
     emit({ type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 5 });
     emit({ type: 'panel_focus', panel: 'artifacts' });
     expect(localStorage.getItem(`${ACK}artifacts`)).toBe('5');
 
     // Reconnect with a newer server event: still strictly greater than the ack.
-    ring.events = [{ type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 6 }];
+    buffer.events = [{ type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 6 }];
     open();
 
     await settled(() => expect(badged('artifacts')).toBe(true));
