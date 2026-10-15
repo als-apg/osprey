@@ -190,8 +190,8 @@ The simulator serves the channels of ``build/facility.json``, which
 ``osprey build`` writes from ``data/facility/``, inside this process — that is
 the whole trick behind a five-minute first session. The session is on the
 ``va`` target, and the web terminal's header chip reads "Simulator". Any other
-address is refused with ``<address> is not in build/facility.json``, for example
-``ANY:RANDOM:NAME is not in build/facility.json``. Try:
+address is answered with ``<address> is not a channel of this facility``, for
+example ``ANY:RANDOM:NAME is not a channel of this facility``. Try:
 
 .. code-block:: text
 
