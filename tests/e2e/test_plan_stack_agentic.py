@@ -3584,10 +3584,11 @@ async def test_agent_measures_orbit_response_on_a_healthy_stack(
 
 GRID_OPERATOR_REQUEST = (
     "I would like a two-dimensional map on the machine. Pick two of the "
-    "steering correctors, step them together over a grid of settings across "
-    "the range they are allowed, and take a beam-position reading at every "
-    "point of that grid. Once it has run, tell me what the map looks like "
-    "over the region you covered."
+    "steering correctors, step them together over a grid of settings within "
+    "2 A either side of where they sit now, and take a beam-position reading "
+    "at every point of that grid. You do not need to put them back afterwards. "
+    "Once it has run, tell me what the map looks like over the region you "
+    "covered."
 )
 
 
