@@ -39,7 +39,7 @@ from typing import IO, Any
 
 import click
 
-from osprey.facility import fold_code
+from osprey.facility import DEFAULT_ROLE, fold_code
 from osprey.facility.combine import FIXES_FILE, CombineResult, combine
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, quoted_slots
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
@@ -1280,7 +1280,7 @@ class _Records:
     def _pairs(self) -> Iterator[FacilityBuildError]:
         readers: dict[str, list[str]] = {}
         for address, channel in sorted(self.index.channels.items()):
-            role = channel.get("role", "readback")
+            role = channel.get("role", DEFAULT_ROLE)
             if role != "setpoint":
                 if "pair" in channel:
                     yield self._error(
@@ -1319,7 +1319,7 @@ class _Records:
     ) -> Iterator[FacilityBuildError]:
         files = stating_files(channel, "pair")
         target = self.index.channels[pair]
-        target_role = target.get("role", "readback")
+        target_role = target.get("role", DEFAULT_ROLE)
         if target_role != "readback":
             yield self._error(
                 "pair-invalid",
@@ -1405,7 +1405,7 @@ class _Records:
     def _tolerance(self, address: str, channel: Mapping[str, Any]) -> Iterator[FacilityBuildError]:
         """A setpoint's ``tolerance``: its slot, its record, and its readback's motion inside it."""
         files = stating_files(channel, "tolerance")
-        role = channel.get("role", "readback")
+        role = channel.get("role", DEFAULT_ROLE)
         value_type = self._type(address)
         problem: str | None = None
         remedy = ""
@@ -1560,7 +1560,7 @@ class _Records:
                     "limit",
                     address,
                     files,
-                    f"`writable: true` on a {channel.get('role', 'readback')} channel",
+                    f"`writable: true` on a {channel.get('role', DEFAULT_ROLE)} channel",
                     "remove `writable`; only a setpoint is writable",
                 )
             bounds = [slot for slot in _LIMIT_BOUNDS if record.get(slot) is not None]
@@ -1691,7 +1691,7 @@ class _Records:
                 continue
             if address not in self.index.channels:
                 continue
-            role = self.index.channels[address].get("role", "readback")
+            role = self.index.channels[address].get("role", DEFAULT_ROLE)
             if role not in fault.roles:
                 yield self._error(
                     "value-invalid",
@@ -1758,7 +1758,7 @@ class _Records:
     ) -> Iterator[FacilityBuildError]:
         slot = f"overrides.{address}"
         channel = self.index.channels[address]
-        role = channel.get("role", "readback")
+        role = channel.get("role", DEFAULT_ROLE)
         wired = self.index.wired.get(address)
         if wired and role != "setpoint":
             models = ", ".join(sorted(wired))

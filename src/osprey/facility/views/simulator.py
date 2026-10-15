@@ -57,7 +57,7 @@ from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import TEXTURE
+from osprey.facility import DEFAULT_ROLE, TEXTURE
 from osprey.facility.build import FacilityDocument
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.scenarios import scenario_logbook
@@ -347,7 +347,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
     channels: list[dict[str, Any]] = []
     for record in sorted(doc.get("channels", []), key=lambda channel: str(channel["id"])):
         address = str(record["id"])
-        role = record.get("role", "readback")
+        role = record.get("role", DEFAULT_ROLE)
         entry = limits.get(address)
         if entry is not None:
             writable = bool(entry["writable"])

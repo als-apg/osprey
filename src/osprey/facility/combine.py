@@ -47,7 +47,7 @@ from typing import Any
 
 import yaml
 
-from osprey.facility import TEXTURE
+from osprey.facility import DEFAULT_ROLE, TEXTURE
 from osprey.facility.errors import FacilityBuildError, quoted_slots
 from osprey.facility.pairing import derive_pairs
 from osprey.facility.provenance import build_provenance
@@ -86,7 +86,6 @@ _OPS = ("set", "add", "drop")
 _KINDS = ("place", "device", "channel", "wiring", "group", "model")
 _FIX_KEYS = frozenset({"op", "kind", "id", "fields", "record", "why", "was"})
 
-_ROLE = "readback"
 _SLICE_WEIGHT = 1
 
 #: The file whose name the list of each kind emits under.
@@ -755,7 +754,7 @@ class _Combiner:
 def _channel_defaults(fields: dict[str, Any], defaults: set[str]) -> None:
     """Fill a channel's schema defaults, each recorded as a default."""
     if "role" not in fields:
-        fields["role"] = _ROLE
+        fields["role"] = DEFAULT_ROLE
         defaults.add("role")
     if "value_type" not in fields:
         fields["value_type"] = DEFAULT_VALUE_TYPE

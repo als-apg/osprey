@@ -113,6 +113,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from osprey.facility import DEFAULT_ROLE
 from osprey.facility.views import PIPELINE_MODE_KEY, ViewInputs
 
 __all__ = [
@@ -407,12 +408,12 @@ def _leaf_keys(channels: Sequence[Mapping[str, Any]]) -> list[str]:
     """Each leaf's key among the leaves of one device node, in the order given."""
     signals = Counter(channel.get("signal") for channel in channels)
     pairs = Counter(
-        (channel.get("signal"), channel.get("role", "readback")) for channel in channels
+        (channel.get("signal"), channel.get("role", DEFAULT_ROLE)) for channel in channels
     )
     keys: list[str] = []
     for channel in channels:
         signal = channel.get("signal")
-        role = channel.get("role", "readback")
+        role = channel.get("role", DEFAULT_ROLE)
         if signal is None:
             keys.append(str(channel["id"]))
         elif signals[signal] == 1:
