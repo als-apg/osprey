@@ -180,7 +180,13 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
         "arms the plan-launch endpoint of the Bluesky lane serving the live stand-in soft "
         "IOC (only on a deployment with `bluesky.second_lane`)"
     ),
-    "OSPREY_TERMINAL_SECRET": "the operator login secret for the bluesky-web panel's web gate",
+    "OSPREY_TERMINAL_SECRET": (
+        "the operator login secret for the web gates of the bluesky-web panel and the "
+        "trajectory service"
+    ),
+    "TRAJECTORY_LAUNCH_TOKEN": (
+        "admits the trajectory service's agent door (the terminal's panel proxy presents it)"
+    ),
     "ZO_ROOT_USER_PASSWORD": "OpenObserve root/ingest credential",
     "ARIEL_DB_PASSWORD": "ARIEL Postgres password (also fills the agent's derived DSN)",
     "ARIEL_DB_READONLY_PASSWORD": (

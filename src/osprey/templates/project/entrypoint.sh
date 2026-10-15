@@ -220,7 +220,8 @@ PY
 # they are mounted, OSPREY_FACILITY_BUNDLE_DIR (the knowledge bundle),
 # OSPREY_ARIEL_MIRROR_DIR (the ARIEL qmd mirror this container's own exporter
 # writes), OSPREY_SIMULATOR_LOG_DIR (the simulator's model logs) and
-# OSPREY_GUARDED_RUN_DIR (guarded runs' locks). Iterating what
+# OSPREY_GUARDED_RUN_DIR (guarded runs' locks) and
+# OSPREY_TRAJECTORY_STATE_DIR (the trajectory service's state). Iterating what
 # those name and skipping any that is unset or not a
 # directory is what lets one script serve a web terminal, a dispatch worker
 # with no bundle mount, and a bare `docker run` with none, without a single
@@ -512,6 +513,9 @@ join_mounted_groups() {
 
     join_mounted_group OSPREY_GUARDED_RUN_DIR "${OSPREY_GUARDED_RUN_DIR:-}"
     probe_mounted_dir OSPREY_GUARDED_RUN_DIR "${OSPREY_GUARDED_RUN_DIR:-}" write
+
+    join_mounted_group OSPREY_TRAJECTORY_STATE_DIR "${OSPREY_TRAJECTORY_STATE_DIR:-}"
+    probe_mounted_dir OSPREY_TRAJECTORY_STATE_DIR "${OSPREY_TRAJECTORY_STATE_DIR:-}" write
 }
 
 # ── state-zone hand-back ─────────────────────────────────────────────────────
@@ -542,7 +546,7 @@ join_mounted_groups() {
 # a container that will not start is worse than one whose audit log needs a
 # manual chown.
 #
-# FIVE deliberate exceptions, pruned by name — every bind whose contents the
+# SIX deliberate exceptions, pruned by name — every bind whose contents the
 # dropped process reaches through GROUP MEMBERSHIP (the join above) and never
 # through ownership, so there is nothing to hand back:
 #
@@ -563,6 +567,8 @@ join_mounted_groups() {
 #   * OSPREY_GUARDED_RUN_DIR      `var/guarded_run/`: the per-target locks
 #                                 every container running the agent takes,
 #                                 each under its own uid.
+#   * OSPREY_TRAJECTORY_STATE_DIR `var/trajectory/`: the trajectory service's
+#                                 own state, provisioned setgid on the host.
 #
 # Chowning any of them rewrites a host directory the operator owns and drops
 # the setgid group that the whole shared-group design rests on; the next
@@ -587,7 +593,7 @@ hand_back_state_zone() {
     set --
     for _hb_dir in "${OSPREY_AUDIT_DIR:-}" "${OSPREY_CONTROL_CONTEXT_DIR:-}" \
         "${OSPREY_CONTROL_CONTEXT_TREE:-}" "${OSPREY_SIMULATOR_LOG_DIR:-}" \
-        "${OSPREY_GUARDED_RUN_DIR:-}"; do
+        "${OSPREY_GUARDED_RUN_DIR:-}" "${OSPREY_TRAJECTORY_STATE_DIR:-}"; do
         # Unset is an ordinary topology — a dispatch worker writes no owner
         # directory, a bare `docker run` mounts none of them. A name that
         # points at a path this container does not have is the misconfigured

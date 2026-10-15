@@ -21,6 +21,7 @@ import shutil
 import stat
 import tempfile
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
@@ -1590,6 +1591,98 @@ def _bluesky_lane_write_posture(services, control_system):
     }
 
 
+#: The trajectory service's ``services.<key>`` block, and its build context.
+TRAJECTORY_SERVICE_KEY = "trajectory"
+
+
+def _trajectory_render_block(block, control_system):
+    """The ``services.trajectory`` block as its template reads it.
+
+    A copy of *block* with ``writes_enabled`` added: whether the service's
+    target arms writes, which decides whether the channel-limits database is
+    mounted. The target is resolved as a plan lane's is (:func:`_lane_target`)
+    — the declared one, else the deployment baseline — because that is the
+    rule the service's own startup applies to the same key.
+
+    The service drives its machine over the connector the target selects. A
+    Channel Access client finds its channels by UDP broadcast, which a compose
+    bridge network does not carry to the machine's IOCs, so a service on the
+    bridge whose target speaks Channel Access would start and then reach
+    nothing. That render is refused here, while the profile is still in front
+    of the operator. A target this deployment cannot resolve is left to the
+    service's startup, which names it.
+
+    :param block: The ``services.trajectory`` block as the build wrote it
+    :type block: dict
+    :param control_system: The config's ``control_system:`` section
+    :return: The block with ``writes_enabled`` set; *block* is not mutated
+    :rtype: dict
+    :raises DeploymentPreconditionError: The service is on the bridge network
+        and its target speaks Channel Access
+    """
+    from osprey_connectors.types import (
+        resolve_target,
+        speaks_channel_access,
+        target_writes_enabled,
+    )
+
+    target = _lane_target(block, control_system)
+    network = block.get("network") or "bridge"
+    if network != "host":
+        try:
+            channel_access = speaks_channel_access(
+                control_system, resolve_target(control_system, target)
+            )
+        except ValueError:
+            channel_access = False
+        if channel_access:
+            raise DeploymentPreconditionError(
+                reason=(
+                    f"services.{TRAJECTORY_SERVICE_KEY} drives target {target!r}, which "
+                    f"speaks Channel Access, on the {network!r} network. Channel Access "
+                    f"finds channels by UDP broadcast, which a compose bridge network "
+                    f"does not carry, so the service would start and reach nothing."
+                ),
+                remedy=(
+                    f"Set `{TRAJECTORY_SERVICE_KEY}: {{network: host}}` in the build "
+                    f"profile and rebuild with `osprey build`."
+                ),
+            )
+    return {**block, "writes_enabled": target_writes_enabled(control_system, target)}
+
+
+def _project_image_limits_mount(config, container_project_dir):
+    """The channel-limits bind for a container running the PROJECT image.
+
+    The source is the one :func:`resolve_limits_mount` spelled. The target is
+    where the connector inside a project-image container opens the file: a
+    relative ``database_path`` resolves against the directory of the config it
+    loaded, ``<container_project_dir>/build/config.yml``; an absolute one is
+    mounted at its own path, as it is for every other container.
+
+    :param config: The render context, carrying ``limits_mount`` when the
+        deployment has a limits database to mount
+    :type config: dict
+    :param container_project_dir: The project's root inside the container
+    :type container_project_dir: PurePosixPath
+    :return: ``{"source": ..., "target": ...}``, or ``None`` with no
+        ``limits_mount``
+    :rtype: dict[str, str] or None
+    """
+    from osprey.utils.workspace import BUILD_DIR_NAME
+
+    limits_mount = config.get("limits_mount")
+    if not isinstance(limits_mount, Mapping):
+        return None
+    raw = ((config.get("control_system") or {}).get("limits_checking") or {}).get("database_path")
+    configured = Path(raw).expanduser() if isinstance(raw, str) and raw.strip() else None
+    if configured is None or configured.is_absolute():
+        target = limits_mount["target"]
+    else:
+        target = (container_project_dir / BUILD_DIR_NAME / PurePosixPath(configured)).as_posix()
+    return {"source": limits_mount["source"], "target": target}
+
+
 def _telemetry_link_host(config):
     """The host the dashboard's per-run telemetry link names, or ``None``.
 
@@ -1891,6 +1984,15 @@ def _inject_project_metadata(config):
         "target": (container_project_dir / guarded_run_relpath()).as_posix(),
     }
 
+    # The trajectory service's own state directory: the host's `var/trajectory`
+    # at `<container repo root>/var/trajectory`, named to the container by
+    # OSPREY_TRAJECTORY_STATE_DIR. Injected unconditionally; only the
+    # trajectory template reads it.
+    config_with_labels["osprey_trajectory_state_mount"] = {
+        "source": repo_relative_mount_source(trajectory_state_relpath()),
+        "target": (container_project_dir / trajectory_state_relpath()).as_posix(),
+    }
+
     # The control-identity step, in the two values a template needs: the fixed
     # container path the module is mounted at (the copy
     # `_stage_control_identity_module` puts in the build context), and the
@@ -2064,6 +2166,28 @@ def _inject_project_metadata(config):
             for lane_key, armed in posture.items():
                 services[lane_key] = {**services[lane_key], "writes_enabled": armed}
             config_with_labels["services"] = services
+
+    # The trajectory service's render-time facts: its write posture, and the
+    # refusal of a network it cannot reach its machine from. Same copy-on-write
+    # as the lane posture above (:func:`_trajectory_render_block`).
+    services = config_with_labels.get("services")
+    if isinstance(services, dict) and isinstance(services.get(TRAJECTORY_SERVICE_KEY), dict):
+        services = dict(services)
+        services[TRAJECTORY_SERVICE_KEY] = _trajectory_render_block(
+            services[TRAJECTORY_SERVICE_KEY], config_with_labels.get("control_system")
+        )
+        config_with_labels["services"] = services
+
+    # The channel-limits bind as a PROJECT-image container needs it. The
+    # `limits_mount` key anchors its target on the service images' config root
+    # (`/app/project`); a project image reads its config at
+    # `/app/<project>/build/config.yml`, and the connector resolves a relative
+    # database path against that file's directory — so the same source lands
+    # there instead (:func:`_project_image_limits_mount`). Present exactly when
+    # `limits_mount` is.
+    project_limits_mount = _project_image_limits_mount(config_with_labels, container_project_dir)
+    if project_limits_mount is not None:
+        config_with_labels["osprey_project_limits_mount"] = project_limits_mount
 
     # The simulated machine's tick period, resolved through the one function the
     # in-process simulator and the build's profile check call, so every surface
@@ -2721,10 +2845,17 @@ def dispatch_worker_audit_identities(config):
 #: bind covers, so its whole trail is discarded with the writable layer at the
 #: next ``osprey up``.
 #:
+#: ``trajectory`` is here for the same reason: it hosts the trajectory service's
+#: interface app behind the same two middlewares, and every session it grants
+#: or refuses is a record.
+#:
 #: The auth sidecar is deliberately NOT here: it is rendered by the web-terminal
 #: overlay rather than from ``services/``, and provisioned on that path
 #: (``web_terminals.provision``) alongside the roster's own identities.
-FIXED_SERVICE_AUDIT_IDENTITIES = {"bluesky_web": "bluesky-web"}
+FIXED_SERVICE_AUDIT_IDENTITIES = {
+    "bluesky_web": "bluesky-web",
+    TRAJECTORY_SERVICE_KEY: "trajectory",
+}
 
 
 def lane_queueserver_audit_identities(config):
@@ -3365,6 +3496,54 @@ def guarded_run_relpath():
     return f"{STATE_DIR_NAME}/{GUARDED_RUN_DIR}"
 
 
+def trajectory_state_relpath():
+    """``var/trajectory``, the trajectory service's state root relative to the repo root.
+
+    :return: The repo-relative POSIX path
+    :rtype: str
+    """
+    from osprey.utils.workspace import STATE_DIR_NAME
+
+    return f"{STATE_DIR_NAME}/{TRAJECTORY_SERVICE_KEY}"
+
+
+def ensure_trajectory_state_dir(repo_root, config, relative_to=None):
+    """Provision ``var/trajectory/`` before the trajectory service binds it.
+
+    Only for a deployment that deploys the service: a stack without it
+    provisions nothing. Setgid and group-writable (see
+    :func:`ensure_shared_corpus_dir`) for the audit directory's two reasons — a
+    bind source the container runtime creates is root-owned under rootful
+    docker, and the service writes it after dropping to ``osprey``, reaching it
+    through the group the entrypoint joins off this directory. So it has to
+    exist before the container starts.
+
+    Never fatal: a failure warns and the deploy goes on.
+
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param config: Raw deploy config (``deployed_services`` membership)
+    :type config: dict
+    :param relative_to: Root to spell the directory against in the INFO line;
+        ``None`` names it absolutely
+    :type relative_to: str | pathlib.Path | None
+    :return: The directory's group id, or ``None`` when the service is not
+        deployed, the directory could not be provisioned, or the platform
+        reports none
+    :rtype: int | None
+    """
+    deployed = {str(name) for name in (config or {}).get("deployed_services") or []}
+    if TRAJECTORY_SERVICE_KEY not in deployed:
+        return None
+    return _ensure_group_shared_dir(
+        Path(repo_root) / trajectory_state_relpath(),
+        relative_to=relative_to,
+        label="Trajectory state dir",
+        noun="trajectory state directory",
+        consequence="The trajectory service may be unable to write its state.",
+    )
+
+
 def ensure_guarded_run_dirs(repo_root, config, relative_to=None):
     """Provision the guarded-run directory of every target the deployment has.
 
@@ -3478,6 +3657,10 @@ def _ensure_agent_data_structure(config):
     # The guarded-run directories, bound read-write into every container that
     # runs the agent, whatever the deployment's targets are.
     ensure_guarded_run_dirs(project_root, config, relative_to=project_root)
+
+    # The trajectory service's state directory, bound read-write into its
+    # container, for the guarded-run directories' reason.
+    ensure_trajectory_state_dir(project_root, config, relative_to=project_root)
 
     # The facility-knowledge bundle, for the same root-owned-mount-source reason
     # as the scenario state directory above — the qmd sidecar binds it READ-ONLY
@@ -3616,28 +3799,69 @@ def _stage_channel_snapshot(config, source_dir, out_dir):
     return True
 
 
-#: The one service whose compose environment lists the roster's per-user
-#: operator secrets: the bluesky_web sidecar, which each per-user web terminal
-#: proxies its BLUESKY tab into with the secret ITS container holds.
-_ROSTER_SECRET_SERVICE = "bluesky_web"
+@dataclass(frozen=True)
+class _RosterGrant:
+    """Where a panel's roster grant is rendered, and in what shape.
+
+    :ivar service: The service source directory whose compose environment
+        lists the grant — the service each per-user terminal proxies that
+        panel's tab into with the secret ITS container holds.
+    :ivar single_user_alias: Whether a deployment with no web-terminal roster
+        renders one entry aliasing the deployment-wide ``OSPREY_TERMINAL_SECRET``
+        to the build account, so the gate names the one operator a single-user
+        deployment has rather than nobody.
+    """
+
+    service: str
+    single_user_alias: bool = False
 
 
-def _bluesky_panel_secret_env_vars(config, source_dir, persona_root=None):
-    """The per-user secret variables the bluesky_web sidecar's compose lists.
+#: Panel id → the service whose compose lists that panel's roster grant. Keyed
+#: by the ids :mod:`osprey.deployment.web_terminals.personas` defines
+#: (``BLUESKY_PANEL_ID``, ``TRAJECTORY_PANEL_ID``). Each panel's grant reaches
+#: its template as ``<panel>_panel_secret_env_vars``,
+#: ``<panel>_panel_roster_owners`` and ``<panel>_panel_secret_aliases``.
+_ROSTER_GRANTS = {
+    "bluesky": _RosterGrant(service="bluesky_web"),
+    "trajectory": _RosterGrant(service="trajectory", single_user_alias=True),
+}
 
-    Empty for every other service render, and for a deployment with no
-    web-terminal roster. Resolved here, in the services render, because the
-    sidecar is part of the SERVICES compose project — the web-terminal overlay
-    is brought up by its own single-file invocation
+
+def _roster_grant_context(config, source_dir, persona_root=None):
+    """The roster-grant keys of one service render's template context.
+
+    Every panel of :data:`_ROSTER_GRANTS` contributes its three keys to every
+    render, empty off its own service, so a template never reads a key another
+    service's grant left behind. On the panel's own service:
+
+    * ``<panel>_panel_secret_env_vars`` — the ``OSPREY_TERMINAL_SECRET_<SUFFIX>``
+      names the compose lists, roster order;
+    * ``<panel>_panel_roster_owners`` — ``"<SUFFIX>=<username>,..."``, whose
+      secret each variable is;
+    * ``<panel>_panel_secret_aliases`` — variable → the variable it
+      interpolates instead of its own; only the single-user alias has one.
+
+    Resolved here, in the services render, because these services are part of
+    the SERVICES compose project — the web-terminal overlay is brought up by
+    its own single-file invocation
     (:func:`osprey.deployment.web_terminals.provision.web_stack_compose_cmd`),
-    so a ``bluesky-web:`` fragment there would never merge into this service
-    and would instead fail that stack as an image-less service.
+    so a fragment there would never merge into the service and would instead
+    fail that stack as an image-less service.
 
     Entitlement is read off the personas' rendered ``config.yml`` files.
     ``osprey build`` — the one verb that renders this file; the start verbs are
     as-built — has those renders in its staging tree, not yet at
     ``<repo>/build``, and names that tree as ``persona_root`` so the walk reads
     the personas this build made rather than the previous build's.
+
+    A deployment with no web-terminal roster is the single-user shape: the
+    terminal proxies with the deployment-wide secret, which names nobody at a
+    shared gate. A panel whose grant takes the single-user alias then lists one
+    entry, ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` interpolating
+    ``OSPREY_TERMINAL_SECRET``, owned by the build account
+    (:func:`_control_tree_build_account`) — the account the deployment's
+    control tree names as its one operator. A build account that cannot be
+    named renders no alias, and the gate admits the secret unnamed.
 
     :param config: Full project configuration dictionary
     :type config: dict
@@ -3646,14 +3870,52 @@ def _bluesky_panel_secret_env_vars(config, source_dir, persona_root=None):
     :param persona_root: Where a build in flight has rendered its personas;
         ``None`` reads the published build zone
     :type persona_root: str or None
-    :return: ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` names, roster order
-    :rtype: list[str]
+    :return: The template keys of every panel's grant
+    :rtype: dict
     """
-    if os.path.basename(os.path.normpath(source_dir)) != _ROSTER_SECRET_SERVICE:
-        return []
-    from osprey.deployment.web_terminals.personas import bluesky_panel_secret_env_vars
+    service = os.path.basename(os.path.normpath(source_dir))
+    context = {}
+    for panel_id, grant in _ROSTER_GRANTS.items():
+        variables, owners, aliases = [], "", {}
+        if service == grant.service:
+            variables, owners, aliases = _roster_grant(config, panel_id, grant, persona_root)
+        context[f"{panel_id}_panel_secret_env_vars"] = variables
+        context[f"{panel_id}_panel_roster_owners"] = owners
+        context[f"{panel_id}_panel_secret_aliases"] = aliases
+    return context
 
-    return bluesky_panel_secret_env_vars(config, resolve_repo_root(config), persona_root)
+
+def _roster_grant(config, panel_id, grant, persona_root):
+    """One panel's grant on its own service: ``(variables, owners, aliases)``.
+
+    See :func:`_roster_grant_context`.
+    """
+    from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
+    from osprey.deployment.web_terminals.personas import (
+        panel_roster_owners,
+        panel_secret_env_vars,
+        roster_owners_value,
+        roster_user_names,
+    )
+    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
+
+    repo_root = resolve_repo_root(config)
+    web_terminals = (config.get("modules") or {}).get("web_terminals")
+    if grant.single_user_alias and not roster_user_names(web_terminals):
+        account = _control_tree_build_account(config, repo_root)
+        if account is None:
+            return [], "", {}
+        variable = terminal_secret_var(account)
+        return (
+            [variable],
+            roster_owners_value([(account, variable)]),
+            {variable: OPERATOR_SECRET_ENV},
+        )
+    return (
+        panel_secret_env_vars(config, repo_root, panel_id, persona_root),
+        panel_roster_owners(config, repo_root, panel_id, persona_root),
+        {},
+    )
 
 
 def _connection_ca_bundles(config, source_dir):
@@ -3687,30 +3949,6 @@ def _connection_ca_bundles(config, source_dir):
         store = as_dict(config.get("archiver")).get("mongodb_archiver")
         return list(ca_bundle_mounts(store, where="archiver.mongodb_archiver"))
     return []
-
-
-def _bluesky_panel_roster_owners(config, source_dir, persona_root=None):
-    """Whose secret each variable of the sidecar's roster grant is.
-
-    The companion of :func:`_bluesky_panel_secret_env_vars`, resolved off the
-    same entitlement walk and gated on the same service, so the map and the
-    grant it explains are rendered together or not at all.
-
-    :param config: Full project configuration dictionary
-    :type config: dict
-    :param source_dir: Service source directory being rendered
-    :type source_dir: str
-    :param persona_root: Where a build in flight has rendered its personas;
-        ``None`` reads the published build zone
-    :type persona_root: str or None
-    :return: ``"<SUFFIX>=<username>,..."``, roster order; empty off this service
-    :rtype: str
-    """
-    if os.path.basename(os.path.normpath(source_dir)) != _ROSTER_SECRET_SERVICE:
-        return ""
-    from osprey.deployment.web_terminals.personas import bluesky_panel_roster_owners
-
-    return bluesky_panel_roster_owners(config, resolve_repo_root(config), persona_root)
 
 
 #: Basename of the one service directory the Bluesky plan-device file is staged
@@ -3887,9 +4125,10 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
 
 
 #: The build contexts whose compose fragments mount the control-identity module
-#: unconditionally: the dispatch worker and every bluesky lane (all lanes render
-#: the one ``bluesky`` directory, so one staged copy serves them all).
-_CONTROL_IDENTITY_SERVICES = frozenset({"dispatch_worker", "bluesky"})
+#: unconditionally: the dispatch worker, every bluesky lane (all lanes render
+#: the one ``bluesky`` directory, so one staged copy serves them all) and the
+#: trajectory service.
+_CONTROL_IDENTITY_SERVICES = frozenset({"dispatch_worker", "bluesky", TRAJECTORY_SERVICE_KEY})
 
 #: The module's file name inside a build context.
 CONTROL_IDENTITY_FILENAME = "control_identity.py"
@@ -3981,7 +4220,7 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
     :param dev_mode: Development mode - copy local framework to containers
     :type dev_mode: bool
     :param persona_root: Where a build in flight has rendered its persona
-        projects, for the roster grant (:func:`_bluesky_panel_secret_env_vars`)
+        projects, for the roster grant (:func:`_roster_grant_context`)
     :type persona_root: str or None
     :return: Path to the rendered Docker Compose file
     :rtype: str
@@ -4111,14 +4350,8 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
         "dev_mode": dev_mode and wheel_staged,
         "site_image_build_args": site_image_build_args,
         "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
-        # The bluesky_web sidecar's roster grant (see the helper); [] elsewhere.
-        "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(
-            config, source_dir, persona_root
-        ),
-        # Whose secret each of those variables is; "" elsewhere.
-        "bluesky_panel_roster_owners": _bluesky_panel_roster_owners(
-            config, source_dir, persona_root
-        ),
+        # Each panel's roster grant on its own service; empty elsewhere.
+        **_roster_grant_context(config, source_dir, persona_root),
         "bluesky_devices": _stage_bluesky_devices(config, source_dir, out_dir),
         # Mandatory where a fragment mounts it (the stager refuses otherwise);
         # False, with any stale copy removed, everywhere else.
@@ -4313,14 +4546,8 @@ def _incremental_setup_build_dir(
         "dev_mode": dev_mode and wheel_staged,
         "site_image_build_args": site_image_build_args,
         "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
-        # The bluesky_web sidecar's roster grant (see the helper); [] elsewhere.
-        "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(
-            config, source_dir, persona_root
-        ),
-        # Whose secret each of those variables is; "" elsewhere.
-        "bluesky_panel_roster_owners": _bluesky_panel_roster_owners(
-            config, source_dir, persona_root
-        ),
+        # Each panel's roster grant on its own service; empty elsewhere.
+        **_roster_grant_context(config, source_dir, persona_root),
         "bluesky_devices": _stage_bluesky_devices(config, source_dir, out_dir),
         # Mandatory where a fragment mounts it (the stager refuses otherwise);
         # False, with any stale copy removed, everywhere else.

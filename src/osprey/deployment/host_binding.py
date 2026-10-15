@@ -125,6 +125,10 @@ BUNDLED_HOST_BINDINGS: Mapping[str, BundledHostBinding] = {
         HostBinding(bind_env="DISPATCH_WORKER_BIND"),
         "its compose file renders each worker's bind address into DISPATCH_WORKER_BIND",
     ),
+    "trajectory": BundledHostBinding(
+        HostBinding(bind_env="TRAJECTORY_BIND"),
+        "its compose file renders the server's bind address into TRAJECTORY_BIND",
+    ),
     "graphdb": BundledHostBinding(
         HostBinding(bind_env="NEO4J_server_default__listen__address"),
         "under host its compose file binds Neo4j itself to loopback through "

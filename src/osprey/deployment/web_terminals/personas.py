@@ -262,6 +262,13 @@ EVENTS_PANEL_ID = "events"
 #: declaration IS the entitlement, exactly as for :data:`EVENTS_PANEL_ID`.
 BLUESKY_PANEL_ID = "bluesky"
 
+#: The trajectory service's tab. Entitlement works as for
+#: :data:`BLUESKY_PANEL_ID`: a persona that declares it proxies into the
+#: trajectory container with its own operator secret, so that container is
+#: handed the user's secret variable, and the same declaration is what entitles
+#: the persona's terminal to the service's launch token.
+TRAJECTORY_PANEL_ID = "trajectory"
+
 
 def config_declares_panel(config: Any, panel_id: str) -> bool:
     """True if ``config`` declares ``web.panels.<panel_id>`` and hasn't disabled it.
@@ -878,45 +885,66 @@ def personas_needing_dispatcher_token(config: Any, project_root: Any) -> set[str
     return _personas_whose_config(config, project_root, config_needs_dispatcher_token)
 
 
-def config_declares_bluesky_panel(config: Any) -> bool:
-    """Whether this project shows the BLUESKY tab, and so proxies into the
-    bluesky-web sidecar with its own operator secret."""
-    return config_declares_panel(config, BLUESKY_PANEL_ID)
+def config_declares_trajectory_panel(config: Any) -> bool:
+    """Whether this project shows the trajectory tab, and so proxies into the
+    trajectory service with its own operator secret."""
+    return config_declares_panel(config, TRAJECTORY_PANEL_ID)
 
 
-def personas_declaring_bluesky_panel(
+def personas_declaring_panel(
+    config: Any, project_root: Any, panel_id: str, persona_root: Any = None
+) -> set[str]:
+    """Names of catalog personas whose rendered project declares ``web.panels.<panel_id>``.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :param panel_id: The panel whose declaration is the entitlement.
+    :param persona_root: Where a build in flight has rendered its personas;
+        see :func:`_persona_configs`.
+    :return: The subset of referenced persona names whose rendered
+        ``config.yml`` declares the panel (see :func:`config_declares_panel`).
+    """
+    return _personas_whose_config(
+        config, project_root, lambda persona: config_declares_panel(persona, panel_id), persona_root
+    )
+
+
+def personas_declaring_trajectory_panel(
     config: Any, project_root: Any, persona_root: Any = None
 ) -> set[str]:
-    """Names of catalog personas whose rendered project declares the BLUESKY tab.
+    """Names of catalog personas whose rendered project declares the trajectory tab.
+
+    The personas whose users' operator secrets the trajectory service is handed,
+    and whose terminals are handed its launch token.
 
     :param config: The parsed deploy config.
     :param project_root: Deploy project root; relative ``project_path`` values
         resolve against it.
     :param persona_root: Where a build in flight has rendered its personas;
         see :func:`_persona_configs`.
-    :return: The subset of referenced persona names whose users' operator
-        secrets the bluesky-web sidecar is handed (see
-        :func:`config_declares_bluesky_panel`).
+    :return: The subset of referenced persona names declaring
+        ``web.panels.trajectory`` (see :func:`config_declares_trajectory_panel`).
     """
-    return _personas_whose_config(config, project_root, config_declares_bluesky_panel, persona_root)
+    return personas_declaring_panel(config, project_root, TRAJECTORY_PANEL_ID, persona_root)
 
 
-def _bluesky_panel_roster_grants(
-    config: Any, project_root: Any, persona_root: Any = None
+def _panel_roster_grants(
+    config: Any, project_root: Any, panel_id: str, persona_root: Any = None
 ) -> list[tuple[str, str]]:
-    """The roster users the bluesky-web sidecar is handed a secret for.
+    """The roster users a panel's service is handed a secret for.
 
-    The one entitlement walk behind every rendered form of the grant: the
-    variable list the sidecar's compose declares
-    (:func:`bluesky_panel_secret_env_vars`) and the owner map its gate names
-    people by (:func:`bluesky_panel_roster_owners`) are two views of this same
-    answer, so a user can never be handed a key under one and be a stranger
-    under the other.
+    The one entitlement walk behind every rendered form of a roster grant: the
+    variable list the service's compose declares (:func:`panel_secret_env_vars`)
+    and the owner map its gate names people by (:func:`panel_roster_owners`)
+    are two views of this same answer, so a user can never be handed a key
+    under one and be a stranger under the other.
 
     Entitlement is decided the way the web-terminal render decides every
     per-user grant: a user with a persona (their own, else
-    ``default_persona``) by that persona's rendered ``config.yml``
-    (:func:`personas_declaring_bluesky_panel`). Roster order, so the rendered compose is stable across runs.
+    ``default_persona``) by whether that persona's rendered ``config.yml``
+    declares the panel (:func:`personas_declaring_panel`). Roster order, so the
+    rendered compose is stable across runs.
 
     Read off the personas' rendered ``config.yml`` files, like every other
     per-persona grant. The render that carries it is ``osprey build``'s — the
@@ -929,6 +957,7 @@ def _bluesky_panel_roster_grants(
     :param config: The parsed deploy config.
     :param project_root: Deploy project root; relative ``project_path`` values
         resolve against it.
+    :param panel_id: The panel whose declaration is the entitlement.
     :param persona_root: Where a build in flight has rendered its personas;
         see :func:`_persona_configs`.
     :return: ``(username, OSPREY_TERMINAL_SECRET_<SUFFIX>)`` pairs, one per
@@ -950,7 +979,7 @@ def _bluesky_panel_roster_grants(
     default_persona = web_terminals.get("default_persona")
     if not isinstance(default_persona, str) or not default_persona:
         default_persona = None
-    entitled_personas = personas_declaring_bluesky_panel(config, project_root, persona_root)
+    entitled_personas = personas_declaring_panel(config, project_root, panel_id, persona_root)
 
     grants: list[tuple[str, str]] = []
     for entry in normalize_users(raw_users):
@@ -960,58 +989,68 @@ def _bluesky_panel_roster_grants(
     return grants
 
 
-def bluesky_panel_secret_env_vars(
-    config: Any, project_root: Any, persona_root: Any = None
+def panel_secret_env_vars(
+    config: Any, project_root: Any, panel_id: str, persona_root: Any = None
 ) -> list[str]:
-    """The per-user secret variables the bluesky-web sidecar is handed.
+    """The per-user secret variables a panel's service is handed.
 
-    One name per roster user whose terminal shows the BLUESKY tab — and so
-    proxies into the sidecar with the operator secret ITS container holds,
-    under the fixed ``OSPREY_TERMINAL_SECRET`` name. The sidecar's own compose
-    file (``services/bluesky_web``) lists each of these variables so its web
-    gate accepts every entitled user's secret beside the deployment-wide one,
-    and no user's container is ever handed the deployment secret.
+    One name per roster user whose terminal shows the panel — and so proxies
+    into the service with the operator secret ITS container holds, under the
+    fixed ``OSPREY_TERMINAL_SECRET`` name. The service's own compose file lists
+    each of these variables so its web gate accepts every entitled user's
+    secret beside the deployment-wide one, and no user's container is ever
+    handed the deployment secret.
 
     :param config: The parsed deploy config.
     :param project_root: Deploy project root; relative ``project_path`` values
         resolve against it.
+    :param panel_id: The panel whose declaration is the entitlement.
     :param persona_root: Where a build in flight has rendered its personas;
         see :func:`_persona_configs`.
     :return: Variable names (``OSPREY_TERMINAL_SECRET_<SUFFIX>``), one per
         entitled user; empty when no user shows the tab.
     """
-    return [var for _, var in _bluesky_panel_roster_grants(config, project_root, persona_root)]
+    return [var for _, var in _panel_roster_grants(config, project_root, panel_id, persona_root)]
 
 
-def bluesky_panel_roster_owners(config: Any, project_root: Any, persona_root: Any = None) -> str:
-    """Whose secret each variable of the roster grant is.
+def roster_owners_value(grants: Iterable[tuple[str, str]]) -> str:
+    """Render ``(username, variable)`` grant pairs as the roster owners map.
 
-    Rendered beside the grant as ``OSPREY_TERMINAL_ROSTER_OWNERS`` — comma
-    separated ``SUFFIX=username`` pairs, in the grant's own order. The
-    sidecar's web gate admits any of the granted secrets, and names the
-    operator behind an admitted request by the one that matched; without this
-    map a match says only which slot the credential filled, not whose account
-    it is, and every panel action the deployment records would name nobody.
+    Rendered beside a roster grant as ``OSPREY_TERMINAL_ROSTER_OWNERS`` — comma
+    separated ``SUFFIX=username`` pairs, in the grant's own order. A service's
+    web gate admits any of the granted secrets, and names the operator behind
+    an admitted request by the one that matched; without this map a match says
+    only which slot the credential filled, not whose account it is, and every
+    panel action the deployment records would name nobody.
 
     Each key is sliced off the variable name the grant itself emits rather
     than derived from the username a second time, so a key here cannot name a
-    variable the sidecar was not handed. The render refuses a roster name that
+    variable the service was not handed. The render refuses a roster name that
     is not a single ``[A-Za-z0-9][A-Za-z0-9._-]*`` component, which is what
     makes ``,`` and ``=`` safe as this map's punctuation.
-
-    :param config: The parsed deploy config.
-    :param project_root: Deploy project root; relative ``project_path`` values
-        resolve against it.
-    :param persona_root: Where a build in flight has rendered its personas;
-        see :func:`_persona_configs`.
-    :return: ``"<SUFFIX>=<username>,..."``; empty when no user shows the tab.
     """
     from osprey.deployment.web_terminals.auth_credentials import TERMINAL_SECRET_VAR_PREFIX
 
     return ",".join(
-        f"{var.removeprefix(TERMINAL_SECRET_VAR_PREFIX)}={name}"
-        for name, var in _bluesky_panel_roster_grants(config, project_root, persona_root)
+        f"{var.removeprefix(TERMINAL_SECRET_VAR_PREFIX)}={name}" for name, var in grants
     )
+
+
+def panel_roster_owners(
+    config: Any, project_root: Any, panel_id: str, persona_root: Any = None
+) -> str:
+    """Whose secret each variable of a panel's roster grant is.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :param panel_id: The panel whose declaration is the entitlement.
+    :param persona_root: Where a build in flight has rendered its personas;
+        see :func:`_persona_configs`.
+    :return: ``"<SUFFIX>=<username>,..."`` (see :func:`roster_owners_value`);
+        empty when no user shows the tab.
+    """
+    return roster_owners_value(_panel_roster_grants(config, project_root, panel_id, persona_root))
 
 
 def personas_needing_ariel_password(config: Any, project_root: Any) -> set[str]:

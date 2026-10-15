@@ -688,7 +688,7 @@ def test_the_bluesky_web_sidecar_accepts_every_entitled_users_secret(
     projects in place and asserted on THAT — a render no verb performs, which
     is how a sidecar that refused every user's secret shipped green.)
     """
-    from osprey.deployment.web_terminals.personas import config_declares_bluesky_panel
+    from osprey.deployment.web_terminals.personas import BLUESKY_PANEL_ID, config_declares_panel
     from osprey.deployment.web_terminals.render import terminal_secret_env_var
     from osprey.interfaces.web_auth import ROSTER_ACCEPT_ENV
 
@@ -710,7 +710,7 @@ def test_the_bluesky_web_sidecar_accepts_every_entitled_users_secret(
         assert presented in (web_compose["services"][f"web-{entry['name']}"]["environment"]), (
             f"web-{entry['name']} presents {var}"
         )
-        entitled = config_declares_bluesky_panel(_persona_config(built_stack, entry))
+        entitled = config_declares_panel(_persona_config(built_stack, entry), BLUESKY_PANEL_ID)
         checked += entitled
         assert (var in handed) == entitled, (
             f"{var} {'missing from' if entitled else 'leaked into'} the bluesky-web sidecar"
@@ -1009,7 +1009,7 @@ def test_bluesky_panel_secret_vars_follow_each_users_own_project(tmp_path):
     user runs (their own, else the default), in roster order — the same rule the
     web-terminal render grants every other credential by. The deploy config's
     own panels grant nobody."""
-    from osprey.deployment.web_terminals.personas import bluesky_panel_secret_env_vars
+    from osprey.deployment.web_terminals.personas import BLUESKY_PANEL_ID, panel_secret_env_vars
     from osprey.deployment.web_terminals.render import terminal_secret_env_var
 
     for persona, declares in (("viewer", False), ("operator", True)):
@@ -1039,10 +1039,12 @@ def test_bluesky_panel_secret_vars_follow_each_users_own_project(tmp_path):
         },
     }
 
-    assert bluesky_panel_secret_env_vars(config, tmp_path) == [terminal_secret_env_var("alice")]
+    assert panel_secret_env_vars(config, tmp_path, BLUESKY_PANEL_ID) == [
+        terminal_secret_env_var("alice")
+    ]
 
     config["modules"]["web_terminals"]["default_persona"] = "operator"
-    assert bluesky_panel_secret_env_vars(config, tmp_path) == [
+    assert panel_secret_env_vars(config, tmp_path, BLUESKY_PANEL_ID) == [
         terminal_secret_env_var("alice"),
         terminal_secret_env_var("carol"),
     ]
@@ -1050,7 +1052,9 @@ def test_bluesky_panel_secret_vars_follow_each_users_own_project(tmp_path):
     # A user with no persona at all (a roster the render refuses) is entitled
     # to nothing, whatever the deploy config shows.
     del config["modules"]["web_terminals"]["default_persona"]
-    assert bluesky_panel_secret_env_vars(config, tmp_path) == [terminal_secret_env_var("alice")]
+    assert panel_secret_env_vars(config, tmp_path, BLUESKY_PANEL_ID) == [
+        terminal_secret_env_var("alice")
+    ]
 
 
 def test_the_graph_channel_finder_is_a_store_consumer_of_its_own():

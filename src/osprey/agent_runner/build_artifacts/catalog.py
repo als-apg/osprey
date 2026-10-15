@@ -438,6 +438,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
+            canonical_name="services/trajectory",
+            template_path="trajectory",
+            output_path="services/trajectory",
+            description="Trajectory service compose template",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
             canonical_name="services/nextcloud_bridge",
             template_path="nextcloud_bridge",
             output_path="services/nextcloud_bridge",
