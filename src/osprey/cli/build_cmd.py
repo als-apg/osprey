@@ -1306,15 +1306,6 @@ class _SharedRenderInputs(NamedTuple):
     stack they ship in.
     """
 
-    knowledge_links_reported: set[str] | None = None
-    """Knowledge pages this build has already named as linked to a missing device.
-
-    Every render pass of a build reads the same ``data/facility/knowledge``
-    pages against the same facility file, so a dangling link is one fact about
-    the build rather than one per render. ``None`` for a single render, which
-    names each page it finds.
-    """
-
     views_omitted_reported: set[str] | None = None
     """Facility views this build has already named as not written.
 
@@ -2216,9 +2207,6 @@ def _render_project(
             omitted_reported=shared.views_omitted_reported,
         )
         progress("  ✓ Wrote the facility file and its views")
-        _warn_knowledge_links(
-            data_root / "facility", shared.facility, shared.knowledge_links_reported, repo_root
-        )
 
         # The explorer and the keyword tool read the search index rather than the
         # corpus, so every render that seeds a graph store ships the index
@@ -2379,46 +2367,6 @@ def _warn_model_facts(spec: Any, reported: set[str]) -> None:
             continue
         reported.add(summary)
         output.warn_fact(logger, summary, detail, remedy)
-
-
-def _warn_knowledge_links(
-    facility_dir: Path,
-    facility: Mapping[str, Any],
-    reported: set[str] | None,
-    repo_root: Path,
-) -> None:
-    """Warn, once per page, where a knowledge page links a device the facility file lacks.
-
-    Args:
-        facility_dir: The build's facility directory, under the profile's data root.
-        facility: The build's facility file.
-        reported: The pages this build has already named
-            (:attr:`_SharedRenderInputs.knowledge_links_reported`), or ``None``
-            to name every page found.
-        repo_root: The repo the warning spells each page relative to; a page
-            outside it is spelled in full.
-    """
-    from osprey.facility.knowledge_links import LINK_KEY, dangling_links
-
-    from . import output
-
-    for link in dangling_links(facility_dir, facility):
-        if reported is not None:
-            if link.page in reported:
-                continue
-            reported.add(link.page)
-        path = facility_dir / link.page
-        page = (
-            path.relative_to(repo_root).as_posix()
-            if path.is_relative_to(repo_root)
-            else path.as_posix()
-        )
-        output.warn_fact(
-            logger,
-            f"{page} links device {link.device_id}, which the facility file does not hold.",
-            None,
-            f"set {LINK_KEY} in {page} to a device id from facility.json, or remove the key",
-        )
 
 
 def _warn_facility_build(warnings: Iterable[FacilityBuildWarning]) -> None:
@@ -3346,7 +3294,6 @@ def _build_repo(
             graph_indexes={},
             graph_facts_reported=set(),
             model_facts_reported=set(),
-            knowledge_links_reported=set(),
             views_omitted_reported=set(),
             facility=facility,
             facility_sha256=facility_sha256,
