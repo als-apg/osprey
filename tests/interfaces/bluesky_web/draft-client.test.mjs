@@ -1974,29 +1974,30 @@ describe('classifyQueueAddResponse', () => {
     ).toEqual({ type: 'stale_draft_revision' });
   });
 
-  test('launch_token_required is one outcome across BOTH its status codes', () => {
-    const body = {
+  test('both launch-token codes are one outcome: invalid (403) and required (503)', () => {
+    /** @param {string} code */
+    const body = (code) => ({
       detail: {
-        code: 'launch_token_required',
+        code,
         detail: 'the queue is running…',
         manager_state: 'executing_queue',
       },
-    };
+    });
     const expected = {
       type: 'not_armed',
       detail: 'the queue is running…',
       managerState: 'executing_queue',
       itemLeftBehind: false,
     };
-    expect(classifyQueueAddResponse(403, body)).toEqual(expected);
-    expect(classifyQueueAddResponse(503, body)).toEqual(expected);
+    expect(classifyQueueAddResponse(403, body('launch_token_invalid'))).toEqual(expected);
+    expect(classifyQueueAddResponse(503, body('launch_token_required'))).toEqual(expected);
   });
 
   test('a stranded item is reported, not swallowed', () => {
     expect(
       classifyQueueAddResponse(403, {
         detail: {
-          code: 'launch_token_required',
+          code: 'launch_token_invalid',
           detail: 'nope',
           manager_state: 'executing_queue',
           item_left_behind: true,

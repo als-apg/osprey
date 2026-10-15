@@ -353,7 +353,7 @@ def test_unarmed_enqueue_is_refused_while_the_manager_is_active(
 
     assert resp.status_code == 403
     detail = resp.json()["detail"]
-    assert detail["code"] == "launch_token_required"
+    assert detail["code"] == "launch_token_invalid"
     assert detail["manager_state"] == state
     assert "item_add" not in manager.method_names()
     # The reservation was released, so the same revision stays enqueueable.
@@ -426,7 +426,7 @@ def test_post_add_recheck_removes_the_item_and_refuses(
 
     assert resp.status_code == 403
     detail = resp.json()["detail"]
-    assert detail["code"] == "launch_token_required"
+    assert detail["code"] == "launch_token_invalid"
     # The withdrawal succeeded, so the refusal reports no stranded item.
     assert "item_left_behind" not in detail
     assert manager.kwargs_for("item_remove") == [{"uid": "u1"}]
@@ -461,7 +461,7 @@ def test_recheck_refusal_reports_a_stranded_item_when_removal_fails(
 
     assert resp.status_code == 403
     detail = resp.json()["detail"]
-    assert detail["code"] == "launch_token_required"
+    assert detail["code"] == "launch_token_invalid"
     assert detail["item_left_behind"] is True
     assert detail["item_uid"] == "u1"
     assert draft._launching == set()
@@ -481,7 +481,7 @@ def test_unarmed_enqueue_is_refused_when_autostart_is_enabled(
     resp = client.post("/queue/items", json={"draft_revision": revision})
 
     assert resp.status_code == 403
-    assert resp.json()["detail"]["code"] == "launch_token_required"
+    assert resp.json()["detail"]["code"] == "launch_token_invalid"
     assert "item_add" not in manager.method_names()
     assert draft._launching == set()
 
@@ -1322,7 +1322,7 @@ def test_start_requires_the_launch_token(
     monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
     resp = client.post("/queue/start", headers={"X-Launch-Token": "wrong"})
     assert resp.status_code == 403
-    assert resp.json()["detail"]["code"] == "launch_token_required"
+    assert resp.json()["detail"]["code"] == "launch_token_invalid"
 
     # The manager was never touched by a refused start.
     assert manager.calls == []
@@ -1598,7 +1598,7 @@ def test_stop_is_ungated_but_cancelling_a_stop_requires_the_token(
 
     unarmed = client.post("/queue/stop", json={"cancel": True})
     assert unarmed.status_code == 403
-    assert unarmed.json()["detail"]["code"] == "launch_token_required"
+    assert unarmed.json()["detail"]["code"] == "launch_token_invalid"
     # The withdrawal never reached the manager. The plain stop DISARMED first
     # (autostart off), so nothing added meanwhile could start a fresh drain.
     assert manager.method_names() == ["queue_autostart", "queue_stop"]
@@ -2034,7 +2034,7 @@ async def test_race_unarmed_add_loses_to_an_in_flight_armed_start(
     with pytest.raises(HTTPException) as excinfo:
         await add_task
     assert excinfo.value.status_code == 403
-    assert excinfo.value.detail["code"] == "launch_token_required"
+    assert excinfo.value.detail["code"] == "launch_token_invalid"
     # Idle but ARMED: the arm alone makes the unarmed add an execution.
     assert excinfo.value.detail["manager_state"] == "idle"
     assert manager.autostart_enabled is True

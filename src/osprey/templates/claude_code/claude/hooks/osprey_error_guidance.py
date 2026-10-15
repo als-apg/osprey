@@ -167,6 +167,7 @@ ERROR_CLASS_MAP = {
     "target_changed": "Safety",
     "writes_disabled": "Safety",
     "launch_token_required": "Safety",
+    "launch_token_invalid": "Safety",
     "path_traversal": "Safety",
     "protected_key": "Safety",
     "control_target_mismatch": "Safety",
