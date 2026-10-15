@@ -10114,3 +10114,129 @@ def test_the_release_gate_stages_every_member_wheel__mutation_whole_dist(tmp_pat
     )
     with pytest.raises(AssertionError, match="wrong sibling set"):
         _assert_release_stages_every_member_wheel(mutated, tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# The two-uid simulator log case runs in the unit lane's Linux cells
+# ---------------------------------------------------------------------------
+#
+# The case that two uids sharing a log directory's group both append to one
+# model log runs two `docker run --user` writers, so only a Linux runner with an
+# engine can run it, and it skips everywhere else. A skip on the cells that must
+# run it would be silent, so the lane, the shard and the case's own name are
+# pinned here.
+
+TWO_UID_LOG_FILE = "tests/deployment/test_var_simulator_provisioning.py"
+TWO_UID_LOG_CASE = "test_two_uids_in_one_group_append_to_one_log_from_two_containers"
+TWO_UID_LOG_OS = "ubuntu-latest"
+TWO_UID_LOG_SHARD = "rest"
+
+
+def test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell(workflow: dict[str, Any]) -> None:
+    """The unit lane's ubuntu `rest` cells collect the case, deselect it by no
+    marker, and leave `CI` to the runner, which is what turns a missing engine
+    into a failure there."""
+    lane = f"the '{UNIT_TEST_JOB}' job in .github/workflows/ci.yml"
+    job = _jobs(workflow)[UNIT_TEST_JOB]
+    matrix = job["strategy"]["matrix"]
+    assert TWO_UID_LOG_OS in matrix["os"], (
+        f"{lane} has no {TWO_UID_LOG_OS} cell for {TWO_UID_LOG_FILE}"
+    )
+    assert TWO_UID_LOG_SHARD in matrix["shard"], (
+        f"{lane} has no '{TWO_UID_LOG_SHARD}' shard to collect {TWO_UID_LOG_FILE}"
+    )
+    exclude = matrix.get("exclude", "")
+    exclude_text = (
+        exclude if isinstance(exclude, str) else json.dumps(exclude, separators=(",", ":"))
+    )
+    assert '"os":"ubuntu-latest"' not in exclude_text, (
+        f"{lane} excludes an {TWO_UID_LOG_OS} cell that runs {TWO_UID_LOG_FILE}"
+    )
+    step = _find_named_step(workflow, UNIT_TEST_JOB, "Run unit tests")
+    for ignored in re.findall(r"--ignore=([^\s\"';]+)", step["run"]):
+        assert not (
+            TWO_UID_LOG_FILE == ignored or TWO_UID_LOG_FILE.startswith(ignored.rstrip("/") + "/")
+        ), f"{lane} ignores {ignored}, which holds {TWO_UID_LOG_FILE}"
+    selections = re.findall(r'-m "[^"]*"', _unit_test_pytest_line(workflow))
+    assert selections == [UNIT_LANE_DESELECT], (
+        f"{lane} selects {selections} rather than {UNIT_LANE_DESELECT}, "
+        f"which can deselect {TWO_UID_LOG_FILE}"
+    )
+    for where, env in (("job", job.get("env")), ("step", step.get("env"))):
+        assert "CI" not in (env or {}), (
+            f"{lane} sets CI in its {where} env, which decides whether {TWO_UID_LOG_FILE} "
+            f"fails or skips without an engine"
+        )
+
+
+def test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell__mutation_ignores_the_file() -> (
+    None
+):
+    mutated = _unit_lane_with(
+        _load_workflow(), f" --ignore={TWO_UID_LOG_FILE} {UNIT_LANE_DESELECT}"
+    )
+    with pytest.raises(AssertionError, match="ignores tests/deployment/test_var_simulator"):
+        test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell(mutated)
+
+
+def test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell__mutation_ignores_tests_deployment() -> (
+    None
+):
+    mutated = _unit_lane_with(_load_workflow(), f" --ignore=tests/deployment {UNIT_LANE_DESELECT}")
+    with pytest.raises(AssertionError, match="ignores tests/deployment, which holds"):
+        test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell(mutated)
+
+
+def test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell__mutation_drops_the_ubuntu_cells() -> (
+    None
+):
+    mutated = _load_workflow()
+    matrix = _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]
+    assert matrix["os"] != ["macos-latest"], "the unit lane is macOS-only; mutation is stale"
+    matrix["os"] = ["macos-latest"]
+    with pytest.raises(AssertionError, match=f"has no {TWO_UID_LOG_OS} cell"):
+        test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell(mutated)
+
+
+def test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell__mutation_deselects_by_another_marker() -> (
+    None
+):
+    mutated = _unit_lane_with(_load_workflow(), f' {UNIT_LANE_DESELECT[:-1]} and not slow"')
+    with pytest.raises(AssertionError, match="which can deselect"):
+        test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell(mutated)
+
+
+def test_the_two_uid_log_case_is_a_docker_group_case(source: str | None = None) -> None:
+    """The case carries the docker xdist group, so the lane's scheduler keeps
+    it with the other container-starting tests."""
+    text = (REPO_ROOT / TWO_UID_LOG_FILE).read_text() if source is None else source
+    cases = [
+        node
+        for node in ast.parse(text).body
+        if isinstance(node, ast.FunctionDef) and node.name == TWO_UID_LOG_CASE
+    ]
+    assert cases, f"{TWO_UID_LOG_FILE} has no case named {TWO_UID_LOG_CASE}"
+    grouped = [
+        dec
+        for dec in cases[0].decorator_list
+        if isinstance(dec, ast.Call)
+        and ast.unparse(dec.func) == "pytest.mark.xdist_group"
+        and [ast.literal_eval(arg) for arg in dec.args] == ["docker"]
+    ]
+    assert grouped, f"{TWO_UID_LOG_FILE}::{TWO_UID_LOG_CASE} is not in the docker xdist group"
+
+
+def test_the_two_uid_log_case_is_a_docker_group_case__mutation_renames_the_case() -> None:
+    source = (REPO_ROOT / TWO_UID_LOG_FILE).read_text()
+    mutated = source.replace(f"def {TWO_UID_LOG_CASE}(", f"def {TWO_UID_LOG_CASE}_renamed(")
+    assert mutated != source, f"{TWO_UID_LOG_CASE} not found; mutation is stale"
+    with pytest.raises(AssertionError, match="has no case named"):
+        test_the_two_uid_log_case_is_a_docker_group_case(mutated)
+
+
+def test_the_two_uid_log_case_is_a_docker_group_case__mutation_drops_the_group() -> None:
+    source = (REPO_ROOT / TWO_UID_LOG_FILE).read_text()
+    mutated = source.replace('@pytest.mark.xdist_group("docker")\n', "", 1)
+    assert mutated != source, "docker group decorator not found; mutation is stale"
+    with pytest.raises(AssertionError, match="not in the docker xdist group"):
+        test_the_two_uid_log_case_is_a_docker_group_case(mutated)
