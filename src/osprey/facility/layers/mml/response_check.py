@@ -759,15 +759,14 @@ def _response(
         The response on every monitor whose calibration is not a table, or
         ``None`` when the sweep leaves the deck without a solve.
     """
-    try:
-        rows, matrix = engine.response_matrix(deck, wiring, settings, [address], {address: width})
-    except getattr(engine, "SOLVE_ERRORS", ()):
+    result = engine.response_matrix(deck, wiring, settings, [address], {address: width})
+    if address in result.unsolved:
         return None
     per_hardware = width / span
     monitors = {str(record["address"]): record for record in wiring}
     return {
-        row: float(matrix[index, 0]) * _monitor_gain(monitors[row]) * per_hardware
-        for index, row in enumerate(rows)
+        row: float(result.matrix[index, 0]) * _monitor_gain(monitors[row]) * per_hardware
+        for index, row in enumerate(result.rows)
         if not _table_calibrated(monitors[row])
     }
 

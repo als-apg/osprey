@@ -17,7 +17,6 @@ import pytest
 at = pytest.importorskip("at")
 
 import numpy as np  # noqa: E402
-from lume_pyat.exceptions import OrbitSolveError  # noqa: E402
 
 from osprey.facility.views.simulator import simulator_wiring  # noqa: E402
 from osprey.simulation.engines import pyat as engine  # noqa: E402
@@ -69,32 +68,32 @@ def _linear(gain: float, offset: float) -> dict[str, Any]:
 
 class TestRows:
     def test_the_sr_rows_are_the_144_monitor_readbacks_in_lattice_order(self, demo):
-        rows, matrix = _matrix(demo, [CORRECTOR_X, CORRECTOR_Y], 0.5)
+        result = _matrix(demo, [CORRECTOR_X, CORRECTOR_Y], 0.5)
 
-        assert len(rows) == SR_MONITORS
-        assert rows == _lattice_ordered_monitors(demo["deck"], demo["wiring"])
-        assert matrix.shape == (SR_MONITORS, 2)
+        assert len(result.rows) == SR_MONITORS
+        assert result.rows == _lattice_ordered_monitors(demo["deck"], demo["wiring"])
+        assert result.matrix.shape == (SR_MONITORS, 2)
 
     def test_an_unwired_monitor_has_no_row(self, demo):
         dropped = next(record for record in demo["wiring"] if _is_monitor(record))
         wiring = [record for record in demo["wiring"] if record is not dropped]
 
-        rows, matrix = _matrix(demo, [CORRECTOR_X], 0.5, wiring=wiring)
+        result = _matrix(demo, [CORRECTOR_X], 0.5, wiring=wiring)
 
-        assert dropped["address"] not in rows
-        assert matrix.shape == (SR_MONITORS - 1, 1)
+        assert dropped["address"] not in result.rows
+        assert result.matrix.shape == (SR_MONITORS - 1, 1)
 
     def test_columns_follow_the_corrector_order(self, demo):
-        _, forward = _matrix(demo, [CORRECTOR_X, CORRECTOR_Y], 0.5)
-        _, backward = _matrix(demo, [CORRECTOR_Y, CORRECTOR_X], 0.5)
+        forward = _matrix(demo, [CORRECTOR_X, CORRECTOR_Y], 0.5)
+        backward = _matrix(demo, [CORRECTOR_Y, CORRECTOR_X], 0.5)
 
-        np.testing.assert_array_equal(forward, backward[:, ::-1])
+        np.testing.assert_array_equal(forward.matrix, backward.matrix[:, ::-1])
 
     def test_a_horizontal_corrector_moves_the_horizontal_rows(self, demo):
-        rows, matrix = _matrix(demo, [CORRECTOR_X], 0.5)
-        horizontal = [row for row, address in enumerate(rows) if address.endswith(":X")]
+        result = _matrix(demo, [CORRECTOR_X], 0.5)
+        horizontal = [row for row, address in enumerate(result.rows) if address.endswith(":X")]
 
-        assert np.max(np.abs(matrix[horizontal, 0])) > 0.0
+        assert np.max(np.abs(result.matrix[horizontal, 0])) > 0.0
 
 
 class TestCalibration:
@@ -115,36 +114,77 @@ class TestCalibration:
             calibrated.append(scaled)
         physics_step = 1.0e-5
 
-        rows, expected = _matrix(demo, [CORRECTOR_X], physics_step, wiring=physics)
-        same_rows, served = _matrix(
-            demo, [CORRECTOR_X], physics_step * corrector_gain, wiring=calibrated
+        expected = _matrix(demo, [CORRECTOR_X], physics_step, wiring=physics)
+        served = _matrix(demo, [CORRECTOR_X], physics_step * corrector_gain, wiring=calibrated)
+
+        assert served.rows == expected.rows
+        np.testing.assert_allclose(
+            served.matrix, expected.matrix * monitor_gain / corrector_gain, rtol=1e-12, atol=1e-12
         )
 
-        assert same_rows == rows
-        np.testing.assert_allclose(
-            served, expected * monitor_gain / corrector_gain, rtol=1e-12, atol=1e-12
-        )
+
+def _refuse_solve(monkeypatch: pytest.MonkeyPatch, call: int) -> None:
+    """Make the ``call``-th closed orbit solve raise; every other one solves."""
+    original = at.find_orbit6
+    calls = {"count": 0}
+
+    def raiser(*args: Any, **kwargs: Any) -> Any:
+        calls["count"] += 1
+        if calls["count"] == call:
+            raise at.AtError("no synchronous phase")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(at, "find_orbit6", raiser)
 
 
 class TestSolveErrors:
-    def test_a_failed_step_names_the_corrector_and_returns_no_matrix(self, demo, monkeypatch):
-        original = at.find_orbit6
-        calls = {"count": 0}
+    def test_a_failed_step_names_the_corrector_and_leaves_its_column_out(self, demo, monkeypatch):
+        _refuse_solve(monkeypatch, 3)
 
-        def raiser(*args: Any, **kwargs: Any) -> Any:
-            calls["count"] += 1
-            if calls["count"] == 3:
-                raise at.AtError("no synchronous phase")
-            return original(*args, **kwargs)
+        result = _matrix(demo, [CORRECTOR_X, CORRECTOR_Y], 0.5)
 
-        monkeypatch.setattr(at, "find_orbit6", raiser)
-
-        with pytest.raises(OrbitSolveError) as raised:
-            _matrix(demo, [CORRECTOR_X, CORRECTOR_Y], 0.5)
-
-        text = str(raised.value)
+        assert result.columns == [CORRECTOR_X]
+        assert result.matrix.shape == (SR_MONITORS, 1)
+        assert list(result.unsolved) == [CORRECTOR_Y]
+        text = result.unsolved[CORRECTOR_Y]
         assert text.startswith("closed orbit solve raised AtError:")
         assert text.endswith(f"(while stepping {CORRECTOR_Y})")
+
+    def test_a_column_after_an_unsolved_one_equals_a_clean_run(self, demo, monkeypatch):
+        clean = _matrix(demo, [CORRECTOR_X, CORRECTOR_Y], 0.5)
+        _refuse_solve(monkeypatch, 1)
+
+        result = _matrix(demo, [CORRECTOR_X, CORRECTOR_Y], 0.5)
+
+        assert result.columns == [CORRECTOR_Y]
+        np.testing.assert_array_equal(result.matrix[:, 0], clean.matrix[:, 1])
+
+    def test_the_deck_is_left_as_it_was_after_an_unsolved_step(self, demo, monkeypatch):
+        setpoints = [item for item in demo["wiring"] if item["direction"] == "write"]
+        before = engine.start_values(demo["deck"], setpoints, demo["settings"])
+        _refuse_solve(monkeypatch, 1)
+
+        _matrix(demo, [CORRECTOR_X, CORRECTOR_Y], 0.5)
+
+        assert engine.start_values(demo["deck"], setpoints, demo["settings"]) == before
+
+    def test_two_correctors_cost_as_many_lattice_copies_as_one(self, demo, monkeypatch):
+        original = at.Lattice.deepcopy
+        copies = {"count": 0}
+
+        def counting(self: Any, *args: Any, **kwargs: Any) -> Any:
+            copies["count"] += 1
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(at.Lattice, "deepcopy", counting)
+
+        _matrix(demo, [CORRECTOR_X], 0.5)
+        one = copies["count"]
+        copies["count"] = 0
+        _matrix(demo, [CORRECTOR_X, CORRECTOR_Y], 0.5)
+
+        assert one > 0
+        assert copies["count"] == one
 
     def test_the_deck_is_left_as_it_was(self, demo):
         setpoints = [item for item in demo["wiring"] if item["direction"] == "write"]
@@ -232,9 +272,10 @@ class TestSinglePass:
     def test_a_line_column_is_the_tracked_central_difference(self, line):
         step = 2.0e-4
 
-        rows, matrix = engine.response_matrix(
+        result = engine.response_matrix(
             line, LINE_WIRING, LINE_SETTINGS, [LINE_KICK], {LINE_KICK: step}
         )
+        rows, matrix = result.rows, result.matrix
 
         assert rows == [f"BPM_{cell}:{axis}" for cell in LINE_CELLS for axis in ("X", "Y")]
         expected = (_tracked(line, step / 2) - _tracked(line, -step / 2)) / step

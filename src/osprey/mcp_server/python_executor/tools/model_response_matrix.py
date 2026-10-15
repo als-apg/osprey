@@ -57,6 +57,9 @@ _EXECUTION_MODE = "readonly"
 #: The planes a corrector setpoint steers, in column order when none are named.
 _PLANES = ("x", "y")
 
+#: The keys of a child's result line for a solve.
+_SOLVED_KEYS = frozenset({"rows", "columns", "matrix", "unsolved"})
+
 #: The unit statement every result carries.
 _UNIT = "each entry is a readback change in its hardware unit per setpoint change in its own"
 
@@ -306,7 +309,7 @@ def _result_line(stdout: str) -> dict[str, Any] | None:
     value = json.loads(lines[-1])
     if not isinstance(value, dict):
         return None
-    if "error" in value or ("rows" in value and "matrix" in value):
+    if "error" in value or _SOLVED_KEYS <= value.keys():
         return value
     return None
 
@@ -324,9 +327,10 @@ def _label(request: ModelRequest, line: Mapping[str, Any]) -> dict[str, Any]:
                 "device": request.devices.get(address),
                 "step": request.steps[address],
             }
-            for address in request.correctors
+            for address in line["columns"]
         ],
         "matrix": line["matrix"],
+        "unsolved": line["unsolved"],
     }
 
 
@@ -349,8 +353,10 @@ async def model_response_matrix(
     Returns:
         JSON: ``model``, ``corrector_delta``, ``unit``, ``rows`` (``{address,
         device}`` per monitor readback), ``columns`` (``{address, device,
-        step}`` per corrector, ``step`` in its hardware unit) and ``matrix``
-        (one list per row).
+        step}`` per solved corrector, ``step`` in its hardware unit),
+        ``matrix`` (one list per row) and ``unsolved`` (each corrector whose
+        step has no solve, mapped to the engine's text). When no corrector
+        solves, the call is refused with every unsolved text.
     """
     from osprey.mcp_server.python_executor import executor
     from osprey.mcp_server.python_executor.tools._pyaml_measure_args import TIMEOUT_KEY

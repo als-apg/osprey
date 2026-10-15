@@ -169,7 +169,9 @@ converted to the corrector's hardware unit through its wiring calibration; a
 model whose measurement file states none is refused. Each entry is a readback
 change in its hardware unit per setpoint change in its own. The result carries
 ``rows`` and ``columns``, each named by address and device id, each column's
-``step`` and the ``matrix``.
+``step``, the ``matrix`` and ``unsolved``. A corrector whose step has no solve
+has no column; ``unsolved`` maps it to the engine's text. When no corrector
+solves, the call is refused with every unsolved text.
 
 Installation
 ============

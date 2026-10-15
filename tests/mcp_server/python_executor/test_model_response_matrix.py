@@ -262,15 +262,18 @@ class TestSolve:
         facility = json.loads((sr_render / "facility.json").read_text(encoding="utf-8"))
         (record,) = [model for model in facility["models"] if model["name"] == "SR"]
         steps = {column["address"]: column["step"] for column in result["columns"]}
-        rows, expected = engine.response_matrix(
+        expected = engine.response_matrix(
             sr_render / "data" / "simulator" / "decks" / "SR.json",
             simulator_wiring(facility, "SR"),
             record.get("settings"),
             [CORRECTOR_X, CORRECTOR_Y],
             steps,
         )
-        assert [row["address"] for row in result["rows"]] == rows
-        np.testing.assert_allclose(np.asarray(result["matrix"]), expected, rtol=1e-12, atol=0)
+        assert [row["address"] for row in result["rows"]] == expected.rows
+        np.testing.assert_allclose(
+            np.asarray(result["matrix"]), expected.matrix, rtol=1e-12, atol=0
+        )
+        assert result["unsolved"] == {}
 
     def test_rows_and_columns_name_their_address_and_device(self, sandbox, sr_render):
         sandbox["render"] = sr_render
@@ -325,7 +328,25 @@ REFUSING_ENGINE = textwrap.dedent(
     """
 )
 
-#: The same plug-in, declaring nothing.
+#: A plug-in that solves the first corrector asked and names the others unsolved.
+PARTIAL_ENGINE = textwrap.dedent(
+    """
+    from types import SimpleNamespace
+
+
+    def response_matrix(deck, wiring, settings, correctors, step):
+        return SimpleNamespace(
+            rows=["SR:DIAG:BPM:01:POSITION:X"],
+            columns=correctors[:1],
+            matrix=[[2.5]],
+            unsolved={
+                address: f"lost (while stepping {address})" for address in correctors[1:]
+            },
+        )
+    """
+)
+
+#: The same refusing plug-in, declaring nothing.
 UNDECLARED_ENGINE = textwrap.dedent(
     """
     class NoOptics(Exception):
@@ -336,6 +357,31 @@ UNDECLARED_ENGINE = textwrap.dedent(
         raise NoOptics("no optics for this deck")
     """
 )
+
+
+def _refuse_solves(monkeypatch: pytest.MonkeyPatch, calls: set[int]) -> None:
+    """Make the closed orbit solves numbered in ``calls`` raise; every other one solves."""
+    original = at.find_orbit6
+    count = {"value": 0}
+
+    def raiser(*args: Any, **kwargs: Any) -> Any:
+        count["value"] += 1
+        if count["value"] in calls:
+            raise at.AtError("no synchronous phase")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(at, "find_orbit6", raiser)
+
+
+def _child_line(request: Any) -> dict[str, Any]:
+    """The one result line the child prints for ``request``, solved in this process."""
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        solve_and_print(tool._child_payload(request))
+    tag, payload = printed.getvalue().strip().split(" ", 1)
+    assert tag == RESULT_TAG
+    line: dict[str, Any] = json.loads(payload)
+    return line
 
 
 class TestSolveErrors:
@@ -407,30 +453,45 @@ class TestSolveErrors:
         assert envelope["error_type"] == "execution_error"
         assert envelope["error_message"] == "the solve of SR ended without a result"
 
+    def test_a_partial_solve_returns_the_solved_columns_and_names_the_rest(
+        self, sandbox, sr_render, monkeypatch
+    ):
+        sandbox["render"] = sr_render
+        sandbox["seed"] = {"partial_engine.py": PARTIAL_ENGINE}
+        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "partial_engine")
+
+        result = _call(model="SR", correctors=[CORRECTOR_X, CORRECTOR_Y])
+
+        assert [column["address"] for column in result["columns"]] == [CORRECTOR_X]
+        assert result["matrix"] == [[2.5]]
+        assert result["unsolved"] == {CORRECTOR_Y: f"lost (while stepping {CORRECTOR_Y})"}
+
     def test_an_orbit_solver_that_raises_names_the_corrector(self, sr_render, monkeypatch):
-        original = at.find_orbit6
-        calls = {"count": 0}
-
-        def raiser(*args: Any, **kwargs: Any) -> Any:
-            calls["count"] += 1
-            if calls["count"] == 3:
-                raise at.AtError("no synchronous phase")
-            return original(*args, **kwargs)
-
-        monkeypatch.setattr(at, "find_orbit6", raiser)
+        _refuse_solves(monkeypatch, {3})
         request = tool.resolve_model_request(
             "SR", [CORRECTOR_X, CORRECTOR_Y], render_root=sr_render
         )
-        printed = io.StringIO()
 
-        with contextlib.redirect_stdout(printed):
-            solve_and_print(tool._child_payload(request))
+        line = _child_line(request)
 
-        tag, payload = printed.getvalue().strip().split(" ", 1)
-        assert tag == RESULT_TAG
-        error = json.loads(payload)["error"]
-        assert error.startswith("closed orbit solve raised AtError:")
-        assert error.endswith(f"(while stepping {CORRECTOR_Y})")
+        assert line["columns"] == [CORRECTOR_X]
+        assert len(line["matrix"][0]) == 1
+        assert list(line["unsolved"]) == [CORRECTOR_Y]
+        assert line["unsolved"][CORRECTOR_Y].startswith("closed orbit solve raised AtError:")
+        assert line["unsolved"][CORRECTOR_Y].endswith(f"(while stepping {CORRECTOR_Y})")
+
+    def test_no_solved_column_is_a_refusal_naming_every_corrector(self, sr_render, monkeypatch):
+        _refuse_solves(monkeypatch, {1, 3})
+        request = tool.resolve_model_request(
+            "SR", [CORRECTOR_X, CORRECTOR_Y], render_root=sr_render
+        )
+
+        error = _child_line(request)["error"]
+
+        first, second = error.split("; ")
+        assert first.startswith("closed orbit solve raised AtError:")
+        assert first.endswith(f"(while stepping {CORRECTOR_X})")
+        assert second.endswith(f"(while stepping {CORRECTOR_Y})")
 
 
 class TestRefusals:

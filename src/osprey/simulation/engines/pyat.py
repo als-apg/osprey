@@ -12,7 +12,8 @@ These functions read a deck -- a lattice file pyAT loads with
   plane it steers or reads, and how often it refreshes;
 * :func:`build` builds the LUME model that serves the wiring;
 * :func:`response_matrix` steps wired correctors and returns the orbit
-  response at the wired monitors;
+  response at the wired monitors, naming each corrector whose step has no
+  solve;
 * :func:`polynomial_kicks` copies a deck so named kick elements carry their
   kicks as dipole polynomials;
 * :func:`error_text` gives the one line a failed build or solve reports;
@@ -59,6 +60,7 @@ __all__ = [
     "POLYNOMIAL_KICK_LENGTH_M",
     "PolynomialKicks",
     "Prepared",
+    "ResponseMatrix",
     "SOLVE_ERRORS",
     "build",
     "error_text",
@@ -140,6 +142,27 @@ class Prepared:
     twiss_in: dict[str, np.ndarray] | None
     rest_mass_gev: float
     length_m: float
+
+
+@dataclass(frozen=True)
+class ResponseMatrix:
+    """The orbit response of a model's wired monitors to its stepped correctors.
+
+    Attributes:
+        rows: The wired monitor readback addresses, ordered by (element
+            lattice index, ``x`` before ``y``).
+        columns: The correctors whose two arms solved, in the order asked.
+        matrix: One row per address of ``rows`` and one column per corrector
+            of ``columns``.
+        unsolved: Each corrector whose step has no solve, in the order asked,
+            mapped to :func:`error_text` of the failure followed by
+            ``(while stepping <address>)``.
+    """
+
+    rows: list[str]
+    columns: list[str]
+    matrix: np.ndarray
+    unsolved: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -954,7 +977,7 @@ def response_matrix(
     settings: Any,
     correctors: list[str],
     step: Mapping[str, float],
-) -> tuple[list[str], np.ndarray]:
+) -> ResponseMatrix:
     """Compute the orbit response of the wired monitors to the named correctors.
 
     Each corrector is stepped by central difference, ``held ± step/2`` in its
@@ -964,7 +987,9 @@ def response_matrix(
     from ``twiss_in`` for a ``single_pass`` one. Each reading is mapped to its
     readback's hardware unit through the way back its calibration states, so
     an entry is hardware readback per hardware setpoint. The deck a later call
-    loads is never written to.
+    loads is never written to. A corrector whose step has no solve has no
+    column; it is named in ``unsolved`` and the other correctors are still
+    stepped.
 
     Args:
         deck: The lattice file.
@@ -975,10 +1000,9 @@ def response_matrix(
         step: Each corrector's full step width in its hardware unit.
 
     Returns:
-        ``(rows, matrix)``: ``rows`` the wired monitor readback addresses
-        ordered by (element lattice index, ``x`` before ``y``), a monitor no
-        record wires having no row; ``matrix`` one row per address and one
-        column per corrector.
+        The :class:`ResponseMatrix`: a monitor no record wires has no row, a
+        corrector whose step has no solve has no column and is named in
+        ``unsolved``.
 
     Raises:
         FacilityBuildError: ``engine-invalid`` for settings :func:`prepare`
@@ -986,9 +1010,6 @@ def response_matrix(
         ValueError: a corrector is not a wired setpoint naming an element, is
             named twice, or has no finite non-zero step; a monitor record
             cannot be built as a reading.
-        OrbitSolveError: a step has no solve; the message is
-            :func:`error_text` of the failure followed by
-            ``(while stepping <address>)``.
     """
     import numpy as np
     from lume_pyat.simulator import PyATSimulator
@@ -1046,6 +1067,8 @@ def response_matrix(
         else SinglePassSimulator(lattice, twiss_in=prepared.twiss_in)  # type: ignore[arg-type]
     )
     matrix = np.empty((len(monitors), len(columns)), dtype=np.float64)
+    solved: list[int] = []
+    unsolved: dict[str, str] = {}
     for column, (variable, width) in enumerate(columns):
         elements = [simulator.element(binding.element_name) for binding in variable.bindings]
         held_fields = [
@@ -1059,15 +1082,22 @@ def response_matrix(
                 variable._set(simulator, value)
                 simulator.solve()
                 arms.append(np.array([reading._get(simulator) for reading in monitors]))
-        except OrbitSolveError as exc:
-            raise OrbitSolveError(f"{error_text(exc)} (while stepping {variable.name})") from exc
+        except SOLVE_ERRORS as exc:
+            unsolved[variable.name] = f"{error_text(exc)} (while stepping {variable.name})"
+            continue
         finally:
             for binding, element, saved in zip(
                 variable.bindings, elements, held_fields, strict=True
             ):
                 setattr(element, binding.attribute, saved if saved.ndim else float(saved))
         matrix[:, column] = (arms[0] - arms[1]) / width
-    return [reading.name for reading in monitors], matrix
+        solved.append(column)
+    return ResponseMatrix(
+        rows=[reading.name for reading in monitors],
+        columns=[columns[column][0].name for column in solved],
+        matrix=matrix[:, solved],
+        unsolved=unsolved,
+    )
 
 
 # Stand-in until pyAML reads a zero-length magnet's polynomials as its integrated strength; the length borrow and its refusals go with it.
