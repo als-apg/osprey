@@ -51,7 +51,14 @@ from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError, quoted_slots
 from osprey.facility.pairing import derive_pairs
 from osprey.facility.provenance import build_provenance
-from osprey.facility.sources import AUTHORED, COMPUTED_SLOTS, Sources
+from osprey.facility.sources import (
+    AUTHORED,
+    COMPUTED_SLOTS,
+    KIND_CLASS,
+    RECORD_FILES,
+    SET_VALUED_SLOTS,
+    Sources,
+)
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, DEFAULT_VALUE_TYPE
 
 __all__ = [
@@ -67,12 +74,12 @@ FIXES_FILE = "fixes.yaml"
 #: The header fixes.yaml carries.
 FIXES_HEADER = "osprey.facility.fixes/1"
 
-#: The slots whose lists are sets: compared and emitted sorted by string form.
+#: The slots whose lists are sets, per record kind: the rows of ``SET_VALUED_SLOTS``
+#: a layer may state for that kind.
 SET_VALUED: dict[str, frozenset[str]] = {
-    "place": frozenset({"names"}),
-    "device": frozenset({"names"}),
-    "channel": frozenset({"names", "tags", "former_addresses", "endpoint_of"}),
-    "group": frozenset({"names", "members"}),
+    kind: frozenset(slot for cls, slot in SET_VALUED_SLOTS if cls == KIND_CLASS[kind])
+    - COMPUTED_SLOTS[kind]
+    for kind in RECORD_FILES.values()
 }
 
 _OPS = ("set", "add", "drop")

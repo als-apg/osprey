@@ -41,8 +41,10 @@ from osprey.facility.errors import FacilityBuildError
 __all__ = [
     "AUTHORED",
     "COMPUTED_SLOTS",
+    "KIND_CLASS",
     "LAYER_OWN_FILES",
     "RECORD_FILES",
+    "SET_VALUED_SLOTS",
     "LoadResult",
     "SourceRecord",
     "Sources",
@@ -75,8 +77,24 @@ COMPUTED_SLOTS: dict[str, frozenset[str]] = {
     "wiring": frozenset({"direction", "unit", "default", "value_range", "provenance"}),
 }
 
+#: The multivalued slots that are sets: compared and written sorted by string form.
+SET_VALUED_SLOTS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("Place", "names"),
+        ("Device", "names"),
+        ("Channel", "names"),
+        ("Channel", "tags"),
+        ("Channel", "former_addresses"),
+        ("Channel", "endpoint_of"),
+        ("Group", "names"),
+        ("Group", "members"),
+        ("Device", "groups"),
+        ("Measurement", "kinds"),
+    }
+)
+
 #: The schema class each record kind is shaped by.
-_KIND_CLASS: dict[str, str] = {
+KIND_CLASS: dict[str, str] = {
     "place": "Place",
     "device": "Device",
     "channel": "Channel",
@@ -375,7 +393,7 @@ class _Reader:
         rid = self._record_id(row, "id", rel, index)
         if rid is None:
             return
-        self._check_keys(row, _KIND_CLASS[kind], COMPUTED_SLOTS[kind], kind, rid, rel)
+        self._check_keys(row, KIND_CLASS[kind], COMPUTED_SLOTS[kind], kind, rid, rel)
         if kind == "channel":
             on = row.get("on")
             if isinstance(on, dict) and "device" in on and "place" in on:

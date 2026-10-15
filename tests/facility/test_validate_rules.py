@@ -12,10 +12,9 @@ import yaml
 
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.schema import core
-from osprey.facility.sources import load_sources
+from osprey.facility.sources import SET_VALUED_SLOTS, load_sources
 from osprey.facility.validate import (
     FACILITY_HEADER,
-    SET_VALUED_SLOTS,
     STAGES,
     StageReport,
     known_classes,

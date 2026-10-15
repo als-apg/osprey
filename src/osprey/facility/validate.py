@@ -47,7 +47,6 @@ from osprey.facility.sources import Sources, load_sources
 
 __all__ = [
     "FACILITY_HEADER",
-    "SET_VALUED_SLOTS",
     "STAGES",
     "Stage",
     "StageReport",
@@ -87,22 +86,6 @@ STAGES: tuple[str, ...] = (
 
 #: The header of the combined facility file.
 FACILITY_HEADER = "osprey.facility.facility/3"
-
-#: The multivalued slots that are sets: compared and written sorted by string form.
-SET_VALUED_SLOTS: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("Place", "names"),
-        ("Device", "names"),
-        ("Channel", "names"),
-        ("Channel", "tags"),
-        ("Channel", "former_addresses"),
-        ("Channel", "endpoint_of"),
-        ("Group", "names"),
-        ("Group", "members"),
-        ("Device", "groups"),
-        ("Measurement", "kinds"),
-    }
-)
 
 #: The order errors print in: one entry per row of the error table.
 _TABLE_ROWS: tuple[tuple[str, ...], ...] = (
@@ -381,7 +364,7 @@ def ordered_slots() -> frozenset[tuple[str, str]]:
 
     Read from the generated model: a slot is ordered when its field's
     ``linkml_meta`` sets ``list_elements_ordered``. Every other multivalued slot
-    is one of ``SET_VALUED_SLOTS``.
+    is one of ``sources.SET_VALUED_SLOTS``.
 
     Returns:
         The ordered slots of every class of the facility file.

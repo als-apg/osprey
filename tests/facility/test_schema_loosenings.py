@@ -15,6 +15,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.facility.sources import SET_VALUED_SLOTS
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SEEDS_DIR = REPO_ROOT / "scripts" / "facility_schema" / "seeds"
 SCHEMA_DIR = REPO_ROOT / "src" / "osprey" / "facility" / "schema"
@@ -43,21 +45,6 @@ FACILITY_SLOTS = [
     "limits",
     "scenarios",
 ]
-
-#: The multivalued slots that are sets: compared and written sorted by their
-#: string form. Every other multivalued slot keeps its source order.
-SET_VALUED = {
-    ("Place", "names"),
-    ("Device", "names"),
-    ("Channel", "names"),
-    ("Group", "names"),
-    ("Channel", "tags"),
-    ("Channel", "former_addresses"),
-    ("Channel", "endpoint_of"),
-    ("Group", "members"),
-    ("Device", "groups"),
-    ("Measurement", "kinds"),
-}
 
 #: Words that name one facility, matched case-sensitively. Each is spelled with
 #: a character class so this module does not name the facility itself.
@@ -247,7 +234,7 @@ def test_every_multivalued_slot_but_the_sets_keeps_source_order(core: dict) -> N
             if slot and slot.get("multivalued"):
                 target = ordered if slot.get("list_elements_ordered") else unordered
                 target.add((cls_name, slot_name))
-    assert unordered == SET_VALUED
+    assert unordered == SET_VALUED_SLOTS
     for named in ("slices", "options", "shape", "clamp"):
         assert any(slot == named for _, slot in ordered), named
 
