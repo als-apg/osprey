@@ -30,11 +30,12 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: Tracked trees the sweep reads: tests (``tests/e2e`` included), scripts, docs,
-#: the rendered templates, the profile presets and catalogs, and the deployment
-#: code and images.
+#: the agent plugins, the rendered templates, the profile presets and catalogs,
+#: and the deployment code and images.
 SCAN_ROOTS: tuple[str, ...] = (
     "docker",
     "docs",
+    "plugins",
     "scripts",
     "src/osprey/deployment",
     "src/osprey/profiles",
