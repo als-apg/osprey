@@ -727,11 +727,13 @@ class TestExecuteViaLocalStamping:
 
     @pytest.mark.usefixtures("state_root", "deployment_config")
     def test_a_null_timeout_runs_unbounded_and_stamps_no_deadline(self, tmp_path, monkeypatch):
-        """``execution_timeout_seconds: null`` is an unbounded run, not a crash.
+        """A hand-built config with a null timeout runs unbounded rather than crashing.
 
-        The config key is read without a schema, so an explicit YAML null
-        reaches the adapter as ``None``. The executor announces no kill time to
-        the sandbox.
+        The config loader refuses an explicit null
+        (``python_executor.execution_timeout_seconds`` must be a finite,
+        positive number), so this case reaches ``_execute_via_local`` only
+        through a hand-built config. The executor then announces no kill time
+        to the sandbox.
         """
         env, result = self._run(tmp_path, monkeypatch, timeout=None)
 
