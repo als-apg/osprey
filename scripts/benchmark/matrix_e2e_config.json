@@ -143,6 +143,10 @@
       "reason": "Deploy/persistence smoke: demo grid_scan over HTTP, bridge container restart, identical-data assertion via the Tiled catalog — no LLM call anywhere."
     },
     {
+      "path": "tests/e2e/test_trajectory_deploy.py",
+      "reason": "VA + trajectory-service container stack driven over raw HTTP on both doors (launch-token, secret and owner refusals, one session open, the audit record on the host); no LLM call anywhere."
+    },
+    {
       "path": "tests/e2e/test_two_shape_boot.py",
       "reason": "Two-shape container boot of the dispatch pair (bridge and host namespace): asserts network topology, env-chain precedence inside the worker, and listening-socket bind addresses. No LLM call anywhere, and the two image builds would cost every matrix cell minutes for no model signal."
     },
