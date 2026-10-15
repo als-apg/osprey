@@ -74,6 +74,7 @@ from osprey.utils.logger import get_logger
 # validator that enforces it: the bind source on the host, the mount target in
 # the container and every refusal that names the key back to the operator all
 # read it from there.
+from osprey_connectors import yaml_loader
 from osprey_connectors.control_system.limits_validator import LIMITS_DATABASE_CONFIG_KEY
 
 logger = get_logger("deployment.compose")
@@ -3902,7 +3903,7 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
         return False
 
     _write_staged_devices(view, staged_path)
-    settables, readables = _document_counts(yaml.safe_load(view.read_text(encoding="utf-8")))
+    settables, readables = _document_counts(yaml_loader.safe_load(view.read_text(encoding="utf-8")))
     _report_fact(
         f"bluesky plan devices: {settables} settable / {readables} readable from {view_path}"
     )

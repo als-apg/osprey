@@ -393,17 +393,18 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
     recorded = facts.get("measurement_models") or {}
     if not recorded:
         return {}
-    import yaml
-
     from osprey.facility import FACILITY_FILE
     from osprey.facility.views.pyaml import KIND_STEPPED, RF_PLANT_TYPE, view_names
+    from osprey_connectors import yaml_loader
     from pyaml_cs_osprey.catalog import parse_reference
 
     doc = json.loads((render_root / FACILITY_FILE).read_text(encoding="utf-8"))
     models = {str(model["name"]): model for model in doc.get("models", [])}
     block: dict[str, dict[str, Any]] = {}
     for model, record in sorted(recorded.items()):
-        configuration = yaml.safe_load((render_root / record["path"]).read_text(encoding="utf-8"))
+        configuration = yaml_loader.safe_load(
+            (render_root / record["path"]).read_text(encoding="utf-8")
+        )
         arrays = {str(a["name"]): list(a["elements"]) for a in configuration.get("arrays") or []}
         devices = {str(d["name"]): d for d in configuration.get("devices") or []}
         measurement = models[str(model)].get("measurement") or {}

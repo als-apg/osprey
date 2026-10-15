@@ -761,9 +761,9 @@ def _load(path: Path) -> Any:
 
 
 def _parse(text: str) -> Any:
-    import yaml
+    from osprey_connectors import yaml_loader
 
-    return yaml.safe_load(text)
+    return yaml_loader.safe_load(text)
 
 
 def _write(path: Path, document: Any) -> Path:
