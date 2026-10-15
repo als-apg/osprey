@@ -79,6 +79,12 @@ gallery refusal and a config refusal never share a file.
        ``detail``
    * - ``auth_sidecar.jsonl`` (under ``var/audit/sidecar/``)
      - Logins and login refusals, where a deployment has a login wall
+   * - ``trajectory_service.jsonl`` (under ``var/audit/trajectory/``)
+     - Each trajectory session open, take-over and release, allowed or
+       refused, through either door. ``actor`` is the session's owner, not
+       the service; ``detail`` names the owner, the door (``kind=``) and the
+       target, and a release's only the owner, the target and the
+       ``client_id``. See :ref:`reference-trajectory-service`
 
 ``decision`` reads ``allowed`` or ``refused`` on almost all of them.
 ``hook_approval.jsonl`` has three words of its own, all on the same
@@ -465,7 +471,8 @@ under another, so there is only ever one resolution. Most specific first:
        real person is behind the record.
    * - ``OSPREY_AUDIT_IDENTITY``
      - A container that hosts no single person: a framework service's key, or
-       ``sidecar`` for the login service. Rendered by the same derivation that
+       ``sidecar`` for the login service, or ``trajectory`` for the
+       trajectory service. Rendered by the same derivation that
        names the container's audit mount, so the writer's path and the mounted
        path cannot diverge.
    * - The local account
@@ -493,6 +500,13 @@ together with the session's control-target and write-posture markers and
 ``OSPREY_AUDIT_WRITER``, which names the root maintenance phase's own ledger.
 A server spec that could set any of them could quietly repoint or shed the
 evidence of what it did.
+
+The trajectory service's records are the exception to the shared answer: they
+file under ``var/audit/trajectory/`` by the ladder, but their ``actor`` is the
+person whose session the action was, the owner the service's door named,
+because one service container acts for every operator who opens a session.
+A refused action that named no owner falls back to the ladder's answer,
+``trajectory``.
 
 Who can read it
 ===============

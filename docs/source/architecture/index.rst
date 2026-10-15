@@ -12,7 +12,7 @@ the tool interface, and **pluggable connectors** for protocol-agnostic hardware 
 
    Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.
 
-Six pages break that picture down — how a write is guarded on its way to the
+Seven pages break that picture down — how a write is guarded on its way to the
 machine, how reading differs from writing, how one facility description feeds
 every service, and the subsystems with architecture of their own:
 
@@ -76,6 +76,15 @@ every service, and the subsystems with architecture of their own:
       map, the two transports, and the model seam that makes the physics
       replaceable.
 
+   .. grid-item-card:: Trajectory Service
+      :link: trajectory-service
+      :link-type: doc
+      :shadow: md
+
+      The service that claims a control target for first-turn threading —
+      one gated app with a panel door and an agent door, how both name the
+      person acting, and what every action passes before it runs.
+
 .. seealso::
 
    :doc:`/how-to/control-systems/use-connectors`
@@ -93,3 +102,4 @@ every service, and the subsystems with architecture of their own:
    python-executor
    facility-file
    virtual-accelerator
+   trajectory-service

@@ -286,25 +286,34 @@ Whose write is it
 Where the name comes from
 -------------------------
 
-A request carries a name only because one of two doors put it there, and both put it there the
-same way --- in the ``X-Osprey-Owner`` header, from the credential that got the request in,
-never from what the request claimed.
+A request carries a name only because a door put it there, and every door puts it there the
+same way --- from the credential that got the request in, never from what the request claimed.
 
 - **The web terminal's proxy** strips any name a request arrives with and sets the account
-  whose terminal it is.
-- **The sidecar's own login gate** overwrites the name on every request it admits, from the
+  whose terminal it is, in the ``X-Osprey-Owner`` header.
+- **The sidecar's own login gate** overwrites that header on every request it admits, from the
   credential that matched.
+- **The trajectory service's web gate** drops any name a request carries, the proxy's
+  included, and names the account the secret that admitted it maps to: a matched roster
+  secret, or the terminal's own secret, which the proxy adds on the way in. See
+  :ref:`architecture-trajectory-service`.
 
 That header is the only place a request's name is read from: a name written anywhere else in a
 request --- a field in its body, an argument to a tool --- names nobody. The account name is
 not treated as a secret: it travels with proxied requests and appears in the deployment's own
-logs. What the two doors protect is that nobody can choose to be someone else.
+logs. What the doors protect is that nobody can choose to be someone else.
 
-The panel's own address is neither of those doors: a login there mints no name at all. See
-:ref:`service door, not a terminal <web-terminal-service-door>` for what that costs the person
-using it. In the single-user containerised shape, where one sidecar is reached with the
-deployment-wide secret, requests name nobody by design --- that secret says a request is
-allowed, not who sent it.
+The Bluesky panel's own address is none of those doors: a login there mints no name at all.
+See :ref:`service door, not a terminal <web-terminal-service-door>` for what that costs the
+person using it. The trajectory service's own address is different: its gate is the third door
+in that list, so a login there with a roster secret names that secret's account, exactly as the same
+secret does through the terminal.
+
+In the single-user containerised shape, where one sidecar is reached with the deployment-wide
+secret, requests name nobody by design --- that secret says a request is allowed, not who sent
+it. The trajectory service is the exception: it maps the deployment secret to the account the
+project was built under, so its requests name that account, and its state reply shows the name
+as ``caller``.
 
 A job the OSPREY agent fires goes out through the terminal's own panel proxy. The agent never
 holds the dispatcher's key; the proxy holds it, adds it on the way out and stamps the same name
@@ -314,11 +323,17 @@ meet their narrowing. A backend behind the EVENTS panel is handed that key and t
 only when the deployment's config declares it **and** it answers on the loopback address ---
 the same rule the operator secret follows. See :doc:`/how-to/agent-interfaces/event-dispatch`.
 
+The agent's calls to the trajectory service take the same route. The proxy holds that
+service's launch token, adds it with the terminal's secret on the way out, and the service names
+the account the secret maps to. The agent holds neither the token nor the secret, so a request
+it sends there is the terminal owner's, whatever the request claims.
+
 What the boundary does not cover
 --------------------------------
 
-The queue belongs to the facility, and OSPREY gates its own doors to it, not every door. Three
-gaps follow from that, and a deployment should know them:
+The queue belongs to the facility, and OSPREY gates its own doors to it, not every door. The
+gaps below follow from that and from how the agent reaches OSPREY's own services, and a
+deployment should know them:
 
 - **A plan added from inside a container.** Something already running there --- a Python run,
   or a persona whose profile allows a shell --- can reach the queue's own port and add a plan
@@ -329,7 +344,23 @@ gaps follow from that, and a deployment should know them:
   environment, so the same shell can fire a job without the approval prompt. Building a persona
   that allows a shell warns about exactly this, and a sandboxed run cannot do it --- neither the
   token nor the port is there. The job still runs as the real person, under their narrowing.
-- **A direct login at the panel's own address.** Unnamed, as above, and at the lane's ceiling.
+- **A direct login at the Bluesky panel's own address.** Unnamed, as above, and at the lane's
+  ceiling.
+- **A shell reaching the trajectory service's agent door.** The same panel token lets that
+  shell open, take over or release a trajectory session through the terminal's proxy without
+  the approval prompt. A sandboxed run cannot, for the same reason as above. The session is
+  still the terminal owner's, and every action in it still passes the service's admission
+  check --- the owner's control context, narrowing and the writes posture --- and the target's
+  guarded-run lock.
+- **A single-user terminal under another account.** The trajectory service names the build
+  account for the deployment secret, whoever runs the terminal. A terminal started under
+  another account acts under the build account's name and narrowing; the service's state reply
+  shows the name it used as ``caller``, which is where the mismatch is visible.
+- **An agent on the host reading ``.env``.** The trajectory launch token and the terminal
+  secret are minted into the deployment's ``.env``. OSPREY hands neither to a process the agent
+  starts, but an agent run on the host, outside a container, can read the file with its own
+  file tools and present both. With them a request reaches the agent door under the name the
+  secret maps to.
 
 **The lane's ceiling** is what a lane allows when nobody is named, and it describes the lanes
 this deployment deploys. An external-worker lane (``bluesky.external:``) is a facility's own
