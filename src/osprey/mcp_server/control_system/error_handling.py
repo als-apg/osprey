@@ -105,19 +105,11 @@ def _not_a_channel(tool_name: str, address: str, connector_name: str) -> NoRetur
 async def invalidate_active_connector(connector_name: str) -> None:
     """Drop the connector a failed call was using, so the next call rebuilds it.
 
-    This is the single seam between the ``ConnectionError`` branch below and
-    whatever owns the connector's lifetime. Today that owner is the server
-    context, and "invalidate" means dropping the cached instance so the next
-    ``control_system()`` call recreates it — exactly what the branch did inline
-    before, with the same call and the same failure behaviour.
-
-    It is a named function rather than an inline call because the owner is
-    about to change. When the connector lives in a connector-host child, a
-    connection failure has to mean *respawn the child for the target it was
-    already serving* — the same target, no generation bump, since a dead child
-    is a lost process and not a target change. Re-pointing this one function is
-    then the whole of that change; the envelope rendering below never has to
-    learn where connectors live.
+    This is the one seam between the ``ConnectionError`` branch below and
+    whoever owns the connector's lifetime. It delegates to
+    :meth:`ServerContext.invalidate_connector`, which recreates an in-process
+    connector, or respawns a connector-host child on the same target, so the
+    envelope rendering never has to know where connectors live.
     """
     from osprey.mcp_server.control_system.server_context import get_server_context
 
