@@ -167,6 +167,22 @@ def test_the_build_pairs_a_setpoint_with_its_monitor(
 
 
 @pytest.mark.xdist_group("mml_built")
+def test_the_rf_station_pairs_its_phase_control_and_leaves_its_voltage_control_unpaired(
+    mml_built: Callable[[str, str], BuiltModel],
+) -> None:
+    ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text())
+    rf = {
+        field: ao["RF"][field]["ChannelNames"].strip()
+        for field in ("Phase", "PhaseCtrl", "Voltage", "VoltageCtrl")
+    }
+    built = _by_id(_built(mml_built, "spear3")["channels"])
+    assert built[rf["PhaseCtrl"]]["pair"] == rf["Phase"]
+    assert "pair" in built[rf["PhaseCtrl"]]["provenance"]["defaults"]
+    assert built[rf["VoltageCtrl"]]["pair"] == rf["VoltageCtrl"]
+    assert built[rf["VoltageCtrl"]]["unit"] != built[rf["Voltage"]]["unit"]
+
+
+@pytest.mark.xdist_group("mml_built")
 def test_a_two_coil_corrector_pairs_each_coil_with_its_own_readback(
     mml_built: Callable[[str, str], BuiltModel],
 ) -> None:
