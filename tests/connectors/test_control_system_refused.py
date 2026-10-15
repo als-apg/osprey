@@ -153,7 +153,7 @@ class TestDenialContract:
         )
         # Policy reasons keep their existing default verbatim.
         assert str(ChannelWriteBlockedError(CHANNEL, "LIMITS")) == (
-            f"Write to '{CHANNEL}' refused by reference monitor (LIMITS)"
+            f"Write to '{CHANNEL}' refused by the reference monitor (LIMITS)"
         )
 
 
@@ -199,7 +199,7 @@ class TestEnvelopeRendering:
 
         assert envelope["error_message"] == (
             "Write refused by the reference monitor during channel_write: "
-            f"Write to '{CHANNEL}' refused by reference monitor (WRITES_DISABLED)"
+            f"Write to '{CHANNEL}' refused by the reference monitor (WRITES_DISABLED)"
         )
         assert envelope["suggestions"] == [
             "This write was refused on policy grounds; it was never sent to the control system.",

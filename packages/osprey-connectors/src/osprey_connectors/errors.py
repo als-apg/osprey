@@ -9,6 +9,7 @@ words for the outcomes that raise, so the reason a caller branches on and the
 outcome the result reports are one vocabulary.
 """
 
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -83,13 +84,9 @@ class ChannelLimitsViolationError(Exception):
 class ChannelWriteBlockedError(Exception):
     """Raised when a channel write was refused and no value was written.
 
-    A refusal always means the channel was left alone, but not always that the
-    control system went unasked. Most refusals come from the reference monitor
-    before anything is sent — writes are disabled, a limits check failed, or
-    validation raised. "CONTROL_SYSTEM_REFUSED" is the exception: the control
-    system itself was asked and denied the write (EPICS access security, for
-    instance). Distinct from ChannelWriteFailedError, which means the write was
-    attempted and its outcome is a failure rather than a denial.
+    Distinct from ChannelWriteFailedError, which means the write was attempted
+    and its outcome is a failure rather than a denial. :meth:`refuser` names
+    who refused for each reason.
 
     reason is one of: "WRITES_DISABLED", "LIMITS", "VALIDATION_ERROR",
     "CONTROL_SYSTEM_REFUSED", "RAW_CLIENT_WRITE", "CHANNEL_NOT_FOUND".
@@ -99,28 +96,40 @@ class ChannelWriteBlockedError(Exception):
     the facility; nothing was sent.
     """
 
-    _VALID_REASONS = (
-        "WRITES_DISABLED",
-        "LIMITS",
-        "VALIDATION_ERROR",
-        "CONTROL_SYSTEM_REFUSED",
-        "RAW_CLIENT_WRITE",
-        "CHANNEL_NOT_FOUND",
+    # Every reason maps to who refused a write for it; a message that names a
+    # refuser reads it from here and nowhere else. A reason missing from this
+    # table, or no reason at all, names no refuser rather than a guessed one.
+    # CHANNEL_NOT_FOUND names none because nothing was denied: the address is
+    # not a channel.
+    _REFUSERS: "Mapping[str, str | None]" = MappingProxyType(
+        {
+            "WRITES_DISABLED": "the reference monitor",
+            "LIMITS": "the reference monitor",
+            "VALIDATION_ERROR": "the reference monitor",
+            "CONTROL_SYSTEM_REFUSED": "the control system",
+            "RAW_CLIENT_WRITE": "the reference monitor",
+            "CHANNEL_NOT_FOUND": None,
+        }
     )
+    _VALID_REASONS = tuple(_REFUSERS)
 
-    def __init__(self, channel_address: str, reason: str, message: str | None = None):
+    @classmethod
+    def refuser(cls, reason: str | None) -> str | None:
+        """Return who refused a write for ``reason``, or None when no one is known."""
+        if reason is None:
+            return None
+        return cls._REFUSERS.get(reason)
+
+    def __init__(self, channel_address: str, reason: str | None, message: str | None = None):
         self.channel_address = channel_address
         self.reason = reason
-        # The fallback names the refuser the reason implies. Every production
-        # path passes an explicit message, but a bare construction must not be
-        # able to reintroduce the misattribution this class exists to avoid.
-        if reason == ChannelNotFoundError.reason:
+        refuser = self.refuser(reason)
+        if refuser is not None:
+            fallback = f"Write to '{channel_address}' refused by {refuser} ({reason})"
+        elif reason == ChannelNotFoundError.reason:
             fallback = str(ChannelNotFoundError(channel_address))
         else:
-            refuser = (
-                "the control system" if reason == "CONTROL_SYSTEM_REFUSED" else "reference monitor"
-            )
-            fallback = f"Write to '{channel_address}' refused by {refuser} ({reason})"
+            fallback = f"Write to '{channel_address}' refused ({reason})"
         super().__init__(message or fallback)
 
 
