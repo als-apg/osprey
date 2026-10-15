@@ -130,8 +130,8 @@ class ModelConnector(DictConnector):
     """A dict connector whose readings follow a linear model of its setpoints.
 
     Every put is recorded in ``puts`` as ``(address, value)``; ``on_put`` is called
-    with the address before the value lands, so a test can look at the run's
-    record at the moment of each write.
+    with the address before the value lands, so a test can see each write's place
+    among the connector's reads.
     """
 
     def __init__(self, values: dict[str, float] | None = None) -> None:
@@ -268,20 +268,24 @@ class TestEveryPath:
     def test_every_displaced_address_is_recorded_once_before_its_first_write(
         self, kind: str, sr: Accelerator, connector: ModelConnector
     ) -> None:
-        at_first_put: dict[str, dict[str, Any]] = {}
+        served: list[tuple[str, str]] = []
+        read = connector.read_channel
 
-        def look(address: str) -> None:
-            # The put runs under the run's guard, so the record is read as it stands.
-            if address not in at_first_put and _run._RUN is not None:
-                at_first_put[address] = dict(_run._RUN.moved)
+        async def logged_read(address: str, timeout: float | None = None) -> Any:
+            served.append(("read", address))
+            return await read(address, timeout)
 
-        connector.on_put = look
+        connector.read_channel = logged_read  # type: ignore[method-assign]
+        connector.on_put = lambda address: served.append(("put", address))
         run = run_tool(PATHS[kind][0](sr.live).measure)
 
-        assert set(at_first_put) == set(PATHS[kind][1])
-        for address, recorded in at_first_put.items():
-            assert recorded[address] == pytest.approx(SETPOINTS[address]), address
-        assert set(run.moved) == set(PATHS[kind][1]), "each address recorded once"
+        stepped = PATHS[kind][1]
+        for address in stepped:
+            first_put = served.index(("put", address))
+            assert ("read", address) in served[:first_put], f"{address} read before its put"
+        assert set(run.moved) == set(stepped), "each address recorded once"
+        for address in stepped:
+            assert run.moved[address] == pytest.approx(SETPOINTS[address]), address
 
     def test_a_callback_stop_after_the_first_write_leaves_the_stepped_knob_where_it_stopped_and_lists_it(
         self, kind: str, sr: Accelerator, connector: ModelConnector

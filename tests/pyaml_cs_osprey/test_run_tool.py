@@ -2,8 +2,8 @@
 
 The call holds the target's run lock, joining the process's hold, so a second
 run is busy and a missing guarded-run directory stops it before the tool is
-called. Before the first write of each address its value is recorded; nothing
-is written back. A completed run, a stop, an exception and a Ctrl-C each report
+called. Before the first write of each address its value is read, and it is
+recorded once the runtime sent or landed that write; nothing is written back. A completed run, a stop, an exception and a Ctrl-C each report
 the setpoints the run moved with their values before the call: on the returned
 ``ToolRun`` or, on an escaping exception, as ``moved_setpoints``. A Ctrl-C stops
 every tool of the process's run that takes a callback, from any thread.
@@ -656,7 +656,10 @@ _SIGINT_CHILD = textwrap.dedent(
         return [values[a] for a in addresses]
 
     def write_channel(address, value, **kwargs):
+        # The phases the real runtime reports for a write that went out.
+        osprey.runtime._notify_write(address, "attempt")
         values[address] = value
+        osprey.runtime._notify_write(address, "sent")
 
     osprey.runtime.read_channels = read_channels
     osprey.runtime.write_channel = write_channel

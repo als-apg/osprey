@@ -5,9 +5,10 @@ anything is read or written.
 `pyaml_cs_osprey.run_tool.run_tool` calls a pyAML tool method under the
 target's run lock, joining the lock the process already holds: a second run on
 the target is refused busy before the tool starts, each setpoint's value is
-recorded before its first write, and the call returns a `ToolRun` whose `moved`
-lists every setpoint it moved with its value before the call; an escaping
-exception carries the same list as `moved_setpoints`. Nothing is written back.
+read before its first write, and the call returns a `ToolRun` whose `moved`
+lists only the setpoints the runtime sent or landed, each with its value before
+the call; a refused write lists nothing. An escaping exception carries the same
+list as `moved_setpoints`. Nothing is written back.
 A Ctrl-C stops every tool of the run that takes a callback, in any thread,
 through pyAML's own abort path. A run that reaches the execution timeout is
 killed like any other, with no early stop.
