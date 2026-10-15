@@ -153,7 +153,7 @@ class _Run:
                 f"layer {_stating_layers(device, 's')} states s {stated:.9g} in periodic model "
                 f"{deck.name}, outside its deck of length {deck.length_m:.9g}; the device is "
                 f"placed at s {point:.9g}",
-                f"state s {point:.9g}, or drop it",
+                f"state an s within [0, {deck.length_m:.9g}], or drop it",
             )
         )
 

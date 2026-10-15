@@ -63,10 +63,10 @@ SPEAR3_LINE = (
 SPEAR3_WRAPPED_LINES = (
     "facility: place-wrapped: device StorageRing/VG55_AM1 — layer mml states s 234.144"
     " in periodic model StorageRing, outside its deck of length 234.143986; the device"
-    " is placed at s 1.35099997e-05; fix: state s 1.35099997e-05, or drop it",
+    " is placed at s 1.35099997e-05; fix: state an s within [0, 234.143986], or drop it",
     "facility: place-wrapped: device StorageRing/VP28_AM1 — layer mml states s 234.144"
     " in periodic model StorageRing, outside its deck of length 234.143986; the device"
-    " is placed at s 1.35099997e-05; fix: state s 1.35099997e-05, or drop it",
+    " is placed at s 1.35099997e-05; fix: state an s within [0, 234.143986], or drop it",
 )
 NSLS2_LINES = [
     "response check LTB: model BPMx/HCM inside band 1.000 (pass at 0.99)",

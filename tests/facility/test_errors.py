@@ -73,7 +73,7 @@ def _warning(**overrides: str) -> FacilityBuildWarning:
         "record_id": "SR/SPARE",
         "detail": "layer authored states s -0.5 in periodic model SR, outside its deck of "
         "length 3.8; the device is placed at s 3.3",
-        "remedy": "state s 3.3, or drop it",
+        "remedy": "state an s within [0, 3.8], or drop it",
     }
     fields.update(overrides)
     return FacilityBuildWarning(**fields)
@@ -87,7 +87,9 @@ class TestWarningLine:
         )
 
     def test_line_appends_the_remedy(self) -> None:
-        assert _warning().line == f"{_warning().summary}; fix: state s 3.3, or drop it"
+        assert (
+            _warning().line == f"{_warning().summary}; fix: state an s within [0, 3.8], or drop it"
+        )
         assert "\n" not in _warning().line
 
     def test_unknown_kind_is_refused(self) -> None:
