@@ -29,9 +29,8 @@ wrote, so each recipe here is the literal sequence an operator types --
   then published: the simulator view serves the import's channels and model,
   and a second build changes no byte of it.
 
-Every number here is read off a real run of the real verbs. The chain is cheap
-enough (seconds) to drive once per recipe, so nothing about the rendered tree
-is restated from a plan.
+Every number here is read off a real run of the real verbs. Nothing about the
+rendered tree is restated from a plan.
 """
 
 from __future__ import annotations
@@ -49,6 +48,7 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.main import cli
+from osprey_connectors import yaml_loader
 from tests.fixtures.mml._trees import names
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -213,7 +213,7 @@ def imported_probe(repo: Path) -> str:
     The rule the build's served-probe stop names its remedy by: a channel whose
     role is ``readback`` or states none.
     """
-    channels = yaml.safe_load(
+    channels = yaml_loader.safe_load(
         (repo / FACILITY_DIR / "imported/mml/channels.yaml").read_text(encoding="utf-8")
     )
     return min(
@@ -286,8 +286,9 @@ def apply_seed_invalid_remedies(
     ``osprey facility validate`` runs the build's own stages and writes nothing,
     so its stderr is where the stops are read. Each line names one address, and
     exactly that record of the deployment's ``data/facility/limits.yaml`` is
-    widened to hold the nominal the line states. The verb then runs once more,
-    render included, and must print the tree's build warnings and response-check
+    widened to hold the nominal the line states. After a widening the verb runs
+    once more, render included; a run with no stop is already the clean run. The
+    clean run must print the tree's build warnings and response-check
     lines and nothing else; a note a written view prints about its own index is that
     view's fact, asserted by its own tests, and is not read here.
 
@@ -310,7 +311,7 @@ def apply_seed_invalid_remedies(
     for address, (edge, nominal) in stops.items():
         widen_limits_record(repo / FACILITY_LIMITS, address, edge, nominal)
 
-    clean = runner.invoke(cli, where, catch_exceptions=False)
+    clean = runner.invoke(cli, where, catch_exceptions=False) if stops else stopped
     assert clean.exit_code == 0, clean.output
     printed = [line for line in clean.stderr.splitlines() if not line.startswith(VIEW_NOTE)]
     if responses is None:
