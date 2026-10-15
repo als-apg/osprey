@@ -8,8 +8,8 @@ groups:
   bpm: SR/BPM
   hcor: SR/HCM
   vcor: SR/VCM
-  quad: SR/QF
-  sext: SR/SF
+  quad: [SR/QF, SR/QD]
+  sext: [SR/SF, SR/SD]
 instruments:
   tune: SR:DIAG:TUNE:X
   rf: SR:RF:CAVITY:01:FREQUENCY:SP

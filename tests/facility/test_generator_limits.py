@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility.build import build_facility
-from osprey.facility.sources import read_yaml, slot_names
+from osprey.facility.sources import group_families, read_yaml, slot_names
 from osprey.facility.views.limits import limits_document
 from tests._builds import BuiltProject
 from tests.facility.test_cf_view_parity import load_golden
@@ -191,11 +191,14 @@ def test_each_measurement_group_is_a_deck_machine_family_with_a_wired_member(
     )
     named = measurement()["groups"]
     assert sorted(named) == ["bpm", "hcor", "quad", "sext", "vcor"]
-    for role, group_id in named.items():
-        machine, _, family = group_id.partition("/")
-        assert machine == "SR" and family, f"{role}: {group_id} is not an SR/<family> group"
-        assert group_id in groups, f"{role}: {group_id} is not a committed group"
-        assert set(groups[group_id]["members"]) & wired, f"{role}: {group_id} has no wired member"
+    for role, value in named.items():
+        for group_id in group_families(value):
+            machine, _, family = group_id.partition("/")
+            assert machine == "SR" and family, f"{role}: {group_id} is not an SR/<family> group"
+            assert group_id in groups, f"{role}: {group_id} is not a committed group"
+            assert set(groups[group_id]["members"]) & wired, (
+                f"{role}: {group_id} has no wired member"
+            )
 
 
 def test_measurement_instruments_are_served_channels() -> None:

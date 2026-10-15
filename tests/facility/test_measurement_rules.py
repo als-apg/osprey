@@ -81,9 +81,24 @@ def test_the_demo_corrector_groups_are_their_planes(built_control_assistant: Bui
     assert set(groups["vcor"]) == _setpoints_on(document, "SR", "SR/VCM")
     assert not set(groups["hcor"]) & set(groups["vcor"])
     assert not (set(groups["hcor"]) | set(groups["vcor"])) & dipoles
-    assert set(groups["quad"]) == _setpoints_on(document, "SR", "SR/QF")
-    assert set(groups["sext"]) == _setpoints_on(document, "SR", "SR/SF")
+    assert set(groups["quad"]) == _setpoints_on(document, "SR", "SR/QF") | _setpoints_on(
+        document, "SR", "SR/QD"
+    )
+    assert set(groups["sext"]) == _setpoints_on(document, "SR", "SR/SF") | _setpoints_on(
+        document, "SR", "SR/SD"
+    )
     assert len(groups["hcor"]) == len(groups["vcor"]) == 72
+
+
+def test_the_demo_view_carries_the_tune_and_chromaticity_corrections(
+    built_control_assistant: BuiltProject,
+) -> None:
+    import yaml
+
+    path = built_control_assistant.build_dir / "data" / "pyaml" / "SR" / "configuration.yaml"
+    configuration = yaml.safe_load(path.read_text(encoding="utf-8"))
+    names = {str(device["name"]) for device in configuration["devices"]}
+    assert {"DEFAULT_TUNE_CORRECTION", "DEFAULT_CHROMATICITY_CORRECTION"} <= names
 
 
 def test_the_demo_bpm_group_is_both_planes_device_by_device(
