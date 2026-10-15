@@ -91,7 +91,7 @@ export async function runVerification() {
  * @param {() => void} handlers.onStateUpdated
  * @param {(name: string, status: string) => void} handlers.onFigureStatus
  * @param {(name: string) => void} handlers.onFigureReady
- * @param {(name: string, error: string) => void} handlers.onFigureError
+ * @param {(name: string, error: string | null) => void} handlers.onFigureError
  * @param {(settings: object) => void} handlers.onSettingsUpdated
  * @param {(summary: object) => void} handlers.onBaselineSet
  * @param {() => void} [handlers.onBaselineCleared]
@@ -114,7 +114,7 @@ export function handleSSEEvent(data, handlers) {
       break;
 
     case 'figure_error':
-      handlers.onFigureError(/** @type {string} */ (data.name), data.error || 'Unknown error');
+      handlers.onFigureError(/** @type {string} */ (data.name), data.error ?? null);
       break;
 
     case 'settings_updated':
@@ -140,7 +140,7 @@ export function handleSSEEvent(data, handlers) {
  * @property {(name: string, detail: string) => void} onFigureUnavailable - fired with the refusal's detail when the selected model cannot draw the figure
  * @property {(name: string, status: string) => void} onFigureStatus - fired on a 'figure_status' SSE event, and with the status a figure route's 404 names
  * @property {(name: string) => void} onFigureReady - fired on a 'figure_ready' SSE event, before the figure itself is fetched
- * @property {(name: string, error: string) => void} onFigureError - fired on a 'figure_error' SSE event
+ * @property {(name: string, error: string | null) => void} onFigureError - fired on a 'figure_error' SSE event, with null when the server gave no reason
  * @property {(settings: object) => void} onSettingsUpdated - fired on a 'settings_updated' SSE event
  * @property {(summary: object) => void} onBaselineSet - fired on a 'baseline_set' SSE event
  */
@@ -284,7 +284,7 @@ export function createNetClient(callbacks) {
       callbacks.onFigureReady(name);
       fetchAndRenderFigure(name);
     },
-    /** @type {(name: string, error: string) => void} */
+    /** @type {(name: string, error: string | null) => void} */
     onFigureError: (name, error) => callbacks.onFigureError(name, error),
     /** @type {(settings: object) => void} */
     onSettingsUpdated: (settings) => callbacks.onSettingsUpdated(settings),

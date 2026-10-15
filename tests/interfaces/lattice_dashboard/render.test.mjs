@@ -120,6 +120,12 @@ describe('figure-status primitives (LED / spinner / error)', () => {
     expect(detail.textContent?.length).toBe(200);
   });
 
+  test('showFigureError with no error shows the headline and no detail', () => {
+    showFigureError('optics', null);
+    expect(qs(document, '#plot-optics .figure-error').textContent).toContain('Computation failed');
+    expect(document.querySelector('#plot-optics .figure-error-msg')).toBeNull();
+  });
+
   test('showFigureError does not duplicate the error element on repeat calls', () => {
     showFigureError('optics', 'boom');
     showFigureError('optics', 'boom again');
