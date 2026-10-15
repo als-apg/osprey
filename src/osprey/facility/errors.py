@@ -23,6 +23,7 @@ __all__ = [
     "WARNING_KINDS",
     "FacilityBuildError",
     "FacilityBuildWarning",
+    "exact_number",
     "quoted_slots",
 ]
 
@@ -56,6 +57,14 @@ KINDS: tuple[str, ...] = (
 
 #: Every warning kind, each ``<thing>-<problem>``.
 WARNING_KINDS: tuple[str, ...] = ("place-wrapped", "link-dangling")
+
+
+def exact_number(number: float) -> str:
+    """*number* as the shortest text that reads back as the same float.
+
+    A whole number prints bare (``5``, not ``5.0``).
+    """
+    return repr(float(number)).removesuffix(".0")
 
 
 def quoted_slots(slots: Iterable[str]) -> str:

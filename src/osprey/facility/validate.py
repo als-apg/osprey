@@ -41,7 +41,12 @@ import click
 
 from osprey.facility import DEFAULT_ROLE, fold_code
 from osprey.facility.combine import FIXES_FILE, CombineResult, combine
-from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, quoted_slots
+from osprey.facility.errors import (
+    FacilityBuildError,
+    FacilityBuildWarning,
+    exact_number,
+    quoted_slots,
+)
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey.facility.sources import Sources, load_sources
 from osprey_connectors.simulation import STILL_ALL
@@ -1816,7 +1821,7 @@ class _Records:
             "scenario",
             name,
             [*files, "limits.yaml"],
-            f"`{slot}` {number:g} lies {side} {bound:g}",
+            f"`{slot}` {exact_number(number)} lies {side} {exact_number(bound)}",
             "write a value inside [min_value, max_value], or widen the limits record",
         )
 

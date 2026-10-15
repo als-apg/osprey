@@ -30,7 +30,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.errors import FacilityBuildError, quoted_slots
+from osprey.facility.errors import FacilityBuildError, exact_number, quoted_slots
 from osprey_connectors.relative_time import RelativeTimestamp
 from osprey_connectors.simulation.logbook import ScenarioLogEntry, parse_log_attachments
 
@@ -261,9 +261,9 @@ def _value_errors(
         "seed-invalid",
         name,
         files,
-        f"`{slot}` {number:g} lies {'below' if number < low else 'above'} its range "
-        f"[{low:g}, {high:g}]",
-        f"write a value inside [{low:g}, {high:g}]",
+        f"`{slot}` {exact_number(number)} lies {'below' if number < low else 'above'} its range "
+        f"[{exact_number(low)}, {exact_number(high)}]",
+        f"write a value inside [{exact_number(low)}, {exact_number(high)}]",
     )
 
 
