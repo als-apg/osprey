@@ -37,6 +37,7 @@ import yaml
 
 from osprey.facility import PN_LOCAL
 from osprey.facility.errors import FacilityBuildError
+from osprey_connectors import yaml_loader
 
 __all__ = [
     "AUTHORED",
@@ -144,15 +145,40 @@ _Loader.add_implicit_resolver(
 )
 
 
+_LOADERS: dict[type, type[Any]] = {yaml.SafeLoader: _Loader}
+
+
+def _loader_on(base: type) -> type[Any]:
+    """``_Loader``'s bool rule on the scanner of *base*: the one resolver table, shared."""
+    loader = _LOADERS.get(base)
+    if loader is None:
+        loader = type("_ScannedLoader", (base,), {"__doc__": _Loader.__doc__})
+        loader.yaml_implicit_resolvers = _Loader.yaml_implicit_resolvers
+        _LOADERS[base] = loader
+    return loader
+
+
 def read_yaml(text: str) -> Any:
     """Parse one source file's text.
+
+    The text is scanned on libyaml when it is installed; a text that does not
+    parse is refused in the words of PyYAML's own parser, which quotes the line.
 
     Args:
         text: The file's contents.
 
     Returns:
         The parsed document; ``None`` for an empty file.
+
+    Raises:
+        yaml.YAMLError: On a text that does not parse.
     """
+    loader = _loader_on(yaml_loader.safe_loader())
+    try:
+        return yaml.load(text, Loader=loader)
+    except yaml.YAMLError:
+        if loader is _Loader:
+            raise
     return yaml.load(text, Loader=_Loader)
 
 
