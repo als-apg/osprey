@@ -14,6 +14,7 @@ from typing import Any
 
 from osprey.facility.build import build_facility
 from osprey.facility.sources import read_yaml
+from tests.e2e.hello_world_channels import READ_CHANNEL, WRITE_CHANNEL, WRITE_VALUE
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FACILITIES = REPO_ROOT / "src/osprey/templates/facilities"
@@ -89,3 +90,18 @@ def test_hello_world_limits_hold_the_three_tutorial_records() -> None:
         },
         {"address": "SR:BEAM:CURRENT", "writable": False},
     ]
+
+
+def test_the_e2e_prompts_name_channels_the_hello_world_facility_serves() -> None:
+    document = build_facility(HELLO_WORLD, project_name="hello")
+    channels = {channel["id"]: channel for channel in document["channels"]}
+    assert READ_CHANNEL in channels
+    assert WRITE_CHANNEL in channels
+    assert channels[WRITE_CHANNEL].get("role") == "setpoint"
+    seeds = read_yaml((HELLO_WORLD / "seeds.yaml").read_text(encoding="utf-8"))
+    assert READ_CHANNEL in seeds
+    limits = read_yaml((HELLO_WORLD / "limits.yaml").read_text(encoding="utf-8"))
+    records = {record["address"]: record for record in limits["records"]}
+    record = records[WRITE_CHANNEL]
+    assert record["writable"] is True
+    assert record["min_value"] <= WRITE_VALUE <= record["max_value"]
