@@ -1,11 +1,10 @@
 """Retired symbols, paths and environment names never come back.
 
-``RETIRED`` maps each retired token to the stage that deleted its LAST producer
-or reader; a token joins the map in that stage's close. Once its stage is at or
-before ``CURRENT_BATCH``, the token must not appear in any tracked text file
-under ``SCAN_ROOTS``. A token whose stage is still ahead is not enforced yet.
+``RETIRED`` lists each token whose LAST producer or reader is deleted; a token
+joins the list with that deletion and must not appear in any tracked text file
+under ``SCAN_ROOTS``.
 
-The map holds symbols, dotted module paths, file paths and environment names
+The list holds symbols, dotted module paths, file paths and environment names
 only. Retired CLI verb spellings live in ``_RETIRED_SPELLINGS``
 (``tests/cli/test_lifecycle_invariants.py``) and retired configuration keys in
 the ``deleted:`` section of ``src/osprey/profiles/config_key_manifest.yml``.
@@ -27,8 +26,6 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 import pytest
-
-from tests.facility._batches import BATCHES, CURRENT_BATCH
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -68,125 +65,123 @@ SELF_EXEMPT: tuple[str, ...] = (
     "tests/utils/fixtures/legacy_config_all_deleted_keys.yml",
 )
 
-#: Retired token -> the stage that deleted its last producer or reader.
-RETIRED: dict[str, str] = {
-    "/api/state/init": "8",
-    "ACTIVE_SCENARIO_FILENAME": "7a0",
-    "BUILD_TTL_COMMAND": "5",
-    "CohostDriver": "7d",
-    "CohostRunner": "7d",
-    "DIRECTION_SOURCE_HEADER": "7e",
-    "DIRECTION_UNDERIVABLE": "2",
-    "DatabaseWriteError": "4b",
-    "DirectionSource": "7e",
-    "FACILITY_PREFIX_CONFIG_KEY": "5",
-    "GRAPHDB_BUILD_INDEX_COMMAND": "5",
-    "GRAPHDB_SEED_COMMAND": "5",
-    "GRAPH_MALFORMED": "2",
-    "GRAPH_NO_TTL": "2",
-    "GRAPH_SOURCE_PARADIGM": "2",
-    "MODIFIED_REFUSAL": "11b",
-    "ManifestPaths": "7e",
-    "P_CONFIDENCE": "7e",
-    "P_PROTOCOL": "7e",
-    "SignalSentence": "8",
-    "TemplateChannelDatabase": "7e",
-    "TestKindAwareNoiseFloor": "7d",
-    "TierSpec": "4a",
-    "VA_CHANNELS_FILE": "7e",
-    "VA_ENTRYPOINT_MODULE": "7d",
-    "VA_NOISE_LEVEL": "7d2",
-    "_DerivedDevices": "4b",
-    "_GRAPHDB_RECOVERY_HINT": "5",
-    "_check_empty_facility_prefix": "3b",
-    "_control_system_simulation_file": "7a",
-    "_extend_pvdb": "7d",
-    "_hierarchical_write": "4b",
-    "_manifest_tier": "7e",
-    "_resolve_ttl": "5",
-    "_with_derived_simulation_file": "7a",
-    "allow_unlisted_channels": "3a",
-    "als_u_ar": "7d2",
-    "approval_hook_wired": "11a",
-    "assign_readbacks": "2",
-    "build_tiers": "4a",
-    "channel_databases/tiers": "7e",
-    "derive_bands": "7a0",
-    "engine_from_connector_config": "7a",
-    "facility_ontology.json": "3a",
-    "facility_vocabulary": "3a",
-    "fieldDescription": "7e",
-    "google_sheets": "4a",
-    "lattice_init": "8",
-    "lattice_json": "7e",
-    "load_canonical_ring": "7d2",
-    "machine_state_channels.json": "7e",
-    "middle_layer_duckdb": "4a",
-    "narad_p:confidence": "7e",
-    "narad_p:protocol": "7e",
-    "ordinalInFacility": "7e",
-    "ordinalInSection": "7e",
-    "osprey.channel_roster.database": "2",
-    "osprey.channel_roster.graph": "5",
-    "osprey.connectors.channel_taxonomy": "7d2",
-    "osprey.services.channel_finder.databases.template": "7e",
-    "osprey.services.channel_finder.naming": "7d2",
-    "osprey.services.channel_finder.tools.generate_from_spec": "7d2",
-    "osprey.services.virtual_accelerator.manifest.standin_defaults": "7d2",
-    "osprey.simulation.archiver_seed": "7d2",
-    "osprey.simulation.channel_schema": "7d2",
-    "osprey.simulation.engine": "7d2",
-    "osprey.simulation.expressions": "7d2",
-    "osprey.simulation.facility_spec": "7d2",
-    "osprey.simulation.lattice": "7d2",
-    "osprey.simulation.machine": "7d2",
-    "osprey.simulation.procedural": "7d2",
-    "osprey.simulation.series": "7d2",
-    "osprey_connectors.channel_taxonomy": "7d2",
-    "osprey_connectors.simulation.archiver_seed": "7a",
-    "osprey_connectors.simulation.engine": "7d2",
-    "osprey_connectors.simulation.expressions": "7d2",
-    "osprey_connectors.simulation.machine": "7d2",
-    "osprey_connectors.simulation.procedural": "7d2",
-    "pairing.py": "2",
-    "parse_direction_source": "5",
-    "prune_csv_build_artifacts": "4a",
-    "pyaml.configuration": "11b",
-    "read_database_roster": "2",
-    "read_direction_source": "5",
-    "read_graph_roster": "5",
-    "resolve_facility_name": "3a",
-    "resolved_tier": "7e",
-    "ringDescription": "7e",
-    "scripts/facility_demo/_limits.py": "7d2",
-    "scripts/facility_demo/_measurement.py": "5",
-    "scripts/facility_demo/_models.py": "5",
-    "scripts/facility_demo/_records.py": "5",
-    "scripts/facility_demo/_scenarios.py": "7d2",
-    "scripts/facility_demo/_seeds.py": "5",
-    "scripts/facility_demo/capture_nominals.py": "7d2",
-    "scripts/facility_demo/fingerprint.py": "7d2",
-    "scripts/va/derive_bands.py": "7a0",
-    "scripts/va/pyat_model_demo.py": "7d2",
-    "scripts/va/run_va.sh": "7d2",
-    "sourceSectionId": "7e",
-    "src/osprey/templates/apps/channel_finder_standalone/data/channel_databases/hierarchical.json": (
-        "7d2"
-    ),
-    "src/osprey/templates/apps/control_assistant/data/lattice/als_u_ar.mat": "7d2",
-    "src/osprey/templates/apps/control_assistant/data/mml": "9",
-    "src/osprey/templates/apps/control_assistant/data/simulation/lattice.json": "7d2",
-    "src/osprey/templates/apps/control_assistant/data/simulation/machine.json": "7d2",
-    "src/osprey/templates/apps/control_assistant/data/simulation/va_bindings.json": "7d2",
-    "subfieldDescription": "7e",
-    "tests/connectors/test_mock_archiver_simfile_fallback.py": "7a",
-    "tests/templates/test_boot_band_invariant.py": "7a0",
-    "tests/templates/test_channel_limits_va.py": "7a0",
-    "tests/va/test_derive_bands_floor.py": "7a0",
-    "tier_dir": "7e",
-    "tier_mode_conflict": "4a",
-    "va_graph_deferred": "2",
-}
+#: Every retired token, sorted.
+RETIRED: tuple[str, ...] = (
+    "/api/state/init",
+    "ACTIVE_SCENARIO_FILENAME",
+    "BUILD_TTL_COMMAND",
+    "CohostDriver",
+    "CohostRunner",
+    "DIRECTION_SOURCE_HEADER",
+    "DIRECTION_UNDERIVABLE",
+    "DatabaseWriteError",
+    "DirectionSource",
+    "FACILITY_PREFIX_CONFIG_KEY",
+    "GRAPHDB_BUILD_INDEX_COMMAND",
+    "GRAPHDB_SEED_COMMAND",
+    "GRAPH_MALFORMED",
+    "GRAPH_NO_TTL",
+    "GRAPH_SOURCE_PARADIGM",
+    "MODIFIED_REFUSAL",
+    "ManifestPaths",
+    "P_CONFIDENCE",
+    "P_PROTOCOL",
+    "SignalSentence",
+    "TemplateChannelDatabase",
+    "TestKindAwareNoiseFloor",
+    "TierSpec",
+    "VA_CHANNELS_FILE",
+    "VA_ENTRYPOINT_MODULE",
+    "VA_NOISE_LEVEL",
+    "_DerivedDevices",
+    "_GRAPHDB_RECOVERY_HINT",
+    "_check_empty_facility_prefix",
+    "_control_system_simulation_file",
+    "_extend_pvdb",
+    "_hierarchical_write",
+    "_manifest_tier",
+    "_resolve_ttl",
+    "_with_derived_simulation_file",
+    "allow_unlisted_channels",
+    "als_u_ar",
+    "approval_hook_wired",
+    "assign_readbacks",
+    "build_tiers",
+    "channel_databases/tiers",
+    "derive_bands",
+    "engine_from_connector_config",
+    "facility_ontology.json",
+    "facility_vocabulary",
+    "fieldDescription",
+    "google_sheets",
+    "lattice_init",
+    "lattice_json",
+    "load_canonical_ring",
+    "machine_state_channels.json",
+    "middle_layer_duckdb",
+    "narad_p:confidence",
+    "narad_p:protocol",
+    "ordinalInFacility",
+    "ordinalInSection",
+    "osprey.channel_roster.database",
+    "osprey.channel_roster.graph",
+    "osprey.connectors.channel_taxonomy",
+    "osprey.services.channel_finder.databases.template",
+    "osprey.services.channel_finder.naming",
+    "osprey.services.channel_finder.tools.generate_from_spec",
+    "osprey.services.virtual_accelerator.manifest.standin_defaults",
+    "osprey.simulation.archiver_seed",
+    "osprey.simulation.channel_schema",
+    "osprey.simulation.engine",
+    "osprey.simulation.expressions",
+    "osprey.simulation.facility_spec",
+    "osprey.simulation.lattice",
+    "osprey.simulation.machine",
+    "osprey.simulation.procedural",
+    "osprey.simulation.series",
+    "osprey_connectors.channel_taxonomy",
+    "osprey_connectors.simulation.archiver_seed",
+    "osprey_connectors.simulation.engine",
+    "osprey_connectors.simulation.expressions",
+    "osprey_connectors.simulation.machine",
+    "osprey_connectors.simulation.procedural",
+    "pairing.py",
+    "parse_direction_source",
+    "prune_csv_build_artifacts",
+    "pyaml.configuration",
+    "read_database_roster",
+    "read_direction_source",
+    "read_graph_roster",
+    "resolve_facility_name",
+    "resolved_tier",
+    "ringDescription",
+    "scripts/facility_demo/_limits.py",
+    "scripts/facility_demo/_measurement.py",
+    "scripts/facility_demo/_models.py",
+    "scripts/facility_demo/_records.py",
+    "scripts/facility_demo/_scenarios.py",
+    "scripts/facility_demo/_seeds.py",
+    "scripts/facility_demo/capture_nominals.py",
+    "scripts/facility_demo/fingerprint.py",
+    "scripts/va/derive_bands.py",
+    "scripts/va/pyat_model_demo.py",
+    "scripts/va/run_va.sh",
+    "sourceSectionId",
+    "src/osprey/templates/apps/channel_finder_standalone/data/channel_databases/hierarchical.json",
+    "src/osprey/templates/apps/control_assistant/data/lattice/als_u_ar.mat",
+    "src/osprey/templates/apps/control_assistant/data/mml",
+    "src/osprey/templates/apps/control_assistant/data/simulation/lattice.json",
+    "src/osprey/templates/apps/control_assistant/data/simulation/machine.json",
+    "src/osprey/templates/apps/control_assistant/data/simulation/va_bindings.json",
+    "subfieldDescription",
+    "tests/connectors/test_mock_archiver_simfile_fallback.py",
+    "tests/templates/test_boot_band_invariant.py",
+    "tests/templates/test_channel_limits_va.py",
+    "tests/va/test_derive_bands_floor.py",
+    "tier_dir",
+    "tier_mode_conflict",
+    "va_graph_deferred",
+)
 
 _NAME_CHAR = "A-Za-z0-9_"
 
@@ -200,17 +195,8 @@ def token_pattern(tokens: Iterable[str]) -> str | None:
     return rf"(?<![{_NAME_CHAR}])(?:{alternation})(?![{_NAME_CHAR}])"
 
 
-def enforced(retired: Mapping[str, str], current: int = CURRENT_BATCH) -> set[str]:
-    """Return the tokens whose stage is at or before ``current``."""
-    return {
-        token
-        for token, stage in retired.items()
-        if stage in BATCHES and BATCHES.index(stage) <= current
-    }
-
-
 def scan(root: Path, tokens: Iterable[str], exempt: Iterable[str] = SELF_EXEMPT) -> list[str]:
-    """Return ``path:line:token`` for every enforced token in a swept file."""
+    """Return ``path:line:token`` for every token in a swept file."""
     pattern = token_pattern(tokens)
     if pattern is None:
         return []
@@ -235,15 +221,6 @@ def scan(root: Path, tokens: Iterable[str], exempt: Iterable[str] = SELF_EXEMPT)
         path, lineno, content = line.split("\0", 2)
         offenders.extend(f"{path}:{lineno}:{hit}" for hit in compiled.findall(content))
     return sorted(offenders)
-
-
-def stage_problems(retired: Mapping[str, str]) -> list[str]:
-    """Return one line per entry whose tag names no stage."""
-    return sorted(
-        f"{token}: tag {stage!r} names no stage"
-        for token, stage in retired.items()
-        if stage not in BATCHES
-    )
 
 
 def stale_exemptions(root: Path, exempt: Iterable[str] = SELF_EXEMPT) -> list[str]:
@@ -297,19 +274,15 @@ def test_pattern_leaves_longer_names(text: str) -> None:
     assert re.search(pattern, text) is None
 
 
-def test_an_empty_map_sweeps_nothing() -> None:
+def test_an_empty_list_sweeps_nothing() -> None:
     assert token_pattern([]) is None
     assert scan(REPO_ROOT, []) == []
 
 
-# --- the map and the exemptions ---------------------------------------------------
+# --- the list and the exemptions --------------------------------------------------
 
 
-def test_every_tag_names_a_stage() -> None:
-    assert stage_problems(RETIRED) == []
-
-
-def test_map_is_sorted() -> None:
+def test_list_is_sorted() -> None:
     assert list(RETIRED) == sorted(RETIRED)
 
 
@@ -319,17 +292,6 @@ def test_exemptions_are_sorted() -> None:
 
 def test_every_exemption_is_a_tracked_file() -> None:
     assert stale_exemptions(REPO_ROOT) == []
-
-
-def test_only_reached_stages_are_enforced() -> None:
-    retired = {
-        "due_name": BATCHES[CURRENT_BATCH],
-        "old_name": BATCHES[0],
-        "later_name": BATCHES[-1],
-        "unknown_name": "0z",
-    }
-    assert enforced(retired) == {"due_name", "old_name"}
-    assert stage_problems(retired) == ["unknown_name: tag '0z' names no stage"]
 
 
 # --- the sweep --------------------------------------------------------------------
@@ -360,7 +322,7 @@ def test_planted_token_is_flagged_where_swept(tmp_path: Path) -> None:
             "src/osprey/cli/main.py": "retired_name = 1\n",
             "changelog.d/1.removed.md": "Removed retired_name.\n",
             "CHANGELOG.md": "retired_name\n",
-            "tests/facility/test_no_retired_shapes.py": "RETIRED = {'retired_name': '1b'}\n",
+            "tests/facility/test_no_retired_shapes.py": "RETIRED = ('retired_name',)\n",
             "tests/data/blob.bin": b"\x00retired_name\x00",
             "scripts/tool.py": "retired_name_v2 = 1\n",
         },
@@ -382,5 +344,5 @@ def test_a_stale_exemption_is_refused(tmp_path: Path) -> None:
 
 
 def test_no_retired_token_survives() -> None:
-    offenders = scan(REPO_ROOT, enforced(RETIRED))
+    offenders = scan(REPO_ROOT, RETIRED)
     assert offenders == [], "retired tokens still present:\n" + "\n".join(offenders)

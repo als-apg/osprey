@@ -18,8 +18,8 @@ They name no protocol (``PV``, ``EPICS``) and no demo address prefix (``SR:``),
 and they lose ``RATCHET_WORD``. The same guard reads what a build renders
 for the agent: ``CLAUDE.md`` and the markdown under ``.claude/`` of every
 render root of the control-assistant preset. The words and the texts that still carry them
-live in :mod:`tests._vocabulary`: ``PENDING_REWORDING`` until the wording
-changes, ``RATCHET_PENDING`` under the file ratchet's stage tags.
+live in :mod:`tests._vocabulary`, with ``PENDING_REWORDING`` holding the texts
+whose wording has not changed yet; no text carries ``RATCHET_WORD``.
 """
 
 import asyncio
@@ -36,7 +36,6 @@ import pytest
 from tests._vocabulary import (
     PENDING_REWORDING,
     PROTOCOL_WORDS,
-    RATCHET_PENDING,
     RATCHET_WORD,
     TextKey,
 )
@@ -244,12 +243,9 @@ def rendered_texts(built_control_assistant) -> dict[TextKey, str]:
     }
 
 
-def _listed(pending, *, rendered: bool):
+def _listed(pending: frozenset[TextKey], *, rendered: bool) -> frozenset[TextKey]:
     """The entries for rendered files, or the entries for tool texts."""
-    keep = {key for key in pending if (key[0] == RENDERED) is rendered}
-    if isinstance(pending, Mapping):
-        return {key: pending[key] for key in pending if key in keep}
-    return frozenset(keep)
+    return frozenset(key for key in pending if (key[0] == RENDERED) is rendered)
 
 
 def protocol_offenders(
@@ -270,12 +266,11 @@ def stale_rewording_entries(
     return sorted(key for key in pending if not PROTOCOL_WORDS.search(texts.get(key, "")))
 
 
-def ratchet_violations(
-    texts: Mapping[TextKey, str], pending: Mapping[TextKey, str] = RATCHET_PENDING
-) -> list[str]:
+def ratchet_violations(texts: Mapping[TextKey, str]) -> list[str]:
     """What the file ratchet's rule refuses, over texts instead of files."""
-    hits = {" ".join(key) for key, text in texts.items() if re.search(RATCHET_WORD, text)}
-    return violations(hits, {" ".join(key): tag for key, tag in pending.items()})
+    return violations(
+        {" ".join(key) for key, text in texts.items() if re.search(RATCHET_WORD, text)}
+    )
 
 
 @pytest.mark.parametrize("source", SOURCES)
@@ -298,9 +293,9 @@ def test_pending_rewording_entries_still_name_a_protocol_word(agent_facing_texts
     )
 
 
-def test_agent_facing_text_carries_the_ratchet_word_only_where_listed(agent_facing_texts):
-    """A tool text carrying the word has an entry; an entry's text still carries it."""
-    assert ratchet_violations(agent_facing_texts, _listed(RATCHET_PENDING, rendered=False)) == []
+def test_agent_facing_text_carries_no_ratchet_word(agent_facing_texts):
+    """No tool text carries the word."""
+    assert ratchet_violations(agent_facing_texts) == []
 
 
 @pytest.mark.slow
@@ -318,14 +313,14 @@ def test_pending_rewording_entries_still_name_a_protocol_word_when_rendered(rend
 
 
 @pytest.mark.slow
-def test_rendered_text_carries_the_ratchet_word_only_where_listed(rendered_texts):
-    """A rendered file carrying the word has an entry; an entry's file still carries it."""
-    assert ratchet_violations(rendered_texts, _listed(RATCHET_PENDING, rendered=True)) == []
+def test_rendered_text_carries_no_ratchet_word(rendered_texts):
+    """No rendered file carries the word."""
+    assert ratchet_violations(rendered_texts) == []
 
 
 def test_ratchet_word_in_an_unlisted_text_is_refused():
     texts = {("server", "tool", "description"): "the storage ring", ("server", "b", "x"): "strings"}
-    assert ratchet_violations(texts, {}) == [
+    assert ratchet_violations(texts) == [
         "server tool description: carries the word and has no allowlist entry"
     ]
 
