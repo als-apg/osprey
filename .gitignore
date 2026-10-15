@@ -116,8 +116,6 @@ tensorboard/
 tmp/
 temp/
 
-venv*
-
 *.jpg
 *.gif
 *.bmp
