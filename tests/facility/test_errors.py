@@ -99,6 +99,11 @@ class TestWarningLine:
         with pytest.raises(ValueError, match="place-conflict"):
             _warning(kind="place-conflict")
 
+    def test_a_dangling_link_is_a_warning_kind(self) -> None:
+        warning = _warning(kind="link-dangling", record_kind="page", record_id="knowledge/gone.md")
+
+        assert warning.kind == "link-dangling"
+
 
 class TestKinds:
     def test_kinds_follow_the_two_word_grammar(self) -> None:

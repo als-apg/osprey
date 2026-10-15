@@ -55,7 +55,7 @@ KINDS: tuple[str, ...] = (
 )
 
 #: Every warning kind, each ``<thing>-<problem>``.
-WARNING_KINDS: tuple[str, ...] = ("place-wrapped",)
+WARNING_KINDS: tuple[str, ...] = ("place-wrapped", "link-dangling")
 
 
 def quoted_slots(slots: Iterable[str]) -> str:
