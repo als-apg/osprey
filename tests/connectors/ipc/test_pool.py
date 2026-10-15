@@ -1050,7 +1050,7 @@ async def test_in_process_va_key_serves_from_the_composite(pools, spawns):
 
     reading = await asyncio.wait_for(va.read_channel("SR:A"), OK_TIMEOUT_S)
     assert reading.value is not None
-    with pytest.raises(Exception, match="not in build/facility.json"):
+    with pytest.raises(Exception, match="not a channel of this facility"):
         await asyncio.wait_for(va.read_channel("NOT:SERVED"), OK_TIMEOUT_S)
     assert len(spawns) == 1
 

@@ -18,6 +18,7 @@ from osprey.connectors.control_system.va_in_process_connector import (
     NO_VIEW_MESSAGE,
     VAInProcessConnector,
 )
+from osprey.errors import ChannelNotFoundError, ChannelWriteBlockedError
 from tests.facility.served_tree import in_process_config, served_tree
 
 
@@ -101,9 +102,9 @@ class TestVAInProcessConnector:
             result = await connector.read_channel("MADE:UP:CHANNEL")
             assert isinstance(result.value, float)
 
-            with pytest.raises(ValueError) as refusal:
+            with pytest.raises(ChannelNotFoundError) as refusal:
                 await connector.read_channel("ANY:RANDOM:NAME")
-            assert str(refusal.value) == "ANY:RANDOM:NAME is not in build/facility.json"
+            assert str(refusal.value) == "ANY:RANDOM:NAME is not a channel of this facility"
 
             await connector.disconnect()
 
@@ -198,7 +199,27 @@ class TestVAInProcessConnector:
         result = await connector.write_channel("B:SP", 1.0)
 
         assert result.outcome is WriteOutcome.REFUSED
-        assert result.error_message == "B:SP is not in build/facility.json"
+        assert result.error_message == "B:SP is not a channel of this facility"
+        assert result.refusal_reason == "CHANNEL_NOT_FOUND"
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_a_write_outside_the_facility_is_not_a_control_system_refusal(
+        self, tmp_path, monkeypatch
+    ):
+        """A checked write to an unknown address is refused as not found, not as denied."""
+        monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
+        connector = VAInProcessConnector()
+        await connector.connect(
+            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+        )
+
+        with pytest.raises(ChannelWriteBlockedError) as blocked:
+            await connector.write_channel_checked("B:SP", 1.0)
+
+        assert blocked.value.reason == "CHANNEL_NOT_FOUND"
+        assert "access security" not in str(blocked.value)
 
         await connector.disconnect()
 
@@ -630,11 +651,11 @@ class TestMockArchiverConnector:
         assert len(df) > 0
         assert set(df["channel"]) == set(channels)
 
-        with pytest.raises(ValueError) as refusal:
+        with pytest.raises(ChannelNotFoundError) as refusal:
             await connector.get_data(
                 channels=["NOT:SERVED"], start_date=start_date, end_date=end_date
             )
-        assert str(refusal.value) == "NOT:SERVED is not in build/facility.json"
+        assert str(refusal.value) == "NOT:SERVED is not a channel of this facility"
 
         await connector.disconnect()
 

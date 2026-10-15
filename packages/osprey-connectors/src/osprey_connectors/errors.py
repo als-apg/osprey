@@ -92,9 +92,11 @@ class ChannelWriteBlockedError(Exception):
     attempted and its outcome is a failure rather than a denial.
 
     reason is one of: "WRITES_DISABLED", "LIMITS", "VALIDATION_ERROR",
-    "CONTROL_SYSTEM_REFUSED", "RAW_CLIENT_WRITE". "RAW_CLIENT_WRITE" means user
-    code called a control-system client library's put directly instead of going
-    through ``osprey.runtime.write_channel``; nothing was sent.
+    "CONTROL_SYSTEM_REFUSED", "RAW_CLIENT_WRITE", "CHANNEL_NOT_FOUND".
+    "RAW_CLIENT_WRITE" means user code called a control-system client library's
+    put directly instead of going through ``osprey.runtime.write_channel``;
+    nothing was sent. "CHANNEL_NOT_FOUND" means the address is not a channel of
+    the facility; nothing was sent.
     """
 
     _VALID_REASONS = (
@@ -103,6 +105,7 @@ class ChannelWriteBlockedError(Exception):
         "VALIDATION_ERROR",
         "CONTROL_SYSTEM_REFUSED",
         "RAW_CLIENT_WRITE",
+        "CHANNEL_NOT_FOUND",
     )
 
     def __init__(self, channel_address: str, reason: str, message: str | None = None):
@@ -111,11 +114,14 @@ class ChannelWriteBlockedError(Exception):
         # The fallback names the refuser the reason implies. Every production
         # path passes an explicit message, but a bare construction must not be
         # able to reintroduce the misattribution this class exists to avoid.
-        refuser = (
-            "the control system" if reason == "CONTROL_SYSTEM_REFUSED" else "reference monitor"
-        )
-        text = message or f"Write to '{channel_address}' refused by {refuser} ({reason})"
-        super().__init__(text)
+        if reason == ChannelNotFoundError.reason:
+            fallback = str(ChannelNotFoundError(channel_address))
+        else:
+            refuser = (
+                "the control system" if reason == "CONTROL_SYSTEM_REFUSED" else "reference monitor"
+            )
+            fallback = f"Write to '{channel_address}' refused by {refuser} ({reason})"
+        super().__init__(message or fallback)
 
 
 #: Shared substring of every raw-client-write refusal message. Refusals raised
@@ -259,6 +265,28 @@ class ChannelReadFailedError(Exception):
             ]
             message = f"Read failed for {len(self.addresses)} channel(s): {', '.join(named)}"
         super().__init__(message)
+
+
+#: What an address outside the facility is, in every message that names one.
+NOT_A_CHANNEL = "not a channel of this facility"
+
+
+class ChannelNotFoundError(LookupError):
+    """Raised when an address is not a channel of the facility a connector serves.
+
+    Only a connector that holds the facility's whole address set raises it. A
+    connector that cannot tell an unknown name from an unreachable one (a
+    Channel Access search that finds nothing times out) raises
+    ``ConnectionError`` instead. A write to such an address is not raised: it
+    comes back ``refused`` with ``refusal_reason`` :attr:`reason`.
+    """
+
+    #: The refusal reason a write to an address outside the facility carries.
+    reason = "CHANNEL_NOT_FOUND"
+
+    def __init__(self, channel_address: str):
+        self.channel_address = channel_address
+        super().__init__(f"{channel_address} is {NOT_A_CHANNEL}")
 
 
 class RegistryError(Exception):

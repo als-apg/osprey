@@ -28,6 +28,7 @@ import pytest
 import yaml
 from click.testing import CliRunner, Result
 
+from osprey.errors import ChannelNotFoundError
 from osprey.facility import TEXTURE
 
 if TYPE_CHECKING:
@@ -360,12 +361,12 @@ async def test_the_in_process_simulator_refuses_an_address_outside_the_facility_
     try:
         assert await connector.validate_channel("LAB:TEMP:01") is True
         assert await connector.validate_channel("LAB:TEMP:03") is False
-        with pytest.raises(ValueError) as refusal:
+        with pytest.raises(ChannelNotFoundError) as refusal:
             await connector.read_channel("LAB:TEMP:03")
     finally:
         await connector.disconnect()
 
-    assert str(refusal.value) == "LAB:TEMP:03 is not in build/facility.json"
+    assert str(refusal.value) == "LAB:TEMP:03 is not a channel of this facility"
 
 
 async def test_als_shaped_namespace_round_trip(
@@ -405,7 +406,7 @@ async def test_als_shaped_namespace_round_trip(
         for address in addresses:
             assert await connector.validate_channel(address) is True
         assert await connector.validate_channel(collapsed) is False
-        with pytest.raises(ValueError) as refusal:
+        with pytest.raises(ChannelNotFoundError) as refusal:
             await connector.read_channel(collapsed)
 
         seeded = [await connector.read_channel(a) for a in (SR_READBACK, BTS_READBACK)]
@@ -419,6 +420,6 @@ async def test_als_shaped_namespace_round_trip(
     finally:
         await connector.disconnect()
 
-    assert str(refusal.value) == f"{collapsed} is not in build/facility.json"
+    assert str(refusal.value) == f"{collapsed} is not a channel of this facility"
     assert (sr_write.outcome, sr_echo.value) == (WriteOutcome.CONFIRMED, 13.0)
     assert (bts_write.outcome, bts_echo.value) == (WriteOutcome.CONFIRMED, 0.5)

@@ -369,7 +369,7 @@ async def _active_sha(view: Path) -> str:
         (["A:RB", 3.0], "A:RB: not a setpoint"),
         (["B:SP", 3.0], "B:SP: not a writable setpoint"),
         (["A:SP", 30.0], "A:SP: 30.0 is outside [0.0, 10.0]"),
-        (["C:SP", 3.0], "C:SP: not in build/facility.json"),
+        (["C:SP", 3.0], "C:SP: not a channel of this facility"),
     ],
 )
 async def test_a_forged_entry_is_not_replayed_and_is_logged(view, caplog, entry, reason):
