@@ -54,14 +54,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from osprey.deployment import telemetry_config as tc
 from osprey.deployment.telemetry_credentials import (
     HTPASSWD_FILE,
     INGEST_PASSWORD_ENV,
     terminal_identities,
 )
+from osprey_connectors import yaml_loader
 
 __all__ = [
     "ANCHOR_REGEX",
@@ -786,7 +785,7 @@ def render_collector_config(
     Deterministic: keys keep their construction order and no line is folded,
     so equal inputs give byte-equal files.
     """
-    return yaml.safe_dump(
+    return yaml_loader.safe_dump(
         collector_config(config, ledger_receivers=ledger_receivers),
         sort_keys=False,
         default_flow_style=False,

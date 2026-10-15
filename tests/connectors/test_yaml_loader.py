@@ -72,6 +72,7 @@ _DUMP_KWARGS = [
     {"sort_keys": False, "default_flow_style": False, "allow_unicode": True, "width": 100},
     {"sort_keys": False, "default_flow_style": False, "allow_unicode": True, "width": 4096},
     {"sort_keys": False, "default_flow_style": False},
+    {"sort_keys": False, "default_flow_style": False, "width": 1 << 16},
 ]
 
 

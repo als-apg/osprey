@@ -4256,7 +4256,9 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
 
             config_yml_dst = os.path.join(out_dir, "config.yml")
             with open(config_yml_dst, "w") as f:
-                yaml.dump(flattened_config, f, default_flow_style=False, sort_keys=False)
+                yaml_loader.safe_dump(
+                    flattened_config, f, default_flow_style=False, sort_keys=False
+                )
             logger.debug(f"Created flattened config.yml at {config_yml_dst}")
         except Exception as e:
             logger.warning(f"Failed to create flattened config: {e}")

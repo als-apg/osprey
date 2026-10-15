@@ -2393,6 +2393,44 @@ def test_setup_build_dir_stages_a_config_naming_no_interpreter(
     )
 
 
+def test_setup_build_dir_stages_the_bytes_pyyaml_writes_for_the_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The staged ``config.yml`` is byte for byte what PyYAML's own emitter writes for it.
+
+    The staging write goes through the libyaml-backed safe dumper; a real
+    generated project's flattened config, re-emitted by the pure-Python
+    ``yaml.dump`` with the same options, must give the same text.
+    """
+    from osprey.cli.templates.manager import TemplateManager
+    from osprey.deployment.compose_generator import setup_build_dir
+
+    project_dir = _create_project(
+        TemplateManager(),
+        project_name="staged-bytes",
+        output_dir=tmp_path,
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical"},
+    )
+    service_dir = project_dir / "services" / "worker"
+    service_dir.mkdir(parents=True)
+    (service_dir / "docker-compose.yml.j2").write_text("services:\n  worker:\n    image: test\n")
+    monkeypatch.chdir(project_dir)
+
+    setup_build_dir(
+        str(Path("services") / "worker" / "docker-compose.yml.j2"),
+        {"project_name": "staged-bytes", "build_dir": "./build"},
+        {"copy_src": False},
+    )
+
+    staged = (project_dir / "build" / "services" / "worker" / "config.yml").read_text()
+    flattened = yaml.safe_load(staged)
+    assert len(staged.splitlines()) > 100 and flattened.get("execution"), (
+        "the staged config must be the flattened project config, not the verbatim fallback"
+    )
+    assert staged == yaml.dump(flattened, default_flow_style=False, sort_keys=False)
+
+
 def test_setup_build_dir_stages_the_execution_block_verbatim(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
