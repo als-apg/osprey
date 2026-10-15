@@ -1383,6 +1383,95 @@ class TestGateFailures:
         assert "adds to ## [Unreleased] by hand" in failures[1]
         assert "only the release PR's apply removes fragments" in failures[2]
 
+    # ---- rule 3: a commit may retire a fragment it supersedes ------------
+
+    def test_a_deleted_fragment_named_by_a_trailer_is_retired(self):
+        text = self.changelog(self.EMPTY)
+        deleted = ["changelog.d/old.fixed.md", "changelog.d/745.changed.md"]
+        failures, ok_lines = cf.gate_failures(
+            ["docs/a.rst", *deleted],
+            [],
+            deleted,
+            text,
+            text,
+            retired={"old.fixed.md", "745.changed.md"},
+        )
+        assert failures == []
+        assert ok_lines[-1] == (
+            "✓ 2 fragment(s) retired by a Retires-fragment trailer: "
+            "changelog.d/old.fixed.md, changelog.d/745.changed.md"
+        )
+
+    def test_a_deleted_fragment_without_a_trailer_is_still_an_error(self):
+        """Retiring one fragment does not excuse the deletion of another."""
+        text = self.changelog(self.EMPTY)
+        deleted = ["changelog.d/old.fixed.md", "changelog.d/other.fixed.md"]
+        failures, _ = cf.gate_failures(
+            ["docs/a.rst", *deleted], [], deleted, text, text, retired={"old.fixed.md"}
+        )
+        assert len(failures) == 1
+        assert failures[0].startswith(
+            "1 fragment(s) deleted — only the release PR's apply removes fragments"
+        )
+        assert "changelog.d/other.fixed.md" in failures[0]
+        assert "changelog.d/old.fixed.md" not in failures[0]
+        assert "Retires-fragment: <file name>" in failures[0]
+
+    def test_a_trailer_naming_a_fragment_that_still_exists_changes_nothing(self):
+        text = self.changelog(self.EMPTY)
+        failures, ok_lines = cf.gate_failures(
+            ["src/osprey/a.py", "changelog.d/745.fixed.md"],
+            ["changelog.d/745.fixed.md"],
+            [],
+            text,
+            text,
+            retired={"745.fixed.md", "kept.fixed.md"},
+        )
+        assert failures == []
+        assert not any("retired" in line for line in ok_lines)
+
+    def test_a_trailer_must_name_the_file_not_its_path(self):
+        """The trailer names the file inside changelog.d/, and nothing else matches."""
+        text = self.changelog(self.EMPTY)
+        deleted = ["changelog.d/old.fixed.md"]
+        failures, _ = cf.gate_failures(
+            deleted, [], deleted, text, text, retired={"changelog.d/old.fixed.md", "old"}
+        )
+        assert len(failures) == 1
+        assert "1 fragment(s) deleted" in failures[0]
+
+
+class TestRetiredFragments:
+    """Reading ``Retires-fragment:`` trailers out of the range's commit messages."""
+
+    def test_every_trailer_names_one_fragment(self):
+        messages = (
+            "refactor(x)!: remove a component\n"
+            "\n"
+            "Body text.\n"
+            "\n"
+            "Retires-fragment: old.fixed.md\n"
+            "Retires-fragment:   745-gate.changed.md  \n"
+            "\n"
+            "feat(y): another commit\n"
+            "\n"
+            "Retires-fragment: other.fixed.md\n"
+        )
+        assert cf.retired_fragments(messages) == {
+            "old.fixed.md",
+            "745-gate.changed.md",
+            "other.fixed.md",
+        }
+
+    def test_a_sentence_that_mentions_the_trailer_retires_nothing(self):
+        messages = (
+            "docs: explain how to write Retires-fragment: old.fixed.md in a message\n"
+            "  Retires-fragment: indented.fixed.md\n"
+            "Retires-fragment: two.fixed.md three.fixed.md\n"
+            "retires-fragment: lower.fixed.md\n"
+        )
+        assert cf.retired_fragments(messages) == set()
+
 
 class TestNewestReleaseSpan:
     """Which section the top-up shape compares, and what it is called."""
@@ -1704,14 +1793,16 @@ def git_table(
     diff: str = "",
     base_text: str = CHANGELOG,
     ref: str = "origin/main",
+    log: str = "",
 ) -> dict[tuple[str, ...], subprocess.CompletedProcess[str]]:
-    """A table for one green ``check``: base resolves, merge base, diff, show."""
+    """A table for one green ``check``: base resolves, merge base, diff, log, show."""
     return {
         ("git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"): completed(
             f"{BASE_SHA}\n"
         ),
         ("git", "merge-base", BASE_SHA, "HEAD"): completed(f"{MERGE_BASE}\n"),
         ("git", "diff", "--name-status", "-z", "--no-renames", MERGE_BASE, "HEAD"): completed(diff),
+        ("git", "log", "--format=%B", f"{MERGE_BASE}..HEAD"): completed(log),
         ("git", "show", f"{MERGE_BASE}:CHANGELOG.md"): completed(base_text),
     }
 
@@ -1847,6 +1938,32 @@ class TestMain:
         err = capsys.readouterr().err
         assert "git diff --name-status -z --no-renames" in err
         assert "fatal: bad object" in err
+
+    def test_a_failing_log_names_the_command(self, tmp_path, capsys):
+        directory, changelog = self.fixture(tmp_path)
+        table = git_table()
+        table[("git", "log", "--format=%B", f"{MERGE_BASE}..HEAD")] = completed(
+            returncode=128, stderr="fatal: bad revision"
+        )
+        code = cf.main(self.check_argv(directory, changelog), FakeGit(table))
+        assert code == 2
+        err = capsys.readouterr().err
+        assert f"git log --format=%B {MERGE_BASE}..HEAD failed" in err
+        assert "fatal: bad revision" in err
+
+    def test_a_trailer_in_the_range_retires_a_deleted_fragment(self, tmp_path, capsys):
+        directory, changelog = self.fixture(tmp_path)
+        git = FakeGit(
+            git_table(
+                diff=diff_z(("M", "docs/source/index.rst"), ("D", "changelog.d/old.fixed.md")),
+                log="refactor(x)!: remove a component\n\nRetires-fragment: old.fixed.md\n",
+            )
+        )
+        code = cf.main(self.check_argv(directory, changelog), git)
+        assert code == 0
+        assert capsys.readouterr().out.splitlines()[-1] == (
+            "✓ 1 fragment(s) retired by a Retires-fragment trailer: changelog.d/old.fixed.md"
+        )
 
     def test_a_failing_show_names_the_command(self, tmp_path, capsys):
         directory, changelog = self.fixture(tmp_path)

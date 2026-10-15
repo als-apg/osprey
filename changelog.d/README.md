@@ -57,7 +57,9 @@ enforces it.
 The `[Unreleased]` section of `CHANGELOG.md` is written only by the release
 fold, which turns every fragment here into a bullet and deletes the file. Adding
 a bullet by hand fails the check, and so does deleting a fragment before the
-fold. Changing a fragment's type is a rename, not a deletion: keep the name,
+fold — unless a commit in the same pull request supersedes it, for instance by
+removing the component it describes, and names it in its message with one
+`Retires-fragment: <file name>` trailer per fragment. Changing a fragment's type is a rename, not a deletion: keep the name,
 swap the type in the filename, and the check reports it as a retype. To correct
 an entry that is already in `CHANGELOG.md`, open a pull request that changes
 nothing but that file.
