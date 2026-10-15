@@ -235,6 +235,14 @@ A later importer that reads EPICS records instead takes the default from the
 record: ``MDEL`` when it is above 0, else ``10^-PREC``, and never ``HOPR`` or
 ``LOPR``.
 
+Two more lines count what the wiring pass derived, one per family and only when
+the count is not zero:
+``import mml: curves trimmed: <model>: family <family> (<n>)`` names a family
+whose conversion curves the pass cut, and
+``import mml: supplies folded: <model>: family <family> (<n>)`` names a family
+whose supplies feed several devices. Both go to stdout and never stop the
+import.
+
 The import refuses to run while ``data/facility/`` holds a record source of
 your own that would merge against the imported records. It prints
 ``import mml: authored-present: <n> files`` and one ``rm <path>`` line per

@@ -209,8 +209,11 @@ scheme:
 The first resolves to ``SR:DIAG:DCCT:01:CURRENT:RB`` (the storage-ring DC current
 transformer); the second resolves to the ``SR:MAG:HCM:*:CURRENT:SP`` family.
 
-**How it works.** The channel database is organized as a hierarchy
-(``ring : system : family : device : field : subfield``), and the channel-finder
+**How it works.** The channel database is organized as a hierarchy whose
+levels are the facility's place levels, then the device's class, the device and
+one leaf per channel (``machine : sector : class : device : leaf`` in the
+demo facility, so ``SR:MAG:HCM:01:CURRENT:SP`` is the leaf
+``SR : SECT1 : HCorrector : SR/HCM01 : current_setpoint``), and the channel-finder
 agent navigates it systematically: it checks prior examples
 (``view_examples``), explores the available options at each level
 (``get_options``), then constructs and validates the final addresses

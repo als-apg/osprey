@@ -191,8 +191,7 @@ field stop the build with ``layer-conflict``, naming the record. A fix settles
 it (see `Fixes`_).
 
 The importers are ``osprey facility import mml`` and
-``osprey facility import list``. A third layer, ``pyaml``, joins them for a
-facility described in pyAML.
+``osprey facility import list``.
 
 A Middle Layer export
 ---------------------
