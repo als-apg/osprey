@@ -92,6 +92,11 @@ REDACTED = "<redacted>"
 #: say nothing about the CLI's shape, so a live run may carry them although
 #: the fixture does not.
 _TRANSIENT_EVENTS = frozenset({"api_error"})
+#: Event names the CLI's background housekeeping emits. It starts on a timer
+#: that does not hold the process open, so a turn that ends first never emits
+#: them; whether a run carries them says how long it lasted, not what shape
+#: the CLI speaks. Neither side of the comparison holds them.
+_HOUSEKEEPING_EVENTS = frozenset({"retention_sweep"})
 _BASIC = re.compile(r"^Basic ([A-Za-z0-9+/]+=*)$")
 
 
@@ -474,6 +479,9 @@ def test_the_pinned_cli_speaks_the_otlp_shape_the_fixture_records(
         f"re-capture with {CAPTURE_ENV}=1 under a provider key"
     )
     expected = structure(recorded["requests"])
+    for events in (expected["events"], live["events"]):
+        for name in _HOUSEKEEPING_EVENTS:
+            events.pop(name, None)
     missing = sorted(set(expected["events"]) - set(live["events"]))
     extra = sorted(set(live["events"]) - set(expected["events"]) - _TRANSIENT_EVENTS)
     assert not missing and not extra, (
