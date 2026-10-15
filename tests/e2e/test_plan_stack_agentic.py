@@ -3140,15 +3140,23 @@ _REQUIRED_TOOLS = (
 class DeployedScanStack:
     """Everything a live test needs about the one deployed project.
 
-    ``correctors``/``bpms`` are chosen from the device file the build staged for
-    the queueserver worker (``_orm_stack.select_correctors``/``select_bpms``),
-    so a test that composes a plan names exactly devices the deployed worker
-    registered.
+    ``correctors``/``bpms`` are every corrector and monitor the queueserver
+    worker registered (``_orm_stack.select_correctors``/``select_bpms`` over
+    the device file the build staged): the worker holds the whole staged view
+    and the agent picks its own devices, so a floor asking whether a run drove
+    a wired corrector and read a wired monitor checks against all of them.
+
+    ``named`` is the ``(setpoint, model)`` of the corrector a limits record
+    bounds (``_orm_stack.bounded_corrector``), the one device a prompt or a
+    protocol-side plan names when it depends on a range. ``named_bpms`` are
+    that model's monitors, the readings that respond to it.
     """
 
     repo: Path
     correctors: dict[str, tuple[str, str]]
     bpms: dict[str, str]
+    named: tuple[str, str]
+    named_bpms: list[str]
     token: str
 
 
@@ -3171,6 +3179,78 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
         text=True,
         timeout=timeout,
         env={**os.environ, "CLAUDECODE": ""},
+    )
+
+
+#: The pyAML skill a render ships only for a facility with measurement models.
+_PYAML_SKILL = "pyaml-tools"
+
+#: The pyAML measurement tool a render names only for a facility with
+#: measurement models.
+_PYAML_MEASURE_TOOL = "pyaml_measure"
+
+
+def _describe_queue_deployment(repo: Path) -> None:
+    """Shape the repo's facility tree, before the build, into the deployment
+    these lanes grade.
+
+    The lanes grade the queue route, so the facility carries no pyAML
+    measurement models: the render then offers no pyAML skill, no measurement
+    prompt section and no measurement tool, and a measurement request has the
+    queue as its one route.
+
+    The prompts ask for two correctors swept across the range they are allowed,
+    so the bounded corrector's model gets a second bounded corrector: the first
+    corrector of the other plane, given the bounded corrector's band. The
+    record goes into this throwaway tree only, read back through the same
+    limits render the build enforces.
+    """
+    shutil.rmtree(repo / "data" / "facility" / "measurement")
+
+    from osprey_connectors.simulation.view import SimulatorView
+
+    limits = _orm_stack.channel_limits(repo)
+    view = SimulatorView.open(SimulatorView.path_for_project(repo.parent / f"{repo.name}.limits"))
+    bounded = next(
+        (
+            address
+            for address in sorted(_orm_stack.corrector_addresses(view))
+            if _orm_stack.has_band(limits.get(address))
+        ),
+        None,
+    )
+    assert bounded is not None, "the facility's limits.yaml bounds no corrector"
+    (binding,) = (b for b in view.bindings(role="setpoint") if b.address == bounded)
+    other_plane = sorted(
+        b.address
+        for b in view.bindings(role="setpoint", model=binding.model)
+        if b.plane is not None and b.plane != binding.plane
+    )
+    assert other_plane, f"model {binding.model} wires no corrector of a second plane"
+
+    limits_file = repo / "data" / "facility" / "limits.yaml"
+    document = yaml.safe_load(limits_file.read_text(encoding="utf-8"))
+    band = limits[bounded]
+    document["records"].append(
+        {
+            "address": other_plane[0],
+            "min_value": band["min_value"],
+            "max_value": band["max_value"],
+        }
+    )
+    limits_file.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+
+
+def _assert_no_pyaml_surface(repo: Path) -> None:
+    """The render offers the agent no pyAML measurement route."""
+    render = repo / "build"
+    assert not (render / ".claude" / "skills" / _PYAML_SKILL).exists(), (
+        f"the render ships the {_PYAML_SKILL} skill; the queue lanes need a deployment "
+        "without pyAML measurement models"
+    )
+    assert _PYAML_MEASURE_TOOL not in (render / "CLAUDE.md").read_text(encoding="utf-8"), (
+        f"the rendered CLAUDE.md names {_PYAML_MEASURE_TOOL}; the queue lanes need a "
+        "deployment without pyAML measurement models"
     )
 
 
@@ -3203,14 +3283,16 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         timeout=BUILD_TIMEOUT_SEC,
         provider=JUDGE_PROVIDER,
         extra_config=_EXTRA_CONFIG,
+        pre_build=_describe_queue_deployment,
     )
+    _assert_no_pyaml_surface(repo)
     # Correctors and BPMs come from the device file the build staged, never a
-    # hardcoded preset channel. The default 4+4 slice is deliberate: these
-    # scenarios ask for a measurement on a healthy stack, so no particular
-    # device has to be in range, and a small device count keeps a real run to
-    # seconds rather than minutes.
-    correctors = _orm_stack.select_correctors(repo)
-    bpms = _orm_stack.select_bpms(repo)
+    # hardcoded preset channel: the full sets the worker registered, which is
+    # what the liveness and hysteresis floors mean by "wired".
+    correctors = _orm_stack.select_correctors(repo, count=None)
+    bpms = _orm_stack.select_bpms(repo, count=None)
+    named_setpoint, _named_readback, named_model = _orm_stack.bounded_corrector(repo)
+    named_bpms = list(_orm_stack.select_bpms(repo, count=None, model=named_model))
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.
@@ -3276,6 +3358,8 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
             repo=repo,
             correctors=correctors,
             bpms=bpms,
+            named=(named_setpoint, named_model),
+            named_bpms=named_bpms,
             token=_orm_stack.minted_launch_token(repo),
         )
     finally:
