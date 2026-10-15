@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import NoReturn
 
 from fastmcp.exceptions import ToolError
 
@@ -85,7 +84,11 @@ def _target_clause(identity: dict[str, str] | None) -> str:
     return f" (active target: {identity['label']}{where})"
 
 
-def _not_a_channel(tool_name: str, address: str, connector_name: str) -> NoReturn:
+#: One rendered envelope: ``(error_type, error_message, suggestions, details)``.
+_Envelope = tuple[str, str, list[str], dict | None]
+
+
+def _not_a_channel(tool_name: str, address: str, connector_name: str) -> _Envelope:
     """Answer an address that is not a channel of the facility as ``not_found``.
 
     The one rendering for both triggers: a read that raised
@@ -93,12 +96,13 @@ def _not_a_channel(tool_name: str, address: str, connector_name: str) -> NoRetur
     was denied, so the answer names no refuser.
     """
     identity = describe_active_target() if connector_name == "control_system" else None
-    make_error(
-        "not_found",
+    error_type = "not_found"
+    return (
+        error_type,
         f"Unknown channel during {tool_name}{_target_clause(identity)}: "
         f"{ChannelNotFoundError(address)}",
         [NOT_READ_OR_WRITTEN, LOOK_IT_UP],
-        details={"channel": address, **({"active_target": identity} if identity else {})},
+        {"channel": address, **({"active_target": identity} if identity else {})},
     )
 
 
@@ -189,7 +193,19 @@ async def connector_error_handler(
         yield
     except ToolError:
         raise  # Already a formatted envelope — propagate as-is
-    except ConnectionError as exc:
+    except Exception as exc:
+        error_type, message, suggestions, details = await _envelope(exc, tool_name, connector_name)
+        make_error(error_type, message, suggestions, details=details)
+
+
+async def _envelope(exc: BaseException, tool_name: str, connector_name: str) -> _Envelope:
+    """Render ``exc`` as the envelope its class is answered with, running its side effects.
+
+    A ``ConnectionError`` drops the connector it came from, and a timed-out call
+    into the connector-host child pings that child, before the envelope is
+    built; each runs once per rendered envelope.
+    """
+    if isinstance(exc, ConnectionError):
         await invalidate_active_connector(connector_name)
         identity = describe_active_target() if connector_name == "control_system" else None
         if identity:
@@ -197,8 +213,9 @@ async def connector_error_handler(
             reach_suggestion = f"Check that the {identity['label']}{where} is reachable."
         else:
             reach_suggestion = f"Check that the {connector_name.replace('_', ' ')} is running."
-        make_error(
-            "connection_error",
+        error_type = "connection_error"
+        return (
+            error_type,
             f"Failed to connect to the {connector_name.replace('_', ' ')}"
             f"{_target_clause(identity)}: {exc}",
             [
@@ -206,29 +223,31 @@ async def connector_error_handler(
                 f"If the {connector_name} settings are wrong, fix them in the build profile "
                 "(profile.yml on the host), then rebuild and redeploy.",
             ],
-            details={"active_target": identity} if identity else None,
+            {"active_target": identity} if identity else None,
         )
-    except ChildUnresponsiveError as exc:
+    if isinstance(exc, ChildUnresponsiveError):
         outcome = await _answer_unresponsive_child(connector_name)
         identity = describe_active_target() if connector_name == "control_system" else None
-        make_error(
-            "timeout_error",
+        error_type = "timeout_error"
+        return (
+            error_type,
             f"{tool_name} timed out{_target_clause(identity)}: {exc}"
             + (f".{outcome}" if outcome else ""),
             ["Check network connectivity.", "Try a smaller request."],
-            details={"active_target": identity} if identity else None,
+            {"active_target": identity} if identity else None,
         )
-    except TimeoutError as exc:
+    if isinstance(exc, TimeoutError):
         identity = describe_active_target() if connector_name == "control_system" else None
-        make_error(
-            "timeout_error",
+        error_type = "timeout_error"
+        return (
+            error_type,
             f"{tool_name} timed out{_target_clause(identity)}: {exc}",
             ["Check network connectivity.", "Try a smaller request."],
-            details={"active_target": identity} if identity else None,
+            {"active_target": identity} if identity else None,
         )
-    except ChannelNotFoundError as exc:
-        _not_a_channel(tool_name, exc.channel_address, connector_name)
-    except ChannelLimitsViolationError as exc:
+    if isinstance(exc, ChannelNotFoundError):
+        return _not_a_channel(tool_name, exc.channel_address, connector_name)
+    if isinstance(exc, ChannelLimitsViolationError):
         violation = {
             "channel": exc.channel_address,
             "attempted_value": exc.attempted_value,
@@ -251,18 +270,19 @@ async def connector_error_handler(
         if exc.min_value is not None or exc.max_value is not None:
             msg += f" (allowed range: [{exc.min_value}, {exc.max_value}])"
 
-        make_error(
-            "limits_violation",
+        error_type = "limits_violation"
+        return (
+            error_type,
             msg,
             [
                 "Do NOT attempt to work around this limit.",
                 "Report the violation to the operator with the allowed range.",
             ],
-            details=violation,
+            violation,
         )
-    except ChannelWriteBlockedError as exc:
+    if isinstance(exc, ChannelWriteBlockedError):
         if exc.reason == ChannelNotFoundError.reason:
-            _not_a_channel(tool_name, exc.channel_address, connector_name)
+            return _not_a_channel(tool_name, exc.channel_address, connector_name)
         # Every refusal put no value on the channel, but who refused decides
         # where the operator goes next. A control-system denial reaches here
         # only after OSPREY sent the write and the control system said no;
@@ -293,18 +313,14 @@ async def connector_error_handler(
         refusal_details: dict = {"channel": exc.channel_address, "reason": exc.reason}
         if identity:
             refusal_details["active_target"] = identity
-        make_error(
-            "write_refused",
-            message,
-            suggestions,
-            details=refusal_details,
-        )
-    except Exception as exc:
-        logger.exception("%s failed", tool_name)
-        identity = describe_active_target() if connector_name == "control_system" else None
-        make_error(
-            "internal_error",
-            f"Unexpected error during {tool_name}{_target_clause(identity)}: {exc}",
-            ["Check the MCP server logs for details."],
-            details={"active_target": identity} if identity else None,
-        )
+        error_type = "write_refused"
+        return error_type, message, suggestions, refusal_details
+    logger.exception("%s failed", tool_name, exc_info=exc)
+    identity = describe_active_target() if connector_name == "control_system" else None
+    error_type = "internal_error"
+    return (
+        error_type,
+        f"Unexpected error during {tool_name}{_target_clause(identity)}: {exc}",
+        ["Check the MCP server logs for details."],
+        {"active_target": identity} if identity else None,
+    )
