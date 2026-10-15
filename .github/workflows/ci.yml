@@ -704,6 +704,17 @@ jobs:
         BASE_REF: ${{ github.event.pull_request.base.ref }}
       run: python3 scripts/plugin_version.py check --base "origin/$BASE_REF"
 
+    - name: No tracked file is gitignored
+      # A tracked file an ignore rule matches is one a fresh `git add` would silently drop.
+      if: ${{ !cancelled() }}
+      run: |
+        ignored=$(git ls-files -ci --exclude-standard)
+        if [ -n "$ignored" ]; then
+          echo "::error::tracked files matched by .gitignore (narrow the rule or untrack the file):"
+          echo "$ignored"
+          exit 1
+        fi
+
     - name: Run mypy (type checking)
       run: uv run python scripts/mypy_gate.py
 

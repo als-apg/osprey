@@ -111,6 +111,15 @@ if uv run python scripts/changelog_fragments.py check --base "$BASE"; then :; el
 # The plugin version gate — the same command the `lint` CI job runs, against
 # this sweep's base: a changed plugin tree must carry a version the base does not.
 if uv run python scripts/plugin_version.py check --base "$BASE"; then :; else ERRORS=$((ERRORS + 1)); fi
+# No tracked file is gitignored — the same check the `lint` CI job runs.
+ignored=$(git ls-files -ci --exclude-standard)
+if [ -n "$ignored" ]; then
+  echo "✗ Tracked files matched by .gitignore (narrow the rule or untrack the file):"
+  echo "$ignored"
+  ERRORS=$((ERRORS + 1))
+else
+  echo "✓ No tracked file is gitignored"
+fi
 
 # Type hints (fixed: only count functions, not classes; exclude methods)
 # The `|| true` is inside the group so a no-match grep (exit 1) can't abort the
