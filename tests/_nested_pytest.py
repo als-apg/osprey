@@ -17,15 +17,18 @@ nothing. In its own root it prunes only itself.
 
 A stopped run is reported with the Python stack of every thread of every
 process it started: the run gets its own process group and ``faulthandler``,
-and the stop is a ``SIGABRT`` to that group, which makes each process write its
-stacks to the same stderr before it dies. Whatever the run left in its group is
-killed when it ends, so no worker it started outlives the calling test.
+and the stop is ``stop_group`` from ``scripts/run_bounded.py``, the sequence
+every bounded gate run is stopped with: a ``SIGABRT`` to that group, which
+makes each process write its stacks to the same stderr before it dies, then
+SIGTERM and SIGKILL. Whatever the run left in its group is killed when it
+ends, so no worker it started outlives the calling test.
 
 The leading underscore keeps the module out of pytest collection.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import signal
 import subprocess
@@ -45,8 +48,25 @@ STALL_SECONDS = 120.0
 _POLL_SECONDS = 0.2
 
 #: How long a stopped run's processes get to write their stacks before the
-#: group is killed outright.
+#: group is sent SIGTERM.
 _DUMP_SECONDS = 5.0
+
+#: How long a stopped run gets after SIGTERM before the group is killed.
+_GRACE_SECONDS = 5.0
+
+_RUN_BOUNDED = Path(__file__).resolve().parents[1] / "scripts" / "run_bounded.py"
+
+
+def _load_stop_group():
+    """Load ``stop_group`` from the gate scripts' bounded runner by path."""
+    spec = importlib.util.spec_from_file_location("_run_bounded", _RUN_BOUNDED)
+    assert spec is not None and spec.loader is not None, _RUN_BOUNDED
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.stop_group
+
+
+_stop_group = _load_stop_group()
 
 
 def run_nested_pytest(
@@ -97,13 +117,12 @@ def run_nested_pytest(
                     if size != written:
                         written, last_progress = size, now
                     elif now - last_progress > stall_seconds:
-                        _signal_group(proc.pid, signal.SIGABRT)
-                        try:
-                            proc.wait(_DUMP_SECONDS)
-                        except subprocess.TimeoutExpired:
-                            pass
-                        _signal_group(proc.pid, signal.SIGKILL)
-                        proc.wait()
+                        _stop_group(
+                            proc.pid,
+                            dump=_DUMP_SECONDS,
+                            grace=_GRACE_SECONDS,
+                            wait=proc.wait,
+                        )
                         pytest.fail(
                             f"nested run wrote no new output for {stall_seconds} s and was "
                             f"stopped\n--- stdout ---\n{out_path.read_text()}"

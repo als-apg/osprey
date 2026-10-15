@@ -1,8 +1,9 @@
 """Tests for the wall-clock bound the local gate scripts put on each pytest run.
 
-The wrapper is only ever run as a subprocess, never imported: it installs
-signal handlers and exits the process, neither of which belongs in the test
-process.
+The wrapper's ``main`` is only ever run as a subprocess, never called here: it
+installs signal handlers and exits the process, neither of which belongs in the
+test process. Its ``stop_group`` is importable by path, since loading the
+module installs no handler.
 """
 
 from __future__ import annotations
