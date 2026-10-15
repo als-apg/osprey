@@ -44,6 +44,7 @@ from osprey.facility.combine import FIXES_FILE, CombineResult, combine
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, quoted_slots
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey.facility.sources import Sources, load_sources
+from osprey_connectors.simulation import STILL_ALL
 
 __all__ = [
     "FACILITY_HEADER",
@@ -128,8 +129,6 @@ _RELATIVE = "relative"
 _RELATIVE_NOMINAL = (
     "a relative `noise` is taken of the seed's `nominal`, which this seed does not state"
 )
-#: The ``still`` value that stills every reading.
-_STILL_ALL = "all"
 
 
 # --- stage results ---------------------------------------------------------------
@@ -1618,7 +1617,7 @@ class _Records:
         still = scenario.get("still")
         if still is None:
             return
-        if still != _STILL_ALL and (
+        if still != STILL_ALL and (
             not isinstance(still, list)
             or not still
             or not all(isinstance(address, str) for address in still)
@@ -1628,11 +1627,11 @@ class _Records:
                 "scenario",
                 name,
                 files,
-                f"`still` is {still!r}, neither `{_STILL_ALL}` nor a list of addresses",
-                f"write `still: {_STILL_ALL}` or a list of addresses",
+                f"`still` is {still!r}, neither `{STILL_ALL}` nor a list of addresses",
+                f"write `still: {STILL_ALL}` or a list of addresses",
             )
             return
-        stilled = set() if still == _STILL_ALL else set(still)
+        stilled = set() if still == STILL_ALL else set(still)
         for address in sorted(stilled):
             if address in self.index.channels and self._type(address) != "float":
                 yield self._error(
@@ -1646,7 +1645,7 @@ class _Records:
         for slot in ("noise", "couple"):
             block = scenario.get(slot)
             for address in sorted(block if isinstance(block, dict) else (), key=str):
-                if still == _STILL_ALL or str(address) in stilled:
+                if still == STILL_ALL or str(address) in stilled:
                     yield self._error(
                         "value-invalid",
                         "scenario",

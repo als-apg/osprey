@@ -88,6 +88,7 @@ from osprey_connectors.config import default_config_path
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import values
 from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS, ChannelFault
+from osprey_connectors.simulation.envelope import STILL_ALL
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     composed_set,
@@ -146,7 +147,6 @@ _FAULT_SEPARATOR = "/"
 _MODEL_SEPARATOR = "/"
 _LOG_MODE = 0o664
 _MS_PER_S = 1000.0
-_STILL_ALL = "all"
 
 
 def cap_status(text: str, max_bytes: int = STATUS_MAX_BYTES) -> str:
@@ -476,7 +476,7 @@ class Composite(LUMEModel):
                 couple.setdefault(str(address), []).extend(terms)
             noise.update(scenario.get("noise") or {})
             stilled = scenario.get("still")
-            if stilled == _STILL_ALL:
+            if stilled == STILL_ALL:
                 still_all = True
             elif stilled and not isinstance(stilled, str):
                 still.update(str(address) for address in stilled)

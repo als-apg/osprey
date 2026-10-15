@@ -62,7 +62,7 @@ from osprey.facility.build import FacilityDocument
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
-from osprey_connectors.simulation import STILL_SCENARIO
+from osprey_connectors.simulation import STILL_ALL, STILL_SCENARIO
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
@@ -123,7 +123,7 @@ _SCENARIO_BLOCKS = (
 _BUILT_IN_STILL = {
     "name": STILL_SCENARIO,
     "description": "Every reading serves without drift, couplings or noise.",
-    "still": "all",
+    "still": STILL_ALL,
 }
 
 #: The keys a wiring entry may carry, in emission order: the wiring record's

@@ -27,6 +27,7 @@ from typing import Any
 
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
+from osprey_connectors.simulation.envelope import STILL_ALL
 
 __all__ = [
     "ACTIVE_SCENARIOS_FILENAME",
@@ -59,8 +60,6 @@ OVERLAP_EVENT = "scenario-overlap"
 
 logger = get_logger("simulation_state")
 
-#: The ``still`` value that stills every reading.
-_STILL_ALL = "all"
 #: Marks a target of the motion namespace, which ``noise``, ``couple`` and
 #: ``still`` share; no address holds the character.
 _MOTION_MARK = "\x00"
@@ -239,7 +238,7 @@ def scenario_targets(scenario: Mapping[str, Any]) -> set[str]:
     targets.update(moved)
     targets.update(_SETS_MOTION + address for address in moved)
     still = scenario.get("still")
-    if still == _STILL_ALL:
+    if still == STILL_ALL:
         targets.add(_STILLS_ALL)
     elif still and not isinstance(still, str):
         targets.update(_STILLS + str(address) for address in still)

@@ -5,9 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from osprey.facility.build import build_facility
+from osprey.facility.errors import FacilityBuildError
+from osprey_connectors.simulation import STILL_ALL
+from osprey_connectors.simulation.envelope import active_envelopes
 from tests.facility._synthetic_trees import plain_tree, write_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -66,3 +70,30 @@ def test_a_tango_address_fault_round_trips(tmp_path: Path) -> None:
     document = build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
 
     assert [s["faults"] for s in document["scenarios"]] == [faults]
+
+
+# --- the still sentinel -----------------------------------------------------------
+
+
+def test_the_still_value_the_build_accepts_is_the_one_the_simulator_stills_on(
+    tmp_path: Path,
+) -> None:
+    tree = plain_tree()
+    tree["scenarios/hush.yaml"] = {"still": STILL_ALL}
+
+    document = build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
+
+    hush = {s["name"]: s for s in document["scenarios"]}["hush"]
+    assert hush["still"] == STILL_ALL
+    seeds = {"BPM1:X": {"nominal": 1.0, "noise": {"absolute": 0.1}}}
+    assert active_envelopes(seeds, {"hush": hush}, ["hush"]) == {"BPM1:X": 0.0}
+
+
+def test_a_still_value_other_than_the_sentinel_stops_the_build(tmp_path: Path) -> None:
+    tree = plain_tree()
+    tree["scenarios/hush.yaml"] = {"still": STILL_ALL.upper()}
+
+    with pytest.raises(FacilityBuildError) as caught:
+        build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
+
+    assert "neither `all` nor a list of addresses" in str(caught.value)
