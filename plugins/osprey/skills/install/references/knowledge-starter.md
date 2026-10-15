@@ -260,11 +260,10 @@ Both paradigms read what the build writes from the same facility file, so the an
 leaves nothing on disk unread: switching paradigms is the other box's keys and a
 build.
 
-A model the draft proposes wiring for adds one more card, the MODEL WIRING panel in
-`references/cards.md`. It is drawn at step 7, from each model's `wiring` block in the
-draft, and again after every answer, with its one question — "Is this the wiring?
-yes / answer <family> … / modify". Answering there is how the block's `null` slots are
-filled; the import refuses while one is still open.
+A model the draft proposes wiring for adds a wiring review at step 7, sized to the
+model as the MODEL WIRING section of `references/cards.md` says, with that card as its
+overview of each model's `wiring` block. Answering there is how the block's `null`
+slots are filled; the import refuses while one is still open.
 
 ## 4. Facility records
 

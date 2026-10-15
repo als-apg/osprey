@@ -150,11 +150,21 @@ every state blank, so the user sees that nothing was assumed.
 
 ## MODEL WIRING
 
-Drawn once per model from its `wiring` block in
-`data/facility/imported/mml/mapping.yaml`, after the first
-`osprey facility import mml` run wrote the draft, and again after every answer. `?`
-rows first, then the wired families, then the rest. The export is not editable from
-the card.
+An overview of one model's `wiring` block in `data/facility/imported/mml/mapping.yaml`,
+drawn after the first `osprey facility import mml` run wrote the draft. `?` rows
+first, then the wired families, then the rest. The card is a shape you may draw, not
+a required single step; the export is not editable from it.
+
+Size the review to the model. What must hold at the end: every open slot is
+answered, and the installer has seen which families the model drives and which run
+on their seeds.
+
+- A model with few or no open slots gets the overview and one confirmation.
+- A model with many open slots gets the overview, then one AskUserQuestion per open
+  slot or group of related slots, in as many rounds as it needs, then the overview
+  again for the final confirmation.
+
+Do not force several cards on a simple model.
 
 ```
  MODEL WIRING — <facility> · <model>          <n> families · <n> open
@@ -199,15 +209,16 @@ The card's words are the mapping's words: `element_field`, `engine`, `attribute`
 `index`, `axis`, `calibration`, `linear`, `table`. Nothing is paraphrased into a
 friendlier word.
 
-One AskUserQuestion follows the card: `Is this the wiring?  yes / answer <family> … /
-modify`. An answer is written into that family's entry of the block; `modify` edits
-the block by hand. Units and the hooks of a family are the reviewer's to check: the
-draft reads neither.
+The confirmation is an AskUserQuestion: `Is this the wiring?  yes / answer
+<family> … / modify`. An answer is written into that family's entry of the block;
+`modify` edits the block by hand. Units and the hooks of a family are the reviewer's
+to check: the draft reads neither.
 
 Draw no card when there is nothing to draw: a model whose draft carries no `wiring`
 block. Say that in one line instead.
 
-A worked example — the synthetic `quokka` export, one model, two slots open:
+A worked example of the simple case — the synthetic `quokka` export, one model, two
+slots open, so one overview and one confirmation:
 
 ```
  MODEL WIRING — Quokka · SR                    17 families · 2 open

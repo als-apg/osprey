@@ -245,10 +245,9 @@ ships `code:` only.
      read before building; `osprey build`; then the PARADIGM card binds the
      channel-finder view the build writes.
    - The mapping also decides, family by family, what each model drives. The draft
-     proposes each model's `wiring` block; the MODEL WIRING card in
-     `references/cards.md` (`## MODEL WIRING`) is drawn from it and again after every
-     answer, and its open slots are answered there. The import refuses while one is
-     open.
+     proposes each model's `wiring` block; its open slots are answered in a review
+     sized to the model, with the MODEL WIRING card in `references/cards.md`
+     (`## MODEL WIRING`) as its overview. The import refuses while one is open.
    - `osprey facility import mml` refuses while `data/facility/` holds record sources
      of its own — on this base, hello-world's demo records — and prints one `rm` line
      per file. Run those lines as printed, then import again.
