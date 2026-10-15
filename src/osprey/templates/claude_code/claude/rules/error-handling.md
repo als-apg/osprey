@@ -22,6 +22,7 @@ or work around failures.
 | **Permission** | Writes disabled, approval denied, channel not writable | Explain the restriction. Do NOT retry or suggest workarounds. |
 | **Validation** | Limits violation, invalid channel name, bad parameter | Show the specific violation. Explain what the valid range or format is, if the error says. |
 | **Data** | Channel not found, archiver has no data for range, empty results | Report what was searched and that no data was found. Suggest refining the query. |
+| **Unanswered** | Every item asked for was tried and none answered (`nothing_answered`) | Name each entry of `details.missing` and its text to the operator. Do not retry the same request. |
 | **Execution** | Python code error, runtime exception in execute | Show the traceback. Help the user fix *their* code (not OSPREY's). |
 | **Safety** | Sandbox safety limit tripped (resource cap, write-mode guard), python_executor refused to run | Explain which guard tripped. Help the user understand the constraint. Suggest code that respects the limit. Do NOT modify safety configuration. |
 | **Internal** | Unexpected server error, missing configuration or dependency, malformed response, an error a bridge or gallery answered with | Report the error verbatim, naming the service the envelope names. Suggest the operator check that service's logs. |
@@ -38,8 +39,20 @@ When a tool returns an error:
    - Permission → "This operation is currently restricted. [Explain why from the error message.]"
    - Validation → "The value/parameter is outside the allowed range. [Show constraints if available.]"
    - Data → "No results found for [query]. You could try [alternative search terms/time range]."
+   - Unanswered → "None of the [items] answered: [each entry of `details.missing` and its text]."
    - Execution → "The code raised an error. Here's what went wrong: [explain]. Here's a fix: [suggest]."
    - Safety → "The execution sandbox refused this code because [explain guard]. To proceed, [rewrite suggestion respecting the constraint]."
+
+## Partial Answers
+
+A tool asked for several things answers the ones it can and names the rest
+under `missing`: a map from each thing asked for and not answered to the
+source's own text. `missing` is always present; `{}` means everything answered.
+When nothing answered, the error carries the same map under `details.missing`.
+
+- Tell the operator every entry of `missing` and its text.
+- Never read a missing entry as zero, empty or done.
+- A `null` text means the source gave no reason: say so, and invent none.
 
 ## Anti-Patterns — NEVER Do These
 

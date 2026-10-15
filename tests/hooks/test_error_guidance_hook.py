@@ -686,6 +686,8 @@ EXPECTED_ERROR_CLASSES = {
     "window_not_found": "Data",
     "plan_source_unavailable": "Data",
     "nothing_running": "Data",
+    # Unanswered
+    "nothing_answered": "Unanswered",
     # Execution
     "execution_error": "Execution",
     "lattice_error": "Execution",
@@ -733,7 +735,7 @@ EXPECTED_ERROR_CLASSES = {
 #: the hook can name has to have a row there, because the guidance it injects
 #: tells Claude to go read that file for the class it just reported.
 DOCUMENTED_ERROR_CLASSES = frozenset(
-    {"Connection", "Validation", "Data", "Execution", "Safety", "Internal"}
+    {"Connection", "Validation", "Data", "Unanswered", "Execution", "Safety", "Internal"}
 )
 
 

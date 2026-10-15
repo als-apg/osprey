@@ -33,7 +33,8 @@ stdin ──► Parse JSON
               ▼
          Map error_type to class
          (Connection/Validation/
-          Data/Execution/Safety/
+          Data/Unanswered/
+          Execution/Safety/
           Internal)
               │
               ▼
@@ -153,6 +154,9 @@ ERROR_CLASS_MAP = {
     "nothing_running": "Data",
     # An earlier answer whose run record was swept: say so, work from its opening.
     "no_longer_available": "Data",
+    # ---- Unanswered: every item asked for was tried and none answered; the
+    # envelope's details.missing names each one with its source's text.
+    "nothing_answered": "Unanswered",
     # ---- Execution: the user's own code (or document source) is wrong.
     "execution_error": "Execution",
     "lattice_error": "Execution",
