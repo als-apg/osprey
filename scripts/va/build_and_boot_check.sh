@@ -98,6 +98,8 @@
 #
 # Building needs BuildKit when the runtime is docker: the gate checks for it
 # before staging anything and names how to enable it.
+# The build asks for linux/amd64 on the command line as well as in the
+# Containerfile, so every builder is asked for the same architecture.
 #
 # Environment:
 #   OSPREY_VA_CA_PORT   Channel Access port to bind and publish. Defaults to
@@ -303,6 +305,7 @@ OSPREY_VERSION="$("${VENV_PY}" -c 'import osprey; print(osprey.__version__)')"
 
 echo "--- Building ${IMAGE} (linux/amd64) ---"
 "${RUNTIME}" build \
+    --platform linux/amd64 \
     --build-arg "OSPREY_VERSION=${OSPREY_VERSION}" \
     -t "${IMAGE}" -f "${STAGING_DIR}/docker/virtual-accelerator/Containerfile" "${STAGING_DIR}"
 

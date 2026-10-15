@@ -3,11 +3,12 @@
 The virtual accelerator image is linux/amd64 only, and its Containerfile's
 ``FROM --platform`` pin is honoured by BuildKit alone, so the gate script stops
 on a docker that has no BuildKit before it stages the build context, naming how
-to enable it. A docker that is podman's docker emulation is podman: when the
-runtime is pinned to docker on such a host the script names the setting to
-change instead.
+to enable it, and asks every builder for linux/amd64 on the command line. A
+docker that is podman's docker emulation is podman: when the runtime is pinned
+to docker on such a host the script names the setting to change instead.
 
-These run the real script against a stub ``docker``; no image is built.
+These run the real script against a stub ``docker`` and read the real build
+command; no image is built.
 """
 
 from __future__ import annotations
@@ -136,3 +137,13 @@ def test_docker_with_buildkit_passes_the_check(
     assert STAGING_LINE in result.stdout
     assert "FATAL: docker has no BuildKit" not in result.stderr
     assert "legacy builder" not in result.stderr
+
+
+def test_the_image_build_asks_for_linux_amd64() -> None:
+    text = SCRIPT.read_text().replace("\\\n", " ")
+    builds = [
+        line.strip() for line in text.splitlines() if line.strip().startswith('"${RUNTIME}" build')
+    ]
+
+    assert len(builds) == 1
+    assert "--platform linux/amd64" in builds[0]
