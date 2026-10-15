@@ -39,11 +39,14 @@ const ALL_FIGURES = ['optics', 'resonance', 'chromaticity', 'footprint', 'da', '
 const SINGLE_PASS_409 = { status: 'unavailable', reason: 'not available for a single-pass model' };
 
 
-/** GET /api/models as the server lists it: served models first. */
+/**
+ * GET /api/models as the server lists it: served models first.
+ * @type {import('../../../src/osprey/interfaces/lattice_dashboard/static/js/models.js').ModelEntry[]}
+ */
 const MODELS = [
-  { name: 'main', served: true, solve: 'periodic', selected: true },
-  { name: 'transfer', served: true, solve: 'single_pass', selected: false },
-  { name: 'spare', served: false, solve: 'periodic', selected: false },
+  { name: 'main', served: true, solve: 'periodic', selected: true, error: null },
+  { name: 'transfer', served: true, solve: 'single_pass', selected: false, error: null },
+  { name: 'spare', served: false, solve: 'periodic', selected: false, error: null },
 ];
 
 /**

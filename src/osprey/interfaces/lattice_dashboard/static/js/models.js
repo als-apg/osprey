@@ -27,8 +27,9 @@ const placeholders = new Map();
  * @typedef {object} ModelEntry
  * @property {string} name
  * @property {boolean} served
- * @property {string} solve
+ * @property {string|null} solve
  * @property {boolean} selected
+ * @property {string|null} error
  */
 
 /**
