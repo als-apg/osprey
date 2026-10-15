@@ -31,13 +31,9 @@ from tests._live_threads import (
     registered_exit_callbacks,
     report_live_threads,
 )
-from tests._nested_pytest import run_nested_pytest
+from tests._nested_pytest import outer_run_free_env, run_nested_pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-
-#: Keys of the outer run that must not reach an inner pytest: its worker id,
-#: its diagnostics directory, and any options it was started with.
-_OUTER_RUN_KEYS = ("PYTEST_XDIST_", "PYTEST_ADDOPTS", "OSPREY_CI_DIAG_DIR")
 
 #: The inner run loads only the plugins it names, so its start-up cost does not
 #: grow with every plugin installed in the environment.
@@ -60,7 +56,7 @@ def _already_running() -> int:
 def _run_inner_pytest(
     tmp_path: Path, module_file: Path, extra: list[str]
 ) -> subprocess.CompletedProcess[str]:
-    env = {k: v for k, v in os.environ.items() if not k.startswith(_OUTER_RUN_KEYS)}
+    env = outer_run_free_env()
     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     plugin_args = [arg for name in _INNER_PLUGINS for arg in ("-p", name)]
     return run_nested_pytest(
