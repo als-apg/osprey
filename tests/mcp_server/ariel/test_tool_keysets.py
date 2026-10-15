@@ -85,12 +85,14 @@ _MATCH_ADDITIONS = (
     "entries[].matched_attachment_ids",
     "entries[].matched_attachment_ids[]*",
 )
+# The partial-answer map a batch read carries whether or not the view is on.
+_MISSING_MAP = ("missing", "missing.*")
 ALLOWED_ADDITIONS: dict[str, tuple[str, ...]] = {
     "keyword_search": _LISTING_ADDITIONS + _MATCH_ADDITIONS,
     "semantic_search": _LISTING_ADDITIONS + _MATCH_ADDITIONS,
     "hybrid_search": _LISTING_ADDITIONS + _MATCH_ADDITIONS,
     "browse": _LISTING_ADDITIONS,
-    "entries_by_ids": _LISTING_ADDITIONS,
+    "entries_by_ids": (*_LISTING_ADDITIONS, *_MISSING_MAP),
     "entry_get": ("attachment_count",),
     "capabilities": (
         "attachments",
@@ -107,8 +109,11 @@ ALLOWED_ADDITIONS: dict[str, tuple[str, ...]] = {
 # Requirement 5: golden paths whose shape a later phase may change. The stored
 # attachment elements of ``entry_get`` become summaries (``url`` only when
 # absolute), so every path below the element may be added, dropped or retyped.
+# ``entries_by_ids`` names the ids it did not find under ``missing`` and carries
+# no counts.
 ALLOWED_CHANGES: dict[str, tuple[str, ...]] = {
     "entry_get": ("attachments[].*",),
+    "entries_by_ids": ("found", "requested"),
 }
 
 # Keys removed from each ``entries[]`` element before the value comparison.
@@ -386,6 +391,11 @@ async def test_tool_keyset_equals_golden_with_view_off(tool, keyset_harness):
     raw = await run_tool(tool, keyset_harness)
     actual = keyset(json.loads(raw))
     golden = json.loads((KEYSET_DIR / f"{tool}.json").read_text())
+    # The batch read's partial-answer paths do not depend on the view; the test
+    # above compares them.
+    unrelated = ("found", "requested", *_MISSING_MAP) if tool == "entries_by_ids" else ()
+    actual = {path: kind for path, kind in actual.items() if not _matches(path, unrelated)}
+    golden = {path: kind for path, kind in golden.items() if not _matches(path, unrelated)}
     assert actual == golden, f"{tool} with the view off departs from B1's golden"
 
 
