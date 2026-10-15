@@ -60,6 +60,7 @@ EXPECTED_PORTS_AT_DEFAULT_BASE = {
     "bluesky_web": 10071,
     "bluesky": 10080,
     "bluesky_second_lane": 10081,
+    "trajectory": 10082,
     "va_standin": 10090,
     "web": 10100,
     "artifact": 10200,

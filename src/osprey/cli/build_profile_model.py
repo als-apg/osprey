@@ -56,6 +56,7 @@ from .build_profile_schema import (
     ProfileProvenance,
     ServiceDef,
     TeamsBridgeProfileConfig,
+    TrajectoryConfig,
     VAConfig,
     bind_env_errors,
     env_names_errors,
@@ -126,6 +127,12 @@ itself. ``bluesky_second_lane`` is opt-in and derived, and is claimed from the
 lane it is derived from. ``facility`` is the band a deployment spends on its
 own services, so the framework publishes nothing there to claim.
 """
+
+TRAJECTORY_SERVICE_NAME = "trajectory"
+"""The trajectory service's key under ``services:``, and its panel's id."""
+
+_TRAJECTORY_PORT_KEY = f"services.{TRAJECTORY_SERVICE_NAME}.port"
+"""The ``config:`` key that moves the trajectory service off its layout slot."""
 
 _SLOT_CLAIM_ALIASES: dict[str, tuple[str, ...]] = {
     "dispatcher": ("dispatch.dispatcher_port",),
@@ -428,6 +435,9 @@ class BuildProfile:
     bluesky: BlueskyConfig | None = None
     virtual_accelerator: VAConfig | None = None
     bluesky_web: BlueskyWebConfig | None = None
+    trajectory: TrajectoryConfig | None = None
+    """The trajectory service (``trajectory:``). Its presence deploys the
+    service; ``None`` deploys none."""
     nextcloud_bridge: NextcloudBridgeProfileConfig | None = None
     gchat_bridge: GChatBridgeProfileConfig | None = None
     teams_bridge: TeamsBridgeProfileConfig | None = None
@@ -726,6 +736,8 @@ class BuildProfile:
 
         if self.dispatch is not None:
             errors.extend(network_mode_errors(self.dispatch.network, "dispatch.network"))
+        if self.trajectory is not None:
+            errors.extend(network_mode_errors(self.trajectory.network, "trajectory.network"))
 
         for name, value, key in self._service_axis_declarations("network"):
             if name in DISPATCH_PAIR_SERVICES:
@@ -740,6 +752,48 @@ class BuildProfile:
             else:
                 errors.extend(network_mode_errors(value, key))
 
+        return errors
+
+    def _trajectory_errors(self) -> list[str]:
+        """Return validation errors for the ``trajectory:`` block and its port.
+
+        ``network`` is checked with the other network declarations
+        (:meth:`_validate_network_axis`). The port is not a block key: it is the
+        layout's ``trajectory`` slot, always in range at a resolved base, so the
+        one port an author can get wrong is a ``services.trajectory.port``
+        override under ``config:``.
+
+        Returns:
+            Human-readable error messages; empty when the block is well formed.
+        """
+        t = self.trajectory
+        if t is None:
+            return []
+        errors: list[str] = []
+        for knob, value, meaning in (
+            ("target", t.target, "the control target the service drives"),
+            ("model", t.model, "the machine model the service computes against"),
+        ):
+            if value is not None and not (isinstance(value, str) and value.strip()):
+                errors.append(
+                    f"trajectory.{knob} must be a non-empty string naming {meaning}, or "
+                    f"left unset (got {value!r})"
+                )
+        if t.bind is not None and not (
+            isinstance(t.bind, str) and t.bind and not any(c.isspace() for c in t.bind)
+        ):
+            errors.append(
+                f"trajectory.bind must be the address the service listens on, with no "
+                f"whitespace, or left unset (got {t.bind!r})"
+            )
+        port = _config_lookup(self.config, _TRAJECTORY_PORT_KEY)
+        if port is not _MISSING and not (
+            isinstance(port, int) and not isinstance(port, bool) and 1 <= port <= 65535
+        ):
+            errors.append(
+                f"{_TRAJECTORY_PORT_KEY} must be a port in 1..65535 (got {port!r}); "
+                f"remove it to take the layout's trajectory slot"
+            )
         return errors
 
     def _validate_http_axis(self) -> list[str]:
@@ -1154,6 +1208,10 @@ class BuildProfile:
         if not self.deploy_services:
             return False
         service = (entry.config_key or "").split(".")[1]
+        if service == TRAJECTORY_SERVICE_NAME:
+            # Injected from the profile block, so no surface the profile
+            # authors carries the service before the build writes it.
+            return self.trajectory is not None
         if service == GRAPHDB_SERVICE_NAME:
             return self._renders_graphdb_block()
         if service == QMD_SERVICE_NAME:
@@ -1640,6 +1698,11 @@ class BuildProfile:
             # legitimately url-less here when a bluesky_web block is present.
             if panel == "bluesky" and self.bluesky_web is not None:
                 continue
+            # The trajectory panel's URL is derived post-build the same way
+            # (``_inject_trajectory``) from the service's port, so it is
+            # url-less here whenever the ``trajectory:`` block is present.
+            if panel == TRAJECTORY_SERVICE_NAME and self.trajectory is not None:
+                continue
             missing = (
                 "no url for it under config: (an id with a dot in it is one key under "
                 f"web.panels, as in web.panels: {{{panel!r}: {{url: …}}}})"
@@ -1924,6 +1987,9 @@ class BuildProfile:
             sp = self.bluesky_web
             if not (1 <= sp.port <= 65535):
                 errors.append(f"bluesky_web.port must be in 1..65535 (got {sp.port})")
+
+        if self.trajectory is not None:
+            errors.extend(self._trajectory_errors())
 
         # Validate the archiver store's knobs, and its agreement with the rest
         # of the profile — see va_archiver_errors for why the rules live beside

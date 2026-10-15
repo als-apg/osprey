@@ -639,6 +639,44 @@ keys:
       `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.bluesky_web
+  services.trajectory.image:
+    rendered: false
+    evidence: 'OSPREY_WORKER_IMAGE:-\{\{ services\.trajectory\.image'
+    note: >-
+      The trajectory service runs the project image, same layering as
+      `services.dispatch_worker.image`.
+    default: derived
+    default_note: osprey_images.worker — <registry><project>-worker:<images.tag>
+  services.trajectory.target:
+    rendered: false
+    evidence: 'TARGET_KEY = f"\{SERVICE_KEY\}\.target"'
+    note: >-
+      The control target the trajectory service drives. Spelled once in the
+      service's startup module; the compose generator resolves the same key
+      for the write posture and the network refusal.
+    default: derived
+    default_note: the deployment's baseline target (osprey_connectors.types.baseline_target)
+  services.trajectory.model:
+    rendered: false
+    evidence: 'MODEL_KEY = f"\{SERVICE_KEY\}\.model"'
+    note: >-
+      Which model's trajectory slots the service commands; needed only when the
+      build's facts carry more than one.
+    default: null
+  services.trajectory.network:
+    rendered: false
+    evidence: 'on_host_network = \(svc\.network \| default'
+    note: >-
+      The trajectory service's network axis. A target that speaks Channel
+      Access needs `host`; the render refuses it on the bridge.
+    default: bridge
+  services.trajectory.bind:
+    rendered: false
+    evidence: 'TRAJECTORY_BIND: \{\{ svc\.bind \| default'
+    note: >-
+      The address the trajectory service binds, rendered into TRAJECTORY_BIND.
+    default: derived
+    default_note: "127.0.0.1 under `network: host`, 0.0.0.0 on the compose bridge"
   services.virtual_accelerator.image:
     rendered: false
     evidence: 'OSPREY_VA_IMAGE:-\{\{ svc\.image'

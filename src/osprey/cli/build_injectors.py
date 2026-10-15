@@ -6,8 +6,8 @@ registers it in ``deployed_services``), and prints a post-build hint. The
 injectors pair 1:1 with the service dataclasses in
 :mod:`osprey.cli.build_profile_schema` (``DispatchConfig``, ``BlueskyConfig``,
 ``BlueskyWebConfig``, ``VAConfig``, ``NextcloudBridgeProfileConfig``,
-``GChatBridgeProfileConfig``, ``TeamsBridgeProfileConfig``) plus
-``VAArchiverConfig``, whose block lives in
+``GChatBridgeProfileConfig``, ``TeamsBridgeProfileConfig``,
+``TrajectoryConfig``) plus ``VAArchiverConfig``, whose block lives in
 :mod:`osprey.cli.build_profile_archiver`.
 ``_copy_service_templates`` / ``_inject_profile_services`` handle the framework
 and facility-declared service templates.
@@ -58,6 +58,7 @@ if TYPE_CHECKING:
         VAConfig,
     )
     from osprey.cli.build_profile_archiver import VAArchiverConfig
+    from osprey.cli.build_profile_schema import TrajectoryConfig
 
 logger = get_logger("build")
 
@@ -1767,6 +1768,136 @@ def _inject_bluesky_web(bluesky_web: BlueskyWebConfig, project_path: Path) -> No
         "    Images:     `osprey up` builds the bluesky-web image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_BLUESKY_WEB_IMAGE to use a published image."
+    )
+
+
+def _inject_trajectory(
+    trajectory: TrajectoryConfig, project_path: Path, *, base: int | None = None
+) -> None:
+    """Wire the trajectory service and its web panel into a built project.
+
+    1. Copy the bundled ``templates/services/trajectory/`` compose template
+       into ``<project>/services/trajectory/``.
+    2. Write ``services.trajectory {path, port, target, model?, network,
+       bind?}`` and register it in ``deployed_services``.
+    3. Register the ``web.panels.trajectory`` entry pointing at the service
+       root, with the ``/panel/`` mount as its ``path`` and the ``/health``
+       endpoint the tab health-gates on.
+    4. Print a post-build hint naming the service's launch token and the
+       coded refusals it shares with every arming service.
+
+    The port is the layout's ``trajectory`` slot at the deployment's resolved
+    base, unless a ``services.trajectory.port`` merged from the profile's
+    ``config:`` already moved it — that value is in the block this step
+    replaces, and it wins. The target is the profile's, or else the
+    deployment's baseline target: the same fallback the service applies at
+    startup, written out so the rendered config names the target it drives.
+    ``network`` is always written (the profile knob has a default, and the
+    compose template reads it off this block); ``model`` and ``bind`` only
+    when the profile sets them, so the service's and the template's own
+    defaults apply otherwise.
+
+    Args:
+        trajectory: Validated trajectory configuration from the build profile.
+        project_path: Root of the built project.
+        base: The port base the deployment resolved. ``None`` means the
+            layout default.
+    """
+    from osprey.cli.build_profile_schema import DEFAULT_NETWORK_MODE
+    from osprey.port_layout import default_port
+    from osprey.utils.launch_token import (
+        LAUNCH_TOKEN_HEADER,
+        LAUNCH_TOKEN_INVALID,
+        LAUNCH_TOKEN_REQUIRED,
+    )
+
+    name = "trajectory"
+
+    # 1. Copy the bundled compose template.
+    src_dir = _locate_pkg_services() / name
+    if not src_dir.is_dir():
+        logger.warning("No package template for trajectory service at %s", src_dir)
+        return
+
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+    _copy_shared_service_partials(dest_services_root)
+    _refresh_service_dir(
+        src_dir, dest_services_root / name, name, _user_owned_services(project_path)
+    )
+
+    # 2. Write config.yml entries + register in deployed_services.
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        logger.warning("config.yml not found. Skipping the trajectory config registration.")
+        return
+
+    config = load_config_document(config_path)
+    services = config.setdefault("services", {})
+
+    previous = services.get(name)
+    authored_port = previous.get("port") if isinstance(previous, Mapping) else None
+    port = int(authored_port) if authored_port else default_port(name, base=base)
+
+    target = trajectory.target
+    if target is None:
+        target = connector_types.baseline_target(config.get("control_system") or {})
+
+    block: dict[str, Any] = {
+        "path": f"./services/{name}",
+        "port": port,
+        "target": target,
+    }
+    if trajectory.model is not None:
+        block["model"] = trajectory.model
+    block["network"] = trajectory.network or DEFAULT_NETWORK_MODE
+    if trajectory.bind is not None:
+        block["bind"] = trajectory.bind
+    anchored_put(services, name, _carry_authored_keys(services, name, block))
+
+    deployed = config.get("deployed_services", []) or []
+    if name not in [str(s) for s in deployed]:
+        anchored_append(deployed, name)
+    config["deployed_services"] = deployed
+
+    # 3. Register the panel: a bare service-root url plus the ``/panel/``
+    # mount, so the proxy's ``url.rstrip('/') + '/' + path`` composition
+    # reaches the panel while its prefix-relative API calls reach the root.
+    # Explicit values merged earlier in the build win.
+    default_url = f"${{TRAJECTORY_URL:-http://localhost:{port}}}"
+    panels = config.setdefault("web", {}).setdefault("panels", {})
+    panel_cfg = panels.get(name)
+    if panel_cfg is None:
+        anchored_put(
+            panels,
+            name,
+            {
+                "url": default_url,
+                "path": "/panel/",
+                "label": "TRAJECTORY",
+                "health_endpoint": "/health",
+            },
+        )
+    else:
+        _fill_panel_defaults(
+            panel_cfg, default_url, "/panel/", "TRAJECTORY", health_endpoint="/health"
+        )
+
+    save_config_document(config_path, config)
+
+    # 4. Post-build hint.
+    logger.debug("  ✓ Injected trajectory service (port %d, target %s)", port, target)
+    logger.debug(
+        "    Panels:     TRAJECTORY. Reach it through the web-terminal proxy at /panel/trajectory."
+    )
+    logger.debug(
+        "    Token:      `osprey up` writes TRAJECTORY_LAUNCH_TOKEN to .env; the web "
+        "terminal presents it in %s on the agent's panel-proxy hop, and no agent process "
+        "holds it. With the variable unset the service refuses every arming call "
+        "with %s; a caller with a missing or different token is refused with %s.",
+        LAUNCH_TOKEN_HEADER,
+        LAUNCH_TOKEN_REQUIRED,
+        LAUNCH_TOKEN_INVALID,
     )
 
 

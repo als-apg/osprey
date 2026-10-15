@@ -198,6 +198,8 @@ LAYOUT: tuple[PortSlot, ...] = (
     # the key named here is the one that actually moves it: moving
     # ``services.bluesky.port`` moves both lanes.
     PortSlot("bluesky_second_lane", 81, "services", "services.bluesky.port"),
+    # The trajectory service, deployed by a profile's ``trajectory:`` block.
+    PortSlot("trajectory", 82, "services", "services.trajectory.port"),
     # Virtual-accelerator instance n >= 2, at index n - 2. Instance 1 is the
     # Channel Access exception and is not in the block at all.
     PortSlot("va_standin", 90, "services", "services.live_standin.port"),

@@ -84,6 +84,7 @@ from .build_injectors import (
     _inject_nextcloud_bridge,
     _inject_profile_services,
     _inject_teams_bridge,
+    _inject_trajectory,
     _inject_va,
     _inject_va_archiver,
     _locate_pkg_services,
@@ -147,6 +148,7 @@ __all__ = [
     "_inject_nextcloud_bridge",
     "_inject_profile_services",
     "_inject_teams_bridge",
+    "_inject_trajectory",
     "_inject_va",
     "_inject_va_archiver",
     "_locate_pkg_services",
@@ -4117,6 +4119,13 @@ def _inject_services(
     if build_profile.bluesky_web is not None:
         _inject_bluesky_web(build_profile.bluesky_web, project_path)
         injected.append("bluesky web")
+    if build_profile.trajectory is not None:
+        # The base travels with the call: the service takes the layout's
+        # trajectory slot at the base this deployment resolved.
+        _inject_trajectory(
+            build_profile.trajectory, project_path, base=_profile_port_base(build_profile)
+        )
+        injected.append("trajectory")
     if build_profile.virtual_accelerator is not None:
         _inject_va(build_profile.virtual_accelerator, project_path)
         injected.append("virtual accelerator")

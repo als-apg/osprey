@@ -3,7 +3,8 @@
 The declarative half of the build profile: the nested config blocks a
 ``profile.yml`` may declare (``mcp_servers``, ``lifecycle``, ``env``,
 ``services``, ``dispatch``, ``bluesky``, ``virtual_accelerator``,
-``bluesky_web``, ``nextcloud_bridge``, ``gchat_bridge``, ``teams_bridge``) plus the
+``bluesky_web``, ``trajectory``, ``nextcloud_bridge``, ``gchat_bridge``, ``teams_bridge``)
+plus the
 checkers that hold their environment-variable names to
 :data:`~osprey_connectors.connection.ENV_NAME_RE`. Parsing, inheritance
 merging, and validation live in
@@ -950,6 +951,36 @@ class BlueskyWebConfig:
     (see ``templates/services/bluesky_web/docker-compose.yml.j2``), at the
     layout's ``bluesky_web`` slot — filled from the profile's resolved base when
     the key is left unspelled."""
+
+
+@dataclass
+class TrajectoryConfig:
+    """Trajectory-service configuration for a build profile (opt-in via the
+    ``trajectory:`` key).
+
+    The block's PRESENCE is what deploys the service; there is no ``enabled``
+    key, and ``trajectory: {}`` deploys it with every default. Consumed by the
+    build pipeline's trajectory-injection step, which writes
+    ``services.trajectory`` from these fields. The block carries no port: the
+    service takes the layout's ``trajectory`` slot, which
+    ``services.trajectory.port`` under ``config:`` moves like any other slot.
+    Every field is checked by :meth:`BuildProfile.validate`.
+    """
+
+    target: str | None = None
+    """Control target the service drives. ``None`` leaves the choice to the
+    injection step."""
+
+    model: str | None = None
+    """Machine model the service computes against. ``None`` leaves the choice to
+    the injection step."""
+
+    network: NetworkMode = DEFAULT_NETWORK_MODE
+    """Network attachment of the service, one of :data:`VALID_NETWORK_MODES`."""
+
+    bind: str | None = None
+    """Address the service listens on inside its network namespace. ``None``
+    leaves the compose template's own default."""
 
 
 @dataclass
