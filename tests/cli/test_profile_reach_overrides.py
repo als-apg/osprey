@@ -227,6 +227,7 @@ def test_the_projected_keys_are_the_ones_the_injectors_and_remedies_name():
             "dispatch-worker",
             "tiled",
             "bluesky-web",
+            "trajectory",
             "event-dispatcher",
             "mongodb",
         ):

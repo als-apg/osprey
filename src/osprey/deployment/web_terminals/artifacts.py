@@ -38,6 +38,7 @@ from osprey.deployment.web_terminals.personas import (
     as_dict,
     launch_token_writes_key,
     normalize_users,
+    personas_declaring_trajectory_panel,
     personas_needing_archiver_ca_bundles,
     personas_needing_archiver_credentials,
     personas_needing_ariel_mirror,
@@ -899,6 +900,10 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         # per lane whose target that persona is armed for, and the guard above
         # cleared every lane, so no grant reaches the render unchecked.
         "launch_token_personas": launch_token_personas_by_lane,
+        # The trajectory tab's declaration is the entitlement to the service's
+        # launch token, read off each persona's rendered config like the grants
+        # around it — the same walk that hands the service that user's secret.
+        "trajectory_personas": personas_declaring_trajectory_panel(config, root),
         "graphdb_personas": personas_needing_graphdb_password(config, root),
         "archiver_credential_personas": personas_needing_archiver_credentials(config, root),
         "archiver_ca_bundle_personas": personas_needing_archiver_ca_bundles(config, root),

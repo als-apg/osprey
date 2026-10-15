@@ -82,6 +82,7 @@ _HTTP_SERVICES = {
     "bluesky-bridge",
     "tiled",
     "bluesky-web",
+    "trajectory",
 }
 
 # What each port of a multi-port service IS: the word a merged row puts in front
@@ -129,6 +130,7 @@ _SERVICE_SLOTS = {
     "qmd": "qmd",
     "tiled": "tiled",
     "bluesky-web": "bluesky_web",
+    "trajectory": "trajectory",
     "bluesky-bridge": "bluesky",
     "bluesky-va-bridge": "bluesky",
     "bluesky-live-bridge": "bluesky",

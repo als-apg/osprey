@@ -296,6 +296,16 @@ virtual_accelerator:
 # this deployment's port block, so there is nothing to write inside it.
 bluesky_web: {}
 
+# The trajectory service: one holder at a time commands the simulator's
+# trajectory slots, through the TRAJECTORY tab or the agent's tools. The
+# block's presence is the switch and its port comes from this deployment's
+# port block. The tab is declared by the write-armed personas, beside the
+# bluesky panel, never here: the read-only login is built without it.
+# `network: host` because the simulator speaks Channel Access, which the
+# compose bridge cannot carry; the service then binds loopback only.
+trajectory:
+  network: host
+
 # ── Stored archive (MongoDB) ─────────────────────────────────────────────────
 # With this block, `osprey up` runs a real archive: a MongoDB store that is
 # seeded with history on the first deploy and records the machine from then on.
@@ -2249,7 +2259,8 @@ OSPREY_AUTH_PW_CAROL=carol
 # BLUESKY_VA_LAUNCH_TOKEN=  # bluesky_va — arms the plan-launch endpoint of the second Bluesky lane, the one serving the virtual accelerator (only on a deployment with `bluesky.second_lane`)
 # BLUESKY_LIVE_LAUNCH_TOKEN=  # bluesky_live — arms the plan-launch endpoint of the second Bluesky lane, the one serving the live machine (only on a deployment with `bluesky.second_lane`)
 # BLUESKY_STANDIN_LAUNCH_TOKEN=  # bluesky_standin — arms the plan-launch endpoint of the Bluesky lane serving the live stand-in soft IOC (only on a deployment with `bluesky.second_lane`)
-# OSPREY_TERMINAL_SECRET=  # bluesky_web — the operator login secret for the bluesky-web panel's web gate
+# OSPREY_TERMINAL_SECRET=  # bluesky_web, trajectory — the operator login secret for the web gates of the bluesky-web panel and the trajectory service
+# TRAJECTORY_LAUNCH_TOKEN=  # trajectory — admits the trajectory service's agent door (the terminal's panel proxy presents it)
 # ZO_ROOT_USER_PASSWORD=  # openobserve — OpenObserve root/ingest credential
 # ARIEL_DB_PASSWORD=  # postgresql — ARIEL Postgres password (also fills the agent's derived DSN)
 # ARIEL_DB_READONLY_PASSWORD=  # postgresql — password of the SELECT-only Postgres role the agent's SQL tool queries through

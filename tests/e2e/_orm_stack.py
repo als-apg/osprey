@@ -231,7 +231,10 @@ def profile_edits() -> dict[str, Any]:
     test_va_substrate_equivalence.py / test_tiled_roundtrip.py). The preset's
     ``services:`` block holds the record archive, which runs the same project
     image, so it goes with the dispatch stack: ``services: {}`` is the spelling
-    because a single service cannot be nulled.
+    because a single service cannot be nulled. The preset's ``trajectory:``
+    block deploys the trajectory service on that same image, so it goes too:
+    ``trajectory: None`` drops it, and a lane that proves the service states
+    the block back through ``extra_config``.
 
     ``modules.web_terminals.enabled: False`` drops the preset's per-persona
     web-terminal stack (two persona images + nginx, all built locally) for
@@ -260,6 +263,7 @@ def profile_edits() -> dict[str, Any]:
         },
         "dispatch": None,
         "services": {},
+        "trajectory": None,
         **VA_ARCHIVER_CI_KNOBS,
     }
 

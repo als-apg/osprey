@@ -762,6 +762,7 @@ def render_web_terminals(
     dispatcher_personas: set[str] | None = None,
     ariel_personas: set[str] | None = None,
     launch_token_personas: dict[str, set[str]] | None = None,
+    trajectory_personas: set[str] | None = None,
     graphdb_personas: set[str] | None = None,
     facility_bundle_personas: set[str] | None = None,
     facility_bundle_gid: int | None = None,
@@ -838,6 +839,15 @@ def render_web_terminals(
             read-only persona holding it would be able to move hardware. A lane
             no persona may arm is absent from the map (an empty set grants the
             same nothing). ``None`` emits no line for any user.
+        trajectory_personas: Persona names whose project declares the trajectory
+            tab, and whose users' terminals therefore get the trajectory
+            service's ``TRAJECTORY_LAUNCH_TOKEN`` (see
+            :func:`osprey.deployment.web_terminals.personas.personas_declaring_trajectory_panel`).
+            Same placement and same reason as ``dispatcher_personas``. The
+            consumer is the terminal app itself, never its agent: the app takes
+            the token out of its own environment at start and injects it on the
+            panel-proxy hop into the service's agent door, so the agent reaches
+            that door only through its own terminal. ``None`` emits no line.
         graphdb_personas: Persona names whose project configures a graph store,
             and whose users therefore need the Neo4j password ``osprey up``
             minted into the deploy ``.env`` (see
@@ -1241,6 +1251,9 @@ def render_web_terminals(
                 # cannot disagree with what it would emit inside it.
                 "wants_launch_token": bool(launch_token_env_vars),
                 "launch_token_env_vars": launch_token_env_vars,
+                # Whether this user's terminal gets the trajectory service's
+                # launch token (see the `trajectory_personas` arg).
+                "wants_trajectory_token": entry["persona"] in (trajectory_personas or set()),
                 # Whether this user's container gets the graph store's Neo4j
                 # password (see the `graphdb_personas` arg).
                 "wants_graphdb": entry["persona"] in (graphdb_personas or set()),

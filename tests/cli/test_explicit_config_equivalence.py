@@ -879,14 +879,55 @@ def _agent_record_deltas() -> tuple[Delta, ...]:
         Delta(
             document="root", path="services.archive.path", fixture=ABSENT, live="./services/archive"
         ),
-        # The service is listed where the preset's own `services:` block lands:
+        # The archive is listed where the preset's own `services:` block lands:
         # after the stores the preset spells, before the ones sections inject.
+        # The trajectory service is injected by its own section, which runs
+        # after the bluesky pair and before the virtual accelerator. One delta
+        # carries both, because a second `deployed_services` delta on the root
+        # would replace the first.
         Delta(
             document="root",
             path="deployed_services",
             fixture=[*_DEPLOYED_BEFORE_ARCHIVE, *_DEPLOYED_AFTER_ARCHIVE],
-            live=[*_DEPLOYED_BEFORE_ARCHIVE, "archive", *_DEPLOYED_AFTER_ARCHIVE],
+            live=[
+                *_DEPLOYED_BEFORE_ARCHIVE,
+                "archive",
+                *_DEPLOYED_AFTER_ARCHIVE[: _DEPLOYED_AFTER_ARCHIVE.index("bluesky_web") + 1],
+                "trajectory",
+                *_DEPLOYED_AFTER_ARCHIVE[_DEPLOYED_AFTER_ARCHIVE.index("bluesky_web") + 1 :],
+            ],
         ),
+    )
+
+
+def _trajectory_service_deltas() -> tuple[Delta, ...]:
+    """The trajectory service the control-assistant root gains.
+
+    The preset's ``trajectory:`` block deploys the trajectory threading service,
+    so the root render gains its ``services.trajectory`` block (on the host
+    network, at the layout's trajectory slot) and its ``web.panels.trajectory``
+    entry, which the root leaves disabled because only the personas that select
+    the bluesky panel select it. The personas build no services, and their
+    panel selection is not a config leaf, so they gain nothing. The fixtures
+    were frozen before the service existed.
+
+    Returns:
+        The root's service and panel deltas.
+    """
+    leaves: tuple[tuple[str, Any], ...] = (
+        ("services.trajectory.bind_env", "TRAJECTORY_BIND"),
+        ("services.trajectory.network", "host"),
+        ("services.trajectory.path", "./services/trajectory"),
+        ("services.trajectory.port", 10082),
+        ("services.trajectory.target", "va"),
+        ("web.panels.trajectory.enabled", False),
+        ("web.panels.trajectory.health_endpoint", "/health"),
+        ("web.panels.trajectory.label", "TRAJECTORY"),
+        ("web.panels.trajectory.path", "/panel/"),
+        ("web.panels.trajectory.url", "${TRAJECTORY_URL:-http://localhost:10082}"),
+    )
+    return tuple(
+        Delta(document="root", path=path, fixture=ABSENT, live=live) for path, live in leaves
     )
 
 
@@ -906,10 +947,14 @@ _DEPLOYED_AFTER_ARCHIVE = (
 
 #: Build-relative ``config.yml`` documents a cell's build gains over the count
 #: its freeze recorded, keyed by cell directory — the completeness twin of
-#: :data:`CELL_DELTAS`. The record archive is a bundled service, so the build
-#: stages a config beside its compose file like every other one.
+#: :data:`CELL_DELTAS`. The record archive and the trajectory service are
+#: bundled services, so the build stages a config beside each compose file like
+#: every other one.
 BUILD_CONFIG_GAINS: dict[str, tuple[str, ...]] = {
-    f"control-assistant/{mode}": ("services/archive/config.yml",)
+    f"control-assistant/{mode}": (
+        "services/archive/config.yml",
+        "services/trajectory/config.yml",
+    )
     for mode in ("graph", "hierarchical", "in_context", "middle_layer")
 }
 
@@ -1405,6 +1450,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _simulator_baseline_deltas()
     + _helper_agent_model_deltas()
     + _agent_record_deltas()
+    + _trajectory_service_deltas()
     + _tool_content_deltas()
     + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1438,6 +1484,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _simulator_baseline_deltas()
     + _helper_agent_model_deltas()
     + _agent_record_deltas()
+    + _trajectory_service_deltas()
     + _tool_content_deltas()
     + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1471,6 +1518,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _simulator_baseline_deltas()
     + _helper_agent_model_deltas()
     + _agent_record_deltas()
+    + _trajectory_service_deltas()
     + _tool_content_deltas()
     + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -1504,6 +1552,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _simulator_baseline_deltas()
     + _helper_agent_model_deltas()
     + _agent_record_deltas()
+    + _trajectory_service_deltas()
     + _tool_content_deltas()
     + _tool_call_record_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _fuzzy_threshold_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
