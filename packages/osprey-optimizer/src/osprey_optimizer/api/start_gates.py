@@ -1,7 +1,7 @@
 """Start-time verification gates for optimization jobs (issue #2).
 
 Run between the environment-selection guard and the worker spawn: the machine
-must pass its settings table, and the active variables' readbacks must still
+must pass its settings table, and the active variables' setpoints must still
 lie inside the resolved bounds reviewed at submit. Failures are 412 —
 retryable after fixing the machine or re-submitting — and never mutate job
 state.
@@ -40,7 +40,7 @@ def run_start_gates(config: OptimizationConfig, env: EnvironmentProtocol, *, env
             env.check_machine_settings()
         except MachineSettingsError as e:
             failures.extend(e.failures)
-        readings = env.get_variables(active)
+        readings = env.get_setpoints(active)
         for name in active:
             override = overrides[name]
             vmin, vmax = override.min, override.max
@@ -49,7 +49,7 @@ def run_start_gates(config: OptimizationConfig, env: EnvironmentProtocol, *, env
                 continue
             value = reading_to_float(readings[name]) if name in readings else None
             if value is None:
-                failures.append(f"{name}: readback unavailable")
+                failures.append(f"{name}: setpoint unavailable")
             elif not vmin <= value <= vmax:
                 failures.append(
                     f"{name}: current value {value} outside resolved bounds [{vmin}, {vmax}]"

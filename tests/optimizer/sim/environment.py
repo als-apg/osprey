@@ -91,6 +91,9 @@ def make_environment_class(models_package: str) -> type:
         def get_variables(self, variable_names: list[str]) -> dict[str, Any]:
             return {n: protocols.PVReading(value=self._values[n]) for n in variable_names}
 
+        def get_setpoints(self, variable_names: list[str]) -> dict[str, Any]:
+            return self.get_variables(variable_names)
+
         def set_variables(
             self,
             variable_inputs: dict[str, float],

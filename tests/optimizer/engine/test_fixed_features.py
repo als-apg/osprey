@@ -213,11 +213,15 @@ class TestOrchestrationCurrentEnvValues:
         always, whether or not a model_file is configured."""
         mock_env = make_mock_environment(
             variables={
-                "var_a": MagicMock(min_value=0.0, max_value=10.0, units="A", step_size=0.1),
-                "var_b": MagicMock(min_value=-5.0, max_value=5.0, units="V", step_size=0.1),
+                "var_a": MagicMock(
+                    max_step=None, min_value=0.0, max_value=10.0, units="A", step_size=0.1
+                ),
+                "var_b": MagicMock(
+                    max_step=None, min_value=-5.0, max_value=5.0, units="V", step_size=0.1
+                ),
             },
         )
-        mock_env.get_variables.return_value = {
+        mock_env.get_setpoints.return_value = {
             "var_a": PVReading(value=3.0),
             "var_b": PVReading(value=-1.5),
         }

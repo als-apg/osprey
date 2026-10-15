@@ -548,6 +548,7 @@ def make_mock_environment(
     mock_env.variables = variables
     mock_env.get_observables.return_value = {name: PVReading(value=0.5) for name in objectives}
     mock_env.get_variables.return_value = {name: PVReading(value=0.1) for name in variables}
+    mock_env.get_setpoints.return_value = {name: PVReading(value=0.1) for name in variables}
 
     obs_metadata: dict[str, MagicMock] = {}
     for name, direction in objectives.items():
@@ -638,18 +639,21 @@ def make_complete_phase(
 
 
 def make_disconnected_env() -> "FakeInjectorEnvironment":
-    """Return a fake env whose readbacks are always disconnected.
+    """Return a fake env whose variable channels are always disconnected.
 
-    Exercises the "active variable's readback cannot be read" path (draft
-    resolution and the create/update-config lifecycle):
-    ``FakeInjectorEnvironment.get_variables`` always returns a connected 0.0, so
-    this override is the only way to simulate an unreadable PV.
+    Exercises the "active variable cannot be read" path (draft resolution and
+    the create/update-config lifecycle): ``FakeInjectorEnvironment`` always
+    returns a connected value, so this override is the only way to simulate an
+    unreadable setpoint or readback.
     """
     from ._fakes import FakeInjectorEnvironment
 
     class _DisconnectedFakeEnv(FakeInjectorEnvironment):
         def get_variables(self, variable_names: list[str]) -> dict[str, PVReading]:
             return {n: PVReading(value=None, connected=False) for n in variable_names}
+
+        def get_setpoints(self, variable_names: list[str]) -> dict[str, PVReading]:
+            return self.get_variables(variable_names)
 
     return _DisconnectedFakeEnv()
 

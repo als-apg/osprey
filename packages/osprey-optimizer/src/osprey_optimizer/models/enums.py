@@ -15,6 +15,8 @@ class JobStatus(StrEnum):
     SUBMITTED = "submitted"
     RUNNING = "running"
     PAUSED = "paused"
+    CANCELLING = "cancelling"
+    """A cancel was accepted; the worker has not stopped yet and still holds the slot."""
     COMPLETED = "completed"
     ERROR = "error"
     CANCELLED = "cancelled"

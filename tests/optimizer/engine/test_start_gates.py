@@ -75,20 +75,20 @@ def test_drift_outside_resolved_bounds_is_412(fake_env: FakeInjectorEnvironment)
     assert first in excinfo.value.detail
 
 
-def test_unreadable_readback_is_412(fake_env: FakeInjectorEnvironment) -> None:
+def test_unreadable_setpoint_is_412(fake_env: FakeInjectorEnvironment) -> None:
     cfg = _resolved_config(fake_env)
     assert cfg.variables is not None
     first = cfg.variables[0]
-    # Resolve against the normal (connected) fake, then make every readback dead:
+    # Resolve against the normal (connected) fake, then make every setpoint dead:
     # the drift check cannot compare a value it could not read, so a run must not
     # start on a disconnected PV.
-    fake_env.get_variables = lambda variable_names: {  # type: ignore[method-assign]
+    fake_env.get_setpoints = lambda variable_names: {  # type: ignore[method-assign]
         n: PVReading(value=None, connected=False) for n in variable_names
     }
     with pytest.raises(HTTPException) as excinfo:
         run_start_gates(cfg, fake_env, env_name="fake")
     assert excinfo.value.status_code == 412
-    assert f"{first}: readback unavailable" in excinfo.value.detail
+    assert f"{first}: setpoint unavailable" in excinfo.value.detail
 
 
 def test_both_gates_failing_are_aggregated_into_one_412(fake_env: FakeInjectorEnvironment) -> None:

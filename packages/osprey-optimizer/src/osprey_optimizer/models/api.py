@@ -128,7 +128,8 @@ class InitialBoundsResponse(BaseModel):
     """Response from GET /environments/{name}/initial-bounds.
 
     Bundles resolved ``bounds`` with the env's ``current_values`` (live
-    readbacks) so callers get both in a single PV walk.
+    setpoints, which the bounds are centred on) so callers get both in a
+    single PV walk.
     """
 
     bounds: dict[str, ResolvedBoundsModel]

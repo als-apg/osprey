@@ -107,13 +107,12 @@ def cancel_with_reread(
     token: CancellationToken,
     tracker: JobTracker,
 ) -> None:
-    """Signal cancellation, then flip the job to CANCELLED guarding against a lost update.
+    """Signal cancellation, then mark the job CANCELLING (or CANCELLED for a draft).
 
-    Job status is a dual-writer field with no compare-and-set: the worker sets
-    its own terminal status (COMPLETED/ERROR) when a run ends. Re-read the status
-    immediately before writing CANCELLED — if the worker reached a terminal state
-    in the gap, raise 409 rather than resurrecting a finished job (clients would
-    poll it as live forever) and clobbering the terminal TTL it just applied.
+    Job status is a dual-writer field: the worker sets its own terminal status
+    when a run ends. The status is re-read and swapped by compare-and-set — if
+    the worker reached a terminal state in the gap, raise 409 rather than
+    resurrecting a finished job. A repeated cancel of a CANCELLING job is a no-op.
 
     Shared by the optimization control path and the generic jobs cancel endpoint
     so the protocol has a single source of truth. Callers pass the already
@@ -127,17 +126,25 @@ def cancel_with_reread(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Cannot cancel job {job_id}: already {current.value}",
         )
+    if current is JobStatus.CANCELLING:
+        return
 
-    # CAS from the status we just read: only flip to CANCELLED if the worker
-    # hasn't driven it terminal in the gap. A lost CAS means the worker won —
-    # 409 rather than clobber its terminal status/TTL.
-    if not writer.set_status_cas(current, JobStatus.CANCELLED):
+    # A CREATED draft has no worker: nothing else will ever end it, so the
+    # cancel does, and releases its footprint under the terminal TTL.
+    if current is JobStatus.CREATED:
+        if not writer.set_status_cas(current, JobStatus.CANCELLED):
+            raise_control_conflict_409(job_id, "cancel", None, writer)
+        tracker.mark_completed(job_id)
+        return
+
+    # A launched job is ended by its worker, not here: the worker may be mid-write
+    # when the cancel lands, so it keeps the active slot until it has stopped, and
+    # its JobLifecycle sets CANCELLED and releases the slot. Until then the job is
+    # CANCELLING, and no other job or manual write can start. A worker that dies
+    # instead stops its heartbeat, and its keys and the slot expire. CAS from the
+    # status just read: a lost CAS means the worker drove it terminal in the gap.
+    if not writer.set_status_cas(current, JobStatus.CANCELLING):
         raise_control_conflict_409(job_id, "cancel", None, writer)
-
-    # mark_completed() sweeps the job's whole job:{id}:* footprint under the
-    # terminal TTL — including a wedged/dead job's state keys, whose process
-    # can't run its own lifecycle cleanup.
-    tracker.mark_completed(job_id)
 
 
 def launch_job(

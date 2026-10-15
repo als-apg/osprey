@@ -535,11 +535,12 @@ class TestStatusCas:
         # Must not be resurrected/clobbered to CANCELLED.
         assert api_writer.get_status() == JobStatus.COMPLETED
 
-    def test_cancel_with_reread_flips_running_job_to_cancelled(self):
-        """End-to-end happy path over the REAL Lua CAS: a RUNNING job is
-        cancelled (status → CANCELLED, token cancelled). Endpoint-level coverage
-        (``test_jobs_api.py::TestJobsCancel::test_cancel_script``) mocks the CAS,
-        so this pins the real writer/token/tracker wiring.
+    def test_cancel_with_reread_marks_a_running_job_cancelling_and_keeps_its_slot(self):
+        """End-to-end over the REAL Lua CAS: a RUNNING job becomes CANCELLING, its
+        token is cancelled, and it keeps the active slot -- the worker, which may
+        be mid-write, ends the job and frees the slot once it has stopped.
+        Endpoint-level coverage (``test_jobs_api.py::TestCancelJob``) mocks the
+        CAS, so this pins the real writer/token/tracker wiring.
         """
         writer = self._make_writer()
         writer.set_status(JobStatus.RUNNING)
@@ -549,8 +550,24 @@ class TestStatusCas:
 
         cancel_with_reread(_CAS_JOB_ID, writer, token, tracker)
 
-        assert writer.get_status() == JobStatus.CANCELLED
+        assert writer.get_status() == JobStatus.CANCELLING
         assert token.is_cancelled() is True
+        assert tracker.get_active_job() == _CAS_JOB_ID
+        # A second click is a no-op, not a 409.
+        cancel_with_reread(_CAS_JOB_ID, writer, token, tracker)
+        assert writer.get_status() == JobStatus.CANCELLING
+
+    def test_cancel_with_reread_ends_a_created_draft(self):
+        """A CREATED draft has no worker: the cancel itself makes it CANCELLED."""
+        writer = self._make_writer()
+        writer.set_status(JobStatus.CREATED)
+        token = get_cancellation_token(_CAS_JOB_ID)
+        tracker = JobTracker()
+        tracker.register_created_job(_CAS_JOB_ID)
+
+        cancel_with_reread(_CAS_JOB_ID, writer, token, tracker)
+
+        assert writer.get_status() == JobStatus.CANCELLED
 
     def test_cancel_with_reread_409s_and_preserves_terminal_when_worker_completed(self):
         """End-to-end race loser over the REAL CAS path: the worker already drove

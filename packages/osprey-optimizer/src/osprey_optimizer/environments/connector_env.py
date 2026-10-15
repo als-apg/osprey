@@ -67,6 +67,9 @@ def within_channel_limits(
 ) -> dict[str, VariableMetadata]:
     """Each variable's range narrowed to its setpoint channel's limits.
 
+    The channel's ``max_step``, if any, is carried on the metadata so that
+    resolving a run can refuse a search window the step limit would cut.
+
     The environment file says what the optimizer may explore; the limits
     database says what the channel may ever be set to. A run must satisfy both,
     so the range it sees is their intersection, and a request outside it fails
@@ -90,6 +93,7 @@ def within_channel_limits(
             )
         lo = getattr(entry, "min_value", None)
         hi = getattr(entry, "max_value", None)
+        max_step = getattr(entry, "max_step", None)
         new_min = meta.min_value if lo is None else max(meta.min_value, lo)
         new_max = meta.max_value if hi is None else min(meta.max_value, hi)
         if new_min > new_max:
@@ -106,7 +110,9 @@ def within_channel_limits(
                 new_min,
                 new_max,
             )
-        out[name] = meta.model_copy(update={"min_value": new_min, "max_value": new_max})
+        out[name] = meta.model_copy(
+            update={"min_value": new_min, "max_value": new_max, "max_step": max_step}
+        )
     return out
 
 
@@ -209,13 +215,22 @@ class ConnectorEnvironment:
         return self._interface
 
     def get_variables(self, variable_names: list[str]) -> dict[str, PVReading]:
+        return self._read_variable_channels(variable_names, setpoints=False)
+
+    def get_setpoints(self, variable_names: list[str]) -> dict[str, PVReading]:
+        return self._read_variable_channels(variable_names, setpoints=True)
+
+    def _read_variable_channels(
+        self, variable_names: list[str], *, setpoints: bool
+    ) -> dict[str, PVReading]:
         unknown = [n for n in variable_names if n not in self._all_variables]
         if unknown:
             raise VariableOutOfBoundsError(f"Unknown variable(s): {unknown}")
-        by_readback = {self._all_variables[n].readback_pv: n for n in variable_names}
-        readings = self.interface.read_many(list(by_readback))
+        metas = {n: self._all_variables[n] for n in variable_names}
+        channels = {n: m.setpoint_pv if setpoints else m.readback_pv for n, m in metas.items()}
+        readings = self.interface.read_many(list(dict.fromkeys(channels.values())))
         missing = PVReading(value=None, connected=False)
-        return {name: readings.get(rb, missing) for rb, name in by_readback.items()}
+        return {name: readings.get(channel, missing) for name, channel in channels.items()}
 
     def set_variables(
         self,

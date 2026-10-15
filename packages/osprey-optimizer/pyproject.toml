@@ -29,13 +29,14 @@ service = [
     "torch==2.13.0",
     "botorch==0.17.2",
     "gpytorch==1.15.2",
-    "polars>=1.36.1",
+    "polars>=2.0.0",
     "pandas>=2.2.3",
     "numpy>=2.2.6",
     "scikit-learn>=1.8.0",
     "joblib>=1.5.2",
     "redis>=5.0.4",
     "fastapi>=0.141.1",
+    "starlette",  # imported directly by the app (middleware, responses)
     "uvicorn[standard]>=0.52.1",
 ]
 

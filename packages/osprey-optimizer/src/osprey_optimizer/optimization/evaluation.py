@@ -5,7 +5,7 @@ import math
 from collections.abc import Callable
 from typing import NamedTuple
 
-from osprey_optimizer.models.protocols import EnvironmentProtocol
+from osprey_optimizer.models.protocols import EnvironmentProtocol, PVReading
 from osprey_optimizer.models.types import VariableInputs
 from osprey_optimizer.optimization.coercion import reading_to_float
 from osprey_optimizer.services.bounds_resolver import snap_value_to_grid
@@ -105,18 +105,43 @@ class Evaluator:
                 )
 
         # Objective + constraint observables ride ONE evaluate transaction (constraints
-        # are plain observables, no extra round-trip). Retry while any outcome reads
-        # unreadable — a transient dropout must not poison the point, persistent loss
-        # flows through as non-finite. Control-system errors propagate, never retried.
+        # are plain observables, no extra round-trip).
+        values = self._measure_outcomes(
+            lambda requested: self.environment.evaluate(
+                variable_inputs, requested, check_cancellation=self.check_cancellation
+            )
+        )
+        return {**variable_inputs, **values}
+
+    def measure(self) -> dict[str, float]:
+        """Measure the objective and constraints where the machine already is.
+
+        Reads the observables without writing any variable, so it is safe at a
+        run's start, before a snapshot of the setpoints exists. Unreadable
+        outcomes are retried and finally recorded as ``nan``, as in a call.
+
+        Returns:
+            ``{objective_name: value, **constraints}``.
+        """
+        return self._measure_outcomes(
+            lambda requested: self.environment.get_observables(
+                requested, check_cancellation=self.check_cancellation
+            )
+        )
+
+    def _measure_outcomes(
+        self, read: Callable[[list[str]], dict[str, PVReading]]
+    ) -> dict[str, float]:
+        """Read the requested outcomes through *read*, retrying unreadable ones.
+
+        A transient dropout must not poison the point; persistent loss flows
+        through as ``nan``. Control-system errors propagate, never retried.
+        """
         requested = [self.objective_name, *self.constraint_names]
         attempts = self.objective_retries + 1
         values: dict[str, float | None] = {}
         for attempt in range(1, attempts + 1):
-            obs_readings = self.environment.evaluate(
-                variable_inputs,
-                requested,
-                check_cancellation=self.check_cancellation,
-            )
+            obs_readings = read(requested)
             values = {name: reading_to_float(obs_readings[name]) for name in requested}
             unreadable = [name for name, v in values.items() if v is None]
             if not unreadable:
@@ -131,7 +156,4 @@ class Evaluator:
                 attempts,
             )
 
-        return {
-            **variable_inputs,
-            **{name: (v if v is not None else math.nan) for name, v in values.items()},
-        }
+        return {name: (v if v is not None else math.nan) for name, v in values.items()}

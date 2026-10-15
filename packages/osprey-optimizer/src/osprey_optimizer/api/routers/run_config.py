@@ -81,9 +81,9 @@ def get_environment_initial_bounds(
     """Resolve initial bounds for the cockpit table.
 
     With a preset, only its variables are listed and its ``variable_overrides``
-    apply to their current readbacks (e.g. ``window_fraction: 0.1`` → a window
-    10% of the variable's safety range wide, centered on the current readback).
-    Without one, every variable gets its safety range. Variables whose readback
+    apply to their current setpoints (e.g. ``window_fraction: 0.1`` → a window
+    10% of the variable's safety range wide, centered on the current setpoint).
+    Without one, every variable gets its safety range. Variables whose setpoint
     is unavailable (NaN) fall back to the safety range as well — the operator
     can still see the table while connectivity is being investigated.
     """
@@ -97,7 +97,7 @@ def get_environment_initial_bounds(
             validate_variable_names(chosen.variables, env, field="preset variable")
             variables = {n: variables[n] for n in chosen.variables}
         with read_errors(name, "read current values"):
-            readings = env.get_variables(list(variables.keys()))
+            readings = env.get_setpoints(list(variables.keys()))
 
         bounds: dict[str, ResolvedBoundsModel] = {}
         for var_name, meta in variables.items():

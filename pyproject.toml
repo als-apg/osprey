@@ -433,7 +433,7 @@ virtual-accelerator = [
 
 # Optimizer (packages/osprey-optimizer): the base install only, its models and
 # environment-file format. The search stack is that package's own `service`
-# extra and is installed only in the optimizer's image. Stays out of `all`.
+# extra and is installed only in the optimizer's image; it never enters `all`.
 optimizer = [
     "osprey-optimizer",
 ]
@@ -676,6 +676,7 @@ extend-include = ["tests/pty/stub_runtime/docker"]
 extend-exclude = [
     "*/src/osprey/_version.py",
     "*/src/osprey_connectors/_version.py",
+    "*/src/osprey_optimizer/_version.py",
 ]
 
 [tool.ruff.format]
@@ -751,6 +752,7 @@ omit = [
     # Written by the hatch-vcs build hook (gitignored); not source anyone maintains.
     "*/src/osprey/_version.py",
     "*/src/osprey_connectors/_version.py",
+    "*/src/osprey_optimizer/_version.py",
 ]
 
 [tool.coverage.report]

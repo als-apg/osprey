@@ -15,7 +15,6 @@ from osprey_optimizer.events import (
     OptimizationStartedData,
 )
 from osprey_optimizer.models.config import OptimizationConfig
-from osprey_optimizer.models.enums import JobStatus
 from osprey_optimizer.models.exceptions import CancellationError, RestoreFailedError
 from osprey_optimizer.models.types import BestPoint
 
@@ -32,7 +31,7 @@ from .orchestration import (
     OptimizationEngine,
     RunnerServices,
     apply_best_point,
-    read_required_variables,
+    read_current_setpoints,
     require_objective,
     resolve_environment,
 )
@@ -49,7 +48,7 @@ class InitialStateResult:
     initial_point: dict[str, float]
     env_metadata: dict[str, Any]
     start_values: dict[str, float]
-    """The tuned variables' values before the run moved anything: what a restore writes."""
+    """The tuned variables' setpoints before the run moved anything: what a restore writes."""
 
 
 class ExecutionService:
@@ -120,47 +119,38 @@ class ExecutionService:
 
         return apply_best_point_fn
 
-    def _restore_initial_values(
-        self, config: OptimizationConfig, start_values: dict[str, float], reason: str
+    def _restore_on_completion(
+        self, config: OptimizationConfig, start_values: dict[str, float]
     ) -> None:
-        """Write the run's starting values back to the machine it drove.
+        """Write a finished run's starting setpoints back (``on_complete: restore``).
 
         Only the variables this run tuned, through the same checked connector
-        every other write took, and not cancellable: an operator who cancels
-        asked for the run to stop, not for the machine to be left mid-search.
-        A readonly run wrote nothing, so there is nothing to undo.
+        every other write took. A run that stops early (cancelled or failed)
+        never comes here: it leaves the machine where it is, and restoring it is
+        the operator's call, through the results restore endpoint. A readonly
+        run wrote nothing, so there is nothing to undo.
+
+        Raises:
+            RestoreFailedError: The write back failed; the job ends as ERROR.
         """
         if config.execution_mode == "readonly":
-            logger.info("Readonly run: nothing to restore after %s", reason)
+            logger.info("Readonly run: nothing to restore")
             return
         if not start_values:
-            logger.info("No variables were tuned; nothing to restore after %s", reason)
+            logger.info("No variables were tuned; nothing to restore")
             return
-        logger.info(
-            "Restoring %d starting value(s) after %s: %s", len(start_values), reason, start_values
-        )
-        _, env = resolve_environment(config, EnvironmentRegistry().load_environment)
-        with env:
-            env.set_variables(start_values)
-        logger.info("Starting values restored")
-
-    def _restore_or_raise(
-        self,
-        config: OptimizationConfig,
-        start_values: dict[str, float],
-        reason: str,
-        cause: BaseException | None,
-    ) -> None:
-        """Restore, turning a failed restore into the job's outcome."""
+        logger.info("Restoring %d starting setpoint(s): %s", len(start_values), start_values)
         try:
-            self._restore_initial_values(config, start_values, reason)
-        except Exception as restore_exc:
-            logger.exception("Restoring the starting values after %s failed", reason)
-            ended = "finished" if cause is None else f"ended by {reason}"
+            _, env = resolve_environment(config, EnvironmentRegistry().load_environment)
+            with env:
+                env.set_variables(start_values)
+        except Exception as exc:
+            logger.exception("Restoring the starting setpoints failed")
             raise RestoreFailedError(
-                f"The run {ended}, and writing its starting values back failed: {restore_exc}. "
+                f"The run finished, and writing its starting setpoints back failed: {exc}. "
                 "Some, all or none of them were written; check the machine before the next run."
-            ) from (cause or restore_exc)
+            ) from exc
+        logger.info("Starting setpoints restored")
 
     def _get_cancellation_token(self) -> CancellationToken:
         """Get or create cancellation token for run control.
@@ -178,8 +168,11 @@ class ExecutionService:
         return self._cancellation_token
 
     def _reset_state_for_run(self, config: OptimizationConfig) -> None:
-        """Reset state for new optimization run."""
-        self._writer.set_status(JobStatus.RUNNING)
+        """Reset state for new optimization run.
+
+        Leaves the status alone: the launcher set RUNNING before spawning, and a
+        pause or cancel that landed since must not be overwritten.
+        """
         self._writer.set_error_message(None)
 
         if self._specific_run_dir:
@@ -201,7 +194,7 @@ class ExecutionService:
             OptimizerConnectionError: If required variable PVs cannot be read.
             KeyError: If the environment plugin name is not registered.
             Exception: Any other failure raised by environment loading,
-                ``env.get_variables``, or the evaluator.
+                ``env.get_setpoints``, or the objective measurement.
 
         There is no safe way to proceed without an initial state, so callers
         must translate failures into an ``OPTIMIZATION_ERROR`` status rather
@@ -214,8 +207,11 @@ class ExecutionService:
             active_variables = config.variables or list(env.variables.keys())
             self._writer.set_variable_names(active_variables)
 
+            # The starting point is the setpoints as found, read before anything
+            # is written: it is what a manual restore writes back, so it must be
+            # the values the operator left, not the readbacks.
             all_variable_names = list(env.variables.keys())
-            all_initial_values = read_required_variables(env, all_variable_names)
+            all_initial_values = read_current_setpoints(env, all_variable_names)
             active_initial_values = {
                 k: v for k, v in all_initial_values.items() if k in active_variables
             }
@@ -229,10 +225,9 @@ class ExecutionService:
             config.objective_direction = direction
             self._writer.set_objective_direction(direction)
 
-            evaluator = Evaluator(env, objective_name)
-
-            # Evaluator re-sets the variables we just read — same values, so safe.
-            objective_result = evaluator(active_initial_values)
+            # Measured where the machine already is: no write before the run
+            # starts searching.
+            objective_result = Evaluator(env, objective_name).measure()
 
             initial_point = {**active_initial_values, **objective_result}
 
@@ -383,9 +378,10 @@ class ExecutionService:
         ``JobLifecycle.__exit__`` is the single owner of terminal status — this
         method does not write it.
 
-        What the machine is left at is the config's: ``on_complete`` when the run
-        finishes, ``on_abort`` when it is cancelled or fails after its starting
-        values were measured (before that, nothing was moved).
+        What a finished run leaves the machine at is ``on_complete``'s. A run
+        that is cancelled or fails leaves it where it is: no write follows a
+        stop, and the operator restores the starting setpoints, recorded before
+        the first write, through the results restore endpoint if they want them.
 
         Returns:
             Path to the results directory on success.
@@ -393,8 +389,8 @@ class ExecutionService:
         Raises:
             CancellationError: if the run was cancelled; partial results are saved
                 first so the lifecycle classifies it as CANCELLED, not ERROR.
-            RestoreFailedError: if writing the starting values back failed; the
-                original cancel or failure is its ``__cause__``.
+            RestoreFailedError: if ``on_complete: restore`` could not write the
+                starting setpoints back.
             Exception: any other failure, propagated verbatim. Optimizer-backend
                 failures already arrive as ``OptimizerError`` from the adapter.
         """
@@ -403,21 +399,16 @@ class ExecutionService:
         output_dir: Path | None = None
         results_dir: Path | None = None
         log_handler: LogCaptureHandler | None = None
-        start_values: dict[str, float] | None = None
         try:
             with capture_logs() as log_handler:
                 token = self._get_cancellation_token()
-                # A cancel can land while the worker is still spawning (~15 s of
-                # imports), and POST /jobs/{id}/cancel accepts it from any
-                # non-terminal state. reset() clears the flag, so honour it first
-                # — otherwise the request is acknowledged, silently discarded, and
-                # the run proceeds on hardware. Cancel only: wait_if_paused() would
-                # block here, and pause is CAS-gated to RUNNING upstream.
-                token.check_cancellation()
-                token.reset()
+                # A pause or cancel can land while the worker is still spawning
+                # (~15 s of imports): the launcher sets RUNNING first, so both are
+                # accepted. The token is this job's alone and starts clear, so it
+                # is honoured here as found, never reset.
+                check_cancellation_token(token)
 
                 initial_state = self._measure_initial_state(config)
-                start_values = initial_state.start_values
 
                 if self._specific_run_dir:
                     save_early_results(
@@ -453,21 +444,13 @@ class ExecutionService:
                     wait_if_paused=token.wait_if_paused,
                 )
                 if config.on_complete == "restore":
-                    self._restore_or_raise(config, start_values, "completion", None)
+                    self._restore_on_completion(config, initial_state.start_values)
 
                 self._writer.set_last_results_path(results_dir)
 
-        except CancellationError as exc:
+        except CancellationError:
             if output_dir:
                 results_dir = self._save_partial_results(config, output_dir)
-            if start_values is not None and config.on_abort == "restore":
-                self._restore_or_raise(config, start_values, "cancellation", exc)
-            raise
-        except RestoreFailedError:
-            raise
-        except Exception as exc:
-            if start_values is not None and config.on_abort == "restore":
-                self._restore_or_raise(config, start_values, f"failure ({exc})", exc)
             raise
         finally:
             self._save_logs_to_file(results_dir, log_handler)

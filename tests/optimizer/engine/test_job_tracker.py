@@ -26,6 +26,7 @@ from osprey_optimizer.api.job_tracker import (
     HEARTBEAT_INTERVAL_SECONDS,
     JobLifecycle,
     JobMeta,
+    JobSlotLostError,
     JobTracker,
     create_job_state,
 )
@@ -405,37 +406,60 @@ class TestJobLifecycle:
         with patch("osprey_optimizer.api.job_tracker.os.getpid", return_value=12345):
             yield
 
+    @pytest.fixture(autouse=True)
+    def _job_holds_the_slot(self, request: pytest.FixtureRequest) -> None:
+        """The slot-checked registration script answers "still holds the slot"."""
+        if "redis_mocks" in request.fixturenames:
+            str_client, _ = request.getfixturevalue("redis_mocks")
+            str_client.register_script.return_value.return_value = 1
+
     @pytest.mark.parametrize(
         "job_type",
         [pytest.param(JobType.OPTIMIZATION, id="optimization")],
     )
-    def test_enter_registers_job_and_sets_running(self, redis_mocks, job_type: JobType):
+    def test_enter_registers_the_pid_and_leaves_the_status_as_found(
+        self, redis_mocks, job_type: JobType
+    ):
         mock_redis_str, mock_redis_bin = redis_mocks
         lc = JobLifecycle("job-1", job_type=job_type)
         lc.__enter__()
 
-        # register_job wrote RUNNING meta (str client) under the heartbeat TTL,
-        # then claimed the active slot — asserted on decoded values, not shapes.
-        set_calls = mock_redis_str.set.call_args_list
-        assert len(set_calls) == 2
-        meta_call, active_call = set_calls
-        assert meta_call.args[0] == meta_key("job-1")
-        meta = json.loads(meta_call.args[1])
+        # register_job ran the slot-checked script: RUNNING meta under the
+        # heartbeat TTL, only if job-1 still holds the slot -- asserted on the
+        # decoded payload, not shapes. It never writes the slot itself.
+        script = mock_redis_str.register_script.return_value
+        script.assert_called_once()
+        assert script.call_args.kwargs["keys"] == [ACTIVE_JOB_KEY, meta_key("job-1")]
+        job_id_arg, meta_arg, ttl_arg = script.call_args.kwargs["args"]
+        assert job_id_arg == "job-1"
+        meta = json.loads(meta_arg)
         assert meta["status"] == JobStatus.RUNNING.value
         assert meta["pid"] == 12345
         assert meta["job_type"] == job_type.value
-        assert meta_call.kwargs.get("ex") == RUNNING_STATE_TTL_SECONDS
-        assert active_call.args[0] == ACTIVE_JOB_KEY
-        assert active_call.args[1] == "job-1"
+        assert ttl_arg == RUNNING_STATE_TTL_SECONDS
+        assert not any(c.args[0] == ACTIVE_JOB_KEY for c in mock_redis_str.set.call_args_list)
 
-        # The writer set RUNNING status on the (binary) state key — decode the
-        # written pickle, not just the key name. Both job types share the prefix.
+        # The launcher set RUNNING before spawning, and a pause or cancel may
+        # have landed since: the worker does not write the status on entry.
         status_writes = [
             c for c in mock_redis_bin.set.call_args_list if str(c.args[0]).endswith(":status")
         ]
-        assert len(status_writes) == 1
-        assert str(status_writes[0].args[0]).startswith(state_prefix("job-1"))
-        assert deserialize_obj(status_writes[0].args[1]) == JobStatus.RUNNING
+        assert status_writes == []
+        lc._heartbeat.stop(timeout=1)
+
+    def test_enter_refuses_a_job_that_lost_the_slot(self, redis_mocks):
+        mock_redis_str, mock_redis_bin = redis_mocks
+        mock_redis_str.register_script.return_value.return_value = 0
+        lc = JobLifecycle("job-1")
+
+        with pytest.raises(JobSlotLostError, match="lost the active-job slot"):
+            lc.__enter__()
+
+        status_writes = [
+            c for c in mock_redis_bin.set.call_args_list if str(c.args[0]).endswith(":status")
+        ]
+        assert [deserialize_obj(c.args[1]) for c in status_writes] == [JobStatus.ERROR]
+        assert not lc._heartbeat.is_alive()
 
     def _enter_with_mock_writer(self, lc: JobLifecycle, mock_redis_str: MagicMock) -> MagicMock:
         """Enter the lifecycle, swap in a mock writer, and prime mark_completed.
@@ -619,6 +643,13 @@ class TestJobLifecycle:
         assert isinstance(lc.writer, expected_cls)
 
 
+def _launched(job_id: str) -> str:
+    """Do what the launcher does before spawning: claim the slot, set RUNNING."""
+    assert JobTracker().claim_active_job(job_id, 0, job_type=JobType.OPTIMIZATION)
+    create_job_state(JobType.OPTIMIZATION, job_id).set_status(JobStatus.RUNNING)
+    return job_id
+
+
 @pytest.mark.usefixtures("tracker")
 class TestJobLifecycleIntegration:
     """Integration tests with real Redis.
@@ -637,7 +668,7 @@ class TestJobLifecycleIntegration:
         str_client = get_redis_client(binary=False)
         bin_client = get_redis_client(binary=True)
 
-        job_id = "integ-happy-1"
+        job_id = _launched("integ-happy-1")
         with JobLifecycle(job_id):
             raw = bin_client.get(f"{state_prefix(job_id)}:status")
             assert raw is not None
@@ -659,7 +690,7 @@ class TestJobLifecycleIntegration:
     def test_full_lifecycle_error_path(self):
         bin_client = get_redis_client(binary=True)
 
-        job_id = "integ-error-1"
+        job_id = _launched("integ-error-1")
         with (
             pytest.raises(RuntimeError, match="injected"),
             JobLifecycle(job_id),
@@ -678,7 +709,7 @@ class TestJobLifecycleIntegration:
         Write-time TTL bounds meta + state inline; one heartbeat beat bounds the
         cancellation token (its TTL comes from the namespace refresh, not inline)."""
         str_client = get_redis_client(binary=False)
-        job_id = "integ-running-1"
+        job_id = _launched("integ-running-1")
         with JobLifecycle(job_id) as lc:
             get_cancellation_token(job_id)
             # Drive one beat synchronously (no sleep) so the cancel key is swept too.
@@ -841,3 +872,32 @@ def test_load_job_meta_500_on_corrupt_meta() -> None:
         js.load_job_meta(tracker, "job-1")
     assert exc.value.status_code == 500
     assert "Corrupt job metadata for job job-1" in str(exc.value.detail)
+
+
+@pytest.mark.usefixtures("tracker")
+class TestJobLifecycleSlotIntegration:
+    """The single active slot over real Redis: a worker never takes it back."""
+
+    def test_a_worker_that_lost_the_slot_does_not_take_it_from_the_new_holder(self):
+        str_client = get_redis_client(binary=False)
+        tracker = JobTracker()
+        old = _launched("slot-old")
+        tracker.mark_completed(old)  # released before the old worker got going
+        assert tracker.claim_active_job("slot-new", 0, job_type=JobType.OPTIMIZATION)
+
+        with pytest.raises(JobSlotLostError):
+            JobLifecycle(old).__enter__()
+
+        assert str_client.get(ACTIVE_JOB_KEY) == "slot-new"
+
+    def test_a_pause_landed_during_the_spawn_survives_the_worker_starting(self):
+        job_id = _launched("slot-paused")
+        writer = create_job_state(JobType.OPTIMIZATION, job_id)
+        assert writer.set_status_cas(JobStatus.RUNNING, JobStatus.PAUSED)
+
+        lc = JobLifecycle(job_id)
+        lc.__enter__()
+        try:
+            assert writer.get_status() == JobStatus.PAUSED
+        finally:
+            lc.__exit__(None, None, None)

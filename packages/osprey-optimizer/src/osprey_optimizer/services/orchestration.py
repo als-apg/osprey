@@ -24,7 +24,7 @@ from ..optimization.runner import (
 from ..optimization.types import OptimizationMetadata, OptimizationResult
 from ..optimization.xopt_backend import XoptOptimizer
 from ..utils.cancellation import CancellationToken
-from .draft_resolution import read_required_variables
+from .draft_resolution import read_current_setpoints
 
 __all__ = [
     "OptimizationEngine",
@@ -32,7 +32,7 @@ __all__ = [
     "OptimizationResult",
     "RunnerServices",
     "apply_best_point",
-    "read_required_variables",
+    "read_current_setpoints",
     "require_objective",
     "resolve_environment",
 ]
@@ -180,7 +180,7 @@ class OptimizationEngine:
 
             current_env_values = self.initial_point
             if current_env_values is None:
-                current_env_values = read_required_variables(env, list(all_vars.keys()))
+                current_env_values = read_current_setpoints(env, list(all_vars.keys()))
 
             # Emit the start event now that the search space is resolved, so the
             # event carries the resolved [min, max] per variable (the VOCS bounds).

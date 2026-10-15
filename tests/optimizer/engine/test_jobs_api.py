@@ -373,11 +373,34 @@ class TestGetJobStatus:
 
 
 class TestCancelJob:
-    def test_cancel_optimization(
+    def test_cancelling_a_running_job_leaves_its_end_to_the_worker(
         self, client: TestClient, mock_job_tracker: MagicMock, seam_redis_mock: MagicMock
     ) -> None:
+        """A running worker may be mid-write: the cancel marks the job CANCELLING
+        and keeps the active slot, so nothing else can start until the worker
+        has stopped and ends the job itself."""
         seam_redis_mock.get.return_value = serialize_obj(JobStatus.RUNNING)
         # CAS (Lua EVAL) wins: the status is still RUNNING when the swap runs.
+        seam_redis_mock.register_script.return_value.return_value = 1
+        with patch(f"{_JOBS}.read_job_status") as read_f:
+            read_f.return_value = JobResponse(
+                job_id="test-job-id", job_type=JobType.OPTIMIZATION, status=JobStatus.CANCELLING
+            )
+            resp = client.post("/jobs/test-job-id/cancel")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "cancelling"
+        assert data["job_id"] == "test-job-id"
+        script = seam_redis_mock.register_script.return_value
+        swapped_to = [deserialize_obj(c.kwargs["args"][1]) for c in script.call_args_list]
+        assert swapped_to == [JobStatus.CANCELLING]
+        mock_job_tracker.mark_completed.assert_not_called()
+
+    def test_cancelling_a_created_draft_ends_it(
+        self, client: TestClient, mock_job_tracker: MagicMock, seam_redis_mock: MagicMock
+    ) -> None:
+        """A CREATED draft has no worker to end it, so the cancel does."""
+        seam_redis_mock.get.return_value = serialize_obj(JobStatus.CREATED)
         seam_redis_mock.register_script.return_value.return_value = 1
         with patch(f"{_JOBS}.read_job_status") as read_f:
             read_f.return_value = JobResponse(
@@ -385,13 +408,13 @@ class TestCancelJob:
             )
             resp = client.post("/jobs/test-job-id/cancel")
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "cancelled"
-        assert data["job_id"] == "test-job-id"
+        script = seam_redis_mock.register_script.return_value
+        swapped_to = [deserialize_obj(c.kwargs["args"][1]) for c in script.call_args_list]
+        assert swapped_to == [JobStatus.CANCELLED]
         mock_job_tracker.mark_completed.assert_called_once_with("test-job-id")
 
     # Footprint bounding is asserted in test_job_tracker.py; here the contract is only
-    # that cancel calls mark_completed (see test_cancel_optimization).
+    # that cancelling a draft calls mark_completed (see test_cancelling_a_created_draft_ends_it).
 
     @pytest.mark.parametrize(
         "terminal", [JobStatus.COMPLETED, JobStatus.ERROR, JobStatus.CANCELLED]

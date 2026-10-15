@@ -258,6 +258,32 @@ class TestA8NaNFlowsThroughEvaluator:
         assert mock_env.evaluate.call_count == 1
 
 
+class TestMeasureWhereTheMachineIs:
+    """``Evaluator.measure``: the run's starting objective, read without writing."""
+
+    def test_reads_the_observables_and_writes_nothing(self) -> None:
+        mock_env = MagicMock(spec=EnvironmentProtocol)
+        mock_env.get_observables.return_value = {"charge_ltb": PVReading(value=1.25)}
+
+        result = Evaluator(environment=mock_env, objective_name="charge_ltb").measure()
+
+        assert result == {"charge_ltb": 1.25}
+        mock_env.get_observables.assert_called_once()
+        mock_env.evaluate.assert_not_called()
+        mock_env.set_variables.assert_not_called()
+
+    def test_an_unreadable_objective_is_retried_then_recorded_as_nan(self) -> None:
+        mock_env = MagicMock(spec=EnvironmentProtocol)
+        mock_env.get_observables.return_value = {"charge_ltb": PVReading(value=None)}
+
+        evaluator = Evaluator(environment=mock_env, objective_name="charge_ltb")
+        result = evaluator.measure()
+
+        assert math.isnan(result["charge_ltb"])
+        assert mock_env.get_observables.call_count == evaluator.objective_retries + 1
+        mock_env.evaluate.assert_not_called()
+
+
 class TestConstraintMeasurement:
     """Constraint observables are measured alongside the objective in one
     ``evaluate`` transaction and returned in the outcome dict."""

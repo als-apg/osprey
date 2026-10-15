@@ -159,7 +159,11 @@ class TestOptimizationEngineValidation:
             pytest.param(
                 MagicMock(
                     return_value=make_mock_environment(
-                        variables={"var_a": MagicMock(min_value=0.0, max_value=10.0, units="A")},
+                        variables={
+                            "var_a": MagicMock(
+                                max_step=None, min_value=0.0, max_value=10.0, units="A"
+                            )
+                        },
                     )
                 ),
                 OptimizationConfig(
@@ -212,8 +216,12 @@ class TestOptimizationEngineValidation:
         run() consumes the overrides, it does not compute them)."""
         mock_env = make_mock_environment(
             variables={
-                "var_a": MagicMock(min_value=0.0, max_value=10.0, units="A", step_size=0.1),
-                "var_b": MagicMock(min_value=0.0, max_value=10.0, units="V", step_size=0.5),
+                "var_a": MagicMock(
+                    max_step=None, min_value=0.0, max_value=10.0, units="A", step_size=0.1
+                ),
+                "var_b": MagicMock(
+                    max_step=None, min_value=0.0, max_value=10.0, units="V", step_size=0.5
+                ),
             },
         )
         mock_factory = MagicMock(return_value=mock_env)
@@ -293,7 +301,7 @@ class TestOptimizationEngineValidation:
                 {"var_a": 5.0, "var_b": 0.0},
                 # var_a centered on its 5.0 readback; var_b has no override -> full safety range.
                 {"var_a": [3.5, 6.5], "var_b": [-5.0, 5.0]},
-                id="window_abs_centered_on_readback",
+                id="window_abs_centered_on_setpoint",
             ),
         ],
     )
@@ -310,11 +318,15 @@ class TestOptimizationEngineValidation:
         readback — and the resolved result threads through run() unchanged."""
         mock_env = make_mock_environment(
             variables={
-                "var_a": MagicMock(min_value=0.0, max_value=10.0, units="A", step_size=0.1),
-                "var_b": MagicMock(min_value=-5.0, max_value=5.0, units="V", step_size=0.1),
+                "var_a": MagicMock(
+                    max_step=None, min_value=0.0, max_value=10.0, units="A", step_size=0.1
+                ),
+                "var_b": MagicMock(
+                    max_step=None, min_value=-5.0, max_value=5.0, units="V", step_size=0.1
+                ),
             },
         )
-        mock_env.get_variables.return_value = {
+        mock_env.get_setpoints.return_value = {
             "var_a": PVReading(value=5.0),
             "var_b": PVReading(value=0.0),
         }
@@ -344,9 +356,9 @@ class TestOptimizationEngineValidation:
         del patched_engine_collaborators  # patch side-effects only
 
         env = make_mock_environment(
-            variables={"var_a": MagicMock(min_value=0.0, max_value=1.0, units="A")}
+            variables={"var_a": MagicMock(max_step=None, min_value=0.0, max_value=1.0, units="A")}
         )
-        env.get_variables.return_value = {"var_a": PVReading(value=None, connected=False)}
+        env.get_setpoints.return_value = {"var_a": PVReading(value=None, connected=False)}
 
         config = _config(
             environment_name="test_env",
@@ -359,7 +371,7 @@ class TestOptimizationEngineValidation:
             initial_point=None,
         )
 
-        with pytest.raises(OptimizerConnectionError, match="Cannot read variables"):
+        with pytest.raises(OptimizerConnectionError, match="Cannot read the setpoints"):
             engine.run()
 
     def test_optimization_started_carries_resolved_variable_bounds(
@@ -373,8 +385,12 @@ class TestOptimizationEngineValidation:
         """
         mock_env = make_mock_environment(
             variables={
-                "var_a": MagicMock(min_value=0.0, max_value=10.0, units="A", step_size=0.1),
-                "var_b": MagicMock(min_value=-5.0, max_value=5.0, units="V", step_size=0.1),
+                "var_a": MagicMock(
+                    max_step=None, min_value=0.0, max_value=10.0, units="A", step_size=0.1
+                ),
+                "var_b": MagicMock(
+                    max_step=None, min_value=-5.0, max_value=5.0, units="V", step_size=0.1
+                ),
             },
         )
         mock_factory = MagicMock(return_value=mock_env)

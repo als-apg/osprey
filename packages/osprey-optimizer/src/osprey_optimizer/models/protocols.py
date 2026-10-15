@@ -73,6 +73,14 @@ class VariableMetadata(BaseModel):
     step_size: float = 0.1
     """Smallest discrete step size for changes."""
 
+    max_step: float | None = None
+    """Largest change one write may make, from the setpoint's channel limits.
+
+    ``None`` when the channel has no step limit. The engine moves a variable in
+    one write, so a search window wider than this is refused when the run is
+    resolved: a move across it would be refused by the connector mid-run.
+    """
+
     @model_validator(mode="after")
     def validate_bounds(self) -> "VariableMetadata":
         """Validate min_value and max_value consistency."""
@@ -213,6 +221,16 @@ class EnvironmentProtocol(Protocol):
 
     def get_variables(self, variable_names: list[str]) -> dict[str, PVReading]:
         """Get current readings for variables via their readback PVs."""
+        ...
+
+    def get_setpoints(self, variable_names: list[str]) -> dict[str, PVReading]:
+        """Get the values currently written to the variables' setpoint PVs.
+
+        These are the optimizer's coordinates: a run's starting point, the
+        centre of each search window and the values a restore writes back.
+        A readback can differ from its setpoint (calibration offset, noise),
+        so the two reads are not interchangeable.
+        """
         ...
 
     def set_variables(

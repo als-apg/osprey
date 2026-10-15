@@ -7,6 +7,7 @@ import pytest
 from osprey_optimizer.environments.connector_env import ConnectorEnvironment, reduce_values
 from osprey_optimizer.environments.interface import pool_section
 from osprey_optimizer.environments.spec import EnvironmentFile
+from osprey_optimizer.models.config import OptimizationConfig, VariableOverride
 from osprey_optimizer.models.exceptions import (
     CancellationError,
     EvaluationError,
@@ -15,6 +16,7 @@ from osprey_optimizer.models.exceptions import (
     VariableOutOfBoundsError,
 )
 from osprey_optimizer.models.protocols import PVReading
+from osprey_optimizer.services.draft_resolution import resolve_draft_config
 
 
 class FakeInterface:
@@ -162,6 +164,14 @@ def test_get_variables_reads_the_readback(fake):
     assert env.get_variables(["VCM1"])["VCM1"].value == 0.42
 
 
+def test_get_setpoints_reads_the_setpoint_not_the_readback(fake):
+    env, _ = _env(fake)
+    fake.values["VCM1:SP"] = 1.0
+    fake.values["VCM1:RB"] = 1.5  # a calibration offset
+    assert env.get_setpoints(["VCM1"])["VCM1"].value == 1.0
+    assert fake.writes == []
+
+
 @pytest.mark.parametrize("value", [12.01, -12.5, float("nan"), float("inf")])
 def test_out_of_bounds_or_non_finite_writes_are_refused_before_any_write(fake, value):
     env, _ = _env(fake)
@@ -228,8 +238,9 @@ def test_pool_section_turns_fresh_reads_on_in_every_connector_block():
 
 
 class _Limit:
-    def __init__(self, min_value=None, max_value=None, writable=True):
+    def __init__(self, min_value=None, max_value=None, writable=True, max_step=None):
         self.min_value, self.max_value, self.writable = min_value, max_value, writable
+        self.max_step = max_step
 
 
 def _limited(limits, target="va"):
@@ -278,3 +289,38 @@ def test_the_limits_asked_for_are_the_targets():
     ConnectorEnvironment({"spec": SPEC, "control_target": "live"}, limits_lookup=lookup)
     ConnectorEnvironment({"spec": SPEC}, limits_lookup=lookup)
     assert asked == ["live", None]  # None: the most restrictive across targets
+
+
+def test_the_channel_max_step_is_carried_on_the_variable():
+    env = _limited({"VCM1:SP": _Limit(max_step=0.5)})
+    assert env.variables["VCM1"].max_step == 0.5
+    assert env.variables["VCM2"].max_step is None
+
+
+@pytest.mark.parametrize(
+    ("window", "refused"),
+    [pytest.param(0.5, False, id="window_equal_to_max_step"), pytest.param(0.6, True, id="wider")],
+)
+def test_a_search_window_wider_than_max_step_is_refused_at_resolution(fake, window, refused):
+    """The engine moves a variable in one write, so a window the step limit cuts
+    would have moves inside it refused mid-run: refuse it when the run is resolved."""
+    env = ConnectorEnvironment(
+        {"spec": SPEC, "control_target": "va"},
+        interface_factory=lambda t, m: fake,
+        limits_lookup=lambda t: {"VCM1:SP": _Limit(max_step=0.5)},
+    )
+    config = OptimizationConfig(
+        environment_name="orbit",
+        control_target="va",
+        objective_name="rms_y",
+        variables=["VCM1"],
+        variable_overrides={"VCM1": VariableOverride(min=0.0, max=window)},
+    )
+    if refused:
+        with pytest.raises(ValueError, match=r"wider than the max_step 0.5 .*VCM1:SP"):
+            resolve_draft_config(config, env)
+    else:
+        resolve_draft_config(config, env)
+        assert config.variable_overrides is not None
+        assert config.variable_overrides["VCM1"].max == pytest.approx(0.5)
+    assert fake.writes == []

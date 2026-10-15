@@ -1,7 +1,11 @@
-"""What a run leaves the machine at: ``on_abort`` and ``on_complete``.
+"""What a run leaves the machine at.
 
-The fake environment stands in for the machine. The patched engine moves it off
-its starting values the way a search would, then cancels, fails or finishes.
+A finished run leaves what ``on_complete`` says. A cancelled or failed run
+leaves the machine where it is: no write follows a stop, and restoring the
+starting setpoints is the operator's call, through the results restore
+endpoint. The fake environment stands in for the machine. The patched engine
+moves it off its starting values the way a search would, then cancels, fails or
+finishes.
 """
 
 from pathlib import Path
@@ -80,81 +84,102 @@ def _setpoints(machine: dict[str, Any]) -> dict[str, float]:
     [CancellationError("cancelled by operator"), RuntimeError("generator crashed")],
     ids=["cancel", "failure"],
 )
-def test_an_aborted_run_restores_its_starting_values_by_default(
+def test_a_stopped_run_leaves_the_machine_where_it_is(
     exec_service: ExecutionService,
     machine: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
     outcome,
 ) -> None:
+    """No write follows a stop: restoring is the operator's call, not the worker's."""
     monkeypatch.setattr(f"{_EXECUTION}.OptimizationEngine.run", _search_then(machine, outcome))
     with pytest.raises(type(outcome)):
         exec_service.start_optimization(_config(machine))
-    assert _setpoints(machine) == pytest.approx(machine["start"])
-    assert machine["writes"][-1] == pytest.approx(machine["start"])
-
-
-@pytest.mark.parametrize(
-    "outcome", [CancellationError("cancelled"), RuntimeError("crashed")], ids=["cancel", "failure"]
-)
-def test_hold_leaves_the_last_point_the_run_tried(
-    exec_service: ExecutionService,
-    machine: dict[str, Any],
-    monkeypatch: pytest.MonkeyPatch,
-    outcome,
-) -> None:
-    monkeypatch.setattr(f"{_EXECUTION}.OptimizationEngine.run", _search_then(machine, outcome))
-    with pytest.raises(type(outcome)):
-        exec_service.start_optimization(_config(machine, on_abort="hold"))
     lower = {n: machine["env"].variables[n].min_value for n in machine["names"]}
     assert _setpoints(machine) == pytest.approx(lower)
+    # The search's move is the only write: none before it, none after the stop.
+    assert machine["writes"] == [pytest.approx(lower)]
 
 
-def test_a_readonly_run_restores_nothing(
+def test_the_start_is_the_setpoints_and_measuring_it_writes_nothing(
     exec_service: ExecutionService, machine: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        f"{_EXECUTION}.OptimizationEngine.run",
-        _search_then(machine, CancellationError("cancelled")),
+    """Readbacks that sit off their setpoints (a calibration offset) must not leak
+    into the starting point a restore writes back, and must not be written."""
+    env = machine["env"]
+    real_get_variables = env.get_variables
+
+    def offset_readbacks(names: list[str]) -> Any:
+        readings = real_get_variables(names)
+        return {n: r.model_copy(update={"value": r.value + 0.5}) for n, r in readings.items()}
+
+    monkeypatch.setattr(env, "get_variables", offset_readbacks)
+
+    initial = exec_service._measure_initial_state(_config(machine))
+
+    assert initial.start_values == pytest.approx(machine["start"])
+    assert {n: initial.initial_point[n] for n in machine["names"]} == pytest.approx(
+        machine["start"]
     )
+    assert machine["writes"] == []
+
+
+@pytest.mark.parametrize("control", ["cancel", "pause"])
+def test_a_pause_or_cancel_sent_while_the_worker_spawned_is_honoured_before_anything_runs(
+    exec_service: ExecutionService,
+    machine: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    control: str,
+) -> None:
+    """The token is honoured as found at start, never reset: a pause blocks there
+    (here: until a cancel arrives) and a cancel stops the run before it reads or
+    writes anything."""
+    token = MagicMock()
+    if control == "cancel":
+        token.check_cancellation.side_effect = CancellationError("cancelled during spawn")
+    else:
+        token.wait_if_paused.side_effect = CancellationError("cancelled while paused")
+    monkeypatch.setattr(exec_service, "_get_cancellation_token", lambda: token)
+    measure = MagicMock()
+    monkeypatch.setattr(ExecutionService, "_measure_initial_state", measure)
+
     with pytest.raises(CancellationError):
-        exec_service.start_optimization(_config(machine, execution_mode="readonly"))
-    # The only writes are the measurement's re-set of the start and the search's move.
-    assert not any(w == pytest.approx(machine["start"]) for w in machine["writes"][2:])
+        exec_service.start_optimization(_config(machine))
+
+    token.reset.assert_not_called()
+    measure.assert_not_called()
+    assert machine["writes"] == []
 
 
-def test_a_failed_restore_makes_the_job_an_error_naming_both(
+def test_a_readonly_run_restores_nothing_on_completion(
     exec_service: ExecutionService, machine: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        f"{_EXECUTION}.OptimizationEngine.run",
-        _search_then(machine, CancellationError("cancelled")),
+    monkeypatch.setattr(f"{_EXECUTION}.OptimizationEngine.run", _search_then(machine, None))
+    monkeypatch.setattr(f"{_EXECUTION}.process_results", MagicMock(return_value=None))
+    exec_service.start_optimization(
+        _config(machine, execution_mode="readonly", on_complete="restore")
     )
-    real_restore = ExecutionService._restore_initial_values
-
-    def failing_restore(_self: ExecutionService, *args: Any) -> None:
-        raise ConnectionError("gateway down")
-
-    monkeypatch.setattr(ExecutionService, "_restore_initial_values", failing_restore)
-    with pytest.raises(RestoreFailedError) as caught:
-        exec_service.start_optimization(_config(machine))
-    assert "cancellation" in str(caught.value)
-    assert "gateway down" in str(caught.value)
-    assert isinstance(caught.value.__cause__, CancellationError)
-    assert real_restore is not failing_restore
+    lower = {n: machine["env"].variables[n].min_value for n in machine["names"]}
+    assert machine["writes"] == [pytest.approx(lower)]
 
 
-def test_a_failure_before_the_start_was_measured_restores_nothing(
+def test_a_failed_restore_on_completion_makes_the_job_an_error(
     exec_service: ExecutionService, machine: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def broken_measure(*_args: Any) -> None:
-        raise RuntimeError("cannot read the machine")
+    monkeypatch.setattr(f"{_EXECUTION}.OptimizationEngine.run", _search_then(machine, None))
+    monkeypatch.setattr(f"{_EXECUTION}.process_results", MagicMock(return_value=None))
+    env = machine["env"]
+    real_set = env.set_variables
 
-    monkeypatch.setattr(ExecutionService, "_measure_initial_state", broken_measure)
-    restore = MagicMock()
-    monkeypatch.setattr(ExecutionService, "_restore_initial_values", restore)
-    with pytest.raises(RuntimeError, match="cannot read"):
-        exec_service.start_optimization(_config(machine))
-    restore.assert_not_called()
+    def fail_on_restore(values: dict[str, float], **kwargs: Any) -> None:
+        if values == pytest.approx(machine["start"]):
+            raise ConnectionError("gateway down")
+        real_set(values, **kwargs)
+
+    monkeypatch.setattr(env, "set_variables", fail_on_restore)
+    with pytest.raises(RestoreFailedError, match="gateway down") as caught:
+        exec_service.start_optimization(_config(machine, on_complete="restore"))
+    assert "finished" in str(caught.value)
+    assert isinstance(caught.value.__cause__, ConnectionError)
 
 
 @pytest.mark.parametrize(

@@ -13,11 +13,12 @@ ControlTarget: TypeAlias = Literal["va", "standin", "live"]
 ExecutionMode: TypeAlias = Literal["readonly"]
 """``readonly`` takes writes away from a target; it never grants them."""
 
-OnAbort: TypeAlias = Literal["restore", "hold"]
-"""What a cancelled or failed run leaves: its starting values, or the last point it tried."""
-
 OnComplete: TypeAlias = Literal["apply_best", "restore", "hold"]
-"""What a finished run leaves: its best point, its starting values, or the last point it tried."""
+"""What a finished run leaves: its best point, its starting setpoints, or the last point it tried.
+
+A run that stops early, cancelled or failed, always leaves the machine where it is;
+restoring its starting setpoints is the operator's call, through the results restore
+endpoint."""
 
 
 def machine_config(
@@ -158,18 +159,12 @@ class OptimizationConfig(BaseModel):
     execution_mode: ExecutionMode | None = Field(
         default=None, description="readonly: the run may read but every write is refused."
     )
-    on_abort: OnAbort = Field(
-        default="restore",
-        description=(
-            "On cancel or failure: 'restore' writes back the values the run started from; "
-            "'hold' leaves the machine at the last point the run tried."
-        ),
-    )
     on_complete: OnComplete = Field(
         default="apply_best",
         description=(
             "On completion: 'apply_best' writes the best point found; 'restore' writes back "
-            "the starting values; 'hold' leaves the last point tried."
+            "the starting setpoints; 'hold' leaves the last point tried. A cancelled or failed "
+            "run always holds."
         ),
     )
 

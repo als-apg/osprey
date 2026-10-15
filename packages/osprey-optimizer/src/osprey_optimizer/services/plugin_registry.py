@@ -41,6 +41,7 @@ _REQUIRED_PROTOCOL_MEMBERS = (
     "variables",
     "observables",
     "get_variables",
+    "get_setpoints",
     "set_variables",
 )
 

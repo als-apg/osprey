@@ -54,6 +54,11 @@ class FakeInjectorEnvironment(EnvironmentProtocol):
     def get_variables(self, variable_names: list[str]) -> dict[str, PVReading]:
         return {n: PVReading(value=self._setpoints.get(n, 0.0)) for n in variable_names}
 
+    def get_setpoints(self, variable_names: list[str]) -> dict[str, PVReading]:
+        # Read on its own, not through get_variables: a test can then give the
+        # readbacks an offset and check that nothing takes them for setpoints.
+        return {n: PVReading(value=self._setpoints.get(n, 0.0)) for n in variable_names}
+
     def set_variables(
         self,
         variable_inputs: dict[str, float],
@@ -194,6 +199,9 @@ class MockEnvironment(EnvironmentProtocol):
 
     def get_variables(self, variable_names: list[str]) -> dict[str, PVReading]:
         return {n: PVReading(value=5.0) for n in variable_names}
+
+    def get_setpoints(self, variable_names: list[str]) -> dict[str, PVReading]:
+        return self.get_variables(variable_names)
 
     def set_variables(
         self,

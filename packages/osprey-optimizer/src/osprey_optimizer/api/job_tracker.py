@@ -57,6 +57,19 @@ end
 return 0
 """
 
+# Update a claimed job's RUNNING meta (its real PID) only while it still holds
+# the active slot. KEYS[1]=ACTIVE_JOB_KEY, KEYS[2]=meta_key. ARGV[1]=job_id,
+# ARGV[2]=running-meta JSON, ARGV[3]=ttl seconds. Never writes the slot itself:
+# a job that lost it (its claim was released or expired, and another job may now
+# hold it) must not take it back.
+_REGISTER_IF_ACTIVE_LUA = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    redis.call('SET', KEYS[2], ARGV[2], 'EX', tonumber(ARGV[3]))
+    return 1
+end
+return 0
+"""
+
 # Heartbeat: a running job re-applies RUNNING_STATE_TTL_SECONDS across its whole
 # job:{id}:* namespace every HEARTBEAT_INTERVAL_SECONDS. If the process dies
 # (SIGKILL/OOM/redeploy) it stops refreshing, every key expires, and
@@ -64,6 +77,10 @@ return 0
 # no state/cancel key leaks. The 6x margin (10s beat / 60s TTL) tolerates a brief
 # Redis blip without freeing a slot out from under a live job.
 HEARTBEAT_INTERVAL_SECONDS = 10
+
+
+class JobSlotLostError(RuntimeError):
+    """A spawned job found that it no longer holds the single active slot."""
 
 
 class JobMeta(BaseModel):
@@ -120,28 +137,40 @@ class JobTracker:
             self._scripts[source] = self._get_redis().register_script(source)
         return self._scripts[source]
 
-    def register_job(self, job_id: str, pid: int, job_type: JobType = JobType.OPTIMIZATION) -> None:
-        """Register a job as active, overwriting any current active marker.
+    def register_job(self, job_id: str, pid: int, job_type: JobType = JobType.OPTIMIZATION) -> bool:
+        """Record the real PID of a job that holds the active slot.
 
-        Used for in-place updates of an already-claimed job (e.g. writing the
-        real PID after spawn). To claim the active slot for a brand-new job, use
-        :meth:`claim_active_job`, which is atomic against concurrent starts.
+        Used for in-place updates of an already-claimed job (writing the PID
+        after spawn, and again from the worker itself). It never takes the slot:
+        to claim it for a brand-new job, use :meth:`claim_active_job`, which is
+        atomic against concurrent starts.
 
         Args:
             job_id: Unique job identifier
             pid: Process ID of the job
             job_type: the kind of job being tracked
+
+        Returns:
+            True if the job still holds the slot and was updated; False if it
+            does not, in which case nothing was written.
         """
-        redis = self._get_redis()
-        # Store job metadata under a heartbeat TTL so a crashed process's slot
+        # The meta carries a heartbeat TTL so a crashed process's slot
         # self-heals once it stops refreshing (see refresh_heartbeat).
-        redis.set(
-            meta_key(job_id),
-            _meta_json(job_id, pid, JobStatus.RUNNING, job_type),
-            ex=RUNNING_STATE_TTL_SECONDS,
+        updated = self._script(_REGISTER_IF_ACTIVE_LUA)(
+            keys=[ACTIVE_JOB_KEY, meta_key(job_id)],
+            args=[
+                job_id,
+                _meta_json(job_id, pid, JobStatus.RUNNING, job_type),
+                RUNNING_STATE_TTL_SECONDS,
+            ],
         )
-        redis.set(ACTIVE_JOB_KEY, job_id)
+        if updated != 1:
+            logger.warning(
+                "Job %s does not hold the active slot; PID %s not registered", job_id, pid
+            )
+            return False
         logger.info("Registered job %s with PID %s", job_id, pid)
+        return True
 
     def register_created_job(self, job_id: str, job_type: JobType = JobType.OPTIMIZATION) -> None:
         """Register a CREATED-but-not-started job WITHOUT claiming the active slot.
@@ -376,10 +405,26 @@ class JobLifecycle:
         )
 
     def __enter__(self) -> JobLifecycle:
-        """Start the job lifecycle."""
+        """Start the job lifecycle.
+
+        The launcher already claimed the slot and set RUNNING before spawning
+        this process, and a pause or cancel may have landed during the spawn:
+        the status is left as found, so neither is lost.
+
+        Raises:
+            JobSlotLostError: The job no longer holds the active slot, so another
+                job may be driving the machine; this one must not start.
+        """
         self.writer = create_job_state(self._job_type, self.job_id)
-        self.tracker.register_job(self.job_id, os.getpid(), job_type=self._job_type)
-        self.writer.set_status(JobStatus.RUNNING)
+        if not self.tracker.register_job(self.job_id, os.getpid(), job_type=self._job_type):
+            message = (
+                f"Job {self.job_id} lost the active-job slot before it started; "
+                "it wrote nothing to the machine."
+            )
+            self.writer.set_status(JobStatus.ERROR)
+            self.writer.set_error_message(message)
+            self.tracker.expire_job(self.job_id, TERMINAL_STATE_TTL_SECONDS)
+            raise JobSlotLostError(message)
         self._heartbeat.start()
 
         logger.info(
