@@ -3,6 +3,7 @@
 Tests the runtime utilities for control system operations in generated Python code.
 """
 
+import threading
 from datetime import datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -31,6 +32,7 @@ from osprey.runtime import (
     cleanup_runtime,
     read_channel,
     read_channels,
+    record_writes,
     values_match,
     write_channel,
     write_channels,
@@ -869,11 +871,154 @@ def test_write_observer_raising_observer_does_not_mask_write_failure():
             write_channel("TEST:PV", 1.0)
 
 
-def test_write_observer_api_is_private():
+def test_the_private_observer_registration_is_not_public():
+    """Writes are observed publicly only through the scoped ``record_writes``."""
     import osprey.runtime as runtime
 
     assert "_register_write_observer" not in runtime.__all__
-    assert not any("observer" in name for name in runtime.__all__)
+    assert "_unregister_write_observer" not in runtime.__all__
+    assert "record_writes" in runtime.__all__
+
+
+# ========================================================
+# record_writes (public scoped record of this process's writes)
+# ========================================================
+
+
+@pytest.mark.usefixtures("clear_runtime_state")
+class TestRecordWrites:
+    """``record_writes`` yields the (address, phase) records of the writes made while it is open."""
+
+    def test_it_yields_the_attempt_and_the_outcome_of_each_write_made_while_open(self):
+        connector = PerChannelConnector(
+            {"A:PV": WriteOutcome.CONFIRMED, "B:PV": WriteOutcome.UNREQUESTED}
+        )
+        with _patched_factory(connector), record_writes() as records:
+            write_channel("A:PV", 1.0)
+            write_channels({"A:PV": 2.0, "B:PV": 3.0})
+        assert records == [
+            ("A:PV", "attempt"),
+            ("A:PV", "landed"),
+            ("A:PV", "attempt"),
+            ("B:PV", "attempt"),
+            ("A:PV", "landed"),
+            ("B:PV", "sent"),
+        ]
+
+    def test_a_write_sent_unverified_records_sent_and_still_raises(self):
+        with _patched_factory(PerChannelConnector({"A:PV": WriteOutcome.MISMATCH})):
+            with record_writes() as records, pytest.raises(ChannelWriteFailedError):
+                write_channel("A:PV", 1.0)
+        assert records == [("A:PV", "attempt"), ("A:PV", "sent")]
+
+    def test_a_write_the_connector_refuses_records_its_attempt_and_no_outcome(self):
+        connector = PerChannelConnector(
+            {"A:PV": WriteOutcome.REFUSED, "B:PV": WriteOutcome.REFUSED}
+        )
+        with _patched_factory(connector), record_writes() as records:
+            with pytest.raises(ChannelWriteBlockedError):
+                write_channel("A:PV", 1.0)
+            with pytest.raises(ChannelWriteBlockedError):
+                write_channels({"A:PV": 1.0, "B:PV": 2.0})
+        assert records == [("A:PV", "attempt"), ("A:PV", "attempt"), ("B:PV", "attempt")]
+        assert not any(phase in ("sent", "landed") for _address, phase in records)
+
+    def test_a_write_the_limits_net_refuses_records_nothing(self):
+        import osprey.runtime as runtime
+
+        runtime._limits_validator = LimitsValidator(
+            {
+                "A:PV": ChannelLimitsConfig(
+                    channel_address="A:PV", min_value=0.0, max_value=10.0, writable=True
+                )
+            },
+            {"mode": "exclusive"},
+        )
+        connector = RecordingConnector()
+        with _patched_factory(connector), record_writes() as records:
+            with pytest.raises(ChannelLimitsViolationError):
+                write_channel("A:PV", 99.0)
+        assert records == []
+        assert connector.write_calls == []
+
+    def test_nothing_is_recorded_once_the_block_has_closed(self):
+        import osprey.runtime as runtime
+
+        observers = list(runtime._write_observers)
+        with _patched_factory(RecordingConnector()):
+            with record_writes() as records:
+                write_channel("A:PV", 1.0)
+            write_channel("B:PV", 2.0)
+        assert records == [("A:PV", "attempt"), ("A:PV", "landed")]
+        assert runtime._write_observers == observers
+
+    def test_a_block_left_by_an_exception_stops_recording_too(self):
+        import osprey.runtime as runtime
+
+        observers = list(runtime._write_observers)
+        with pytest.raises(RuntimeError, match="body"), record_writes():
+            raise RuntimeError("body")
+        assert runtime._write_observers == observers
+
+    def test_nested_blocks_each_record_the_writes_made_while_they_are_open(self):
+        with _patched_factory(RecordingConnector()):
+            with record_writes() as outer:
+                write_channel("A:PV", 1.0)
+                with record_writes() as inner:
+                    write_channel("B:PV", 2.0)
+                write_channel("C:PV", 3.0)
+        assert inner == [("B:PV", "attempt"), ("B:PV", "landed")]
+        assert outer == [
+            ("A:PV", "attempt"),
+            ("A:PV", "landed"),
+            ("B:PV", "attempt"),
+            ("B:PV", "landed"),
+            ("C:PV", "attempt"),
+            ("C:PV", "landed"),
+        ]
+
+    def test_overlapping_blocks_keep_their_own_records(self):
+        """Two blocks that open and close out of order each record only their own window."""
+        first_block, second_block = record_writes(), record_writes()
+        with _patched_factory(RecordingConnector()):
+            first = first_block.__enter__()
+            second = second_block.__enter__()
+            write_channel("A:PV", 1.0)
+            first_block.__exit__(None, None, None)
+            write_channel("B:PV", 2.0)
+            second_block.__exit__(None, None, None)
+        assert first == [("A:PV", "attempt"), ("A:PV", "landed")]
+        assert second == [
+            ("A:PV", "attempt"),
+            ("A:PV", "landed"),
+            ("B:PV", "attempt"),
+            ("B:PV", "landed"),
+        ]
+
+    def test_concurrent_blocks_on_two_threads_each_get_their_own_records(self):
+        """A block records every write of the process, from any thread, into its own list."""
+        opened = threading.Barrier(2)
+        written = threading.Event()
+        lists: dict[str, list[tuple[str, str]]] = {}
+
+        def hold(name: str) -> None:
+            with record_writes() as records:
+                lists[name] = records
+                opened.wait(timeout=10)
+                assert written.wait(timeout=10)
+
+        with _patched_factory(RecordingConnector()):
+            helper = threading.Thread(target=hold, args=("helper",))
+            helper.start()
+            with record_writes() as mine:
+                opened.wait(timeout=10)
+                write_channel("A:PV", 1.0)
+                written.set()
+            helper.join(timeout=10)
+        assert not helper.is_alive()
+        assert mine == [("A:PV", "attempt"), ("A:PV", "landed")]
+        assert lists["helper"] == mine
+        assert lists["helper"] is not mine
 
 
 @pytest.mark.usefixtures("clear_runtime_state")
