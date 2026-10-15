@@ -105,7 +105,8 @@ async def _launch_token(request: Request) -> None:
 
 
 def _sessions(request: Request) -> Sessions:
-    return request.app.state.sessions
+    sessions: Sessions = request.app.state.sessions
+    return sessions
 
 
 async def _body(request: Request) -> Mapping[str, Any] | None:
@@ -113,9 +114,10 @@ async def _body(request: Request) -> Mapping[str, Any] | None:
     if not raw.strip():
         return None
     try:
-        return json.loads(raw)
+        body: Mapping[str, Any] | None = json.loads(raw)
     except ValueError as exc:
         raise SessionRefused(BAD_REQUEST, "a session request carries no body") from exc
+    return body
 
 
 # -- audit ---------------------------------------------------------------------

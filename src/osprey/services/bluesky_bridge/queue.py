@@ -94,7 +94,7 @@ import os
 import uuid
 from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
@@ -285,7 +285,7 @@ def _require_arming_token(header: str, action: str, extra: Mapping[str, Any] | N
     try:
         verify_launch_token(header)
     except HTTPException as exc:
-        refusal = exc.detail
+        refusal = cast(Mapping[str, Any], exc.detail)
         raise HTTPException(
             status_code=exc.status_code,
             detail={

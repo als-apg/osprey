@@ -105,6 +105,10 @@ class ChannelWriteBlockedError(Exception):
         "RAW_CLIENT_WRITE",
     )
 
+    #: The addresses whose results were not refused, in order, when a batch of
+    #: commands raised this; ``None`` when no batch writer set it.
+    commands_fired: list[str] | None = None
+
     def __init__(self, channel_address: str, reason: str, message: str | None = None):
         self.channel_address = channel_address
         self.reason = reason
@@ -189,6 +193,10 @@ class ChannelWriteFailedError(Exception):
     """
 
     _VALID_REASONS = ("FAILED", "MISMATCH", "UNCONFIRMED")
+
+    #: The addresses whose results were not refused, in order, when a batch of
+    #: commands raised this; ``None`` when no batch writer set it.
+    commands_fired: list[str] | None = None
 
     def __init__(
         self,

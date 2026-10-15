@@ -681,7 +681,7 @@ def lock(
                 f"this process holds the run lock on {held.target}; it cannot take one on {name}"
             )
         joined = join and held is not None
-        if joined and context is not None and context != held.context:
+        if held is not None and joined and context is not None and context != held.context:
             raise RuntimeError(
                 f"this process holds the run lock on {name} under another context; "
                 "a join runs under the held one"
