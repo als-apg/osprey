@@ -68,6 +68,7 @@ __all__ = [
     "KIND_STEPPED",
     "LATTICE_FILE",
     "PYAML_DIR",
+    "PyamlView",
     "ROLE_PLANES",
     "TOOL_KEYS",
     "TRAJECTORY_RM_FILE",
@@ -378,12 +379,29 @@ def measurement_groups(doc: Mapping[str, Any], model: str) -> dict[str, list[str
     Raises:
         KeyError: The facility file has no model ``model``.
     """
+    return _measurement_groups(doc, model, _wired(doc, model))
+
+
+def _wired(doc: Mapping[str, Any], model: str) -> dict[str, dict[str, Any]]:
+    """The model's simulator wiring entries, by address.
+
+    Made once per view or name lookup and handed to each reader of it.
+
+    Raises:
+        KeyError: The facility file has no model ``model``.
+    """
     from osprey.facility.views.simulator import simulator_wiring
 
+    return {str(entry["address"]): entry for entry in simulator_wiring(dict(doc), model)}
+
+
+def _measurement_groups(
+    doc: Mapping[str, Any], model: str, wiring: Mapping[str, Mapping[str, Any]]
+) -> dict[str, list[str]]:
+    """:func:`measurement_groups` over the model's wiring entries, by address."""
     record = _model_record(doc, model)
     groups_named = (record.get("measurement") or {}).get("groups") or {}
     groups = {str(group["id"]): group for group in doc.get("groups", [])}
-    wiring = {str(entry["address"]): entry for entry in simulator_wiring(dict(doc), model)}
     on_device = _channels_of(doc)
     found: dict[str, list[str]] = {}
     for role in GROUP_ROLES:
@@ -632,10 +650,11 @@ def _bound(limit: Mapping[str, Any], key: str, default: float) -> float:
     return float(value)
 
 
-def _magnets(doc: Mapping[str, Any], model: str, groups: Mapping[str, list[str]]) -> list[_Magnet]:
-    from osprey.facility.views.simulator import simulator_wiring
-
-    wiring = {str(entry["address"]): entry for entry in simulator_wiring(dict(doc), model)}
+def _magnets(
+    doc: Mapping[str, Any],
+    wiring: Mapping[str, Mapping[str, Any]],
+    groups: Mapping[str, list[str]],
+) -> list[_Magnet]:
     pairs = {
         str(channel["id"]): channel.get("pair")
         for channel in doc.get("channels", [])
@@ -652,11 +671,10 @@ def _magnets(doc: Mapping[str, Any], model: str, groups: Mapping[str, list[str]]
     return magnets
 
 
-def _bpms(doc: Mapping[str, Any], model: str, addresses: Sequence[str]) -> list[_Bpm]:
+def _bpms(
+    doc: Mapping[str, Any], wiring: Mapping[str, Mapping[str, Any]], addresses: Sequence[str]
+) -> list[_Bpm]:
     """The BPM devices the ``bpm`` readbacks are on, in the readbacks' order."""
-    from osprey.facility.views.simulator import simulator_wiring
-
-    wiring = {str(entry["address"]): entry for entry in simulator_wiring(dict(doc), model)}
     device_of = {
         str(channel["id"]): str((channel.get("on") or {}).get("device"))
         for channel in doc.get("channels", [])
@@ -1105,10 +1123,11 @@ def view_names(doc: Mapping[str, Any], model: str) -> ViewNames:
     """
     record = _model_record(doc, model)
     measurement = record.get("measurement") or {}
-    groups = measurement_groups(doc, model)
+    wiring = _wired(doc, model)
+    groups = _measurement_groups(doc, model, wiring)
     return _names(
-        _magnets(doc, model, groups),
-        _bpms(doc, model, groups.get("bpm", ())),
+        _magnets(doc, wiring, groups),
+        _bpms(doc, wiring, groups.get("bpm", ())),
         measurement.get("groups") or {},
         (measurement.get("instruments") or {}).get("rf"),
     )
@@ -1146,15 +1165,16 @@ def _configuration(
     solve = ((record.get("settings") or {}).get(str(record["engine"])) or {}).get("solve")
     periodic = solve != _SINGLE_PASS
     deck = _load_deck(inputs.facility_dir / str(record["deck"]))
-    groups = measurement_groups(doc, model)
+    wiring = _wired(doc, model)
+    groups = _measurement_groups(doc, model, wiring)
     groups_named = measurement.get("groups") or {}
     instruments = measurement.get("instruments") or {}
     kinds = list(measurement.get("kinds") or [])
     units = _units(doc)
     limits = {str(row["address"]): row for row in (doc.get("limits") or {}).get("records") or []}
 
-    magnets = _magnets(doc, model, groups)
-    bpms = _bpms(doc, model, groups.get("bpm", ()))
+    magnets = _magnets(doc, wiring, groups)
+    bpms = _bpms(doc, wiring, groups.get("bpm", ()))
     rf = instruments.get("rf")
     names = _names(magnets, bpms, groups_named, rf)
     models = {magnet.address: _magnet_model(magnet, deck, limits) for magnet in magnets}
@@ -1427,6 +1447,41 @@ def _shown(addresses: Sequence[str]) -> str:
     return ", ".join(addresses[:3]) + (", …" if len(addresses) > 3 else "")
 
 
+@dataclass(frozen=True)
+class PyamlView:
+    """One model's pyAML view, as every render of a build writes it.
+
+    Attributes:
+        configuration: The configuration file's text.
+        files: Each file beside it, by name, with its text.
+        unmodelled: The setpoints left out for want of a pyAML magnet model.
+        unkicked: The corrector setpoints left out for want of an element
+            that carries their kick.
+    """
+
+    configuration: str
+    files: Mapping[str, str]
+    unmodelled: Sequence[str]
+    unkicked: Sequence[str]
+
+
+def _view(inputs: ViewInputs, model: str) -> PyamlView:
+    """One model's view, made once per build when ``inputs.pyaml_views`` is kept.
+
+    The view is a function of the facility file and the facility directory
+    alone, so a render whose build has already made it reuses it.
+    """
+    built = inputs.pyaml_views
+    key = (inputs.facility_dir, model)
+    if built is not None and key in built:
+        return built[key]
+    configuration, files, unmodelled, unkicked = _configuration(inputs, model)
+    view = PyamlView(_yaml_text(configuration), files, unmodelled, unkicked)
+    if built is not None:
+        built[key] = view
+    return view
+
+
 def write_pyaml_view(root: Path, inputs: ViewInputs) -> list[Path]:
     """Write every measured model's pyAML view into ``root``.
 
@@ -1444,7 +1499,8 @@ def write_pyaml_view(root: Path, inputs: ViewInputs) -> list[Path]:
         report_note(inputs, _omitted_note(model, reason))
     written: list[Path] = []
     for model in written_models:
-        configuration, files, unmodelled, unkicked = _configuration(inputs, model)
+        view = _view(inputs, model)
+        unmodelled, unkicked = view.unmodelled, view.unkicked
         if unmodelled:
             report_note(
                 inputs,
@@ -1462,9 +1518,9 @@ def write_pyaml_view(root: Path, inputs: ViewInputs) -> list[Path]:
         directory = root / model
         directory.mkdir(parents=True, exist_ok=True)
         target = directory / CONFIGURATION_FILE
-        target.write_text(_yaml_text(configuration), encoding="utf-8")
+        target.write_text(view.configuration, encoding="utf-8")
         written.append(target)
-        for name, text in sorted(files.items()):
+        for name, text in sorted(view.files.items()):
             path = directory / name
             path.write_text(text, encoding="utf-8")
             written.append(path)

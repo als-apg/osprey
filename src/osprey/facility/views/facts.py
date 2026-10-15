@@ -426,9 +426,14 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
 
     doc = json.loads((render_root / FACILITY_FILE).read_text(encoding="utf-8"))
     models = {str(model["name"]): model for model in doc.get("models", [])}
+    # The configuration is the view's own safe YAML; libyaml, where PyYAML
+    # carries it, reads the same document several times faster.
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
     block: dict[str, dict[str, Any]] = {}
     for model, record in sorted(recorded.items()):
-        configuration = yaml.safe_load((render_root / record["path"]).read_text(encoding="utf-8"))
+        configuration = yaml.load(
+            (render_root / record["path"]).read_text(encoding="utf-8"), Loader=loader
+        )
         arrays = {str(a["name"]): list(a["elements"]) for a in configuration.get("arrays") or []}
         devices = {str(d["name"]): d for d in configuration.get("devices") or []}
         measurement = models[str(model)].get("measurement") or {}
