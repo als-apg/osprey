@@ -2274,6 +2274,36 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     )
 
 
+def test_orm_stack_names_a_bounded_corrector_and_its_models_monitors(tmp_path: Path) -> None:
+    """The plan-stack lanes size a sweep from a corrector a limits record
+    bounds and read it back on monitors the same model solves for.
+
+    ``bounded_corrector`` must name a staged corrector whose record carries
+    both ends of a band, and ``select_bpms(..., model=...)`` must yield only
+    monitor bindings of that corrector's model: a monitor of another model
+    cannot respond to the sweep.
+    """
+    from click.testing import CliRunner
+
+    from tests.e2e import _orm_stack
+
+    repo = _orm_stack.build_via_cli_runner(CliRunner(), tmp_path).parent
+
+    setpoint, readback, model = _orm_stack.bounded_corrector(repo)
+    entry = _orm_stack.channel_limits(repo)[setpoint]
+    assert float(entry["min_value"]) < float(entry["max_value"]), entry
+    assert _orm_stack.select_correctors(repo, count=None, model=model)[setpoint] == (
+        setpoint,
+        readback,
+    )
+
+    bpms = _orm_stack.select_bpms(repo, count=None, model=model)
+    assert bpms, f"model {model} serves no monitor the worker registered"
+    view = _orm_stack.repo_view(repo)
+    model_monitors = {binding.address for binding in view.bindings(role="monitor", model=model)}
+    assert set(bpms) <= model_monitors, sorted(set(bpms) - model_monitors)
+
+
 # ---------------------------------------------------------------------------
 # Container config staging: no host interpreter can reach the container
 #

@@ -535,6 +535,7 @@ def build_project_subprocess(
     provider: str | None = None,
     model: str | None = None,
     extra_config: dict[str, Any] | None = None,
+    pre_build: Callable[[Path], None] | None = None,
 ) -> Path:
     """Real ``osprey init`` + ``osprey build`` subprocesses for a deployment a
     caller will later ``osprey up`` (that step needs Docker; these don't -- they
@@ -550,6 +551,10 @@ def build_project_subprocess(
     ``init_args`` (see its docstring). All ``None`` by default, which preserves
     the exact default deploy shape (an empty ``extra_config`` is likewise a
     no-op).
+
+    ``pre_build`` is called with the repo between ``osprey init`` and
+    ``osprey build``: the one moment a lane can edit the repo's facility tree
+    and have the build render that edit.
     """
     osprey_bin = find_osprey_console_script()
 
@@ -586,6 +591,8 @@ def build_project_subprocess(
             )
 
     run_step("osprey init", cmd)
+    if pre_build is not None:
+        pre_build(repo)
 
     run_step(
         "osprey build",
@@ -851,8 +858,11 @@ def repo_view(repo: Path) -> SimulatorView:
     return _view_of_resolved(path.resolve())
 
 
-def corrector_addresses(view: SimulatorView, *, plane: str | None = None) -> frozenset[str]:
-    """Every corrector setpoint the view's bindings serve, optionally of one plane.
+def corrector_addresses(
+    view: SimulatorView, *, plane: str | None = None, model: str | None = None
+) -> frozenset[str]:
+    """Every corrector setpoint the view's bindings serve, optionally of one
+    plane and of one model.
 
     A corrector is a setpoint binding that steers a transverse plane. Grouping
     by what a binding DOES -- steer a plane, read one -- rather than by the
@@ -861,14 +871,19 @@ def corrector_addresses(view: SimulatorView, *, plane: str | None = None) -> fro
     """
     return frozenset(
         binding.address
-        for binding in view.bindings(role="setpoint")
+        for binding in view.bindings(role="setpoint", model=model)
         if binding.plane is not None and (plane is None or binding.plane == plane)
     )
 
 
-def monitor_addresses(view: SimulatorView, *, plane: str | None = None) -> frozenset[str]:
-    """Every monitor reading the view's bindings serve, optionally of one plane."""
-    return frozenset(binding.address for binding in view.bindings(role="monitor", plane=plane))
+def monitor_addresses(
+    view: SimulatorView, *, plane: str | None = None, model: str | None = None
+) -> frozenset[str]:
+    """Every monitor reading the view's bindings serve, optionally of one plane
+    and of one model."""
+    return frozenset(
+        binding.address for binding in view.bindings(role="monitor", plane=plane, model=model)
+    )
 
 
 def claimed_addresses(view: SimulatorView) -> frozenset[str]:
@@ -910,7 +925,7 @@ def _keyed_by_address(
 
 
 def select_correctors(
-    repo: Path, count: int | None = DEFAULT_CORRECTOR_COUNT
+    repo: Path, count: int | None = DEFAULT_CORRECTOR_COUNT, *, model: str | None = None
 ) -> dict[str, tuple[str, str]]:
     """Pick ``count`` corrector ``:SP``/``:RB`` pairs out of the device view the
     build staged for ``repo`` (:func:`staged_devices`), never a hardcoded
@@ -928,12 +943,14 @@ def select_correctors(
 
     If ``count`` is ``None``, returns the FULL available corrector set instead
     of a fixed-size slice -- no assertion is raised in that case, regardless of
-    how many pairs are found. Pairs are taken in address order.
+    how many pairs are found. Pairs are taken in address order. ``model``
+    keeps only the correctors that model's bindings wire; ``None`` takes every
+    served model's.
 
     Returns a dict of ``sp_address -> (sp_address, rb_address)`` -- the
     setpoint's device name is its own ``:SP`` address, as it is in the view.
     """
-    kicks = corrector_addresses(repo_view(repo))
+    kicks = corrector_addresses(repo_view(repo), model=model)
     settables, _ = staged_devices(repo)
     pairs = [
         (setpoint, readback)
@@ -943,7 +960,9 @@ def select_correctors(
     return _keyed_by_address(pairs, lambda pair: pair[0], count, "corrector pairs")
 
 
-def select_bpms(repo: Path, count: int | None = DEFAULT_BPM_COUNT) -> dict[str, str]:
+def select_bpms(
+    repo: Path, count: int | None = DEFAULT_BPM_COUNT, *, model: str | None = None
+) -> dict[str, str]:
     """Pick ``count`` beam-position readbacks out of the device view the build
     staged for ``repo`` -- same view, same no-hardcoded-channel convention as
     :func:`select_correctors`.
@@ -955,15 +974,49 @@ def select_bpms(repo: Path, count: int | None = DEFAULT_BPM_COUNT) -> dict[str, 
 
     If ``count`` is ``None``, returns the FULL available monitor set instead of
     a fixed-size slice -- no assertion is raised in that case. Readbacks are
-    taken in address order.
+    taken in address order. ``model`` keeps only the monitors that model's
+    bindings wire; ``None`` takes every served model's.
 
     Returns a dict of ``read_address -> read_address`` -- the readback's device
     name is its own read address, as it is in the view.
     """
-    monitors = monitor_addresses(repo_view(repo))
+    monitors = monitor_addresses(repo_view(repo), model=model)
     _, readables = staged_devices(repo)
     addresses = sorted(address for address in readables.values() if address in monitors)
     return _keyed_by_address(addresses, lambda address: address, count, "monitor readbacks")
+
+
+def has_band(entry: Any) -> bool:
+    """Whether a limits record bounds its channel at both ends.
+
+    The one rule for "a channel a record bounds": a lane sizing a sweep from a
+    channel's own range needs both ``min_value`` and ``max_value``.
+    """
+    return isinstance(entry, dict) and "min_value" in entry and "max_value" in entry
+
+
+def bounded_corrector(repo: Path) -> tuple[str, str, str]:
+    """The first staged corrector, in address order, that a limits record
+    bounds at both ends, as ``(setpoint, readback, model)``.
+
+    The device a lane names when its request depends on a corrector having a
+    range: the limits table holds only the records the facility tree authors,
+    so a corrector without one has no range to sweep across. ``model`` is the
+    model whose binding wires the setpoint, so a lane reads the sweep's
+    response on that model's monitors (:func:`select_bpms` with ``model=``).
+    """
+    limits = channel_limits(repo)
+    view = repo_view(repo)
+    for setpoint, readback in select_correctors(repo, count=None).values():
+        if has_band(limits.get(setpoint)):
+            (binding,) = (
+                binding for binding in view.bindings(role="setpoint") if binding.address == setpoint
+            )
+            return setpoint, readback, binding.model
+    raise AssertionError(
+        "no staged corrector has a limits record with both min_value and max_value "
+        f"in the limits table of {repo / 'data' / 'facility' / 'limits.yaml'}"
+    )
 
 
 def seed_repo_env(repo: Path) -> None:
