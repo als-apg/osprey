@@ -20,10 +20,12 @@ complete at every instant rather than at exit:
     not a per-test stuck detector: a healthy long run leaves a handful of dumps,
     and a wedged one leaves the same frames over and over, which is what "stuck"
     looks like. Covering the whole session is deliberate — it keeps dumping
-    after the LAST test has finished, which is where a shutdown hang lives, and
-    a per-test timer would be cancelled by then and show nothing. The one-shot
-    end-of-run counterpart, which names the non-daemon threads still alive at
-    ``pytest_unconfigure`` on every run, CI or not, is ``tests/_live_threads.py``.
+    through the session's teardown after the LAST test, where a per-test timer
+    would be cancelled and show nothing. It stops at ``pytest_unconfigure``.
+    What follows — the non-daemon threads still alive, the exit callbacks, the
+    final garbage collection, and a process that outlives its exit bound — is
+    named on every run, CI or not, by the exit report in
+    ``tests/_live_threads.py``.
 
 A third record is written only when a test fails:
 
