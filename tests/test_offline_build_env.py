@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -125,7 +126,11 @@ def _unguarded_builds(source: str) -> list[int]:
     """
     # A module that spells no build word or no launcher holds no build, so
     # it is not parsed.
-    names_build = '"build"' in source or "'build'" in source or "invoke(build" in source
+    names_build = (
+        '"build"' in source
+        or "'build'" in source
+        or re.search(r"invoke\(\s*build\b", source) is not None
+    )
     names_launcher = any(
         word in source for word in ("_run_cli", "osprey_bin", '"osprey"', "'osprey'", ".invoke(")
     )
@@ -178,6 +183,9 @@ UNGUARDED_SUBPROCESS = (
 )
 UNGUARDED_IN_PROCESS = 'def test_it(runner, r):\n    runner.invoke(cli, ["build", "--repo", r])\n'
 UNGUARDED_IN_PROCESS_COMMAND = 'def test_it(runner, r):\n    runner.invoke(build, ["--repo", r])\n'
+UNGUARDED_IN_PROCESS_COMMAND_WRAPPED = (
+    'def test_it(runner, r):\n    runner.invoke(\n        build,\n        ["--repo", r],\n    )\n'
+)
 STUBS_THE_INSTALL = (
     '    monkeypatch.setattr(build_cmd, "_create_project_venv", lambda *a, **k: [])\n'
 )
@@ -185,8 +193,14 @@ STUBS_THE_INSTALL = (
 
 @pytest.mark.parametrize(
     "source",
-    [UNGUARDED_RUN_CLI, UNGUARDED_SUBPROCESS, UNGUARDED_IN_PROCESS, UNGUARDED_IN_PROCESS_COMMAND],
-    ids=["run-cli", "subprocess", "in-process", "in-process-command"],
+    [
+        UNGUARDED_RUN_CLI,
+        UNGUARDED_SUBPROCESS,
+        UNGUARDED_IN_PROCESS,
+        UNGUARDED_IN_PROCESS_COMMAND,
+        UNGUARDED_IN_PROCESS_COMMAND_WRAPPED,
+    ],
+    ids=["run-cli", "subprocess", "in-process", "in-process-command", "in-process-command-wrapped"],
 )
 def test_every_real_build_under_tests_takes_the_offline_environment__mutation_builds_unguarded(
     source: str,
