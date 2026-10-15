@@ -1,4 +1,4 @@
-"""PyYAML safe loading on the libyaml scanner when it is installed.
+"""PyYAML safe loading and dumping on libyaml when it is installed.
 
 ``yaml.safe_load`` always runs PyYAML's pure-Python scanner, even when the
 ``yaml`` wheel shipped the libyaml bindings — the C scanner is only reached by
@@ -7,12 +7,15 @@ and the resolver, so a document parses to the same objects either way; only the
 scanning speed differs, by an order of magnitude. Every hot parse of a
 deployment's YAML (``osprey build`` re-reads its rendered ``config.yml`` many
 times per build) goes through :func:`safe_load` here rather than through
-``yaml.safe_load`` directly.
+``yaml.safe_load`` directly. The emitter is the same story: ``yaml.safe_dump``
+never reaches libyaml, and the two emitters write the same bytes for the
+block-style documents a build writes, so every hot write goes through
+:func:`safe_dump`.
 """
 
 from __future__ import annotations
 
-from typing import IO, Any
+from typing import IO, Any, overload
 
 import yaml
 
@@ -40,3 +43,38 @@ def safe_load(stream: str | bytes | IO[str] | IO[bytes]) -> Any:
         yaml.YAMLError: On a document that does not parse.
     """
     return yaml.load(stream, Loader=safe_loader())
+
+
+def safe_dumper() -> type[Any]:
+    """The safe dumper class to emit with: libyaml's when present, else PyYAML's.
+
+    Resolved at call time, like :func:`safe_loader`.
+    """
+    return getattr(yaml, "CSafeDumper", yaml.SafeDumper)
+
+
+@overload
+def safe_dump(data: Any, stream: None = None, **kwargs: Any) -> str: ...
+
+
+@overload
+def safe_dump(data: Any, stream: IO[str], **kwargs: Any) -> None: ...
+
+
+def safe_dump(data: Any, stream: IO[str] | None = None, **kwargs: Any) -> str | None:
+    """Emit one YAML document the way ``yaml.safe_dump`` does, on the fastest dumper.
+
+    Args:
+        data: Plain Python objects; anything else is refused, as ``yaml.safe_dump`` refuses it.
+        stream: An open text file to write to; ``None`` returns the text.
+        **kwargs: The emitter options ``yaml.safe_dump`` takes (``sort_keys``,
+            ``default_flow_style``, ``allow_unicode``, ``width``, ...).
+
+    Returns:
+        The document text when ``stream`` is ``None``, else ``None``.
+
+    Raises:
+        yaml.representer.RepresenterError: On an object the safe dumper cannot represent.
+    """
+    text: str | None = yaml.dump(data, stream, Dumper=safe_dumper(), **kwargs)
+    return text
