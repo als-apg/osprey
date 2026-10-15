@@ -637,8 +637,12 @@ def record_writes() -> "Iterator[list[tuple[str, str]]]":
     A write refused before the connector call records nothing. A write that
     reached no control system (the connector refused it, or the transport
     failed) records its ``attempt`` and no second phase. A multi-channel write
-    reports every channel's ``attempt`` before the connector call and every
-    channel's outcome before it raises for any of them.
+    reports every channel's ``attempt`` before the connector call. When the
+    connector returns its results, every channel's outcome is reported before
+    the write raises for any of them. When the connector itself raises partway
+    (a limits violation, a transport error), no outcome is reported: an
+    ``attempt`` with no later phase then means the outcome is unknown, and the
+    value may have gone out.
 
     Each block records into its own list, so nested and concurrent blocks
     never share records, and nothing is recorded once the block has closed.
