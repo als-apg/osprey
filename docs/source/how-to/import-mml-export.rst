@@ -202,6 +202,9 @@ A clean run prints one ``wrote <path>`` line per file. The files under
 files beside them --- ``limits.yaml``, ``seeds.yaml``, ``identity.yaml``,
 ``classes.yaml`` and ``measurement/<model>.yaml`` --- are created only when
 absent and never rewritten, so your edits to them survive a re-import.
+``measurement/<model>.yaml`` names, as ``quad`` and ``sext``, the families the
+export tags as tune and chromaticity correctors, and lists every kind those
+groups and instruments allow; the import names the wired families it left out.
 
 Each device carries the export's ``CommonNames`` entry as its ``label``. The
 import writes one group per physical family: families that list the same

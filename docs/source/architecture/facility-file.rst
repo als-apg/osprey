@@ -128,7 +128,9 @@ The views
 
 **pyAML.** One configuration per measured model: its arrays, magnets, BPMs,
 RF plant and tools, read from the facility file and the model's measurement
-file, beside the deck it runs the design simulator on. A periodic model whose
+file, beside the deck it runs the design simulator on. Each group role is one
+array, named after its group, or after the role when the role names several
+groups. A periodic model whose
 measurement file allows ``trm`` or ``crm`` gets ``trm.json`` or ``crm.json``, the
 design response of its ``quad`` or ``sext`` group, whenever every member has a
 modelled column; the tune or chromaticity correction tool that loads it is

@@ -106,7 +106,8 @@ is refused without asking.
    * - ``by``
      - ``"magnet"``
      - ``trm`` and ``crm`` only. ``"magnet"`` steps one magnet per column;
-       ``"group"`` steps every magnet of the group once, from its present
+       ``"group"`` steps every magnet of the role's array (every group the
+       role names) once, from its present
        setting, by the same integrated strength. Group stepping is unipolar:
        an omitted modulation is ``"unipolar"`` and ``"bipolar"`` is refused.
 

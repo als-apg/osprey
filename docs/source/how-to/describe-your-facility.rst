@@ -399,8 +399,8 @@ what they use:
      bpm: SR/BPM
      hcor: SR/HCM
      vcor: SR/VCM
-     quad: SR/QF
-     sext: SR/SF
+     quad: [SR/QF, SR/QD]
+     sext: [SR/SF, SR/SD]
    instruments:
      tune: SR:DIAG:TUNE:X
      rf: SR:RF:CAVITY:01:FREQUENCY:SP
@@ -415,8 +415,9 @@ what they use:
    frequency_delta: 100.0
 
 ``kinds`` names the allowed measurements: ``orm``, ``dispersion``, ``trm``,
-``crm`` and ``chromaticity_monitor``. ``groups`` names the group that plays
-each part (``bpm``, ``hcor``, ``vcor``, ``quad``, ``sext``) and
+``crm`` and ``chromaticity_monitor``. ``groups`` names the group, or the list
+of groups taken together, that plays each part (``bpm``, ``hcor``, ``vcor``,
+``quad``, ``sext``) and
 ``instruments`` the channel each instrument is read or stepped on (``tune``,
 ``rf``). Each kind needs its own members and step keys, and the build stops
 when the file allows a kind without them, names a member its model does
@@ -447,8 +448,9 @@ the other plane pairs with:
      - ``n_step``, ``n_avg_meas``, ``fit_order``, ``sleep_between_step``,
        ``sleep_between_meas``
 
-A model solved in a single pass allows ``orm`` alone. Each group role names a
-group of its own; only ``hcor`` and ``vcor`` may name one group. The tools
+A model solved in a single pass allows ``orm`` alone. A group plays one role;
+only ``hcor`` and ``vcor`` may name the same group. A role naming several
+groups is one pyAML array named after the role. The tools
 that run these measurements are in :doc:`measure-with-pyaml`.
 
 Scenarios

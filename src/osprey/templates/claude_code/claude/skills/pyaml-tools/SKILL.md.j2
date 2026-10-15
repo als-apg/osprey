@@ -58,7 +58,7 @@ configuration the build wrote; nothing else in the deployment edits it.
 
 ### The result
 
-- `rows` and `columns` name each reading and each stepped setpoint by its address and device id; `deltas` gives each step by address, or by group id for a group.
+- `rows` and `columns` name each reading and each stepped setpoint by its address and device id; `deltas` gives each step by address, or by array name for a group.
 - The matrix is in the file `data_file` names and in the artifact `artifact_id` names; the result carries its `shape`, never the matrix.
 - A result with `completed` false stopped part-way: report every entry of `moved` (address, device, value before the call) and the `error` when there is one to the operator; those setpoints are where the run left them.
 - A measurement that reaches the execution timeout is killed: its error names only the channels it attempted, without their values before the call. Read them and report them to the operator.
