@@ -1,8 +1,7 @@
 # Project Data Directory
 
-Everything the agent reads from disk lives here: channel databases, benchmark
-query sets, and the facility's sources and scenarios. These are your files —
-edit them freely.
+Everything the agent reads from disk lives here: benchmark query sets and the
+facility's sources and scenarios. These are your files — edit them freely.
 
 ## Directory Structure
 
@@ -10,8 +9,6 @@ As shipped by the preset:
 
 ```
 data/
-├── channel_databases/
-│   └── examples/                         # Hierarchy-shape examples
 ├── benchmarks/
 │   └── cross_paradigm/queries/           # Benchmark query sources, one per channel-finder pipeline
 ├── ariel/

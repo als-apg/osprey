@@ -37,8 +37,9 @@ provider: anthropic
 # knowledge graph this deployment runs (`services.graphdb`), the same store
 # the facility-knowledge-graph agent reads, so channels, devices and their
 # addresses have one source. `osprey set channel_finder_mode=...` also
-# accepts hierarchical, in_context or middle_layer, each reading a channel
-# database file from data/ instead; every persona inherits the mode.
+# accepts hierarchical, in_context or middle_layer, each reading the
+# channel-finder view the build writes under data/channel_finder/ instead;
+# every persona inherits the mode.
 channel_finder_mode: graph
 
 # ── What the agent can do ────────────────────────────────────────────────────

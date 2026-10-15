@@ -25,6 +25,23 @@ def runner():
     return CliRunner()
 
 
+def _hierarchical_index(tmp_path: Path) -> Path:
+    """A hierarchical index the build writes, of one device with two channels."""
+    from osprey.facility.views.channel_finder import hierarchical_document
+
+    doc = {
+        "places": [{"id": "SR", "level": "machine"}],
+        "devices": [{"id": "SR/Q1", "class": "Quadrupole", "place": "SR"}],
+        "channels": [
+            {"id": "SR:Q1:I:SP", "on": {"device": "SR/Q1"}, "signal": "current_setpoint"},
+            {"id": "SR:Q1:I:RB", "on": {"device": "SR/Q1"}, "signal": "current_readback"},
+        ],
+    }
+    path = tmp_path / "hierarchical.json"
+    path.write_text(json.dumps(hierarchical_document(doc)), encoding="utf-8")
+    return path
+
+
 # ============================================================================
 # Command Structure Tests
 # ============================================================================
@@ -438,24 +455,9 @@ class TestPreviewSubcommand:
         assert "--database" in result.output
         assert "--full" in result.output
 
-    def test_preview_with_database_file(self, runner):
+    def test_preview_with_database_file(self, runner, tmp_path):
         """preview with --database loads and previews."""
-        from pathlib import Path
-
-        examples_dir = (
-            Path(__file__).parent.parent.parent
-            / "src"
-            / "osprey"
-            / "templates"
-            / "apps"
-            / "control_assistant"
-            / "data"
-            / "channel_databases"
-            / "examples"
-        )
-        db_path = examples_dir / "consecutive_instances.json"
-        if not db_path.exists():
-            pytest.skip("Example database not found")
+        db_path = _hierarchical_index(tmp_path)
 
         result = runner.invoke(
             channel_finder,
@@ -565,24 +567,9 @@ class TestCLIErrorPaths:
         assert result.exit_code != 0
         assert "not found" in result.output or "Error" in result.output
 
-    def test_validate_with_pipeline_override(self, runner):
+    def test_validate_with_pipeline_override(self, runner, tmp_path):
         """validate --pipeline hierarchical with a hierarchical DB file."""
-        from pathlib import Path
-
-        examples_dir = (
-            Path(__file__).parent.parent.parent
-            / "src"
-            / "osprey"
-            / "templates"
-            / "apps"
-            / "control_assistant"
-            / "data"
-            / "channel_databases"
-            / "examples"
-        )
-        db_path = examples_dir / "consecutive_instances.json"
-        if not db_path.exists():
-            pytest.skip("Example database not found")
+        db_path = _hierarchical_index(tmp_path)
 
         with patch("osprey.cli.channel_finder_cmd._setup_config"):
             with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
