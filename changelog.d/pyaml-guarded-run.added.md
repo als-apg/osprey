@@ -6,8 +6,10 @@ anything is read or written.
 target's run lock, joining the lock the process already holds: a second run on
 the target is refused busy before the tool starts, each setpoint's value is
 read before its first write, and the call returns a `ToolRun` whose `moved`
-lists only the setpoints the runtime sent or landed, each with its value before
-the call; a refused write lists nothing. An escaping exception carries the same
+lists the setpoints the runtime sent or landed, each with its value before the
+call; a refused write lists nothing, and a write whose outcome is unknown (the
+call raised for another reason, or was interrupted, before its outcome came
+back) is listed. An escaping exception carries the same
 list as `moved_setpoints`. Nothing is written back.
 A Ctrl-C stops every tool of the run that takes a callback, in any thread,
 through pyAML's own abort path. A run that reaches the execution timeout is
