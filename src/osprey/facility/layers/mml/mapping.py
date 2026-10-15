@@ -116,6 +116,7 @@ __all__ = [
     "DIRECTION_VALUES",
     "DeviceIdentity",
     "ENGINE_AXES",
+    "KICK",
     "ROWS_BEYOND_KIND",
     "SHARED_KIND",
     "UNBOUND_KIND",
@@ -1679,6 +1680,9 @@ DERIVED = "derived"
 #: Provenance of a description carried over from the export as written.
 IMPORTED = "imported"
 
+#: The engine attribute of a corrector family.
+KICK = "KickAngle"
+
 #: What each lattice type token drives, in pyAT's words, keyed by the token
 #: folded to lower case. A token absent here -- the dipole string among them,
 #: unless the export marks the family as its energy knob or as a corrector --
@@ -1688,8 +1692,8 @@ ENGINE_BY_TYPE: dict[str, dict[str, Any]] = {
     **dict.fromkeys(("sext", "k2", "sextupole"), {"attribute": "PolynomB", "index": 2}),
     **dict.fromkeys(("octu", "k3"), {"attribute": "PolynomB", "index": 3}),
     **dict.fromkeys(("skewquad", "ks", "ks1", "skewq"), {"attribute": "PolynomA", "index": 1}),
-    **dict.fromkeys(("hcm", "hcor"), {"attribute": "KickAngle", "index": 0}),
-    **dict.fromkeys(("vcm", "vcor"), {"attribute": "KickAngle", "index": 1}),
+    **dict.fromkeys(("hcm", "hcor"), {"attribute": KICK, "index": 0}),
+    **dict.fromkeys(("vcm", "vcor"), {"attribute": KICK, "index": 1}),
     **dict.fromkeys(("rf", "rf cavity"), {"attribute": "Frequency"}),
     **dict.fromkeys(("x", "bpmx", "xturns"), {"axis": "x"}),
     **dict.fromkeys(("y", "bpmy", "yturns"), {"axis": "y"}),
@@ -1708,7 +1712,7 @@ _ENERGY_ENGINE: dict[str, Any] = {"attribute": "energy"}
 
 #: The engine block of a dipole string that corrects: a kick, whose plane the
 #: export never states, so it is left for the reviewer.
-_TRIM_ENGINE: dict[str, Any] = {"attribute": "KickAngle", "index": None}
+_TRIM_ENGINE: dict[str, Any] = {"attribute": KICK, "index": None}
 
 #: The fields a family is wired through, in preference order: a family that
 #: sets something is wired through what it sets, one that only reads through
@@ -1861,7 +1865,7 @@ def _draft_family(raw: str, views: list[Any], devices: Any = None) -> dict[str, 
 _CURRENT_UNITS: frozenset[str] = frozenset({"a", "amp", "amps", "ampere", "amperes"})
 
 #: The engine attributes a magnet family drives.
-_MAGNET_ATTRIBUTES: frozenset[str] = frozenset({"PolynomB", "PolynomA", "KickAngle"})
+_MAGNET_ATTRIBUTES: frozenset[str] = frozenset({"PolynomB", "PolynomA", KICK})
 
 
 def _current_field(views: list[Any], name: str) -> bool:

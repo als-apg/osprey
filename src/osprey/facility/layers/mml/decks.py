@@ -89,6 +89,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility.layers.mml.mapping import (
+    KICK,
     LAYER_DIR,
     EngineBlock,
     ImportStop,
@@ -125,9 +126,6 @@ MONITOR = "monitor"
 
 #: The engine attribute of the family that drives the deck's cavity.
 FREQUENCY = "Frequency"
-
-#: The engine attribute of a corrector family.
-KICK = "KickAngle"
 
 #: The engine attribute of the family that drives the deck's energy.
 ENERGY = "energy"
