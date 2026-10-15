@@ -188,6 +188,9 @@ _connector_lock = asyncio.Lock()
 _pool_routing = False
 #: The pool an opted-in process draws its connector from, built on first need.
 _connector_pool: Any | None = None
+#: Bound on a connector-host child starting and answering its init frame, read
+#: when the pool is built; ``None`` keeps the pool's own default.
+_pool_start_timeout_s: float | None = None
 #: The launch pin the pooled connector above was taken under. A child selects
 #: its gateway on the posture it was spawned with, so a moved pin respawns it.
 _connector_launch_pin: str | None = None
@@ -297,7 +300,12 @@ async def _pooled_connector_locked(target: str | None) -> Any:
         from osprey_connectors.ipc.pool import ConnectorHostPool
         from osprey_connectors.workspace import resolve_config_path
 
-        _connector_pool = ConnectorHostPool(section, config_file=str(resolve_config_path()))
+        options: dict[str, Any] = (
+            {} if _pool_start_timeout_s is None else {"start_timeout_s": _pool_start_timeout_s}
+        )
+        _connector_pool = ConnectorHostPool(
+            section, config_file=str(resolve_config_path()), **options
+        )
     key = target if target is not None else baseline_target(section)
     logger.debug("Taking the connector for target %s from the connector-host pool", key)
     return await _connector_pool.connector(key)

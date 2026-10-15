@@ -188,9 +188,10 @@ class _FakePool:
 
     instances: list["_FakePool"] = []
 
-    def __init__(self, control_system, *, config_file=None) -> None:
+    def __init__(self, control_system, *, config_file=None, **options) -> None:
         self.section = dict(control_system)
         self.config_file = config_file
+        self.options = options
         self.asked: list[tuple[str, str | None]] = []
         self.handles: list[_FakeHandle] = []
         self.loops: list[asyncio.AbstractEventLoop] = []
@@ -312,6 +313,29 @@ class TestTheKernelPool:
         (pool,) = fake_pool
         assert pool.config_file == str(config)
         assert pool.section == SWITCHABLE
+
+    def test_the_pool_keeps_its_own_start_bound_when_the_runtime_names_none(
+        self, monkeypatch, fake_pool
+    ):
+        _serve(monkeypatch, SWITCHABLE)
+        runtime._route_connector_through_pool()
+
+        runtime.read_channel("SR:X")
+
+        (pool,) = fake_pool
+        assert pool.options == {}
+
+    def test_the_pool_takes_the_runtimes_start_bound_read_when_it_is_built(
+        self, monkeypatch, fake_pool
+    ):
+        _serve(monkeypatch, SWITCHABLE)
+        runtime._route_connector_through_pool()
+        monkeypatch.setattr(runtime, "_pool_start_timeout_s", 7.5)
+
+        runtime.read_channel("SR:X")
+
+        (pool,) = fake_pool
+        assert pool.options == {"start_timeout_s": 7.5}
 
     def test_a_generation_move_on_the_same_target_respawns(self, monkeypatch, fake_pool):
         _serve(monkeypatch, SWITCHABLE)
