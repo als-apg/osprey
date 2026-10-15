@@ -409,9 +409,9 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
         measurement = models[str(model)].get("measurement") or {}
         names = view_names(doc, str(model))
         array_of = {
-            str(role): names.array_name(str(role), str(group))
-            for role, group in (measurement.get("groups") or {}).items()
-            if names.array_name(str(role), str(group)) in arrays
+            str(role): names.array_name(str(role))
+            for role in measurement.get("groups") or {}
+            if names.array_name(str(role)) in arrays
         }
         rf: list[str] = []
         plant = None

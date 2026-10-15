@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.facility.sources import group_families
 from osprey.facility.views import VIEWS
 from osprey.facility.views.pyaml import (
     CONFIGURATION_FILE,
@@ -129,8 +130,11 @@ def test_every_name_in_the_configuration_resolves_back_through_the_mapping(
         configuration = _configuration(directory, model)
         arrays = configuration["arrays"]
         groups_named = _measurement(inputs.doc, model)["groups"]
-        named = {names.array_name(role, group): group for role, group in groups_named.items()}
-        assert {array["name"]: names.array_group(array["name"]) for array in arrays} == named
+        named = {
+            names.array_name(role): tuple(group_families(value))
+            for role, value in groups_named.items()
+        }
+        assert {array["name"]: names.array_groups(array["name"]) for array in arrays} == named
         for device in configuration["devices"]:
             name = device["name"]
             if "model" in device:

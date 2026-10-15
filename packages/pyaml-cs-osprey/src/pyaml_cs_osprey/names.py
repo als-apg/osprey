@@ -6,11 +6,12 @@ pyAML view holds is derived here, and every name is turned back into its address
 id here, so the view writer, the measurement tools and a reader of a pyAML
 configuration cannot spell a name two ways.
 
-* A magnet is named after its setpoint address, a BPM after its device id and an
-  array after its group id, each through :func:`pyaml_name`. One group named as
-  both ``hcor`` and ``vcor`` is two arrays, one per plane, its name followed by
-  each plane's :data:`PLANE_SUFFIXES` entry; no other two roles may name one
-  group.
+* A magnet is named after its setpoint address and a BPM after its device id,
+  each through :func:`pyaml_name`. Each group role is one array: a role naming
+  one group is named after that group, a role naming several after the role.
+  One group named as both ``hcor`` and ``vcor`` is two arrays, one per plane,
+  its name followed by each plane's :data:`PLANE_SUFFIXES` entry; no other two
+  roles may name one group.
 * The RF plant is :data:`RF_PLANT_NAME`, pyAML's default plant, and stands for the
   one ``instruments.rf`` address of the view.
 * The tune monitor is :data:`TUNE_MONITOR_NAME`, pyAML's default betatron tune
@@ -25,7 +26,7 @@ pyAML.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TypeVar
 
@@ -113,35 +114,41 @@ def _table(kind: str, keys: Iterable[str]) -> dict[str, str]:
     return table
 
 
-def _array_table(groups: Mapping[str, str]) -> dict[tuple[str, str], str]:
-    """Each ``(role, group)`` to its array name, refusing two groups sharing one name.
+def _array_table(groups: Mapping[str, tuple[str, ...]]) -> dict[str, str]:
+    """Each group role to its array name, refusing two arrays sharing one name.
 
-    A group named as both ``hcor`` and ``vcor`` is named per plane; any other
-    group is named by its id alone. One group stands for one role, or for
-    ``hcor`` and ``vcor`` together: named by any other two roles it is refused,
-    since one array cannot hold the same magnets as two kinds of magnet.
+    A role naming one group is named after that group, per plane when ``hcor``
+    and ``vcor`` both name that one group; a role naming several groups is
+    named after the role. A group plays one role, or ``hcor`` and ``vcor``
+    together: named by any other two roles it is refused, since one array
+    cannot hold the same magnets as two kinds of magnet.
     """
     roles_of: dict[str, list[str]] = {}
-    for role, group in groups.items():
-        roles_of.setdefault(group, []).append(role)
+    for role, ids in groups.items():
+        for group in dict.fromkeys(ids):
+            roles_of.setdefault(group, []).append(role)
     for group, roles in roles_of.items():
         if len(roles) > 1 and set(roles) != set(PLANE_SUFFIXES):
             listed = f"{', '.join(roles[:-1])} and {roles[-1]}"
             raise ValueError(
                 f"group {group} is named as {listed}; only hcor and vcor may name one group"
             )
-    named = {groups.get(role) for role in PLANE_SUFFIXES}
-    split = named - {None} if len(named) == 1 else set()
-    table: dict[tuple[str, str], str] = {}
+    planes = {groups.get(role) for role in PLANE_SUFFIXES}
+    split = len(planes) == 1 and next(iter(planes)) is not None
+    table: dict[str, str] = {}
     holders: dict[str, str] = {}
-    for role, group in groups.items():
-        suffix = PLANE_SUFFIXES[role] if group in split else ""
-        name = pyaml_name(group) + suffix
+    for role, ids in groups.items():
+        if len(ids) == 1:
+            suffix = PLANE_SUFFIXES[role] if split and role in PLANE_SUFFIXES else ""
+            name = pyaml_name(ids[0]) + suffix
+        else:
+            name = pyaml_name(role)
+        held = ", ".join(ids)
         other = holders.get(name)
-        if other is not None and other != group:
-            raise ValueError(f"groups {other} and {group} would both be named {name} in pyAML")
-        table[(role, group)] = name
-        holders[name] = group
+        if other is not None:
+            raise ValueError(f"groups {other} and {held} would both be named {name} in pyAML")
+        table[role] = name
+        holders[name] = held
     return table
 
 
@@ -159,15 +166,17 @@ class ViewNames:
     Attributes:
         magnets: Setpoint address to magnet name.
         bpms: BPM device id to BPM name.
-        arrays: ``(role, group id)`` to array name, one entry per group role
-            the measurement file names.
+        arrays: Group role to array name, one entry per group role the
+            measurement file names.
+        groups: Group role to the group ids it names.
         rf: The ``instruments.rf`` address, or ``None`` when the view has no RF
             plant.
     """
 
     magnets: Mapping[str, str] = field(default_factory=dict)
     bpms: Mapping[str, str] = field(default_factory=dict)
-    arrays: Mapping[tuple[str, str], str] = field(default_factory=dict)
+    arrays: Mapping[str, str] = field(default_factory=dict)
+    groups: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     rf: str | None = None
 
     @classmethod
@@ -176,7 +185,7 @@ class ViewNames:
         *,
         magnets: Iterable[str] = (),
         bpms: Iterable[str] = (),
-        groups: Mapping[str, str] | None = None,
+        groups: Mapping[str, Sequence[str]] | None = None,
         rf: str | None = None,
     ) -> ViewNames:
         """Name every magnet, BPM and array of one view.
@@ -184,7 +193,7 @@ class ViewNames:
         Args:
             magnets: Each magnet's setpoint address.
             bpms: Each BPM's device id.
-            groups: Each group role and the group id it names.
+            groups: Each group role and the group ids it names.
             rf: The ``instruments.rf`` address, or ``None``.
 
         Returns:
@@ -194,11 +203,15 @@ class ViewNames:
             ValueError: Two addresses or ids of one table, or a magnet and a BPM,
                 would share a name, or a name is one of the fixed names; the
                 message names both. One group is named by two roles other than
-                ``hcor`` and ``vcor`` together; the message names the roles.
+                ``hcor`` and ``vcor`` together; the message names the group and
+                the roles.
         """
         magnet_table = _table("magnet setpoint", magnets)
         bpm_table = _table("BPM device", bpms)
-        array_table = _array_table(groups or {})
+        group_table = {
+            role: tuple(str(group) for group in ids) for role, ids in (groups or {}).items()
+        }
+        array_table = _array_table(group_table)
         fixed = {RF_PLANT_NAME, TUNE_MONITOR_NAME, CHROMATICITY_MONITOR_NAME}
         devices = {name: address for address, name in magnet_table.items()}
         for device, name in bpm_table.items():
@@ -209,9 +222,11 @@ class ViewNames:
                 )
             devices[name] = device
         for name in sorted(fixed & (set(devices) | set(array_table.values()))):
-            held = devices.get(name) or _inverse(array_table)[name][1]
+            held = devices.get(name) or ", ".join(group_table[_inverse(array_table)[name]])
             raise ValueError(f"{held} would be named {name}, which pyAML reserves")
-        return cls(magnets=magnet_table, bpms=bpm_table, arrays=array_table, rf=rf)
+        return cls(
+            magnets=magnet_table, bpms=bpm_table, arrays=array_table, groups=group_table, rf=rf
+        )
 
     # --- address or id to name --------------------------------------------------
 
@@ -237,16 +252,16 @@ class ViewNames:
         except KeyError:
             raise UnmappedName("BPM device", device) from None
 
-    def array_name(self, role: str, group: str) -> str:
-        """The array a group id is as the group role naming it.
+    def array_name(self, role: str) -> str:
+        """The array a group role is.
 
         Raises:
-            UnmappedName: ``role`` names no group ``group`` in the view.
+            UnmappedName: The view names no group as ``role``.
         """
         try:
-            return self.arrays[(role, group)]
+            return self.arrays[role]
         except KeyError:
-            raise UnmappedName(f"{role} group", group) from None
+            raise UnmappedName("group role", role) from None
 
     def rf_plant_name(self, address: str) -> str:
         """The RF plant the ``instruments.rf`` address drives.
@@ -282,14 +297,14 @@ class ViewNames:
         except KeyError:
             raise UnmappedName("BPM name", name) from None
 
-    def array_group(self, name: str) -> str:
-        """The group id an array name stands for.
+    def array_groups(self, name: str) -> tuple[str, ...]:
+        """The group ids an array name stands for.
 
         Raises:
             UnmappedName: No array of the view has that name.
         """
         try:
-            return _inverse(self.arrays)[name][1]
+            return self.groups[_inverse(self.arrays)[name]]
         except KeyError:
             raise UnmappedName("array name", name) from None
 

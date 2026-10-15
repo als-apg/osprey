@@ -17,7 +17,7 @@ from pyaml_cs_osprey.names import (
 SR_HCOR = "SR:MAG:HCM:01:CURRENT:SP"
 SR_VCOR = "SR:MAG:VCM:01:CURRENT:SP"
 SR_RF = "SR:RF:CAVITY:01:FREQUENCY:SP"
-SR_GROUPS = {"bpm": "SR/BPM", "hcor": "SR/HCM", "vcor": "SR/VCM"}
+SR_GROUPS = {"bpm": ["SR/BPM"], "hcor": ["SR/HCM"], "vcor": ["SR/VCM"]}
 
 #: One NSLS-II transfer-line corrector: both planes on one combined-corrector element.
 NSLS2_H = "LTB-MG{Cor:1}I:Sp1-SP"
@@ -62,24 +62,37 @@ def test_sr_model_names_round_trip() -> None:
 
 def test_the_sr_model_group_arrays_map_back_to_their_ids() -> None:
     names = _sr()
-    arrays = {group: names.array_name(role, group) for role, group in SR_GROUPS.items()}
-    assert arrays == {"SR/BPM": "SR_BPM", "SR/HCM": "SR_HCM", "SR/VCM": "SR_VCM"}
-    for group, array in arrays.items():
+    arrays = {role: names.array_name(role) for role in SR_GROUPS}
+    assert arrays == {"bpm": "SR_BPM", "hcor": "SR_HCM", "vcor": "SR_VCM"}
+    for role, array in arrays.items():
         assert "/" not in array
         assert NAME_RE.fullmatch(array)
-        assert names.array_group(array) == group
+        assert names.array_groups(array) == tuple(SR_GROUPS[role])
 
 
 def test_a_line_setpoint_round_trips() -> None:
-    names = ViewNames.build(magnets=["LQ:SP"], bpms=["LINE/BPM1"], groups={"quad": "LINE/Q"})
+    names = ViewNames.build(magnets=["LQ:SP"], bpms=["LINE/BPM1"], groups={"quad": ["LINE/Q"]})
     assert names.magnet_address(names.magnet_name("LQ:SP")) == "LQ:SP"
-    assert names.array_group(names.array_name("quad", "LINE/Q")) == "LINE/Q"
+    assert names.array_groups(names.array_name("quad")) == ("LINE/Q",)
     assert names.rf is None
+
+
+def test_a_role_naming_several_groups_is_one_array_named_after_the_role() -> None:
+    names = ViewNames.build(groups={"bpm": ["SR/BPM"], "quad": ["SR/QF", "SR/QD"]})
+    assert names.array_name("quad") == "quad"
+    assert names.array_groups("quad") == ("SR/QF", "SR/QD")
+    assert names.groups["quad"] == ("SR/QF", "SR/QD")
+    assert names.array_name("bpm") == "SR_BPM"
+
+
+def test_a_group_inside_two_roles_lists_is_refused_naming_it() -> None:
+    with pytest.raises(ValueError, match="group SR/X is named as quad and sext"):
+        ViewNames.build(groups={"quad": ["SR/QF", "SR/X"], "sext": ["SR/X", "SR/SF"]})
 
 
 def test_a_combined_corrector_gets_one_magnet_per_plane() -> None:
     """Both planes of one NSLS-II corrector element are two magnets, each by its address."""
-    names = ViewNames.build(magnets=[NSLS2_H, NSLS2_V], groups={"hcor": "HCM", "vcor": "VCM"})
+    names = ViewNames.build(magnets=[NSLS2_H, NSLS2_V], groups={"hcor": ["HCM"], "vcor": ["VCM"]})
     h, v = names.magnet_name(NSLS2_H), names.magnet_name(NSLS2_V)
     assert h != v
     assert (names.magnet_address(h), names.magnet_address(v)) == (NSLS2_H, NSLS2_V)
@@ -87,39 +100,38 @@ def test_a_combined_corrector_gets_one_magnet_per_plane() -> None:
 
 
 def test_one_group_named_for_both_corrector_planes_is_one_array_per_plane() -> None:
-    names = ViewNames.build(groups={"bpm": "SR/BPM", "hcor": "SR/COR", "vcor": "SR/COR"})
-    horizontal = names.array_name("hcor", "SR/COR")
-    vertical = names.array_name("vcor", "SR/COR")
+    names = ViewNames.build(groups={"bpm": ["SR/BPM"], "hcor": ["SR/COR"], "vcor": ["SR/COR"]})
+    horizontal = names.array_name("hcor")
+    vertical = names.array_name("vcor")
     assert (horizontal, vertical) == ("SR_COR_h", "SR_COR_v")
-    assert names.array_group(horizontal) == names.array_group(vertical) == "SR/COR"
-    assert names.array_name("bpm", "SR/BPM") == "SR_BPM"
+    assert names.array_groups(horizontal) == names.array_groups(vertical) == ("SR/COR",)
+    assert names.array_name("bpm") == "SR_BPM"
 
 
 def test_a_plane_array_name_another_group_would_take_is_refused() -> None:
     with pytest.raises(ValueError, match="SR/COR_h and SR/COR would both be named SR_COR_h"):
-        ViewNames.build(groups={"bpm": "SR/COR_h", "hcor": "SR/COR", "vcor": "SR/COR"})
+        ViewNames.build(groups={"bpm": ["SR/COR_h"], "hcor": ["SR/COR"], "vcor": ["SR/COR"]})
 
 
 @pytest.mark.parametrize(
     ("groups", "roles"),
     [
-        ({"quad": "SR/M", "sext": "SR/M"}, "quad and sext"),
-        ({"bpm": "SR/M", "hcor": "SR/M"}, "bpm and hcor"),
-        ({"hcor": "SR/M", "vcor": "SR/M", "quad": "SR/M"}, "hcor, vcor and quad"),
+        ({"quad": ["SR/M"], "sext": ["SR/M"]}, "quad and sext"),
+        ({"bpm": ["SR/M"], "hcor": ["SR/M"]}, "bpm and hcor"),
+        ({"hcor": ["SR/M"], "vcor": ["SR/M"], "quad": ["SR/M"]}, "hcor, vcor and quad"),
     ],
 )
 def test_one_group_named_by_two_roles_other_than_the_corrector_planes_is_refused(
-    groups: dict[str, str], roles: str
+    groups: dict[str, list[str]], roles: str
 ) -> None:
     with pytest.raises(ValueError, match=f"group SR/M is named as {roles}"):
         ViewNames.build(groups=groups)
 
 
-@pytest.mark.parametrize(("role", "group"), [("quad", "SR/QF"), ("vcor", "SR/HCM")])
-def test_an_array_is_looked_up_by_the_role_naming_its_group(role: str, group: str) -> None:
-    with pytest.raises(UnmappedName, match=group) as refused:
-        _sr().array_name(role, group)
-    assert refused.value.key == group
+def test_an_array_is_looked_up_by_a_role_the_view_names() -> None:
+    with pytest.raises(UnmappedName, match="quad") as refused:
+        _sr().array_name("quad")
+    assert refused.value.key == "quad"
 
 
 @pytest.mark.parametrize(
@@ -130,7 +142,7 @@ def test_an_array_is_looked_up_by_the_role_naming_its_group(role: str, group: st
         ("rf_plant_name", "SR:RF:CAVITY:02:FREQUENCY:SP"),
         ("magnet_address", "SR_QF01"),
         ("bpm_device", "SR_BPM02"),
-        ("array_group", "SR_QF"),
+        ("array_groups", "SR_QF"),
         ("rf_address", TUNE_MONITOR_NAME),
     ],
 )
