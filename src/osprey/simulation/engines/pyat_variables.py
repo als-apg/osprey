@@ -89,7 +89,11 @@ from osprey.simulation.engines.calibration import (
     to_hardware,
     to_physics,
 )
-from osprey.simulation.engines.pyat_faults import magnet_cal, supply_calibration
+from osprey.simulation.engines.pyat_faults import (
+    is_series_record,
+    magnet_cal,
+    supply_calibration,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable, Mapping
@@ -732,7 +736,9 @@ def variable_from_wiring(
 
     A record naming no element, no slices and no deck property (an optics
     output such as ``attribute: tune``) is not an element variable: the model
-    serves it from its own solve, and ``None`` is returned.
+    serves it from its own solve, and ``None`` is returned. So is a record
+    whose engine block carries ``series``, whatever else it names: a buffer of
+    tracked samples the model fills, never a monitor.
 
     Args:
         record: The wiring record.
@@ -746,6 +752,8 @@ def variable_from_wiring(
     Raises:
         ValueError: the record cannot be built (see each ``from_wiring``).
     """
+    if is_series_record(record):
+        return None
     block = field(record, "engine")
     attribute = field(block, "attribute")
     has_element = field(record, "element") is not None or bool(field(record, "slices"))

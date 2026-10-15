@@ -117,10 +117,11 @@ BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
 DEPLOY_UP_TIMEOUT_SEC = 1200  # first-time native VA source build is slow (minutes)
 HEALTH_TIMEOUT_SEC = 300.0
 
-# Within the corrector channel_limits band (+-12A) and the response model's
-# documented linear regime (ORMParams' own docstring); NUM_POINTS >= 3 per
-# the schema's `ge=3`.
-SPAN_A = 5.0
+# Far inside the corrector channel_limits band (+-12A), whose ends are
+# milliradian kicks: a sweep of a few microradians either way stays in the
+# response model's documented linear regime (ORMParams' own docstring).
+# NUM_POINTS >= 3 per the schema's `ge=3`.
+SPAN_A = 0.05
 
 #: 6 correctors x 21 points = 126 rows, sized deliberately past the 100-row
 #: default window of ``GET /runs/{id}/data``. The figure route computes over a
@@ -326,14 +327,24 @@ def _oracle_model(repo: Path) -> Any:
     Built here in-process over the deployment repo's OWN simulator view -- the
     same deck, wiring and seeds the container mounts -- so the oracle and the
     stack agree about which elements exist and what each address does to them,
-    while the two arrive at a response matrix by entirely separate paths. No
-    state directory and no model log: the oracle reads the view at its
-    baseline and writes nothing outside this process.
+    while the two arrive at a response matrix by entirely separate paths.
+
+    It reads the deployment's own state directory, so it serves the active
+    scenarios the stack serves (``still`` among them, see
+    ``_assert_deployment_starts_still``): a composite without one serves
+    ``nominal`` alone, whose monitor noise would put a random slope into every
+    fitted entry. The composite only reads that directory, and with no model
+    log it writes nothing outside this process.
     """
     from osprey_connectors.simulation.composite import Composite
     from osprey_connectors.simulation.view import SimulatorView
 
-    return Composite(SimulatorView.of_project(repo), state_dir=None, model_log=False)
+    config = yaml.safe_load(rendered_config_path(repo).read_text(encoding="utf-8")) or {}
+    return Composite(
+        SimulatorView.of_project(repo),
+        state_dir=resolve_simulation_state_dir(config, repo),
+        model_log=False,
+    )
 
 
 def _model_response_matrix(

@@ -2,8 +2,10 @@
 
 A corpus that nobody counts can drift silently: a change to the facility or to
 the view's writer would quietly seed a different graph. The census below (532
-devices, 2952 bindings, 412 written and 2536 read signals) is the demo facility
-as the build renders it, and the 412 writes are exactly its `:SP` addresses.
+devices, 3314 bindings, 485 written and 2825 read signals) is the demo facility
+as the build renders it, and the 485 writes are exactly its `:SP` addresses and
+its write-only commands (the turn-by-turn arm on every ring BPM and the
+injection request).
 The prose census sits beside it: a description on every binding, a system
 description plus the SYSTEM token on every device, a family description on
 every device a described group names, and none of the three descriptions on a
@@ -34,11 +36,18 @@ NON_DEVICE_CLASSES = {"ChannelBinding", "SemanticSignal"}
 
 #: The demo facility's census, as the build renders it: the tier-3 channel
 #: database's 2908 device channels, the four tune and chromaticity channels
-#: the top place carries itself, and the transfer line's 40 channels.
+#: the top place carries itself, the transfer line's 40 channels, and the
+#: ring's 362 turn-by-turn channels (five on each of its 72 BPMs, plus the
+#: injection request and busy flag).
 EXPECTED_DEVICES = 532
-EXPECTED_BINDINGS = 2952
-EXPECTED_WRITES = 412
-EXPECTED_READS = 2536
+EXPECTED_BINDINGS = 3314
+EXPECTED_WRITES = 485
+EXPECTED_READS = 2825
+
+#: The written addresses that are commands rather than ``:SP`` setpoints: one
+#: arm per ring BPM and the ring's injection request. A command has no paired
+#: readback, so it is written and never read.
+EXPECTED_COMMANDS = 73
 
 #: Devices a described group names, each carrying its family's description;
 #: the transfer line's eight quadrupoles are in no group.
@@ -98,7 +107,7 @@ def test_prose_census(graph) -> None:
     """Every binding and every device carries its prose, exactly once.
 
     The subject counts are what make this a census rather than a spot check: a
-    predicate appearing 2,952 times spread over 40 bindings would satisfy a
+    predicate appearing 3,314 times spread over 40 bindings would satisfy a
     triple count and import into a graph where most channels have no text at
     all. neosemantics keeps one value per property unless told otherwise, so a
     doubled predicate is also silent data loss at seed time.
@@ -165,7 +174,11 @@ def test_every_device_carries_a_semantic_class(graph) -> None:
 
 
 def test_only_setpoints_are_written(graph) -> None:
-    """Every written binding is a ``:SP`` address, and only those are written."""
+    """Every written binding is a ``:SP`` setpoint or a command, and only those are written.
+
+    The commands are the write-only addresses: the turn-by-turn arm on every
+    ring BPM and the ring's injection request.
+    """
     from rdflib import URIRef
 
     def pvs(local_name: str) -> set[str]:
@@ -178,7 +191,11 @@ def test_only_setpoints_are_written(graph) -> None:
 
     written = pvs("writesSignal")
     assert len(written) == EXPECTED_WRITES
-    assert all(pv.endswith(":SP") for pv in written)
+    commands = {pv for pv in written if not pv.endswith(":SP")}
+    assert len(commands) == EXPECTED_COMMANDS
+    assert all(pv.endswith(":TBT:ARM") or pv == "SR:DIAG:INJECTION:REQUEST" for pv in commands), (
+        sorted(commands)[:10]
+    )
     assert not any(pv.endswith(":SP") for pv in pvs("readsSignal"))
 
 

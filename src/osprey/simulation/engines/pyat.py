@@ -16,14 +16,18 @@ These functions read a deck -- a lattice file pyAT loads with
 * :func:`polynomial_kicks` copies a deck so named kick elements carry their
   kicks as dipole polynomials;
 * :func:`error_text` gives the one line a failed build or solve reports;
+* :func:`condition` says whether a built model is degraded, and which of its
+  values that voids;
 * :func:`readout` turns solved monitor positions into what each monitor
   reports;
 * :func:`fault_variables` names every fault a model built from a wiring
-  declares, without building it.
+  declares, without building it;
+* :func:`scenario_stops` says what a scenario asks of a model that its deck
+  cannot give.
 
 A wiring record is read by key or by attribute: ``id``, ``address``,
 ``element`` or ``slices`` (each ``element``, ``weight``), the ``engine`` block
-in pyAT's words (``attribute``, ``index``, ``axis``) and ``calibration``
+in pyAT's words (``attribute``, ``index``, ``axis``, ``series``) and ``calibration``
 (``curve``, ``inverse``). Every refusal is a ``FacilityBuildError`` of kind
 ``engine-invalid``; a request with no solve raises one of
 :data:`SOLVE_ERRORS`. A refusal of an element the deck does not hold exactly
@@ -37,30 +41,46 @@ from __future__ import annotations
 
 import math
 import os
+import weakref
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, overload
 
 from lume_pyat.exceptions import OrbitSolveError
 
 from osprey.facility.errors import FacilityBuildError
 from osprey.simulation.engines.calibration import NoInverse, curve_from_record, field, to_hardware
-from osprey.simulation.engines.pyat_faults import fault_variables, readout
+from osprey.simulation.engines.pyat_faults import (
+    APERTURE_SHAPES,
+    MISALIGNED_MAGNETS,
+    MISALIGNMENT_FIELDS,
+    MISALIGNMENT_SEED,
+    MODEL_WIDE_FAULTS,
+    aperture_half_axis,
+    fault_variables,
+    is_series_record,
+    misalignment_sigma,
+    readout,
+)
 
 if TYPE_CHECKING:
     import numpy as np
     from lume.model import LUMEModel
 
 __all__ = [
+    "CONDITIONS",
     "ElementStop",
+    "Injection",
     "POLYNOMIAL_KICK_LENGTH_M",
     "PolynomialKicks",
     "Prepared",
     "SOLVE_ERRORS",
+    "TrajectoryResponse",
     "build",
+    "condition",
     "error_text",
     "fault_variables",
     "describe",
@@ -69,11 +89,22 @@ __all__ = [
     "prepare",
     "readout",
     "response_matrix",
+    "scenario_stops",
     "start_values",
 ]
 
 #: The keys the ``pyat`` settings block may carry.
-SETTINGS_KEYS: frozenset[str] = frozenset({"solve", "twiss_in", "rest_mass_gev"})
+SETTINGS_KEYS: frozenset[str] = frozenset({"solve", "twiss_in", "rest_mass_gev", "injection"})
+
+#: The coordinates of the ``injection`` launch vector, in the order pyAT
+#: tracks them; each is zero when the block leaves it out.
+LAUNCH_KEYS: tuple[str, ...] = ("x", "px", "y", "py", "delta", "ct")
+
+#: The keys the ``injection`` block may carry.
+INJECTION_KEYS: frozenset[str] = frozenset({"marker", "pre_trigger_samples", *LAUNCH_KEYS})
+
+#: The samples a turn series holds before the launch when the block states none.
+PRE_TRIGGER_SAMPLES: int = 10
 
 #: The ``solve`` values, the first one the default.
 SOLVES: tuple[str, ...] = ("periodic", "single_pass")
@@ -115,9 +146,52 @@ _INDEX_PLANES: dict[int, str] = {0: "x", 1: "y"}
 #: are not a strength's polynomial coefficient.
 _ATTRIBUTE_KINDS: dict[str, str] = {"KickAngle": "kick", "Frequency": "rf"}
 
+#: The engine-block attributes a write naming no element commands a shot
+#: with: ``arm`` readies the turn series, ``inject`` requests a launch.
+COMMAND_ATTRIBUTES: frozenset[str] = frozenset({"arm", "inject"})
+
+#: The engine-block attribute a read naming no element reads the armed flag by.
+ARMED_ATTRIBUTE: str = "armed"
+
+#: The key a command's description carries, ``True``; no other description
+#: carries it.
+COMMAND_MARK: str = "command"
+
+#: The role of a record a shot fills: a turn series, or the armed flag.
+TURN_SERIES: str = "turn_series"
+
+#: What a periodic model's lattice lacks while its solve finds no closed orbit.
+NO_CLOSED_ORBIT: str = "no closed orbit"
+
+#: Every text :func:`condition` can answer.
+CONDITIONS: tuple[str, ...] = (NO_CLOSED_ORBIT,)
+
 Deck = str | os.PathLike[str]
 
 _NOTHING_ACTIVE: Mapping[str, Any] = MappingProxyType({})
+
+# Each built model's closed-orbit names, held for as long as the model lives.
+_CLOSED_ORBIT_NAMES: weakref.WeakKeyDictionary[Any, frozenset[str]] = weakref.WeakKeyDictionary()
+
+
+@dataclass(frozen=True)
+class Injection:
+    """Where a model launches a tracked particle, and from what.
+
+    Attributes:
+        marker: The deck element the particle is launched at; ``None`` on a
+            single-pass model, which launches at the start of the deck.
+        index: That element's index in the deck.
+        launch: The launch vector, six floats in pyAT's order ``x px y py
+            delta ct``.
+        pre_trigger_samples: The samples a turn series holds before the
+            launch.
+    """
+
+    marker: str | None
+    index: int
+    launch: np.ndarray
+    pre_trigger_samples: int
 
 
 @dataclass(frozen=True)
@@ -134,12 +208,17 @@ class Prepared:
         length_m: The end of the deck's s axis, the axis ``locate`` reports
             on: one pass through the elements as written, never multiplied
             by the deck's periodicity.
+        injection: The launch of a tracked particle: the ``injection`` block
+            of a periodic model, ``None`` when it states none; on a
+            single-pass model the launch from ``twiss_in.closed_orbit`` at
+            the start of the deck.
     """
 
     solve: str
     twiss_in: dict[str, np.ndarray] | None
     rest_mass_gev: float
     length_m: float
+    injection: Injection | None = None
 
 
 @dataclass(frozen=True)
@@ -301,13 +380,80 @@ def _normalise_twiss(twiss: Any, deck: Deck, model_id: str) -> dict[str, np.ndar
     return normalised
 
 
+def _number(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, int | float) and math.isfinite(value)
+
+
+def _normalise_injection(injection: Any, loaded: _Loaded, deck: Deck, model_id: str) -> Injection:
+    import numpy as np
+
+    if not isinstance(injection, Mapping):
+        raise _stop(
+            deck,
+            model_id,
+            "model",
+            "settings key pyat.injection is not a map",
+            "state injection as a map of marker, x, px, y, py, delta, ct, pre_trigger_samples",
+        )
+    unknown = sorted(str(key) for key in set(injection) - INJECTION_KEYS)
+    if unknown:
+        raise _stop(
+            deck,
+            model_id,
+            "model",
+            f"settings key pyat.injection carries unknown keys {', '.join(unknown)}",
+            "use only marker, x, px, y, py, delta, ct, pre_trigger_samples",
+        )
+    if "marker" not in injection:
+        raise _stop(
+            deck,
+            model_id,
+            "model",
+            "settings key pyat.injection lacks marker",
+            "state marker as the name of a deck element",
+        )
+    marker = injection["marker"]
+    if not isinstance(marker, str) or not marker:
+        raise _stop(
+            deck,
+            model_id,
+            "model",
+            f"settings key pyat.injection.marker is {marker!r}",
+            "state marker as the name of a deck element",
+        )
+    index = _element_index(loaded, deck, marker, model_id, "model")
+    launch = np.zeros(len(LAUNCH_KEYS))
+    for position, key in enumerate(LAUNCH_KEYS):
+        value = injection.get(key, 0.0)
+        if not _number(value):
+            raise _stop(
+                deck,
+                model_id,
+                "model",
+                f"settings key pyat.injection.{key} is {value!r}",
+                f"give injection.{key} as a finite number",
+            )
+        launch[position] = value
+    samples = injection.get("pre_trigger_samples", PRE_TRIGGER_SAMPLES)
+    if isinstance(samples, bool) or not isinstance(samples, int) or samples < 0:
+        raise _stop(
+            deck,
+            model_id,
+            "model",
+            f"settings key pyat.injection.pre_trigger_samples is {samples!r}",
+            "give pre_trigger_samples as a whole number of samples, zero or more",
+        )
+    return Injection(marker=marker, index=index, launch=launch, pre_trigger_samples=samples)
+
+
 def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
     """Check a deck against a model's settings and normalise the ``pyat`` block.
 
     Args:
         deck: The lattice file.
         settings: The model's settings, ``{pyat: {solve?, twiss_in?,
-            rest_mass_gev?}}``, or ``None``.
+            rest_mass_gev?, injection?}}``, or ``None``. ``injection`` is
+            ``{marker, x?, px?, y?, py?, delta?, ct?, pre_trigger_samples?}``.
         model: The model name the stop names; the deck's file stem when
             omitted.
 
@@ -319,8 +465,12 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
             ``solve`` value, repeated monitor names, a periodic deck holding a
             cavity without longitudinal motion, ``single_pass`` without
             ``twiss_in``, ``twiss_in`` on a periodic model, a ``twiss_in``
-            value of the wrong length, or a
-            ``rest_mass_gev`` that is not a finite non-negative number.
+            value of the wrong length, a
+            ``rest_mass_gev`` that is not a finite non-negative number,
+            ``injection`` on a single-pass model, or an ``injection`` block
+            with an unknown key, a ``marker`` the deck does not hold exactly
+            once (an :class:`ElementStop`), a coordinate that is not a finite
+            number or a ``pre_trigger_samples`` that is not a count.
     """
     import at
 
@@ -343,7 +493,7 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
             model_id,
             "model",
             f"settings key pyat carries unknown keys {', '.join(unknown)}",
-            "use only solve, twiss_in, rest_mass_gev",
+            "use only solve, twiss_in, rest_mass_gev, injection",
         )
     solve = block.get("solve", SOLVES[0])
     if solve not in SOLVES:
@@ -424,8 +574,34 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
                 "give rest_mass_gev as a finite non-negative number",
             )
         rest_mass_gev = float(rest_mass)
+
+    stated = block.get("injection")
+    injection: Injection | None = None
+    if solve == "single_pass":
+        if stated is not None:
+            raise _stop(
+                deck,
+                model_id,
+                "model",
+                "settings key pyat.injection is set on a single_pass model",
+                "remove injection or set solve to periodic",
+            )
+        # A single_pass model without twiss_in stopped above.
+        assert twiss_in is not None
+        injection = Injection(
+            marker=None,
+            index=0,
+            launch=twiss_in["closed_orbit"].copy(),
+            pre_trigger_samples=PRE_TRIGGER_SAMPLES,
+        )
+    elif stated is not None:
+        injection = _normalise_injection(stated, loaded, deck, model_id)
     return Prepared(
-        solve=solve, twiss_in=twiss_in, rest_mass_gev=rest_mass_gev, length_m=loaded.length_m
+        solve=solve,
+        twiss_in=twiss_in,
+        rest_mass_gev=rest_mass_gev,
+        length_m=loaded.length_m,
+        injection=injection,
     )
 
 
@@ -529,16 +705,25 @@ def start_values(
     to a whole optics output starts as one zero per plane. Any other record
     that names no element has no start value in the deck and is left out.
 
+    The records a shot fills start at rest. A turn series (an engine block
+    carrying ``series``) starts as one zero per sample of its ``shape``, the
+    armed flag (``attribute: armed`` on no element) and a command (one of
+    :data:`COMMAND_ATTRIBUTES` on no element) as the whole number 0. Every
+    turn series of a model holds the same number of samples, at least one
+    more than the model's pre-trigger samples.
+
     Args:
         deck: The lattice file.
         wiring: The model's wiring records.
-        settings: The model's settings; pyat's start values read none.
+        settings: The model's settings, read only for a model wiring a turn
+            series: its pre-trigger samples bound the series' length.
         readbacks: Each readback address among the records, mapped to the
             address of its paired setpoint or ``None``; every other record is
             a setpoint.
         value_types: Each wired channel's ``value_type``; an address it
             does not name is float. pyat drives float channels only, but for
-            a readback wired to a whole optics output.
+            a waveform readback wired to a whole optics output, a waveform
+            turn series, and an int armed flag or command.
         shapes: Each wired waveform channel's ``shape``; a readback wired to
             a whole optics output is as long as the deck has planes.
 
@@ -547,24 +732,43 @@ def start_values(
 
     Raises:
         FacilityBuildError: ``engine-invalid`` naming the wiring id for the
-            first record, in record order, whose channel is a non-float
-            setpoint, or a non-float readback that is not a waveform reading
-            an optics output (raised before the deck is read); for an element
+            first record, in record order, whose channel is a turn series
+            that is not a waveform, a non-float setpoint that is not an int
+            command, or a non-float readback that is neither a waveform
+            reading an optics output nor the int armed flag (raised before
+            the deck is read); for an element
             absent from or repeated in the deck (an ``ElementStop``), an
             unreadable attribute, or a setpoint's or monitor's (a record whose
             engine block names an ``axis``) table calibration without an
             inverse or linear gain of 0; for a waveform readback that names an
-            ``axis`` or ``index``, or whose shape is not the deck's planes.
+            ``axis`` or ``index``, or whose shape is not the deck's planes;
+            for a turn series whose shape is not one length of at least the
+            pre-trigger samples and one, or not the length of the model's
+            other turn series, or whose model states no injection; and
+            whatever :func:`prepare` raises for the settings of a model
+            wiring a turn series.
     """
-    del settings
     readbacks = readbacks or {}
     value_types = value_types or {}
     records = list(wiring)
     for record in records:
         address = field(record, "address")
         value_type = value_types.get(address, "float")
-        whole = value_type == "waveform" and address in readbacks and _reads_an_output(record)
-        if value_type != "float" and not whole:
+        if is_series_record(record):
+            if value_type != "waveform":
+                raise _stop(
+                    deck,
+                    field(record, "id") or address,
+                    "wiring",
+                    f"{address} is {value_type}; a turn series is a waveform",
+                    "wire a waveform channel, or leave the channel unwired",
+                )
+            continue
+        if value_type == "waveform":
+            admitted = address in readbacks and _reads_an_output(record)
+        else:
+            admitted = value_type == "float" or (value_type == "int" and _holds_shot_state(record))
+        if not admitted:
             raise _stop(
                 deck,
                 field(record, "id") or address,
@@ -579,9 +783,10 @@ def start_values(
     whole_outputs: set[str] = set()
     for record in records:
         address = field(record, "address")
-        if value_types.get(address, "float") == "waveform":
+        if value_types.get(address, "float") == "waveform" and not is_series_record(record):
             _check_whole_output(record, (shapes or {}).get(address, ()), deck, planes)
             whole_outputs.add(address)
+    samples = _series_length(records, shapes or {}, deck, settings)
     values: dict[str, float | list[float]] = {}
     pending: list[str] = []
     for record in records:
@@ -589,6 +794,12 @@ def start_values(
         record_id = field(record, "id") or address
         if field(field(record, "engine"), "axis") is not None:
             _hardware(0.0, field(record, "calibration"), deck, record_id, _SERVE_READING)
+        if is_series_record(record):
+            values[address] = [0.0] * samples
+            continue
+        if _holds_shot_state(record):
+            values[address] = 0
+            continue
         pair = readbacks.get(address)
         if address in readbacks and pair != address:
             pending.append(address)
@@ -641,12 +852,75 @@ def _check_whole_output(record: Any, shape: Iterable[int], deck: Deck, planes: i
     )
 
 
+def _series_length(
+    records: Iterable[Any], shapes: Mapping[str, Iterable[int]], deck: Deck, settings: Any
+) -> int:
+    """The samples every turn series of a model holds; zero for a model wiring none.
+
+    Each series record's ``shape`` is one length, the same on every series
+    record of the model, and long enough to hold the launch after the model's
+    pre-trigger samples. The settings are read only for a model wiring a
+    series.
+
+    Raises:
+        FacilityBuildError: ``engine-invalid`` naming the first series record,
+            in record order, that breaks the rule, or the first one of a model
+            that launches nothing; whatever :func:`prepare` raises for the
+            settings.
+    """
+    series = [record for record in records if is_series_record(record)]
+    if not series:
+        return 0
+    injection = prepare(deck, settings).injection
+    samples: int | None = None
+    for record in series:
+        address = field(record, "address")
+        record_id = str(field(record, "id") or address)
+        if injection is None:
+            raise _stop(
+                deck,
+                record_id,
+                "wiring",
+                f"{address} is a turn series on a model whose settings state no injection",
+                "state settings.pyat.injection, or leave the series unwired",
+            )
+        least = injection.pre_trigger_samples + 1
+        shape = list(shapes.get(address, ()))
+        length = shape[0] if len(shape) == 1 else None
+        if isinstance(length, bool) or not isinstance(length, int) or length < least:
+            raise _stop(
+                deck,
+                record_id,
+                "wiring",
+                f"{address} is a turn series of shape {shape}; a turn series holds the "
+                f"{injection.pre_trigger_samples} samples before the launch and at least one after",
+                f"give the channel a shape of one length, {least} or more",
+            )
+        if samples is None:
+            samples = length
+        elif length != samples:
+            raise _stop(
+                deck,
+                record_id,
+                "wiring",
+                f"{address} is a turn series of {length} samples; "
+                f"the model's other turn series hold {samples}",
+                "give every turn series of the model the same shape",
+            )
+    return samples or 0
+
+
 def describe(wiring_record: Any) -> Mapping[str, Any]:
     """Say what a wiring record is, in words that name no engine attribute.
 
     The description reads the record alone, never the deck:
 
-    * ``direction: write`` is a ``setpoint``;
+    * ``direction: write`` is a ``setpoint``; one naming no element whose
+      engine ``attribute`` is one of :data:`COMMAND_ATTRIBUTES` is a command,
+      and its description alone carries :data:`COMMAND_MARK`, ``True``;
+    * a read naming an element (or slices) whose engine block carries
+      ``series`` is a ``turn_series``, its plane the axis when that is ``x``
+      or ``y``;
     * a read naming an element (or slices) with an engine ``axis`` and no
       ``attribute`` is a ``monitor``, its plane the axis;
     * a read naming an element (or slices) and an engine ``attribute`` is a
@@ -654,7 +928,9 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
     * a read naming no element is a ``readback`` of a deck property such as
       ``energy``, else an ``output`` of the tunes or the chromaticity, its
       plane the ``axis``, else the ``index`` (0 is ``x``, 1 is ``y``); a
-      whole-output waveform has no plane.
+      whole-output waveform has no plane;
+    * a read naming no element whose engine ``attribute`` is ``armed`` is a
+      ``turn_series`` with no plane.
 
     A setpoint or readback has a plane only when it steers one: ``KickAngle``
     index 0 is ``x`` and index 1 is ``y``. A chromaticity output refreshes
@@ -664,16 +940,19 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
     The ``kind`` is the device a setpoint or readback drives or reads back:
     ``kick`` for ``KickAngle``, ``rf`` for ``Frequency``, ``energy`` for the
     deck energy, ``strength`` for any other element attribute. A monitor's
-    kind is ``monitor``; an optics output has none.
+    kind is ``monitor``; an optics output, a turn series and a command have
+    none.
 
     Args:
         wiring_record: One wiring record, read by key or by attribute.
 
     Returns:
         ``{role, plane, refresh, kind}``: ``role`` one of ``setpoint``,
-        ``readback``, ``monitor``, ``output``; ``plane`` ``x``, ``y`` or
-        ``None``; ``refresh`` ``pass`` or ``periodic``; ``kind`` one of
-        ``kick``, ``strength``, ``rf``, ``energy``, ``monitor``, or ``None``.
+        ``readback``, ``monitor``, ``output``, ``turn_series``; ``plane``
+        ``x``, ``y`` or ``None``; ``refresh`` ``pass`` or ``periodic``;
+        ``kind`` one of ``kick``, ``strength``, ``rf``, ``energy``,
+        ``monitor``, or ``None``. A command's description carries
+        :data:`COMMAND_MARK` as a fifth key.
 
     Raises:
         ValueError: naming the record's address, for a record none of the
@@ -682,8 +961,13 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
     block = field(wiring_record, "engine")
     attribute = field(block, "attribute")
     if field(wiring_record, "direction") == "write":
+        if _is_command(wiring_record):
+            return {**_description("setpoint", None, None), COMMAND_MARK: True}
         return _description("setpoint", _steered_plane(block), _setting_kind(wiring_record))
     if _names_element(wiring_record):
+        if is_series_record(wiring_record):
+            axis = field(block, "axis")
+            return _description(TURN_SERIES, axis if axis in OPTICS_AXES else None, None)
         if _is_monitor_reading(wiring_record):
             axis = field(block, "axis")
             return _description("monitor", axis if axis in OPTICS_AXES else None, "monitor")
@@ -694,8 +978,28 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
     elif attribute in OPTICS_ATTRIBUTES:
         refresh = "periodic" if OPTICS_ATTRIBUTES[attribute] == "chromaticity" else "pass"
         return _description("output", _output_plane(block), None, refresh)
+    elif attribute == ARMED_ATTRIBUTE:
+        return _description(TURN_SERIES, None, None)
     raise ValueError(
         f"{field(wiring_record, 'address')} is no setpoint, monitor, readback or optics output"
+    )
+
+
+def _is_command(record: Any) -> bool:
+    """Whether a record's engine block is a command's: no element, a command attribute."""
+    attribute = field(field(record, "engine"), "attribute")
+    return (
+        not _names_element(record)
+        and isinstance(attribute, str)
+        and attribute in COMMAND_ATTRIBUTES
+    )
+
+
+def _holds_shot_state(record: Any) -> bool:
+    """Whether a record is a command or the armed flag: a whole number, zero at rest."""
+    return _is_command(record) or (
+        not _names_element(record)
+        and field(field(record, "engine"), "attribute") == ARMED_ATTRIBUTE
     )
 
 
@@ -834,16 +1138,41 @@ def build(
       ``chromaticity`` -- its ``axis`` (``x`` 0, ``y`` 1) or its ``index`` --
       unless its attribute is a deck property such as ``energy``; a
       ``value_type: waveform`` record names neither and reads the whole
-      output, read-only, its ``shape`` the deck's number of planes.
+      output, read-only, its ``shape`` the deck's number of planes;
+    * a command (a write naming no element, its attribute one of
+      :data:`COMMAND_ATTRIBUTES`) writes nothing to the deck: ``arm`` written
+      1 sets the model's one armed flag, and an ``inject`` request written
+      above the last value the model saw is one shot;
+    * a read naming no element whose attribute is ``armed`` reads that flag;
+    * a turn series (an element and an engine ``series``) holds one sample of
+      its monitor per tracked turn, as long as its ``shape``: zero until an
+      armed shot fills it, through the entry's calibration.
 
     The settings' ``solve`` picks the solve: ``periodic`` solves the closed
     orbit; ``single_pass`` tracks one pass through the line from
-    ``twiss_in`` and serves no tunes or chromaticity.
+    ``twiss_in`` and serves no tunes or chromaticity. A ``periodic`` model
+    whose settings state an ``injection`` is built whether or not its deck
+    has a closed orbit: without one its monitors and optics read NaN and its
+    ``no_closed_orbit`` is true.
 
     The model drives its own copy of the deck, so the deck a later call loads
-    is never the one a model has written to. Every other key of ``active``
-    is a fault seed, ``<address>/<field>``, written onto its element before the
-    model adopts the variables. The model is then reset once -- one batch, one
+    is never the one a model has written to. A key of ``active`` that is a
+    model-wide fault is the scenario's physics, and never a variable of the
+    model:
+
+    * a ``<magnet>_<field>_sigma`` misaligns every quadrupole, sextupole or
+      dipole of the copy, each by its sigma times one standard normal draw
+      keyed on the ``misalignment_seed``, the magnet's ``FamName`` and the
+      field (``dx``, ``dy`` in metres, ``roll`` in radians), never truncated;
+      a magnet's draw is its own whatever the deck's other elements are;
+    * ``aperture_elliptical_x`` and ``_y``, and ``aperture_rectangular_x`` and
+      ``_y``, are the half-axes in metres of an aperture centred on the axis,
+      written on every element of the copy that has a length; the two
+      half-axes of a shape are stated together.
+
+    Every other key of ``active`` is a fault seed, ``<address>/<field>``,
+    written onto its element before the model adopts the variables. The
+    model is then reset once -- one batch, one
     solve -- so the lattice holds every setpoint's default, and a later
     :meth:`reset` returns to the active scenario rather than to the deck.
 
@@ -855,7 +1184,7 @@ def build(
         deck: The lattice file.
         settings: The model's settings, ``{pyat: {...}}``, or ``None``.
         active: The active scenario's writes: setpoint address -> hardware
-            value, and fault name -> seed.
+            value, fault name -> seed, and model-wide fault name -> value.
 
     Returns:
         The model, at the active scenario.
@@ -864,18 +1193,29 @@ def build(
         FacilityBuildError: ``engine-invalid`` for settings :func:`prepare`
             refuses, or for a record naming no element that reads no plane of
             the tunes or the chromaticity.
+        FacilityBuildError: ``engine-invalid`` for a turn series
+            :func:`start_values` would refuse for its shape or for a model
+            with no injection.
         ValueError: an entry cannot be built as a variable, a default or an
             active value lies outside its ``value_range``, a key of
-            ``active`` names no setpoint and no fault of the model, or a
-            ``single_pass`` model wires a tune or chromaticity record.
+            ``active`` names no setpoint and no fault of the model, a
+            model-wide fault is not a finite number inside its range, the
+            misalignment seed is not whole, one half-axis of an aperture is
+            stated without the other, a
+            ``single_pass`` model wires a tune or chromaticity record, or a
+            turn series names an axis other than ``x``, ``y`` or ``sum``.
         pydantic.ValidationError: a fault seed lies outside its bounds.
         OrbitSolveError: the deck, or the deck at the active scenario, has no
-            stable solve, or loses the single-pass particle.
+            stable solve and the settings state no ``injection``, or loses
+            the single-pass particle.
     """
     from osprey.simulation.engines.pyat_model import (
+        ArmedVariable,
         ArrayReadbackVariable,
+        CommandVariable,
         PyATLatticeModel,
         ReadbackVariable,
+        SeriesVariable,
         tune_planes,
     )
     from osprey.simulation.engines.pyat_variables import EV_PER_GEV, variable_from_wiring
@@ -892,11 +1232,38 @@ def build(
         if entry.get("direction") == "write":
             setpoints.setdefault(_target(entry), str(entry["address"]))
 
+    samples = _series_length(
+        entries,
+        {str(entry["address"]): entry.get("shape") or () for entry in entries},
+        deck,
+        settings,
+    )
+
     channels: list[Any] = []
     for entry in entries:
         address = str(entry["address"])
         attribute = field(entry.get("engine"), "attribute")
         deck_property = not _names_element(entry) and attribute in DECK_PROPERTIES
+        if _is_command(entry):
+            limits: dict[str, Any] = (
+                {"value_range": tuple(entry["value_range"])} if "value_range" in entry else {}
+            )
+            channels.append(
+                CommandVariable(
+                    name=address,
+                    command=attribute,
+                    default_value=float(entry.get("default") or 0),
+                    unit=entry.get("unit"),
+                    **limits,
+                )
+            )
+            continue
+        if _holds_shot_state(entry) and entry.get("direction") == "read":
+            channels.append(ArmedVariable(name=address, unit=entry.get("unit")))
+            continue
+        if _names_element(entry) and is_series_record(entry):
+            channels.append(SeriesVariable.from_wiring(entry, samples))
+            continue
         if not _names_element(entry) and not deck_property:
             output, component = _optics_source(entry, deck, planes)
             if component is None:
@@ -935,17 +1302,272 @@ def build(
         if variable is not None:
             channels.append(variable)
 
-    faults = {name: float(value) for name, value in active.items() if name not in writes}
+    physics = _physics(active, writes)
+    faults = {
+        name: float(value)
+        for name, value in active.items()
+        if name not in writes and name not in physics
+    }
+    _write_apertures(lattice, physics)
     built = PyATLatticeModel(
-        lattice, channels, faults=faults, solve=prepared.solve, twiss_in=prepared.twiss_in
+        lattice,
+        channels,
+        faults=faults,
+        element_misalignments=_misalignments(lattice, physics),
+        solve=prepared.solve,
+        twiss_in=prepared.twiss_in,
+        injection=prepared.injection,
     )
     built.reset()
     return built
 
 
+def _physics(active: Mapping[str, Any], writes: Iterable[str]) -> dict[str, float]:
+    """The model-wide faults among a model's active writes, each a checked float.
+
+    A key that is also a setpoint address of the model is that setpoint's
+    write, and no fault.
+
+    Raises:
+        ValueError: naming the fault whose value is not a finite number
+            inside its slot's range, or the misalignment seed that is not
+            whole.
+    """
+    taken = set(writes)
+    physics: dict[str, float] = {}
+    for name, slot in MODEL_WIDE_FAULTS.items():
+        if name not in active or name in taken:
+            continue
+        raw = active[name]
+        value = float(raw) if _number(raw) else math.nan
+        low, high = slot.value_range or (-math.inf, math.inf)
+        if not low <= value <= high:
+            raise ValueError(
+                f"model-wide fault {name} is {raw!r}; give a number in [{low:g}, {high:g}]"
+            )
+        if name == MISALIGNMENT_SEED and value != int(value):
+            raise ValueError(f"model-wide fault {name} is {raw!r}; give a whole number")
+        physics[name] = value
+    return physics
+
+
+def _magnet_classes() -> dict[str, type]:
+    """Each word of :data:`MISALIGNED_MAGNETS` and the pyAT element class it selects."""
+    import at
+
+    classes = {"quadrupole": at.Quadrupole, "sextupole": at.Sextupole, "dipole": at.Dipole}
+    return {magnet: classes[magnet] for magnet in MISALIGNED_MAGNETS}
+
+
+def _misalignments(
+    elements: Iterable[Any], physics: Mapping[str, float]
+) -> dict[str, dict[str, float]] | None:
+    """Each selected magnet's misalignment: ``FamName`` -> ``{dx, dy, roll}``.
+
+    A magnet is selected when its class has a non-zero sigma in any field.
+    Each value is its sigma times the standard normal draw addressed by the
+    misalignment seed, the magnet's ``FamName`` and the field, so it depends
+    on no other element and on no order; a field with no sigma is 0. Magnets
+    that share a ``FamName`` share one entry.
+
+    Args:
+        elements: The deck's elements.
+        physics: The model-wide faults, as :func:`_physics` gives them.
+
+    Returns:
+        The misalignments; ``None`` when no sigma is non-zero.
+    """
+    sigmas = {
+        magnet: {
+            field: physics.get(misalignment_sigma(magnet, field), 0.0)
+            for field in MISALIGNMENT_FIELDS
+        }
+        for magnet in MISALIGNED_MAGNETS
+    }
+    selected = {magnet: widths for magnet, widths in sigmas.items() if any(widths.values())}
+    if not selected:
+        return None
+    import numpy as np
+
+    from osprey_connectors.simulation.series import channel_key_bytes, keyed_normals
+
+    seed = np.asarray([int(physics.get(MISALIGNMENT_SEED, 0.0))])
+    classes = _magnet_classes()
+    drawn: dict[str, dict[str, float]] = {}
+    for element in elements:
+        widths = next(
+            (selected[magnet] for magnet in selected if isinstance(element, classes[magnet])),
+            None,
+        )
+        name = str(element.FamName)
+        if widths is None or name in drawn:
+            continue
+        key = channel_key_bytes(name)
+        drawn[name] = {
+            field: (
+                width * float(keyed_normals(key + f":misalignment_{field}".encode(), seed)[0])
+                if width
+                else 0.0
+            )
+            for field, width in widths.items()
+        }
+    return drawn
+
+
+#: How many repeated magnet names one scenario stop lists before it counts the rest.
+_REPEATS_SHOWN = 3
+
+
+def scenario_stops(deck: Deck, faults: Mapping[str, Any]) -> list[tuple[str, str, str]]:
+    """What one scenario asks of a model that its deck cannot give.
+
+    A misalignment is drawn per magnet name, so two magnets of one name would
+    take one error: a non-zero ``<magnet>_<field>_sigma`` stops when the deck
+    holds a magnet of that class under a name it holds more than once. The
+    deck is read only when ``faults`` states such a sigma.
+
+    Args:
+        deck: The lattice file, one :func:`prepare` accepts.
+        faults: The faults one scenario names on the model that are not its
+            channels, name -> value.
+
+    Returns:
+        One ``(fault name, detail, remedy)`` per magnet class that stops,
+        under the first of its sigmas by name; ``detail`` reads on after the
+        fault's name. Empty when nothing stops.
+    """
+    stated: dict[str, str] = {}
+    for magnet in MISALIGNED_MAGNETS:
+        for name in sorted(misalignment_sigma(magnet, moved) for moved in MISALIGNMENT_FIELDS):
+            raw = faults.get(name)
+            if _number(raw) and raw != 0:
+                stated.setdefault(magnet, name)
+    if not stated:
+        return []
+    loaded = _load(deck)
+    classes = _magnet_classes()
+    stops: list[tuple[str, str, str]] = []
+    for magnet, name in stated.items():
+        repeated = sorted(
+            (fam_name, len(found))
+            for fam_name, found in loaded.indices.items()
+            if len(found) > 1
+            and any(isinstance(loaded.lattice[index], classes[magnet]) for index in found)
+        )
+        if not repeated:
+            continue
+        listing = ", ".join(f"{n} ({count} times)" for n, count in repeated[:_REPEATS_SHOWN])
+        if len(repeated) > _REPEATS_SHOWN:
+            listing += f" and {len(repeated) - _REPEATS_SHOWN} more"
+        stops.append(
+            (
+                name,
+                f"draws one misalignment per {magnet} name, and the deck repeats {listing}",
+                f"give every {magnet} a unique name in the deck, or state no {magnet} sigma",
+            )
+        )
+    return stops
+
+
+def _write_apertures(lattice: Any, physics: Mapping[str, float]) -> None:
+    """Write the stated apertures on every element of ``lattice`` that has a length.
+
+    An elliptical aperture is pyAT's ``EApertures``, its two half-axes; a
+    rectangular one is ``RApertures``, the four edges of a rectangle centred
+    on the axis.
+
+    Raises:
+        ValueError: naming the half-axis a shape states without its other.
+    """
+    import numpy as np
+
+    apertures: dict[str, Any] = {}
+    for shape in APERTURE_SHAPES:
+        names = [aperture_half_axis(shape, axis) for axis in ("x", "y")]
+        stated = [name for name in names if name in physics]
+        if not stated:
+            continue
+        if len(stated) != len(names):
+            (missing,) = set(names) - set(stated)
+            raise ValueError(
+                f"model-wide fault {stated[0]} is stated without {missing}; "
+                f"state both half-axes of the {shape} aperture"
+            )
+        x, y = (physics[name] for name in names)
+        if shape == "elliptical":
+            apertures["EApertures"] = (x, y)
+        else:
+            apertures["RApertures"] = (-x, x, -y, y)
+    if not apertures:
+        return
+    for element in lattice:
+        if float(getattr(element, "Length", 0.0)) > 0.0:
+            for attribute, values in apertures.items():
+                setattr(element, attribute, np.array(values, dtype=float))
+
+
 def _is_monitor_reading(record: Any) -> bool:
+    """Whether a record reads an orbit position: an ``axis``, no ``attribute``, no ``series``."""
+    if is_series_record(record):
+        return False
     block = field(record, "engine")
     return field(block, "attribute") is None and field(block, "axis") is not None
+
+
+#: The responses :func:`response_matrix` computes, the first one the default.
+RESPONSE_KINDS: tuple[str, ...] = ("orbit", "trajectory")
+
+
+class TrajectoryResponse(NamedTuple):
+    """The first-turn response of a model's turn series to its correctors.
+
+    An index is an element's position in the lattice as the launched particle
+    meets it: the deck rotated to the launch marker for a ``periodic`` model,
+    the deck as written for a ``single_pass`` one.
+
+    Attributes:
+        rows: The turn-series record addresses: every ``x`` record in the
+            order the particle meets its monitor, then every ``y`` record.
+        columns: The corrector setpoint addresses: the horizontal correctors
+            in the order they were named, then the vertical ones.
+        matrix: One row per ``rows`` address and one column per ``columns``
+            address, hardware reading per hardware setpoint.
+        bpm_index: Each row's monitor index, one entry per row.
+        hcor_index: Each horizontal column's corrector index.
+        vcor_index: Each vertical column's corrector index; with
+            ``hcor_index`` before it, one entry per column.
+    """
+
+    rows: list[str]
+    columns: list[str]
+    matrix: np.ndarray
+    bpm_index: list[int]
+    hcor_index: list[int]
+    vcor_index: list[int]
+
+
+@overload
+def response_matrix(
+    deck: Deck,
+    wiring: Iterable[Any],
+    settings: Any,
+    correctors: list[str],
+    step: Mapping[str, float],
+    *,
+    kind: Literal["orbit"] = "orbit",
+) -> tuple[list[str], np.ndarray]: ...
+
+
+@overload
+def response_matrix(
+    deck: Deck,
+    wiring: Iterable[Any],
+    settings: Any,
+    correctors: list[str],
+    step: Mapping[str, float],
+    *,
+    kind: Literal["trajectory"],
+) -> TrajectoryResponse: ...
 
 
 def response_matrix(
@@ -954,99 +1576,143 @@ def response_matrix(
     settings: Any,
     correctors: list[str],
     step: Mapping[str, float],
-) -> tuple[list[str], np.ndarray]:
-    """Compute the orbit response of the wired monitors to the named correctors.
+    *,
+    kind: str = "orbit",
+) -> tuple[list[str], np.ndarray] | TrajectoryResponse:
+    """Compute the response of the wired monitors to the named correctors.
 
     Each corrector is stepped by central difference, ``held ± step/2`` in its
     hardware unit about the value the deck holds, each arm converted to the
     deck's attribute through the corrector's calibration and solved on a copy
-    of the deck: the closed orbit for a ``periodic`` model, one tracked pass
-    from ``twiss_in`` for a ``single_pass`` one. Each reading is mapped to its
-    readback's hardware unit through the way back its calibration states, so
-    an entry is hardware readback per hardware setpoint. The deck a later call
-    loads is never written to.
+    of the deck. Each reading is mapped to its record's hardware unit through
+    the way back its calibration states, so an entry is hardware reading per
+    hardware setpoint. The deck a later call loads is never written to.
+
+    ``kind="orbit"`` reads the orbit records off the closed orbit of a
+    ``periodic`` model, or off one tracked pass from ``twiss_in`` for a
+    ``single_pass`` one.
+
+    ``kind="trajectory"`` reads the turn-series records, each through its own
+    calibration, off the first turn of one launched particle: on a
+    ``periodic`` model the copy is rotated to the ``injection`` marker and the
+    particle tracked once round from the launch vector, radiation and cavities
+    as the deck has them; on a ``single_pass`` model it is the tracked pass
+    from ``twiss_in``, unrotated. A series record of an axis other than ``x``
+    or ``y`` has no row.
 
     Args:
         deck: The lattice file.
         wiring: The model's wiring records.
         settings: The model's settings, ``{pyat: {...}}``, or ``None``.
-        correctors: The setpoint addresses to step, one column each, in this
-            order.
+        correctors: The setpoint addresses to step, one column each: in this
+            order for ``orbit``; for ``trajectory`` the ones steering ``x``
+            in this order, then the ones steering ``y``.
         step: Each corrector's full step width in its hardware unit.
+        kind: ``orbit`` or ``trajectory``.
 
     Returns:
-        ``(rows, matrix)``: ``rows`` the wired monitor readback addresses
-        ordered by (element lattice index, ``x`` before ``y``), a monitor no
-        record wires having no row; ``matrix`` one row per address and one
-        column per corrector.
+        For ``orbit``, ``(rows, matrix)``: ``rows`` the wired monitor readback
+        addresses ordered by (element lattice index, ``x`` before ``y``), a
+        monitor no record wires having no row; ``matrix`` one row per address
+        and one column per corrector. For ``trajectory``, a
+        :class:`TrajectoryResponse`: row names, column names, matrix,
+        ``bpm_index``, ``hcor_index``, ``vcor_index``.
 
     Raises:
         FacilityBuildError: ``engine-invalid`` for settings :func:`prepare`
-            refuses, or a monitor element the deck does not hold exactly once.
-        ValueError: a corrector is not a wired setpoint naming an element, is
-            named twice, or has no finite non-zero step; a monitor record
+            refuses, a monitor or corrector element the deck does not hold
+            exactly once, or ``trajectory`` on a ``periodic`` model whose
+            settings state no ``injection``.
+        ValueError: ``kind`` is neither word; a corrector is not a wired
+            setpoint naming an element, is named twice, has no finite non-zero
+            step, or for ``trajectory`` steers neither plane; a monitor record
             cannot be built as a reading.
-        OrbitSolveError: a step has no solve; the message is
-            :func:`error_text` of the failure followed by
+        OrbitSolveError: a step has no solve, or loses the launched particle;
+            the message is :func:`error_text` of the failure followed by
             ``(while stepping <address>)``.
     """
     import numpy as np
     from lume_pyat.simulator import PyATSimulator
 
     from osprey.simulation.engines.pyat_single_pass import SinglePassSimulator
-    from osprey.simulation.engines.pyat_variables import (
-        EV_PER_GEV,
-        CalibratedSetpoint,
-        MonitorVariable,
-        variable_from_wiring,
-    )
+    from osprey.simulation.engines.pyat_variables import EV_PER_GEV, MonitorVariable
 
+    if kind not in RESPONSE_KINDS:
+        raise ValueError(f"response kind is {kind!r}; use {' or '.join(RESPONSE_KINDS)}")
+    trajectory = kind == RESPONSE_KINDS[1]
     prepared = prepare(deck, settings)
     loaded = _load(deck)
+    periodic = prepared.solve == SOLVES[0]
+    injection = prepared.injection
+    if trajectory and injection is None:
+        raise _stop(
+            deck,
+            _model_id(deck, None),
+            "model",
+            "a trajectory response needs settings key pyat.injection, which the model does not "
+            "state",
+            "state injection with the marker the particle is launched at",
+        )
+    # A particle launched at the marker meets the deck from there on: the
+    # tracked copy starts at it, and every index is counted from it.
+    start = injection.index if trajectory and periodic and injection is not None else 0
     lattice = loaded.lattice.deepcopy()
+    if start:
+        lattice = lattice.rotate(start)
+    size = len(lattice)
     deck_energy_gev = float(lattice.energy) / EV_PER_GEV
     records = list(wiring)
 
-    readings: list[tuple[tuple[int, str], MonitorVariable]] = []
+    def position(element: str, record_id: str) -> int:
+        return (_element_index(loaded, deck, element, record_id, "wiring") - start) % size
+
+    readings: list[tuple[tuple[Any, ...], int, MonitorVariable]] = []
     for record in records:
-        if not _is_monitor_reading(record):
+        if trajectory:
+            if not is_series_record(record) or field(field(record, "engine"), "axis") not in (
+                "x",
+                "y",
+            ):
+                continue
+        elif not _is_monitor_reading(record):
             continue
         reading = MonitorVariable.from_wiring(record)
         record_id = str(field(record, "id") or reading.name)
-        index = _element_index(loaded, deck, reading.element_name, record_id, "wiring")
-        readings.append(((index, reading.axis), reading))
+        index = position(reading.element_name, record_id)
+        order = (reading.axis, index) if trajectory else (index, reading.axis)
+        readings.append((order, index, reading))
     readings.sort(key=lambda item: item[0])
-    monitors = [reading for _, reading in readings]
+    monitors = [reading for _, _, reading in readings]
 
-    setpoints = {
-        str(field(record, "address")): record
-        for record in records
-        if field(record, "direction") == "write" and _names_element(record)
-    }
-    columns: list[tuple[CalibratedSetpoint, float]] = []
-    for address in correctors:
-        record = setpoints.get(address)
-        variable = (
-            None
-            if record is None
-            else variable_from_wiring(record, deck_energy_gev=deck_energy_gev)
-        )
-        if not isinstance(variable, CalibratedSetpoint):
-            raise ValueError(f"corrector {address} is not a wired setpoint on an element")
-        if any(variable.name == other.name for other, _ in columns):
-            raise ValueError(f"corrector {address} is named twice")
-        width = step.get(address)
-        if width is None or not math.isfinite(float(width)) or float(width) == 0.0:
-            raise ValueError(f"corrector {address} has step {width!r}; give a finite non-zero step")
-        columns.append((variable, float(width)))
+    columns = _stepped_correctors(records, correctors, step, deck_energy_gev)
+    planes: list[str] = []
+    if trajectory:
+        steered = {
+            variable.name: _steered_plane(field(record, "engine"))
+            for variable, _, record in columns
+        }
+        for variable, _, _ in columns:
+            if steered[variable.name] is None:
+                raise ValueError(f"corrector {variable.name} steers neither plane")
+        # A stable sort: within a plane the correctors keep the order named.
+        columns.sort(key=lambda column: steered[column[0].name] != "x")
+        planes = [str(steered[variable.name]) for variable, _, _ in columns]
 
     simulator = (
         PyATSimulator(lattice)
-        if prepared.solve == SOLVES[0]
+        if periodic
         else SinglePassSimulator(lattice, twiss_in=prepared.twiss_in)  # type: ignore[arg-type]
     )
+    if trajectory and periodic and injection is not None:
+        read = _first_turn_reader(lattice, injection.launch, monitors)
+    else:
+
+        def read() -> np.ndarray:
+            simulator.solve()
+            return np.array([reading._get(simulator) for reading in monitors])
+
     matrix = np.empty((len(monitors), len(columns)), dtype=np.float64)
-    for column, (variable, width) in enumerate(columns):
+    for column, (variable, width, _) in enumerate(columns):
         elements = [simulator.element(binding.element_name) for binding in variable.bindings]
         held_fields = [
             np.array(getattr(element, binding.attribute), copy=True)
@@ -1057,8 +1723,7 @@ def response_matrix(
         try:
             for value in (held + 0.5 * width, held - 0.5 * width):
                 variable._set(simulator, value)
-                simulator.solve()
-                arms.append(np.array([reading._get(simulator) for reading in monitors]))
+                arms.append(read())
         except OrbitSolveError as exc:
             raise OrbitSolveError(f"{error_text(exc)} (while stepping {variable.name})") from exc
         finally:
@@ -1067,7 +1732,104 @@ def response_matrix(
             ):
                 setattr(element, binding.attribute, saved if saved.ndim else float(saved))
         matrix[:, column] = (arms[0] - arms[1]) / width
-    return [reading.name for reading in monitors], matrix
+    rows = [reading.name for reading in monitors]
+    if not trajectory:
+        return rows, matrix
+    corrector_index = [
+        position(variable.bindings[0].element_name, str(field(record, "id") or variable.name))
+        for variable, _, record in columns
+    ]
+    return TrajectoryResponse(
+        rows=rows,
+        columns=[variable.name for variable, _, _ in columns],
+        matrix=matrix,
+        bpm_index=[index for _, index, _ in readings],
+        hcor_index=[
+            index for index, plane in zip(corrector_index, planes, strict=True) if plane == "x"
+        ],
+        vcor_index=[
+            index for index, plane in zip(corrector_index, planes, strict=True) if plane == "y"
+        ],
+    )
+
+
+def _stepped_correctors(
+    records: list[Any], correctors: list[str], step: Mapping[str, float], deck_energy_gev: float
+) -> list[tuple[Any, float, Any]]:
+    """Each named corrector's setpoint variable, full step width and wiring record."""
+    from osprey.simulation.engines.pyat_variables import CalibratedSetpoint, variable_from_wiring
+
+    setpoints = {
+        str(field(record, "address")): record
+        for record in records
+        if field(record, "direction") == "write" and _names_element(record)
+    }
+    columns: list[tuple[Any, float, Any]] = []
+    for address in correctors:
+        record = setpoints.get(address)
+        variable = (
+            None
+            if record is None
+            else variable_from_wiring(record, deck_energy_gev=deck_energy_gev)
+        )
+        if not isinstance(variable, CalibratedSetpoint):
+            raise ValueError(f"corrector {address} is not a wired setpoint on an element")
+        if any(variable.name == other.name for other, _, _ in columns):
+            raise ValueError(f"corrector {address} is named twice")
+        width = step.get(address)
+        if width is None or not math.isfinite(float(width)) or float(width) == 0.0:
+            raise ValueError(f"corrector {address} has step {width!r}; give a finite non-zero step")
+        columns.append((variable, float(width), record))
+    return columns
+
+
+def _first_turn_reader(
+    lattice: Any, launch: np.ndarray, monitors: list[Any]
+) -> Callable[[], np.ndarray]:
+    """A reader of each monitor reading on the first turn of a particle launched at the start.
+
+    Args:
+        lattice: The lattice to track, as it stands at each call.
+        launch: The launch vector, six floats in pyAT's order.
+        monitors: The readings, each a monitor element and an axis.
+
+    Returns:
+        A function that tracks one turn and answers the readings in hardware
+        units, in the order given; it raises ``OrbitSolveError`` saying where
+        the particle is lost.
+    """
+    import at
+    import numpy as np
+
+    from osprey.simulation.engines.pyat_single_pass import loss_text
+
+    names = [element.FamName for element in lattice]
+    places = sorted({names.index(reading.element_name) for reading in monitors})
+    refpts = np.array(places, dtype=np.uint32)
+    slots = [(places.index(names.index(reading.element_name)), reading) for reading in monitors]
+    coordinates = {"x": 0, "y": 2}
+
+    def read() -> np.ndarray:
+        r_in = np.array(launch, dtype=np.float64).reshape(6, 1)
+        try:
+            r_out, _, data = at.lattice_track(lattice, r_in, nturns=1, refpts=refpts, losses=True)
+        except (at.AtError, ValueError) as exc:
+            raise OrbitSolveError(f"first-turn track raised {type(exc).__name__}: {exc}") from exc
+        lost = loss_text(lattice, data["loss_map"])
+        if lost is not None:
+            raise OrbitSolveError(lost)
+        return np.array(
+            [
+                to_hardware(
+                    reading.calibration,
+                    reading.inverse,
+                    float(r_out[coordinates[reading.axis], 0, slot, 0]),
+                )
+                for slot, reading in slots
+            ]
+        )
+
+    return read
 
 
 # Stand-in until pyAML reads a zero-length magnet's polynomials as its integrated strength; the length borrow and its refusals go with it.
@@ -1259,3 +2021,59 @@ def error_text(exc: BaseException) -> str:
     if isinstance(exc, OrbitSolveError) and text:
         return text
     return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
+
+
+def condition(model: Any) -> tuple[str, frozenset[str]] | None:
+    """The degraded state a built model is in, and the values that state voids.
+
+    A degraded model is built and serving, and some of what it serves has no
+    meaning. This engine knows one such state, ``no closed orbit``: a
+    ``periodic`` model whose settings state an ``injection`` keeps a write
+    that leaves its lattice without a closed orbit, and everything read off
+    a closed orbit is then NaN.
+
+    The answer is one read of the model's flag. The names depend only on what
+    the model declares, so they are worked out the first time a model is
+    asked about and are the same set on every later answer; a caller may ask
+    once per address.
+
+    Args:
+        model: A model :func:`build` returned.
+
+    Returns:
+        ``None`` for a model in no such state. Otherwise the text, one of
+        :data:`CONDITIONS`, and the names of the model's variables it voids:
+        every orbit reading, every readback of the tunes or the chromaticity,
+        and the optics arrays (tunes, chromaticity, beta and orbit at the
+        monitors). A setpoint, a readback of a setpoint, a fault, a turn
+        series, the armed flag and a command are never among them: each
+        holds what was written or tracked, closed orbit or none.
+    """
+    if not getattr(model, "no_closed_orbit", False):
+        return None
+    names = _CLOSED_ORBIT_NAMES.get(model)
+    if names is None:
+        names = _CLOSED_ORBIT_NAMES[model] = _closed_orbit_names(model)
+    return NO_CLOSED_ORBIT, names
+
+
+def _closed_orbit_names(model: Any) -> frozenset[str]:
+    """The names of a model's variables whose values are read off its closed orbit."""
+    from osprey.simulation.engines.pyat_model import (
+        OPTICS_NAMES,
+        PLANE_OPTICS,
+        ArrayReadbackVariable,
+        ReadbackVariable,
+    )
+    from osprey.simulation.engines.pyat_variables import MonitorVariable
+
+    names: set[str] = set()
+    for name, variable in model.supported_variables.items():
+        if isinstance(variable, (MonitorVariable, ArrayReadbackVariable)):
+            names.add(name)
+        elif isinstance(variable, ReadbackVariable):
+            if variable.source in PLANE_OPTICS:
+                names.add(name)
+        elif name in OPTICS_NAMES:
+            names.add(name)
+    return frozenset(names)

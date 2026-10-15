@@ -4,6 +4,7 @@ kinds:
 - trm
 - crm
 - chromaticity_monitor
+- trajectory
 groups:
   bpm: SR/BPM
   hcor: SR/HCM
@@ -13,6 +14,8 @@ groups:
 instruments:
   tune: SR:DIAG:TUNE:X
   rf: SR:RF:CAVITY:01:FREQUENCY:SP
+  injection_request: SR:DIAG:INJECTION:REQUEST
+  injection_busy: SR:DIAG:INJECTION:BUSY
 n_step: 5
 n_avg_meas: 1
 fit_order: 2
@@ -22,3 +25,6 @@ corrector_delta: 1.0e-05
 quad_delta: 0.001
 sextu_delta: 0.01
 frequency_delta: 100.0
+alpha: 0.0
+n_discard: 0
+gain: 1.0

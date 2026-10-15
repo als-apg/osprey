@@ -3,14 +3,20 @@
 Each case imports a fixture tree's exports into a fresh ``data/facility/``
 under the tree's layer mapping and reads the authored files the import
 seeded beside the layer's records. The build cases run the in-process build
-over the imported tree.
+over the imported tree. The cases that only read a clean import of a whole
+tree share one import of it per module; a case that changes the facility
+works on its own copy.
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import shutil
 from collections import Counter
+from collections.abc import Callable
+from functools import cached_property
 from pathlib import Path
 from typing import Any
 
@@ -33,12 +39,14 @@ from tests.facility._mml_built import (
     TREES,
     WIDENED,
     export_files,
-    import_tree,
     mapped_facility,
     widen,
 )
 
 at = pytest.importorskip("at")
+
+#: The module's readers share one import per tree, which only holds on one worker.
+pytestmark = pytest.mark.xdist_group("mml_layer_seed_once")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
@@ -90,52 +98,96 @@ def _authored(facility: Path) -> dict[str, bytes]:
     }
 
 
+class _Imported:
+    """A whole tree imported into a fresh facility: what it wrote, printed and holds.
+
+    Every case that reads it only reads: none writes under ``facility`` or
+    changes a parsed record, so one import serves them all.
+    """
+
+    def __init__(self, root: Path, tree: str) -> None:
+        self.facility = mapped_facility(root, tree)
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            self.written = import_mml(export_files(tree), self.facility)
+        self.printed = printed.getvalue()
+
+    @cached_property
+    def wired(self) -> set[str]:
+        return _wired(self.facility)
+
+    @cached_property
+    def roles(self) -> dict[str, str]:
+        return _roles(self.facility)
+
+    def copy(self, root: Path) -> Path:
+        """The imported facility copied under ``root``, for a case that changes it."""
+        facility = root / "data" / "facility"
+        shutil.copytree(self.facility, facility)
+        return facility
+
+
+@pytest.fixture(scope="module")
+def imports(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], _Imported]:
+    """Each tree imported on its first request, then served to every reader."""
+    done: dict[str, _Imported] = {}
+
+    def imported(tree: str) -> _Imported:
+        if tree not in done:
+            done[tree] = _Imported(tmp_path_factory.mktemp(tree), tree)
+        return done[tree]
+
+    return imported
+
+
 @pytest.fixture(scope="module", params=sorted(TREES))
 def tree(request: pytest.FixtureRequest) -> str:
     return request.param
 
 
 @pytest.fixture(scope="module")
-def imported(tree: str, tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return import_tree(tmp_path_factory.mktemp(tree), tree)
+def imported(tree: str, imports: Callable[[str], _Imported]) -> _Imported:
+    return imports(tree)
 
 
 @pytest.fixture(scope="module")
-def synthetic(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return import_tree(tmp_path_factory.mktemp("synthetic-limits"), "synthetic")
+def synthetic(imports: Callable[[str], _Imported]) -> Path:
+    return imports("synthetic").facility
 
 
 @pytest.fixture(scope="module")
-def spear3(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return import_tree(tmp_path_factory.mktemp("spear3-seeded"), "spear3")
+def spear3(imports: Callable[[str], _Imported]) -> Path:
+    return imports("spear3").facility
 
 
 # --- every seeded file --------------------------------------------------------------
 
 
-def test_every_seeded_file_opens_with_the_header(imported: Path) -> None:
-    authored = _authored(imported)
+def test_every_seeded_file_opens_with_the_header(imported: _Imported) -> None:
+    authored = _authored(imported.facility)
     assert {"limits.yaml", "seeds.yaml", "classes.yaml"} <= set(authored)
     for name, content in authored.items():
         assert content.decode("utf-8").splitlines()[0] == HEADER, name
     assert HEADER.startswith("# ")
 
 
-def test_the_import_returns_each_file_it_seeded(tmp_path: Path) -> None:
-    facility = mapped_facility(tmp_path, "spear3")
-    written = import_mml(export_files("spear3"), facility)
+def test_the_import_returns_each_file_it_seeded(imports: Callable[[str], _Imported]) -> None:
+    facility, written = imports("spear3").facility, imports("spear3").written
     seeded = {path.relative_to(facility).as_posix() for path in written} - {
         path.relative_to(facility).as_posix() for path in (facility / LAYER_DIR).rglob("*")
     }
     assert seeded == set(_authored(facility))
 
 
-def test_a_second_import_leaves_every_seeded_file_as_it_is(tree: str, imported: Path) -> None:
-    before = _authored(imported)
-    mapping = (imported / MAPPING_FILE).read_bytes()
-    written = import_mml(export_files(tree), imported)
-    assert _authored(imported) == before
-    assert (imported / MAPPING_FILE).read_bytes() == mapping
+def test_a_second_import_leaves_every_seeded_file_as_it_is(
+    tree: str, imported: _Imported, tmp_path: Path
+) -> None:
+    facility = imported.copy(tmp_path)
+    before = _authored(facility)
+    mapping = (facility / MAPPING_FILE).read_bytes()
+    written = import_mml(export_files(tree), facility)
+    assert _authored(facility) == before
+    assert (facility / MAPPING_FILE).read_bytes() == mapping
     assert not [path for path in written if LAYER_DIR not in path.as_posix()]
 
 
@@ -180,8 +232,8 @@ def test_one_import_judges_each_export_once(
 # --- limits.yaml --------------------------------------------------------------------
 
 
-def test_limits_hold_records_and_no_other_key(imported: Path) -> None:
-    document = _load(imported / "limits.yaml")
+def test_limits_hold_records_and_no_other_key(imported: _Imported) -> None:
+    document = _load(imported.facility / "limits.yaml")
     assert list(document) == ["records"]
     addresses = [row["address"] for row in document["records"]]
     assert addresses == sorted(set(addresses))
@@ -189,14 +241,14 @@ def test_limits_hold_records_and_no_other_key(imported: Path) -> None:
         assert set(row) <= {"address", "min_value", "max_value", "writable"}, row["address"]
 
 
-def test_only_setpoints_carry_a_limits_record(imported: Path) -> None:
-    roles = _roles(imported)
-    assert {roles[address] for address in _limits(imported)} == {"setpoint"}
+def test_only_setpoints_carry_a_limits_record(imported: _Imported) -> None:
+    roles = imported.roles
+    assert {roles[address] for address in _limits(imported.facility)} == {"setpoint"}
 
 
-def test_every_wired_setpoint_is_writable_inside_its_band(imported: Path) -> None:
-    roles, limits = _roles(imported), _limits(imported)
-    wired = {address for address in _wired(imported) if roles[address] == "setpoint"}
+def test_every_wired_setpoint_is_writable_inside_its_band(imported: _Imported) -> None:
+    roles, limits = imported.roles, _limits(imported.facility)
+    wired = {address for address in imported.wired if roles[address] == "setpoint"}
     assert wired
     writable = {address for address, row in limits.items() if row.get("writable") is True}
     assert writable == wired
@@ -282,9 +334,9 @@ def test_an_unseeded_setpoint_whose_band_holds_zero_is_no_stop(synthetic: Path) 
 
 
 def test_a_later_import_reports_each_differing_range_and_applies_none(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], imports: Callable[[str], _Imported]
 ) -> None:
-    facility = import_tree(tmp_path, "synthetic")
+    facility = imports("synthetic").copy(tmp_path)
     before = _authored(facility)
 
     def widen(document: dict[str, Any]) -> None:
@@ -353,12 +405,12 @@ def test_an_import_beside_a_limits_file_reports_no_unbanded_setpoint(
 # --- seeds.yaml ---------------------------------------------------------------------
 
 
-def test_seeds_hold_golden_values_of_unwired_channels_only(imported: Path) -> None:
-    seeds = _load(imported / "seeds.yaml")
+def test_seeds_hold_golden_values_of_unwired_channels_only(imported: _Imported) -> None:
+    seeds = _load(imported.facility / "seeds.yaml")
     assert seeds
     assert list(seeds) == sorted(seeds)
-    assert not set(seeds) & _wired(imported)
-    assert set(seeds) <= set(_roles(imported))
+    assert not set(seeds) & imported.wired
+    assert set(seeds) <= set(imported.roles)
     for address, seed in seeds.items():
         assert list(seed) == ["nominal"], address
         assert isinstance(seed["nominal"], float), address
@@ -384,13 +436,12 @@ def test_a_nominal_in_physics_units_is_no_seed(synthetic: Path) -> None:
 
 
 def test_the_import_counts_the_wired_channels_whose_golden_value_it_skips(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    imports: Callable[[str], _Imported],
 ) -> None:
-    facility = mapped_facility(tmp_path, "synthetic")
-    import_mml(export_files("synthetic"), facility)
-    lines = [line for line in capsys.readouterr().out.splitlines() if "golden" in line]
+    synthetic = imports("synthetic")
+    lines = [line for line in synthetic.printed.splitlines() if "golden" in line]
     va = json.loads((FIXTURES / "synthetic" / "quokka.sr.va.json").read_text(encoding="utf-8"))
-    wired = _wired(facility)
+    wired = synthetic.wired
     stated = sum(
         1
         for name in ("QF", "QD", "SF", "SQ", "HC", "VC", "RF", "BPMx", "BPMy", "BEND")
@@ -407,17 +458,17 @@ def test_the_import_counts_the_wired_channels_whose_golden_value_it_skips(
 # --- measurement/<model>.yaml -------------------------------------------------------
 
 
-def test_every_wired_model_has_a_measurement_file(imported: Path) -> None:
+def test_every_wired_model_has_a_measurement_file(imported: _Imported) -> None:
     wired = sorted(
         model["name"]
-        for model in _load(imported / LAYER_DIR / "models.yaml")
+        for model in _load(imported.facility / LAYER_DIR / "models.yaml")
         if model.get("wiring")
     )
-    assert sorted(path.stem for path in (imported / "measurement").glob("*.yaml")) == wired
+    assert sorted(path.stem for path in (imported.facility / "measurement").glob("*.yaml")) == wired
 
 
-def test_a_measurement_file_carries_the_step_and_settle_keys(imported: Path) -> None:
-    for path in sorted((imported / "measurement").glob("*.yaml")):
+def test_a_measurement_file_carries_the_step_and_settle_keys(imported: _Imported) -> None:
+    for path in sorted((imported.facility / "measurement").glob("*.yaml")):
         document = _load(path)
         assert {key: document[key] for key in TUNING} == TUNING, path.name
         assert list(document)[:2] == ["kinds", "groups"], path.name
@@ -447,17 +498,19 @@ def test_a_periodic_model_measures_orbit_response_and_dispersion(synthetic: Path
     assert document["instruments"] == {"rf": "QK:RF:1:CUR:SP"}
 
 
-def test_every_group_and_instrument_of_a_measurement_file_exists(imported: Path) -> None:
-    groups = {group["id"] for group in _load(imported / LAYER_DIR / "groups.yaml")}
-    channels = set(_roles(imported))
-    for path in sorted((imported / "measurement").glob("*.yaml")):
+def test_every_group_and_instrument_of_a_measurement_file_exists(imported: _Imported) -> None:
+    groups = {group["id"] for group in _load(imported.facility / LAYER_DIR / "groups.yaml")}
+    channels = set(imported.roles)
+    for path in sorted((imported.facility / "measurement").glob("*.yaml")):
         document = _load(path)
         assert set(document["groups"].values()) <= groups, path.name
         assert set(document.get("instruments", {}).values()) <= channels, path.name
 
 
-def test_a_single_pass_model_measures_orbit_response_at_most(tmp_path: Path) -> None:
-    facility = import_tree(tmp_path, "nsls2")
+def test_a_single_pass_model_measures_orbit_response_at_most(
+    imports: Callable[[str], _Imported],
+) -> None:
+    facility = imports("nsls2").facility
     document = _load(facility / "measurement" / "LTB.yaml")
     assert document["kinds"] == ["orm"]
     assert document["groups"] == {"bpm": "BPM", "hcor": "HCM", "vcor": "VCM", "quad": "Q"}
@@ -472,10 +525,9 @@ def test_the_spear3_measurement_reads_the_tune_on_its_wired_readback(spear3: Pat
 
 
 def test_the_import_names_the_families_a_group_role_was_not_seeded_from(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    imports: Callable[[str], _Imported],
 ) -> None:
-    import_tree(tmp_path, "spear3")
-    lines = [line for line in capsys.readouterr().out.splitlines() if "seeded from" in line]
+    lines = [line for line in imports("spear3").printed.splitlines() if "seeded from" in line]
     assert lines == [
         "measurement StorageRing: quad seeded from QF; also wired: QD, QFC, QDX, QFX, QDY, "
         "QFY, QDZ, QFZ, Q9S",
@@ -497,11 +549,12 @@ def _readout_rows(facility: Path) -> dict[str, dict[str, float]]:
 
 
 def test_the_spear3_offsets_are_in_the_conversion_and_seed_no_scenario(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    imports: Callable[[str], _Imported],
 ) -> None:
-    facility = import_tree(tmp_path, "spear3")
-    assert not [line for line in capsys.readouterr().out.splitlines() if "readout" in line]
-    assert not (facility / READOUT_FILE).exists()
+    spear3 = imports("spear3")
+    assert spear3.printed
+    assert not [line for line in spear3.printed.splitlines() if "readout" in line]
+    assert not (spear3.facility / READOUT_FILE).exists()
 
 
 def test_a_gain_beside_an_offset_the_conversion_holds_is_not_carried(
@@ -563,7 +616,7 @@ def _served_and_model_readings(
 
 
 def test_the_middle_layer_correction_of_a_served_spear3_reading_is_the_model_position(
-    tmp_path: Path,
+    tmp_path: Path, imports: Callable[[str], _Imported]
 ) -> None:
     from osprey.facility.views.simulator import simulator_wiring
 
@@ -581,7 +634,7 @@ def test_the_middle_layer_correction_of_a_served_spear3_reading_is_the_model_pos
     }
     assert sum(offset != 0 for _, offset in stated.values()) == 107
 
-    facility = import_tree(tmp_path, "spear3")
+    facility = imports("spear3").copy(tmp_path)
     widen(facility, WIDENED["spear3"])
     document = build_facility(facility, project_name="demo")
     wiring = simulator_wiring(document, "StorageRing")
@@ -608,7 +661,7 @@ def test_the_middle_layer_correction_of_a_served_spear3_reading_is_the_model_pos
 
 
 def test_the_middle_layer_correction_of_a_served_synthetic_bpmx_reading_is_the_model_position(
-    tmp_path: Path,
+    tmp_path: Path, imports: Callable[[str], _Imported]
 ) -> None:
     va = json.loads((FIXTURES / "synthetic" / "quokka.sr.va.json").read_text("utf-8"))
     ao = json.loads((FIXTURES / "synthetic" / "quokka.sr.ao.json").read_text("utf-8"))
@@ -620,7 +673,7 @@ def test_the_middle_layer_correction_of_a_served_synthetic_bpmx_reading_is_the_m
     }
     rolls = dict(zip(addresses, readout["roll"], strict=True))
 
-    facility = import_tree(tmp_path, "synthetic")
+    facility = imports("synthetic").copy(tmp_path)
     widen(facility, {OUTSIDE: ("max_value", 2.0)})
     document = build_facility(facility, project_name="demo")
 
@@ -646,10 +699,10 @@ def test_the_middle_layer_correction_of_a_served_synthetic_bpmx_reading_is_the_m
 
 
 def test_a_readout_the_engine_cannot_carry_is_named_and_not_written(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    imports: Callable[[str], _Imported],
 ) -> None:
-    facility = import_tree(tmp_path, "synthetic")
-    lines = [line for line in capsys.readouterr().out.splitlines() if "readout" in line]
+    facility = imports("synthetic").facility
+    lines = [line for line in imports("synthetic").printed.splitlines() if "readout" in line]
     # BPMx holds its gain and offset in its conversion: the offset is served
     # there and the gain, which the export gives nothing to check, is named. BPMy holds neither.
     assert lines == [
@@ -666,7 +719,7 @@ def test_a_readout_the_engine_cannot_carry_is_named_and_not_written(
 
 
 def test_classes_hold_one_row_per_mapping_class_the_vocabulary_lacks(
-    tree: str, imported: Path
+    tree: str, imported: _Imported
 ) -> None:
     mapping = read_mapping(FIXTURES / tree / MAPPING_FILE)
     vocabulary = known_classes()
@@ -675,7 +728,7 @@ def test_classes_hold_one_row_per_mapping_class_the_vocabulary_lacks(
         for family in mapping.families.values()
         if family.class_ is not None and family.class_ not in vocabulary
     }
-    rows = _load(imported / "classes.yaml")
+    rows = _load(imported.facility / "classes.yaml")
     assert {row["class"]: row["parent"] for row in rows} == expected
     assert [row["class"] for row in rows] == sorted(expected)
     assert all(list(row) == ["class", "parent"] for row in rows)
@@ -768,8 +821,10 @@ def test_a_facility_block_in_another_spelling_still_leaves_the_mapping(tmp_path:
     assert _load(path) == yaml.safe_load(stated[models:])
 
 
-def test_a_mapping_without_a_facility_block_seeds_no_identity(tmp_path: Path) -> None:
-    facility = import_tree(tmp_path, "nsls2")
+def test_a_mapping_without_a_facility_block_seeds_no_identity(
+    imports: Callable[[str], _Imported],
+) -> None:
+    facility = imports("nsls2").facility
     assert "facility" not in _load(FIXTURES / "nsls2" / MAPPING_FILE)
     assert not (facility / "identity.yaml").exists()
     assert (facility / MAPPING_FILE).read_bytes() == (
@@ -803,9 +858,9 @@ POLARITY = tuple(f"LTB-MG{{Quad:{number}}}I:Sp1-SP" for number in (1, 3, 4, 6, 9
 
 
 def test_a_transport_quadrupole_the_deck_holds_the_other_way_carries_its_polarity(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    imports: Callable[[str], _Imported],
 ) -> None:
-    facility = import_tree(tmp_path, "nsls2")
+    facility, printed = imports("nsls2").facility, imports("nsls2").printed
     ao = json.loads((FIXTURES / "nsls2" / "nsls2.ltb.ao.json").read_text(encoding="utf-8"))
     va = json.loads((FIXTURES / "nsls2" / "nsls2.ltb.va.json").read_text(encoding="utf-8"))
     addresses = [address.strip() for address in ao["Q"]["Setpoint"]["ChannelNames"]]
@@ -818,7 +873,7 @@ def test_a_transport_quadrupole_the_deck_holds_the_other_way_carries_its_polarit
         for model in _load(facility / LAYER_DIR / "models.yaml")
         for record in model.get("wiring", [])
     }
-    assert [line for line in capsys.readouterr().out.splitlines() if "polarity" in line] == [
+    assert [line for line in printed.splitlines() if "polarity" in line] == [
         f"import mml: polarity: LTB: family Q device {addresses.index(address) + 1}; "
         "the deck holds the other sign"
         for address in POLARITY

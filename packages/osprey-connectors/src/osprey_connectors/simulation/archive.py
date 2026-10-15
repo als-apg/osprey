@@ -97,6 +97,7 @@ __all__ = [
     "SeedKnobs",
     "SeedReport",
     "SeedState",
+    "archived_channels",
     "build",
     "compare_fingerprint",
     "oldest_sample",
@@ -291,16 +292,21 @@ _ARCHIVE_INSTANCE = "virtual_accelerator"
 
 _STEP = "step"
 
+#: The role of a wiring record that holds one sample per turn, or the state of
+#: taking them: a record of a shot, with no value at a time between shots.
+_TURN_SERIES = "turn_series"
+
 
 class ArchiveComposite:
-    """A simulator view's history for one active scenario set.
+    """The history of a simulator view's archived channels for one active scenario set.
 
     Every sample is a pure function of the channel, its held value at the
     start state, the active scenarios and the epoch time, so two windows that
     share a timestamp agree on it.
 
     Args:
-        channels: Each channel's record in ``variables.json``, by address.
+        channels: Each archived channel's record in ``variables.json``, by
+            address.
         held: Each channel's held value at the start state, in its stored
             representation.
         events: The active scenarios' archiver events, by address.
@@ -340,7 +346,7 @@ class ArchiveComposite:
         """A channel's held value at the start state, in its stored representation.
 
         Raises:
-            KeyError: ``address`` is not a channel of the view.
+            KeyError: ``address`` is not an archived channel of the view.
         """
         self._require(address)
         return self._held[address]
@@ -356,14 +362,14 @@ class ArchiveComposite:
         ``enum`` sample is its option index.
 
         Args:
-            address: A channel address of the view.
+            address: An archived channel address of the view.
             t_s: Epoch seconds, ascending.
 
         Returns:
             One sample per timestamp.
 
         Raises:
-            KeyError: ``address`` is not a channel of the view.
+            KeyError: ``address`` is not an archived channel of the view.
         """
         return self.samples([address], t_s)[address]
 
@@ -376,14 +382,14 @@ class ArchiveComposite:
         runs once per timestamp for all of them rather than once per channel.
 
         Args:
-            addresses: Channel addresses of the view.
+            addresses: Archived channel addresses of the view.
             t_s: Epoch seconds, ascending.
 
         Returns:
             One sample per timestamp, by address.
 
         Raises:
-            KeyError: An address is not a channel of the view.
+            KeyError: An address is not an archived channel of the view.
         """
         for address in addresses:
             self._require(address)
@@ -477,6 +483,29 @@ def scenario_events(
     return events
 
 
+def archived_channels(view: SimulatorView, *, served_only: bool = True) -> tuple[str, ...]:
+    """The channels of a simulator view that have archived history.
+
+    Every channel of the view but the ones a physics model's wiring record
+    describes as ``turn_series``: such a channel holds the samples of one
+    shot, which no instant between shots has a value of. A command channel is
+    archived as any other setpoint is.
+
+    Args:
+        view: The simulator view.
+        served_only: Leave out only the served models' turn series; a model
+            the render does not serve has its channels served as texture,
+            which holds a value at every instant.
+
+    Returns:
+        The archived channel addresses, sorted.
+    """
+    series = {
+        binding.address for binding in view.bindings(role=_TURN_SERIES, served_only=served_only)
+    }
+    return tuple(address for address in view.channels() if address not in series)
+
+
 def build(
     view: SimulatorView | Path | str,
     active_set: Sequence[str],
@@ -490,6 +519,11 @@ def build(
     read. A set whose scenarios write one target twice is archived without its
     scenarios, as the composite serves it.
 
+    The archive holds :func:`archived_channels` of the view, not every channel
+    of it. A model that is built under a condition is archived as it is
+    served, the readings its engine lists reading NaN; a model that is not
+    built stops the build.
+
     Args:
         view: The simulator view, ``<render>/data/simulator``, opened or as
             its directory, which is opened with :meth:`SimulatorView.open`.
@@ -501,13 +535,14 @@ def build(
         The archive composite.
 
     Raises:
-        RuntimeError: A physics model fails to build or read at the start
-            state; the message names it and its engine's error.
+        RuntimeError: A physics model is not built at the start state: its
+            build or its read failed; the message names it and its engine's
+            error.
         NoSimulatorView: The directory holds no simulator view.
         ViewSchemaError: A view file is not the schema this OSPREY reads.
     """
     from osprey_connectors.config import get_facility_timezone
-    from osprey_connectors.simulation.composite import STATUS_OK, Composite
+    from osprey_connectors.simulation.composite import Composite
 
     if not isinstance(view, SimulatorView):
         view = SimulatorView.open(view)
@@ -515,7 +550,7 @@ def build(
     records = {
         str(channel["address"]): channel for channel in view.document(VARIABLES_FILE)["channels"]
     }
-    archived = sorted(view.channels())
+    archived = list(archived_channels(view))
     names = resolve_active_scenarios([name for name in active_set if name in scenarios])
 
     state = tempfile.TemporaryDirectory(prefix="osprey-archive-")
@@ -525,9 +560,7 @@ def build(
     composite = Composite(view, state_dir=state.name, instance=_ARCHIVE_INSTANCE, model_log=False)
     held = composite.held(archived)
     failed = {
-        model: status
-        for model in composite.models
-        if (status := composite.status(model)) != STATUS_OK
+        model: composite.status(model) for model in composite.models if not composite.built(model)
     }
     if failed:
         state.cleanup()

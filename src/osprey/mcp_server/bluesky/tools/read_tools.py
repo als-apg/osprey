@@ -34,6 +34,7 @@ the "Figure projection" section at the bottom of this file.
 
 import json
 from collections.abc import Sequence
+from typing import Any
 from urllib.parse import quote, urlencode
 
 import anyio
@@ -272,7 +273,11 @@ async def get_run_data(
 ) -> str:
     """Read a bounded window of a run's data.
 
-    Row-bounded by design: this never returns an unbounded table. Backed by
+    Bounded by design: this never returns an unbounded table. A window is
+    at most ``max_rows`` rows AND at most :data:`RUN_DATA_MAX_BYTES` of JSON;
+    a wide run (a response matrix records a column per corrector and per
+    monitor) comes back with fewer rows than asked for, ``truncated: true``
+    and a ``note`` naming how many rows fit. Backed by
     the bridge's in-process live-row buffer (``GET /runs/{id}/data``), so
     reads work with no Tiled server — ``row_count``/``truncated`` describe
     the run's *true* total vs. what this window actually returned.
@@ -350,7 +355,49 @@ async def get_run_data(
         return make_error("unknown_run", bridge_error_message(body, status), UNKNOWN_RUN_HINTS)
     if status != 200:
         return make_error("bluesky_bridge_error", bridge_error_message(body, status))
-    return json.dumps(body)
+    return _fit_to_budget(body, RUN_DATA_MAX_BYTES, tail=tail)
+
+
+#: The most JSON one get_run_data answer carries. A row budget alone does not
+#: bound an answer: a row is as wide as the run, and a facility-scale response
+#: matrix is hundreds of columns, so a few hundred rows are megabytes.
+RUN_DATA_MAX_BYTES = 64_000
+
+
+def _fit_to_budget(body: dict[str, Any] | list[Any], budget: int, *, tail: bool) -> str:
+    """``body`` as JSON, its window cut to the most rows whose answer fits ``budget`` bytes.
+
+    The cut keeps the rows nearest the window's anchor: the first rows, or the
+    last ones for a ``tail`` read. A cut answer says so in ``truncated`` and in
+    a ``note`` naming how many rows were left out; the note is part of what
+    fits the budget.
+    """
+    text = json.dumps(body)
+    if not isinstance(body, dict):
+        return text
+    rows = body.get("rows")
+    if len(text) <= budget or not isinstance(rows, list) or not rows:
+        return text
+    columns = len(body.get("columns") or [])
+
+    def fitted(count: int) -> str:
+        kept = (rows[-count:] if count else []) if tail else rows[:count]
+        note = (
+            f"{len(rows) - count} of the {len(rows)} rows asked for were left out: this run "
+            f"records {columns} columns, so {count} rows are what fit one answer of {budget} "
+            "bytes. Read the rest with offset, or compute over the run in python rather than "
+            "reading it row by row."
+        )
+        return json.dumps({**body, "rows": kept, "truncated": True, "note": note})
+
+    lo, hi = 0, len(rows)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if len(fitted(mid)) <= budget:
+            lo = mid
+        else:
+            hi = mid - 1
+    return fitted(lo)
 
 
 # ---------------------------------------------------------------------------

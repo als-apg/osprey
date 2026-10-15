@@ -18,6 +18,12 @@ to :func:`apply_safety`, which fixes every key a write's safety depends on:
 :func:`periodic_addresses` names the channels the view says refresh
 ``periodic``, which a write pass leaves for the next periodic pass.
 
+:func:`restorable_state` is the part of a cached state a failed pass writes
+back: the settings alone. A command acts once and holds no setting, so writing
+it back would act again -- arm an acquisition or fire a shot -- and a batch
+mixing one model's command with another owner's channel is refused whole by the
+composite. A command is therefore never restored.
+
 :data:`HEALTH_KEYS` holds the defaults of the runner's health record: how many
 consecutive failed publishing passes still count as ``degraded``.
 
@@ -34,7 +40,14 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.view import SimulatorView
 
-__all__ = ["HEALTH_KEYS", "SAFETY_KEYS", "apply_safety", "periodic_addresses"]
+__all__ = [
+    "HEALTH_KEYS",
+    "SAFETY_KEYS",
+    "apply_safety",
+    "command_addresses",
+    "periodic_addresses",
+    "restorable_state",
+]
 
 #: The write-path keys every model runner configuration carries.
 SAFETY_KEYS: Mapping[str, Any] = {
@@ -105,3 +118,32 @@ def periodic_addresses(view: SimulatorView) -> frozenset[str]:
         for binding in view.bindings(served_only=False)
         if binding.refresh == _PERIODIC
     )
+
+
+def command_addresses(view: SimulatorView) -> frozenset[str]:
+    """The addresses the view marks commands, across every model of the view.
+
+    Args:
+        view: The simulator view.
+
+    Returns:
+        The bound addresses whose write acts once and holds no setting.
+    """
+    return frozenset(
+        binding.address for binding in view.bindings(served_only=False) if binding.command
+    )
+
+
+def restorable_state(state: Mapping[str, Any], commands: frozenset[str]) -> dict[str, Any]:
+    """The part of ``state`` a failed pass writes back: every value but a command's.
+
+    Args:
+        state: The settable values read before a pass, keyed by address.
+            Not modified.
+        commands: The command addresses, as :func:`command_addresses` names
+            them.
+
+    Returns:
+        A new mapping: ``state`` without any address of ``commands``.
+    """
+    return {address: value for address, value in state.items() if address not in commands}

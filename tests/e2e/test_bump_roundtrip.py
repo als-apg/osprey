@@ -220,8 +220,8 @@ HEALTH_TIMEOUT_SEC = 300.0
 #
 # The three correctors are clustered inside one sixth of the lattice with enough
 # betatron phase between them to close a bump: the probed response comes back
-# well conditioned (condition number ~10) and the solve asks for single-digit
-# amps, comfortably inside the +-12 A the correctors' channel_limits band
+# well conditioned (condition number ~10) and the solve asks for hundredths of
+# an amp, far inside the +-12 A the correctors' channel_limits band
 # allows. A tighter cluster is closer to a single combined kick and needs far
 # more current for the same displacement. BPMs and correctors are colocated in
 # this lattice, so the target BPM sits at the middle corrector -- the peak of
@@ -251,15 +251,16 @@ CLOSURE_MONITOR_BPM_INDEX = 65
 
 #: Probe dither half-amplitude, in amps. Large enough that the orbit it moves
 #: is far above any readback resolution (tens of microns), small enough to stay
-#: inside the quasi-linear window the corrector calibration was chosen to give
-#: -- and inside the +-12 A channel_limits band, which the connector's
-#: reference monitor enforces on every write.
-PROBE_AMPLITUDE_A = 5.0
+#: a kick of a few microradians, where the orbit answers linearly -- the band's
+#: own ends are milliradian kicks, far outside that window -- and inside the
+#: +-12 A channel_limits band, which the connector's reference monitor
+#: enforces on every write.
+PROBE_AMPLITUDE_A = 0.05
 
 #: The displacement asked for at the target BPM, in meters -- the units the
 #: deployed VA's BPM records carry.
-#: Sized so the solve lands at single-digit amps: measured in-process against
-#: the same lattice, this corrector set needs at most 3.7 A for it.
+#: Sized so the solve lands at hundredths of an amp: measured in-process
+#: against the same lattice, this corrector set needs at most 0.037 A for it.
 TARGET_BUMP_M = 20e-6
 
 #: The convergence band, in meters. 2.5% of the requested bump, and roughly 4x

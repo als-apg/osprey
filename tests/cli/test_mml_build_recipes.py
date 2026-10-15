@@ -85,29 +85,58 @@ ADDRESSES_FILE = "addresses.json"
 SERVED_MODELS_FILE = "served_models.json"
 
 
-#: The slots a facility scenario names a channel or a model in.
-_RESOLVING_SLOTS = ("overrides", "faults", "archiver", "couple", "noise")
+#: The slots a facility scenario names a channel in.
+_RESOLVING_SLOTS = ("overrides", "archiver", "couple", "noise")
 
 
-def _resolving_scenarios() -> tuple[str, ...]:
-    """The preset's facility scenarios that name a channel or a model, as repo paths.
+def _is_stale_after(document: dict, kept_models: frozenset[str]) -> bool:
+    """Whether a scenario names something an import keeping ``kept_models`` takes away.
+
+    Every slot but ``faults`` names channels, which the import replaces. Under
+    ``faults``, a model's entry holding a mapping is a channel's fault; a
+    scalar is one of that model's engine variables, which stays valid while
+    the import keeps a model of that name and goes stale when it does not.
+    """
+    if any(slot in document for slot in _RESOLVING_SLOTS):
+        return True
+    faults = document.get("faults")
+    if not isinstance(faults, dict):
+        return False
+    return any(
+        model not in kept_models
+        or not isinstance(entries, dict)
+        or any(isinstance(value, dict) for value in entries.values())
+        for model, entries in faults.items()
+    )
+
+
+def resolving_scenarios(kept_models: frozenset[str]) -> tuple[str, ...]:
+    """The preset's facility scenarios an import leaves stale, as repo paths.
 
     Read off the packaged preset, so a demo scenario added later is counted
-    without a name being typed here. A scenario stating none of these slots
-    names nothing an import can take away. A scenario's folder of attached
-    files follows its file, as the import lists it.
+    without a name being typed here. A scenario's folder of attached files
+    follows its file, as the import lists it.
+
+    Args:
+        kept_models: The names of the models the import writes.
     """
     found: list[str] = []
     for path in sorted((PACKAGED_FACILITY / "scenarios").glob("*.yaml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        if any(slot in document for slot in _RESOLVING_SLOTS):
+        if _is_stale_after(document, kept_models):
             found.append(f"data/facility/scenarios/{path.name}")
             if path.with_suffix("").is_dir():
                 found.append(f"data/facility/scenarios/{path.stem}/")
     return tuple(found)
 
 
-DEMO_RESOLVING_SCENARIOS = _resolving_scenarios()
+def imported_models(fixture: str) -> frozenset[str]:
+    """The names of the models ``facility import mml`` writes for a committed tree."""
+    mapping = yaml.safe_load(
+        (FIXTURES / fixture / "imported" / "mml" / "mapping.yaml").read_text(encoding="utf-8")
+    )
+    return frozenset(mapping["models"])
+
 
 #: The facility description of a deployment, and the limits file an import
 #: seeds into it, both relative to the repo.
@@ -440,9 +469,23 @@ def middle_layer_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any
     }
 
 
+@pytest.fixture(scope="module")
+def served_recipes() -> dict[str, dict[str, Any]]:
+    """Every :func:`served_repo` recipe this module has driven, by tree.
+
+    A case that narrows ``served_repo`` to some trees with an indirect
+    parametrisation gets a fixture instance of its own, so pytest sets the
+    recipe up again for it, and again for the next case of the other order;
+    every case only reads the recipe, so each tree is driven once and shared.
+    """
+    return {}
+
+
 @pytest.fixture(scope="module", params=BUILT_TREES)
 def served_repo(
-    request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
+    request: pytest.FixtureRequest,
+    tmp_path_factory: pytest.TempPathFactory,
+    served_recipes: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     """The control-assistant recipe over a 2.0 export, driven once per supported tree.
 
@@ -456,12 +499,19 @@ def served_repo(
     The build then runs twice. The second run is what says the published tree
     is a function of the import and not of the run that wrote it.
     """
-    fixture = FIXTURES / request.param
+    if request.param not in served_recipes:
+        served_recipes[request.param] = _drive_served_recipe(request.param, tmp_path_factory)
+    return served_recipes[request.param]
+
+
+def _drive_served_recipe(tree: str, tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+    """Drive :func:`served_repo`'s recipe over the export of ``tree``."""
+    fixture = FIXTURES / tree
     exports = sorted(str(path) for path in fixture.glob("*.ao.json"))
-    assert exports, f"{request.param} commits no export"
+    assert exports, f"{tree} commits no export"
 
     runner = CliRunner()
-    repo = tmp_path_factory.mktemp(f"recipe-served-{request.param}") / "demo"
+    repo = tmp_path_factory.mktemp(f"recipe-served-{tree}") / "demo"
 
     invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
     cleared = clear_authored(runner, repo, exports)
@@ -483,14 +533,14 @@ def served_repo(
 
     validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
     stopped, remedied, build = build_past_the_seed_stops(
-        runner, repo, responses=expected_response_lines(request.param)
+        runner, repo, responses=expected_response_lines(tree)
     )
     first = published(repo)
     first_view = simulator_view(repo)
     invoke(runner, "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle")
 
     return {
-        "fixture": request.param,
+        "fixture": tree,
         "repo": repo,
         "cleared": cleared,
         "scenario_stop": scenario_stop,
@@ -645,7 +695,7 @@ class TestTheFacilityImportOfATwoZeroExport:
             line for line in scenario_stop.stderr.splitlines() if line.startswith("facility: ")
         ]
 
-        assert listed == DEMO_RESOLVING_SCENARIOS
+        assert listed == resolving_scenarios(imported_models(served_repo["fixture"]))
         assert scenario_stop.exit_code != 0
         assert stops and " scenario " in stops[0], scenario_stop.output
         assert any(f" scenario {name} " in stops[0] for name in names), stops[0]

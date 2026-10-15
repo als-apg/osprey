@@ -37,7 +37,9 @@ PAIRINGS = {
 
 #: The write-side signals no readback of the vocabulary shares a quantity with.
 WRITE_ONLY = {
+    "bpm_arm_command",
     "bulk_supply_command",
+    "injection_request_command",
     "modulator_state_command",
     "pulse_amplitude_setpoint",
     "pulse_delay_setpoint",
@@ -250,7 +252,11 @@ def test_the_demo_pairs_are_the_derived_pairs(tmp_path: Path) -> None:
         }
 
     authored = pairs(stated)
-    assert len(authored) == 412
+    # 412 setpoints paired with a readback and 73 write-only commands (a
+    # turn-by-turn arm per ring BPM and the injection request), each paired
+    # with itself, stated or derived.
+    assert len(authored) == 485
+    assert sum(pair != address for address, pair in authored.items()) == 412
     assert pairs(derived) == authored
 
 

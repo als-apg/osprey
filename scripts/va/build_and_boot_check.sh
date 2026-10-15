@@ -161,8 +161,8 @@ GATE_PV="SR:DIAG:BPM:01:POSITION:X"
 GATE_PV_2="SR:DIAG:BPM:02:POSITION:X"
 EXCITE_PV="SR:MAG:HCM:01:CURRENT:SP"
 EXCITE_VALUE="0.5"
-# Floor for "this reading moved". The excitation above produces order 1e-6 m
-# at both BPMs, so this sits ~100x below the signal and far above float noise.
+# Floor for "this reading moved". The excitation above produces order 1e-4 m
+# at both BPMs, so this sits far below the signal and far above float noise.
 MOVED_THRESHOLD_M="1e-8"
 
 # ${EXCITE_PV}'s drive band is [-12, 12] (the preset's limits.yaml). A put past the

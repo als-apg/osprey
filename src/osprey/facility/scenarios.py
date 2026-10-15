@@ -199,13 +199,9 @@ def fault_roster(
         The roster; ``None`` when no plug-in is registered under the model's
         engine name. A plug-in without ``fault_variables`` declares no faults.
     """
-    from osprey.simulation.engines import ENTRY_POINT_GROUP
-
-    name = str(model.get("engine"))
-    engines = metadata.entry_points(group=ENTRY_POINT_GROUP)
-    if name not in engines.names:
+    plugin = _plugin(model)
+    if plugin is None:
         return None
-    plugin = engines[name].load()
     wiring = [
         {**record, "direction": record.get("direction", _direction(channels, record))}
         for record in model.get("wiring") or []
@@ -213,7 +209,16 @@ def fault_roster(
     ]
     declare = getattr(plugin, "fault_variables", None)
     slots = declare(wiring) if declare is not None else {}
-    return FaultRoster(name, slots)
+    return FaultRoster(str(model.get("engine")), slots)
+
+
+def _plugin(model: Mapping[str, Any]) -> Any | None:
+    """The plug-in registered under ``model``'s engine name, or ``None``."""
+    from osprey.simulation.engines import ENTRY_POINT_GROUP
+
+    name = str(model.get("engine"))
+    engines = metadata.entry_points(group=ENTRY_POINT_GROUP)
+    return engines[name].load() if name in engines.names else None
 
 
 def _direction(channels: Mapping[str, Mapping[str, Any]], record: Mapping[str, Any]) -> str:
@@ -660,18 +665,28 @@ def _relative_when(value: Any) -> bool:
     return _time_of_day(value.get("time")) is not None
 
 
-def check_scenario_engines(document: Mapping[str, Any]) -> list[FacilityBuildError]:
+def check_scenario_engines(
+    document: Mapping[str, Any], facility_dir: Path
+) -> list[FacilityBuildError]:
     """Check every scenario fault keyed by an engine variable rather than a channel.
 
     A key under ``faults.<model>`` that names no channel must be one of the
     fault names the model's engine declares (``engine-invalid`` otherwise);
     its value is coerced as a float and held to that fault's range.
 
+    The model's engine then sees those faults beside the model's deck, when
+    its plug-in states ``scenario_stops``: each ``(fault name, detail,
+    remedy)`` it answers is one ``engine-invalid`` stop on the scenario. A
+    model without a deck file, and a model no scenario keys a fault under,
+    is never shown to its engine.
+
     Args:
         document: The combined document, its wiring slots filled.
+        facility_dir: The ``data/facility`` directory the decks came from.
 
     Returns:
-        Every stop, in scenario, model and key order.
+        Every stop, in scenario and model order: a model's keys in order,
+        then its engine's stops.
     """
     channels = {str(c["id"]): c for c in document.get("channels") or [] if isinstance(c, dict)}
     models = {str(m["name"]): m for m in document.get("models") or [] if isinstance(m, dict)}
@@ -696,7 +711,29 @@ def check_scenario_engines(document: Mapping[str, Any]) -> list[FacilityBuildErr
                 errors.extend(
                     _named_fault(name, files, str(model_name), str(key), targets[key], roster)
                 )
+            named = {str(key): targets[key] for key in keys}
+            errors.extend(_engine_stops(name, files, model, named, facility_dir))
     return errors
+
+
+def _engine_stops(
+    name: str,
+    files: list[str],
+    model: Mapping[str, Any],
+    faults: Mapping[str, Any],
+    facility_dir: Path,
+) -> Iterator[FacilityBuildError]:
+    """The stops ``model``'s engine answers for one scenario's faults on it."""
+    if "deck" not in model:
+        return
+    deck = facility_dir / str(model["deck"])
+    stops = getattr(_plugin(model), "scenario_stops", None)
+    if stops is None or not deck.is_file():
+        return
+    for key, detail, remedy in stops(deck, faults):
+        yield _error(
+            "engine-invalid", name, files, f"faults.{model['name']}.{key} {detail}", remedy
+        )
 
 
 def _named_fault(
@@ -713,7 +750,11 @@ def _named_fault(
     if fault is None:
         engine = roster.engine if roster is not None else "engine"
         article = "an" if engine[:1] in "aeiou" else "a"
-        remedy = f"name a channel address or {article} {engine} variable (<address>/<field>)"
+        remedy = f"name a channel address or {article} {engine} variable (<address>/<field>"
+        model_wide = sorted(n for n, held in slots.items() if getattr(held, "address", "") is None)
+        if model_wide:
+            remedy += f", or one of {', '.join(model_wide)}"
+        remedy += ")"
         closest = difflib.get_close_matches(key, sorted(slots), n=3)
         if closest:
             remedy += f"; closest: {', '.join(closest)}"

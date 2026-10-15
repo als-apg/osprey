@@ -26,7 +26,7 @@ from osprey_connectors.simulation.composite import (
     Composite,
     WriteRefusedError,
 )
-from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
+from osprey_connectors.simulation.view import ROLES, SCHEMAS, SimulatorView, ViewSchemaError
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -409,6 +409,96 @@ def test_partner_planes_group_by_monitor_role_without_an_engine_axis(tmp_path: P
     assert composite.get("M:BPM:Y") == composite.get(["M:BPM:X", "M:BPM:Y"])["M:BPM:Y"]
 
 
+def _with_records(view: Path, *records: dict[str, Any]) -> Path:
+    """Add wiring records of model M, each with a float channel M owns, to a view."""
+
+    def variables(document: dict[str, Any]) -> None:
+        document["models"][0]["wiring"].extend(records)
+        document["channels"].extend(
+            _channel(
+                record["address"],
+                "M",
+                role="setpoint" if record["direction"] == "write" else "readback",
+                writable=record["direction"] == "write",
+            )
+            for record in records
+        )
+        document["channels"].sort(key=lambda channel: channel["address"])
+
+    def addresses(document: dict[str, Any]) -> None:
+        document["channels"] = sorted(
+            [*document["channels"], *(record["address"] for record in records)]
+        )
+
+    _patch(view, "variables.json", variables)
+    _patch(view, "addresses.json", addresses)
+    return view
+
+
+def test_a_turn_series_on_a_monitors_element_is_never_its_partner(tmp_path: Path) -> None:
+    view = _with_records(
+        _view(tmp_path),
+        {"id": "8", "address": "M:TBT:X", "direction": "read", "element": "B1", "default": 1.5}
+        | _described("turn_series", "x"),
+        {"id": "9", "address": "M:TBT:Y", "direction": "read", "element": "B1", "default": 2.5}
+        | _described("turn_series", "y"),
+    )
+    composite = Composite(view, state_dir=tmp_path / "state", clock=lambda: T0)
+
+    assert composite.readout_group("M:BPM:X") == ("M:BPM:X", "M:BPM:Y")
+    assert composite.readout_group("M:BPM:Y") == ("M:BPM:X", "M:BPM:Y")
+    assert composite.readout_group("M:TBT:X") == ("M:TBT:X",)
+    assert composite.readout_group("M:TBT:Y") == ("M:TBT:Y",)
+    assert composite.get("M:TBT:X") == 1.5
+    assert composite.get("M:BPM:X") == _composite(tmp_path / "plain").get("M:BPM:X")
+
+
+def test_a_view_stating_no_command_mark_loads_with_every_binding_unmarked(
+    tmp_path: Path,
+) -> None:
+    path = _view(tmp_path)
+    document = json.loads((path / "variables.json").read_text(encoding="utf-8"))
+
+    bindings = SimulatorView.open(path).bindings()
+
+    assert all("command" not in entry for entry in document["models"][0]["wiring"])
+    assert [binding.address for binding in bindings if binding.direction == "write"] == [
+        "M:SP",
+        "M:STUCK:SP",
+    ]
+    assert [binding.command for binding in bindings] == [False] * 6
+
+
+def test_a_command_marked_record_is_a_marked_binding(tmp_path: Path) -> None:
+    view = SimulatorView.open(
+        _with_records(
+            _view(tmp_path),
+            {"id": "8", "address": "M:FIRE", "direction": "write", "default": 0}
+            | _described("setpoint")
+            | {"command": True},
+        )
+    )
+
+    assert {binding.address for binding in view.bindings() if binding.command} == {"M:FIRE"}
+    assert view.binding("M:FIRE").role == "setpoint"
+    assert view.binding("M:FIRE").record["command"] is True
+
+
+def test_turn_series_is_a_role_a_binding_names(tmp_path: Path) -> None:
+    view = SimulatorView.open(
+        _with_records(
+            _view(tmp_path),
+            {"id": "8", "address": "M:ARMED", "direction": "read", "default": 0.0}
+            | _described("turn_series"),
+        )
+    )
+
+    assert ROLES == ("setpoint", "readback", "monitor", "output", "turn_series")
+    assert view.binding("M:ARMED").role == "turn_series"
+    assert view.binding("M:ARMED").command is False
+    assert {binding.role for binding in view.bindings()} == set(ROLES)
+
+
 def test_a_texture_waveform_is_set_nested_and_reads_as_its_declared_array(
     tmp_path: Path,
 ) -> None:
@@ -717,7 +807,7 @@ def test_a_failed_child_is_rebuilt_on_a_scenario_change(tmp_path: Path) -> None:
     composite = _composite(tmp_path, scenarios=scenarios)
     composite.model_set({"M/knob": -1.0})
     composite.get("M:RB")
-    assert composite.status("M") != "ok"
+    assert not composite.built("M")
 
     _activate(tmp_path / "state", "cooler")
 

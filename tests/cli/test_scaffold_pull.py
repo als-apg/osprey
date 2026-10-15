@@ -222,6 +222,7 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/facility/records/places.yaml",
     "data/facility/scenarios/bpm-polarity.yaml",
     "data/facility/scenarios/bpm-polarity/plots/corrector_bump_test.png",
+    "data/facility/scenarios/first-turn-errors.yaml",
     "data/facility/scenarios/nominal.yaml",
     "data/facility/scenarios/nominal/plots/orbit_rms.json",
     "data/facility/scenarios/orm-dual-fault.yaml",

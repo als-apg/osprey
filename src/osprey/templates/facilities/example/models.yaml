@@ -450,6 +450,14 @@
   settings:
     pyat:
       solve: periodic
+      injection:
+        marker: INJ
+        x: 0.0
+        px: 0.0
+        y: 0.0
+        py: 0.0
+        delta: 0.0
+        ct: 0.0
   wiring:
   - address: SR:DIAG:BPM:01:POSITION:X
     element: BPM01
@@ -465,6 +473,39 @@
     element: BPM01
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:01:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:01:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:01:TBT:SUM
+    element: BPM01
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:01:TBT:X
+    element: BPM01
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:01:TBT:Y
+    element: BPM01
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -491,6 +532,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:02:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:02:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:02:TBT:SUM
+    element: BPM02
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:02:TBT:X
+    element: BPM02
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:02:TBT:Y
+    element: BPM02
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:03:POSITION:X
     element: BPM03
     engine:
@@ -505,6 +579,39 @@
     element: BPM03
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:03:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:03:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:03:TBT:SUM
+    element: BPM03
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:03:TBT:X
+    element: BPM03
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:03:TBT:Y
+    element: BPM03
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -531,6 +638,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:04:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:04:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:04:TBT:SUM
+    element: BPM04
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:04:TBT:X
+    element: BPM04
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:04:TBT:Y
+    element: BPM04
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:05:POSITION:X
     element: BPM05
     engine:
@@ -545,6 +685,39 @@
     element: BPM05
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:05:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:05:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:05:TBT:SUM
+    element: BPM05
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:05:TBT:X
+    element: BPM05
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:05:TBT:Y
+    element: BPM05
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -571,6 +744,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:06:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:06:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:06:TBT:SUM
+    element: BPM06
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:06:TBT:X
+    element: BPM06
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:06:TBT:Y
+    element: BPM06
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:07:POSITION:X
     element: BPM07
     engine:
@@ -585,6 +791,39 @@
     element: BPM07
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:07:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:07:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:07:TBT:SUM
+    element: BPM07
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:07:TBT:X
+    element: BPM07
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:07:TBT:Y
+    element: BPM07
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -611,6 +850,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:08:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:08:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:08:TBT:SUM
+    element: BPM08
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:08:TBT:X
+    element: BPM08
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:08:TBT:Y
+    element: BPM08
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:09:POSITION:X
     element: BPM09
     engine:
@@ -625,6 +897,39 @@
     element: BPM09
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:09:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:09:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:09:TBT:SUM
+    element: BPM09
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:09:TBT:X
+    element: BPM09
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:09:TBT:Y
+    element: BPM09
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -651,6 +956,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:10:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:10:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:10:TBT:SUM
+    element: BPM10
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:10:TBT:X
+    element: BPM10
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:10:TBT:Y
+    element: BPM10
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:11:POSITION:X
     element: BPM11
     engine:
@@ -665,6 +1003,39 @@
     element: BPM11
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:11:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:11:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:11:TBT:SUM
+    element: BPM11
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:11:TBT:X
+    element: BPM11
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:11:TBT:Y
+    element: BPM11
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -691,6 +1062,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:12:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:12:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:12:TBT:SUM
+    element: BPM12
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:12:TBT:X
+    element: BPM12
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:12:TBT:Y
+    element: BPM12
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:13:POSITION:X
     element: BPM13
     engine:
@@ -705,6 +1109,39 @@
     element: BPM13
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:13:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:13:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:13:TBT:SUM
+    element: BPM13
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:13:TBT:X
+    element: BPM13
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:13:TBT:Y
+    element: BPM13
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -731,6 +1168,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:14:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:14:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:14:TBT:SUM
+    element: BPM14
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:14:TBT:X
+    element: BPM14
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:14:TBT:Y
+    element: BPM14
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:15:POSITION:X
     element: BPM15
     engine:
@@ -745,6 +1215,39 @@
     element: BPM15
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:15:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:15:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:15:TBT:SUM
+    element: BPM15
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:15:TBT:X
+    element: BPM15
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:15:TBT:Y
+    element: BPM15
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -771,6 +1274,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:16:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:16:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:16:TBT:SUM
+    element: BPM16
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:16:TBT:X
+    element: BPM16
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:16:TBT:Y
+    element: BPM16
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:17:POSITION:X
     element: BPM17
     engine:
@@ -785,6 +1321,39 @@
     element: BPM17
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:17:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:17:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:17:TBT:SUM
+    element: BPM17
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:17:TBT:X
+    element: BPM17
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:17:TBT:Y
+    element: BPM17
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -811,6 +1380,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:18:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:18:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:18:TBT:SUM
+    element: BPM18
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:18:TBT:X
+    element: BPM18
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:18:TBT:Y
+    element: BPM18
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:19:POSITION:X
     element: BPM19
     engine:
@@ -825,6 +1427,39 @@
     element: BPM19
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:19:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:19:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:19:TBT:SUM
+    element: BPM19
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:19:TBT:X
+    element: BPM19
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:19:TBT:Y
+    element: BPM19
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -851,6 +1486,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:20:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:20:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:20:TBT:SUM
+    element: BPM20
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:20:TBT:X
+    element: BPM20
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:20:TBT:Y
+    element: BPM20
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:21:POSITION:X
     element: BPM21
     engine:
@@ -865,6 +1533,39 @@
     element: BPM21
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:21:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:21:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:21:TBT:SUM
+    element: BPM21
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:21:TBT:X
+    element: BPM21
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:21:TBT:Y
+    element: BPM21
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -891,6 +1592,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:22:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:22:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:22:TBT:SUM
+    element: BPM22
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:22:TBT:X
+    element: BPM22
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:22:TBT:Y
+    element: BPM22
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:23:POSITION:X
     element: BPM23
     engine:
@@ -905,6 +1639,39 @@
     element: BPM23
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:23:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:23:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:23:TBT:SUM
+    element: BPM23
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:23:TBT:X
+    element: BPM23
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:23:TBT:Y
+    element: BPM23
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -931,6 +1698,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:24:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:24:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:24:TBT:SUM
+    element: BPM24
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:24:TBT:X
+    element: BPM24
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:24:TBT:Y
+    element: BPM24
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:25:POSITION:X
     element: BPM25
     engine:
@@ -945,6 +1745,39 @@
     element: BPM25
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:25:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:25:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:25:TBT:SUM
+    element: BPM25
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:25:TBT:X
+    element: BPM25
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:25:TBT:Y
+    element: BPM25
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -971,6 +1804,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:26:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:26:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:26:TBT:SUM
+    element: BPM26
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:26:TBT:X
+    element: BPM26
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:26:TBT:Y
+    element: BPM26
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:27:POSITION:X
     element: BPM27
     engine:
@@ -985,6 +1851,39 @@
     element: BPM27
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:27:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:27:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:27:TBT:SUM
+    element: BPM27
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:27:TBT:X
+    element: BPM27
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:27:TBT:Y
+    element: BPM27
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1011,6 +1910,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:28:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:28:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:28:TBT:SUM
+    element: BPM28
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:28:TBT:X
+    element: BPM28
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:28:TBT:Y
+    element: BPM28
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:29:POSITION:X
     element: BPM29
     engine:
@@ -1025,6 +1957,39 @@
     element: BPM29
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:29:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:29:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:29:TBT:SUM
+    element: BPM29
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:29:TBT:X
+    element: BPM29
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:29:TBT:Y
+    element: BPM29
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1051,6 +2016,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:30:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:30:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:30:TBT:SUM
+    element: BPM30
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:30:TBT:X
+    element: BPM30
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:30:TBT:Y
+    element: BPM30
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:31:POSITION:X
     element: BPM31
     engine:
@@ -1065,6 +2063,39 @@
     element: BPM31
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:31:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:31:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:31:TBT:SUM
+    element: BPM31
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:31:TBT:X
+    element: BPM31
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:31:TBT:Y
+    element: BPM31
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1091,6 +2122,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:32:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:32:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:32:TBT:SUM
+    element: BPM32
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:32:TBT:X
+    element: BPM32
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:32:TBT:Y
+    element: BPM32
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:33:POSITION:X
     element: BPM33
     engine:
@@ -1105,6 +2169,39 @@
     element: BPM33
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:33:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:33:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:33:TBT:SUM
+    element: BPM33
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:33:TBT:X
+    element: BPM33
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:33:TBT:Y
+    element: BPM33
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1131,6 +2228,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:34:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:34:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:34:TBT:SUM
+    element: BPM34
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:34:TBT:X
+    element: BPM34
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:34:TBT:Y
+    element: BPM34
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:35:POSITION:X
     element: BPM35
     engine:
@@ -1145,6 +2275,39 @@
     element: BPM35
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:35:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:35:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:35:TBT:SUM
+    element: BPM35
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:35:TBT:X
+    element: BPM35
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:35:TBT:Y
+    element: BPM35
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1171,6 +2334,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:36:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:36:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:36:TBT:SUM
+    element: BPM36
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:36:TBT:X
+    element: BPM36
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:36:TBT:Y
+    element: BPM36
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:37:POSITION:X
     element: BPM37
     engine:
@@ -1185,6 +2381,39 @@
     element: BPM37
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:37:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:37:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:37:TBT:SUM
+    element: BPM37
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:37:TBT:X
+    element: BPM37
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:37:TBT:Y
+    element: BPM37
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1211,6 +2440,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:38:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:38:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:38:TBT:SUM
+    element: BPM38
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:38:TBT:X
+    element: BPM38
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:38:TBT:Y
+    element: BPM38
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:39:POSITION:X
     element: BPM39
     engine:
@@ -1225,6 +2487,39 @@
     element: BPM39
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:39:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:39:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:39:TBT:SUM
+    element: BPM39
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:39:TBT:X
+    element: BPM39
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:39:TBT:Y
+    element: BPM39
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1251,6 +2546,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:40:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:40:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:40:TBT:SUM
+    element: BPM40
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:40:TBT:X
+    element: BPM40
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:40:TBT:Y
+    element: BPM40
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:41:POSITION:X
     element: BPM41
     engine:
@@ -1265,6 +2593,39 @@
     element: BPM41
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:41:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:41:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:41:TBT:SUM
+    element: BPM41
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:41:TBT:X
+    element: BPM41
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:41:TBT:Y
+    element: BPM41
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1291,6 +2652,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:42:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:42:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:42:TBT:SUM
+    element: BPM42
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:42:TBT:X
+    element: BPM42
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:42:TBT:Y
+    element: BPM42
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:43:POSITION:X
     element: BPM43
     engine:
@@ -1305,6 +2699,39 @@
     element: BPM43
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:43:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:43:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:43:TBT:SUM
+    element: BPM43
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:43:TBT:X
+    element: BPM43
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:43:TBT:Y
+    element: BPM43
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1331,6 +2758,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:44:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:44:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:44:TBT:SUM
+    element: BPM44
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:44:TBT:X
+    element: BPM44
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:44:TBT:Y
+    element: BPM44
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:45:POSITION:X
     element: BPM45
     engine:
@@ -1345,6 +2805,39 @@
     element: BPM45
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:45:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:45:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:45:TBT:SUM
+    element: BPM45
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:45:TBT:X
+    element: BPM45
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:45:TBT:Y
+    element: BPM45
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1371,6 +2864,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:46:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:46:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:46:TBT:SUM
+    element: BPM46
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:46:TBT:X
+    element: BPM46
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:46:TBT:Y
+    element: BPM46
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:47:POSITION:X
     element: BPM47
     engine:
@@ -1385,6 +2911,39 @@
     element: BPM47
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:47:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:47:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:47:TBT:SUM
+    element: BPM47
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:47:TBT:X
+    element: BPM47
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:47:TBT:Y
+    element: BPM47
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1411,6 +2970,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:48:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:48:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:48:TBT:SUM
+    element: BPM48
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:48:TBT:X
+    element: BPM48
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:48:TBT:Y
+    element: BPM48
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:49:POSITION:X
     element: BPM49
     engine:
@@ -1425,6 +3017,39 @@
     element: BPM49
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:49:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:49:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:49:TBT:SUM
+    element: BPM49
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:49:TBT:X
+    element: BPM49
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:49:TBT:Y
+    element: BPM49
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1451,6 +3076,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:50:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:50:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:50:TBT:SUM
+    element: BPM50
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:50:TBT:X
+    element: BPM50
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:50:TBT:Y
+    element: BPM50
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:51:POSITION:X
     element: BPM51
     engine:
@@ -1465,6 +3123,39 @@
     element: BPM51
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:51:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:51:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:51:TBT:SUM
+    element: BPM51
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:51:TBT:X
+    element: BPM51
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:51:TBT:Y
+    element: BPM51
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1491,6 +3182,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:52:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:52:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:52:TBT:SUM
+    element: BPM52
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:52:TBT:X
+    element: BPM52
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:52:TBT:Y
+    element: BPM52
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:53:POSITION:X
     element: BPM53
     engine:
@@ -1505,6 +3229,39 @@
     element: BPM53
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:53:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:53:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:53:TBT:SUM
+    element: BPM53
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:53:TBT:X
+    element: BPM53
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:53:TBT:Y
+    element: BPM53
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1531,6 +3288,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:54:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:54:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:54:TBT:SUM
+    element: BPM54
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:54:TBT:X
+    element: BPM54
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:54:TBT:Y
+    element: BPM54
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:55:POSITION:X
     element: BPM55
     engine:
@@ -1545,6 +3335,39 @@
     element: BPM55
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:55:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:55:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:55:TBT:SUM
+    element: BPM55
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:55:TBT:X
+    element: BPM55
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:55:TBT:Y
+    element: BPM55
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1571,6 +3394,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:56:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:56:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:56:TBT:SUM
+    element: BPM56
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:56:TBT:X
+    element: BPM56
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:56:TBT:Y
+    element: BPM56
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:57:POSITION:X
     element: BPM57
     engine:
@@ -1585,6 +3441,39 @@
     element: BPM57
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:57:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:57:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:57:TBT:SUM
+    element: BPM57
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:57:TBT:X
+    element: BPM57
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:57:TBT:Y
+    element: BPM57
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1611,6 +3500,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:58:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:58:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:58:TBT:SUM
+    element: BPM58
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:58:TBT:X
+    element: BPM58
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:58:TBT:Y
+    element: BPM58
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:59:POSITION:X
     element: BPM59
     engine:
@@ -1625,6 +3547,39 @@
     element: BPM59
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:59:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:59:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:59:TBT:SUM
+    element: BPM59
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:59:TBT:X
+    element: BPM59
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:59:TBT:Y
+    element: BPM59
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1651,6 +3606,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:60:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:60:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:60:TBT:SUM
+    element: BPM60
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:60:TBT:X
+    element: BPM60
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:60:TBT:Y
+    element: BPM60
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:61:POSITION:X
     element: BPM61
     engine:
@@ -1665,6 +3653,39 @@
     element: BPM61
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:61:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:61:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:61:TBT:SUM
+    element: BPM61
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:61:TBT:X
+    element: BPM61
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:61:TBT:Y
+    element: BPM61
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1691,6 +3712,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:62:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:62:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:62:TBT:SUM
+    element: BPM62
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:62:TBT:X
+    element: BPM62
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:62:TBT:Y
+    element: BPM62
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:63:POSITION:X
     element: BPM63
     engine:
@@ -1705,6 +3759,39 @@
     element: BPM63
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:63:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:63:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:63:TBT:SUM
+    element: BPM63
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:63:TBT:X
+    element: BPM63
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:63:TBT:Y
+    element: BPM63
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1731,6 +3818,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:64:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:64:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:64:TBT:SUM
+    element: BPM64
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:64:TBT:X
+    element: BPM64
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:64:TBT:Y
+    element: BPM64
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:65:POSITION:X
     element: BPM65
     engine:
@@ -1745,6 +3865,39 @@
     element: BPM65
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:65:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:65:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:65:TBT:SUM
+    element: BPM65
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:65:TBT:X
+    element: BPM65
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:65:TBT:Y
+    element: BPM65
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1771,6 +3924,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:66:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:66:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:66:TBT:SUM
+    element: BPM66
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:66:TBT:X
+    element: BPM66
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:66:TBT:Y
+    element: BPM66
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:67:POSITION:X
     element: BPM67
     engine:
@@ -1785,6 +3971,39 @@
     element: BPM67
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:67:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:67:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:67:TBT:SUM
+    element: BPM67
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:67:TBT:X
+    element: BPM67
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:67:TBT:Y
+    element: BPM67
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1811,6 +4030,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:68:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:68:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:68:TBT:SUM
+    element: BPM68
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:68:TBT:X
+    element: BPM68
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:68:TBT:Y
+    element: BPM68
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:69:POSITION:X
     element: BPM69
     engine:
@@ -1825,6 +4077,39 @@
     element: BPM69
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:69:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:69:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:69:TBT:SUM
+    element: BPM69
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:69:TBT:X
+    element: BPM69
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:69:TBT:Y
+    element: BPM69
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1851,6 +4136,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:70:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:70:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:70:TBT:SUM
+    element: BPM70
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:70:TBT:X
+    element: BPM70
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:70:TBT:Y
+    element: BPM70
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:BPM:71:POSITION:X
     element: BPM71
     engine:
@@ -1865,6 +4183,39 @@
     element: BPM71
     engine:
       axis: y
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:71:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:71:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:71:TBT:SUM
+    element: BPM71
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:71:TBT:X
+    element: BPM71
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:71:TBT:Y
+    element: BPM71
+    engine:
+      axis: y
+      series: turn
     calibration:
       curve:
         linear:
@@ -1891,6 +4242,39 @@
           gain: 1.0
           offset: 0.0
       energy_scaling: none
+  - address: SR:DIAG:BPM:72:TBT:ARM
+    engine:
+      attribute: arm
+  - address: SR:DIAG:BPM:72:TBT:ARMED
+    engine:
+      attribute: armed
+  - address: SR:DIAG:BPM:72:TBT:SUM
+    element: BPM72
+    engine:
+      axis: sum
+      series: turn
+  - address: SR:DIAG:BPM:72:TBT:X
+    element: BPM72
+    engine:
+      axis: x
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
+  - address: SR:DIAG:BPM:72:TBT:Y
+    element: BPM72
+    engine:
+      axis: y
+      series: turn
+    calibration:
+      curve:
+        linear:
+          gain: 1.0
+          offset: 0.0
+      energy_scaling: none
   - address: SR:DIAG:CHROM:X
     engine:
       attribute: chromaticity
@@ -1899,6 +4283,9 @@
     engine:
       attribute: chromaticity
       axis: y
+  - address: SR:DIAG:INJECTION:REQUEST
+    engine:
+      attribute: inject
   - address: SR:DIAG:TUNE:X
     engine:
       attribute: tune
@@ -2707,7 +5094,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:01:CURRENT:SP
@@ -2718,7 +5105,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:02:CURRENT:RB
@@ -2729,7 +5116,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:02:CURRENT:SP
@@ -2740,7 +5127,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:03:CURRENT:RB
@@ -2751,7 +5138,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:03:CURRENT:SP
@@ -2762,7 +5149,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:04:CURRENT:RB
@@ -2773,7 +5160,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:04:CURRENT:SP
@@ -2784,7 +5171,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:05:CURRENT:RB
@@ -2795,7 +5182,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:05:CURRENT:SP
@@ -2806,7 +5193,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:06:CURRENT:RB
@@ -2817,7 +5204,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:06:CURRENT:SP
@@ -2828,7 +5215,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:07:CURRENT:RB
@@ -2839,7 +5226,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:07:CURRENT:SP
@@ -2850,7 +5237,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:08:CURRENT:RB
@@ -2861,7 +5248,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:08:CURRENT:SP
@@ -2872,7 +5259,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:09:CURRENT:RB
@@ -2883,7 +5270,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:09:CURRENT:SP
@@ -2894,7 +5281,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:10:CURRENT:RB
@@ -2905,7 +5292,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:10:CURRENT:SP
@@ -2916,7 +5303,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:11:CURRENT:RB
@@ -2927,7 +5314,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:11:CURRENT:SP
@@ -2938,7 +5325,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:12:CURRENT:RB
@@ -2949,7 +5336,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:12:CURRENT:SP
@@ -2960,7 +5347,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:13:CURRENT:RB
@@ -2971,7 +5358,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:13:CURRENT:SP
@@ -2982,7 +5369,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:14:CURRENT:RB
@@ -2993,7 +5380,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:14:CURRENT:SP
@@ -3004,7 +5391,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:15:CURRENT:RB
@@ -3015,7 +5402,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:15:CURRENT:SP
@@ -3026,7 +5413,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:16:CURRENT:RB
@@ -3037,7 +5424,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:16:CURRENT:SP
@@ -3048,7 +5435,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:17:CURRENT:RB
@@ -3059,7 +5446,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:17:CURRENT:SP
@@ -3070,7 +5457,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:18:CURRENT:RB
@@ -3081,7 +5468,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:18:CURRENT:SP
@@ -3092,7 +5479,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:19:CURRENT:RB
@@ -3103,7 +5490,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:19:CURRENT:SP
@@ -3114,7 +5501,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:20:CURRENT:RB
@@ -3125,7 +5512,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:20:CURRENT:SP
@@ -3136,7 +5523,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:21:CURRENT:RB
@@ -3147,7 +5534,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:21:CURRENT:SP
@@ -3158,7 +5545,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:22:CURRENT:RB
@@ -3169,7 +5556,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:22:CURRENT:SP
@@ -3180,7 +5567,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:23:CURRENT:RB
@@ -3191,7 +5578,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:23:CURRENT:SP
@@ -3202,7 +5589,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:24:CURRENT:RB
@@ -3213,7 +5600,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:24:CURRENT:SP
@@ -3224,7 +5611,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:25:CURRENT:RB
@@ -3235,7 +5622,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:25:CURRENT:SP
@@ -3246,7 +5633,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:26:CURRENT:RB
@@ -3257,7 +5644,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:26:CURRENT:SP
@@ -3268,7 +5655,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:27:CURRENT:RB
@@ -3279,7 +5666,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:27:CURRENT:SP
@@ -3290,7 +5677,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:28:CURRENT:RB
@@ -3301,7 +5688,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:28:CURRENT:SP
@@ -3312,7 +5699,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:29:CURRENT:RB
@@ -3323,7 +5710,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:29:CURRENT:SP
@@ -3334,7 +5721,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:30:CURRENT:RB
@@ -3345,7 +5732,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:30:CURRENT:SP
@@ -3356,7 +5743,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:31:CURRENT:RB
@@ -3367,7 +5754,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:31:CURRENT:SP
@@ -3378,7 +5765,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:32:CURRENT:RB
@@ -3389,7 +5776,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:32:CURRENT:SP
@@ -3400,7 +5787,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:33:CURRENT:RB
@@ -3411,7 +5798,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:33:CURRENT:SP
@@ -3422,7 +5809,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:34:CURRENT:RB
@@ -3433,7 +5820,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:34:CURRENT:SP
@@ -3444,7 +5831,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:35:CURRENT:RB
@@ -3455,7 +5842,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:35:CURRENT:SP
@@ -3466,7 +5853,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:36:CURRENT:RB
@@ -3477,7 +5864,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:36:CURRENT:SP
@@ -3488,7 +5875,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:37:CURRENT:RB
@@ -3499,7 +5886,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:37:CURRENT:SP
@@ -3510,7 +5897,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:38:CURRENT:RB
@@ -3521,7 +5908,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:38:CURRENT:SP
@@ -3532,7 +5919,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:39:CURRENT:RB
@@ -3543,7 +5930,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:39:CURRENT:SP
@@ -3554,7 +5941,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:40:CURRENT:RB
@@ -3565,7 +5952,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:40:CURRENT:SP
@@ -3576,7 +5963,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:41:CURRENT:RB
@@ -3587,7 +5974,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:41:CURRENT:SP
@@ -3598,7 +5985,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:42:CURRENT:RB
@@ -3609,7 +5996,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:42:CURRENT:SP
@@ -3620,7 +6007,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:43:CURRENT:RB
@@ -3631,7 +6018,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:43:CURRENT:SP
@@ -3642,7 +6029,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:44:CURRENT:RB
@@ -3653,7 +6040,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:44:CURRENT:SP
@@ -3664,7 +6051,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:45:CURRENT:RB
@@ -3675,7 +6062,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:45:CURRENT:SP
@@ -3686,7 +6073,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:46:CURRENT:RB
@@ -3697,7 +6084,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:46:CURRENT:SP
@@ -3708,7 +6095,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:47:CURRENT:RB
@@ -3719,7 +6106,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:47:CURRENT:SP
@@ -3730,7 +6117,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:48:CURRENT:RB
@@ -3741,7 +6128,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:48:CURRENT:SP
@@ -3752,7 +6139,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:49:CURRENT:RB
@@ -3763,7 +6150,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:49:CURRENT:SP
@@ -3774,7 +6161,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:50:CURRENT:RB
@@ -3785,7 +6172,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:50:CURRENT:SP
@@ -3796,7 +6183,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:51:CURRENT:RB
@@ -3807,7 +6194,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:51:CURRENT:SP
@@ -3818,7 +6205,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:52:CURRENT:RB
@@ -3829,7 +6216,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:52:CURRENT:SP
@@ -3840,7 +6227,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:53:CURRENT:RB
@@ -3851,7 +6238,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:53:CURRENT:SP
@@ -3862,7 +6249,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:54:CURRENT:RB
@@ -3873,7 +6260,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:54:CURRENT:SP
@@ -3884,7 +6271,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:55:CURRENT:RB
@@ -3895,7 +6282,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:55:CURRENT:SP
@@ -3906,7 +6293,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:56:CURRENT:RB
@@ -3917,7 +6304,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:56:CURRENT:SP
@@ -3928,7 +6315,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:57:CURRENT:RB
@@ -3939,7 +6326,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:57:CURRENT:SP
@@ -3950,7 +6337,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:58:CURRENT:RB
@@ -3961,7 +6348,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:58:CURRENT:SP
@@ -3972,7 +6359,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:59:CURRENT:RB
@@ -3983,7 +6370,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:59:CURRENT:SP
@@ -3994,7 +6381,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:60:CURRENT:RB
@@ -4005,7 +6392,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:60:CURRENT:SP
@@ -4016,7 +6403,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:61:CURRENT:RB
@@ -4027,7 +6414,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:61:CURRENT:SP
@@ -4038,7 +6425,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:62:CURRENT:RB
@@ -4049,7 +6436,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:62:CURRENT:SP
@@ -4060,7 +6447,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:63:CURRENT:RB
@@ -4071,7 +6458,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:63:CURRENT:SP
@@ -4082,7 +6469,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:64:CURRENT:RB
@@ -4093,7 +6480,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:64:CURRENT:SP
@@ -4104,7 +6491,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:65:CURRENT:RB
@@ -4115,7 +6502,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:65:CURRENT:SP
@@ -4126,7 +6513,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:66:CURRENT:RB
@@ -4137,7 +6524,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:66:CURRENT:SP
@@ -4148,7 +6535,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:67:CURRENT:RB
@@ -4159,7 +6546,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:67:CURRENT:SP
@@ -4170,7 +6557,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:68:CURRENT:RB
@@ -4181,7 +6568,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:68:CURRENT:SP
@@ -4192,7 +6579,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:69:CURRENT:RB
@@ -4203,7 +6590,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:69:CURRENT:SP
@@ -4214,7 +6601,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:70:CURRENT:RB
@@ -4225,7 +6612,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:70:CURRENT:SP
@@ -4236,7 +6623,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:71:CURRENT:RB
@@ -4247,7 +6634,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:71:CURRENT:SP
@@ -4258,7 +6645,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:72:CURRENT:RB
@@ -4269,7 +6656,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:HCM:72:CURRENT:SP
@@ -4280,7 +6667,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:QD:01:CURRENT:RB
@@ -7987,7 +10374,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:01:CURRENT:SP
@@ -7998,7 +10385,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:02:CURRENT:RB
@@ -8009,7 +10396,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:02:CURRENT:SP
@@ -8020,7 +10407,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:03:CURRENT:RB
@@ -8031,7 +10418,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:03:CURRENT:SP
@@ -8042,7 +10429,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:04:CURRENT:RB
@@ -8053,7 +10440,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:04:CURRENT:SP
@@ -8064,7 +10451,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:05:CURRENT:RB
@@ -8075,7 +10462,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:05:CURRENT:SP
@@ -8086,7 +10473,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:06:CURRENT:RB
@@ -8097,7 +10484,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:06:CURRENT:SP
@@ -8108,7 +10495,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:07:CURRENT:RB
@@ -8119,7 +10506,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:07:CURRENT:SP
@@ -8130,7 +10517,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:08:CURRENT:RB
@@ -8141,7 +10528,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:08:CURRENT:SP
@@ -8152,7 +10539,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:09:CURRENT:RB
@@ -8163,7 +10550,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:09:CURRENT:SP
@@ -8174,7 +10561,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:10:CURRENT:RB
@@ -8185,7 +10572,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:10:CURRENT:SP
@@ -8196,7 +10583,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:11:CURRENT:RB
@@ -8207,7 +10594,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:11:CURRENT:SP
@@ -8218,7 +10605,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:12:CURRENT:RB
@@ -8229,7 +10616,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:12:CURRENT:SP
@@ -8240,7 +10627,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:13:CURRENT:RB
@@ -8251,7 +10638,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:13:CURRENT:SP
@@ -8262,7 +10649,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:14:CURRENT:RB
@@ -8273,7 +10660,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:14:CURRENT:SP
@@ -8284,7 +10671,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:15:CURRENT:RB
@@ -8295,7 +10682,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:15:CURRENT:SP
@@ -8306,7 +10693,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:16:CURRENT:RB
@@ -8317,7 +10704,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:16:CURRENT:SP
@@ -8328,7 +10715,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:17:CURRENT:RB
@@ -8339,7 +10726,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:17:CURRENT:SP
@@ -8350,7 +10737,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:18:CURRENT:RB
@@ -8361,7 +10748,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:18:CURRENT:SP
@@ -8372,7 +10759,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:19:CURRENT:RB
@@ -8383,7 +10770,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:19:CURRENT:SP
@@ -8394,7 +10781,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:20:CURRENT:RB
@@ -8405,7 +10792,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:20:CURRENT:SP
@@ -8416,7 +10803,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:21:CURRENT:RB
@@ -8427,7 +10814,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:21:CURRENT:SP
@@ -8438,7 +10825,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:22:CURRENT:RB
@@ -8449,7 +10836,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:22:CURRENT:SP
@@ -8460,7 +10847,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:23:CURRENT:RB
@@ -8471,7 +10858,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:23:CURRENT:SP
@@ -8482,7 +10869,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:24:CURRENT:RB
@@ -8493,7 +10880,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:24:CURRENT:SP
@@ -8504,7 +10891,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:25:CURRENT:RB
@@ -8515,7 +10902,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:25:CURRENT:SP
@@ -8526,7 +10913,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:26:CURRENT:RB
@@ -8537,7 +10924,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:26:CURRENT:SP
@@ -8548,7 +10935,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:27:CURRENT:RB
@@ -8559,7 +10946,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:27:CURRENT:SP
@@ -8570,7 +10957,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:28:CURRENT:RB
@@ -8581,7 +10968,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:28:CURRENT:SP
@@ -8592,7 +10979,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:29:CURRENT:RB
@@ -8603,7 +10990,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:29:CURRENT:SP
@@ -8614,7 +11001,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:30:CURRENT:RB
@@ -8625,7 +11012,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:30:CURRENT:SP
@@ -8636,7 +11023,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:31:CURRENT:RB
@@ -8647,7 +11034,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:31:CURRENT:SP
@@ -8658,7 +11045,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:32:CURRENT:RB
@@ -8669,7 +11056,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:32:CURRENT:SP
@@ -8680,7 +11067,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:33:CURRENT:RB
@@ -8691,7 +11078,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:33:CURRENT:SP
@@ -8702,7 +11089,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:34:CURRENT:RB
@@ -8713,7 +11100,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:34:CURRENT:SP
@@ -8724,7 +11111,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:35:CURRENT:RB
@@ -8735,7 +11122,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:35:CURRENT:SP
@@ -8746,7 +11133,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:36:CURRENT:RB
@@ -8757,7 +11144,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:36:CURRENT:SP
@@ -8768,7 +11155,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:37:CURRENT:RB
@@ -8779,7 +11166,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:37:CURRENT:SP
@@ -8790,7 +11177,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:38:CURRENT:RB
@@ -8801,7 +11188,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:38:CURRENT:SP
@@ -8812,7 +11199,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:39:CURRENT:RB
@@ -8823,7 +11210,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:39:CURRENT:SP
@@ -8834,7 +11221,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:40:CURRENT:RB
@@ -8845,7 +11232,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:40:CURRENT:SP
@@ -8856,7 +11243,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:41:CURRENT:RB
@@ -8867,7 +11254,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:41:CURRENT:SP
@@ -8878,7 +11265,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:42:CURRENT:RB
@@ -8889,7 +11276,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:42:CURRENT:SP
@@ -8900,7 +11287,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:43:CURRENT:RB
@@ -8911,7 +11298,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:43:CURRENT:SP
@@ -8922,7 +11309,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:44:CURRENT:RB
@@ -8933,7 +11320,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:44:CURRENT:SP
@@ -8944,7 +11331,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:45:CURRENT:RB
@@ -8955,7 +11342,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:45:CURRENT:SP
@@ -8966,7 +11353,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:46:CURRENT:RB
@@ -8977,7 +11364,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:46:CURRENT:SP
@@ -8988,7 +11375,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:47:CURRENT:RB
@@ -8999,7 +11386,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:47:CURRENT:SP
@@ -9010,7 +11397,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:48:CURRENT:RB
@@ -9021,7 +11408,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:48:CURRENT:SP
@@ -9032,7 +11419,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:49:CURRENT:RB
@@ -9043,7 +11430,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:49:CURRENT:SP
@@ -9054,7 +11441,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:50:CURRENT:RB
@@ -9065,7 +11452,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:50:CURRENT:SP
@@ -9076,7 +11463,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:51:CURRENT:RB
@@ -9087,7 +11474,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:51:CURRENT:SP
@@ -9098,7 +11485,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:52:CURRENT:RB
@@ -9109,7 +11496,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:52:CURRENT:SP
@@ -9120,7 +11507,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:53:CURRENT:RB
@@ -9131,7 +11518,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:53:CURRENT:SP
@@ -9142,7 +11529,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:54:CURRENT:RB
@@ -9153,7 +11540,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:54:CURRENT:SP
@@ -9164,7 +11551,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:55:CURRENT:RB
@@ -9175,7 +11562,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:55:CURRENT:SP
@@ -9186,7 +11573,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:56:CURRENT:RB
@@ -9197,7 +11584,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:56:CURRENT:SP
@@ -9208,7 +11595,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:57:CURRENT:RB
@@ -9219,7 +11606,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:57:CURRENT:SP
@@ -9230,7 +11617,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:58:CURRENT:RB
@@ -9241,7 +11628,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:58:CURRENT:SP
@@ -9252,7 +11639,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:59:CURRENT:RB
@@ -9263,7 +11650,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:59:CURRENT:SP
@@ -9274,7 +11661,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:60:CURRENT:RB
@@ -9285,7 +11672,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:60:CURRENT:SP
@@ -9296,7 +11683,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:61:CURRENT:RB
@@ -9307,7 +11694,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:61:CURRENT:SP
@@ -9318,7 +11705,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:62:CURRENT:RB
@@ -9329,7 +11716,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:62:CURRENT:SP
@@ -9340,7 +11727,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:63:CURRENT:RB
@@ -9351,7 +11738,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:63:CURRENT:SP
@@ -9362,7 +11749,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:64:CURRENT:RB
@@ -9373,7 +11760,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:64:CURRENT:SP
@@ -9384,7 +11771,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:65:CURRENT:RB
@@ -9395,7 +11782,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:65:CURRENT:SP
@@ -9406,7 +11793,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:66:CURRENT:RB
@@ -9417,7 +11804,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:66:CURRENT:SP
@@ -9428,7 +11815,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:67:CURRENT:RB
@@ -9439,7 +11826,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:67:CURRENT:SP
@@ -9450,7 +11837,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:68:CURRENT:RB
@@ -9461,7 +11848,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:68:CURRENT:SP
@@ -9472,7 +11859,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:69:CURRENT:RB
@@ -9483,7 +11870,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:69:CURRENT:SP
@@ -9494,7 +11881,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:70:CURRENT:RB
@@ -9505,7 +11892,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:70:CURRENT:SP
@@ -9516,7 +11903,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:71:CURRENT:RB
@@ -9527,7 +11914,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:71:CURRENT:SP
@@ -9538,7 +11925,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:72:CURRENT:RB
@@ -9549,7 +11936,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:MAG:VCM:72:CURRENT:SP
@@ -9560,7 +11947,7 @@
     calibration:
       curve:
         linear:
-          gain: 1.0e-06
+          gain: 0.0001
           offset: 0.0
       energy_scaling: none
   - address: SR:RF:CAVITY:01:FREQUENCY:RB

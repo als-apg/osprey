@@ -71,6 +71,7 @@ enums:
       trm:
       crm:
       chromaticity_monitor:
+      trajectory:
 
 classes:
   Facility:
@@ -597,6 +598,12 @@ classes:
         range: float
       frequency_delta:
         range: float
+      alpha:
+        range: float
+      n_discard:
+        range: integer
+      gain:
+        range: float
 
   MeasurementGroups:
     description: Group ids.
@@ -612,6 +619,11 @@ classes:
     attributes:
       tune:
       rf:
+      injection_request:
+      injection_busy:
+      bunch_clean_enable:
+      beam_current:
+      rf_status:
 
   Limits:
     attributes:

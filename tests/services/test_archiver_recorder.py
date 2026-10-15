@@ -48,6 +48,9 @@ from osprey.services.archiver_recorder.config import (
     RecordingFacts,
     read_recording_facts,
 )
+from osprey_connectors.simulation.archive import archived_channels
+from osprey_connectors.simulation.view import SimulatorView
+from tests._simulator_view import write_texture_view
 
 # The session-scoped MongoDB container, reused rather than re-declared: one
 # container for the whole test session, skipping cleanly without Docker.
@@ -252,12 +255,16 @@ def test_a_missing_knob_is_an_error_naming_it(tmp_path: Path, block: str, key: s
 
 
 # ---------------------------------------------------------------------------
-# Channel source: the simulator view's addresses.json, channels only
+# Channel source: the simulator view's archived channels
 # ---------------------------------------------------------------------------
 
 
 def _addresses(view: Path, channels: list[str], status: list[str] | None = None) -> None:
-    """Write a simulator view's ``addresses.json`` listing ``channels`` and ``status``."""
+    """Write a simulator view listing ``channels`` and ``status``, with no model.
+
+    ``addresses.json`` holds the two lists; ``variables.json`` beside it holds
+    no model, so no channel of the view is a turn series.
+    """
     view.mkdir(parents=True, exist_ok=True)
     document = {
         "schema": "osprey.facility.addresses/1",
@@ -265,6 +272,13 @@ def _addresses(view: Path, channels: list[str], status: list[str] | None = None)
         "status": status or [],
     }
     (view / "addresses.json").write_text(json.dumps(document), encoding="utf-8")
+    variables = {
+        "schema": "osprey.facility.simulator/2",
+        "code": "SR",
+        "models": [],
+        "channels": [],
+    }
+    (view / "variables.json").write_text(json.dumps(variables), encoding="utf-8")
 
 
 def test_channel_source_is_the_simulator_views_channels(tmp_path: Path) -> None:
@@ -317,6 +331,126 @@ def test_any_channel_address_is_recorded(tmp_path: Path) -> None:
     _addresses(tmp_path, addresses)
 
     assert resolve_channel_addresses(tmp_path) == addresses
+
+
+_SETPOINT = "M:SP"
+_READBACK = "M:RB"
+_SERIES_X = "M:TBT:X"
+_ARMED = "M:ARMED"
+_ARM = "M:ARM"
+_TEXTURE = "T:TEMP"
+
+#: A view's channels: one physics model's, two of them turn series, and one of texture.
+_VIEW_CHANNELS: dict[str, dict] = {
+    _SETPOINT: {"owner": "M", "role": "setpoint"},
+    _READBACK: {"owner": "M"},
+    _SERIES_X: {"owner": "M"},
+    _ARMED: {"owner": "M"},
+    _ARM: {"owner": "M", "role": "setpoint"},
+    _TEXTURE: {"nominal": 25.0},
+}
+_SERIES = {_SERIES_X, _ARMED}
+
+
+def _wired(address: str, direction: str, role: str, plane: str | None = None, **more) -> dict:
+    return {
+        "id": address,
+        "address": address,
+        "direction": direction,
+        "default": 0.0,
+        "role": role,
+        "plane": plane,
+        "refresh": "pass",
+        **more,
+    }
+
+
+def _model(*, series: bool = True, served: bool = True) -> dict:
+    """Model ``M`` as a built view records it: a setpoint, a readback, a command
+    and, with ``series``, the buffer and the armed flag of a turn-by-turn shot."""
+    wiring = [
+        _wired(_SETPOINT, "write", "setpoint"),
+        _wired(_READBACK, "read", "readback"),
+        _wired(_ARM, "write", "setpoint", command=True),
+    ]
+    if series:
+        wiring += [
+            _wired(_SERIES_X, "read", "turn_series", "x"),
+            _wired(_ARMED, "read", "turn_series"),
+        ]
+    return {
+        "name": "M",
+        "engine": "stub",
+        "served": served,
+        "settings": {},
+        "deck": None,
+        "wiring": wiring,
+    }
+
+
+def test_turn_series_channels_are_not_recorded(tmp_path: Path) -> None:
+    """A turn series holds one shot's samples, which no sampling instant has a
+    value of; every other channel is recorded, a command channel among them."""
+    view = write_texture_view(tmp_path, _VIEW_CHANNELS, models=[_model()])
+
+    addresses = resolve_channel_addresses(view)
+
+    assert addresses == sorted(set(_VIEW_CHANNELS) - _SERIES)
+    assert _ARM in addresses
+
+
+def test_a_view_without_turn_series_is_recorded_whole(tmp_path: Path) -> None:
+    channels = {a: spec for a, spec in _VIEW_CHANNELS.items() if a not in _SERIES}
+    view = write_texture_view(tmp_path, channels, models=[_model(series=False)])
+
+    assert resolve_channel_addresses(view) == sorted(channels)
+
+
+@pytest.mark.parametrize("served", [True, False])
+def test_the_recorded_channels_are_the_archived_channels_of_the_view(
+    tmp_path: Path, served: bool
+) -> None:
+    """The seed and the recorder write one store: both hold the same channels,
+    so no channel has a seeded past without a recorded present or the reverse.
+    A model the render does not serve has its series served as texture, and
+    both authors keep them."""
+    view = write_texture_view(tmp_path, _VIEW_CHANNELS, models=[_model(served=served)])
+
+    addresses = resolve_channel_addresses(view)
+
+    assert addresses == list(archived_channels(SimulatorView.open(view)))
+    assert (_SERIES_X in addresses) is (not served)
+
+
+@pytest.mark.parametrize(
+    "variables",
+    [
+        None,
+        "not json",
+        json.dumps({"schema": "osprey.facility.simulator/1", "models": [], "channels": []}),
+        json.dumps({"schema": "osprey.facility.simulator/2"}),
+        json.dumps(
+            {
+                "schema": "osprey.facility.simulator/2",
+                "channels": [],
+                "models": [{"name": "M", "engine": "stub", "wiring": [{"address": "M:SP"}]}],
+            }
+        ),
+    ],
+    ids=["missing", "torn", "other-schema", "no-records", "undescribed-wiring"],
+)
+def test_unreadable_model_records_are_fatal(tmp_path: Path, variables: str | None) -> None:
+    """Without the view's model records the turn series cannot be told from the
+    rest, and recording every channel would not be the archive the seed wrote."""
+    view = write_texture_view(tmp_path, _VIEW_CHANNELS, models=[_model()])
+    if variables is None:
+        (view / "variables.json").unlink()
+    else:
+        (view / "variables.json").write_text(variables, encoding="utf-8")
+
+    with pytest.raises(RecorderConfigError, match="variables.json") as excinfo:
+        resolve_channel_addresses(view)
+    assert "osprey build" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------

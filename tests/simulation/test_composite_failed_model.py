@@ -1,4 +1,4 @@
-"""A failed physics model in the composite and in the mock connector.
+"""A failed or degraded physics model in the composite and in the mock connector.
 
 A model whose engine raises while it is built or read is failed: its float
 outputs read NaN, its other outputs their last good value or their type's zero,
@@ -6,6 +6,11 @@ every one of its channels reports the ``udf`` condition, the texture serves on
 unchanged, and :func:`~osprey_connectors.simulation.model_status` answers with
 the engine's error text, capped at 1023 UTF-8 bytes. A write the model cannot
 solve is refused and leaves the model serving.
+
+The example SR states ``injection``, so a ring without a closed orbit does not
+fail it: it is degraded, built and serving, its status reads ``no closed
+orbit`` and only what the orbit sets reads NaN under ``udf``. The strict
+refusal is pinned on the same ring with ``injection`` taken out.
 """
 
 from __future__ import annotations
@@ -32,9 +37,11 @@ from osprey.connectors.control_system.va_in_process_connector import (
     VAInProcessConnector,
     simulation_state_dir,
 )
+from osprey.simulation.engines.pyat import NO_CLOSED_ORBIT
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import model_status
 from osprey_connectors.simulation.composite import ENGINE_GROUP, STATUS_MAX_BYTES, Composite
+from osprey_connectors.simulation.status import model_built
 from osprey_connectors.simulation.view import SCHEMAS
 from tests.simulation.conftest import stage_built_simulator_view
 
@@ -48,6 +55,8 @@ T0 = 1_760_000_000.0
 SR_STATUS = "ca:SIM:SR:STATUS"
 BPM_X = "SR:DIAG:BPM:03:POSITION:X"
 QUADRUPOLE = "SR:MAG:QF:01:CURRENT:SP"
+QUADRUPOLE_READBACK = "SR:MAG:QF:01:CURRENT:RB"
+TUNE_X = "SR:DIAG:TUNE:X"
 
 #: Twice the demo's QF01 current: the one-turn map has no stable orbit there.
 UNSTABLE_CURRENT = 712.2
@@ -150,8 +159,53 @@ def _record_solve_errors(monkeypatch: pytest.MonkeyPatch) -> list[OrbitSolveErro
     return raised
 
 
+def _without_injection(view: Path) -> None:
+    """Make SR a ring without ``injection``: its closed-orbit solve is strict again.
+
+    The turn series and the shot commands need the injection block, so they
+    leave the view with it.
+    """
+    variables = view / "variables.json"
+    document = json.loads(variables.read_text(encoding="utf-8"))
+    (sr,) = [model for model in document["models"] if model["name"] == "SR"]
+    del sr["settings"]["pyat"]["injection"]
+    shot = {
+        entry["address"]
+        for entry in sr["wiring"]
+        if ":TBT:" in entry["address"] or ":INJECTION:" in entry["address"]
+    }
+    assert shot
+    sr["wiring"] = [entry for entry in sr["wiring"] if entry["address"] not in shot]
+    document["channels"] = [
+        channel for channel in document["channels"] if channel["address"] not in shot
+    ]
+    variables.write_text(json.dumps(document), encoding="utf-8")
+    addresses = view / "addresses.json"
+    listed = json.loads(addresses.read_text(encoding="utf-8"))
+    listed["channels"] = [address for address in listed["channels"] if address not in shot]
+    addresses.write_text(json.dumps(listed), encoding="utf-8")
+
+
+def _assert_degraded(composite: Composite, view: Path) -> None:
+    """SR is built under ``no closed orbit``: what the orbit sets reads NaN, the rest serves."""
+    readbacks = _sr_float_readbacks(view)
+    setpoints = _sr_setpoints(view)
+    listed = composite.output_severity(readbacks)
+    read = composite.get(readbacks)
+
+    assert composite.built("SR")
+    assert composite.status("SR") == NO_CLOSED_ORBIT
+    assert composite.get(SR_STATUS) == NO_CLOSED_ORBIT
+    assert {BPM_X, TUNE_X} <= set(listed)
+    assert QUADRUPOLE_READBACK not in listed
+    assert all(severity == {"condition": "udf"} for severity in listed.values())
+    assert [name for name in listed if not math.isnan(read[name])] == []
+    assert composite.output_severity(setpoints) == {}
+    assert math.isfinite(composite.get(QUADRUPOLE_READBACK))
+
+
 @pytest.mark.slow
-async def test_a_solve_that_raises_fails_sr_and_leaves_the_texture(
+async def test_a_solve_that_raises_degrades_sr_and_leaves_the_texture(
     demo_view: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serving = _composite(demo_view)
@@ -161,29 +215,40 @@ async def test_a_solve_that_raises_fails_sr_and_leaves_the_texture(
         raise error
 
     monkeypatch.setattr("lume_pyat.simulator.solve_orbit", failing)
-    failed = _composite(demo_view)
-    readbacks = _sr_float_readbacks(demo_view)
+    degraded = _composite(demo_view)
     texture = _texture_channels(demo_view)
     connector = await _connected(demo_view)
 
-    read = failed.get(readbacks)
     reading = await connector.read_channel(BPM_X)
 
-    assert readbacks and texture
-    assert [address for address in readbacks if not math.isnan(read[address])] == []
-    assert failed.output_severity(readbacks) == dict.fromkeys(readbacks, {"condition": "udf"})
-    assert failed.get(texture) == serving.get(texture)
+    assert texture
+    _assert_degraded(degraded, demo_view)
+    assert degraded.get(texture) == serving.get(texture)
     assert math.isnan(reading.value)
     assert reading.metadata.alarm_severity == 3
-    assert model_status(connector, "SR") == str(error)
-    assert failed.get(SR_STATUS) == str(error)
+    assert model_status(connector, "SR") == NO_CLOSED_ORBIT
+    assert model_built(connector, "SR")
     await connector.disconnect()
 
 
 @pytest.mark.slow
-def test_an_unstable_active_quadrupole_fails_sr_with_the_solve_error(
+def test_an_unstable_active_quadrupole_degrades_sr(demo_view: Path) -> None:
+    _with_scenario(
+        demo_view, {"name": "unstable-quad", "overrides": {QUADRUPOLE: UNSTABLE_CURRENT}}
+    )
+    _activate(demo_view, "unstable-quad")
+
+    composite = _composite(demo_view)
+
+    _assert_degraded(composite, demo_view)
+    assert composite.get(QUADRUPOLE) == UNSTABLE_CURRENT
+
+
+@pytest.mark.slow
+def test_an_unstable_active_quadrupole_fails_sr_without_injection_with_the_solve_error(
     demo_view: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _without_injection(demo_view)
     _with_scenario(
         demo_view, {"name": "unstable-quad", "overrides": {QUADRUPOLE: UNSTABLE_CURRENT}}
     )
@@ -193,6 +258,7 @@ def test_an_unstable_active_quadrupole_fails_sr_with_the_solve_error(
     composite = _composite(demo_view)
 
     assert raised
+    assert not composite.built("SR")
     assert composite.status("SR") == str(raised[-1])
     assert composite.output_severity([BPM_X, QUADRUPOLE]) == {
         BPM_X: {"condition": "udf"},
@@ -203,9 +269,33 @@ def test_an_unstable_active_quadrupole_fails_sr_with_the_solve_error(
 
 
 @pytest.mark.slow
-async def test_a_live_quadrupole_write_that_destabilises_the_orbit_is_refused(
+async def test_a_live_quadrupole_write_that_destabilises_the_orbit_degrades_sr(
+    demo_view: Path,
+) -> None:
+    connector = await _connected(demo_view)
+    composite = connector._composite
+    assert composite is not None
+    journal = simulation_state_dir(demo_view) / "inprocess" / "writes.json"
+
+    result = await connector.write_channel(QUADRUPOLE, UNSTABLE_CURRENT)
+    reading = await connector.read_channel(BPM_X)
+
+    assert result.outcome is not WriteOutcome.REFUSED, result.error_message
+    assert composite.held([QUADRUPOLE]) == {QUADRUPOLE: UNSTABLE_CURRENT}
+    _assert_degraded(composite, demo_view)
+    assert model_status(connector, "SR") == NO_CLOSED_ORBIT
+    assert model_built(connector, "SR")
+    assert math.isnan(reading.value)
+    assert reading.metadata.alarm_severity == 3
+    assert journal.exists()
+    await connector.disconnect()
+
+
+@pytest.mark.slow
+async def test_a_live_quadrupole_write_that_destabilises_a_ring_without_injection_is_refused(
     demo_view: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _without_injection(demo_view)
     raised = _record_solve_errors(monkeypatch)
     connector = await _connected(demo_view)
     composite = connector._composite
@@ -455,6 +545,7 @@ def test_a_failed_stubs_bool_and_enum_hold_their_last_good_values(tmp_path: Path
 def test_a_stub_that_never_built_reads_its_bool_and_enum_as_zero(tmp_path: Path) -> None:
     composite = _composite(_stub_view(tmp_path, {"fail": "the stub has no deck"}))
 
+    assert not composite.built("M")
     assert composite.get([FLAG, MODE]) == {FLAG: "FALSE", MODE: "IDLE"}
     assert composite.output_severity([FLAG, MODE]) == {
         FLAG: {"condition": "udf"},
@@ -479,6 +570,7 @@ async def test_a_2kb_non_ascii_engine_text_is_capped_alike_in_the_composite_and_
     assert status.endswith("…")
     assert message.startswith(status[:-1])
     assert model_status(connector, "M") == status
+    assert not model_built(connector, "M")
     assert (await connector.read_channel(STUB_STATUS)).value == status
     await connector.disconnect()
 

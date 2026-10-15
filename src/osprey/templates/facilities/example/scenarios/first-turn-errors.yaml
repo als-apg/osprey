@@ -1,0 +1,14 @@
+description: 'A storage ring as found after an installation: every quadrupole and sextupole sits a
+  little off its axis in both planes, and every element with length has a finite elliptical vacuum
+  chamber. An injected bunch strays from the design trajectory and strikes the chamber partway around
+  the first turn, so the turn-by-turn BPMs downstream of the loss see no beam. The closed orbit is
+  lost as well. Steering the first turn through with the correctors brings the beam around.'
+faults:
+  SR:
+    misalignment_seed: 11
+    quadrupole_dx_sigma: 2.0e-04
+    quadrupole_dy_sigma: 2.0e-04
+    sextupole_dx_sigma: 2.0e-04
+    sextupole_dy_sigma: 2.0e-04
+    aperture_elliptical_x: 0.015
+    aperture_elliptical_y: 0.008

@@ -3549,7 +3549,9 @@ async def test_agent_measures_orbit_response_on_a_healthy_stack(
         # No Bash/Glob/Grep. The agent's compute path is the sanctioned python
         # executor; shell and filesystem search would let it inspect the
         # deployed project instead of measuring the machine it was asked about.
-        disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
+        # The pyAML measurement tool is a second route to the same request; the
+        # lane measures through the queue, which is the only route its floor reads.
+        disallowed_tools=[*SCENARIO_INTEGRITY_DISALLOWED_TOOLS, "mcp__python__pyaml_measure"],
     )
 
     # Before any assertion — see dump_agent_transcript. The judge's criterion 2
@@ -3582,10 +3584,11 @@ async def test_agent_measures_orbit_response_on_a_healthy_stack(
 
 GRID_OPERATOR_REQUEST = (
     "I would like a two-dimensional map on the machine. Pick two of the "
-    "steering correctors, step them together over a grid of settings across "
-    "the range they are allowed, and take a beam-position reading at every "
-    "point of that grid. Once it has run, tell me what the map looks like "
-    "over the region you covered."
+    "steering correctors, step them together over a grid of settings within "
+    "2 A either side of where they sit now, and take a beam-position reading "
+    "at every point of that grid. You do not need to put them back afterwards. "
+    "Once it has run, tell me what the map looks like over the region you "
+    "covered."
 )
 
 
@@ -4238,9 +4241,12 @@ ABORT_PLAN_POINTS = 8000
 #: Points for the re-arm twin's SETUP plan. This one is aborted by the test
 #: itself over raw HTTP within seconds of the run reporting ``running``, so
 #: it only has to outlive the abort's own pause-poll composition (~10 s) —
-#: and the agent's restart then re-runs the SAME plan to completion, so it
-#: must stay short enough to wait out: ~50 s at the measured pace.
-REARM_PLAN_POINTS = 900
+#: and the agent's restart then re-runs the SAME plan to completion inside
+#: ``REARM_RUN_TIMEOUT_SEC``. A sweep of a storage-ring corrector runs at
+#: about 2 points/s on a CI runner, so the restart takes about 150 s, under
+#: half the wait, and the setup plan outlives the abort even at many times
+#: that pace.
+REARM_PLAN_POINTS = 300
 
 #: How long a protocol-started plan may take to reach ``running`` — covers
 #: the manager handing the item to the worker, not the plan's own duration.

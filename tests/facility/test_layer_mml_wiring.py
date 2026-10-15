@@ -1,15 +1,19 @@
 """The mml layer's wiring pass: each imported model's deck and wiring records.
 
 Each case imports a fixture tree's exports into a fresh ``data/facility/``
-under the tree's layer mapping.
+under the tree's layer mapping. The cases that only read a clean import of a
+whole tree share one import of it per module, and the parse of its records.
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import shutil
 from collections import Counter
 from collections.abc import Callable
+from functools import cached_property
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +28,9 @@ from osprey.simulation.engines.calibration import Linear, Table
 from tests.fixtures.mml._trees import SUPPORTED
 
 at = pytest.importorskip("at")
+
+#: The module's readers share one import per tree, which only holds on one worker.
+pytestmark = pytest.mark.xdist_group("layer_mml_wiring")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
@@ -84,16 +91,61 @@ def _stops(root: Path, tree: str, stems: tuple[str, ...], edit: Edit, drop: tupl
     return stop.value.format_message()
 
 
+class _Imported:
+    """A whole tree imported into a fresh facility: what it wrote, printed and holds.
+
+    Every case that reads it only reads: none writes under ``facility`` or
+    changes a parsed record, so one import serves them all.
+    """
+
+    def __init__(self, root: Path, tree: str) -> None:
+        self.facility = _facility(root, tree)
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            self.written = import_mml(
+                [FIXTURES / tree / f"{stem}.ao.json" for stem in TREES[tree]], self.facility
+            )
+        self.printed = printed.getvalue()
+
+    @cached_property
+    def model_rows(self) -> list[dict[str, Any]]:
+        """The rows of ``models.yaml``, in the order the import wrote them."""
+        return yaml.safe_load(
+            (self.facility / LAYER_DIR / "models.yaml").read_text(encoding="utf-8")
+        )
+
+    @cached_property
+    def models(self) -> dict[str, dict[str, Any]]:
+        return {row["name"]: row for row in self.model_rows}
+
+    @cached_property
+    def channel_rows(self) -> list[dict[str, Any]]:
+        return yaml.safe_load(
+            (self.facility / LAYER_DIR / "channels.yaml").read_text(encoding="utf-8")
+        )
+
+
+@pytest.fixture(scope="module")
+def imports(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], _Imported]:
+    """Each tree imported on its first request, then served to every reader."""
+    done: dict[str, _Imported] = {}
+
+    def imported(tree: str) -> _Imported:
+        if tree not in done:
+            done[tree] = _Imported(tmp_path_factory.mktemp(tree), tree)
+        return done[tree]
+
+    return imported
+
+
 @pytest.fixture(scope="module", params=sorted(TREES))
 def tree(request: pytest.FixtureRequest) -> str:
     return request.param
 
 
 @pytest.fixture(scope="module")
-def imported(tree: str, tmp_path_factory: pytest.TempPathFactory) -> Path:
-    facility = _facility(tmp_path_factory.mktemp(tree), tree)
-    import_mml([FIXTURES / tree / f"{stem}.ao.json" for stem in TREES[tree]], facility)
-    return facility
+def imported(tree: str, imports: Callable[[str], _Imported]) -> _Imported:
+    return imports(tree)
 
 
 def _slices(record: dict[str, Any]) -> list[tuple[str, float]]:
@@ -110,20 +162,23 @@ def _names_element(record: dict[str, Any]) -> bool:
 # --- the entry and its deck ---------------------------------------------------------
 
 
-def test_models_yaml_holds_one_entry_per_imported_system(tree: str, imported: Path) -> None:
-    rows = yaml.safe_load((imported / LAYER_DIR / "models.yaml").read_text(encoding="utf-8"))
-    assert sorted(row["name"] for row in rows) == sorted(SYSTEMS[stem] for stem in TREES[tree])
+def test_models_yaml_holds_one_entry_per_imported_system(tree: str, imported: _Imported) -> None:
+    assert sorted(row["name"] for row in imported.model_rows) == sorted(
+        SYSTEMS[stem] for stem in TREES[tree]
+    )
 
 
-def test_every_entry_names_its_deck_between_engine_and_settings(imported: Path) -> None:
-    for name, entry in _models(imported).items():
+def test_every_entry_names_its_deck_between_engine_and_settings(imported: _Imported) -> None:
+    for name, entry in imported.models.items():
         assert entry["deck"] == f"imported/mml/decks/{name}.json"
         assert [key for key in entry if key != "settings"] == ["name", "engine", "deck", "wiring"]
         assert list(entry)[-1] == "wiring"
-        assert (imported / entry["deck"]).is_file()
+        assert (imported.facility / entry["deck"]).is_file()
 
 
-def test_every_written_deck_is_the_served_deck_of_its_export(tree: str, imported: Path) -> None:
+def test_every_written_deck_is_the_served_deck_of_its_export(
+    tree: str, imported: _Imported
+) -> None:
     from osprey.facility.layers.mml.importer import read_exports
     from osprey.facility.layers.mml.loaders.mat import load_lattice
 
@@ -135,18 +190,16 @@ def test_every_written_deck_is_the_served_deck_of_its_export(tree: str, imported
         addressing = decks.address_elements(
             mapping.models[system], load_lattice(FIXTURES / tree / f"{stem}.lattice.mat"), ao, ad
         )
-        written = imported / decks.DECKS_DIR / f"{system}.json"
+        written = imported.facility / decks.DECKS_DIR / f"{system}.json"
         assert written.read_text(encoding="utf-8") == decks.deck_text(decks.served_deck(addressing))
 
 
 def test_the_spear3_energy_knob_drives_the_deck_energy_through_its_energy_table(
-    tmp_path: Path,
+    imports: Callable[[str], _Imported],
 ) -> None:
     from osprey.simulation.engines.calibration import curve_from_record, to_hardware
 
-    facility = _facility(tmp_path, "spear3")
-    import_mml([FIXTURES / "spear3" / f"{stem}.ao.json" for stem in TREES["spear3"]], facility)
-    wiring = {record["address"]: record for record in _models(facility)[STORAGE]["wiring"]}
+    wiring = _spear3_wiring(imports)
     knob = wiring["MS1-BD:CurrSetpt"]
     assert set(knob) == {"address", "engine", "calibration"}
     assert knob["engine"] == {"attribute": "energy"}
@@ -162,26 +215,26 @@ def test_the_spear3_energy_knob_drives_the_deck_energy_through_its_energy_table(
     assert current == pytest.approx(table["I_nom"], rel=1e-3)
 
 
-def test_every_member_s_readback_of_a_shared_supply_follows_it(tmp_path: Path) -> None:
-    facility = _facility(tmp_path, "spear3")
-    import_mml([FIXTURES / "spear3" / f"{stem}.ao.json" for stem in TREES["spear3"]], facility)
-    wiring = {record["address"]: record for record in _models(facility)[STORAGE]["wiring"]}
+def test_every_member_s_readback_of_a_shared_supply_follows_it(
+    imports: Callable[[str], _Imported],
+) -> None:
+    wiring = _spear3_wiring(imports)
     supply = wiring["11G-QSS1:CurrSetpt"]
     assert len(supply["slices"]) == 2
     for readback in ("11G-QSS1:Curr1", "11G-QSS2:Curr1"):
         assert wiring[readback] == {**supply, "address": readback}
 
 
-def _spear3_wiring(tmp_path: Path) -> dict[str, dict[str, Any]]:
-    facility = _facility(tmp_path, "spear3")
-    import_mml([FIXTURES / "spear3" / f"{stem}.ao.json" for stem in TREES["spear3"]], facility)
-    return {record["address"]: record for record in _models(facility)[STORAGE]["wiring"]}
+def _spear3_wiring(imports: Callable[[str], _Imported]) -> dict[str, dict[str, Any]]:
+    return {record["address"]: record for record in imports("spear3").models[STORAGE]["wiring"]}
 
 
-def test_a_series_member_follows_its_own_row_from_its_own_nominal(tmp_path: Path) -> None:
+def test_a_series_member_follows_its_own_row_from_its_own_nominal(
+    imports: Callable[[str], _Imported],
+) -> None:
     from osprey.simulation.engines.calibration import curve_from_record, evaluate, to_hardware
 
-    record = _spear3_wiring(tmp_path)["MS1-QDZ:CurrSetpt"]
+    record = _spear3_wiring(imports)["MS1-QDZ:CurrSetpt"]
     va = json.loads((FIXTURES / "spear3" / "spear3.storagering.va.json").read_text("utf-8"))
     family = va["families"]["QDZ"]
     nominals = family["nominals"]["Setpoint"]["values"]
@@ -204,41 +257,43 @@ def test_a_series_member_follows_its_own_row_from_its_own_nominal(tmp_path: Path
         )
 
 
-def test_a_string_of_one_nominal_and_one_row_is_written_as_one_curve(tmp_path: Path) -> None:
-    record = _spear3_wiring(tmp_path)["MS1-QF:CurrSetpt"]
+def test_a_string_of_one_nominal_and_one_row_is_written_as_one_curve(
+    imports: Callable[[str], _Imported],
+) -> None:
+    record = _spear3_wiring(imports)["MS1-QF:CurrSetpt"]
     assert len(record["slices"]) > 1
     assert not any("curve" in piece for piece in record["slices"])
     assert {abs(piece.get("weight", 1.0)) for piece in record["slices"]} == {1.0}
 
 
-def test_every_wired_element_is_in_the_written_deck_exactly_once(imported: Path) -> None:
-    for entry in _models(imported).values():
-        document = json.loads((imported / entry["deck"]).read_text(encoding="utf-8"))
+def test_every_wired_element_is_in_the_written_deck_exactly_once(imported: _Imported) -> None:
+    for entry in imported.models.values():
+        document = json.loads((imported.facility / entry["deck"]).read_text(encoding="utf-8"))
         names = Counter(element["FamName"] for element in document["elements"])
         wired = {name for record in entry["wiring"] for name, _ in _slices(record)}
         assert wired
         assert sorted(name for name in wired if names[name] != 1) == []
 
 
-def test_models_yaml_states_every_record_in_full(imported: Path) -> None:
-    text = (imported / LAYER_DIR / "models.yaml").read_text(encoding="utf-8")
+def test_models_yaml_states_every_record_in_full(imported: _Imported) -> None:
+    text = (imported.facility / LAYER_DIR / "models.yaml").read_text(encoding="utf-8")
     assert [line for line in text.splitlines() if "&id" in line or "*id" in line] == []
 
 
-def test_every_wired_address_is_a_channel_record(imported: Path) -> None:
-    rows = yaml.safe_load((imported / LAYER_DIR / "channels.yaml").read_text(encoding="utf-8"))
-    channels = {row["id"] for row in rows}
-    for entry in _models(imported).values():
+def test_every_wired_address_is_a_channel_record(imported: _Imported) -> None:
+    channels = {row["id"] for row in imported.channel_rows}
+    for entry in imported.models.values():
         addresses = [record["address"] for record in entry["wiring"]]
         assert addresses == sorted(set(addresses))
         assert set(addresses) <= channels
 
 
-def test_every_device_of_a_shared_endpoint_is_named_by_a_slice(imported: Path) -> None:
-    rows = yaml.safe_load((imported / LAYER_DIR / "channels.yaml").read_text(encoding="utf-8"))
-    shared = {row["id"]: row["endpoint_of"] for row in rows if "endpoint_of" in row}
+def test_every_device_of_a_shared_endpoint_is_named_by_a_slice(imported: _Imported) -> None:
+    shared = {
+        row["id"]: row["endpoint_of"] for row in imported.channel_rows if "endpoint_of" in row
+    }
     wired = 0
-    for entry in _models(imported).values():
+    for entry in imported.models.values():
         for record in entry["wiring"]:
             if record["address"] not in shared or not _names_element(record):
                 continue
@@ -249,25 +304,29 @@ def test_every_device_of_a_shared_endpoint_is_named_by_a_slice(imported: Path) -
 
 
 def test_a_second_import_writes_the_same_decks_and_wiring(
-    tree: str, imported: Path, tmp_path: Path
+    tree: str, imported: _Imported, tmp_path: Path
 ) -> None:
     again = _facility(tmp_path, tree)
     import_mml([FIXTURES / tree / f"{stem}.ao.json" for stem in TREES[tree]], again)
     names = ["models.yaml", *(f"decks/{SYSTEMS[stem]}.json" for stem in TREES[tree])]
+    first = imported.facility / LAYER_DIR
     for name in names:
-        assert (again / LAYER_DIR / name).read_bytes() == (imported / LAYER_DIR / name).read_bytes()
+        assert (again / LAYER_DIR / name).read_bytes() == (first / name).read_bytes()
 
 
-def test_the_import_returns_each_deck_it_wrote(tmp_path: Path) -> None:
-    facility = _facility(tmp_path, "spear3")
-    written = import_mml([FIXTURES / "spear3" / "spear3.storagering.ao.json"], facility)
-    assert facility / decks.DECKS_DIR / "StorageRing.json" in written
+def test_the_import_returns_each_deck_it_wrote(imports: Callable[[str], _Imported]) -> None:
+    spear3 = imports("spear3")
+    assert TREES["spear3"] == ("spear3.storagering",)
+    assert spear3.facility / decks.DECKS_DIR / "StorageRing.json" in spear3.written
 
 
-def test_a_deck_of_a_model_the_import_does_not_carry_is_removed(tmp_path: Path) -> None:
-    facility = _facility(tmp_path, "spear3")
+def test_a_deck_of_a_model_the_import_does_not_carry_is_removed(
+    tmp_path: Path, imports: Callable[[str], _Imported]
+) -> None:
+    # A copy of the shared import is the facility a first import leaves behind.
+    facility = tmp_path / "data" / "facility"
+    shutil.copytree(imports("spear3").facility, facility)
     exports = [FIXTURES / "spear3" / f"{stem}.ao.json" for stem in TREES["spear3"]]
-    import_mml(exports, facility)
     stale = facility / decks.DECKS_DIR / "Other.json"
     shutil.copyfile(facility / decks.DECKS_DIR / "StorageRing.json", stale)
     import_mml(exports, facility)
@@ -486,10 +545,8 @@ def test_a_curve_that_stands_still_everywhere_is_refused() -> None:
 
 
 @pytest.fixture(scope="module")
-def transfer(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
-    facility = _facility(tmp_path_factory.mktemp("transfer"), "nsls2")
-    import_mml([FIXTURES / "nsls2" / f"{stem}.ao.json" for stem in TREES["nsls2"]], facility)
-    return _models(facility)["LTB"]
+def transfer(imports: Callable[[str], _Imported]) -> dict[str, Any]:
+    return imports("nsls2").models["LTB"]
 
 
 def test_the_transfer_line_keeps_its_single_pass_settings_beside_its_wiring(
@@ -547,13 +604,9 @@ def test_every_transfer_line_monitor_reads_millimetres_as_metres(
 
 
 def test_no_transfer_line_monitor_family_is_imported_without_its_nominal(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    imports: Callable[[str], _Imported],
 ) -> None:
-    facility = _facility(tmp_path, "nsls2")
-    import_mml([FIXTURES / "nsls2" / f"{stem}.ao.json" for stem in TREES["nsls2"]], facility)
-    unstated = [
-        line for line in capsys.readouterr().out.splitlines() if "nominal not stated" in line
-    ]
+    unstated = _printed(imports("nsls2").printed, "nominal not stated")
     assert not [line for line in unstated if "family BPM" in line]
 
 
@@ -583,15 +636,13 @@ def test_the_transfer_line_carries_the_calibrations_its_export_states(
 # --- what the import derives ----------------------------------------------------------
 
 
-def _printed(capsys: pytest.CaptureFixture[str], what: str) -> list[str]:
-    return [line for line in capsys.readouterr().out.splitlines() if what in line]
+def _printed(out: str, what: str) -> list[str]:
+    return [line for line in out.splitlines() if what in line]
 
 
 def test_each_family_whose_supply_feeds_several_devices_is_named_once_with_its_count(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    imports: Callable[[str], _Imported],
 ) -> None:
-    facility = _facility(tmp_path, "spear3")
-    import_mml([FIXTURES / "spear3" / f"{stem}.ao.json" for stem in TREES["spear3"]], facility)
     counts = [
         ("QF", 1),
         ("QD", 1),
@@ -609,18 +660,16 @@ def test_each_family_whose_supply_feeds_several_devices_is_named_once_with_its_c
         ("SkewQuad", 1),
         ("BEND", 1),
     ]
-    assert _printed(capsys, "supplies folded") == [
+    assert _printed(imports("spear3").printed, "supplies folded") == [
         f"import mml: supplies folded: StorageRing: family {family} ({count})"
         for family, count in counts
     ]
 
 
 def test_the_nsls2_series_families_are_named_with_their_supply_counts(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    imports: Callable[[str], _Imported],
 ) -> None:
-    facility = _facility(tmp_path, "nsls2")
-    import_mml([FIXTURES / "nsls2" / f"{stem}.ao.json" for stem in TREES["nsls2"]], facility)
-    assert _printed(capsys, "supplies folded") == [
+    assert _printed(imports("nsls2").printed, "supplies folded") == [
         "import mml: supplies folded: StorageRing: family SM2 (5)",
         "import mml: supplies folded: StorageRing: family SH1 (8)",
         "import mml: supplies folded: StorageRing: family SL2 (5)",
@@ -639,7 +688,7 @@ def test_a_family_whose_curves_turn_back_is_named_once_with_the_count_it_trimmed
     path.write_text(json.dumps(va), encoding="utf-8")
     facility = _facility(tmp_path, "spear3")
     import_mml(sources, facility)
-    assert _printed(capsys, "curves trimmed") == [
+    assert _printed(capsys.readouterr().out, "curves trimmed") == [
         "import mml: curves trimmed: StorageRing: family Q9S (3)"
     ]
 

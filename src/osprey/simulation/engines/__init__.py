@@ -33,6 +33,9 @@ class EnginePlugin(Protocol):
     ======================================================  ==============================================  ==========================================
     name                                                    what it gives                                   a module without it
     ======================================================  ==============================================  ==========================================
+    ``condition(model)``                                    ``(text, names)`` while a built model serves    no model is ever degraded
+                                                            degraded: one text of ``CONDITIONS`` and the
+                                                            names whose values it voids; else ``None``
     ``error_text(exc)``                                     the one line a failed build reports             the exception's own text
     ``fault_variables(wiring)``                             every fault a model built from the wiring       the model declares no faults
                                                             declares
@@ -40,7 +43,15 @@ class EnginePlugin(Protocol):
                                                             polynomials; stand-in until pyAML reads a       when design correctors need it
                                                             dipole kick held in ``KickAngle``
     ``response_matrix(deck, wiring, settings,               ``(rows, matrix)``, the orbit response of the   ``model_response_matrix`` ends without a
-    correctors, step)``                                     wired monitors                                  result; the response check stops
+    correctors, step, *, kind='orbit')``                    wired monitors; for ``kind='trajectory'`` row   result; the response check stops
+                                                            names, column names, matrix, ``bpm_index``,
+                                                            ``hcor_index`` and ``vcor_index``, the
+                                                            first-turn response of the wired turn series
+    ``scenario_stops(deck, faults)``                        one ``(fault name, detail, remedy)`` per        a scenario is checked against the fault
+                                                            thing a scenario's faults on the model ask      names alone
+                                                            that the deck cannot give
+    ``CONDITIONS``                                        every text ``condition`` can answer, a closed   ``condition`` may answer any text
+                                                            list
     ``SOLVE_ERRORS``                                        the exceptions meaning "this request has no     every exception is a failure, never a
                                                             solve"; stand-in until lume-base states         refusal
                                                             ``SolveError``

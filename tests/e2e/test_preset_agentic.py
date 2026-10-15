@@ -128,7 +128,7 @@ async def _assert_approval_hook_fires(
 @pytest.mark.harness_benchmark
 @pytest.mark.asyncio
 async def test_hello_world_canonical_flow(tmp_path: Path) -> None:
-    """Hello-world preset: agent reads the example mock channel.
+    """Hello-world preset: agent reads the facility's beam current.
 
     Asserts the agent reached for ``mcp__controls__channel_read``. If the
     preset wiring breaks, this fires within 5 min instead of the nested
@@ -137,7 +137,7 @@ async def test_hello_world_canonical_flow(tmp_path: Path) -> None:
     repo = init_project(tmp_path, "hello_demo", template="hello_world", provider="als-apg")
     judge = LLMJudge(provider="als-apg")
     query = (
-        "Use the controls MCP server to read the channel named 'example' "
+        "Use the controls MCP server to read the channel named 'SR:BEAM:CURRENT' "
         "and report its current value."
     )
     result = await run_sdk_query(repo, query, max_turns=4, max_budget_usd=0.25)
@@ -205,10 +205,13 @@ async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
     enable_writes_in_project(repo)
     await _assert_approval_hook_fires(
         repo,
-        # Directive prompt: explicit tool name so the agent commits to the write
-        # path on its first turn instead of dithering with reads or refusals.
+        # Directive prompt: explicit tool name + a setpoint the hello_world
+        # facility serves, so the agent commits to the write path on its first
+        # turn. The simulator refuses any address outside the facility, and
+        # 1.5 sits inside the channel's limits record, so the limits hook
+        # passes the write on to the approval hook.
         "Use the mcp__controls__channel_write tool to write the value 1.5 "
-        "to the channel 'example'.",
+        "to the channel 'SR:MAG:QF:01:CURRENT:SP'.",
         expected_write_tool="mcp__controls__channel_write",
     )
 

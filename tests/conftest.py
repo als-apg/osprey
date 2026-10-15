@@ -1980,6 +1980,35 @@ def _stub_graph_index_builds(request, monkeypatch, graph_index_cache: GraphIndex
     monkeypatch.setattr(build_cmd, "_build_graph_index", _cached_build_graph_index)
 
 
+# ===================================================================
+# Entry points
+# ===================================================================
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _memoized_entry_points():
+    """Read the installed distributions' entry points once per session, not once per call.
+
+    ``importlib.metadata.entry_points()`` walks every distribution on the path
+    on each call — tens of milliseconds in this environment — and a build of
+    the demo facility looks its simulation engines up a few hundred times, so
+    the suite spent a large share of every build re-reading the same
+    ``entry_points.txt`` files. Nothing a test does installs a distribution, so
+    the answer for one selection is the same for the whole session.
+
+    A test that hands the code a fake registry still does so by patching
+    ``metadata.entry_points`` itself; its patch replaces this one for that test
+    and wraps it when it calls through.
+    """
+    import functools
+    from importlib import metadata
+
+    memoized = functools.cache(metadata.entry_points)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(metadata, "entry_points", memoized)
+        yield
+
+
 @contextmanager
 def dispatcher_route_registry():
     """Build dispatcher servers without inheriting or leaving route registrations.

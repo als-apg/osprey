@@ -37,7 +37,9 @@ from osprey.services.virtual_accelerator.serving.model_surface import ModelSurfa
 from osprey.services.virtual_accelerator.serving.runner_config import (
     HEALTH_KEYS,
     apply_safety,
+    command_addresses,
     periodic_addresses,
+    restorable_state,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -57,7 +59,8 @@ class ModelRunner(Runner):
     no input values reads them all.
     A failed pass rolls the composite back to the state cached before it only
     when ``model.set`` had already succeeded: a refused ``set`` leaves the
-    composite as it was. The model RPC's write verbs reply only after a
+    composite as it was. The cache holds settings only: a command acts once
+    and holds no setting, so it is never cached and never written back. The model RPC's write verbs reply only after a
     publishing pass has run. Every publishing pass's outcome, success or
     failure, is recorded in the surface's health record, which ``status``
     reports and which is rewritten to the health file after every pass when
@@ -99,6 +102,7 @@ class ModelRunner(Runner):
         self._health_file = health_file
         self._model_write_token = model_write_token
         self._periodic = periodic_addresses(view)
+        self._commands = command_addresses(view)
         self._write_pass = False
         self._set_landed = False
         self._pass_started = False
@@ -136,9 +140,9 @@ class ModelRunner(Runner):
         super()._run_cycle(item)
 
     def _set_cached_state(self, state: dict[str, Any]) -> None:
-        """Note that this cycle runs a publishing pass, then cache ``state``."""
+        """Note that this cycle runs a publishing pass, then cache ``state``'s settings."""
         self._pass_started = True
-        super()._set_cached_state(state)
+        super()._set_cached_state(restorable_state(state, self._commands))
 
     def _record_pass(self, error: str | None) -> None:
         """Record a publishing pass's outcome; a cycle that ran no pass records nothing."""

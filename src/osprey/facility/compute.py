@@ -202,7 +202,7 @@ def _compute(run: _Run, validated: Validated) -> list[FacilityBuildError]:
     _agree(run, computed, decks)
     _places(run, positions, spans)
     _nominal_band(run)
-    run.errors.extend(check_scenario_engines(document))
+    run.errors.extend(check_scenario_engines(document, validated.facility_dir))
     run.errors.extend(check_scenario_attachments(document, validated.facility_dir))
     run.errors.extend(check_scenario_events(document))
     if run.errors:

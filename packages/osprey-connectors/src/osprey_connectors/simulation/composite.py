@@ -34,6 +34,12 @@ setpoint the active scenarios hold (``stuck`` or ``disconnected`` in
 ``channel_faults``) accepts a write, reads the value written, and forwards none
 of it; its readback shows the model where it was.
 
+**Commands.** A command is a setpoint the view's bindings mark: its write acts
+once, and writing a child's previous inputs back does not take the act back.
+A batch holding a command together with a channel of another owner, a model or
+the texture, is therefore refused whole before any child is written. A command
+travels with channels of its own model only.
+
 **Channel faults.** A ``frozen`` reading reads the value it served when its
 scenario became active. A ``disconnected`` reading reads not-a-number when it
 is a float, else the value it served when its scenario became active; a
@@ -43,8 +49,23 @@ disconnected reading with the ``udf`` condition. A channel fault acts on live
 reads, writes and severity only; :meth:`Composite.readings` serves history
 without it.
 
+**A child's three states.** A physics child is *ok*, *degraded* or *failed*,
+and its status text is the wire contract that tells them apart: ``ok``, one of
+its engine's listed condition texts, or any other text. :meth:`Composite.built`
+answers whether a model is built, true for ok and degraded alike.
+
+**A degraded child.** An engine plug-in may export ``condition(model)``,
+answering ``None`` or ``(text, names)``. While it answers a text the child is
+built and serving: its status reads the text, capped like a failure text,
+and :meth:`Composite.output_severity` names each channel of ``names`` with the
+``udf`` condition while that channel keeps serving the value its engine gives
+it. The composite keeps none of this: status and severities ask the engine
+when they are read, so they follow every change of the model, whatever made
+it. A ``condition`` that raises fails the child. An engine without the name
+has no degraded child.
+
 **A failed child.** A child whose engine raises while it is built or read is
-failed, with the engine's error text as its status (``ok`` otherwise), capped
+failed, with the engine's error text as its status, capped
 at :data:`STATUS_MAX_BYTES` UTF-8 bytes. It holds the inputs written to it and
 never raises: its setpoints read those inputs, its float outputs NaN, any other
 output its last good value or its type's zero, and
@@ -65,6 +86,9 @@ scenarios.
 ...}`` to ``var/simulator/<model>.log`` under the repo root of the loaded
 config, one ``os.write`` per record of under :data:`LOG_RECORD_MAX_BYTES`
 bytes. Without a loaded config the records go to the process logger only.
+A ``built`` record carries the status the child starts with; a ``condition``
+record follows a write or a reset that left a built child with another status
+than its log last named.
 """
 
 from __future__ import annotations
@@ -73,7 +97,7 @@ import json
 import math
 import os
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
@@ -136,7 +160,8 @@ STATUS_MAX_BYTES = 1023
 #: Every model log record, newline included, is shorter than this many bytes.
 LOG_RECORD_MAX_BYTES = 4096
 
-#: The condition :meth:`Composite.output_severity` names for a failed child's channel.
+#: The condition :meth:`Composite.output_severity` names for a failed child's
+#: channel and for each channel a degraded child's engine lists.
 UDF = "udf"
 
 _ELLIPSIS = "…"
@@ -215,7 +240,11 @@ class WriteRefusedError(ValueError):
 
 @dataclass
 class _Child:
-    """One physics child and what the composite keeps for it."""
+    """One physics child and what the composite keeps for it.
+
+    ``status`` is the failure text of a child with no model. ``logged`` is the
+    status the model log last named, kept for the log alone.
+    """
 
     name: str
     source: Model
@@ -226,6 +255,7 @@ class _Child:
     engine: Any = None
     model: LUMEModel | None = None
     status: str = STATUS_OK
+    logged: str | None = None
     active: dict[str, Any] = field(default_factory=dict)
     inputs: dict[str, Any] = field(default_factory=dict)
     last_good: dict[str, Any] = field(default_factory=dict)
@@ -300,6 +330,12 @@ class Composite(LUMEModel):
             for address, record in self._channels.items()
         }
         self._children: dict[str, _Child] = {name: self._child(models[name]) for name in physics}
+        self._commands: frozenset[str] = frozenset(
+            binding.address
+            for name in physics
+            for binding in models[name].bindings
+            if binding.command and self._owner.get(binding.address) == name
+        )
         self._status: dict[str, str] = {
             address: name for name, address in view.status_addresses().items()
         }
@@ -406,7 +442,11 @@ class Composite(LUMEModel):
             self._fail(child, exc)
             return
         child.status = STATUS_OK
-        self._log(child.name, {"event": "built", "status": STATUS_OK})
+        status = self._child_status(child)
+        if child.model is None:
+            return
+        child.logged = status
+        self._log(child.name, {"event": "built", "status": status})
 
     def _fail(self, child: _Child, exc: BaseException) -> None:
         """Mark a child failed with the text its engine gives for ``exc``."""
@@ -417,6 +457,43 @@ class Composite(LUMEModel):
         child.model = None
         child.status = cap_status(text)
         self._log(child.name, {"event": "failed", "error": text})
+
+    def _condition(self, child: _Child) -> tuple[str, frozenset[str]] | None:
+        """What a built child's engine reports now: its capped text and the names it lists.
+
+        Asked of the engine at every call. ``None`` for a child that is not
+        built, whose engine exports no ``condition``, or whose engine reports
+        none; a ``condition`` that raises fails the child.
+        """
+        condition = getattr(child.engine, "condition", None)
+        if child.model is None or not callable(condition):
+            return None
+        try:
+            answered = condition(child.model)
+            if answered is None:
+                return None
+            text, names = answered
+            return cap_status(str(text)), frozenset(str(name) for name in names)
+        except Exception as exc:
+            self._fail(child, exc)
+            return None
+
+    def _child_status(self, child: _Child) -> str:
+        """A child's status now: ``ok``, its engine's condition text, or its failure text."""
+        condition = self._condition(child)
+        if child.model is None:
+            return child.status
+        return STATUS_OK if condition is None else condition[0]
+
+    def _log_conditions(self) -> None:
+        """Log each built child whose status is not the one its log last named."""
+        for child in self._children.values():
+            if child.model is None:
+                continue
+            status = self._child_status(child)
+            if child.model is not None and status != child.logged:
+                child.logged = status
+                self._log(child.name, {"event": "condition", "status": status})
 
     # -- the active scenarios ------------------------------------------------
 
@@ -636,7 +713,7 @@ class Composite(LUMEModel):
         physics: dict[str, list[str]] = {}
         for name in names:
             if name in self._status:
-                statuses[name] = self._children[self._status[name]].status
+                statuses[name] = self._child_status(self._children[self._status[name]])
             elif self._owner[name] == TEXTURE_OWNER:
                 texture.append(name)
             else:
@@ -750,7 +827,10 @@ class Composite(LUMEModel):
         if child.model is None:
             return None
         try:
-            read = {name: _plain(value) for name, value in child.model.get(names).items()}
+            read = {
+                name: self._as_declared(name, _plain(value))
+                for name, value in child.model.get(names).items()
+            }
         except Exception as exc:
             self._fail(child, exc)
             return None
@@ -758,6 +838,19 @@ class Composite(LUMEModel):
             {name: value for name, value in read.items() if not isinstance(value, float)}
         )
         return read
+
+    def _as_declared(self, name: str, value: Any) -> Any:
+        """A child's plain read of an ``int`` channel as an int; any other value unchanged.
+
+        An engine computes in floats, so a count or a flag comes back as an
+        integral float; the channel serves it as the int its record declares.
+
+        Raises:
+            ValueError: an ``int`` channel read a value that is not integral.
+        """
+        if isinstance(value, float) and channel_value_type(self._channels[name]) == "int":
+            return values.coerce(value, "int")
+        return value
 
     def _failed_values(self, child: _Child, names: Sequence[str]) -> dict[str, Any]:
         """What a failed child's channels read: inputs, NaN, or the last good value."""
@@ -781,7 +874,8 @@ class Composite(LUMEModel):
         """The channels a read of ``address`` reads with it, ``address`` among them.
 
         A monitor plane of a physics child is read with its partner planes;
-        any other channel alone.
+        any other channel alone, a turn series on a monitor's element among
+        them.
 
         Raises:
             ValueError: ``address`` is not a channel of the view.
@@ -877,7 +971,7 @@ class Composite(LUMEModel):
         return {name: outputs[name] for name in wanted}
 
     def output_severity(self, names: Sequence[str]) -> dict[str, dict[str, str]]:
-        """The condition of each named channel whose child failed or whose fault reports one.
+        """The condition of each named channel that reports one.
 
         Args:
             names: Channel or status addresses.
@@ -885,20 +979,32 @@ class Composite(LUMEModel):
         Returns:
             ``{name: {"condition": "udf"}}`` for each name a failed child
             owns, else ``{name: {"condition": <condition>}}`` for each name
-            whose channel fault reports one; any other name is absent.
+            whose channel fault reports one, else ``{name: {"condition":
+            "udf"}}`` for each name its child's engine lists under the
+            condition it reports now; any other name is absent.
         """
         self._refresh()
         severities: dict[str, dict[str, str]] = {}
+        listed: dict[str, frozenset[str]] = {}
         for name in names:
             child = self._children.get(self._owner.get(name, TEXTURE_OWNER))
+            if child is not None and child.name not in listed:
+                condition = self._condition(child)
+                listed[child.name] = frozenset() if condition is None else condition[1]
             if child is not None and child.model is None:
                 severities[name] = {"condition": UDF}
             elif name in self._fault_severity:
                 severities[name] = {"condition": self._fault_severity[name]}
+            elif child is not None and name in listed[child.name]:
+                severities[name] = {"condition": UDF}
         return severities
 
     def status(self, model: str) -> str:
-        """A served physics model's status: ``ok`` or its engine's capped error text.
+        """A served physics model's status, each text capped.
+
+        Returns:
+            ``ok``; the condition text the model's engine reports now; or,
+            for a failed model, its engine's error text.
 
         Raises:
             ValueError: ``model`` is not a served physics model; the message
@@ -907,7 +1013,24 @@ class Composite(LUMEModel):
         if model not in self._children:
             raise ValueError(f"model {model!r} is not served; served: {self.models}")
         self._refresh()
-        return self._children[model].status
+        return self._child_status(self._children[model])
+
+    def built(self, model: str) -> bool:
+        """Whether a served physics model is built: serving, under a condition or not.
+
+        Returns:
+            ``False`` for a failed model; ``True`` otherwise.
+
+        Raises:
+            ValueError: ``model`` is not a served physics model; the message
+                names the served ones.
+        """
+        if model not in self._children:
+            raise ValueError(f"model {model!r} is not served; served: {self.models}")
+        self._refresh()
+        child = self._children[model]
+        self._condition(child)
+        return child.model is not None
 
     def set(self, values_by_name: dict[str, Any]) -> None:
         """Write channels: physics children first, in name order, the texture last.
@@ -918,9 +1041,11 @@ class Composite(LUMEModel):
 
         Raises:
             WriteRefusedError: (a ``ValueError``) A name is not a channel of the
-                view, a value is refused for its channel, or a child refuses the
-                write; every earlier child has its previous inputs back.
-                ``address`` names the channel when one channel was refused.
+                view, a value is refused for its channel, the batch holds a
+                command together with a channel of another owner, or a child
+                refuses the write; every earlier child has its previous inputs
+                back. ``address`` names the channel when one channel was
+                refused.
             ReadOnlyError: A name is not a settable channel.
         """
         self._refresh()
@@ -946,7 +1071,31 @@ class Composite(LUMEModel):
                 variable.validate_value(_for_variable(variable, coerced[name]))
             except ValueError as exc:
                 raise WriteRefusedError(str(exc), address=name) from exc
-        self._set(coerced)
+        self._keep_commands_with_their_model(coerced)
+        try:
+            self._set(coerced)
+        finally:
+            self._log_conditions()
+
+    def _keep_commands_with_their_model(self, names: Iterable[str]) -> None:
+        """Refuse a batch holding a command together with a channel of another owner.
+
+        Raises:
+            WriteRefusedError: Naming the first such command and the first
+                channel of another owner, in address order.
+        """
+        batch = sorted(names)
+        command = next((name for name in batch if name in self._commands), None)
+        if command is None:
+            return
+        owner = self._owner[command]
+        other = next((name for name in batch if self._owner[name] != owner), None)
+        if other is None:
+            return
+        raise WriteRefusedError(
+            "a command is written with channels of its own model only: "
+            f"{command} is a command of {owner}, {other} a channel of {self._owner[other]}"
+        )
 
     def _set(self, values_by_name: dict[str, Any]) -> None:
         batches: dict[str, dict[str, Any]] = {}
@@ -1034,6 +1183,7 @@ class Composite(LUMEModel):
             child.inputs = self._start_inputs(child)
         self._texture.reset()
         self._texture_demands = {}
+        self._log_conditions()
 
     # -- the children's own variables ----------------------------------------
 
@@ -1103,9 +1253,12 @@ class Composite(LUMEModel):
         for name, value in values_by_name.items():
             child, variable = self._model_variable(name)
             batches.setdefault(child.name, (child, {}))[1][variable] = value
-        for child, batch in batches.values():
-            assert child.model is not None
-            child.model.set(batch)
+        try:
+            for child, batch in batches.values():
+                assert child.model is not None
+                child.model.set(batch)
+        finally:
+            self._log_conditions()
 
     # -- the model log -------------------------------------------------------
 

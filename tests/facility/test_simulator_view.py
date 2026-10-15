@@ -56,6 +56,8 @@ PYAML = (
     "data/pyaml/SR/configuration.yaml",
     "data/pyaml/SR/crm.json",
     "data/pyaml/SR/lattice.json",
+    "data/pyaml/SR/trajectory_rm.index.json",
+    "data/pyaml/SR/trajectory_rm.json",
     "data/pyaml/SR/trm.json",
 )
 
@@ -310,7 +312,20 @@ def test_the_demo_wiring_is_simulator_wiring_serialised(
         "name": "SR",
         "engine": "pyat",
         "served": True,
-        "settings": {"pyat": {"solve": "periodic"}},
+        "settings": {
+            "pyat": {
+                "solve": "periodic",
+                "injection": {
+                    "marker": "INJ",
+                    "x": 0.0,
+                    "px": 0.0,
+                    "y": 0.0,
+                    "py": 0.0,
+                    "delta": 0.0,
+                    "ct": 0.0,
+                },
+            }
+        },
         "deck": "decks/SR.json",
         "wiring": None,
     }
@@ -336,7 +351,7 @@ def test_every_wiring_entry_carries_the_engines_description(
         }
         assert "kind" not in entry
         roles.add(entry["role"])
-    assert roles == {"setpoint", "readback", "monitor", "output"}
+    assert roles == {"setpoint", "readback", "monitor", "output", "turn_series"}
     facility_sr = next(m for m in built_control_assistant.facility["models"] if m["name"] == "SR")
     assert not set(DESCRIPTION_KEYS) & set(facility_sr["wiring"][0])
 
@@ -597,12 +612,19 @@ def test_each_attached_file_is_a_byte_copy_beside_the_scenarios(
         )
 
 
-def test_a_rebuild_drops_the_copy_of_a_file_no_entry_attaches_any_more(tmp_path: Path) -> None:
-    from tests._builds import init_project, run_build
+def test_a_rebuild_drops_the_copy_of_a_file_no_entry_attaches_any_more(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    from tests._builds import run_build
 
-    repo = init_project(tmp_path, "control-assistant", "demo")
+    # The shared build is the first build of this same preset and name; the
+    # built repo holds no absolute path and no symlink, so a byte copy of it,
+    # build directory included, is that first build, and the rebuild mutates
+    # the copy alone.
+    source = built_control_assistant.repo
+    repo = tmp_path / source.name
+    shutil.copytree(source, repo, symlinks=True)
     copy_of = repo / BUILD_DIR_NAME / "data/simulator/scenarios/nominal/plots/orbit_rms.json"
-    assert run_build(repo).exit_code == 0
     assert copy_of.is_file()
     nominal = repo / "data" / "facility" / "scenarios" / "nominal.yaml"
     authored = yaml.safe_load(nominal.read_text(encoding="utf-8"))
