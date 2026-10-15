@@ -313,8 +313,9 @@ def measurement_groups(doc: Mapping[str, Any], model: str) -> dict[str, list[str
     ``bpm`` is the readbacks the model wires as monitors, in both planes;
     ``hcor`` the setpoints the model wires whose plane its engine describes as
     ``x``, ``vcor`` those it describes as ``y``; ``quad`` and ``sext`` every
-    setpoint the model wires. Each is taken over the channels on a member device
-    of the role's group and the channels naming one as an endpoint, visiting the
+    setpoint the model wires. Each is taken over the member devices of every
+    group the role names: the channels on a member device and the channels
+    naming one as an endpoint, visiting the
     devices in ``(s, id)`` order, an address listed once at its first device and
     the addresses within a device sorted. A combined corrector, one device
     steered in both planes, keeps each setpoint in the role of its own plane, so
@@ -331,6 +332,7 @@ def measurement_groups(doc: Mapping[str, Any], model: str) -> dict[str, list[str
     Raises:
         KeyError: The facility file has no model ``model``.
     """
+    from osprey.facility.sources import group_families
     from osprey.facility.views.simulator import simulator_wiring
 
     record = _model_record(doc, model)
@@ -340,12 +342,15 @@ def measurement_groups(doc: Mapping[str, Any], model: str) -> dict[str, list[str
     on_device = _channels_of(doc)
     found: dict[str, list[str]] = {}
     for role in GROUP_ROLES:
-        group_id = groups_named.get(role)
-        if group_id is None:
+        if groups_named.get(role) is None:
             continue
         wanted = "monitor" if role == "bpm" else "setpoint"
         plane = ROLE_PLANES.get(role)
-        members = (groups.get(str(group_id)) or {}).get("members") or []
+        members = [
+            member
+            for group_id in group_families(groups_named.get(role))
+            for member in (groups.get(group_id) or {}).get("members") or []
+        ]
         addresses: dict[str, None] = {}
         for device in _device_order(doc, members):
             for address in sorted(set(on_device.get(device, ()))):

@@ -48,6 +48,7 @@ __all__ = [
     "LoadResult",
     "SourceRecord",
     "Sources",
+    "group_families",
     "load_sources",
     "slot_names",
 ]
@@ -148,6 +149,15 @@ def read_yaml(text: str) -> Any:
         The parsed document; ``None`` for an empty file.
     """
     return yaml.load(text, Loader=_Loader)
+
+
+def group_families(value: Any) -> tuple[str, ...]:
+    """The group ids a measurement-file group role names: each item of a list, else the value itself."""
+    if value is None:
+        return ()
+    if isinstance(value, list):
+        return tuple(str(item) for item in value)
+    return (str(value),)
 
 
 @cache

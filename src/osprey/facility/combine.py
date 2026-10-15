@@ -58,6 +58,7 @@ from osprey.facility.sources import (
     RECORD_FILES,
     SET_VALUED_SLOTS,
     Sources,
+    group_families,
 )
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, DEFAULT_VALUE_TYPE
 
@@ -638,7 +639,7 @@ class _Combiner:
             for model, measurement in sorted(self.sources.measurement.items()):
                 groups = measurement.get("groups")
                 if ("model", model) in self.records and isinstance(groups, dict):
-                    if rid in groups.values():
+                    if any(rid in group_families(value) for value in groups.values()):
                         yield f"measurement/{model}.yaml (groups)"
 
     def _on_referrers(self, kind: str, rid: str) -> Iterator[str]:

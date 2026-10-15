@@ -48,7 +48,7 @@ from osprey.facility.errors import (
     quoted_slots,
 )
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
-from osprey.facility.sources import Sources, load_sources
+from osprey.facility.sources import Sources, group_families, load_sources
 from osprey_connectors.simulation import STILL_ALL
 
 __all__ = [
@@ -899,10 +899,11 @@ class _References:
                 yield from self._missing("measurement", model, files, "file name", "model", model)
                 continue
             groups = measurement.get("groups")
-            for role, group in sorted((groups if isinstance(groups, dict) else {}).items()):
-                yield from self._missing(
-                    "measurement", model, files, f"groups.{role}", "group", group
-                )
+            for role, value in sorted((groups if isinstance(groups, dict) else {}).items()):
+                for group in group_families(value):
+                    yield from self._missing(
+                        "measurement", model, files, f"groups.{role}", "group", group
+                    )
             instruments = measurement.get("instruments")
             for role, address in sorted(
                 (instruments if isinstance(instruments, dict) else {}).items()
@@ -1878,8 +1879,8 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
     """Hold each measurement file to the kinds it allows (the stage after compute).
 
     Runs once every wiring slot is filled, so a group or instrument is judged
-    by the setpoints and readbacks its model actually wires. One group stands
-    for one group role, or for ``hcor`` and ``vcor`` together. For each kind the
+    by the setpoints and readbacks its model actually wires. A group plays one
+    group role; only ``hcor`` and ``vcor`` may name the same group. For each kind the
     file allows, every group and instrument the kind needs
     (:data:`osprey.facility.views.pyaml.KIND_MEMBERS`) must be named by the file
     and wired by the model, a ``single_pass`` model allows ``orm`` alone, and
@@ -1896,6 +1897,14 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
     """
     document: dict[str, Any] = need(validated.document)
     return list(_measurement_stops(document))
+
+
+def _groups_text(value: Any) -> str:
+    """``group X`` for a role naming one group, ``groups X, Y`` for several."""
+    families = group_families(value)
+    if len(families) == 1:
+        return f"group {families[0]}"
+    return f"groups {', '.join(families)}"
 
 
 def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]:
@@ -1920,7 +1929,10 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
         for first, second in itertools.combinations(
             [role for role in GROUP_ROLES if role in groups_named], 2
         ):
-            if groups_named[first] != groups_named[second] or {first, second} == set(ROLE_PLANES):
+            shared = sorted(
+                set(group_families(groups_named[first])) & set(group_families(groups_named[second]))
+            )
+            if not shared or {first, second} == set(ROLE_PLANES):
                 continue
             yield FacilityBuildError(
                 "value-invalid",
@@ -1930,9 +1942,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                 f"only {' and '.join(f'`groups.{role}`' for role in ROLE_PLANES)} may name "
                 "one group",
                 record_kind="measurement",
-                detail=(
-                    f"`groups.{first}` and `groups.{second}` both name group {groups_named[first]}"
-                ),
+                detail=(f"`groups.{first}` and `groups.{second}` both name group {shared[0]}"),
             )
         grouped = measurement_groups(document, name)
         for kind in measurement.get("kinds") or []:
@@ -1965,7 +1975,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                     )
                     yield _measurement_missing(
                         name,
-                        f"kind {kind} needs `{slot}`; group {named} holds no {wiring} "
+                        f"kind {kind} needs `{slot}`; {_groups_text(named)} holds no {wiring} "
                         f"model {name} wires",
                         f"name a group holding a {wiring} model {name} wires as `{slot}`",
                     )

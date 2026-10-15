@@ -129,6 +129,28 @@ def test_a_setpoint_shared_by_two_members_is_listed_once(tmp_path: Path) -> None
     assert measurement_groups(document, "SR")["quad"] == ["Q:FAMILY:SP", "QD:SP", "QF:SP"]
 
 
+def _with_family_groups(tree: dict[str, Any]) -> dict[str, Any]:
+    """``tree`` with one group per SR quadrupole family, ``SR/QF`` and ``SR/QD``."""
+    tree["records/groups.yaml"] += [
+        {"id": "SR/QF", "members": ["SR/QF"]},
+        {"id": "SR/QD", "members": ["SR/QD"]},
+    ]
+    return tree
+
+
+def test_a_role_naming_several_groups_stands_for_all_their_members(tmp_path: Path) -> None:
+    """The members are visited in ``(s, id)`` order whatever the list order, each once."""
+    document, _ = built_document(tmp_path, _with_family_groups(measured_tree()))
+    _model(document, "SR")["measurement"]["groups"]["quad"] = ["SR/QF", "SR/QD", "SR/Q"]
+    together = measurement_groups(document, "SR")["quad"]
+    _model(document, "SR")["measurement"]["groups"]["quad"] = ["SR/Q"]
+    assert together == measurement_groups(document, "SR")["quad"]
+    assert sorted(together) == sorted(
+        _setpoints_on(document, "SR", "SR/QF") | _setpoints_on(document, "SR", "SR/QD")
+    )
+    assert len(together) == len(set(together))
+
+
 @pytest.mark.slow
 def test_the_nsls2_storage_correctors_are_180_per_plane_and_disjoint(
     mml_built: Callable[[str, str], BuiltModel],
