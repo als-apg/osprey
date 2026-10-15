@@ -221,6 +221,17 @@ class TestEnvelopeRendering:
             "Do NOT attempt to work around the refusal.",
         ]
 
+    @pytest.mark.asyncio
+    async def test_unknown_reason_envelope_names_no_refuser(self):
+        envelope = await _render(ChannelWriteBlockedError(CHANNEL, "SOMETHING_ELSE"))
+
+        assert envelope["error_type"] == "write_refused"
+        assert envelope["error_message"] == (
+            f"Write refused during channel_write: Write to '{CHANNEL}' refused (SOMETHING_ELSE)"
+        )
+        assert envelope["suggestions"] == ["Do NOT attempt to work around the refusal."]
+        assert envelope["details"] == {"channel": CHANNEL, "reason": "SOMETHING_ELSE"}
+
 
 def _write_result_stub(channel, reason):
     """A minimal connector result the channel_write tool serialises unchanged."""
@@ -331,3 +342,12 @@ class TestAllBlockedBatchAttribution:
             "All 2 write(s) refused — by the reference monitor: PV:B; "
             "PV:A is not a channel of this facility" in envelope["error_message"]
         )
+
+    @pytest.mark.asyncio
+    async def test_a_refusal_without_a_reason_names_no_refuser(self, tmp_path, monkeypatch):
+        envelope = await _run_all_blocked_batch(tmp_path, monkeypatch, None)
+
+        assert envelope["error_type"] == "write_refused"
+        assert envelope["details"]["reason"] is None
+        assert "All 2 write(s) refused — refused: PV:A, PV:B" in envelope["error_message"]
+        assert "reference monitor" not in envelope["error_message"]

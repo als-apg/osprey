@@ -271,17 +271,17 @@ async def connector_error_handler(
     except ChannelWriteBlockedError as exc:
         if exc.reason == ChannelNotFoundError.reason:
             _not_a_channel(tool_name, exc.channel_address, connector_name)
-        # Both branches describe a write that put no value on the channel, but
-        # they must not name the same refuser. A control-system denial reaches
-        # here only after OSPREY sent the write and the control system said no;
+        # Every refusal put no value on the channel, but who refused decides
+        # where the operator goes next. A control-system denial reaches here
+        # only after OSPREY sent the write and the control system said no;
         # telling the operator it "was never sent" would point them at OSPREY's
         # own policy settings for something only the control system can grant.
+        # A reason that names no refuser is reported without one.
         identity = describe_active_target() if connector_name == "control_system" else None
+        refuser = ChannelWriteBlockedError.refuser(exc.reason)
+        where = ""
         if exc.reason == "CONTROL_SYSTEM_REFUSED":
-            message = (
-                f"Write refused by the control system during {tool_name}"
-                f"{_target_clause(identity)}: {exc}"
-            )
+            where = _target_clause(identity)
             suggestions = [
                 "The control system itself denied this write (access security); "
                 "no value was written.",
@@ -289,12 +289,15 @@ async def connector_error_handler(
                 "Report it to the operator: write access for this channel is granted "
                 "by the control system, not by OSPREY.",
             ]
+        elif refuser is None:
+            suggestions = ["Do NOT attempt to work around the refusal."]
         else:
-            message = f"Write refused by the reference monitor during {tool_name}: {exc}"
             suggestions = [
                 "This write was refused on policy grounds; it was never sent to the control system.",
                 "Do NOT attempt to work around the refusal.",
             ]
+        by_refuser = f" by {refuser}" if refuser else ""
+        message = f"Write refused{by_refuser} during {tool_name}{where}: {exc}"
         refusal_details: dict = {"channel": exc.channel_address, "reason": exc.reason}
         if identity:
             refusal_details["active_target"] = identity
