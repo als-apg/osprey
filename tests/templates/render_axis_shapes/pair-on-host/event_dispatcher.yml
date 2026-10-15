@@ -73,3 +73,4 @@ services:
       # Grace period before failed probes count — the first run also provisions
       # Claude artifacts and injects provider env, which takes a few seconds.
       start_period: 30s
+

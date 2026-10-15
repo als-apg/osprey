@@ -2153,7 +2153,8 @@ def render_template(template_path, config, out_dir):
     .. seealso::
        :func:`setup_build_dir` : Uses this function for service template processing
     """
-    env = Environment(loader=FileSystemLoader("."))
+    # A rendered file is POSIX text: it keeps the newline its template ends with.
+    env = Environment(loader=FileSystemLoader("."), keep_trailing_newline=True)
     template = env.get_template(template_path)
 
     # Inject project metadata for container labels

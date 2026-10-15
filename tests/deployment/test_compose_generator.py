@@ -1292,7 +1292,7 @@ def test_worker_without_the_axis_joins_the_compose_network() -> None:
     rendered = _render_worker_template(env_present=True)
 
     assert "\n    networks:\n      - osprey-network\n" in rendered
-    assert rendered.endswith("\nnetworks:\n  osprey-network:")
+    assert rendered.endswith("\nnetworks:\n  osprey-network:\n")
     assert "network_mode" not in rendered
     assert "DISPATCH_WORKER_BIND" not in rendered, (
         "on the compose bridge the worker must keep the code default (0.0.0.0), "
@@ -3074,8 +3074,9 @@ def _packaged_compose_template(rel_path: str):
     ``jinja2.Template`` has no loader, so that import raises ``TemplateNotFound``;
     every test render therefore goes through an Environment rooted at the
     packaged ``templates/`` directory instead. Nothing else changes: the default
-    Undefined mode is production's, so ``| default(...)`` chains behave exactly
-    as they do under ``osprey up``, and the lookup stays CWD-independent.
+    Undefined mode and the kept trailing newline are production's, so
+    ``| default(...)`` chains behave exactly as they do under ``osprey up``, and
+    the lookup stays CWD-independent.
     """
     return _packaged_templates_environment().get_template(rel_path)
 
@@ -3093,7 +3094,9 @@ def _packaged_templates_environment():
     from jinja2 import Environment, FileSystemLoader
 
     templates_root = resources.files("osprey").joinpath("templates")
-    return Environment(loader=FileSystemLoader(str(templates_root)), autoescape=False)
+    return Environment(
+        loader=FileSystemLoader(str(templates_root)), autoescape=False, keep_trailing_newline=True
+    )
 
 
 def _render_service_template(rel_path: str, project_name: str, **overrides: object) -> str:
@@ -6725,7 +6728,7 @@ def test_bridge_without_the_axis_renders_todays_network_blocks(
     # The file-level stanza still closes the file, still one blank line after
     # the volumes block, which ends at the bare volume name: a volume carries
     # no path-derived label.
-    assert rendered.endswith("_data:\n\nnetworks:\n  osprey-network:"), (
+    assert rendered.endswith("_data:\n\nnetworks:\n  osprey-network:\n"), (
         f"unexpected file tail: {rendered[-80:]!r}"
     )
 
@@ -7168,7 +7171,7 @@ def test_dispatcher_without_the_axis_renders_todays_network_blocks() -> None:
     assert "/config.yml:ro\n    networks:\n      - osprey-network\n    healthcheck:\n" in rendered
     # The file-level stanza still closes the file, still one blank line after
     # the healthcheck.
-    assert rendered.endswith("      start_period: 30s\n\nnetworks:\n  osprey-network:"), (
+    assert rendered.endswith("      start_period: 30s\n\nnetworks:\n  osprey-network:\n"), (
         f"unexpected file tail: {rendered[-80:]!r}"
     )
 
