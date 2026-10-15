@@ -981,6 +981,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    modulo the deck's length, and both ``osprey build`` and this command print
    one ``facility: place-wrapped: device <id> — …; fix: …`` warning per device
    on stderr; the exit code is unchanged.
+   A knowledge page under ``data/facility/knowledge`` whose ``device_id`` is no
+   device id of the facility file prints one
+   ``facility: link-dangling: page <path> — …; fix: …`` warning, in
+   ``osprey build`` and in this command; the exit code is unchanged.
    The check converts a monitor reading to position with one slope, taken at
    the centred beam; that is exact for a straight-line (gain and offset)
    calibration, and a table-calibrated monitor is left out of the check and
