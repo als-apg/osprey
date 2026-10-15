@@ -321,6 +321,37 @@ def test_one_group_named_by_two_roles_other_than_the_corrector_planes_stops(
     )
 
 
+def test_a_group_named_by_one_role_and_inside_another_roles_list_stops(tmp_path: Path) -> None:
+    tree = with_rf(_with_sextupole_group(_with_family_groups(measured_tree())))
+    tree["measurement/SR.yaml"]["groups"]["sext"] = ["SR/S", "SR/Q"]
+    stop = _stop(tmp_path, tree)
+    assert (stop.kind, stop.record_id) == ("value-invalid", "SR")
+    assert stop.detail == "`groups.quad` and `groups.sext` both name group SR/Q"
+
+
+def test_a_role_naming_one_group_builds_to_a_list_of_one(tmp_path: Path) -> None:
+    document, _ = built_document(tmp_path, measured_tree())
+    assert _model(document, "SR")["measurement"]["groups"] == {
+        "bpm": ["SR/BPM"],
+        "quad": ["SR/Q"],
+    }
+
+
+def test_a_role_naming_several_groups_builds_to_them_sorted(tmp_path: Path) -> None:
+    tree = _with_family_groups(measured_tree())
+    tree["measurement/SR.yaml"]["groups"]["quad"] = ["SR/QF", "SR/QD"]
+    document, _ = built_document(tmp_path, tree)
+    assert _model(document, "SR")["measurement"]["groups"]["quad"] == ["SR/QD", "SR/QF"]
+
+
+def test_a_role_naming_neither_text_nor_a_list_of_text_stops(tmp_path: Path) -> None:
+    tree = measured_tree()
+    tree["measurement/SR.yaml"]["groups"]["quad"] = 5
+    stop = _stop(tmp_path, tree)
+    assert stop.kind == "source-invalid"
+    assert stop.record_id.endswith("measurement.groups.quad")
+
+
 def test_one_group_named_for_both_corrector_planes_builds_split_by_plane(
     tmp_path: Path,
 ) -> None:
@@ -328,7 +359,7 @@ def test_one_group_named_for_both_corrector_planes_builds_split_by_plane(
     tree = measured_tree()
     tree["measurement/LINE.yaml"]["groups"]["vcor"] = "LINE/HCM"
     document, _ = built_document(tmp_path, tree)
-    assert _model(document, "LINE")["measurement"]["groups"]["vcor"] == "LINE/HCM"
+    assert _model(document, "LINE")["measurement"]["groups"]["vcor"] == ["LINE/HCM"]
     groups = measurement_groups(document, "LINE")
     assert groups["hcor"] == ["LCOR:H:SP"]
     assert groups["vcor"] == ["LCOR:V:SP"]

@@ -1471,15 +1471,15 @@ class Measurement(ConfiguredBaseModel):
 
 class MeasurementGroups(ConfiguredBaseModel):
     """
-    Group ids.
+    Group ids; a role naming several groups takes their members together.
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    bpm: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
-    hcor: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
-    vcor: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
-    quad: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
-    sext: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
+    bpm: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
+    hcor: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
+    vcor: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
+    quad: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
+    sext: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
 
 
 class MeasurementInstruments(ConfiguredBaseModel):

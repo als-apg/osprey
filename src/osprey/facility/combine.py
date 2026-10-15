@@ -197,11 +197,21 @@ def _show(value: Any) -> str:
     return text.strip().removesuffix("...").strip()
 
 
+def _group_list(value: Any) -> Any:
+    """A group role's ids as a sorted list; a value neither text nor a list stays for S3."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return sorted(value, key=str)
+    return value
+
+
 def _normalize(kind: str, name: str, value: Any) -> tuple[Any, frozenset[int]]:
     """A value in the form it is compared and emitted in.
 
-    Set-valued lists are sorted by string form, a measurement's ``kinds`` too,
-    and each slice without a ``weight`` gets the constant default.
+    Set-valued lists are sorted by string form, a measurement's ``kinds`` and
+    each of its group roles too (a role naming one group becomes a list of
+    one), and each slice without a ``weight`` gets the constant default.
 
     Returns:
         The value and the positions of the slices whose weight was filled.
@@ -213,6 +223,9 @@ def _normalize(kind: str, name: str, value: Any) -> tuple[Any, frozenset[int]]:
         kinds = value.get("kinds")
         if isinstance(kinds, list):
             value["kinds"] = sorted(kinds, key=str)
+        groups = value.get("groups")
+        if isinstance(groups, dict):
+            value["groups"] = {role: _group_list(named) for role, named in groups.items()}
         return value, frozenset()
     if kind == "wiring" and name == "slices" and isinstance(value, list):
         filled = set()

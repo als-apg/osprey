@@ -599,13 +599,18 @@ classes:
         range: float
 
   MeasurementGroups:
-    description: Group ids.
+    description: Group ids; a role naming several groups takes their members together.
     attributes:
       bpm:
+        multivalued: true
       hcor:
+        multivalued: true
       vcor:
+        multivalued: true
       quad:
+        multivalued: true
       sext:
+        multivalued: true
 
   MeasurementInstruments:
     description: Channel addresses.

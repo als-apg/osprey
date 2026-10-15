@@ -149,7 +149,7 @@ def _two_channel_scenario_measurement() -> dict[str, Any]:
             "deck": "decks/optics/lattice.m",
             "measurement": {
                 "kinds": ["orm"],
-                "groups": {"bpm": "BPM", "hcor": "HCM", "vcor": "VCM"},
+                "groups": {"bpm": ["BPM"], "hcor": ["HCM"], "vcor": ["VCM"]},
                 "instruments": {"tune": "DEMO:ONE"},
                 "n_step": 2,
                 "corrector_delta": 0.001,
