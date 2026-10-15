@@ -26,10 +26,10 @@ logger = logging.getLogger("osprey.cli.templates")
 # resolves to at build time. Bump deliberately, alongside the dispatch-worker
 # pin.
 #
-# The value is npm's `stable` dist-tag for @anthropic-ai/claude-code, never
-# `latest` or `next`; read the channel with
-# `npm view @anthropic-ai/claude-code dist-tags`.
-_DEFAULT_CLAUDE_CLI_VERSION = "2.1.294"
+# The value is one exact build of @anthropic-ai/claude-code, the same one on
+# every host and in every image; it is never read from an npm dist-tag, which
+# moves under it.
+_DEFAULT_CLAUDE_CLI_VERSION = "2.1.300"
 
 CONFIG_TEMPLATE = "config.yml.j2"
 """The project-file template that renders ``config.yml``."""

@@ -8,7 +8,7 @@ starts, with one message naming the version asked for, what was found, and the
 two ways out: `npm install -g @anthropic-ai/claude-code@<version>`, or change
 `claude_code.cli_version`. A dispatch worker in that state refuses to start
 rather than accept jobs it would refuse. **`claude_code.cli_version` must now
-be one exact version** such as `2.1.294`: a range, a tag (`latest`, `stable`),
+be one exact version** such as `2.1.300`: a range, a tag (`latest`, `stable`),
 an alias, a URL, a git address, a file or a path is refused, and surrounding
 whitespace is no longer trimmed. The same check applies to the terminal, to
 headless runs, to the health check and to the image builds. Sessions on newer
