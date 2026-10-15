@@ -1,0 +1,1 @@
+An address the in-process simulator or the mock archiver does not serve is reported as `<address> is not a channel of this facility` (error type `not_found`; write refusal reason `CHANNEL_NOT_FOUND`) instead of an internal error or a control-system access refusal, also when the simulator runs in a connector-host child.
