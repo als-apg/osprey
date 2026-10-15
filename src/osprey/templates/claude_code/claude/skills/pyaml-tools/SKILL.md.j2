@@ -71,6 +71,7 @@ configuration the build wrote; nothing else in the deployment edits it.
 - `mcp__python__model_response_matrix(model, correctors)` solves a served model's orbit response on the model's own deck. It writes nothing and asks for no approval.
 - Each corrector steps by the measurement file's `corrector_delta`, converted to the corrector's hardware unit; each entry is a readback change in its hardware unit per setpoint change in its own.
 - `rows` and `columns` name each monitor readback and each corrector by address and device id.
+- A corrector with no solve has no column; `unsolved` names it with the engine's text. Name those correctors and the text to the operator; never read a missing column as zero response.
 - A solve longer than the executor's timeout is stopped and refused; name fewer correctors.
 
 ---

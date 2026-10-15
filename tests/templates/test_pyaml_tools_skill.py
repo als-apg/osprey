@@ -130,3 +130,10 @@ def test_the_control_room_preset_installs_the_skill_and_sandboxless_personas_dro
     for persona in ("control-assistant-knowledge", "control-assistant-logbook"):
         preset = yaml.safe_load((PRESETS / f"{persona}.yml").read_text(encoding="utf-8"))
         assert "pyaml-tools" in preset["exclude"]["skills"], persona
+
+
+def test_the_model_section_names_what_has_no_solve(rendered: str):
+    section = rendered.split("## Read the model through `model_response_matrix`", 1)[1]
+    section = _flat(section.split("\n---\n", 1)[0])
+    assert "`unsolved`" in section
+    assert "never read a missing column as zero response" in section
