@@ -1325,6 +1325,15 @@ class _SharedRenderInputs(NamedTuple):
     for a single render, which names each view it omits.
     """
 
+    views_built_databases: dict[str, Path] | None = None
+    """View databases this build has already written, by the sha256 of their source.
+
+    Every render pass of a build writes the same view bytes from the same
+    facility file, so a database derived from them is one artifact of the build
+    rather than one per render: the first pass imports it and later passes copy
+    it. ``None`` for a single render, which imports each one it writes.
+    """
+
     runtime_interpreter: str | None = None
     """The interpreter this render's artifacts launch with, when it is KNOWN
     rather than derivable.
@@ -2216,6 +2225,7 @@ def _render_project(
             rendered,
             data_root / "facility",
             omitted_reported=shared.views_omitted_reported,
+            built_databases=shared.views_built_databases,
         )
         progress("  ✓ Wrote the facility file and its views")
         _warn_knowledge_links(
@@ -3350,6 +3360,7 @@ def _build_repo(
             model_facts_reported=set(),
             knowledge_links_reported=set(),
             views_omitted_reported=set(),
+            views_built_databases={},
             facility=facility,
             facility_sha256=facility_sha256,
             profile_overlays=profile_overlays,

@@ -51,6 +51,10 @@ class ViewInputs:
             them.
         reported: The notes this build has already printed; ``None`` prints
             every note.
+        built_databases: The databases this build has already written, keyed
+            by the sha256 of the view bytes each was imported from; a render
+            whose view has the same bytes copies the database instead of
+            importing it again. ``None`` imports every one.
     """
 
     doc: FacilityDocument
@@ -58,6 +62,7 @@ class ViewInputs:
     facility_dir: Path
     served: list[str]
     reported: set[str] | None = None
+    built_databases: dict[str, Path] | None = None
 
 
 @dataclass(frozen=True)
