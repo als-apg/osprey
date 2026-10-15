@@ -695,6 +695,8 @@ class JupyterSidecar:
                 raise RuntimeError(f"{_NAME} was stopped before it was ready")
             status = process.poll()
             if status is not None:
+                if self._tail is not None:
+                    self._tail.join(timeout=1)
                 raise RuntimeError(
                     f"{_NAME} exited with status {status} before it was ready\n{self.stderr_tail}"
                 )
