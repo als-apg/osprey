@@ -69,6 +69,7 @@ from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
 from osprey.utils.config import get_facility_timezone
 from osprey.utils.http_proxy import HOP_BY_HOP
 from osprey.utils.identity import acting_identity
+from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
 from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
 
 logger = logging.getLogger(__name__)
@@ -245,6 +246,12 @@ def _is_dispatcher_mcp_hop(panel_id: str, path: str) -> bool:
 #: secret from :func:`_terminal_secret_header` instead: a decision this process
 #: makes per backend, rather than one the browser's header list makes for it.
 #:
+#: ``X-Launch-Token`` is the header an arming service reads its launch token
+#: from. This process holds such a token for a service it fronts and injects it
+#: through :func:`_panel_auth_header`; a value the caller sent is a claim to
+#: hold that token, so it stops here like the operator's own proof, and the
+#: only launch token a backend ever sees is the one this process published.
+#:
 #: The trade this buys, stated plainly: a panel backend cannot run a cookie
 #: session of its own through this proxy, because its cookies ride the same
 #: stripped header as the terminal's.
@@ -254,6 +261,7 @@ _STRIPPED_REQUEST_HEADERS = frozenset(
         "authorization",
         "x-osprey-terminal-secret",
         OWNER_HEADER.lower(),
+        LAUNCH_TOKEN_HEADER.lower(),
     }
 )
 
