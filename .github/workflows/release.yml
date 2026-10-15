@@ -5,9 +5,10 @@ on:
     tags:
       - 'v*.*.*'  # Triggers on version tags like v2026.5.0
 
-# PAIRED PUBLISHING: osprey-connectors versions with the framework's own
-# calendar stream (same v-tags, same describe — see its pyproject.toml), so one
-# tag builds and publishes BOTH wheels, always carrying the same number. The
+# PAIRED PUBLISHING: osprey-connectors and osprey-optimizer version with the
+# framework's own calendar stream (same v-tags, same describe — see their
+# pyproject.toml files), so one tag builds and publishes EVERY workspace wheel,
+# always carrying the same number. The
 # old two-tag dance (a connectors release published before the framework tag
 # that needed it, from its own osprey-connectors-v* trigger) is retired with
 # the 0.x line itself. verify-pypi-resolvable still gates the framework wheel,
@@ -160,14 +161,15 @@ jobs:
       run: uv python install 3.11
 
     - name: Build packages
-      # Both workspace packages: the framework and osprey-connectors ride the
-      # same v-tag and must land on PyPI together, carrying the same number.
+      # Every workspace package: the framework, osprey-connectors and
+      # osprey-optimizer ride the same v-tag and must land on PyPI together,
+      # carrying the same number.
       run: uv build --all-packages
 
     - name: Verify built versions match tag
       # The versions are derived from the tag rather than a literal, so this
       # checks the artifacts that are actually about to be published — every
-      # wheel, since both packages derive from the same tag. A shallow checkout
+      # wheel, since every package derives from the same tag. A shallow checkout
       # or a missing tag does not fail the build — it silently yields 0.1.devN —
       # so this gate is what catches that before it reaches PyPI.
       run: |
@@ -237,6 +239,19 @@ jobs:
         cp dist/osprey_connectors-*.whl /tmp/sibling/
         uv tool install ./dist/osprey_framework-*.whl --find-links /tmp/sibling
         osprey --version
+
+    - name: Install the framework's optimizer extra with deps from PyPI plus the paired wheels
+      # The framework's `optimizer` extra names osprey-optimizer, which this same
+      # run publishes, so its wheel joins the connectors one in the sibling
+      # directory. The base only: the `service` extra is the optimizer image's,
+      # and its pins (torch, xopt) are checked by that image's build.
+      run: |
+        cp dist/osprey_optimizer-*.whl /tmp/sibling/
+        FRAMEWORK_WHEEL=$(ls "$PWD"/dist/osprey_framework-*.whl)
+        uv venv /tmp/optimizer-check
+        uv pip install --python /tmp/optimizer-check/bin/python \
+          "osprey-framework[optimizer] @ file://$FRAMEWORK_WHEEL" --find-links /tmp/sibling
+        /tmp/optimizer-check/bin/python -c "import osprey, osprey_optimizer.models.api, osprey_optimizer.environments.spec"
 
   publish-to-pypi:
     name: Publish to PyPI
