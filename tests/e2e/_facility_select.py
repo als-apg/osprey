@@ -112,3 +112,34 @@ def bounded_corrector(repo: Path) -> tuple[str, str, str]:
         "no corrector has a limits record with both min_value and max_value "
         f"in the limits table of {repo / 'data' / 'facility' / 'limits.yaml'}"
     )
+
+
+def seeded_readback(view: SimulatorView) -> str:
+    """The first channel, in address order, that is not a setpoint, has a seed
+    and is wired by no served model.
+
+    Reading it returns a number near the seed's nominal: no model moves it.
+    """
+    for address in view.channels():
+        if (
+            view.channel(address).role != "setpoint"
+            and view.seed(address) is not None
+            and view.binding(address) is None
+        ):
+            return address
+    raise AssertionError("the view has no seeded channel that no served model wires")
+
+
+def bounded_setpoint(view: SimulatorView) -> tuple[str, float]:
+    """The first writable setpoint, in address order, that a limits record
+    bounds at both ends, with the midpoint of that band.
+
+    The midpoint is a value the limits hook passes on, derived from the band
+    rather than typed.
+    """
+    for address in view.channels():
+        channel = view.channel(address)
+        if channel.role == "setpoint" and channel.writable and channel.value_range is not None:
+            low, high = channel.value_range
+            return address, (float(low) + float(high)) / 2
+    raise AssertionError("the view has no writable setpoint with a band at both ends")

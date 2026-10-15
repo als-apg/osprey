@@ -43,7 +43,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.query_cmd import query
-from tests.e2e.hello_world_channels import READ_CHANNEL
+from tests.e2e._facility_select import repo_view, seeded_readback
 from tests.e2e.sdk_helpers import HAS_SDK, init_project, is_claude_code_available
 
 pytestmark = [
@@ -101,7 +101,7 @@ def test_query_cmd_json_mcp_connected(tmp_path: Path) -> None:
             "--repo",
             str(repo),
             "--json",
-            f"Read the current value of {READ_CHANNEL} and report it.",
+            f"Read the current value of {seeded_readback(repo_view(repo))} and report it.",
         ],
         capture_output=True,
         text=True,

@@ -12,9 +12,13 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from osprey.facility.build import build_facility
+from osprey.facility.render import render_facility_outputs
 from osprey.facility.sources import read_yaml
-from tests.e2e.hello_world_channels import READ_CHANNEL, WRITE_CHANNEL, WRITE_VALUE
+from osprey_connectors.simulation.view import SimulatorView
+from tests.e2e._facility_select import bounded_setpoint, seeded_readback
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FACILITIES = REPO_ROOT / "src/osprey/templates/facilities"
@@ -92,16 +96,21 @@ def test_hello_world_limits_hold_the_three_tutorial_records() -> None:
     ]
 
 
-def test_the_e2e_prompts_name_channels_the_hello_world_facility_serves() -> None:
-    document = build_facility(HELLO_WORLD, project_name="hello")
-    channels = {channel["id"]: channel for channel in document["channels"]}
-    assert READ_CHANNEL in channels
-    assert WRITE_CHANNEL in channels
-    assert channels[WRITE_CHANNEL].get("role") == "setpoint"
-    seeds = read_yaml((HELLO_WORLD / "seeds.yaml").read_text(encoding="utf-8"))
-    assert READ_CHANNEL in seeds
-    limits = read_yaml((HELLO_WORLD / "limits.yaml").read_text(encoding="utf-8"))
-    records = {record["address"]: record for record in limits["records"]}
-    record = records[WRITE_CHANNEL]
-    assert record["writable"] is True
-    assert record["min_value"] <= WRITE_VALUE <= record["max_value"]
+@pytest.mark.parametrize("tree", [HELLO_WORLD, CONTROL_ASSISTANT], ids=lambda tree: tree.name)
+def test_each_shipped_facility_answers_the_e2e_lanes_channel_questions(
+    tmp_path: Path, tree: Path
+) -> None:
+    render_facility_outputs(tmp_path, build_facility(tree, project_name=tree.name), {}, tree)
+    view = SimulatorView.of_render(tmp_path)
+
+    reading = seeded_readback(view)
+    assert reading in view.channels()
+    assert view.seed(reading) is not None
+
+    setpoint, value = bounded_setpoint(view)
+    channel = view.channel(setpoint)
+    assert channel.role == "setpoint"
+    assert channel.writable
+    assert channel.value_range is not None
+    low, high = channel.value_range
+    assert low <= value <= high
