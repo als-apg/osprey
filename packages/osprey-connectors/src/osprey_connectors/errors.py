@@ -128,6 +128,8 @@ class ChannelWriteBlockedError(Exception):
             fallback = f"Write to '{channel_address}' refused by {refuser} ({reason})"
         elif reason == ChannelNotFoundError.reason:
             fallback = str(ChannelNotFoundError(channel_address))
+        elif reason is None:
+            fallback = f"Write to '{channel_address}' refused"
         else:
             fallback = f"Write to '{channel_address}' refused ({reason})"
         super().__init__(message or fallback)

@@ -144,6 +144,21 @@ class TestDenialContract:
         assert excinfo.value.reason == "CONTROL_SYSTEM_REFUSED"
         assert excinfo.value.channel_address == CHANNEL
 
+    def test_a_refusal_without_a_reason_keeps_no_reason(self):
+        """A refused result that names no reason is not read as writes-disabled."""
+        result = ChannelWriteResult(
+            channel_address=CHANNEL,
+            value_written=1.0,
+            outcome=WriteOutcome.REFUSED,
+            refusal_reason=None,
+        )
+
+        with pytest.raises(ChannelWriteBlockedError) as excinfo:
+            raise_for_write_result(result)
+
+        assert excinfo.value.reason is None
+        assert str(excinfo.value) == f"Write to '{CHANNEL}' refused"
+
     def test_bare_construction_does_not_misattribute_the_refusal(self):
         """With no message passed, the default text still names the right refuser."""
         err = ChannelWriteBlockedError(CHANNEL, "CONTROL_SYSTEM_REFUSED")
@@ -218,8 +233,13 @@ def _write_result_stub(channel, reason):
     )
 
 
-async def _run_all_blocked_batch(tmp_path, monkeypatch, reason):
-    """Drive the channel_write tool with a batch every op of which was refused."""
+async def _run_all_blocked_batch(tmp_path, monkeypatch, *reasons):
+    """Drive the channel_write tool with a batch every op of which was refused.
+
+    One reason refuses both writes alike; two give each write its own reason,
+    in operation order.
+    """
+    first_reason, second_reason = reasons if len(reasons) == 2 else reasons * 2
     from unittest.mock import AsyncMock
 
     from osprey.mcp_server.control_system.server_context import initialize_server_context
@@ -236,8 +256,8 @@ async def _run_all_blocked_batch(tmp_path, monkeypatch, reason):
 
     connector = AsyncMock()
     connector.write_multiple_channels.return_value = [
-        _write_result_stub("PV:A", reason),
-        _write_result_stub("PV:B", reason),
+        _write_result_stub("PV:A", first_reason),
+        _write_result_stub("PV:B", second_reason),
     ]
 
     fn = channel_write.fn if hasattr(channel_write, "fn") else channel_write
@@ -282,4 +302,32 @@ class TestAllBlockedBatchAttribution:
         assert (
             "All 2 write(s) refused by the reference monitor: PV:A, PV:B"
             in (envelope["error_message"])
+        )
+
+    @pytest.mark.asyncio
+    async def test_mixed_refusals_name_each_refuser(self, tmp_path, monkeypatch):
+        envelope = await _run_all_blocked_batch(
+            tmp_path, monkeypatch, "CONTROL_SYSTEM_REFUSED", "LIMITS"
+        )
+
+        assert envelope["error_type"] == "write_refused"
+        assert (
+            "All 2 write(s) refused — by the control system: PV:A; "
+            "by the reference monitor: PV:B" in envelope["error_message"]
+        )
+
+    @pytest.mark.asyncio
+    async def test_unknown_address_first_does_not_hide_a_limits_refusal(
+        self, tmp_path, monkeypatch
+    ):
+        envelope = await _run_all_blocked_batch(
+            tmp_path, monkeypatch, "CHANNEL_NOT_FOUND", "LIMITS"
+        )
+
+        assert envelope["error_type"] == "write_refused"
+        assert envelope["details"]["reason"] == "LIMITS"
+        assert envelope["details"]["channel"] == "PV:B"
+        assert (
+            "All 2 write(s) refused — by the reference monitor: PV:B; "
+            "PV:A is not a channel of this facility" in envelope["error_message"]
         )

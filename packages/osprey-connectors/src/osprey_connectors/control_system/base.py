@@ -839,7 +839,7 @@ def raise_for_write_result(result: ChannelWriteResult) -> ChannelWriteResult:
     if result.outcome is WriteOutcome.REFUSED:
         raise ChannelWriteBlockedError(
             result.channel_address,
-            result.refusal_reason or "WRITES_DISABLED",
+            result.refusal_reason,
             message=result.error_message,
         )
     if result.outcome in _PROCEEDABLE_OUTCOMES:
