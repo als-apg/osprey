@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "osprey-optimizer"
+dynamic = ["version"]
+description = "Xopt-driven machine optimization service for OSPREY"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "BSD-3-Clause"}
+# The base is the optimizer's contracts: the request, config and status models
+# and the environment-file format. The framework imports these (MCP tool
+# schemas, approval previews, the build-time environment check), so they must
+# load without the search stack below.
+dependencies = [
+    "osprey-connectors>=2026.6.2",
+    "pydantic>=2.12.5",
+    "PyYAML>=6.0.2",
+]
+
+[project.optional-dependencies]
+# The engine and its HTTP service: installed only in the optimizer's own image.
+# Torch and the BoTorch stack are gigabytes. The workspace resolves torch from
+# the CPU wheel index (root pyproject.toml, tool.uv.sources); a pip install from
+# PyPI has to pass that index itself.
+service = [
+    "xopt==3.1.2",
+    "torch==2.13.0",
+    "botorch==0.17.2",
+    "gpytorch==1.15.2",
+    "polars>=1.36.1",
+    "pandas>=2.2.3",
+    "numpy>=2.2.6",
+    "scikit-learn>=1.8.0",
+    "joblib>=1.5.2",
+    "redis>=5.0.4",
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.52.1",
+]
+
+[tool.hatch.version]
+source = "vcs"
+# Versions with the framework's calendar stream from the same v-tags, as
+# osprey-connectors does (see its pyproject.toml): one tag builds every
+# workspace wheel, and they all carry the same number.
+raw-options = { root = "../..", version_scheme = "post-release", git_describe_command = "git describe --dirty --tags --long --abbrev=40 --match v[0-9]*" }
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/osprey_optimizer/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/osprey_optimizer"]

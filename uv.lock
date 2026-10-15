@@ -30,6 +30,7 @@ lume-pva-apg = "2026-09-13T00:00:00Z"
 members = [
     "osprey-connectors",
     "osprey-framework",
+    "osprey-optimizer",
 ]
 
 [[package]]
@@ -5143,6 +5144,7 @@ all = [
     { name = "mss" },
     { name = "mypy" },
     { name = "myst-parser" },
+    { name = "osprey-optimizer" },
     { name = "pillow" },
     { name = "pre-commit" },
     { name = "psycopg", extra = ["binary", "pool"] },
@@ -5184,6 +5186,7 @@ dev = [
     { name = "httpx2" },
     { name = "linkml-runtime" },
     { name = "mypy" },
+    { name = "osprey-optimizer" },
     { name = "pillow" },
     { name = "pre-commit" },
     { name = "psycopg", extra = ["binary", "pool"] },
@@ -5226,14 +5229,7 @@ knowledge = [
     { name = "linkml-runtime" },
 ]
 optimizer = [
-    { name = "botorch" },
-    { name = "gpytorch" },
-    { name = "joblib" },
-    { name = "polars" },
-    { name = "redis" },
-    { name = "torch", version = "2.13.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
-    { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
-    { name = "xopt" },
+    { name = "osprey-optimizer" },
 ]
 screen-capture-linux = [
     { name = "mss" },
@@ -5268,7 +5264,6 @@ requires-dist = [
     { name = "bluesky-queueserver-api", specifier = "==0.0.13" },
     { name = "bluesky-tiled-plugins", specifier = "==2.0.9" },
     { name = "bokeh", specifier = ">=3.9.1" },
-    { name = "botorch", marker = "extra == 'optimizer'", specifier = "==0.17.2" },
     { name = "build" },
     { name = "certifi", specifier = ">=2026.7.22" },
     { name = "charset-normalizer", specifier = ">=3.4.9" },
@@ -5288,7 +5283,6 @@ requires-dist = [
     { name = "google-cloud-storage", marker = "extra == 'all'", specifier = ">=2.10" },
     { name = "google-cloud-storage", marker = "extra == 'gchat'", specifier = ">=2.10" },
     { name = "google-generativeai" },
-    { name = "gpytorch", marker = "extra == 'optimizer'", specifier = "==1.15.2" },
     { name = "graphviz", marker = "extra == 'all'" },
     { name = "graphviz", marker = "extra == 'docs'" },
     { name = "gspread", marker = "extra == 'all'", specifier = ">=6.2.1" },
@@ -5301,7 +5295,6 @@ requires-dist = [
     { name = "ipywidgets" },
     { name = "itsdangerous", specifier = ">=2.2.0" },
     { name = "jinja2", specifier = ">=3.1.6" },
-    { name = "joblib", marker = "extra == 'optimizer'", specifier = ">=1.5.2" },
     { name = "jupyter-server", specifier = ">=2.21,<3" },
     { name = "jupyterlab", specifier = ">=4.6,<5" },
     { name = "linkml-runtime", marker = "extra == 'all'", specifier = ">=1.11.1,<2" },
@@ -5330,6 +5323,9 @@ requires-dist = [
     { name = "openai", specifier = ">=2.53.0,<3" },
     { name = "ophyd-async", extras = ["ca"], specifier = ">=0.16,<1.0" },
     { name = "osprey-connectors", editable = "packages/osprey-connectors" },
+    { name = "osprey-optimizer", marker = "extra == 'all'", editable = "packages/osprey-optimizer" },
+    { name = "osprey-optimizer", marker = "extra == 'dev'", editable = "packages/osprey-optimizer" },
+    { name = "osprey-optimizer", marker = "extra == 'optimizer'", editable = "packages/osprey-optimizer" },
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "pcaspy", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'virtual-accelerator'", specifier = ">=0.8.1" },
     { name = "pillow", specifier = ">=12.3" },
@@ -5339,7 +5335,6 @@ requires-dist = [
     { name = "pillow", marker = "extra == 'teams'", specifier = ">=10" },
     { name = "playwright", specifier = ">=1.61.0" },
     { name = "plotly", specifier = ">=6.9.0" },
-    { name = "polars", marker = "extra == 'optimizer'", specifier = ">=1.36.1" },
     { name = "pre-commit", marker = "extra == 'all'" },
     { name = "pre-commit", marker = "extra == 'dev'" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.3.4,<4.0.0" },
@@ -5381,7 +5376,6 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "questionary", specifier = ">=2.1.1" },
     { name = "rdflib", specifier = ">=7.0" },
-    { name = "redis", marker = "extra == 'optimizer'", specifier = ">=5.0.4" },
     { name = "requests", specifier = ">=2.34.2" },
     { name = "rich", specifier = ">=15.0.0" },
     { name = "ruamel-yaml", specifier = ">=0.18.0" },
@@ -5410,7 +5404,6 @@ requires-dist = [
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'all'", specifier = ">=4.15.0" },
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'dev'", specifier = ">=4.15.0" },
     { name = "tiled", extras = ["client"], specifier = ">=0.2.14" },
-    { name = "torch", marker = "extra == 'optimizer'", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cpu" },
     { name = "types-aiofiles", marker = "extra == 'all'" },
     { name = "types-aiofiles", marker = "extra == 'dev'" },
     { name = "types-markdown", marker = "extra == 'all'" },
@@ -5424,9 +5417,54 @@ requires-dist = [
     { name = "watchdog", specifier = ">=6.0.0" },
     { name = "websocket-client", specifier = ">=1.7.0" },
     { name = "websockets", specifier = ">=14" },
-    { name = "xopt", marker = "extra == 'optimizer'", specifier = "==3.1.2" },
 ]
 provides-extras = ["all", "ariel", "ariel-proxy", "dev", "docs", "gchat", "knowledge", "optimizer", "screen-capture-linux", "sheets", "teams", "virtual-accelerator"]
+
+[[package]]
+name = "osprey-optimizer"
+source = { editable = "packages/osprey-optimizer" }
+dependencies = [
+    { name = "osprey-connectors" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+
+[package.optional-dependencies]
+service = [
+    { name = "botorch" },
+    { name = "fastapi" },
+    { name = "gpytorch" },
+    { name = "joblib" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "polars" },
+    { name = "redis" },
+    { name = "scikit-learn" },
+    { name = "torch", version = "2.13.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
+    { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "xopt" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "botorch", marker = "extra == 'service'", specifier = "==0.17.2" },
+    { name = "fastapi", marker = "extra == 'service'", specifier = ">=0.141.1" },
+    { name = "gpytorch", marker = "extra == 'service'", specifier = "==1.15.2" },
+    { name = "joblib", marker = "extra == 'service'", specifier = ">=1.5.2" },
+    { name = "numpy", marker = "extra == 'service'", specifier = ">=2.2.6" },
+    { name = "osprey-connectors", editable = "packages/osprey-connectors" },
+    { name = "pandas", marker = "extra == 'service'", specifier = ">=2.2.3" },
+    { name = "polars", marker = "extra == 'service'", specifier = ">=1.36.1" },
+    { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "redis", marker = "extra == 'service'", specifier = ">=5.0.4" },
+    { name = "scikit-learn", marker = "extra == 'service'", specifier = ">=1.8.0" },
+    { name = "torch", marker = "extra == 'service'", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "uvicorn", extras = ["standard"], marker = "extra == 'service'", specifier = ">=0.52.1" },
+    { name = "xopt", marker = "extra == 'service'", specifier = "==3.1.2" },
+]
+provides-extras = ["service"]
 
 [[package]]
 name = "overrides"

@@ -350,7 +350,7 @@ jobs:
       # step's failures worth reading.
       run: |
         if [ "${{ matrix.python-version }}" = "3.12" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov-report=xml --cov-report=term"
+          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/osprey-optimizer/src/osprey_optimizer --cov-report=xml --cov-report=term"
         else
           COV_ARGS=""
         fi
@@ -594,11 +594,11 @@ jobs:
     name: Optimizer service (engine + real Redis)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # The optimizer's search stack (xopt, torch, botorch) is the `optimizer`
-    # extra, installed only in its service image, so the `test` lanes leave its
-    # engine suite out (tests/services/optimizer/conftest.py). This lane installs
-    # the extra, and a redis-server for the tests that exercise the job lock and
-    # status compare-and-set through real Lua scripts.
+    # The optimizer's search stack (xopt, torch, botorch) is the `service`
+    # extra of packages/osprey-optimizer, installed only in its image, so the
+    # `test` lanes leave its engine suite out (tests/optimizer/conftest.py).
+    # This lane installs the extra, and a redis-server for the tests that
+    # exercise the job lock and status compare-and-set through real Lua scripts.
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -615,14 +615,15 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends redis-server
 
     - name: Install dependencies
-      run: uv sync --extra dev --extra optimizer
+      # --all-packages so --extra service reaches the workspace member that defines it.
+      run: uv sync --all-packages --extra dev --extra service
 
     - name: Run the optimizer suite
       # -n 2: the runners have two CPUs, and each worker starts its own redis-server.
       # Coverage is scoped to the optimizer: this is the only lane that runs its engine.
       run: >-
-        uv run pytest tests/services/optimizer -v --tb=short -n 2 --timeout=600
-        --cov=src/osprey/services/optimizer --cov-report=xml --cov-report=term
+        uv run pytest tests/optimizer -v --tb=short -n 2 --timeout=600
+        --cov=packages/osprey-optimizer/src/osprey_optimizer --cov-report=xml --cov-report=term
 
     - name: Upload coverage reports to Codecov
       # Codecov merges this with the `test` lanes' reports for the same commit.
@@ -900,6 +901,33 @@ jobs:
             importlib.import_module(name)
         assert 'osprey' not in sys.modules, 'a lean-wheel module imported the osprey framework'
         print(f'LEAN WHEEL OK ({len(modules)} modules)')
+        "
+
+    - name: Build osprey-optimizer wheel
+      run: uv build --package osprey-optimizer
+
+    - name: Verify the optimizer's base wheel loads without the framework or its service extra
+      # The base is what the framework imports (models, environment files), so
+      # it must install from the two sibling wheels alone and load none of the
+      # `service` stack; the app itself must refuse with the install hint.
+      run: |
+        uv venv /tmp/optimizer-lean --python 3.11
+        uv pip install --python /tmp/optimizer-lean/bin/python dist/osprey_connectors-*.whl dist/osprey_optimizer-*.whl
+        /tmp/optimizer-lean/bin/python -c "
+        import importlib, sys
+        for name in ('osprey_optimizer', 'osprey_optimizer.models', 'osprey_optimizer.models.api',
+                     'osprey_optimizer.models.config', 'osprey_optimizer.environments.spec',
+                     'osprey_optimizer.environments.connector_env', 'osprey_optimizer.environments.interface'):
+            importlib.import_module(name)
+        bad = sorted({m.split('.')[0] for m in sys.modules} & {'osprey', 'xopt', 'torch', 'botorch', 'gpytorch', 'polars', 'redis', 'fastapi', 'sklearn'})
+        assert not bad, f'the optimizer base loaded: {bad}'
+        try:
+            import osprey_optimizer.api
+        except ImportError as exc:
+            assert 'osprey-optimizer[service]' in str(exc), exc
+        else:
+            raise AssertionError('osprey_optimizer.api imported without the service extra')
+        print('OPTIMIZER BASE WHEEL OK')
         "
 
   static-checks:
