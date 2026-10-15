@@ -63,8 +63,8 @@ _SETUP_KEYS: tuple[str, ...] = ("setup", "_setup")
 _IMPORTED = "imported"
 
 
-def _text(value: Any) -> str | None:
-    """Return ``value`` when it is a non-blank string, else ``None``."""
+def _nonblank(value: Any) -> str | None:
+    """Return ``value`` unchanged when it is a non-blank string, else ``None``."""
     if isinstance(value, str) and value.strip():
         return value
     return None
@@ -72,7 +72,7 @@ def _text(value: Any) -> str | None:
 
 def _description(body: dict) -> str | None:
     """Return ``_description``, else ``Description``, when non-blank."""
-    return _text(body.get("_description")) or _text(body.get("Description"))
+    return _nonblank(body.get("_description")) or _nonblank(body.get("Description"))
 
 
 def _as_slots(value: Any) -> list:
