@@ -11,6 +11,7 @@ is byte-unchanged either way.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
@@ -89,6 +90,27 @@ def test_a_wrapped_position_warns_in_validate_and_in_the_build(repo: Path) -> No
     assert fragment not in validated.stdout
     assert built.exit_code == 0, built.output
     assert " ".join(built.stderr.split()).count(fragment) == 1, built.stderr
+
+
+def test_a_render_warning_prints_once_in_validate_and_show(repo: Path) -> None:
+    """A warning the render promotes reaches stderr once per verb, as the build prints it."""
+    profile = repo / "profile.yml"
+    text, count = re.subn(
+        r"^# model: claude-sonnet-5\b.*$",
+        "model: claude-unlisted-9",
+        profile.read_text(encoding="utf-8"),
+        flags=re.M,
+    )
+    assert count == 1
+    profile.write_text(text, encoding="utf-8")
+    fragment = "'anthropic' does not list claude-unlisted-9"
+
+    for args in (["facility", "validate"], ["facility", "show"]):
+        result = CliRunner().invoke(cli, [*args, "--repo", str(repo)])
+
+        assert result.exit_code == 0, result.output
+        assert " ".join(result.stderr.split()).count(fragment) == 1, result.stderr
+        assert fragment not in result.stdout
 
 
 def test_a_stock_build_prints_no_tolerance_warning(repo: Path) -> None:

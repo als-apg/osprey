@@ -26,12 +26,14 @@ the real ``out()``/``echo`` seam is the one being used.
 import io
 import re
 from pathlib import PurePosixPath
+from typing import Any
 
 import pytest
 from rich.console import Console
 from rich.text import Text
 
 from osprey.cli import output, phase_reporter, styles
+from osprey.cli.altitude import PRINTED
 from osprey.cli.output import (
     fail,
     machine_mode,
@@ -934,12 +936,14 @@ class _RecordingLogger:
     def __init__(self) -> None:
         self.key_info_messages: list[str] = []
         self.warnings: list[str] = []
+        self.warning_extras: list[Any] = []
 
     def key_info(self, message: str) -> None:
         self.key_info_messages.append(message)
 
-    def warning(self, message: str) -> None:
+    def warning(self, message: str, **kwargs: Any) -> None:
         self.warnings.append(message)
+        self.warning_extras.append(kwargs.get("extra"))
 
 
 @pytest.fixture(autouse=True)
@@ -1186,6 +1190,13 @@ def test_warn_fact_prints_the_indented_trouble_shape(capsys):
         "host timezone differs from the facility setting "
         "$TZ=US/Pacific but system.timezone=UTC set both to the same zone"
     ]
+
+
+def test_warn_fact_marks_its_record_as_printed():
+    """The gate reads the mark, so the handler never paints the block a second time."""
+    logger = _RecordingLogger()
+    output.warn_fact(logger, "reachable")
+    assert logger.warning_extras == [{PRINTED: True}]
 
 
 def test_warn_fact_without_detail_or_remedy_is_the_summary_alone(capsys):

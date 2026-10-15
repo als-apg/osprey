@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING
 from rich.text import Text
 
 from . import styles
+from .altitude import PRINTED
 from .phase_reporter import current_reporter
 from .styles import Styles
 
@@ -318,11 +319,10 @@ def warn_fact(
     step so it reads as part of the run it happened in, and the record goes to
     ``logger.warning`` for the file and aggregation sinks.
 
-    While a lifecycle reporter is installed, the altitude gate keeps raw WARNING
-    records off the terminal (see :mod:`osprey.cli.altitude`), so this function
-    is how a warning reaches the operator at all; under ``-v`` the gate is
-    lifted and the warning appears in both shapes, exactly as a promoted fact
-    does.
+    Its record is marked :data:`~osprey.cli.altitude.PRINTED`, so the altitude
+    gate never paints it a second time, whether or not a lifecycle verb runs;
+    under ``-v`` the gate is lifted and the warning appears in both shapes,
+    exactly as a promoted fact does.
 
     :param logger: The calling module's logger, as for :func:`report_fact`.
     :param summary: What went sideways, in one line and without the glyph.
@@ -339,7 +339,9 @@ def warn_fact(
         body.append(f"{_REMEDY_GLYPH} {remedy}")
     for line in body:
         _echo(_body_text(f"{_INDENT}{_INDENT}", line), err=True)
-    logger.warning(" ".join(part for part in (summary, detail, remedy) if part))
+    logger.warning(
+        " ".join(part for part in (summary, detail, remedy) if part), extra={PRINTED: True}
+    )
 
 
 def flush_ledger() -> None:

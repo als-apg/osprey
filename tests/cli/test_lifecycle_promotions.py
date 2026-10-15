@@ -1551,26 +1551,27 @@ class TestTheUnshownMintWarningStillReachesTheTerminal:
     """The pinned minted-password warning, re-pinned to its promoted form.
 
     It is promoted through ``warn_fact``: the renderer prints the ``⚠`` block
-    (the altitude gate keeps the raw WARNING record off the terminal while a
-    reporter is installed), and the record stays for the sinks. The fragments
+    (the altitude gate keeps the raw WARNING record off the terminal whether or
+    not a reporter is installed), and the record stays for the sinks. The fragments
     are the ones ``tests/deployment/test_up_as_built.py`` pins, asserted here
     against what a default-altitude run keeps in its records.
     """
 
-    def test_the_pinned_fragments_survive_at_the_default_altitude(self, default_altitude, tmp_path):
+    def test_the_pinned_fragments_survive_at_the_default_altitude(
+        self, default_altitude, tmp_path, capsys
+    ):
         result = auth_credentials.ensure_auth_credentials(["alice"], tmp_path, echo=_swallow)
 
         provision._report_unshown_mints(result)
 
-        painted = " ".join(default_altitude.rendered_text.split())
+        promoted = capsys.readouterr().err
         for fragment in (
             "Minted a login password",
             "did NOT print it",
             "osprey users passwd",
             "OSPREY_AUTH_PW_<USER>",
         ):
-            assert fragment in painted, fragment
-            assert any(fragment in message for message in default_altitude.messages), fragment
+            assert_warned(default_altitude, promoted, fragment)
 
     def test_the_password_itself_is_in_neither_stream(
         self, default_altitude, printed, tmp_path, capsys
