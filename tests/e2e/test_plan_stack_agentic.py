@@ -3810,7 +3810,7 @@ async def test_agent_authors_and_runs_a_hysteresis_loop(
     monkeypatch.setenv("BLUESKY_BRIDGE_URL", BRIDGE_URL)
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", deployed_scan_stack.token)
 
-    corrector = next(iter(deployed_scan_stack.correctors))
+    corrector = deployed_scan_stack.named[0]
     request_text = HYSTERESIS_OPERATOR_REQUEST_TEMPLATE.format(corrector=corrector)
 
     with _authoring_promoted(repo):
@@ -4346,33 +4346,15 @@ def _long_grid_args(stack: DeployedScanStack, num_points: int) -> dict[str, Any]
     facility channel or asks the reference monitor for a value outside its
     band.
 
-    The corrector NAMES come from the staged device view; the limit VALUES
-    come from the limits table, which holds the records the facility tree
-    authors and names no other channel (see ``_orm_stack.channel_limits``).
-    So the axis is the first staged corrector a record bounds, not simply the
-    first one staged.
+    The axis is the corrector a limits record bounds
+    (``_orm_stack.bounded_corrector``), and the readback a monitor of that
+    corrector's own model, the readings that respond to it.
     """
-    limits = _orm_stack.channel_limits(stack.repo)
-    axis = next(
-        (
-            (name, entry)
-            for name, (sp_address, _rb) in _orm_stack.select_correctors(
-                stack.repo, count=None
-            ).items()
-            if isinstance(entry := limits.get(sp_address), dict)
-            and "min_value" in entry
-            and "max_value" in entry
-        ),
-        None,
-    )
-    assert axis is not None, (
-        "no staged corrector has a limits record -- the long grid needs "
-        "a bounded axis to size its sweep"
-    )
-    axis_name, entry = axis
+    axis_name, _readback, _model = _orm_stack.bounded_corrector(stack.repo)
+    entry = _orm_stack.channel_limits(stack.repo)[axis_name]
     lo, hi = float(entry["min_value"]), float(entry["max_value"])
     return {
-        "readbacks": [next(iter(stack.bpms))],
+        "readbacks": [stack.named_bpms[0]],
         "axes": [
             {
                 "setpoint": axis_name,
