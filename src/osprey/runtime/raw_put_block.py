@@ -127,9 +127,9 @@ _GUARD_ATTR = "_osprey_readonly_guard"
 #: a re-export or the pvaPy sweep finds it already in place and leaves it.
 _ARMED_ATTR = "_osprey_armed_block"
 
-#: Attribute every loader the ``no_client`` mode installs carries, so a second
-#: install finds it in place and never wraps it again.
-_NO_CLIENT_ATTR = "_osprey_no_client_gate"
+#: Attribute every gated shared-library loader carries, whichever mode
+#: installed it, so a second install finds it in place and never wraps it again.
+_LOADER_GATE_ATTR = "_osprey_loader_gate"
 
 #: Logger armed refusals are reported under. Spelled out, not ``__name__``: the
 #: executor runs this source in a namespace that has no module name.
@@ -376,6 +376,81 @@ def _library_label(name: Any) -> str:
         return os.path.basename(os.fsdecode(name)) or str(name)
     except TypeError:
         return repr(name)
+
+
+class _LoaderPolicy:
+    """What a gated shared-library loader checks around the original load.
+
+    ``before(name)`` runs first and raises to refuse the load. ``after(name,
+    handle, close)``, where set, inspects what loaded and raises to refuse it,
+    calling ``close()`` first so a refused library is not left open.
+    """
+
+    __slots__ = ("after", "before")
+
+    def __init__(
+        self,
+        before: Callable[[Any], None],
+        after: Callable[[Any, Any, Callable[[], None]], None] | None = None,
+    ) -> None:
+        self.before = before
+        self.after = after
+
+
+def _gated_load(original: Callable[..., Any], *, policy: _LoaderPolicy) -> Callable[..., Any]:
+    """Gate a ``ctypes`` loader shaped like ``_ctypes.dlopen(name, mode)``.
+
+    The original returns the library as an integer handle. A loader that is
+    already a gate is returned as it is, whichever mode installed it.
+    """
+    if getattr(original, _LOADER_GATE_ATTR, False):
+        return original
+
+    def _osprey_gated_load(name: Any, *args: Any, **kwargs: Any) -> Any:
+        policy.before(name)
+        handle = original(name, *args, **kwargs)
+        if policy.after is not None:
+
+            def _close() -> None:
+                try:
+                    import _ctypes
+
+                    _ctypes.dlclose(handle)
+                except Exception:
+                    pass
+
+            policy.after(name, handle, _close)
+        return handle
+
+    setattr(_osprey_gated_load, _LOADER_GATE_ATTR, True)
+    return _osprey_gated_load
+
+
+def _gated_ffi_load(original: Callable[..., Any], *, policy: _LoaderPolicy) -> Callable[..., Any]:
+    """Gate a loader shaped like cffi's ``FFI.dlopen(self, name, flags=0)``.
+
+    The original returns the library as an object whose attributes are its
+    declared symbols. A loader that is already a gate is returned as it is.
+    """
+    if getattr(original, _LOADER_GATE_ATTR, False):
+        return original
+
+    def _osprey_gated_ffi_load(self: Any, name: Any, *args: Any, **kwargs: Any) -> Any:
+        policy.before(name)
+        lib = original(self, name, *args, **kwargs)
+        if policy.after is not None:
+
+            def _close() -> None:
+                try:
+                    self.dlclose(lib)
+                except Exception:
+                    pass
+
+            policy.after(name, lib, _close)
+        return lib
+
+    setattr(_osprey_gated_ffi_load, _LOADER_GATE_ATTR, True)
+    return _osprey_gated_ffi_load
 
 
 def _refusal_text(texts: Mapping[str, str], dotted: str, attr: str) -> str | None:
@@ -820,61 +895,40 @@ def _install_no_client(
             return True
         return False
 
-    def _gated_load(original: Callable[..., Any]) -> Callable[..., Any]:
-        if getattr(original, _NO_CLIENT_ATTR, False):
-            return original
+    def _refuse_by_name(name: Any) -> None:
+        library = _client_library(name, stems)
+        if library is not None:
+            raise _client_refusal(library=library)
 
-        def _osprey_no_client_load(name: Any, *args: Any, **kwargs: Any) -> Any:
-            library = _client_library(name, stems)
-            if library is not None:
-                raise _client_refusal(library=library)
-            handle = original(name, *args, **kwargs)
-            if _exports_a_client_symbol(handle):
-                try:
-                    _ctypes.dlclose(handle)
-                except Exception:
-                    pass
-                raise _client_refusal(library=_library_label(name))
-            return handle
+    def _refuse_by_dlsym(name: Any, handle: Any, close: Callable[[], None]) -> None:
+        if _exports_a_client_symbol(handle):
+            close()
+            raise _client_refusal(library=_library_label(name))
 
-        setattr(_osprey_no_client_load, _NO_CLIENT_ATTR, True)
-        return _osprey_no_client_load
+    def _refuse_by_declared_symbol(name: Any, lib: Any, close: Callable[[], None]) -> None:
+        for symbol in symbols:
+            try:
+                getattr(lib, symbol)
+            except Exception:
+                continue
+            close()
+            raise _client_refusal(library=_library_label(name))
 
-    def _gated_ffi_load(_dotted: str, _attr: str, original: Any, _owner: Any) -> Any:
-        # A deferred loader row is shaped like cffi's ``FFI.dlopen(self, name,
-        # flags=0)``: the library comes back as an object whose attributes are
-        # its declared symbols.
-        if getattr(original, _NO_CLIENT_ATTR, False):
-            return original
+    ctypes_policy = _LoaderPolicy(_refuse_by_name, _refuse_by_dlsym)
+    ffi_policy = _LoaderPolicy(_refuse_by_name, _refuse_by_declared_symbol)
 
-        def _osprey_no_client_ffi_load(self: Any, name: Any, *args: Any, **kwargs: Any) -> Any:
-            library = _client_library(name, stems)
-            if library is not None:
-                raise _client_refusal(library=library)
-            lib = original(self, name, *args, **kwargs)
-            for symbol in symbols:
-                try:
-                    getattr(lib, symbol)
-                except Exception:
-                    continue
-                try:
-                    self.dlclose(lib)
-                except Exception:
-                    pass
-                raise _client_refusal(library=_library_label(name))
-            return lib
-
-        setattr(_osprey_no_client_ffi_load, _NO_CLIENT_ATTR, True)
-        return _osprey_no_client_ffi_load
+    def _ffi_replacement(_dotted: str, _attr: str, original: Any, _owner: Any) -> Any:
+        # A deferred loader row is shaped like cffi's ``FFI.dlopen``.
+        return _gated_ffi_load(original, policy=ffi_policy)
 
     # Every ``ctypes`` spelling — ``CDLL``, ``PyDLL``, ``cdll.LoadLibrary``,
     # ``cdll.<name>`` — loads through the module-global ``ctypes._dlopen``;
     # ``_ctypes`` is the binding a script can reach without ``ctypes``.
-    ctypes._dlopen = _gated_load(ctypes._dlopen)  # type: ignore[attr-defined]
+    ctypes._dlopen = _gated_load(ctypes._dlopen, policy=ctypes_policy)  # type: ignore[attr-defined]
     for attr in ("dlopen", "LoadLibrary"):
         if hasattr(_ctypes, attr):
-            setattr(_ctypes, attr, _gated_load(getattr(_ctypes, attr)))
-    _patch_rows("no-client block", (), loader_targets, _gated_ffi_load)
+            setattr(_ctypes, attr, _gated_load(getattr(_ctypes, attr), policy=ctypes_policy))
+    _patch_rows("no-client block", (), loader_targets, _ffi_replacement)
 
     class _OspreyNoClientFinder:
         """Refuse the import of every denied package and its submodules."""
