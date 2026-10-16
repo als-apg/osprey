@@ -514,7 +514,9 @@ def _gateway_auth_header(
             f"{TELEMETRY_LOGIN_ENV} is unset or blank, so this launch has no login for "
             "the telemetry gateway and every record it sent would be refused. "
             "`osprey build` writes each sender's login to .env.telemetry-sender.<identity>; "
-            "run it, and check that this launch's identity is a configured sender.",
+            "on the host, run it and check that this launch's identity is a configured "
+            "sender. A container is handed its sender's .env.telemetry-sender.<identity> "
+            "as an env file: compose does this, and `docker run` takes it with --env-file.",
             (TELEMETRY_LOGIN_ENV,),
         )
     identity, sep, password = login.partition(":")

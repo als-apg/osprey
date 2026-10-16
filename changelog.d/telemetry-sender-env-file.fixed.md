@@ -1,0 +1,1 @@
+The documented `docker run` of a generated image now passes the sender's `.env.telemetry-sender.<identity>` file with `--env-file` whenever gateway telemetry is on, and the missing-login refusal names that container remedy. The telemetry store takes the container runtime's open-file ceiling instead of a fixed one, so it starts under rootless podman.
