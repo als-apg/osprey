@@ -24,6 +24,8 @@ from pathlib import Path
 import pytest
 
 from osprey.registry.mcp import FRAMEWORK_AGENTS, resolve_agents, resolve_servers
+from osprey_connectors.simulation.view import VIEW_RELPATH
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -43,11 +45,17 @@ AGENT_TEMPLATE_ROOT = (
 )
 
 
+#: The simulator view's directory relative to the deployment root, as a render
+#: names it.
+_SIMULATOR_DIR = f"{BUILD_DIR_NAME}/{VIEW_RELPATH}"
+
+
 def _base_ctx(**overrides):
     ctx = {
         "project_root": "/tmp/test-project",
         "current_python_env": "/usr/bin/python3",
-        "served_decks": [{"model": "SR", "path": "data/simulator/decks/SR.json"}],
+        "served_decks": [{"model": "SR", "path": f"{_SIMULATOR_DIR}/decks/SR.json"}],
+        "simulator_dir": _SIMULATOR_DIR,
     }
     ctx.update(overrides)
     return ctx
