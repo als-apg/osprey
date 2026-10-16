@@ -15,7 +15,9 @@ kick as the dipole polynomials pyAML reads, so a corrector step in pyAML's desig
 mode moves the orbit the served deck's kick moves; a zero-length corrector stays
 a zero-length thin multipole carrying its kick. An engine that cannot carry the
 kicks as polynomials (no `polynomial_kicks()`) stops the build of a periodic
-model whose view drives correctors (`engine-invalid`). Magnets are named after
+model whose view drives correctors (`engine-invalid`). A magnet sliced across
+zero-length and thick elements has no pyAML magnet model and is left out with
+the other setpoints pyAML cannot convert. Magnets are named after
 their setpoint addresses, BPMs and arrays after their device and group ids; one
 group named as both `hcor` and `vcor` is two arrays, its name followed by `_h`
 and `_v`. A served model without a view is named
