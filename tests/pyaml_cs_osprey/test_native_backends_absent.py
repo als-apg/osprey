@@ -9,8 +9,11 @@ refuses them in two layers:
   configuration naming one fails to build with ``PyAMLConfigException``.
 - **Dependency closure**: nothing OSPREY resolves or installs pulls them in —
   not the lock file, not a bundled preset's ``dependencies``, not the pip
-  arguments of a rendered Dockerfile. ``accelerator-middle-layer`` may appear,
-  but never with its ``cs-oa-epics``, ``cs-oa-tango`` or ``tango-pyaml`` extras.
+  arguments of a rendered Dockerfile. pyAML may appear under either of its
+  distribution names, ``accelerator-middle-layer-apg`` (the one OSPREY pins) or
+  ``accelerator-middle-layer``, but never with its ``cs-oa-epics``,
+  ``cs-oa-tango`` or ``tango-pyaml`` extras, and the lock never holds both: they
+  ship the same ``pyaml`` package directory.
 
 These tests pin that neither layer regresses. Should a native backend still
 reach a sandbox, the runtime refusals are the backstop: the workspace sandbox
@@ -44,7 +47,9 @@ UV_LOCK = REPO_ROOT / "uv.lock"
 
 FORBIDDEN_PACKAGES = frozenset({"pyaml-cs-oa", "tango-pyaml"})
 FORBIDDEN_EXTRAS = frozenset({"cs-oa-epics", "cs-oa-tango", "tango-pyaml"})
-AML_PACKAGE = "accelerator-middle-layer"
+AML_PACKAGE = "accelerator-middle-layer-apg"
+#: Every distribution name pyAML is published under; each installs ``pyaml``.
+AML_NAMES = frozenset({"accelerator-middle-layer", AML_PACKAGE})
 
 # Spellings of a forbidden name in free text: any of `-`, `_`, `.` between the
 # words (pip and PEP 503 treat them alike). The trailing guard keeps a longer
@@ -54,7 +59,7 @@ _FORBIDDEN_NAME_RE = re.compile(
     rf"(?<![\w-])(?:pyaml{_SEP}cs{_SEP}oa|tango{_SEP}pyaml)(?![\w-])", re.IGNORECASE
 )
 _AML_EXTRAS_RE = re.compile(
-    rf"(?<![\w-])accelerator{_SEP}middle{_SEP}layer\s*\[([^\]]*)\]", re.IGNORECASE
+    rf"(?<![\w-])accelerator{_SEP}middle{_SEP}layer(?:{_SEP}apg)?\s*\[([^\]]*)\]", re.IGNORECASE
 )
 
 _FRAMEWORK_EXTRAS_RE = re.compile(
@@ -91,9 +96,9 @@ def _requirement_violations(spec: str) -> list[str]:
     name = canonicalize_name(req.name)
     if name in FORBIDDEN_PACKAGES:
         return [name]
-    if name == AML_PACKAGE:
+    if name in AML_NAMES:
         bad = sorted({canonicalize_name(e) for e in req.extras} & FORBIDDEN_EXTRAS)
-        return [f"{AML_PACKAGE}[{e}]" for e in bad]
+        return [f"{name}[{e}]" for e in bad]
     return []
 
 
@@ -121,10 +126,10 @@ def _lock_violations(lock: dict[str, Any]) -> list[str]:
                 dep_name = canonicalize_name(dep.get("name", ""))
                 if dep_name in FORBIDDEN_PACKAGES:
                     found.append(f"{name} -> {dep_name}")
-                if dep_name == AML_PACKAGE:
+                if dep_name in AML_NAMES:
                     extras = {canonicalize_name(e) for e in dep.get("extra", [])}
                     found += [
-                        f"{name} -> {AML_PACKAGE}[{e}]" for e in sorted(extras & FORBIDDEN_EXTRAS)
+                        f"{name} -> {dep_name}[{e}]" for e in sorted(extras & FORBIDDEN_EXTRAS)
                     ]
         for req in package.get("metadata", {}).get("requires-dist", []):
             spec = req.get("name", "")
@@ -234,6 +239,7 @@ class TestViolationDetectors:
             "accelerator-middle-layer[cs-oa-epics]",
             "accelerator-middle-layer[cs_oa_tango]==0.3.1",
             "accelerator-middle-layer[tango-pyaml]",
+            "accelerator-middle-layer-apg[cs-oa-epics]",
         ],
     )
     def test_forbidden_requirement_detected(self, spec):
@@ -247,6 +253,7 @@ class TestViolationDetectors:
             "accelerator-middle-layer==0.3.*",
             "pyaml-cs-osprey",
             "accelerator-middle-layer[docs]",
+            "accelerator-middle-layer-apg==0.3.1.post1",
         ],
     )
     def test_allowed_requirement_passes(self, spec):
@@ -275,6 +282,17 @@ class TestDependencyClosure:
         text = UV_LOCK.read_text()
         assert _lock_violations(tomllib.loads(text)) == []
         assert _text_violations(text) == []
+
+    def test_uv_lock_holds_one_pyaml_distribution(self):
+        """Both distribution names install the same ``pyaml`` package directory,
+        so a lock holding both would let one overwrite the other on install."""
+        lock = tomllib.loads(UV_LOCK.read_text())
+        names = sorted(
+            canonicalize_name(package["name"])
+            for package in lock.get("package", [])
+            if canonicalize_name(package.get("name", "")) in AML_NAMES
+        )
+        assert names == [AML_PACKAGE], f"uv.lock holds pyAML as {names}"
 
     @pytest.mark.parametrize("preset", list_presets())
     def test_preset_dependencies_name_no_native_backend(self, preset):
