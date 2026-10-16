@@ -98,11 +98,12 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "deploy",  # CI/registry/host coordinates, filled in per facility
         "mcp_servers",  # facility tool servers
         "artifact_server",  # gallery categories + host/port
-        "dispatch",  # the seven optional feature blocks
+        "dispatch",  # the optional feature blocks
         "bluesky",
         "virtual_accelerator",
         "va_archiver",
         "bluesky_web",
+        "trajectory",
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
@@ -454,6 +455,18 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # bluesky_web:
 #   port: <host port>
 """,
+    "trajectory": """
+# --- Trajectory service ------------------------------------------------------
+# Declaring the block deploys the service; an empty block takes every default.
+# It takes the trajectory slot of this deployment's port block, and the
+# trajectory web panel needs no url of its own while the block is present.
+#
+# trajectory:
+#   target: <control target>     # unset: the build's choice
+#   model: <machine model>       # unset: the build's choice
+#   network: bridge              # bridge | host
+#   bind: <listen address>       # unset: the service template's default
+""",
     "nextcloud_bridge": """
 # --- Nextcloud bridge --------------------------------------------------------
 # Answers questions asked from a Nextcloud Talk room. The trigger name must
@@ -533,6 +546,7 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "virtual_accelerator",
     "va_archiver",
     "bluesky_web",
+    "trajectory",
     "nextcloud_bridge",
     "gchat_bridge",
     "teams_bridge",

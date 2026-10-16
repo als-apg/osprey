@@ -30,7 +30,7 @@ Stages, in order, each an independently-reportable test:
    ``/bridge/health`` relay both report ``can_execute: true`` / ``executable``.
 2. ``test_2_shipped_preset_*``   -- the preset arms the queue at boot
    (``bluesky.queue_autostart``): an unarmed add is refused
-   ``launch_token_required``; ``test_2_stop_*`` -- the ungated Stop disarms it,
+   ``launch_token_invalid``; ``test_2_stop_*`` -- the ungated Stop disarms it,
    which is the stopped queue stages 2-3 are written against.
    ``test_2_enqueue_*``          -- two grid scans from two draft revisions; a
    second enqueue of the SAME revision is refused ``draft_revision_already_launched``.
@@ -38,7 +38,7 @@ Stages, in order, each an independently-reportable test:
    in the real worker and moves nothing: the declared channels with their roles,
    the exact move total, the cap, and one answer shape even for an unknown plan.
 3. ``test_3_start_*``            -- ``POST /queue/start`` is token-gated
-   (``launch_token_required``), the queue drains STRICTLY SERIALLY, live rows
+   (``launch_token_invalid``), the queue drains STRICTLY SERIALLY, live rows
    accumulate at the poller's ~1 s cadence while a plan runs, and the started
    run publishes the point count its plan DECLARED. Two of the stage's starts
    come from the MCP queue TOOL rather than from this module's own client,
@@ -255,6 +255,11 @@ LIVE_SAMPLE_POINTS = 600
 LONG_POINTS = 4000
 
 _LAUNCH_TOKEN_HEADER = "X-Launch-Token"
+
+#: The bridge's launch-token refusal, keyed by the status it answers with: 403
+#: when a token is configured and the request carried none (or a wrong one),
+#: 503 when no token is configured at all.
+_TOKEN_REFUSAL_CODE_BY_STATUS = {403: "launch_token_invalid", 503: "launch_token_required"}
 
 #: The sidecar is gated by WebAuthMiddleware like every interface app, so its
 #: helper authenticates the way any non-browser operator client does: the
@@ -1024,9 +1029,10 @@ def test_2_shipped_preset_arms_the_queue(stack: QueueStack) -> None:
     ``control-assistant`` pins ``bluesky.queue_autostart: true``, and the
     bridge applies it to the manager once the worker environment is open. On
     an armed queue the add is the write that puts a plan on hardware, so it is
-    gated exactly like a Start: ``launch_token_required`` (403 with a token
-    configured, 503 with none), refused BEFORE anything is added -- the
-    negative control below is that the queue is exactly as long as it was.
+    gated exactly like a Start: ``launch_token_invalid`` (403 with a token
+    configured) or ``launch_token_required`` (503 with none), refused BEFORE
+    anything is added -- the negative control below is that the queue is
+    exactly as long as it was.
     """
     queue = _queue_snapshot()
     assert queue["status"].get("queue_autostart_enabled") is True, (
@@ -1039,7 +1045,7 @@ def test_2_shipped_preset_arms_the_queue(stack: QueueStack) -> None:
     assert status in (403, 503), (
         f"an unarmed add to an armed queue must be refused: {status} {body}"
     )
-    assert _code_of(body) == "launch_token_required", (
+    assert _code_of(body) == _TOKEN_REFUSAL_CODE_BY_STATUS[status], (
         f"wrong refusal code on an unarmed add to an armed queue: {body}"
     )
     assert _detail_of(body).get("manager_state") == "idle", (
@@ -1244,20 +1250,21 @@ def test_2_preflight_reports_an_unknown_plan_as_a_reason_not_a_404() -> None:
 
 @pytest.mark.usefixtures("stack")
 def test_3_start_requires_the_launch_token() -> None:
-    """``POST /queue/start`` without the token is refused ``launch_token_required``.
+    """``POST /queue/start`` without the token is refused ``launch_token_invalid``.
 
     Starting a stopped queue is an arming action -- it switches autostart on
     and drains everything waiting -- so the token check runs before any state
-    is touched. 403 (a token is configured, this request did not carry it) and
-    503 (no token configured at all) are both correct refusals; the code is
-    what a client branches on, so it is the code this asserts.
+    is touched. 403 ``launch_token_invalid`` (a token is configured, this
+    request did not carry it) and 503 ``launch_token_required`` (no token
+    configured at all) are both correct refusals; the code is what a client
+    branches on, so it is the code this asserts, paired with its status.
     """
     if _S.run_live is None:
         pytest.skip("stage 2 never enqueued anything to start")
 
     status, body = _post("/queue/start")
     assert status in (403, 503), f"an unarmed start must be refused: {status} {body}"
-    assert _code_of(body) == "launch_token_required", (
+    assert _code_of(body) == _TOKEN_REFUSAL_CODE_BY_STATUS[status], (
         f"wrong refusal code on an unarmed start: {body}"
     )
 
@@ -1563,7 +1570,7 @@ async def test_3_an_unbound_queue_tool_start_names_no_queue_at_all(
     with _recording_bridge_hop() as hop:
         _stage_the_queue_tools(tmp_path, monkeypatch, hop.url, token=None)
         try:
-            with assert_raises_error(error_type="launch_token_required"):
+            with assert_raises_error(error_type="launch_token_invalid"):
                 await get_tool_fn(queue_tools.queue_start)()
         finally:
             # Same blast radius as the row above: an unbound start that was not

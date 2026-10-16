@@ -157,6 +157,7 @@ def test_a_service_claimed_in_the_profile_keeps_only_its_authors_declaration(
         teams_bridge=None,
         bluesky=None,
         bluesky_web=None,
+        trajectory=None,
         virtual_accelerator=None,
         va_archiver=None,
     )

@@ -610,8 +610,8 @@ async def approved(
 POLL_S = 0.2
 
 #: The settle time the deployments here give every measurement step, in
-#: seconds: long enough that a signal sent once a stepped setpoint reads
-#: displaced lands before the next write.
+#: seconds: long enough, against :data:`POLL_S`, that a signal sent once the
+#: stepped setpoints read displaced and still lands before the next write.
 SETTLE_S = 2.0
 
 #: Bound on a run reaching its first write.
@@ -650,10 +650,14 @@ async def signalled_after_first_write(
     """Start a call, signal its sandbox once a watched setpoint reads displaced; the outcome.
 
     The sandbox holds the target's run lock, so its pid is the lock's holder.
-    The signal is sent once that holder is known and a setpoint of
-    ``watched`` reads, over Channel Access, other than it did before the call;
-    the measurement then waits its settle time (:data:`SETTLE_S`) before its
-    next write, so the signal lands after the first write and before the next.
+    The signal is sent once that holder is known and the watched setpoints
+    read, over Channel Access, displaced from where they were before the call
+    and unchanged across two consecutive polls. A step may write several
+    setpoints at once (a whole group), so the first displaced reading only
+    says the step has begun; readings that hold still say every write of the
+    step has landed and the measurement is in its settle time
+    (:data:`SETTLE_S`), so the signal lands after the first step and before
+    the next, with no write of the killed process still in flight.
 
     Returns:
         What the call answered, and the watched setpoints' readings at the signal.
@@ -667,13 +671,15 @@ async def signalled_after_first_write(
     deadline = time.monotonic() + FIRST_WRITE_TIMEOUT_S
     held: dict[str, Any] | None = None
     displaced: dict[str, Any] = {}
+    previous: dict[str, Any] | None = None
     while time.monotonic() < deadline and not task.done():
         held = holder(deployment)
         if held is not None:
             readings = ca_read(deployment.port, list(watched))
             displaced = {a: v for a, v in readings.items() if v != home[a]}
-            if displaced:
+            if displaced and readings == previous:
                 break
+            previous = readings if displaced else None
         await asyncio.sleep(POLL_S)
     assert not task.done(), f"the run ended before its first write: {(await task).text}"
     assert held is not None and displaced, f"no setpoint moved within {FIRST_WRITE_TIMEOUT_S}s"

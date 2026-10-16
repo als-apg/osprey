@@ -14,7 +14,7 @@ in it before ``exec gosu``. The set of directories is named by the render
 (``OSPREY_AUDIT_DIR``, ``OSPREY_CONTROL_CONTEXT_DIR``,
 ``OSPREY_CONTROL_CONTEXT_TREE``, ``OSPREY_FACILITY_BUNDLE_DIR``,
 ``OSPREY_ARIEL_MIRROR_DIR``, ``OSPREY_SIMULATOR_LOG_DIR``,
-``OSPREY_GUARDED_RUN_DIR``)
+``OSPREY_GUARDED_RUN_DIR``, ``OSPREY_TRAJECTORY_STATE_DIR``)
 and the gid is stat'd off the mount, never passed in. Root and system gids are refused, because a mount
 that presents one must not hand the agent's user a privileged group. The join
 grants membership and says only that. Whether a directory actually grants the
@@ -74,6 +74,9 @@ SIMULATOR_LOG_VAR = "OSPREY_SIMULATOR_LOG_DIR"
 #: Guarded runs' per-target locks, shared by every container that
 #: runs the agent, each under its own uid.
 GUARDED_RUN_VAR = "OSPREY_GUARDED_RUN_DIR"
+#: The trajectory service's own state, provisioned setgid on the host and
+#: written by the service after the drop.
+TRAJECTORY_STATE_VAR = "OSPREY_TRAJECTORY_STATE_DIR"
 #: The control-target bind this container WRITES: one owner directory, the
 #: account this service acts for.
 CONTROL_DIR_VAR = "OSPREY_CONTROL_CONTEXT_DIR"
@@ -89,6 +92,7 @@ RENDER_NAMED_VARS = frozenset(
         MIRROR_VAR,
         SIMULATOR_LOG_VAR,
         GUARDED_RUN_VAR,
+        TRAJECTORY_STATE_VAR,
     }
 )
 
@@ -293,6 +297,7 @@ class TestScriptShape:
             CONTROL_TREE_VAR,
             SIMULATOR_LOG_VAR,
             GUARDED_RUN_VAR,
+            TRAJECTORY_STATE_VAR,
         ):
             assert f'"${{{var}:-}}"' in body, var
 
@@ -315,6 +320,7 @@ class TestScriptShape:
             CONTROL_TREE_VAR,
             SIMULATOR_LOG_VAR,
             GUARDED_RUN_VAR,
+            TRAJECTORY_STATE_VAR,
         ):
             assert var in comment, var
         assert "membership" in comment.lower()
@@ -402,6 +408,12 @@ class Sandbox:
         provisioned the same way (setgid 2770, the host's shared group)."""
         return self._mount(self.state / "agent_data" / "control_target" / user, gid)
 
+    def trajectory_state_mount(self, gid: int) -> Path:
+        """The trajectory service's state directory, where compose binds it:
+        ``var/trajectory/`` under the state zone, provisioned setgid like the
+        audit subdir."""
+        return self._mount(self.state / "trajectory", gid)
+
     def control_tree_mount(self, gid: int, name: str = "control-tree") -> Path:
         """The whole control-target tree, bound READ-ONLY at a path outside
         ``var/`` — never over this container's own state dir, because the
@@ -429,6 +441,7 @@ class Sandbox:
         control_tree: Path | str | None = None,
         bundle_dir: Path | str | None = None,
         mirror_dir: Path | str | None = None,
+        trajectory_state_dir: Path | str | None = None,
         groupadd_rc: int = 0,
         usermod_rc: int = 0,
         stat_rc: int | None = None,
@@ -516,6 +529,8 @@ class Sandbox:
             env[BUNDLE_VAR] = str(bundle_dir)
         if mirror_dir is not None:
             env[MIRROR_VAR] = str(mirror_dir)
+        if trajectory_state_dir is not None:
+            env[TRAJECTORY_STATE_VAR] = str(trajectory_state_dir)
 
         command = [
             "/bin/sh",
@@ -843,6 +858,19 @@ class TestTheGroupJoin:
             "usermod osprey-mount-3000 osprey",
             "usermod osprey-mount-4000 osprey",
         ]
+
+    def test_the_trajectory_state_mount_is_joined_and_probed(self, sandbox: Sandbox):
+        """The trajectory service writes ``var/trajectory/`` after the drop, so
+        it reaches the host-provisioned directory through its group, and the
+        probe asks whether that grants the write it needs."""
+        state = sandbox.trajectory_state_mount(gid=5000)
+
+        run = sandbox.run(trajectory_state_dir=state)
+
+        assert run.returncode == 0, run.stderr
+        assert _groupadds(run) == ["groupadd 5000 osprey-mount-5000"]
+        assert _usermods(run) == ["usermod osprey-mount-5000 osprey"]
+        assert any(line.endswith(f"-w {state}") for line in _probes(run)), run.group_ops
 
     def test_one_entry_per_distinct_gid(self, sandbox: Sandbox):
         """The audit subdir and the bundle usually share the host group; the
@@ -1707,6 +1735,32 @@ class TestTheOwnershipSweep:
         )
 
         assert "-prune" not in run.find_args, run.find_args
+
+    def test_the_trajectory_state_directory_is_pruned_and_never_traversed(self, sandbox: Sandbox):
+        """``var/trajectory/`` lives under the state zone, so without its prune
+        root would chown the host directory on every start and drop the setgid
+        group the service reaches it through."""
+        state = sandbox.trajectory_state_mount(gid=3000)
+        record = state / "session.json"
+        record.write_text("{}\n")
+        elsewhere = sandbox.state / "state.json"
+        elsewhere.write_text("{}")
+
+        run = sandbox.run(trajectory_state_dir=state)
+
+        assert f"-path {state} -prune -o" in run.find_args, run.find_args
+        assert str(elsewhere) in run.visited, run.visited
+        assert str(record) not in run.visited, "the sweep walked into the trajectory state"
+
+    def test_without_the_prune_the_sweep_would_reach_the_trajectory_state(self, sandbox: Sandbox):
+        """Non-vacuity for the test above."""
+        state = sandbox.trajectory_state_mount(gid=3000)
+        record = state / "session.json"
+        record.write_text("{}\n")
+
+        run = sandbox.run()
+
+        assert str(record) in run.visited, run.visited
 
     def test_one_missing_bind_does_not_drop_the_other_prunes(self, sandbox: Sandbox):
         """The prunes are independent clauses. A deployment with no tree bind

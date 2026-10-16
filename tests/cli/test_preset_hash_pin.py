@@ -287,27 +287,31 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # and the readonly, readwrite and admin children inherit it. The knowledge
     # and logbook children exclude the skill, so their resolved content and
     # their digests stand still, as do the other three presets.
+    # The fortieth move, and control-assistant's family alone: the root preset
+    # gains a `trajectory:` block on the host network, so a rebuilt project
+    # deploys the trajectory service and its panel entry. The five `extends`
+    # children inherit the block; the other three presets stand still.
     "ariel-standalone": ("sha256:31c1eace09974cac6b8dbfc744685b7d8e6f5b9cd58431b04659c79c93d3bb23"),
     "channel-finder-standalone": (
         "sha256:8503c046ea3c8a9ef1e3504e68853a5465556d65ec02c4ef790d3a3db32e4763"
     ),
     "control-assistant": (
-        "sha256:e615d14b09d1ea8ed366a9880baa5a3c6be4d6b7b29beb7a99c0a8ffb0a58d9a"
+        "sha256:9f29dd2f0117b5544242e3c72a0c65d37ab946df198946755d0edca90d2b52eb"
     ),
     "control-assistant-admin": (
-        "sha256:8c5cf3ed6676cf73074b9fdecf59d771d49cb83daf96922578be1194fda9941c"
+        "sha256:6871ccce503e11ff71c21266476bf39b6f01cfb73a23192a40f20871663c88f5"
     ),
     "control-assistant-knowledge": (
-        "sha256:693dc0a5b3b38ace335e6bb5ec1097aa4ca2657ab105a6e9ff9806a85a234400"
+        "sha256:b5ba459c6bad19185bafed559fff18038473efb2319ee6954ec03a1e09ec31d2"
     ),
     "control-assistant-logbook": (
-        "sha256:68773c2d0b41b2fba1135beb02325923e1cb0bc7fd2e177315607599d3364376"
+        "sha256:e59da0c8abe3303afdf6d2a1aed8af9a793e586c201aada30382354f6fae1ecc"
     ),
     "control-assistant-readonly": (
-        "sha256:90f8b717904a94380ef3da036264288e9ac4e507265934ea63bbcb8cadd9dafe"
+        "sha256:c0c14991a35fabd39a4e1456193a7297328a9b328bc22731d8267e790a8bdc95"
     ),
     "control-assistant-readwrite": (
-        "sha256:f0adcad57b48e7f020497e79231035b9364160c9bfa79cf03c061534f431972a"
+        "sha256:a4a1693e5c62492c28afeea2e68a539d5ab7968ec7f59d8544d4c709756c8f9a"
     ),
     "hello-world": ("sha256:274f48f804eea7f86fb14d30673e9935cf325bd5236f9de2361d4a07a34c275d"),
 }

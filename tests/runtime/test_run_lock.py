@@ -25,7 +25,9 @@ import osprey.runtime
 import osprey.runtime.guarded_run as guarded_run
 from osprey.runtime import ENV_CONTROL_TARGET
 from osprey.runtime.guarded_run import (
+    ENV_CONTROL_IDENTITY,
     LOCK_FILE_NAME,
+    ActionContext,
     GuardedRunDirError,
     OspreyRunBusy,
     OspreyWriteRefused,
@@ -48,6 +50,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(root)
     monkeypatch.setenv(ENV_CONTROL_TARGET, "live")
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+    monkeypatch.delenv(ENV_CONTROL_IDENTITY, raising=False)
     return root
 
 
@@ -242,7 +245,13 @@ def test_a_join_inside_the_lock_runs_under_it_and_releases_nothing() -> None:
             assert joined == directory
             assert osprey.runtime._run_state.STATE.hold is hold
         assert osprey.runtime._run_state.STATE.hold is hold, "a join releases nothing"
-        assert _holder(directory) == {"pid": os.getpid(), "started": hold.started}
+        assert _holder(directory) == {
+            "pid": os.getpid(),
+            "started": hold.started,
+            "owner": None,
+            "target": "live",
+            "identity": None,
+        }
 
     assert osprey.runtime._run_state.STATE.hold is None
     with lock(None, join=True):
@@ -257,6 +266,187 @@ def test_a_join_on_another_target_is_refused() -> None:
         ):
             with lock("va", join=True):
                 pytest.fail("a join on another target never runs")
+
+
+#: The context of a run on ``live`` for the account ``alice``.
+ALICE_LIVE = ActionContext(target="live", owner="alice", approved_target="live")
+
+
+def _hold() -> Any:
+    return osprey.runtime._run_state.STATE.hold
+
+
+def test_the_hold_keeps_the_context_and_the_record_names_owner_target_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(ENV_CONTROL_IDENTITY, "osprey-trajectory")
+
+    with lock(None, context=ALICE_LIVE) as directory:
+        assert _hold().context is ALICE_LIVE
+        holder = _holder(directory)
+        assert holder == {
+            "pid": os.getpid(),
+            "started": _hold().started,
+            "owner": "alice",
+            "target": "live",
+            "identity": "osprey-trajectory",
+        }
+
+    assert _holder(directory) is None
+
+
+def test_a_lock_without_a_context_records_nobody() -> None:
+    with lock("live") as directory:
+        assert _hold().context is None
+        holder = _holder(directory)
+        assert holder is not None
+        assert (holder["owner"], holder["target"], holder["identity"]) == (None, "live", None)
+
+
+@pytest.mark.parametrize(
+    "context",
+    [
+        ActionContext(target="va", owner="alice", approved_target="live"),
+        ActionContext(target="live", owner="alice", approved_target="va"),
+        ActionContext(target="va", owner="alice", approved_target="va"),
+    ],
+    ids=["target", "approved_target", "both"],
+)
+def test_a_context_for_another_target_is_refused_before_anything_opens(
+    repo: Path, context: ActionContext
+) -> None:
+    with pytest.raises(RuntimeError, match="cannot hold a context"):
+        with lock("live", context=context):
+            pytest.fail("a run under a context for another target never starts")
+
+    assert not (repo / "var").exists(), "nothing was opened"
+    assert _hold() is None
+
+
+def test_a_context_on_the_baseline_stand_in_matches_the_resolved_name() -> None:
+    with lock("baseline", context=ALICE_LIVE):
+        assert _hold().context is ALICE_LIVE
+
+
+def test_a_join_without_a_context_runs_under_the_held_one() -> None:
+    with lock("live", context=ALICE_LIVE):
+        hold = _hold()
+        with lock(None, join=True):
+            assert _hold() is hold
+            assert _hold().context is ALICE_LIVE
+        assert _hold() is hold
+
+
+def test_a_join_with_the_same_context_runs_under_the_hold() -> None:
+    with lock("live", context=ALICE_LIVE):
+        hold = _hold()
+        same = ActionContext(target="live", owner="alice", approved_target="live")
+        with lock("live", join=True, context=same):
+            assert _hold() is hold
+
+
+@pytest.mark.parametrize(
+    ("held", "joining"),
+    [
+        (ALICE_LIVE, ActionContext(target="live", owner="bob", approved_target="live")),
+        (ALICE_LIVE, ActionContext(target="live", owner=None, approved_target="live")),
+        (None, ALICE_LIVE),
+    ],
+    ids=["other-owner", "no-owner", "held-without-context"],
+)
+def test_a_join_with_a_different_context_raises(
+    held: ActionContext | None, joining: ActionContext
+) -> None:
+    with lock("live", context=held):
+        hold = _hold()
+        with pytest.raises(RuntimeError, match="under another context"):
+            with lock("live", join=True, context=joining):
+                pytest.fail("a join under another context never runs")
+        assert _hold() is hold, "a refused join releases nothing"
+
+
+def test_a_join_with_a_context_and_no_hold_takes_the_lock_under_it() -> None:
+    with lock("live", join=True, context=ALICE_LIVE) as directory:
+        assert _hold().context is ALICE_LIVE
+        assert _holder(directory)["owner"] == "alice"
+    assert _hold() is None
+
+
+def test_a_busy_run_names_the_holders_owner_target_and_identity(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(ENV_CONTROL_IDENTITY, "osprey-trajectory")
+    child = textwrap.dedent(
+        """
+        import json, sys
+        from osprey.runtime.guarded_run import OspreyRunBusy, lock
+
+        try:
+            with lock("live"):
+                pass
+        except OspreyRunBusy as exc:
+            print(json.dumps([exc.pid, exc.owner, exc.target, exc.identity, str(exc)]))
+            sys.exit(3)
+        """
+    )
+    env = {**os.environ, ENV_CONTROL_IDENTITY: "someone-else"}
+
+    with lock("live", context=ALICE_LIVE):
+        busy = subprocess.run(
+            [sys.executable, "-c", child],
+            cwd=repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=CHILD_TIMEOUT_S,
+        )
+
+    assert busy.returncode == 3, busy.stderr
+    pid, owner, target, identity, message = json.loads(busy.stdout)
+    assert (pid, owner, target, identity) == (os.getpid(), "alice", "live", "osprey-trajectory")
+    assert "owner alice, target live, identity osprey-trajectory" in message
+
+
+def test_a_busy_run_in_process_names_the_holder() -> None:
+    with lock("live", context=ALICE_LIVE):
+        with pytest.raises(OspreyRunBusy) as caught:
+            with lock("live"):
+                pytest.fail("a busy run never starts")
+
+    assert (caught.value.owner, caught.value.target, caught.value.identity) == (
+        "alice",
+        "live",
+        None,
+    )
+    assert "identity unknown" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("record", "expected"),
+    [
+        ({"pid": 7, "started": "s"}, (7, "s", None, None, None)),
+        (
+            {"pid": 7, "started": "s", "owner": 3, "target": ["live"], "identity": True},
+            (7, "s", None, None, None),
+        ),
+        (
+            {"pid": 7, "started": "s", "owner": "o", "target": "va", "identity": "i"},
+            (7, "s", "o", "va", "i"),
+        ),
+        ([1, 2], (None, None, None, None, None)),
+    ],
+    ids=["old-record", "wrong-types", "full", "not-a-dict"],
+)
+def test_the_holder_record_reads_unknown_fields_as_none(
+    tmp_path: Path, record: Any, expected: tuple[Any, ...]
+) -> None:
+    path = tmp_path / "run.lock"
+    path.write_text(json.dumps(record), encoding="utf-8")
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        assert guarded_run._read_holder(fd) == expected
+    finally:
+        os.close(fd)
 
 
 def test_the_target_directory_holds_only_the_lock_after_a_run() -> None:
@@ -332,9 +522,9 @@ _FORK_DURING = textwrap.dedent(
     if STEP == "write_holder":
         write_holder = guarded_run._write_holder
 
-        def blocking_write_holder(fd):
+        def blocking_write_holder(fd, *args):
             wait_here()
-            return write_holder(fd)
+            return write_holder(fd, *args)
 
         guarded_run._write_holder = blocking_write_holder
     elif STEP == "flock":

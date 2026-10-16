@@ -1030,7 +1030,7 @@ export function describeProgress(progress) {
  * the remedy (the
  * `osprey set config.control_system.connector.virtual_accelerator.serving=served`
  * flip command for a deployment serving the simulator in process, which
- * arming header is missing on `launch_token_required`). Rewording it here
+ * arming header is missing on `launch_token_invalid`). Rewording it here
  * would put a second, drifting copy of the bridge's policy in the panel.
  *
  * Nothing reads a top-level `code`: the queue relay hands the bridge's

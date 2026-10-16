@@ -1098,6 +1098,40 @@ process that started the server; ``~`` expands to the home directory. The
 directory is created on the first capture. The key is read once per MCP
 server process, so a change lands after ``osprey build`` and a restart.
 
+.. _config-trajectory:
+
+The trajectory service
+----------------------
+
+A profile's ``trajectory:`` block deploys the trajectory service and its
+TRAJECTORY tab; the block's presence is the switch. The build writes the
+service's block into ``config.yml`` from it, with a port from this deployment's
+port block, and these are the keys a profile may set beside it:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Key
+     - Meaning
+   * - ``services.trajectory.target``
+     - The control target the service drives. Unset, the deployment's
+       baseline target.
+   * - ``services.trajectory.model``
+     - Which model's trajectory slots the service commands. Needed only when
+       the target serves more than one model.
+   * - ``services.trajectory.network``
+     - The network axis, ``bridge`` unless set. A target that speaks Channel
+       Access needs ``host``, and the build refuses it on the bridge.
+   * - ``services.trajectory.bind``
+     - The address the service binds. Unset, loopback under ``network: host``
+       and every interface on the compose bridge.
+   * - ``services.trajectory.image``
+     - The image it runs; see :ref:`deployment-image-overrides`.
+
+Who may hold the service, and how each request is tied to the person it acts
+for, is in :doc:`/architecture/safety-chain`.
+
 .. _config-deployment:
 
 Deployment — service images and ``${VAR}`` interpolation
@@ -1163,6 +1197,10 @@ default. One row per image:
      - ``OSPREY_TEAMS_BRIDGE_IMAGE``
      - ``services.teams_bridge.image``
      - ``<project>-teams-bridge``
+   * - trajectory
+     - ``OSPREY_WORKER_IMAGE``
+     - ``services.trajectory.image``
+     - ``<project>``
    * - ariel_sync
      - ``OSPREY_WORKER_IMAGE``
      - ``services.ariel_sync.image``
@@ -1208,9 +1246,9 @@ row is **built by OSPREY** from your project, and its default reference is
 assembled rather than fixed: a project name, a per-service suffix, and the two
 axes below.
 
-``dispatch_worker``, ``ariel_sync`` and ``archive`` share one row value on
-purpose: all three run the bare project image, so all three read
-``OSPREY_WORKER_IMAGE``. Set that variable and all three services move to the
+``dispatch_worker``, ``trajectory``, ``ariel_sync`` and ``archive`` share one
+row value on purpose: each runs the bare project image, so each reads
+``OSPREY_WORKER_IMAGE``. Set that variable and every one of them moves to the
 image you name.
 
 .. _deployment-image-axes:
@@ -1224,7 +1262,7 @@ An OSPREY-built default is always spelled the same way::
 
 Two stack-wide settings supply the ends of that name, so an entire deployment
 can be moved to a registry — or to a different tag — without touching any of
-the sixteen rows above:
+the rows above:
 
 .. list-table::
    :header-rows: 1

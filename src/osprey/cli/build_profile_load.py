@@ -66,6 +66,7 @@ from .build_profile_schema import (
     ProfileProvenance,
     ServiceDef,
     TeamsBridgeProfileConfig,
+    TrajectoryConfig,
     VAConfig,
 )
 
@@ -209,6 +210,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "bluesky",
         "virtual_accelerator",
         "bluesky_web",
+        "trajectory",
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
@@ -261,6 +263,13 @@ _KNOWN_DISPATCH_KEYS = frozenset(f.name for f in fields(DispatchConfig))
 # and a session meant for the soft IOC runs against the same lane the operator
 # was already on.
 _KNOWN_VA_KEYS = frozenset(f.name for f in fields(VAConfig))
+
+
+# Keys recognized inside the ``trajectory:`` block, derived from its dataclass
+# like the sets above. The set carries no ``enabled`` and no ``port``: the
+# block's presence is the switch, and the port is the layout's ``trajectory``
+# slot, so either spelling is refused by name rather than silently ignored.
+_KNOWN_TRAJECTORY_KEYS = frozenset(f.name for f in fields(TrajectoryConfig))
 
 
 def _profile_port_base(raw: dict[str, Any]) -> int:
@@ -1324,6 +1333,21 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             port=bluesky_web_raw.get("port", default_port("bluesky_web", base=port_base)),
         )
 
+    trajectory_raw = raw.get("trajectory")
+    trajectory = None
+    if trajectory_raw is not None:
+        if not isinstance(trajectory_raw, dict):
+            raise BuildProfileError("Profile 'trajectory' must be a mapping")
+        _reject_unknown_block_keys(trajectory_raw, _KNOWN_TRAJECTORY_KEYS, "trajectory")
+        # Shapes are checked by BuildProfile.validate, which reports every
+        # problem at once; the parser carries the values as authored.
+        trajectory = TrajectoryConfig(
+            target=trajectory_raw.get("target"),
+            model=trajectory_raw.get("model"),
+            network=trajectory_raw.get("network", TrajectoryConfig.network),
+            bind=trajectory_raw.get("bind"),
+        )
+
     nextcloud_bridge_raw = raw.get("nextcloud_bridge")
     nextcloud_bridge = None
     if nextcloud_bridge_raw is not None:
@@ -1445,6 +1469,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         bluesky=bluesky,
         virtual_accelerator=virtual_accelerator,
         bluesky_web=bluesky_web,
+        trajectory=trajectory,
         nextcloud_bridge=nextcloud_bridge,
         gchat_bridge=gchat_bridge,
         teams_bridge=teams_bridge,

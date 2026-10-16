@@ -1,0 +1,158 @@
+{#- This file's RENDER is pinned byte for byte by the suite below. Any
+    edit — a reworded comment included — reddens its golden until it is
+    regenerated in the same change:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+-#}
+{#- The network axis — this service's network membership, its published port
+    and the file-level `networks:` stanza that matches them — is rendered by the
+    shared macros, so this service states its topology the way every other
+    service template does. -#}
+{%- import "services/_network_axis.j2" as net -%}
+{#- The env passthrough axis — the host variables the service block's `env:`
+    key names — rendered by the shared macro, as every service template hands a
+    variable to its container. With none declared it emits nothing. -#}
+{%- import "services/_env_axis.j2" as hostenv -%}
+{#- The service's own block, its axis and its port, read once for the whole
+    file. Every read takes a default: a deployment that selects the service
+    without authoring its block hands this file an empty mapping. -#}
+{%- set svc = services.trajectory | default({}, true) -%}
+{%- set on_host_network = (svc.network | default('bridge', true)) == 'host' -%}
+{%- set port = svc.port | default(osprey_ports.trajectory, true) -%}
+{%- set project_dir = '/app/' ~ osprey_labels.project_name -%}
+# The trajectory service runs the full PROJECT image (<project>:local) that
+# `osprey up` builds from the project root — the image the web terminal and the
+# dispatch worker run — and overrides only `command:` to start the service.
+# OSPREY_WORKER_IMAGE overrides with a prebuilt/published image.
+
+services:
+  trajectory:
+    image: ${OSPREY_WORKER_IMAGE:-{{ services.trajectory.image | default(osprey_images.worker) }}}
+    # NO build: block, for the dispatch worker's reason: the project image is
+    # built once by `osprey up` before `docker compose up` runs, and a second
+    # `build:` naming the same tag would race that sole builder.
+    #
+    # container_name is a HOST-GLOBAL docker identifier, namespaced per project
+    # so two OSPREY projects can deploy the service on one host.
+    container_name: {{ osprey_labels.project_name }}-trajectory
+    # The service reads its port from `services.trajectory.port` in the config
+    # mounted below, and the address it binds from TRAJECTORY_BIND.
+    command: ["python", "-m", "osprey.services.trajectory"]
+    restart: unless-stopped
+{#- Published ports, suppressed under `host`: the service then binds the host's
+    own namespace directly and there is no port map left to publish. -#}
+{{- net.ports(svc, entries=[
+      (deployment.bind_address | default('127.0.0.1')) ~ ':' ~ port ~ ':' ~ port
+    ]) }}
+    environment:
+      OSPREY_PROJECT_DIR: {{ project_dir }}
+{#- On the compose network the server binds every interface: the only addresses
+    that reach it are that network's own, and the published port decides host
+    reachability. On the HOST network every interface means every interface the
+    machine has, so the default narrows to loopback, and reaching the service
+    from another machine becomes a deliberate `bind:` on its config block. #}
+      TRAJECTORY_BIND: {{ svc.bind | default('127.0.0.1' if on_host_network else '0.0.0.0', true) }}
+      # The agent door's credential. No :-default: an unset token stays EMPTY,
+      # and the door refuses every agent request rather than accepting a
+      # guessable value. `osprey up` mints it into the project .env.
+      TRAJECTORY_LAUNCH_TOKEN: ${TRAJECTORY_LAUNCH_TOKEN}
+      # The operator credential for this service's own web gate. No :-default
+      # for the launch token's reason; `osprey up` mints it into the project
+      # .env. A per-user terminal proxies the panel here with ITS OWN secret,
+      # admitted through the roster grant just below.
+      OSPREY_TERMINAL_SECRET: ${OSPREY_TERMINAL_SECRET}
+{%- if trajectory_panel_secret_env_vars | default([]) %}
+      # THE ROSTER GRANT. Each entitled terminal user's secret variable is
+      # listed, so this gate admits any of them beside the deployment-wide
+      # secret above and names the operator behind a request by the one that
+      # matched. The flag is what makes the gate ACCEPT roster variables:
+      # every process that loads the deploy .env sees them all, and only the
+      # services granted them may treat them as operators.
+      OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: "1"
+{#- An entry with an alias interpolates that variable instead of its own: in
+    the single-user shape the one entry is the deployment-wide secret itself,
+    listed under the build account's name so the gate names that account. #}
+{%- set aliases = trajectory_panel_secret_aliases | default({}, true) %}
+{%- for var in trajectory_panel_secret_env_vars %}
+{%- if var in aliases %}
+      {{ var }}: ${{ "{" }}{{ aliases[var] }}}
+{%- else %}
+      {{ var }}: ${{ "{" }}{{ var }}:-}
+{%- endif %}
+{%- endfor %}
+      # WHOSE each of those secrets is, as `<SUFFIX>=<username>` pairs. Not a
+      # secret and no interpolation: the usernames are already in the roster.
+      OSPREY_TERMINAL_ROSTER_OWNERS: "{{ trajectory_panel_roster_owners | default('') }}"
+{%- endif %}
+      # Marks the container shape for the web gate: an empty secret then
+      # refuses startup naming the variable, instead of minting a value that
+      # is announced only to the container log and reachable by nobody.
+      OSPREY_TERMINAL_BIND_HOST: "0.0.0.0"
+      # WHO this service's audit records are written as, and WHERE: its compose
+      # service key, under its own audit subdirectory mounted below. Also the
+      # contract this file offers the image's entrypoint, whose root phase joins
+      # the group of each directory the render names before dropping privileges.
+      OSPREY_AUDIT_IDENTITY: trajectory
+      OSPREY_AUDIT_DIR: {{ osprey_container_audit_dir }}/trajectory
+      # WHO this service is to the control system. The entrypoint's root phase
+      # renames the image's `osprey` account to this name, using the module
+      # mounted read-only below, before it drops privileges.
+      OSPREY_CONTROL_IDENTITY: osprey-trajectory
+      OSPREY_CONTROL_IDENTITY_MODULE: {{ control_identity_container_path }}
+      # WHERE the service reads the control-context tree, mounted read-only
+      # below: the owner of a request may have been narrowed to another machine
+      # by their terminal, and this is the only place that is visible from here.
+      OSPREY_CONTROL_CONTEXT_TREE: {{ osprey_container_control_tree_dir }}
+      # WHERE the service takes its target's guarded-run lock, mounted below and
+      # shared with every other container that runs the agent, so a write here
+      # contends for the same lock as theirs.
+      OSPREY_GUARDED_RUN_DIR: {{ osprey_guarded_run_mount.target }}
+      # WHERE the service keeps its own state, mounted read-write below.
+      OSPREY_TRAJECTORY_STATE_DIR: {{ osprey_trajectory_state_mount.target }}
+      # The STAGED config bind-mounted below, not the copy baked into the
+      # image, named for both of its readers: the framework's config loader
+      # reads OSPREY_CONFIG, the connector's limits resolution CONFIG_FILE.
+      CONFIG_FILE: {{ project_dir }}/build/config.yml
+      OSPREY_CONFIG: {{ project_dir }}/build/config.yml
+      TZ: {{ system.timezone }}
+{{- hostenv.passthrough(svc) }}
+    # Bind-mount sources are relative to the pinned compose project directory,
+    # which is the deployment REPO ROOT.
+    volumes:
+      # The staged runtime config overlays the config.yml baked into the image.
+      - ./build/services/trajectory/config.yml:{{ project_dir }}/build/config.yml:ro
+      # This service's audit subdirectory, and only its own: the isolation is
+      # the mount. Provisioned host-side before the mount is created.
+      - {{ osprey_audit_mount_source }}/trajectory:{{ osprey_container_audit_dir }}/trajectory
+      # The control-context tree, READ-ONLY and WHOLE: the owner arrives with
+      # the request, so a mount narrowed to one identity would answer for
+      # nobody, and nothing here may edit the narrowing that judges its writes.
+      - {{ osprey_control_tree_mount_source }}:{{ osprey_container_control_tree_dir }}:ro
+      # Guarded runs' locks, read-write: one directory per control target,
+      # provisioned setgid and group-writable on the host before compose runs.
+      - {{ osprey_guarded_run_mount.source }}:{{ osprey_guarded_run_mount.target }}
+      # The service's state directory, read-write.
+      - {{ osprey_trajectory_state_mount.source }}:{{ osprey_trajectory_state_mount.target }}
+      # The control-identity module, staged into this build context byte for
+      # byte from the packaged source. Read-only: the entrypoint runs it as root.
+      - ./build/services/trajectory/control_identity.py:{{ control_identity_container_path }}:ro
+{#- The channel-limits database, only when the target arms writes and the
+    deployment has one to mount: a read-only service never opens it, and a
+    deployment with no database is handed no mount to spell. The target is
+    where the connector in THIS image opens it, beside the mounted config. #}
+{%- if svc.writes_enabled and osprey_project_limits_mount is defined %}
+      - {{ osprey_project_limits_mount.source }}:{{ osprey_project_limits_mount.target }}:ro
+{%- endif %}
+{{- net.network(svc) }}
+{#- The probe runs INSIDE this container, so `localhost` is right in both modes
+    — its own loopback on the compose bridge, the host's under `host`. #}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ port }}/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+{# A deliberate blank line precedes the file-level stanza, so this call carries
+   no left-trim marker: the macro supplies the separating newline, and under
+   `host` — where no service in the file joins a network — nothing follows. -#}
+{{ net.network_declaration(svc) }}

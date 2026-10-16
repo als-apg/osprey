@@ -94,9 +94,11 @@ from osprey.deployment.qmd_service import PORT_CONFIG_KEY as QMD_PORT_CONFIG_KEY
 from osprey.deployment.web_terminals.personas import (
     BLUESKY_PANEL_ID,
     EVENTS_PANEL_ID,
+    TRAJECTORY_PANEL_ID,
     as_dict,
     bluesky_server_enabled,
     config_declares_panel,
+    config_declares_trajectory_panel,
     config_needs_ariel_mirror,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
@@ -115,6 +117,7 @@ __all__ = [
     "REACH_CONTRACTS",
     "SHARED_PATHS",
     "BLUESKY_PANEL_ID",
+    "TRAJECTORY_PANEL_ID",
     "Dial",
     "dotted_get",
     "project_attached_overrides",
@@ -1048,11 +1051,39 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         # The reverse grant — the sidecar is handed each entitled user's own
         # secret — is in the sidecar's OWN compose file (services/bluesky_web,
         # rendered in the services stack), keyed on the same panel declaration
-        # (personas.bluesky_panel_secret_env_vars).
+        # (personas.panel_secret_env_vars).
         # The url IS the endpoint: a profile that pins one for a sidecar it
         # does not deploy has named it.
         names_external=_panel_url_resolves(BLUESKY_PANEL_ID),
         note="the panel proxy dials the sidecar at web.panels.bluesky.url with the user's own secret",
+    ),
+    "trajectory": ReachContract(
+        service="trajectory",
+        consumers=(
+            Consumer(
+                name="TRAJECTORY panel (and the agent's trajectory tools, through its proxy)",
+                switch_key=f"web.panels.{TRAJECTORY_PANEL_ID}",
+                is_on=config_declares_trajectory_panel,
+                resolves=_panel_url_resolves(TRAJECTORY_PANEL_ID),
+                dial=_panel_dial(TRAJECTORY_PANEL_ID),
+            ),
+        ),
+        projected=tuple(
+            ProjectedKey(f"web.panels.{TRAJECTORY_PANEL_ID}.{leaf}", panel=TRAJECTORY_PANEL_ID)
+            for leaf in ("url", "path", "label", "health_endpoint")
+        ),
+        # The terminal holds the launch token, never its agent: the terminal
+        # app takes it out of its own environment at start and injects it on
+        # the proxy hop into the service's agent door. The panel declaration is
+        # the entitlement, the same predicate that hands the service this
+        # user's operator secret (the roster grant in the service's own compose
+        # file), so a terminal that can reach the door can open it.
+        credentials=(CredentialGrant("TRAJECTORY_LAUNCH_TOKEN", config_declares_trajectory_panel),),
+        names_external=_panel_url_resolves(TRAJECTORY_PANEL_ID),
+        note=(
+            "the panel proxy dials the service at web.panels.trajectory.url with "
+            "the user's own secret, and adds the launch token on the agent door"
+        ),
     ),
     "event_dispatcher": ReachContract(
         service="event_dispatcher",

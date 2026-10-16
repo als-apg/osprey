@@ -897,6 +897,50 @@ def bluesky_panel_declared(custom_panels: list[dict] | None) -> bool:
     return any(panel.get("id") == BLUESKY_PANEL_ID for panel in custom_panels or ())
 
 
+#: The panel id the trajectory service is declared under (``web.panels.trajectory``).
+TRAJECTORY_PANEL_ID = "trajectory"
+
+#: The environment variable the deployment hands this terminal the trajectory
+#: service's launch token in.
+TRAJECTORY_LAUNCH_TOKEN_ENV = "TRAJECTORY_LAUNCH_TOKEN"
+
+
+def publish_trajectory_launch_token(app: FastAPI) -> None:
+    """Take the trajectory launch token out of ``os.environ`` and publish it for the proxy.
+
+    The trajectory MCP server reaches the service only through this terminal's
+    panel proxy, and the token is what the service's ``/api/`` requires on that
+    hop. It is held here and nowhere below: an SDK agent child is spawned with
+    ``{**os.environ, **options.env}``, so the strip
+    :mod:`osprey.agent_runner.clean_env` applies to the PTY child does not
+    reach it, and only taking the token out of ``os.environ`` keeps it from the
+    agent. It is popped whether or not anything is published, so a deployment
+    that hands the variable to a terminal that does not declare the panel still
+    hands it to no agent.
+
+    The token is published as the ``trajectory`` panel's own credential on
+    ``app.state.panel_auth_headers`` -- never on the web credentials, which
+    name the operator -- and only when the panel is declared and the token is
+    non-blank; :func:`~osprey.interfaces.web_terminal.routes.proxy._panel_auth_header`
+    injects it on the gate every credential on that hop shares. A blank value
+    is no token: the service refuses an unconfigured caller itself, and a
+    header carrying nothing would only blur that refusal.
+
+    Args:
+        app: The application; ``app.state.custom_panels`` and
+            ``app.state.panel_auth_headers`` must already be set.
+    """
+    from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
+
+    token = os.environ.pop(TRAJECTORY_LAUNCH_TOKEN_ENV, "").strip()
+    declared = any(
+        panel.get("id") == TRAJECTORY_PANEL_ID
+        for panel in getattr(app.state, "custom_panels", None) or ()
+    )
+    if declared and token:
+        app.state.panel_auth_headers[TRAJECTORY_PANEL_ID] = {LAUNCH_TOKEN_HEADER: token}
+
+
 def deployment_bar_context(app: FastAPI) -> dict:
     """This deployment's availability facts, read off ``app.state``.
 
@@ -2727,6 +2771,7 @@ def _create_lifespan(
         # enabled, and a launch that failed adds to neither.
         app.state.sidecars = {}
         app.state.panel_auth_headers = {}
+        publish_trajectory_launch_token(app)
         # The start outcome the terminal last recorded for each sidecar panel;
         # the panel routes read it, `osprey health` reads the disk copy.
         app.state.sidecar_status = {}

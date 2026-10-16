@@ -100,6 +100,15 @@ guides are the better starting point.
       shot writes into the turn-by-turn buffers, the first-turn response
       files, the model-wide scenario faults and the archived channel set.
 
+   .. grid-item-card:: Trajectory Service Contract
+      :link: trajectory-service
+      :link-type: doc
+      :shadow: md
+
+      The routes of the trajectory service's panel and agent doors, the
+      session they open, take over and release, the state and health
+      replies, and every refusal code.
+
 .. toctree::
    :hidden:
 
@@ -113,3 +122,4 @@ guides are the better starting point.
    audit-trail
    bridge-dispatch
    trajectory-model
+   trajectory-service

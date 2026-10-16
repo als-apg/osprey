@@ -10114,3 +10114,136 @@ def test_the_release_gate_stages_every_member_wheel__mutation_whole_dist(tmp_pat
     )
     with pytest.raises(AssertionError, match="wrong sibling set"):
         _assert_release_stages_every_member_wheel(mutated, tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# trajectory-deploy-e2e: the trajectory service's two doors, deployed
+# ---------------------------------------------------------------------------
+
+TRAJECTORY_JOB = "trajectory-deploy-e2e"
+TRAJECTORY_TEST_FILE = "tests/e2e/test_trajectory_deploy.py"
+TRAJECTORY_RUN_STEP = "Run trajectory deploy E2E"
+TRAJECTORY_SKIP_GATE_STEP = "Fail the lane on any skipped test"
+
+
+def test_trajectory_job_exists(workflow: dict[str, Any]) -> None:
+    """The shared e2e lane ignores the module, so this job is the only place
+    the deployed service's doors are ever exercised."""
+    assert TRAJECTORY_JOB in _jobs(workflow)
+    run = _find_named_step(workflow, TRAJECTORY_JOB, TRAJECTORY_RUN_STEP)["run"]
+    assert TRAJECTORY_TEST_FILE in run, f"'{TRAJECTORY_RUN_STEP}' must run {TRAJECTORY_TEST_FILE}"
+
+
+def test_trajectory_job_exists__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][TRAJECTORY_JOB]
+    with pytest.raises(AssertionError):
+        test_trajectory_job_exists(mutated)
+
+
+def test_trajectory_job_exists__mutation_run_step_names_another_module() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, TRAJECTORY_JOB, TRAJECTORY_RUN_STEP)
+    step["run"] = step["run"].replace(TRAJECTORY_TEST_FILE, "tests/e2e/test_other.py")
+    with pytest.raises(AssertionError, match="must run"):
+        test_trajectory_job_exists(mutated)
+
+
+def test_trajectory_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
+    """The module drives the service over raw HTTP and never reaches a model —
+    an LLM secret appearing here would mean the lane's scope silently grew."""
+    assert not _job_declares_secret(workflow, TRAJECTORY_JOB, SECRET_TOKEN)
+
+
+def test_trajectory_job_has_no_llm_secret__mutation_adds_secret() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][TRAJECTORY_JOB]["steps"].append(
+        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
+    )
+    with pytest.raises(AssertionError):
+        assert not _job_declares_secret(mutated, TRAJECTORY_JOB, SECRET_TOKEN)
+
+
+def test_e2e_lane_ignores_trajectory_deploy(workflow: dict[str, Any]) -> None:
+    """The module carries no ``dockerbuild`` marker, so the blanket
+    marker->--ignore guard does not reach it: without this ``--ignore`` its
+    stack would boot a second time inside the shared lane, on the same host
+    ports as its own job."""
+    assert _run_step_ignores_all(workflow, [TRAJECTORY_TEST_FILE]) == []
+
+
+def test_e2e_lane_ignores_trajectory_deploy__mutation_drops_ignore() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], TRAJECTORY_TEST_FILE)
+    assert _run_step_ignores_all(mutated, [ORM_TEST_FILE]) == []  # others survive
+    assert _run_step_ignores_all(mutated, [TRAJECTORY_TEST_FILE]) == [TRAJECTORY_TEST_FILE]
+
+
+def test_all_checks_passed_needs_trajectory_deploy(workflow: dict[str, Any]) -> None:
+    """``needs:`` makes the roll-up wait for the lane; the ``check_pr_lane``
+    line is what turns its result into an exit code. Both halves are pinned."""
+    assert TRAJECTORY_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+    assert f"needs.{TRAJECTORY_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_all_checks_passed_needs_trajectory_deploy__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(TRAJECTORY_JOB)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_trajectory_deploy(mutated)
+
+
+def test_all_checks_passed_needs_trajectory_deploy__mutation_drops_check_pr_lane_line() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if TRAJECTORY_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    assert TRAJECTORY_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_trajectory_deploy(mutated)
+
+
+def test_trajectory_job_fails_on_any_skipped_test(workflow: dict[str, Any]) -> None:
+    """The module's only skip path is "no docker", and this lane exists to have
+    it. pytest exits 0 on an all-skipped run, so the lane reports its skips
+    (``-rs``) and a junit gate fails it on any skip or on an empty selection."""
+    steps = _lane_pytest_steps(workflow, TRAJECTORY_JOB)
+    reports = _lane_junit_reports(workflow, TRAJECTORY_JOB)
+    assert steps, f"'{TRAJECTORY_JOB}' runs no pytest step"
+    assert len(reports) == len(steps), (
+        f"every pytest step in '{TRAJECTORY_JOB}' must write a --junitxml report; got {reports}"
+    )
+    assert all("-rs" in step["run"].split() for step in steps), (
+        f"every pytest step in '{TRAJECTORY_JOB}' must report its skips with -rs"
+    )
+    gate = _find_named_step(workflow, TRAJECTORY_JOB, TRAJECTORY_SKIP_GATE_STEP)["run"]
+    unread = [r for r in reports if r not in gate]
+    assert unread == [], f"'{TRAJECTORY_SKIP_GATE_STEP}' never reads: {unread}"
+    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
+    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+
+
+def test_trajectory_job_fails_on_any_skipped_test__mutation_drops_the_report() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _lane_pytest_steps(mutated, TRAJECTORY_JOB)[0]
+    step["run"] = _JUNIT_RE.sub("", step["run"])
+    with pytest.raises(AssertionError, match="must write a --junitxml report"):
+        test_trajectory_job_fails_on_any_skipped_test(mutated)
+
+
+def test_trajectory_job_fails_on_any_skipped_test__mutation_drops_rs() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _lane_pytest_steps(mutated, TRAJECTORY_JOB)[0]
+    step["run"] = step["run"].replace(" -rs", "")
+    with pytest.raises(AssertionError, match="must report its skips"):
+        test_trajectory_job_fails_on_any_skipped_test(mutated)
+
+
+def test_trajectory_job_fails_on_any_skipped_test__mutation_gate_stops_failing() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, TRAJECTORY_JOB, TRAJECTORY_SKIP_GATE_STEP)
+    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    with pytest.raises(AssertionError, match="must fail the job"):
+        test_trajectory_job_fails_on_any_skipped_test(mutated)

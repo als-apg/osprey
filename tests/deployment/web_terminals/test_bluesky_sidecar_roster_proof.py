@@ -82,7 +82,8 @@ from osprey.deployment.container_lifecycle import (
 )
 from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 from osprey.deployment.web_terminals.personas import (
-    config_declares_bluesky_panel,
+    BLUESKY_PANEL_ID,
+    config_declares_panel,
     resolve_personas,
 )
 from osprey.deployment.web_terminals.provision import _provision_terminal_secrets
@@ -362,10 +363,11 @@ def _entitlements(repo: Path, host_config: dict) -> dict[str, bool]:
         strict=True,
     )
     return {
-        entry["name"]: config_declares_bluesky_panel(
+        entry["name"]: config_declares_panel(
             yaml.safe_load(
                 (repo / "build" / entry["project"] / "config.yml").read_text(encoding="utf-8")
-            )
+            ),
+            BLUESKY_PANEL_ID,
         )
         for entry in entries
     }

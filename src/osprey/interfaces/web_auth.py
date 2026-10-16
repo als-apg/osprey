@@ -11,8 +11,9 @@ its own answer:
 * the **operator secret**, which authorises everything an operator can do;
 * the **panel token**, a deliberately weaker credential for the narrow set of
   panel-arrangement calls in-process companions legitimately make, and for the
-  one entry in that tier which is not arrangement at all — the terminal proxy's
-  hop to the event dispatcher's MCP transport (:data:`PANEL_TIER_ROUTES`);
+  two terminal-proxy hops in that tier which are not arrangement at all — the
+  event dispatcher's MCP transport and the trajectory service's agent door
+  (:data:`PANEL_TIER_ROUTES`);
 * a **browser-session map**, ``{digest of a session id: expiry}``, holding the
   sessions handed out when a browser exchanges a one-time URL token for a
   cookie — served from memory, and kept across a restart by
@@ -637,16 +638,31 @@ class WebCredentials:
         the route table decides which tier a request needs and this method never
         widens it.
 
-        That tier is panel arrangement with one exception:
-        ``GET|POST|DELETE /panel/events/mcp``, the proxy hop to the event
-        dispatcher's MCP transport, so that the agent in a session can fire a
-        dispatch job under that session's own chip. Holding this token is
-        therefore enough to fire a job — but not enough to decide what the job
-        does or whose authority it runs under. The dispatcher's own bearer
-        never leaves the proxy; attribution rests on the owner header minted on
-        that hop — the terminal proxy's ``/panel/events/mcp`` handler — rather
-        than on anything the caller sends; and the job runs under the worker's
-        denylist with the firing user's chip gating every write it attempts.
+        That tier is panel arrangement with two exceptions, both proxy hops
+        the terminal makes on the agent's behalf:
+
+        * ``GET|POST|DELETE /panel/events/mcp``, the hop to the event
+          dispatcher's MCP transport, so that the agent in a session can fire a
+          dispatch job under that session's own chip. Holding this token is
+          therefore enough to fire a job — but not enough to decide what the
+          job does or whose authority it runs under. The dispatcher's own
+          bearer never leaves the proxy; attribution rests on the owner header
+          minted on that hop — the terminal proxy's ``/panel/events/mcp``
+          handler — rather than on anything the caller sends; and the job runs
+          under the worker's denylist with the firing user's chip gating every
+          write it attempts.
+        * the trajectory service's agent door,
+          ``POST|DELETE /panel/trajectory/api/session``,
+          ``POST /panel/trajectory/api/takeover`` and
+          ``GET /panel/trajectory/api/state``. Holding this token is therefore
+          enough to open, take over or release a trajectory session on the
+          terminal's target and to read the session state — but not enough to
+          name whose session it is or to clear the service's own checks. The
+          proxy injects the service's launch token and the terminal's secret on
+          that hop and never hands either back; the service's gate names the
+          owner from that secret, never from the caller; and every write the
+          session starts still passes the service's admission (the owner's
+          chip, the narrowing and the writes posture) and the guarded-run lock.
         """
         return _same_secret(candidate, self.panel_token)
 
@@ -1394,9 +1410,9 @@ class Tier(Enum):
     """
 
     #: The narrow, low-privilege tier: panel arrangement and activity
-    #: reporting, plus the terminal proxy's hop to the event dispatcher's MCP
-    #: transport — the one member of :data:`PANEL_TIER_ROUTES` that fires work
-    #: rather than moving a panel.
+    #: reporting, plus two terminal-proxy hops — to the event dispatcher's MCP
+    #: transport and to the trajectory service's agent door — the members of
+    #: :data:`PANEL_TIER_ROUTES` that fire work rather than move a panel.
     #: Reachable with the panel token *or* with any operator credential.
     PANEL = "panel"
 
@@ -1419,9 +1435,10 @@ class Tier(Enum):
 #: panel-tier everywhere — on an app that has no such route the request clears
 #: the gate and is then answered with a 404 by routing, which grants nothing.
 #:
-#: ``/panel/events/mcp`` is the one entry that is not panel arrangement, and the
-#: one place this tier grants something an operator would recognise as an
-#: action: it is the terminal proxy's hop to the event dispatcher's MCP
+#: Two groups of entries are not panel arrangement, and they are the places this
+#: tier grants something an operator would recognise as an action.
+#:
+#: ``/panel/events/mcp`` is the terminal proxy's hop to the event dispatcher's MCP
 #: transport, panel-tier so that the agent in a session can fire a dispatch job
 #: under that session's own chip. The grant is narrow in every other direction.
 #: The dispatcher's own bearer is stripped from every agent child environment,
@@ -1438,6 +1455,26 @@ class Tier(Enum):
 #: transport is one conversation in three verbs: ``POST``
 #: carries a call, ``GET`` opens the event stream, ``DELETE`` ends the session.
 #: Anything else on that path, a websocket included, is not that client.
+#:
+#: ``/panel/trajectory/api/{session,takeover,state}`` is the terminal proxy's
+#: hop to the trajectory service's agent door — one row per route that door
+#: declares, with the method it declares — panel-tier so that the agent's
+#: trajectory MCP server, which reaches the service only through its own
+#: terminal's proxy, can open, take over and release a session and read its
+#: state. With the panel token alone a caller can therefore claim the
+#: terminal's target for a trajectory session, end that session, or read who
+#: holds it; nothing more. The service's launch token and the terminal's
+#: secret are injected by the proxy on that hop and never passed back out, so
+#: the agent holds neither; the service's own gate names the owner from that
+#: secret, and the proxy drops any owner the caller sends, so the session is
+#: the terminal's owner's and no one else's. Every write the session then
+#: starts is bounded by the service, not by this table: its admission checks
+#: the owner's chip, the narrowing and the writes posture, and the guarded-run
+#: lock serialises it against every other write path on that target. The panel
+#: door of the same service, ``/panel/trajectory/panel/api/*``, and the panel
+#: bundle under ``/panel/trajectory/panel/`` are operator-only: the panel door
+#: is the operator's own browser, and the panel token must never stand in for
+#: that browser.
 #:
 #: What is deliberately *absent* matters as much as what is present:
 #: ``GET /api/panel-focus`` (a real route) and ``POST /api/panel-layout`` (which
@@ -1459,6 +1496,10 @@ PANEL_TIER_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/panel/events/mcp"),
         ("POST", "/panel/events/mcp"),
         ("DELETE", "/panel/events/mcp"),
+        ("POST", "/panel/trajectory/api/session"),
+        ("POST", "/panel/trajectory/api/takeover"),
+        ("DELETE", "/panel/trajectory/api/session"),
+        ("GET", "/panel/trajectory/api/state"),
     }
 )
 

@@ -196,6 +196,7 @@ class TestOperatingBlueskyPlansSkillStructure:
         contract."""
         for code in (
             "launch_token_required",
+            "launch_token_invalid",
             "session_plan_unvalidated",
             "session_plan_not_in_namespace",
             "browse_only_connector",

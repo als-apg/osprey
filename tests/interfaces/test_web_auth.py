@@ -1587,6 +1587,14 @@ _EXPECTED_PANEL_ROUTES = {
     ("GET", "/panel/events/mcp"),
     ("POST", "/panel/events/mcp"),
     ("DELETE", "/panel/events/mcp"),
+    # The proxy hop to the trajectory service's agent door: one row per route
+    # that door declares. The drift against the service's own routes, and the
+    # gate's admit and refusal on this hop, live in
+    # ``test_trajectory_panel_tier.py``.
+    ("POST", "/panel/trajectory/api/session"),
+    ("POST", "/panel/trajectory/api/takeover"),
+    ("DELETE", "/panel/trajectory/api/session"),
+    ("GET", "/panel/trajectory/api/state"),
 }
 
 #: Routes that must stay operator-only. Each is a real route in the tree (see
@@ -1622,6 +1630,20 @@ _EXPECTED_OPERATOR_ROUTES = [
     ("GET", "/api/mcp-servers"),
     ("GET", "/panel/events/"),
     ("POST", "/panel/events/api/thing"),
+    # The trajectory service's panel door and bundle, reached through the same
+    # proxy as its agent door: the operator's own browser, never the panel
+    # token. Near-misses of the agent-door rows fail closed too.
+    ("POST", "/panel/trajectory/panel/api/session"),
+    ("POST", "/panel/trajectory/panel/api/takeover"),
+    ("DELETE", "/panel/trajectory/panel/api/session"),
+    ("GET", "/panel/trajectory/panel/api/state"),
+    ("GET", "/panel/trajectory/panel/"),
+    ("GET", "/panel/trajectory/health"),
+    ("PUT", "/panel/trajectory/api/session"),
+    ("GET", "/panel/trajectory/api/session"),
+    ("POST", "/panel/trajectory/api/state"),
+    ("POST", "/panel/trajectory/api/session/"),
+    ("POST", "/u/alice/panel/trajectory/api/session"),
     # The two panel-scoped static routes in ``routes/proxy.py``. Nothing under
     # ``/panel/`` is exempt from the gate, so both sit at the same tier as every
     # other panel path — the page importing them is one the operator is already

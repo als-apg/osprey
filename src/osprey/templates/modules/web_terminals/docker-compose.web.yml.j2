@@ -1329,6 +1329,22 @@ services:
       - {{ var }}={{ '${' ~ var ~ ':-}' }}
 {%- endfor %}
 {%- endif %}
+{%- if svc.wants_trajectory_token %}
+      {#- The trajectory service's launch token, for a persona that declares the
+         trajectory tab. The consumer is the terminal app in this container,
+         not the agent: the app takes the token out of its own environment at
+         start and adds it on the proxy hop into the service's agent door, so
+         the agent's tools reach that door through this terminal alone.
+
+         Per-user for the same reason as the credentials above: a persona
+         without the tab is not handed a key to the door behind it.
+
+         `${VAR:-}` is resolved by compose from the deploy `.env`, so the secret
+         is never written into this rendered file. The `:-` default keeps compose
+         from warning; an empty value publishes no header, and the door refuses
+         the hop with `launch_token_invalid` — visible, never a half-open door. #}
+      - TRAJECTORY_LAUNCH_TOKEN=${TRAJECTORY_LAUNCH_TOKEN:-}
+{%- endif %}
 {%- if svc.wants_graphdb %}
       {#- The graph store's Neo4j password, for a persona that configures one.
          The consumer is the `graph` MCP server in this container, which resolves

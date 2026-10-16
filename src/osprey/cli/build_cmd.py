@@ -84,6 +84,7 @@ from .build_injectors import (
     _inject_nextcloud_bridge,
     _inject_profile_services,
     _inject_teams_bridge,
+    _inject_trajectory,
     _inject_va,
     _inject_va_archiver,
     _locate_pkg_services,
@@ -112,6 +113,7 @@ from .templates.manager import TemplateManager
 
 if TYPE_CHECKING:
     from osprey.facility.build import FacilityDocument
+    from osprey.facility.views.pyaml import PyamlView
 
     from .build_profile_model import BuildProfile
 
@@ -147,6 +149,7 @@ __all__ = [
     "_inject_nextcloud_bridge",
     "_inject_profile_services",
     "_inject_teams_bridge",
+    "_inject_trajectory",
     "_inject_va",
     "_inject_va_archiver",
     "_locate_pkg_services",
@@ -1323,6 +1326,24 @@ class _SharedRenderInputs(NamedTuple):
     for a single render, which names each view it omits.
     """
 
+    views_built_databases: dict[str, Path] | None = None
+    """View databases this build has already written, by the sha256 of their source.
+
+    Every render pass of a build writes the same view bytes from the same
+    facility file, so a database derived from them is one artifact of the build
+    rather than one per render: the first pass imports it and later passes copy
+    it. ``None`` for a single render, which imports each one it writes.
+    """
+
+    views_pyaml: dict[tuple[Path, str], PyamlView] | None = None
+    """pyAML views this build has already made, by facility directory and model.
+
+    A pyAML view is a function of the facility file and its directory alone,
+    so every render pass of a build writes the same one: the first pass makes
+    it and later passes write it again. ``None`` for a single render, which
+    makes each one it writes.
+    """
+
     runtime_interpreter: str | None = None
     """The interpreter this render's artifacts launch with, when it is KNOWN
     rather than derivable.
@@ -2214,6 +2235,8 @@ def _render_project(
             rendered,
             data_root / "facility",
             omitted_reported=shared.views_omitted_reported,
+            built_databases=shared.views_built_databases,
+            pyaml_views=shared.views_pyaml,
         )
         progress("  ✓ Wrote the facility file and its views")
         _warn_knowledge_links(
@@ -3348,6 +3371,8 @@ def _build_repo(
             model_facts_reported=set(),
             knowledge_links_reported=set(),
             views_omitted_reported=set(),
+            views_built_databases={},
+            views_pyaml={},
             facility=facility,
             facility_sha256=facility_sha256,
             profile_overlays=profile_overlays,
@@ -4117,6 +4142,13 @@ def _inject_services(
     if build_profile.bluesky_web is not None:
         _inject_bluesky_web(build_profile.bluesky_web, project_path)
         injected.append("bluesky web")
+    if build_profile.trajectory is not None:
+        # The base travels with the call: the service takes the layout's
+        # trajectory slot at the base this deployment resolved.
+        _inject_trajectory(
+            build_profile.trajectory, project_path, base=_profile_port_base(build_profile)
+        )
+        injected.append("trajectory")
     if build_profile.virtual_accelerator is not None:
         _inject_va(build_profile.virtual_accelerator, project_path)
         injected.append("virtual accelerator")

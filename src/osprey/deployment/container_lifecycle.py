@@ -201,6 +201,15 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     # refuses startup instead of minting a value nothing outside the container
     # can learn — the mint here is what makes the deployed panel reachable.
     "bluesky_web": ("OSPREY_TERMINAL_SECRET",),
+    # The trajectory service holds two credentials, and either alone leaves a
+    # door shut. The launch token admits the agent door: the calling terminal's
+    # panel proxy injects it on the hop, so the agent process never holds it.
+    # The operator secret is its web gate's, for the sidecar's reason — the
+    # container declares OSPREY_TERMINAL_BIND_HOST, so an empty one refuses
+    # startup — and in a single-user deployment it is also what names the build
+    # account as the owner of a write. A deployment with only this service
+    # still needs both.
+    "trajectory": ("TRAJECTORY_LAUNCH_TOKEN", "OSPREY_TERMINAL_SECRET"),
     "openobserve": ("ZO_ROOT_USER_PASSWORD",),
     # Two identities on one store: the owner ingestion writes with, and the
     # SELECT-only role the agent's raw-SQL path connects as. Both are read by
@@ -2504,7 +2513,7 @@ def _resolve_prebuilt_images(config: dict) -> bool:
 #: (``${OSPREY_WORKER_IMAGE:-<services.<name>.image | default(osprey_images.worker)>}``).
 #: None has a ``build:`` block, so :func:`_build_project_image` is the only thing
 #: that produces the image they run.
-_PROJECT_IMAGE_SERVICES = ("dispatch_worker", "ariel_sync", "archive")
+_PROJECT_IMAGE_SERVICES = ("dispatch_worker", "ariel_sync", "archive", "trajectory")
 
 
 def _service_image_target(config: dict, env: dict, service: str) -> str:

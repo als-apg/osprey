@@ -486,20 +486,22 @@ def test_a_column_half_flipped_is_not_reversed() -> None:
 def test_a_corrector_whose_sweep_has_no_solve_leaves_its_column_out(
     spear3: Path, spear3_blocks: tuple[Block, ...], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The first sweep's solve is refused; every other column is still judged."""
+    """One corrector's sweep has no solve; every other column is still judged."""
     from lume_pyat.exceptions import OrbitSolveError
-    from lume_pyat.simulator import PyATSimulator
 
-    original = PyATSimulator.solve
-    calls = {"count": 0}
+    from osprey.simulation.engines import pyat
 
-    def solve(self: Any) -> Any:
-        calls["count"] += 1
-        if calls["count"] == 1:
-            raise OrbitSolveError("closed orbit solve raised AtError: lost")
-        return original(self)
+    unsolved = spear3_blocks[0].entries[0].actuator_address
+    original = pyat.response_matrix
 
-    monkeypatch.setattr(PyATSimulator, "solve", solve)
+    def response_matrix(deck: Any, wiring: Any, settings: Any, correctors: Any, step: Any) -> Any:
+        if unsolved in correctors:
+            raise OrbitSolveError(
+                f"closed orbit solve raised AtError: lost (while stepping {unsolved})"
+            )
+        return original(deck, wiring, settings, correctors, step)
+
+    monkeypatch.setattr(pyat, "response_matrix", response_matrix)
     facility = _facility(spear3)
     document = build_facility(facility, project_name="scratch")
     model = next(model for model in document["models"] if model["name"] == "StorageRing")
@@ -513,7 +515,6 @@ def test_a_corrector_whose_sweep_has_no_solve_leaves_its_column_out(
             if entry.actuator_address != unsolved
         ]
 
-    unsolved = spear3_blocks[0].entries[0].actuator_address
     assert [block.name for block in blocks] == [block.name for block in spear3_blocks]
     for block, whole in zip(blocks, spear3_blocks, strict=True):
         assert measured(block) == measured(whole, unsolved), block.name
@@ -522,6 +523,32 @@ def test_a_corrector_whose_sweep_has_no_solve_leaves_its_column_out(
         "response check StorageRing: measured BPMx/HCM median ratio "
     )
     assert sum((block.left_out for block in blocks), LeftOut()) == LeftOut(unsolved=2)
+
+
+def test_every_column_of_a_model_is_swept_in_one_engine_call(
+    spear3: Path, spear3_blocks: tuple[Block, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The deck is copied once per model, not once per corrector, and every column still answers."""
+    from osprey.simulation.engines import pyat
+
+    original = pyat.response_matrix
+    swept: list[list[str]] = []
+
+    def response_matrix(deck: Any, wiring: Any, settings: Any, correctors: Any, step: Any) -> Any:
+        swept.append(list(correctors))
+        return original(deck, wiring, settings, correctors, step)
+
+    monkeypatch.setattr(pyat, "response_matrix", response_matrix)
+    facility = _facility(spear3)
+    document = build_facility(facility, project_name="scratch")
+    model = next(model for model in document["models"] if model["name"] == "StorageRing")
+
+    blocks = compare(facility, document, model)
+
+    columns = {entry.actuator_address for block in spear3_blocks for entry in block.entries}
+    assert len(swept) == 1
+    assert set(swept[0]) >= columns > set()
+    assert blocks == spear3_blocks
 
 
 def test_a_corrector_the_engine_refuses_stays_loud(spear3: Path) -> None:

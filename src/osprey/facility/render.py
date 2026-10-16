@@ -19,10 +19,13 @@ import hashlib
 import json
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.facility import FACILITY_FILE
 from osprey.facility.build import FacilityDocument
+
+if TYPE_CHECKING:
+    from osprey.facility.views.pyaml import PyamlView
 
 __all__ = ["FACILITY_FILE", "facility_bytes", "facility_digest", "render_facility_outputs"]
 
@@ -77,6 +80,8 @@ def render_facility_outputs(
     facility_dir: Path,
     *,
     omitted_reported: set[str] | None = None,
+    built_databases: dict[str, Path] | None = None,
+    pyaml_views: dict[tuple[Path, str], PyamlView] | None = None,
 ) -> list[Path]:
     """Write the facility outputs of one render.
 
@@ -90,6 +95,13 @@ def render_facility_outputs(
             written, and the view notes it has printed; one in it is not
             printed again and each one printed is added. ``None`` prints every
             one.
+        built_databases: The view databases this build has already written,
+            keyed by the sha256 of the view bytes each was imported from; a
+            view whose bytes match copies the database, and each one imported
+            is added. ``None`` imports every one.
+        pyaml_views: The pyAML views this build has already made, by facility
+            directory and model; a render reuses one, and each one made is
+            added. ``None`` makes every one.
 
     Each view whose predicate is false is named on stderr, one line each, once
     per build, unless a selector picks it from among its alternatives: a view
@@ -112,6 +124,8 @@ def render_facility_outputs(
         facility_dir=facility_dir,
         served=resolve_served(rendered_config, doc),
         reported=omitted_reported,
+        built_databases=built_databases,
+        pyaml_views=pyaml_views,
     )
     check_served_probes(rendered_config, doc)
     target = render_dir / FACILITY_FILE
