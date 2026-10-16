@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -18,12 +19,18 @@ from osprey.runtime.guarded_run import OspreyWriteRefused as RuntimeOspreyWriteR
 from osprey_connectors.control_system.limits_validator import ChannelLimitsConfig
 from pyaml_cs_osprey import _run
 from pyaml_cs_osprey.catalog import parse_reference
-from pyaml_cs_osprey.device import OspreyDevice
+from pyaml_cs_osprey.device import SETTLE_TIMEOUT_S, OspreyDevice
 from pyaml_cs_osprey.errors import OspreyReadFailed, OspreyWriteFailed, OspreyWriteRefused
 from tests.pyaml_cs_osprey.conftest import FakeRuntime as _Runtime
 from tests.pyaml_cs_osprey.conftest import RunRecord
+from tests.pyaml_cs_osprey.test_settle import Clock, plant_facility
 
 RW = "(QF_001:Cm:rdbk, QF_001:Cm:set)[1/m]"
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> Clock:
+    return Clock.install(monkeypatch)
 
 
 @pytest.fixture
@@ -193,6 +200,48 @@ def test_set_and_wait_confirms(runtime: _Runtime) -> None:
     """set_and_wait() is a confirmed write."""
     _device(RW).set_and_wait(4.0)
     assert runtime.writes == [("QF_001:Cm:set", 4.0, {"confirm": True})]
+
+
+@pytest.mark.usefixtures("in_run")
+def test_set_and_wait_polls_the_pair_within_the_tolerance(
+    runtime: _Runtime, guarded_repo: Path, clock: Clock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stated tolerance makes set_and_wait poll the readback until it is inside it."""
+    plant_facility(guarded_repo, {"QF_001:Cm:set": ("QF_001:Cm:rdbk", 0.02)})
+    polls: list[float] = []
+    read = runtime.read_channels
+
+    def lagging(addresses: Sequence[str], *, timeout: float | None = None) -> list[Any]:
+        if "QF_001:Cm:rdbk" in addresses:
+            polls.append(clock.now)
+            if len(polls) == 3:
+                runtime.values["QF_001:Cm:rdbk"] = 3.99
+        return read(addresses, timeout=timeout)
+
+    monkeypatch.setattr(osprey.runtime, "read_channels", lagging)
+
+    _device(RW).set_and_wait(4.0)
+
+    assert runtime.writes == [("QF_001:Cm:set", 4.0, {"confirm": True})]
+    assert len(polls) == 3
+    assert runtime.calls == ["read_channels", "write_channel"] + ["read_channels"] * 3
+
+
+def test_set_and_wait_fails_closed_when_the_pair_never_settles(
+    runtime: _Runtime, guarded_repo: Path, clock: Clock, in_run: RunRecord
+) -> None:
+    """A readback that never comes within the tolerance fails the write; it stays moved."""
+    plant_facility(guarded_repo, {"QF_001:Cm:set": ("QF_001:Cm:rdbk", 0.02)})
+
+    with pytest.raises(OspreyWriteFailed) as info:
+        _device(RW).set_and_wait(4.0)
+
+    assert info.value.channel_address == "QF_001:Cm:set"
+    assert "QF_001:Cm:rdbk" in info.value.reason
+    assert clock.now >= SETTLE_TIMEOUT_S
+    assert runtime.writes == [("QF_001:Cm:set", 4.0, {"confirm": True})]
+    assert "QF_001:Cm:set" in _run.moved()
+    assert in_run.moved == {"QF_001:Cm:set": 1.5}
 
 
 def test_set_records_the_prior_setpoint(runtime: _Runtime, in_run: RunRecord) -> None:

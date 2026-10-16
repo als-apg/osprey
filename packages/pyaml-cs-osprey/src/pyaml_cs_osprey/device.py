@@ -15,10 +15,18 @@ The recorded value and ``channel_limits`` stay native.
 
 An indexed reference (``ADDR@i``) reads its base address and returns element ``i`` of
 the array value; it is read-only, so every write and range request is refused or open.
+
+A setpoint whose facility record states a ``tolerance`` settles after a
+``set_and_wait``: its readback
+(the record's ``pair``) is polled until it is within the tolerance of the value
+written, and a readback that is not there within :data:`SETTLE_TIMEOUT_S` fails
+the write. A setpoint that states no tolerance is not read back.
 """
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import numpy as np
@@ -26,17 +34,98 @@ from pyaml.common.exception import PyAMLException
 from pyaml.control.deviceaccess import DeviceAccess
 
 import osprey.runtime
-from pyaml_cs_osprey import _run
+from pyaml_cs_osprey import _run, _settle
 from pyaml_cs_osprey._run import OUTSIDE_A_RUN
 from pyaml_cs_osprey.catalog import ChannelReference
 from pyaml_cs_osprey.errors import (
     OspreyReadFailed,
+    OspreyWriteFailed,
     map_read_error,
     map_write_error,
 )
 from pyaml_cs_osprey.units import UnitError, si_unit, to_native, to_si
 
-__all__ = ["OUTSIDE_A_RUN", "OspreyDevice", "indexed_element", "unknown_unit"]
+__all__ = [
+    "OUTSIDE_A_RUN",
+    "SETTLE_TIMEOUT_S",
+    "OspreyDevice",
+    "indexed_element",
+    "settle",
+    "unknown_unit",
+]
+
+#: Seconds a readback has to come within its stated tolerance after a write.
+SETTLE_TIMEOUT_S = 5.0
+
+#: Seconds between two readback polls of one settle.
+_SETTLE_POLL_S = 0.05
+
+#: The settle loop's pause and clock; tests replace them.
+_sleep: Callable[[float], None] = time.sleep
+_clock: Callable[[], float] = time.monotonic
+
+
+def settle(demands: Mapping[str, float]) -> None:
+    """Wait until each setpoint's readback is within its stated tolerance of its demand.
+
+    Every readback is read in one ``read_channels`` call per poll. A setpoint whose
+    facility record states no tolerance is not read.
+
+    Args:
+        demands: Setpoint address to the value written, in its native unit.
+
+    Raises:
+        OspreyWriteFailed: A readback was not within its tolerance
+            :data:`SETTLE_TIMEOUT_S` seconds after the first poll; names the first
+            such setpoint.
+        OspreyReadFailed: A readback read failed or produced no numeric value.
+    """
+    bounds: dict[str, tuple[str, float]] = {}
+    for address in demands:
+        bound = _settle.settle_bound(address)
+        if bound is not None:
+            bounds[address] = bound
+    if not bounds:
+        return
+    readbacks = list(dict.fromkeys(pair for pair, _ in bounds.values()))
+    deadline = _clock() + SETTLE_TIMEOUT_S
+    while True:
+        readings = _read_readbacks(readbacks)
+        unsettled = [
+            address
+            for address, (pair, bound) in bounds.items()
+            if not abs(readings[pair] - float(demands[address])) <= bound
+        ]
+        if not unsettled:
+            return
+        if _clock() >= deadline:
+            address = unsettled[0]
+            pair, tolerance = bounds[address]
+            raise OspreyWriteFailed(
+                f"readback {pair} not within {tolerance:g} of {float(demands[address]):g} "
+                f"after {SETTLE_TIMEOUT_S:g} s; last read {readings[pair]:g}",
+                address,
+            )
+        _sleep(_SETTLE_POLL_S)
+
+
+def _read_readbacks(addresses: list[str]) -> dict[str, float]:
+    """Read ``addresses`` in one call, each as a float.
+
+    Raises:
+        OspreyReadFailed: The read failed or a value is not numeric.
+    """
+    try:
+        raw = list(osprey.runtime.read_channels(addresses))
+    except Exception as exc:
+        raise map_read_error(exc, addresses) from exc
+    readings: dict[str, float] = {}
+    for address, value in zip(addresses, raw, strict=True):
+        try:
+            readings[address] = float(value)
+        except Exception as exc:
+            raise map_read_error(exc, [address]) from exc
+    return readings
 
 
 class OspreyDevice(DeviceAccess):
@@ -118,6 +207,25 @@ class OspreyDevice(DeviceAccess):
                 progress; nothing was written.
             OspreyWriteFailed: The write was attempted and not confirmed.
         """
+        self._write(value, confirm=confirm, settles=False)
+
+    def set_and_wait(self, value: Any) -> None:
+        """Write ``value``, confirm the channel holds it, and wait for its readback.
+
+        The write is ``set(value, confirm=True)``. When the setpoint's facility
+        record states a ``tolerance``, its readback is then polled until it is
+        within that tolerance of the value written (:func:`settle`).
+
+        Raises:
+            OspreyWriteFailed: The write was not confirmed, or the readback was not
+                within its tolerance after :data:`SETTLE_TIMEOUT_S`; the write
+                stays recorded as moved.
+            OspreyReadFailed: The prior setpoint or the readback could not be read.
+        """
+        self._write(value, confirm=True, settles=True)
+
+    def _write(self, value: Any, *, confirm: bool | None, settles: bool) -> None:
+        """Write the SI ``value`` as :meth:`set` does, settling it when ``settles``."""
         self._require_writable()
         address = self._reference.address
         native = self._to_native(value)
@@ -128,10 +236,8 @@ class OspreyDevice(DeviceAccess):
             map_read=map_read_error,
             confirm=confirm,
         )
-
-    def set_and_wait(self, value: Any) -> None:
-        """Write ``value`` and confirm the channel holds it (``set(value, confirm=True)``)."""
-        self.set(value, confirm=True)
+        if settles:
+            settle({address: native})
 
     def get_range(self) -> list[float | None]:
         """Return ``[min, max]`` in SI from the channel's limits, ``None`` for an open bound.
