@@ -826,6 +826,11 @@ def corrector_at_slot(slot: int) -> Corrector:
     file's record order, so one slot names one magnet on every run against a
     given tree.
 
+    The slots are the correctors of one model: the model whose corrector a
+    limits record bounds (``_facility_select.bounded_corrector_of``). A lane
+    then drives correctors that model holds at the lane's demands, and slot 0
+    is that bounded corrector when it is the model's first in wiring order.
+
     A slot is owned by one lane for the life of the session container -- two
     lanes driving one corrector would read each other's writes -- so each lane
     takes a slot of its own.
@@ -835,18 +840,28 @@ def corrector_at_slot(slot: int) -> Corrector:
     corrector, instead of failing collection for every lane in this directory.
 
     Raises:
-        AssertionError: If the view wires fewer correctors than ``slot``
+        AssertionError: If no corrector of the view has a limits record at
+            both ends, if its model wires fewer correctors than ``slot``
             requires, or if the corrector at ``slot`` is served with no
             readback of its own.
     """
     from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
+    from tests.e2e._facility_select import bounded_corrector_of
 
     view = SimulatorView.open(demo_data_dir() / VIEW_RELPATH.name)
+    bounded = bounded_corrector_of(view)
+    assert bounded is not None, (
+        "no corrector of the served view has a limits record with both min_value and max_value"
+    )
+    model = bounded[2]
     kicks = [
-        binding.address for binding in view.bindings(role="setpoint") if binding.plane is not None
+        binding.address
+        for binding in view.bindings(role="setpoint", model=model)
+        if binding.plane is not None
     ]
     assert len(kicks) > slot, (
-        f"the served view wires {len(kicks)} correctors, too few for a lane's slot {slot}"
+        f"model {model} of the served view wires {len(kicks)} correctors, "
+        f"too few for a lane's slot {slot}"
     )
     setpoint = kicks[slot]
     readback = view.channel(setpoint).pair

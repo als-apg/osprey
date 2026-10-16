@@ -90,17 +90,15 @@ def claimed_addresses(view: SimulatorView) -> frozenset[str]:
     return corrector_addresses(view) | monitor_addresses(view)
 
 
-def bounded_corrector(repo: Path) -> tuple[str, str, str]:
-    """The first corrector, in address order, that a limits record bounds at
-    both ends and that names its own readback, as ``(setpoint, readback, model)``.
+def bounded_corrector_of(view: SimulatorView) -> tuple[str, str, str] | None:
+    """The first corrector of ``view``, in address order, that a limits record
+    bounds at both ends and that names its own readback, as
+    ``(setpoint, readback, model)``; ``None`` when no corrector qualifies.
 
-    The device a lane names when its request depends on a corrector having a
-    range: the limits table holds only the records the facility tree authors,
-    so a corrector without one has no range to sweep across. ``model`` is the
-    model whose binding wires the setpoint, so a lane reads the sweep's
-    response on that model's monitors.
+    ``model`` is the model whose binding wires the setpoint: a lane that
+    drives correctors drives that model's, and reads their response on that
+    model's monitors.
     """
-    view = repo_view(repo)
     for address in sorted(corrector_addresses(view)):
         channel = view.channel(address)
         readback = channel.pair
@@ -108,10 +106,23 @@ def bounded_corrector(repo: Path) -> tuple[str, str, str]:
             binding = view.binding(address)
             assert binding is not None, f"corrector {address} has no served binding"
             return address, readback, binding.model
-    raise AssertionError(
-        "no corrector has a limits record with both min_value and max_value "
-        f"in the limits table of {repo / 'data' / 'facility' / 'limits.yaml'}"
-    )
+    return None
+
+
+def bounded_corrector(repo: Path) -> tuple[str, str, str]:
+    """:func:`bounded_corrector_of` the view the build rendered into ``repo``.
+
+    The device a lane names when its request depends on a corrector having a
+    range: the limits table holds only the records the facility tree authors,
+    so a corrector without one has no range to sweep across.
+    """
+    found = bounded_corrector_of(repo_view(repo))
+    if found is None:
+        raise AssertionError(
+            "no corrector has a limits record with both min_value and max_value "
+            f"in the limits table of {repo / 'data' / 'facility' / 'limits.yaml'}"
+        )
+    return found
 
 
 def seeded_readback(view: SimulatorView) -> str:
