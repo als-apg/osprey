@@ -5,8 +5,16 @@
 # repo the build renders for exactly this purpose, one directory above the render
 # this file sits in:
 #   cd build/.image/{{ project_name }} && docker build -t {{ project_name }} -f build/Dockerfile .
-# Run (secrets at runtime — no .env ever enters the image):
-#   docker run --rm -p {{ osprey_ports.web }}:{{ osprey_ports.web }} --env-file .env {{ project_name }}
+# Run from the deployment repo root (secrets at runtime — no .env ever enters
+# the image):
+#   docker run --rm -p {{ osprey_ports.web }}:{{ osprey_ports.web }} --env-file .env \
+#     --env-file .env.telemetry-sender.<deployment.host_identity> {{ project_name }}
+# The second --env-file is the sender login `osprey build` minted for
+# deployment.host_identity; with gateway telemetry on, `osprey web` refuses to
+# start without it. With gateway telemetry off, drop the second --env-file.
+# Records reach the gateway only while the deployment's gateway runs
+# (`osprey up`) and the container uses `--network host` in place of `-p`: a
+# container started this way sends to the gateway's loopback publish.
 #
 # The container starts as ROOT and does not stay there. `build/entrypoint.sh`
 # re-renders any drifted Claude Code artifact, restores the operator's owned
