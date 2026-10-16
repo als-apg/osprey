@@ -60,6 +60,16 @@ menu (or the command palette) at any time. The choice is remembered per
 browser, and each user's own pick wins over the configured default. (Pair it
 with the retro theme for a navy-and-teal terminal — see :doc:`theming`.)
 
+Taking panels off the rail
+--------------------------
+
+**Remove from rail** (right-click, or the entry's **×**) can be undone for a
+few seconds.
+
+A panel can be open without a rail entry. In the ``control-assistant`` preset
+SYSTEM starts that way (``web.panels.system-health.hidden: true``): open it
+from the health dot or **⋯ More**, and right-click its tile to **Pin to rail**.
+
 When a panel stops answering
 ----------------------------
 
