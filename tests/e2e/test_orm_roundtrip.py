@@ -332,14 +332,18 @@ def _oracle_model(repo: Path) -> Any:
     Built here in-process over the deployment repo's OWN simulator view -- the
     same deck, wiring and seeds the container mounts -- so the oracle and the
     stack agree about which elements exist and what each address does to them,
-    while the two arrive at a response matrix by entirely separate paths. No
-    state directory and no model log: the oracle reads the view at its
-    baseline and writes nothing outside this process.
+    while the two arrive at a response matrix by entirely separate paths. The
+    oracle reads the deployment's own active-scenario file, so it serves the
+    same scenario set the container serves. It only reads that file and keeps
+    no model log, so it writes nothing outside this process. It is built after
+    `osprey up`, which writes that file.
     """
     from osprey_connectors.simulation.composite import Composite
     from osprey_connectors.simulation.view import SimulatorView
 
-    return Composite(SimulatorView.of_project(repo), state_dir=None, model_log=False)
+    return Composite(
+        SimulatorView.of_project(repo), state_dir=_deployment_state_dir(repo), model_log=False
+    )
 
 
 def _model_response_matrix(
