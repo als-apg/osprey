@@ -333,11 +333,14 @@ async def test_a_forbidden_write_beside_an_allowed_read_refuses_only_the_write(
 ):
     """A read and a forbidden write in one turn: the read answers, the write is refused."""
     _, result = await drive(
-        safety_project, scripted_model, [[read(SETPOINT), write(READBACK, 1.0)], [read(READBACK)]]
+        safety_project,
+        scripted_model,
+        [[read(READBACK)], [read(SETPOINT), write(READBACK, 1.0)], [read(READBACK)]],
     )
-    by_name = {t.name: t for t in result.tool_traces[:2]}
+    before = result.tool_traces[0]
+    by_name = {t.name: t for t in result.tool_traces[1:3]}
     assert set(by_name) == {READ, WRITE}
     assert reading(by_name[READ], SETPOINT) < 100.0
     assert_hook_refused(by_name[WRITE], own=LIMITS_REASON, other=WRITES_REASON)
     assert_no_callback(result, WRITE)
-    assert abs(reading(result.tool_traces[2], READBACK) - 1.0) > 100.0
+    assert_untouched(reading(before, READBACK), reading(result.tool_traces[3], READBACK), 1.0)
