@@ -10731,11 +10731,11 @@ def test_trajectory_job_fails_on_any_skipped_test__mutation_gate_stops_failing()
 TWO_UID_LOG_FILE = "tests/deployment/test_var_simulator_provisioning.py"
 TWO_UID_LOG_CASE = "test_two_uids_in_one_group_append_to_one_log_from_two_containers"
 TWO_UID_LOG_OS = "ubuntu-latest"
-TWO_UID_LOG_SHARD = "rest"
+TWO_UID_LOG_SHARD = "rest-a"
 
 
 def test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell(workflow: dict[str, Any]) -> None:
-    """The unit lane's ubuntu `rest` cells collect the case, deselect it by no
+    """The unit lane's ubuntu `rest-a` cells collect the case, deselect it by no
     marker, and leave `CI` to the runner, which is what turns a missing engine
     into a failure there."""
     lane = f"the '{UNIT_TEST_JOB}' job in .github/workflows/ci.yml"
@@ -10747,6 +10747,9 @@ def test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell(workflow: dict[
     assert TWO_UID_LOG_SHARD in matrix["shard"], (
         f"{lane} has no '{TWO_UID_LOG_SHARD}' shard to collect {TWO_UID_LOG_FILE}"
     )
+    assert _shard_reaches(workflow, TWO_UID_LOG_SHARD, TWO_UID_LOG_FILE), (
+        f"{lane}'s '{TWO_UID_LOG_SHARD}' shard does not collect {TWO_UID_LOG_FILE}"
+    )
     exclude = matrix.get("exclude", "")
     exclude_text = (
         exclude if isinstance(exclude, str) else json.dumps(exclude, separators=(",", ":"))
@@ -10755,7 +10758,10 @@ def test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell(workflow: dict[
         f"{lane} excludes an {TWO_UID_LOG_OS} cell that runs {TWO_UID_LOG_FILE}"
     )
     step = _find_named_step(workflow, UNIT_TEST_JOB, "Run unit tests")
-    for ignored in re.findall(r"--ignore=([^\s\"';]+)", step["run"]):
+    # The ignores the pinned shard runs under: the line every shard shares and
+    # the shard's own arguments, not the ignores that spell another shard.
+    shard_line = f"{_unit_test_pytest_line(workflow)} {_unit_shards(workflow)[TWO_UID_LOG_SHARD]}"
+    for ignored in re.findall(r"--ignore=([^\s\"';]+)", shard_line):
         assert not (
             TWO_UID_LOG_FILE == ignored or TWO_UID_LOG_FILE.startswith(ignored.rstrip("/") + "/")
         ), f"{lane} ignores {ignored}, which holds {TWO_UID_LOG_FILE}"
@@ -10842,3 +10848,182 @@ def test_the_two_uid_log_case_is_a_docker_group_case__mutation_drops_the_group()
     assert mutated != source, "docker group decorator not found; mutation is stale"
     with pytest.raises(AssertionError, match="not in the docker xdist group"):
         test_the_two_uid_log_case_is_a_docker_group_case(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The unit lane's shards cover tests/ exactly once
+# ---------------------------------------------------------------------------
+#
+# The unit lane runs each matrix cell as several jobs, one per set of
+# directories, chosen by a `case` on `matrix.shard` in "Run unit tests". A
+# directory two shards name runs twice and costs a slow runner its margin under
+# the step cap; a directory no shard names runs nowhere with every check green.
+# The last shard is spelled as ignores of every directory another shard names,
+# so a new directory falls into it; what is pinned here is that the spellings
+# still partition the tree.
+
+#: One arm of the shard `case`: ``rest-a) SHARD_PATH="..."; SHARD_ARGS="..." ;;``.
+_SHARD_ARM_RE = re.compile(
+    r'^\s*(?P<name>[\w-]+)\)\s*SHARD_PATH="(?P<path>[^"]*)";\s*SHARD_ARGS="(?P<args>[^"]*)"\s*;;',
+    re.MULTILINE,
+)
+
+
+def _unit_shards(wf: dict[str, Any]) -> dict[str, str]:
+    """Each shard's own pytest selection, ``tests/$SHARD_PATH $SHARD_ARGS``
+    expanded, keyed by its `case` label. The ignores every shard shares are
+    left out: they narrow the lane, not the partition."""
+    run_text = _find_named_step(wf, UNIT_TEST_JOB, "Run unit tests")["run"]
+    arms = {
+        m["name"]: f"pytest tests/{m['path']} {m['args']}" for m in _SHARD_ARM_RE.finditer(run_text)
+    }
+    assert arms, "no SHARD_PATH/SHARD_ARGS case arms in the unit lane"
+    return arms
+
+
+def _shard_reaches(wf: dict[str, Any], shard: str, test_file: str) -> bool:
+    return _invocation_reaches(_unit_shards(wf).get(shard, ""), test_file)
+
+
+def _test_tree_entries(root: Path = TESTS_ROOT) -> list[str]:
+    """The top level of ``tests/`` as the shards see it: every directory that
+    holds a test module somewhere below it, and every test module directly in
+    ``tests/``, as repo-relative posix paths."""
+    entries = set()
+    for pattern in ("test_*.py", "*_test.py"):
+        for path in root.rglob(pattern):
+            if "__pycache__" in path.parts:
+                continue
+            top = path.relative_to(root).parts[0]
+            entries.add(f"tests/{top}")
+    return sorted(entries)
+
+
+def _shard_coverage_problems(wf: dict[str, Any], entries: list[str]) -> list[str]:
+    """Why the shards do not partition *entries* (empty = each entry in exactly
+    one shard, and the `case` arms are the matrix's shards).
+
+    The partition is checked at the top level of ``tests/``, so it holds only
+    while every shard path and ignore is a top-level entry: an ignore one level
+    deeper takes its files out of the shard that names the directory while no
+    other shard picks them up. A shard that reaches below the top level is
+    refused outright rather than checked file by file."""
+    shards = _unit_shards(wf)
+    matrix = sorted(_jobs(wf)[UNIT_TEST_JOB]["strategy"]["matrix"]["shard"])
+    problems = []
+    if sorted(shards) != matrix:
+        problems.append(f"case arms {sorted(shards)} are not the matrix shards {matrix}")
+    for name, command in shards.items():
+        for token in command.split()[1:]:
+            path = token.removeprefix("--ignore=").rstrip("/")
+            if path.startswith("tests/") and path.count("/") > 1:
+                problems.append(
+                    f"shard '{name}' names {token}, below a top-level test directory; "
+                    f"a shard is a set of whole tests/<dir> entries"
+                )
+    for entry in entries:
+        # A probe file below a directory entry; a root module is its own probe.
+        probe = entry if entry.endswith(".py") else f"{entry}/test_probe.py"
+        holders = [name for name, command in shards.items() if _invocation_reaches(command, probe)]
+        if len(holders) != 1:
+            problems.append(f"{entry} is in {len(holders)} shards: {holders}")
+    return problems
+
+
+def test_the_unit_shards_cover_the_test_tree_exactly_once(workflow: dict[str, Any]) -> None:
+    entries = _test_tree_entries()
+    assert "tests/cli" in entries and len(entries) > 10, f"test tree scan broke: {entries}"
+    problems = _shard_coverage_problems(workflow, entries)
+    assert problems == [], "the unit lane's shards do not partition tests/:\n" + "\n".join(problems)
+
+
+def _with_shard_arm(wf: dict[str, Any], shard: str, path: str, args: str) -> dict[str, Any]:
+    step = _find_named_step(wf, UNIT_TEST_JOB, "Run unit tests")
+    original = step["run"]
+    step["run"] = re.sub(
+        rf"^(\s*){re.escape(shard)}\)[^\n]*$",
+        lambda m: f'{m[1]}{shard}) SHARD_PATH="{path}"; SHARD_ARGS="{args}" ;;',
+        original,
+        flags=re.MULTILINE,
+    )
+    assert step["run"] != original, f"no '{shard}' arm in the unit lane; mutation is stale"
+    return wf
+
+
+def _last_shard(wf: dict[str, Any]) -> tuple[str, str, list[str]]:
+    """The shard spelled by exclusion: its name, path and ignored directories."""
+    for name, command in _unit_shards(wf).items():
+        ignores = [
+            t.removeprefix("--ignore=") for t in command.split() if t.startswith("--ignore=")
+        ]
+        if ignores:
+            return name, command.split()[1].removeprefix("tests/"), ignores
+    raise AssertionError("no unit shard is spelled by exclusion")
+
+
+def test_the_unit_shards_cover_the_test_tree__mutation_drops_an_ignore() -> None:
+    """The last shard forgets one directory another shard names: it runs twice."""
+    wf = _load_workflow()
+    name, path, ignores = _last_shard(wf)
+    dropped = ignores[-1]
+    kept = " ".join(f"--ignore={i}" for i in ignores if i != dropped)
+    mutated = _with_shard_arm(wf, name, path, kept)
+    with pytest.raises(AssertionError, match=rf"{re.escape(dropped)} is in 2 shards"):
+        test_the_unit_shards_cover_the_test_tree_exactly_once(mutated)
+
+
+def test_the_unit_shards_cover_the_test_tree__mutation_lists_the_last_shard() -> None:
+    """The last shard is spelled as a list of directories instead of by
+    exclusion: every directory nobody listed runs nowhere."""
+    wf = _load_workflow()
+    name, _, _ = _last_shard(wf)
+    mutated = _with_shard_arm(wf, name, "pty", "tests/va")
+    with pytest.raises(AssertionError, match=r"is in 0 shards"):
+        test_the_unit_shards_cover_the_test_tree_exactly_once(mutated)
+
+
+def test_the_unit_shards_cover_the_test_tree__mutation_new_directory_lands_once() -> None:
+    """The positive half of spelling the last shard by exclusion: a directory
+    added to the tree is in exactly one shard without anyone editing ci.yml."""
+    entries = [*_test_tree_entries(), "tests/a_directory_added_later"]
+    assert _shard_coverage_problems(_load_workflow(), entries) == []
+
+
+def test_the_unit_shards_cover_the_test_tree__mutation_drops_a_matrix_shard() -> None:
+    mutated = _load_workflow()
+    _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]["shard"].pop()
+    with pytest.raises(AssertionError, match="are not the matrix shards"):
+        test_the_unit_shards_cover_the_test_tree_exactly_once(mutated)
+
+
+def test_the_unit_lane_runs_the_two_uid_log_case__mutation_moves_it_to_another_shard() -> None:
+    """The case's directory leaves the shard the pin names, so the pinned
+    shard name no longer says where the case runs."""
+    wf = _load_workflow()
+    directory = "/".join(TWO_UID_LOG_FILE.split("/")[:2])
+    command = _unit_shards(wf)[TWO_UID_LOG_SHARD]
+    path, *args = command.split()[1:]
+    kept = [p for p in [path, *args] if p != directory]
+    assert len(kept) == len(args), (
+        f"{directory} not named by '{TWO_UID_LOG_SHARD}'; mutation is stale"
+    )
+    mutated = _with_shard_arm(
+        wf, TWO_UID_LOG_SHARD, kept[0].removeprefix("tests/"), " ".join(kept[1:])
+    )
+    with pytest.raises(AssertionError, match="shard does not collect"):
+        test_the_unit_lane_runs_the_two_uid_log_case_on_a_linux_cell(mutated)
+
+
+def test_the_unit_shards_cover_the_test_tree__mutation_ignores_below_the_top_level() -> None:
+    """A shard ignores a subdirectory of a directory it names: those files run in
+    no shard, and a top-level check alone would still see the directory once."""
+    wf = _load_workflow()
+    command = _unit_shards(wf)[TWO_UID_LOG_SHARD]
+    path, *args = command.split()[1:]
+    deeper = "tests/deployment/web_terminals"
+    assert "tests/deployment" in [path, *args], "rest-a no longer names tests/deployment"
+    mutated = _with_shard_arm(
+        wf, TWO_UID_LOG_SHARD, path.removeprefix("tests/"), " ".join([*args, f"--ignore={deeper}"])
+    )
+    with pytest.raises(AssertionError, match="below a top-level test directory"):
+        test_the_unit_shards_cover_the_test_tree_exactly_once(mutated)
