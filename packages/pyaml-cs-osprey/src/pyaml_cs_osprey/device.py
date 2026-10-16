@@ -17,7 +17,7 @@ An indexed reference (``ADDR@i``) reads its base address and returns element ``i
 the array value; it is read-only, so every write and range request is refused or open.
 
 A setpoint whose facility record states a ``tolerance`` settles after a
-``set_and_wait``: its readback
+``set_and_wait``, and after every ``set`` inside :func:`settling`: its readback
 (the record's ``pair``) is polled until it is within the tolerance of the value
 written, and a readback that is not there within :data:`SETTLE_TIMEOUT_S` fails
 the write. A setpoint that states no tolerance is not read back.
@@ -25,8 +25,10 @@ the write. A setpoint that states no tolerance is not read back.
 
 from __future__ import annotations
 
+import contextlib
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextvars import ContextVar
 from typing import Any
 
 import numpy as np
@@ -51,6 +53,7 @@ __all__ = [
     "OspreyDevice",
     "indexed_element",
     "settle",
+    "settling",
     "unknown_unit",
 ]
 
@@ -63,6 +66,19 @@ _SETTLE_POLL_S = 0.05
 #: The settle loop's pause and clock; tests replace them.
 _sleep: Callable[[float], None] = time.sleep
 _clock: Callable[[], float] = time.monotonic
+
+#: Whether every ``set`` in this context settles, as ``set_and_wait`` does.
+_SETTLING: ContextVar[bool] = ContextVar("pyaml_cs_osprey_settling", default=False)
+
+
+@contextlib.contextmanager
+def settling() -> Iterator[None]:
+    """Make every device ``set`` in this context settle after its write."""
+    token = _SETTLING.set(True)
+    try:
+        yield
+    finally:
+        _SETTLING.reset(token)
 
 
 def settle(demands: Mapping[str, float]) -> None:
@@ -192,7 +208,8 @@ class OspreyDevice(DeviceAccess):
         The prior native setpoint is read first and recorded for the call's result
         once the runtime sent or landed the write; a refused write records nothing. Outside
         a ``run_tool`` call the write is refused as :data:`OUTSIDE_A_RUN` and
-        nothing is read.
+        nothing is read. Inside :func:`settling` the write then settles as in
+        :meth:`set_and_wait`.
 
         Args:
             value: The value to write, in SI.
@@ -205,9 +222,10 @@ class OspreyDevice(DeviceAccess):
             OspreyReadFailed: The prior setpoint could not be read; nothing was written.
             OspreyWriteRefused: The write was refused, or no ``run_tool`` call is in
                 progress; nothing was written.
-            OspreyWriteFailed: The write was attempted and not confirmed.
+            OspreyWriteFailed: The write was attempted and not confirmed, or inside
+                :func:`settling` its readback did not settle.
         """
-        self._write(value, confirm=confirm, settles=False)
+        self._write(value, confirm=confirm, settles=_SETTLING.get())
 
     def set_and_wait(self, value: Any) -> None:
         """Write ``value``, confirm the channel holds it, and wait for its readback.

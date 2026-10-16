@@ -24,9 +24,11 @@ from pyaml.common.constants import Action
 import osprey.runtime
 import pyaml_cs_osprey.measure as measure_mod
 from pyaml_cs_osprey import _run
+from pyaml_cs_osprey.errors import OspreyWriteFailed
 from pyaml_cs_osprey.measure import RESPONSE_MATRIX_DATA, StepMeasurement
 from pyaml_cs_osprey.run_tool import run_tool
 from tests.pyaml_cs_osprey.conftest import DictConnector
+from tests.pyaml_cs_osprey.test_settle import Clock, plant_facility
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -423,6 +425,143 @@ class TestCalls:
         assert recorded == {"measure_ORM": [], "measure_dispersion": []}
         assert sleeps == [0.5, 0.5]
         assert connector.setpoints() == _home()
+
+
+class LaggingConnector(ModelConnector):
+    """The model machine, whose readbacks follow a write only after ``lag`` reads each.
+
+    ``stuck`` names readbacks that never follow. Every event a test orders is
+    appended to ``events``: ``("put", address)`` before a value lands and
+    ``("poll", address)`` for each readback read.
+    """
+
+    def __init__(self, lag: int, stuck: tuple[str, ...] = ()) -> None:
+        super().__init__()
+        self.lag = lag
+        self.stuck = set(stuck)
+        self.pending: dict[str, tuple[Any, int]] = {}
+        self.events: list[tuple[str, Any]] = []
+        self.on_put = lambda address: self.events.append(("put", address))
+
+    async def read_channel(self, channel_address: str, timeout: float | None = None):
+        if channel_address.endswith(":rb"):
+            self.events.append(("poll", channel_address))
+            if channel_address in self.pending:
+                value, remaining = self.pending[channel_address]
+                if remaining > 0:
+                    self.pending[channel_address] = (value, remaining - 1)
+                else:
+                    del self.pending[channel_address]
+                    self._state[channel_address] = value
+        return await super().read_channel(channel_address, timeout)
+
+    def _put(self, channel_address: str, value: Any) -> None:
+        readback = channel_address.replace(":sp", ":rb")
+        before = self._state.get(readback)
+        super()._put(channel_address, value)
+        if channel_address.endswith(":sp"):
+            self._state[readback] = before
+            if readback not in self.stuck:
+                self.pending[readback] = (value, self.lag)
+
+
+#: The tolerance the facility states for each magnet setpoint the tests step.
+TOLERANCES = {f"{name}:sp": (f"{name}:rb", 1e-6) for name in ("HCM_001", "VCM_001", *QUADS, *SEXTS)}
+
+
+class TestSettle:
+    """A measurement step whose setpoint states a tolerance waits for its readback."""
+
+    @pytest.fixture
+    def lagging(
+        self, monkeypatch: pytest.MonkeyPatch, guarded_repo: Path
+    ) -> Iterator[Callable[..., LaggingConnector]]:
+        """Serve a lagging machine, with the tolerances planted beside the render."""
+        plant_facility(guarded_repo, TOLERANCES)
+        monkeypatch.setattr(osprey.runtime, "_limits_validator", None)
+        clock = Clock.install(monkeypatch)
+        served: list[LaggingConnector] = []
+
+        def serve(lag: int, stuck: tuple[str, ...] = ()) -> LaggingConnector:
+            machine = LaggingConnector(lag, stuck)
+            machine.clock = clock  # type: ignore[attr-defined]
+            served.append(machine)
+            return machine
+
+        with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as get:
+            get.side_effect = lambda *_a, **_k: served[-1]
+            yield serve
+        assert _run.moved() == {}
+
+    def test_each_step_settles_before_its_wait(
+        self,
+        sr: Accelerator,
+        lagging: Callable[..., LaggingConnector],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        machine = lagging(lag=2)
+        monkeypatch.setattr(measure_mod, "_sleep", lambda t: machine.events.append(("wait", t)))
+        measurement = StepMeasurement.trm(
+            sr.live, groups=["QF"], delta=0.01, tune_monitor="TUNE", set_wait_time=0.5
+        )
+
+        run = run_tool(measurement.measure)
+
+        assert run.completed is True
+        readbacks = [f"{name}:rb" for name in QUADS]
+        waits = [i for i, event in enumerate(machine.events) if event[0] == "wait"]
+        assert len(waits) == 2, "one wait after the step out, one after the step back"
+        start = 0
+        for wait in waits:
+            step = machine.events[start:wait]
+            puts = [i for i, event in enumerate(step) if event[0] == "put"]
+            polls = [i for i, event in enumerate(step) if event == ("poll", readbacks[0])]
+            assert puts and polls, step
+            assert max(puts) < min(polls), "the readbacks are polled after the write"
+            assert len(polls) == 3, "two lagging polls, then the settled one"
+            assert [event for event in step if event[0] == "poll"][-2:] == [
+                ("poll", rb) for rb in readbacks
+            ], "the last poll before the wait reads every member in one batch"
+            start = wait + 1
+        assert machine.pending == {}
+        assert machine.clock.pauses == [pytest.approx(0.05)] * 4  # type: ignore[attr-defined]
+
+    @pytest.mark.parametrize(
+        ("kind", "stuck", "stepped"),
+        [
+            ("trm", "QF_002", QUADS),
+            ("orm", "HCM_001", ("HCM_001",)),
+        ],
+    )
+    def test_an_unsettled_step_ends_the_run_reporting_what_moved(
+        self,
+        kind: str,
+        stuck: str,
+        stepped: tuple[str, ...],
+        sr: Accelerator,
+        lagging: Callable[..., LaggingConnector],
+    ) -> None:
+        machine = lagging(lag=0, stuck=(f"{stuck}:rb",))
+        if kind == "trm":
+            measurement = StepMeasurement.trm(
+                sr.live, groups=["QF"], delta=0.01, tune_monitor="TUNE", set_wait_time=0.0
+            )
+        else:
+            measurement = StepMeasurement.orm(
+                sr.live, bpm_array="BPM", correctors=["HCM_001"], deltas=[1e-4]
+            )
+
+        with pytest.raises(OspreyWriteFailed) as info:
+            run_tool(measurement.measure)
+
+        assert info.value.channel_address == f"{stuck}:sp"
+        assert f"{stuck}:rb" in info.value.reason
+        moved = info.value.moved_setpoints  # type: ignore[attr-defined]
+        assert set(moved) == {f"{name}:sp" for name in stepped}
+        assert moved[f"{stuck}:sp"] == pytest.approx(SETPOINTS[f"{stuck}:sp"])
+        assert [address for address, _ in machine.puts] == [f"{name}:sp" for name in stepped], (
+            "the step out only: nothing is written back"
+        )
 
 
 class TestArguments:

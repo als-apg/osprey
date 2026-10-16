@@ -37,7 +37,7 @@ from pyaml.control.deviceaccesslist import DeviceAccessList
 import osprey.runtime
 from osprey.errors import ChannelWriteBlockedError, ChannelWriteFailedError
 from pyaml_cs_osprey import _run
-from pyaml_cs_osprey.device import OspreyDevice, indexed_element, settle, unknown_unit
+from pyaml_cs_osprey.device import _SETTLING, OspreyDevice, indexed_element, settle, unknown_unit
 from pyaml_cs_osprey.errors import (
     OspreyReadFailed,
     OspreyWriteFailed,
@@ -134,7 +134,8 @@ class OspreyDeviceList(DeviceAccessList):
         once the runtime sent or landed its write; a refused one records nothing. A value
         that violates any channel's limits refuses the whole batch before anything
         is sent. Devices sharing an address must be given the same value; that
-        address is written once.
+        address is written once. Inside :func:`~pyaml_cs_osprey.device.settling`
+        the write then settles as in :meth:`set_and_wait`.
 
         Args:
             value: One setpoint per device, in SI; each is scaled to its device's
@@ -155,9 +156,14 @@ class OspreyDeviceList(DeviceAccessList):
             OspreyWriteFailed: A write was attempted and not confirmed, or one
                 channel of a multi-channel batch was refused after the connector
                 sent the others. The message names the failing address and every
-                other address of the batch as sent.
+                other address of the batch as sent. Inside
+                :func:`~pyaml_cs_osprey.device.settling`, also a readback that did
+                not settle.
         """
-        self._write(self._batch(value), confirm=confirm)
+        batch = self._batch(value)
+        self._write(batch, confirm=confirm)
+        if _SETTLING.get():
+            settle(batch)
 
     def set_and_wait(self, value: Any) -> None:
         """Write the setpoints, confirm each channel holds its value, and wait for readbacks.
