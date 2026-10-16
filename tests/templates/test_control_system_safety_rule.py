@@ -15,21 +15,21 @@ otherwise an agent steered off ``epics.caput`` simply reaches for
   cannot mediate an arbitrary rpc payload, so the rule has to say the call is
   not approvable instead of letting the agent burn a round trip discovering it.
 
-The block belongs to the EPICS-family branch only: ``epics`` and
-``virtual_accelerator`` (a plain ``EPICSConnector`` subclass) get it, every
-other control-system type is left untouched.
+The block belongs to the Channel Access wire: every deployment whose connector
+speaks Channel Access gets it, and no other render does.
 """
 
 from pathlib import Path
 
 import pytest
 import yaml
+from jinja2 import TemplateRuntimeError
 from tests._control_system import IN_PROCESS, section_for
 from tests._preset_data import bundle_data_root
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from osprey_connectors.types import connector_transport
+from osprey_connectors.types import SET_CONTROL_SYSTEM_TYPES, connector_transport
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -106,10 +106,8 @@ def _render_template_directly(control_system_type: str, enabled_servers: set[str
     template = manager.jinja_env.get_template(
         "claude_code/claude/rules/control-system-safety.md.j2"
     )
-    section = section_for(control_system_type)
     return template.render(
-        control_system_type=section["type"],
-        control_system_transport=connector_transport(section),
+        control_system_transport=connector_transport(section_for(control_system_type)),
         enabled_servers=enabled_servers,
     )
 
@@ -216,9 +214,9 @@ def test_epics_and_virtual_accelerator_prohibited_sections_still_match(tmp_path)
 
 
 def test_non_epics_branches_have_no_p4p_lines(tmp_path):
-    """Tango, OPC-UA, LabVIEW and the generic branch are unchanged -- p4p is an
-    EPICS-family library and naming it elsewhere would be noise."""
-    for cs_type in ("tango", "opcua", "labview", IN_PROCESS):
+    """Tango and the generic branch are unchanged -- p4p is a Channel Access
+    deployment's library and naming it elsewhere would be noise."""
+    for cs_type in ("tango", IN_PROCESS):
         content = _render_safety_rule(tmp_path / cs_type, f"p4p-{cs_type}", cs_type)
 
         assert "p4p" not in content, f"{cs_type}: p4p leaked outside the EPICS branch"
@@ -241,9 +239,10 @@ def test_existing_pyepics_prohibitions_survive(tmp_path):
 #: client libraries the executor and the notebook kernels refuse at runtime.
 RAW_PUT_ANNOTATION = "# Refused at runtime: RAW_CLIENT_WRITE"
 
-#: The raw-put example lines of each refusing branch, stem before the ``#``.
+#: The raw-put example lines of each refusing branch, keyed by the wire the
+#: branch belongs to, stem before the ``#``.
 RAW_PUT_LINES = {
-    "epics": (
+    "ca": (
         'epics.caput("SR:MAG:QF:01:CURRENT:SP", 150)',
         "pv.put(150)",
     ),
@@ -255,13 +254,15 @@ RAW_PUT_LINES = {
 }
 
 
-@pytest.mark.parametrize("cs_type", ["epics", "virtual_accelerator", "doocs", "tango"])
+@pytest.mark.parametrize(
+    "cs_type", ["epics", "virtual_accelerator", "live_standin", "doocs", "tango"]
+)
 def test_raw_put_lines_say_refused_and_name_write_channel(cs_type):
     """Where the runtime refuses a raw client put, the rule says so -- a put
     marked merely as a bypass reads as a riskier route that approval could
     still let through -- and names the calls that do write."""
     content = _render_template_directly(cs_type, set())
-    branch = "epics" if cs_type == "virtual_accelerator" else cs_type
+    branch = connector_transport(section_for(cs_type))
 
     annotated = {
         line.split("#", 1)[0].strip(): "#" + line.split("#", 1)[1]
@@ -284,7 +285,7 @@ def test_raw_put_lines_say_refused_and_name_write_channel(cs_type):
     assert "Bypasses all safety layers" not in content
 
 
-@pytest.mark.parametrize("cs_type", ["epics", "virtual_accelerator"])
+@pytest.mark.parametrize("cs_type", ["epics", "virtual_accelerator", "live_standin"])
 def test_the_pva_put_is_named_as_the_one_exception(cs_type):
     """The connector does not write pvAccess yet, so the runtime limits-checks
     a raw PVA put instead of refusing it. The rule must not call it refused,
@@ -302,7 +303,11 @@ def test_the_pva_put_is_named_as_the_one_exception(cs_type):
     assert "a Channel Access channel goes through `write_channel`" in prose
 
 
-@pytest.mark.parametrize("cs_type", ["opcua", "labview", IN_PROCESS])
+#: A connector type no transport row names: a facility's own dotted connector.
+CUSTOM_TYPE = "my_facility.connectors.Custom"
+
+
+@pytest.mark.parametrize("cs_type", [IN_PROCESS, CUSTOM_TYPE])
 def test_non_refusing_branches_make_no_runtime_refusal_claim(cs_type):
     """The raw-put refusal covers the EPICS, DOOCS and Tango client libraries;
     naming it for any other branch would claim a guard that is not there."""
@@ -343,8 +348,7 @@ def test_routing_section_renders_for_every_control_system_type(tmp_path):
         "virtual_accelerator",
         "live_standin",
         "tango",
-        "opcua",
-        "labview",
+        IN_PROCESS,
         None,
     ):
         label = cs_type or "preset"
@@ -366,8 +370,7 @@ def test_routing_section_is_protocol_neutral(tmp_path):
         "virtual_accelerator",
         "live_standin",
         "tango",
-        "opcua",
-        "labview",
+        IN_PROCESS,
         None,
     ):
         label = cs_type or "preset"
@@ -377,7 +380,7 @@ def test_routing_section_is_protocol_neutral(tmp_path):
         next_heading = content.find("\n## ", start + len(ROUTING_HEADING))
         end = next_heading if next_heading != -1 else len(content)
         section = content[start:end]
-        for protocol_marker in ("EPICS", "epics", "Tango", "tango", "OPC-UA", "LabVIEW", "p4p"):
+        for protocol_marker in ("EPICS", "epics", "Tango", "tango", "p4p"):
             assert protocol_marker not in section, (
                 f"{label}: routing section names a protocol: {protocol_marker!r}"
             )
@@ -474,7 +477,7 @@ PVACCESS_LINES = {
 }
 
 
-@pytest.mark.parametrize("cs_type", ["epics", "virtual_accelerator"])
+@pytest.mark.parametrize("cs_type", ["epics", "virtual_accelerator", "live_standin"])
 def test_the_pvaccess_block_splits_on_the_provider(cs_type):
     """pvaPy speaks both protocols, so the rule names both channels: the CA
     one's puts refused like ``epics.caput``, the PVA one's under the PVA
@@ -498,7 +501,7 @@ def test_the_pvaccess_block_splits_on_the_provider(cs_type):
     assert len([line for line in content.splitlines() if line.startswith("ctxt.put(")]) == 1
 
 
-@pytest.mark.parametrize("cs_type", ["doocs", "tango", "opcua", "labview", IN_PROCESS])
+@pytest.mark.parametrize("cs_type", ["doocs", "tango", IN_PROCESS, CUSTOM_TYPE])
 def test_non_epics_branches_have_no_pvaccess_lines(cs_type):
     """pvaPy is an EPICS client; naming it elsewhere would describe a guard
     the branch's deployment has no use for."""
@@ -515,3 +518,81 @@ def test_the_simulator_in_process_renders_no_epics_prohibition(tmp_path):
 
     assert "epics.caput" not in content
     assert "p4p" not in content
+
+
+#: Every section word a direct render is asked about, with the wire's libraries.
+CA_TYPES = ("epics", "virtual_accelerator", "live_standin")
+NO_WIRE_TYPES = (IN_PROCESS, CUSTOM_TYPE)
+LIBRARY_LINES = {"ca": "import epics", "doocs": "import doocs4py", "tango": "import tango"}
+GENERIC_LINE = "DO NOT use any direct hardware library calls"
+
+
+@pytest.mark.parametrize("cs_type", [*CA_TYPES, "doocs", "tango", *NO_WIRE_TYPES])
+def test_each_transport_renders_exactly_its_block(cs_type):
+    """The prohibited block is the one for the wire the connector speaks, and a
+    connector with no known wire gets the generic line and no library."""
+    content = _render_template_directly(cs_type, set())
+    wire = connector_transport(section_for(cs_type))
+
+    for transport, line in LIBRARY_LINES.items():
+        if transport == wire:
+            assert line in content, f"{cs_type}: missing {line!r}"
+        else:
+            assert line not in content, f"{cs_type}: names another wire's {line!r}"
+    if wire in LIBRARY_LINES:
+        assert GENERIC_LINE not in content
+    else:
+        assert GENERIC_LINE in content
+
+
+@pytest.mark.parametrize("cs_type", [*CA_TYPES, "doocs", "tango", *NO_WIRE_TYPES])
+def test_no_rule_names_a_protocol_without_a_connector(cs_type):
+    """No connector speaks OPC-UA or LabVIEW, so no render names either."""
+    content = _render_template_directly(cs_type, set()).casefold()
+
+    for word in ("OPC-UA", "OPCUA", "LabVIEW"):
+        assert word.casefold() not in content, f"{cs_type}: names {word!r}"
+
+
+@pytest.mark.parametrize(
+    ("cs_type", "heading"),
+    [
+        *((cs_type, "EPICS Channel Access") for cs_type in CA_TYPES),
+        ("doocs", "DOOCS"),
+        ("tango", "Tango Controls"),
+        *((cs_type, "Control System") for cs_type in NO_WIRE_TYPES),
+    ],
+)
+def test_the_heading_follows_the_wire(cs_type, heading):
+    """The heading names the protocol the connector speaks, the served
+    simulator and the live stand-in included."""
+    content = _render_template_directly(cs_type, set())
+
+    assert content.lstrip().startswith(f"# Control System Safety — {heading}\n")
+
+
+def test_a_render_without_the_wire_stops():
+    """A context that does not say which wire the connector speaks stops the
+    render rather than printing lighter rules."""
+    template = TemplateManager().jinja_env.get_template(
+        "claude_code/claude/rules/control-system-safety.md.j2"
+    )
+
+    with pytest.raises(TemplateRuntimeError, match="control_system_transport"):
+        template.render(enabled_servers=set())
+
+
+def test_a_wire_with_no_block_stops():
+    """A wire the rule has no block for stops the render and names the wire."""
+    template = TemplateManager().jinja_env.get_template(
+        "claude_code/claude/rules/control-system-safety.md.j2"
+    )
+
+    with pytest.raises(TemplateRuntimeError, match="fieldbus"):
+        template.render(control_system_transport="fieldbus", enabled_servers=set())
+
+
+@pytest.mark.parametrize("cs_type", [*SET_CONTROL_SYSTEM_TYPES, IN_PROCESS])
+def test_every_transport_the_seam_returns_has_a_block(cs_type):
+    """A transport the connector seam gains without a block here fails this."""
+    _render_template_directly(cs_type, set())
