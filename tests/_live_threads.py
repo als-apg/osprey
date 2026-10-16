@@ -14,8 +14,9 @@ contract of every such process:
   Python stack, and each non-daemon ``multiprocessing.active_children()``
   entry, with its name and pid.
 * It runs the final garbage collection itself, timed, and names it when it
-  takes longer than ``SLOW_CLEANUP_SECONDS``; the heap is then frozen, so the
-  collections interpreter teardown runs walk only what became garbage later.
+  takes longer than ``SLOW_CLEANUP_SECONDS``. It collects only what is already
+  garbage and leaves the heap as interpreter teardown expects it, so every
+  finalizer teardown would run still runs.
 * It arms one exit watch. A serial run or the xdist controller ends within
   ``EXIT_BOUND_SECONDS`` after its summary. An xdist worker prints no summary:
   once its tests are done it waits, idle, for its controller's exit order, and
@@ -199,7 +200,7 @@ def report_live_threads(stream: TextIO, grace: float = GRACE_SECONDS) -> int:
 
 
 def final_collection(stream: TextIO, slow: float | None = None) -> float:
-    """Run the final garbage collection, name it on *stream* when slow, then freeze the heap.
+    """Run the final garbage collection, time it, and name it on *stream* when slow.
 
     Args:
         stream: Where the line goes when the collection took longer than *slow*.
@@ -219,7 +220,6 @@ def final_collection(stream: TextIO, slow: float | None = None) -> float:
                 f"[{worker_id()}] final garbage collection took {took:.2f} s "
                 f"over {len(gc.get_objects())} objects\n",
             )
-        gc.freeze()
         return took
     except Exception as exc:
         _write(stream, f"[{worker_id()}] final garbage collection failed: {exc!r}\n")

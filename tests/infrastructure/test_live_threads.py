@@ -246,16 +246,50 @@ def test_register_keeps_its_decorator_return():
 
 def test_a_fast_final_collection_writes_nothing_and_a_slow_one_is_named():
     buf = io.StringIO()
-    try:
-        final_collection(buf, slow=60.0)
-        assert buf.getvalue() == ""
-        final_collection(buf, slow=-1.0)
-    finally:
-        gc.unfreeze()
+    frozen = gc.get_freeze_count()
+    final_collection(buf, slow=60.0)
+    assert buf.getvalue() == ""
+    final_collection(buf, slow=-1.0)
+    assert gc.get_freeze_count() == frozen
     line = buf.getvalue()
     assert "final garbage collection took" in line
     assert "objects" in line
     assert line.count("\n") == 1
+
+
+_FINALIZED_PROBE = textwrap.dedent(
+    """
+    import sys
+
+    from tests._live_threads import final_collection
+
+
+    class Cycle:
+        def __init__(self):
+            self.me = self
+
+        def __del__(self):
+            sys.stderr.write("finalized-at-teardown\\n")
+            sys.stderr.flush()
+
+
+    alive = Cycle()
+    final_collection(sys.stderr)
+    """
+)
+
+
+def test_teardown_still_finalizes_what_was_alive_at_the_final_collection():
+    result = subprocess.run(
+        [sys.executable, "-c", _FINALIZED_PROBE],
+        cwd=_REPO_ROOT,
+        env=outer_run_free_env(),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "finalized-at-teardown" in result.stderr
 
 
 def _held_here(seconds: float) -> None:
