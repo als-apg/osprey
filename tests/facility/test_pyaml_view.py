@@ -73,7 +73,7 @@ def test_a_periodic_model_references_its_lattice_beside_the_configuration(
     }
     deck = tmp_path / "data" / "facility" / "decks" / "sr.json"
     lattice = (directory / "SR" / LATTICE_FILE).read_text(encoding="utf-8")
-    assert lattice == polynomial_kicks(deck, []).text
+    assert lattice == polynomial_kicks(deck, [])
 
 
 def test_a_single_pass_model_has_no_design_simulator(tmp_path: Path) -> None:

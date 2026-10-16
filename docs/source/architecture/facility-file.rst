@@ -138,12 +138,8 @@ added only when the matrix has rank two. The build names on
 stderr what it leaves out. A served model that cannot have a view is named as
 ``pyAML view omitted for <model>: <reason>``. Setpoints pyAML has no magnet
 model for are counted as ``view pyaml: <model> leaves out N setpoint(s) pyAML
-has no magnet model for: <first three addresses>, …``. Correctors whose element
-has no length to carry a kick -- a zero-length element whose pass applies
-polynomials, or a zero-length corrector with no element beside it to lend a
-length -- follow as ``view pyaml: <model> leaves out N corrector(s) whose
-element has no length to carry a kick: <first three addresses>, …``; ``N``
-counts setpoint addresses.
+has no magnet model for: <first three addresses>, …``; ``N`` counts setpoint
+addresses.
 
 **Simulator.** The view lists every channel address of the facility
 (``addresses.json``), every model with its wiring (``variables.json``), the

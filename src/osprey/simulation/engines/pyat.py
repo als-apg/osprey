@@ -57,8 +57,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ElementStop",
-    "POLYNOMIAL_KICK_LENGTH_M",
-    "PolynomialKicks",
     "Prepared",
     "ResponseMatrix",
     "SOLVE_ERRORS",
@@ -1100,17 +1098,8 @@ def response_matrix(
     )
 
 
-# Stand-in until pyAML reads a zero-length magnet's polynomials as its integrated strength; the length borrow and its refusals go with it.
-#: The length a zero-length kick element is given in a polynomial-kick copy,
-#: taken from the nearest drift beside it, else the nearest thick element: the
-#: kick's centre moves by half of it.
-POLYNOMIAL_KICK_LENGTH_M = 1.0e-6
-
 #: The pass method of an element that applies its ``KickAngle`` and no polynomial.
 _KICK_PASS = "CorrectorPass"
-
-#: The pass method of a field-free drift.
-_DRIFT_PASS = "DriftPass"
 
 #: The attributes a kick element's polynomial replacement does not carry over.
 _KICK_ONLY_ATTRIBUTES = frozenset(
@@ -1118,63 +1107,46 @@ _KICK_ONLY_ATTRIBUTES = frozenset(
 )
 
 
-@dataclass(frozen=True)
-class PolynomialKicks:
-    """A copy of a deck whose kick elements carry their kicks as polynomials.
-
-    Attributes:
-        text: The copy as pyAT's JSON, two-space indented, without pyAT's
-            version key, ending in a newline.
-        refused: The named zero-length elements whose kick has no length to
-            be carried over, sorted; each is copied as the deck holds it.
-    """
-
-    text: str
-    refused: tuple[str, ...]
-
-
 # Stand-in until pyAML reads a dipole kick held in KickAngle; polynomial_kicks and its EnginePlugin row go with it.
-def polynomial_kicks(deck: Deck, elements: Iterable[str]) -> PolynomialKicks:
+def polynomial_kicks(deck: Deck, elements: Iterable[str]) -> str:
     """Copy a deck so each named element carries its kick as its dipole polynomials.
 
     A reader that takes a corrector's strength as ``PolynomB[0]`` (horizontal,
     the kick's negative) and ``PolynomA[0]`` (vertical) times the element's
-    length reads nothing off an element that kicks by ``KickAngle``. In the
-    copy each named element holding a ``KickAngle`` carries the same
-    integrated kick as polynomials, so stepping them moves the orbit the deck's
-    kick moves:
+    length, or as the terms themselves for a zero-length element, reads
+    nothing off an element that kicks by ``KickAngle``. The convention is the
+    one pyAT's passes apply: a zero-length element's dipole terms are its
+    integrated kick. In the copy each named element holding a ``KickAngle``
+    carries the same integrated kick as polynomials, so stepping them moves
+    the orbit the deck's kick moves:
 
     * an element that applies its kick alone becomes a multipole of the same
       length with ``PolynomB = [-KickAngle[0] / L]`` and
-      ``PolynomA = [KickAngle[1] / L]``; one of zero length is given
-      :data:`POLYNOMIAL_KICK_LENGTH_M`, taken from the nearest drift past the
-      zero-length elements after it, else before it, else from the nearest
-      element of any pass with a length there, whose ``PolynomA`` and
-      ``PolynomB`` are rescaled so their integrals over its length are the
-      deck's (a dipole keeps its ``BendingAngle``); the copy's length and the
-      place of every element outside that span are the deck's;
+      ``PolynomA = [KickAngle[1] / L]``; one of zero length becomes a thin
+      multipole with ``PolynomB = [-KickAngle[0]]`` and
+      ``PolynomA = [KickAngle[1]]``;
     * an element whose pass applies its polynomials and adds its kick to them
-      (``sin(KickAngle)`` over its length) has the kick folded into
-      ``PolynomB[0]`` and ``PolynomA[0]`` and its ``KickAngle`` zeroed.
+      (``sin(KickAngle)``, over its length when it has one) has the kick
+      folded into ``PolynomB[0]`` and ``PolynomA[0]`` and its ``KickAngle``
+      zeroed.
 
-    A zero-length element whose pass applies polynomials is refused, as is a
-    zero-length kick whose nearest elements on both sides are no longer than
-    :data:`POLYNOMIAL_KICK_LENGTH_M`. An element the deck does not hold,
-    or one holding no ``KickAngle``, is copied as it is. The deck's file is
-    never written to.
+    Every element keeps the deck's length and place. An element the deck does
+    not hold, or one holding no ``KickAngle``, is copied as it is. The deck's
+    file is never written to.
 
     Args:
         deck: The lattice file.
         elements: The element names whose kick to carry as polynomials.
 
     Returns:
-        The copy and the elements refused.
+        The copy as pyAT's JSON, two-space indented, without pyAT's version
+        key, ending in a newline.
     """
+    import at
     import numpy as np
 
     lattice = _load(deck).lattice.deepcopy()
     wanted = set(elements)
-    refused: set[str] = set()
     for index in range(len(lattice)):
         element = lattice[index]
         name = str(element.FamName)
@@ -1184,20 +1156,17 @@ def polynomial_kicks(deck: Deck, elements: Iterable[str]) -> PolynomialKicks:
         horizontal, vertical = (float(value) for value in np.ravel(kick)[:2])
         length = float(element.Length)
         if element.PassMethod != _KICK_PASS:
-            if length == 0.0:
-                refused.add(name)
-                continue
-            _fold_kick(element, horizontal, vertical, length)
-            continue
-        if length == 0.0:
-            donor = _length_donor(lattice, index, POLYNOMIAL_KICK_LENGTH_M)
-            if donor is None:
-                refused.add(name)
-                continue
-            _shorten(lattice[donor], POLYNOMIAL_KICK_LENGTH_M)
-            length = POLYNOMIAL_KICK_LENGTH_M
-        lattice[index] = _polynomial_kick(element, horizontal, vertical, length)
-    return PolynomialKicks(text=_json_text(lattice), refused=tuple(sorted(refused)))
+            _fold_kick(element, horizontal, vertical, length or 1.0)
+        elif length == 0.0:
+            kept = {
+                key: value
+                for key, value in vars(element).items()
+                if key not in _KICK_ONLY_ATTRIBUTES
+            }
+            lattice[index] = at.ThinMultipole(name, [vertical], [-horizontal], **kept)
+        else:
+            lattice[index] = _polynomial_kick(element, horizontal, vertical, length)
+    return _json_text(lattice)
 
 
 def _polynomial_kick(element: Any, horizontal: float, vertical: float, length: float) -> Any:
@@ -1211,7 +1180,11 @@ def _polynomial_kick(element: Any, horizontal: float, vertical: float, length: f
 
 
 def _fold_kick(element: Any, horizontal: float, vertical: float, length: float) -> None:
-    """Move a multipole's ``KickAngle`` into its dipole polynomial terms, as its pass adds it."""
+    """Move a multipole's ``KickAngle`` into its dipole polynomial terms, as its pass adds it.
+
+    ``length`` is the element's length, or 1 for a zero-length element, whose
+    terms are the integrated kick its thin pass applies.
+    """
     import numpy as np
 
     for name, term in (
@@ -1224,38 +1197,6 @@ def _fold_kick(element: Any, horizontal: float, vertical: float, length: float) 
         polynomial[0] += term
         setattr(element, name, polynomial)
     element.KickAngle = np.zeros(2)
-
-
-def _length_donor(lattice: Any, index: int, length: float) -> int | None:
-    """The element that lends ``length`` to the zero-length element at ``index``.
-
-    Of the two elements past the zero-length elements beside ``index``, the one
-    after it first: a drift longer than ``length``, else any element longer
-    than ``length``.
-    """
-    beside: list[int] = []
-    for step in (1, -1):
-        position = index + step
-        while 0 <= position < len(lattice) and float(lattice[position].Length) == 0.0:
-            position += step
-        if 0 <= position < len(lattice) and float(lattice[position].Length) > length:
-            beside.append(position)
-    drifts = [position for position in beside if lattice[position].PassMethod == _DRIFT_PASS]
-    candidates = drifts or beside
-    return candidates[0] if candidates else None
-
-
-def _shorten(element: Any, length: float) -> None:
-    """Shorten ``element`` by ``length``, keeping the integrals of its polynomials."""
-    import numpy as np
-
-    before = float(element.Length)
-    after = before - length
-    for name in ("PolynomA", "PolynomB"):
-        polynomial = getattr(element, name, None)
-        if polynomial is not None:
-            setattr(element, name, np.asarray(polynomial, dtype=float) * (before / after))
-    element.Length = after
 
 
 def _json_text(lattice: Any) -> str:

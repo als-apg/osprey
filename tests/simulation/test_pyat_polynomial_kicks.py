@@ -1,13 +1,14 @@
 """The pyat engine's polynomial-kick copy of a deck.
 
 A reader that takes a corrector's strength from ``PolynomB[0]`` and
-``PolynomA[0]`` integrated over the element's length (pyAML) reads nothing off
-an element that carries its kick as ``KickAngle``. ``polynomial_kicks`` writes
-a copy of the deck in which each named element carries the same integrated
-kick as its polynomials: the deck's file is never written to, the copy's
-length and the place of every element but a zero-length kick and the element
-lending it its length are unchanged, and the orbit the copy's correctors move
-is the orbit the deck's move.
+``PolynomA[0]`` integrated over the element's length, or from the terms
+themselves on a zero-length element (pyAML), reads nothing off an element that
+carries its kick as ``KickAngle``. ``polynomial_kicks`` writes a copy of the
+deck in which each named element carries the same integrated kick as its
+polynomials: the deck's file is never written to, every element keeps the
+deck's length and place, a zero-length corrector becomes a zero-length thin
+multipole, and the orbit the copy's correctors move is the orbit the deck's
+move.
 """
 
 from __future__ import annotations
@@ -70,35 +71,31 @@ def _orbit(lattice: at.Lattice) -> np.ndarray:
     return orbit[:, [0, 2]]
 
 
-def test_a_thin_corrector_takes_a_micrometre_from_the_drift_beside_it(tmp_path: Path) -> None:
+def test_a_thin_corrector_becomes_a_thin_multipole_and_every_element_keeps_its_place(
+    tmp_path: Path,
+) -> None:
     deck = _deck(tmp_path, _cell())
-    copied = _copy(engine.polynomial_kicks(deck, ["HC", "VC"]).text, tmp_path)
+    copied = _copy(engine.polynomial_kicks(deck, ["HC", "VC"]), tmp_path)
     original = at.load_lattice(str(deck))
-    length = engine.POLYNOMIAL_KICK_LENGTH_M
     for name in ("HC", "VC"):
         element = _element(copied, name)
-        assert element.PassMethod == "StrMPoleSymplectic4Pass"
-        assert element.Length == length
-    assert _element(copied, "D3").Length == pytest.approx(0.2 - 2 * length, abs=1e-15)
-    assert copied.circumference == pytest.approx(original.circumference, abs=1e-12)
-    moved = {"HC", "VC", "D3"}
+        assert element.PassMethod == "ThinMPolePass"
+        assert element.Length == 0.0
     for kept, before in zip(copied, original, strict=True):
-        if kept.FamName not in moved:
-            assert kept.Length == before.Length
-    s_copy = copied.get_s_pos(range(len(copied) + 1))
-    s_deck = original.get_s_pos(range(len(original) + 1))
-    assert np.max(np.abs(s_copy - s_deck)) <= 2 * length + 1e-12
+        assert kept.FamName == before.FamName
+        assert kept.Length == before.Length
+    assert copied.circumference == original.circumference
 
 
 def test_the_copy_carries_the_deck_s_kicks_as_polynomials(tmp_path: Path) -> None:
     elements = _cell()
     elements[6].KickAngle = np.array([2.0e-5, 0.0])
     elements[7].KickAngle = np.array([0.0, -3.0e-5])
-    copied = _copy(engine.polynomial_kicks(_deck(tmp_path, elements), ["HC", "VC"]).text, tmp_path)
+    copied = _copy(engine.polynomial_kicks(_deck(tmp_path, elements), ["HC", "VC"]), tmp_path)
     for name, kick in (("HC", (2.0e-5, 0.0)), ("VC", (0.0, -3.0e-5))):
         element = _element(copied, name)
-        assert element.PolynomB[0] * element.Length == pytest.approx(-kick[0])
-        assert element.PolynomA[0] * element.Length == pytest.approx(kick[1])
+        assert element.PolynomB[0] == -kick[0]
+        assert element.PolynomA[0] == kick[1]
         assert not hasattr(element, "KickAngle")
 
 
@@ -106,7 +103,7 @@ def test_a_thick_corrector_keeps_its_length(tmp_path: Path) -> None:
     elements = _cell()
     elements[6] = at.Corrector("HC", 0.1, [4.0e-5, 1.0e-5], PolynomB=[0.0, 0.5])
     elements[8] = at.Drift("D3", 0.1)
-    copied = _copy(engine.polynomial_kicks(_deck(tmp_path, elements), ["HC"]).text, tmp_path)
+    copied = _copy(engine.polynomial_kicks(_deck(tmp_path, elements), ["HC"]), tmp_path)
     element = _element(copied, "HC")
     assert element.Length == 0.1
     assert list(element.PolynomB) == pytest.approx([-4.0e-4])
@@ -119,7 +116,7 @@ def test_a_multipole_s_kick_is_folded_into_its_polynomials(tmp_path: Path) -> No
     elements = _cell()
     sextupole = at.Sextupole("SX", 0.2, 3.0, KickAngle=np.array([1.0e-4, 2.0e-4]))
     elements.insert(9, sextupole)
-    copied = _copy(engine.polynomial_kicks(_deck(tmp_path, elements), ["SX"]).text, tmp_path)
+    copied = _copy(engine.polynomial_kicks(_deck(tmp_path, elements), ["SX"]), tmp_path)
     element = _element(copied, "SX")
     assert element.PassMethod == sextupole.PassMethod
     assert element.PolynomB[0] == pytest.approx(-math.sin(1.0e-4) / 0.2)
@@ -128,84 +125,40 @@ def test_a_multipole_s_kick_is_folded_into_its_polynomials(tmp_path: Path) -> No
     assert list(element.KickAngle) == [0.0, 0.0]
 
 
-def _between_magnets() -> list[object]:
-    """The cell with the thin correctors between QD and a gradient dipole B2, no drift beside."""
-    elements = _cell()
-    elements[9] = at.Dipole("B2", 1.0, math.pi / 8, PolynomA=[0.0, 0.0, 0.3], PolynomB=[0.0, 0.2])
-    del elements[8]
-    del elements[5]
-    del elements[3]
-    return elements
-
-
-def test_a_thin_corrector_with_no_drift_beside_it_takes_a_micrometre_from_a_magnet(
-    tmp_path: Path,
-) -> None:
-    """The nearest thick element after the kick lends the length; its integrated fields stay."""
-    deck = _deck(tmp_path, _between_magnets())
-    result = engine.polynomial_kicks(deck, ["HC", "VC"])
-    assert result.refused == ()
-    copied = _copy(result.text, tmp_path)
+def test_a_thin_corrector_with_no_drift_beside_it_is_converted_in_place(tmp_path: Path) -> None:
+    elements = [element for element in _cell() if element.FamName != "D3"]
+    deck = _deck(tmp_path, elements)
+    copied = _copy(engine.polynomial_kicks(deck, ["HC", "VC"]), tmp_path)
     original = at.load_lattice(str(deck))
-    length = engine.POLYNOMIAL_KICK_LENGTH_M
     for name in ("HC", "VC"):
         element = _element(copied, name)
-        assert element.PassMethod == "StrMPoleSymplectic4Pass"
-        assert element.Length == length
-    donor, before = _element(copied, "B2"), _element(original, "B2")
-    assert donor.Length == pytest.approx(1.0 - 2 * length, abs=1e-15)
-    assert donor.BendingAngle == before.BendingAngle
-    assert donor.PassMethod == before.PassMethod
-    for field in ("PolynomA", "PolynomB"):
-        integrated = np.asarray(getattr(donor, field)) * donor.Length
-        assert integrated == pytest.approx(np.asarray(getattr(before, field)) * before.Length)
-    assert copied.circumference == pytest.approx(original.circumference, abs=1e-12)
-    for kept, held in zip(copied, original, strict=True):
-        if kept.FamName not in {"HC", "VC", "B2"}:
-            assert kept.Length == held.Length
-    s_copy = copied.get_s_pos(range(len(copied) + 1))
-    s_deck = original.get_s_pos(range(len(original) + 1))
-    assert np.max(np.abs(s_copy - s_deck)) <= 2 * length + 1e-12
+        assert element.PassMethod == "ThinMPolePass"
+        assert element.Length == 0.0
+    for kept, before in zip(copied, original, strict=True):
+        assert kept.FamName == before.FamName
+        assert kept.Length == before.Length
 
 
-def test_a_thin_corrector_after_its_last_drift_borrows_from_the_magnet_before_it(
-    tmp_path: Path,
-) -> None:
-    elements = [*_between_magnets()[:4], at.Corrector("HC", 0.0, [0.0, 0.0])]
-    copied = _copy(engine.polynomial_kicks(_deck(tmp_path, elements), ["HC"]).text, tmp_path)
-    donor = _element(copied, "QD")
-    assert donor.Length == pytest.approx(0.5 - engine.POLYNOMIAL_KICK_LENGTH_M, abs=1e-15)
-    assert donor.PolynomB[1] * donor.Length == pytest.approx(-1.2 * 0.5, rel=1e-12)
-
-
-@pytest.mark.parametrize(("name", "plane"), [("HC", 0), ("VC", 1)])
-def test_a_corrector_lent_its_length_by_a_magnet_moves_the_orbit_as_the_deck_s_kick_does(
-    tmp_path: Path, name: str, plane: int
-) -> None:
-    deck = _deck(tmp_path, _between_magnets())
-    original = at.load_lattice(str(deck))
-    copied = _copy(engine.polynomial_kicks(deck, ["HC", "VC"]).text, tmp_path)
-    kicked = original.deepcopy()
-    angle = np.zeros(2)
-    angle[plane] = KICK
-    _element(kicked, name).KickAngle = angle
-    served = _orbit(kicked) - _orbit(original)
-    base = _orbit(copied)
-    element = _element(copied, name)
-    if plane == 0:
-        element.PolynomB[0] = -KICK / element.Length
-    else:
-        element.PolynomA[0] = KICK / element.Length
-    measured = _orbit(copied) - base
-    assert np.max(np.abs(served)) > 0
-    assert measured == pytest.approx(served, rel=1e-4, abs=1e-11)
+def test_a_zero_length_multipole_s_kick_is_folded_into_its_dipole_terms(tmp_path: Path) -> None:
+    """A thin multipole pass applies ``sin(KickAngle)`` as its integrated dipole terms."""
+    kx, ky = 2.0e-5, -3.0e-5
+    elements = _cell()
+    elements.insert(8, at.ThinMultipole("TM", [0.0], [0.0], KickAngle=np.array([kx, ky])))
+    deck = _deck(tmp_path, elements)
+    copied = _copy(engine.polynomial_kicks(deck, ["TM"]), tmp_path)
+    element = _element(copied, "TM")
+    assert element.PassMethod == "ThinMPolePass"
+    assert element.Length == 0.0
+    assert element.PolynomB[0] == pytest.approx(-math.sin(kx), rel=1e-12)
+    assert element.PolynomA[0] == pytest.approx(math.sin(ky), rel=1e-12)
+    assert list(element.KickAngle) == [0.0, 0.0]
+    assert _orbit(copied) == pytest.approx(_orbit(at.load_lattice(str(deck))), rel=1e-9)
 
 
 def test_an_element_carrying_no_kick_is_left_alone(tmp_path: Path) -> None:
     deck = _deck(tmp_path, _cell())
-    result = engine.polynomial_kicks(deck, ["QF", "NOT_THERE"])
-    assert result.refused == ()
-    assert json.loads(result.text) == json.loads(engine.polynomial_kicks(deck, []).text)
+    copied = engine.polynomial_kicks(deck, ["QF", "NOT_THERE"])
+    assert json.loads(copied) == json.loads(engine.polynomial_kicks(deck, []))
 
 
 def test_the_deck_s_file_is_not_written(tmp_path: Path) -> None:
@@ -217,8 +170,8 @@ def test_the_deck_s_file_is_not_written(tmp_path: Path) -> None:
 
 def test_the_copy_is_the_same_text_every_time(tmp_path: Path) -> None:
     deck = _deck(tmp_path, _cell())
-    first = engine.polynomial_kicks(deck, ["VC", "HC"]).text
-    assert engine.polynomial_kicks(deck, ["HC", "VC"]).text == first
+    first = engine.polynomial_kicks(deck, ["VC", "HC"])
+    assert engine.polynomial_kicks(deck, ["HC", "VC"]) == first
     assert first.endswith("\n")
     assert "at_version" not in json.loads(first)
 
@@ -229,7 +182,7 @@ def test_a_copied_corrector_moves_the_orbit_as_the_deck_s_kick_does(
 ) -> None:
     deck = _deck(tmp_path, _cell())
     original = at.load_lattice(str(deck))
-    copied = _copy(engine.polynomial_kicks(deck, ["HC", "VC"]).text, tmp_path)
+    copied = _copy(engine.polynomial_kicks(deck, ["HC", "VC"]), tmp_path)
     kicked = original.deepcopy()
     angle = np.zeros(2)
     angle[plane] = KICK
@@ -238,9 +191,9 @@ def test_a_copied_corrector_moves_the_orbit_as_the_deck_s_kick_does(
     base = _orbit(copied)
     element = _element(copied, name)
     if plane == 0:
-        element.PolynomB[0] = -KICK / element.Length
+        element.PolynomB[0] = -KICK
     else:
-        element.PolynomA[0] = KICK / element.Length
+        element.PolynomA[0] = KICK
     measured = _orbit(copied) - base
     assert np.max(np.abs(served)) > 0
-    assert measured == pytest.approx(served, rel=1e-5, abs=1e-12)
+    assert measured == pytest.approx(served, rel=1e-9, abs=1e-15)

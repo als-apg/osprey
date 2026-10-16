@@ -26,9 +26,7 @@ that names a deck and has a ``measurement/<model>.yaml``::
 A model solved ``single_pass`` has no design simulator (``simulators: []``):
 pyAML's design simulator solves a periodic orbit. Every other model the render
 serves names a note on stderr saying why it has no view. A setpoint pyAML cannot
-convert is left out of the view and named in a note; a corrector whose element
-the engine cannot give its kick as polynomials is left out of the view and named
-in a note.
+convert is left out of the view and named in a note.
 
 Every name the configuration holds comes from :mod:`pyaml_cs_osprey.names`, so
 the view, the measurement tools and a reader of the configuration cannot spell
@@ -797,18 +795,16 @@ def _measurement_value(measurement: Mapping[str, Any], key: str) -> float | int:
 
 def _configuration(
     inputs: ViewInputs, model: str
-) -> tuple[dict[str, Any], dict[str, str], list[str], list[str]]:
+) -> tuple[dict[str, Any], dict[str, str], list[str]]:
     """One model's pyAML configuration, the extra files it references and what it leaves out.
 
     A setpoint whose calibration pyAML cannot represent has no magnet and is in
     no array.
 
     Returns:
-        ``(configuration, files, unmodelled, unkicked)``: the configuration as
-        a mapping, each file beside it by name with its text, the setpoints
-        left out for want of a pyAML magnet model and the corrector setpoints
-        left out for want of an element that carries their kick as
-        polynomials, each in group order.
+        ``(configuration, files, unmodelled)``: the configuration as a
+        mapping, each file beside it by name with its text and the setpoints
+        left out for want of a pyAML magnet model, in group order.
     """
     from pyaml_cs_osprey.names import (
         CHROMATICITY_MONITOR_NAME,
@@ -836,17 +832,9 @@ def _configuration(
     models = {magnet.address: _magnet_model(magnet, deck, limits) for magnet in magnets}
     unmodelled = [address for address, found in models.items() if found is None]
     files: dict[str, str] = {}
-    unkicked: list[str] = []
     if periodic:
-        files[LATTICE_FILE], refused = _design_lattice(inputs, record, magnets)
-        unkicked = [
-            magnet.address
-            for magnet in magnets
-            if magnet.role in ROLE_PLANES
-            and models[magnet.address] is not None
-            and any(element in refused for element, _ in _slice_elements(magnet.entry))
-        ]
-    left_out = set(unmodelled) | set(unkicked)
+        files[LATTICE_FILE] = _design_lattice(inputs, record, magnets)
+    left_out = set(unmodelled)
     magnets = [magnet for magnet in magnets if magnet.address not in left_out]
     groups = {
         role: [address for address in addresses if address not in left_out]
@@ -1036,13 +1024,13 @@ def _configuration(
                     }
                 )
     configuration["devices"] = devices
-    return configuration, files, unmodelled, unkicked
+    return configuration, files, unmodelled
 
 
 def _design_lattice(
     inputs: ViewInputs, record: Mapping[str, Any], magnets: Sequence[_Magnet]
-) -> tuple[str, frozenset[str]]:
-    """The design simulator's lattice text and the corrector elements it could not convert.
+) -> str:
+    """The design simulator's lattice text.
 
     The model's engine copies the deck with the elements the view's correctors
     drive carrying their kicks as polynomials (``polynomial_kicks``). For a
@@ -1077,7 +1065,7 @@ def _design_lattice(
         else None
     )
     if convert is None and not elements:
-        return deck.read_bytes().decode("utf-8"), frozenset()
+        return deck.read_bytes().decode("utf-8")
     if convert is None:
         raise FacilityBuildError(
             "engine-invalid",
@@ -1090,8 +1078,7 @@ def _design_lattice(
                 "correctors would carry no kick"
             ),
         )
-    copy = convert(deck, elements)
-    return str(copy.text), frozenset(copy.refused)
+    return str(convert(deck, elements))
 
 
 def _shown(addresses: Sequence[str]) -> str:
@@ -1116,20 +1103,13 @@ def write_pyaml_view(root: Path, inputs: ViewInputs) -> list[Path]:
         report_note(inputs, _omitted_note(model, reason))
     written: list[Path] = []
     for model in written_models:
-        configuration, files, unmodelled, unkicked = _configuration(inputs, model)
+        configuration, files, unmodelled = _configuration(inputs, model)
         if unmodelled:
             report_note(
                 inputs,
                 f"view pyaml: {model} leaves out {len(unmodelled)} "
                 f"setpoint{'' if len(unmodelled) == 1 else 's'} pyAML has no magnet model "
                 f"for: {_shown(unmodelled)}",
-            )
-        if unkicked:
-            report_note(
-                inputs,
-                f"view pyaml: {model} leaves out {len(unkicked)} "
-                f"corrector{'' if len(unkicked) == 1 else 's'} whose element has no length "
-                f"to carry a kick: {_shown(unkicked)}",
             )
         directory = root / model
         directory.mkdir(parents=True, exist_ok=True)

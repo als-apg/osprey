@@ -9,12 +9,9 @@ package be built and tested against a pyAML the other refuses.
 
 The release's ``MeasurementTool.save`` cannot write a measurement holding numpy
 values as JSON, which is why the measurement script carries its own writer; its
-test fails on the first pinned release that can. The release reads a zero-length
-magnet's polynomials as zero, which is why the pyAT plug-in lends such a
-corrector a length; its test fails on the first pinned release that reads the
-integrated strength. The release reads no kick held in ``KickAngle``, which is
-why the pyAT plug-in copies kicks into polynomials; its test fails on the first
-pinned release that reads it.
+test fails on the first pinned release that can. The release reads no kick held
+in ``KickAngle``, which is why the pyAT plug-in copies kicks into polynomials;
+its test fails on the first pinned release that reads it.
 """
 
 from __future__ import annotations
@@ -89,26 +86,6 @@ def test_pyaml_save_still_refuses_numpy_values(tmp_path: pathlib.Path) -> None:
     )
 
 
-def test_pyaml_still_reads_a_zero_length_magnet_as_zero() -> None:
-    import at
-    from pyaml.lattice.abstract_impl import RWStrengthScalar
-    from pyaml.lattice.polynom_info import PolynomInfo
-
-    reading = RWStrengthScalar(
-        [at.ThinMultipole("thin", [0.0], [2.0e-3])], PolynomInfo("PolynomB", 0), None
-    ).get()
-    if reading == 0.0:
-        return
-    pytest.fail(
-        "the pinned pyAML reads a zero-length magnet's polynomials as its integrated strength "
-        f"(reading {reading}): the length borrow in osprey/simulation/engines/pyat.py "
-        "(POLYNOMIAL_KICK_LENGTH_M and its __all__ entry, _DRIFT_PASS, _length_donor, _shorten, "
-        "PolynomialKicks.refused and the refusals in polynomial_kicks), the unkicked list and its "
-        "note in osprey/facility/views/pyaml.py, their tests, this test and its row in "
-        "tests/infrastructure/test_stand_in_canaries.py go"
-    )
-
-
 def test_pyaml_still_reads_no_kick_angle() -> None:
     import at
     import numpy as np
@@ -131,8 +108,8 @@ def test_pyaml_still_reads_no_kick_angle() -> None:
         return
     pytest.fail(
         f"the pinned pyAML reads the kick held in KickAngle of {read}: polynomial_kicks, "
-        "PolynomialKicks, _polynomial_kick, _fold_kick, _KICK_PASS, _KICK_ONLY_ATTRIBUTES, "
-        "_json_text and the __all__ entries in osprey/simulation/engines/pyat.py, the "
+        "_polynomial_kick, _fold_kick, _KICK_PASS, _KICK_ONLY_ATTRIBUTES, "
+        "_json_text and its __all__ entry in osprey/simulation/engines/pyat.py, the "
         "EnginePlugin row in "
         "osprey/simulation/engines/__init__.py, _design_lattice's call and engine-invalid stop "
         "in osprey/facility/views/pyaml.py (the view then writes the deck as it is), the mention "
