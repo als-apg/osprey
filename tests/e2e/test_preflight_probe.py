@@ -341,8 +341,9 @@ def preflight_stack(
         timeout=BUILD_TIMEOUT_SEC,
     )
     # One of each is all a 1-axis grid_scan needs.
-    correctors = _orm_stack.select_correctors(repo, count=1)
-    bpms = _orm_stack.select_bpms(repo, count=1)
+    _setpoint, _readback, model = _facility_select.bounded_corrector(repo)
+    correctors = _orm_stack.select_correctors(repo, count=1, model=model)
+    bpms = _orm_stack.select_bpms(repo, count=1, model=model)
     staged_settables, staged_readables = _orm_stack.staged_devices(repo)
     view_addresses = frozenset(
         [address for pair in staged_settables.values() for address in pair]

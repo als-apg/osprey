@@ -93,7 +93,7 @@ from typing import Any
 
 import pytest
 
-from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
 
@@ -128,9 +128,9 @@ SCAN_TIMEOUT_SEC = 120.0
 CORRECTOR_COUNT = 3
 BPM_COUNT = 2
 
-# Within the corrector channel_limits band (+-12A, see
-# tests/va/e2e/test_limits_enforcement.py) but far from the identity-state
-# baseline (0.0 A) -- unambiguous if it ever actually lands.
+# Within the band of the corrector a limits record bounds (+-12A in the
+# example facility, see tests/va/e2e/test_limits_enforcement.py) but far from
+# the identity-state baseline (0.0 A) -- unambiguous if it ever actually lands.
 POISON_CURRENT = 5.0
 
 SPAN_A = 2.0
@@ -490,8 +490,9 @@ def deployed_sandbox_stack(
     # The escape target is one of the staged devices -- it has to be IN the
     # worker's namespace for the refusal under test to be the limits facade
     # refusing a legal device, not the worker rejecting an unknown name.
-    correctors = _orm_stack.select_correctors(repo, count=CORRECTOR_COUNT)
-    bpms = _orm_stack.select_bpms(repo, count=BPM_COUNT)
+    _setpoint, _readback, model = _facility_select.bounded_corrector(repo)
+    correctors = _orm_stack.select_correctors(repo, count=CORRECTOR_COUNT, model=model)
+    bpms = _orm_stack.select_bpms(repo, count=BPM_COUNT, model=model)
     escape_name, (escape_sp, escape_rb) = sorted(correctors.items())[0]
     positive_correctors = {name: pair for name, pair in correctors.items() if name != escape_name}
 

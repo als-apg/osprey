@@ -857,7 +857,7 @@ def _keyed_by_address(
 
 
 def select_correctors(
-    repo: Path, count: int | None = DEFAULT_CORRECTOR_COUNT, *, model: str | None = None
+    repo: Path, count: int | None = DEFAULT_CORRECTOR_COUNT, *, model: str | None
 ) -> dict[str, tuple[str, str]]:
     """Pick ``count`` corrector ``:SP``/``:RB`` pairs out of the device view the
     build staged for ``repo`` (:func:`staged_devices`), never a hardcoded
@@ -875,9 +875,14 @@ def select_correctors(
 
     If ``count`` is ``None``, returns the FULL available corrector set instead
     of a fixed-size slice -- no assertion is raised in that case, regardless of
-    how many pairs are found. Pairs are taken in address order. ``model``
-    keeps only the correctors that model's bindings wire; ``None`` takes every
-    served model's.
+    how many pairs are found. Pairs are taken in address order.
+
+    ``model`` keeps only the correctors that model's bindings wire, and is
+    always named: a corrector-sweeping plan sweeps one model's correctors and
+    reads that model's monitors (:func:`select_bpms` with the same ``model``),
+    since a corrector of one model moves no monitor of another and a sweep
+    size one model holds another may refuse. ``None`` takes every served
+    model's, and is only for a lane that checks against every wired channel.
 
     Returns a dict of ``sp_address -> (sp_address, rb_address)`` -- the
     setpoint's device name is its own ``:SP`` address, as it is in the view.
@@ -893,7 +898,7 @@ def select_correctors(
 
 
 def select_bpms(
-    repo: Path, count: int | None = DEFAULT_BPM_COUNT, *, model: str | None = None
+    repo: Path, count: int | None = DEFAULT_BPM_COUNT, *, model: str | None
 ) -> dict[str, str]:
     """Pick ``count`` beam-position readbacks out of the device view the build
     staged for ``repo`` -- same view, same no-hardcoded-channel convention as
@@ -906,8 +911,12 @@ def select_bpms(
 
     If ``count`` is ``None``, returns the FULL available monitor set instead of
     a fixed-size slice -- no assertion is raised in that case. Readbacks are
-    taken in address order. ``model`` keeps only the monitors that model's
-    bindings wire; ``None`` takes every served model's.
+    taken in address order.
+
+    ``model`` keeps only the monitors that model's bindings wire, and is
+    always named: a corrector-sweeping plan reads the monitors of the model
+    whose correctors it sweeps. ``None`` takes every served model's, and is
+    only for a lane that checks against every wired channel.
 
     Returns a dict of ``read_address -> read_address`` -- the readback's device
     name is its own read address, as it is in the view.

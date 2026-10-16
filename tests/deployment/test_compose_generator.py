@@ -2309,6 +2309,36 @@ def test_orm_stack_names_a_bounded_corrector_and_its_models_monitors(tmp_path: P
     assert set(bpms) <= model_monitors, sorted(set(bpms) - model_monitors)
 
 
+def test_orm_stack_correctors_hold_the_sweep_span(tmp_path: Path) -> None:
+    """Every corrector the ORM lane sweeps holds ``+-SPAN_A`` on the model.
+
+    The lane sweeps one model's correctors, the model whose corrector a limits
+    record bounds. A write the model cannot solve is refused and leaves the
+    model serving, so a corrector that loses the beam at the sweep's span would
+    fail the lane's first write rather than yield a response column.
+    """
+    from click.testing import CliRunner
+
+    from osprey_connectors.simulation.composite import Composite, WriteRefusedError
+    from osprey_connectors.simulation.view import SimulatorView
+    from tests.e2e import _facility_select, _orm_stack, test_orm_roundtrip
+
+    repo = _orm_stack.build_via_cli_runner(CliRunner(), tmp_path).parent
+
+    model = _facility_select.bounded_corrector(repo)[2]
+    correctors = _orm_stack.select_correctors(repo, test_orm_roundtrip.CORRECTOR_COUNT, model=model)
+    composite = Composite(SimulatorView.of_project(repo), state_dir=None, model_log=False)
+    for setpoint in sorted(correctors):
+        before = composite.get(setpoint)
+        for value in (-test_orm_roundtrip.SPAN_A, test_orm_roundtrip.SPAN_A):
+            try:
+                composite.set({setpoint: value})
+            except WriteRefusedError as exc:
+                raise AssertionError(f"{setpoint} at {value} A is refused: {exc}") from exc
+            assert composite.get(setpoint) == pytest.approx(value), setpoint
+        composite.set({setpoint: before})
+
+
 # ---------------------------------------------------------------------------
 # Container config staging: no host interpreter can reach the container
 #

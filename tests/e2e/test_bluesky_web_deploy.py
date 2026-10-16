@@ -84,7 +84,7 @@ from typing import Any
 
 import pytest
 
-from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
 
@@ -461,8 +461,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"osprey build failed (rc={build.returncode}):\n"
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
-    correctors = _orm_stack.select_correctors(repo, count=1)
-    bpms = _orm_stack.select_bpms(repo, count=2)
+    _setpoint, _readback, model = _facility_select.bounded_corrector(repo)
+    correctors = _orm_stack.select_correctors(repo, count=1, model=model)
+    bpms = _orm_stack.select_bpms(repo, count=2, model=model)
     # The limits are a separate question from which channels exist: this lane
     # goes on to build plan args INSIDE a device's limits record.
     limits = _orm_stack.channel_limits(repo)

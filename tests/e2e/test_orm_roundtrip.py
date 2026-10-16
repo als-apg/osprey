@@ -249,8 +249,9 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
         # landing on a real deployment's default 10000 block.
         port_base=21200,
     )
-    correctors = _orm_stack.select_correctors(repo, CORRECTOR_COUNT)
-    bpms = _orm_stack.select_bpms(repo)
+    _setpoint, _readback, model = _facility_select.bounded_corrector(repo)
+    correctors = _orm_stack.select_correctors(repo, CORRECTOR_COUNT, model=model)
+    bpms = _orm_stack.select_bpms(repo, model=model)
     _assert_selected_readings_still(repo, correctors, bpms)
 
     # The repo root's `.env` — the deployment's whole secret store, and the file

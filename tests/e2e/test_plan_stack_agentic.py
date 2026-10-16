@@ -3292,8 +3292,8 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     # Correctors and BPMs come from the device file the build staged, never a
     # hardcoded preset channel: the full sets the worker registered, which is
     # what the liveness and hysteresis floors mean by "wired".
-    correctors = _orm_stack.select_correctors(repo, count=None)
-    bpms = _orm_stack.select_bpms(repo, count=None)
+    correctors = _orm_stack.select_correctors(repo, count=None, model=None)
+    bpms = _orm_stack.select_bpms(repo, count=None, model=None)
     named_setpoint, _named_readback, named_model = _facility_select.bounded_corrector(repo)
     named_bpms = list(_orm_stack.select_bpms(repo, count=None, model=named_model))
 
