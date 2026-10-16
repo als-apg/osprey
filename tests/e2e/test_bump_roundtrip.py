@@ -487,12 +487,19 @@ def _horizontal_devices(repo: Path) -> tuple[list[str], list[str]]:
     staged view's devices in address order.
     """
     view = _orm_stack.repo_view(repo)
+    _setpoint, _readback, model = _orm_stack.bounded_corrector(repo)
     kicks = _orm_stack.corrector_addresses(view, plane="x")
     monitors = _orm_stack.monitor_addresses(view, plane="x")
     correctors = [
-        address for address in _orm_stack.select_correctors(repo, count=None) if address in kicks
+        address
+        for address in _orm_stack.select_correctors(repo, count=None, model=model)
+        if address in kicks
     ]
-    bpms = [address for address in _orm_stack.select_bpms(repo, count=None) if address in monitors]
+    bpms = [
+        address
+        for address in _orm_stack.select_bpms(repo, count=None, model=model)
+        if address in monitors
+    ]
     return correctors, bpms
 
 
