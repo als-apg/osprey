@@ -54,13 +54,15 @@ def test_the_command_exit_code_passes_through():
 
 def test_a_command_past_its_bound_is_stopped_with_its_process_group(tmp_path):
     pid_file = tmp_path / "grandchild.pid"
-    # A shell is ready in milliseconds, so the bound is spent on the command
-    # itself rather than on an interpreter starting up.
+    # The bound is the child's readiness window as well as the stop stimulus:
+    # a shell is ready in milliseconds on an idle host and within a few seconds
+    # on a loaded one, so three seconds is the window every bounded test here
+    # gives its child.
     command = ["sh", "-c", f"sleep 60 & echo $! > {shlex.quote(str(pid_file))}; wait"]
-    result = _run("1", "--", *command)
+    result = _run("3", "--", *command)
     assert result.returncode == 124
-    assert "still running after 1 s" in result.stderr
-    assert pid_file.exists(), "the child was not ready inside the 1 s bound: no grandchild pid file"
+    assert "still running after 3 s" in result.stderr
+    assert pid_file.exists(), "the child was not ready inside the 3 s bound: no grandchild pid file"
     pid = int(pid_file.read_text())
     try:
         assert _pid_is_gone(pid, within=5.0)
@@ -81,16 +83,16 @@ def test_a_command_that_ignores_sigterm_is_killed_after_the_grace(tmp_path):
         f"trap '' TERM ABRT; : > {shlex.quote(str(marker))}; exec sleep 60",
     ]
     started = time.monotonic()
-    result = _run("--dump", "1", "--grace", "1", "1", "--", *command)
+    result = _run("--dump", "1", "--grace", "1", "3", "--", *command)
     elapsed = time.monotonic() - started
     assert result.returncode == 124
     assert marker.exists(), (
-        "the child was not ready inside the 1 s bound: SIGTERM was never ignored"
+        "the child was not ready inside the 3 s bound: SIGTERM was never ignored"
     )
     # Bound plus dump wait plus grace: anything shorter means the command died
     # of SIGABRT or SIGTERM and the SIGKILL path never ran.
-    assert elapsed >= 3.0
-    assert elapsed < 10
+    assert elapsed >= 5.0
+    assert elapsed < 12
 
 
 def test_a_command_past_its_bound_prints_its_python_stacks_before_it_is_stopped(tmp_path):
