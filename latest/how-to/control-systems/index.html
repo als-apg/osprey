@@ -62,11 +62,11 @@
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
     <link rel="next" title="Use Connectors" href="use-connectors.html" />
-    <link rel="prev" title="Keep the Agent Record" href="../health-and-monitoring/agent-record.html" />
+    <link rel="prev" title="Reconstruct a Session" href="../health-and-monitoring/reconstruct-session.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">Control Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -521,8 +528,9 @@
 <h1>Control Systems<a class="headerlink" href="#control-systems" title="Link to this heading">#</a></h1>
 <p>A connector is OSPREY’s single interface to a control system. The agent, the
 plans and the safety layers are all written against that one interface, which
-is what makes the machine underneath it interchangeable: a mock for
-development, a simulator for rehearsal, the real hardware for production.</p>
+is what makes the machine underneath it interchangeable: the simulator in
+process for development, the simulator served from its container for
+rehearsal, the real hardware for production.</p>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
 <div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
@@ -531,8 +539,8 @@ development, a simulator for rehearsal, the real hardware for production.</p>
 <div class="sd-card-title sd-font-weight-bold docutils">
 Use Connectors</div>
 <p class="sd-card-text">The two-layer connector abstraction, the connectors that ship in-tree,
-and where to register your own – and mock to production is a change of
-<code class="docutils literal notranslate"><span class="pre">control_system.type</span></code>, not of code.</p>
+and where to register your own – and simulator to production is a
+change of <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code>, not of code.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="use-connectors.html"><span class="doc">Use Connectors</span></a></div>
 </div>
@@ -584,12 +592,12 @@ agent bridge.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="../health-and-monitoring/agent-record.html"
+       href="../health-and-monitoring/reconstruct-session.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Keep the Agent Record</p>
+        <p class="prev-next-title">Reconstruct a Session</p>
       </div>
     </a>
     <a class="right-next"

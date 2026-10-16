@@ -8,9 +8,10 @@ build`` renders it from the build profile, so the profile is where you edit a
 setting and this file is where you look one up: :doc:`profile` describes the
 authoring side, and this page catalogues what the rendered result means.
 
-The parts of that file gathered here are the facility this deployment belongs
-to (``facility:``), the diagnostic suite (``health:``), the browser UI's
-documentation and feedback settings (``web:``), the artifact gallery's own
+The parts of that file gathered here are the models its simulator serves
+(``simulation:``), the
+diagnostic suite (``health:``), the browser UI's documentation and feedback
+settings (``web:``), the artifact gallery's own
 categories (``artifact_server:``), the Python sandbox's run ceiling
 (``python_executor:``), where screenshots are written (``screen_capture:``), the
 full tool-call record (``audit.tool_call:``), the links from an answer to a
@@ -25,13 +26,10 @@ ever arrive from the environment are in :doc:`environment-variables`. A closing
 note records the **protected set** — the files and keys no agent-side writer
 may touch.
 
-.. _config-facility:
+.. _config-simulation:
 
-``facility:`` — whose machine this is
---------------------------------------
-
-Three keys say which facility the deployment serves, and one of them decides
-what the agent thinks your devices are called.
+``simulation:`` — which models the simulator serves and how fast it ticks
+--------------------------------------------------------------------------
 
 .. list-table::
    :header-rows: 1
@@ -39,50 +37,38 @@ what the agent thinks your devices are called.
 
    * - Key
      - What it does
-   * - ``facility.name``
-     - Display name woven into the agent's prompts and the web-terminal landing
-       page. With no value set, the project name is used.
-   * - ``facility.prefix``
-     - The facility's short token. The facility graph embeds it in every
-       identifier it mints (``osprey knowledge build-ttl --facility``
-       defaults to it), and a multi-user deployment without a ``personas``
-       catalog runs its terminals from ``/app/<prefix>-assistant`` inside the
-       container. It names no container, volume or image; those come from the
-       profile's ``project_name:`` (:ref:`reference-profile`).
-   * - ``facility.ontology``
-     - Path — relative to the project root — to this facility's **compiled
-       ontology table**, the JSON that ``osprey knowledge compile-ontology``
-       writes.
+   * - ``simulation.models``
+     - The models the simulator serves, by name from the facility file's
+       ``models.yaml``. ``null`` or absent serves every model; ``[texture]``
+       and ``[]`` serve no physics. Every shipped preset sets ``null``.
+   * - ``simulation.tick_s``
+     - Seconds between the simulator's ticks. Absent means ``1.0``; every
+       shipped preset sets ``1.0``. A value at or below ``0`` stops the build
+       with a ``profile-invalid`` line naming the key.
+   * - ``simulation.default_scenarios``
+     - The scenarios a deployment that has never chosen a set starts in, by
+       name from the facility's scenarios. ``osprey up`` activates them
+       the way ``osprey sim apply`` would, before it seeds the archive and the
+       logbook, and only while no set has been chosen. Absent, ``null`` or
+       ``[]`` starts in ``nominal`` alone. The control-assistant preset sets
+       ``[rf-thermal]``; the other presets leave it out. A value that is not a
+       list of non-empty names stops the build with a ``profile-invalid`` line
+       naming the key.
 
-``facility.ontology`` is the deployment's device vocabulary: the class names
-your facility uses, the everyday words operators say for each one, and the
-FAMILY tokens that appear in channel names. The channel-finder subagent's
-terminology table is rendered from it, so a deployment that declares its own
-table gets a subagent that speaks its words instead of the demo machine's.
+``texture`` is always served, and always last. A name the facility file does
+not hold stops the build with a ``profile-invalid`` line that lists the valid
+names.
 
-Three behaviours are worth knowing before you set it:
-
-* **Leave the key out** and the terminology table renders without a vocabulary
-  section, and says so — the subagent is told to match on names and
-  descriptions and verify with a lookup rather than guess. That is the honest
-  outcome, and it is deliberately not filled in from the ontology OSPREY ships
-  with its demo machine.
-* **Point it at a file that is not there**, or at one that does not parse, and
-  ``osprey build`` stops and names the key and the path. A vocabulary that was
-  declared and then quietly dropped would be the worst of the three outcomes.
-* **Point it at your own table** and the rows follow it exactly. Regenerate the
-  table and rebuild whenever the ontology changes; the table and the channel
-  database should be generated from the same source.
+A persona's list applies when its simulator is served in process: each
+process holds its own composite. On a persona whose baseline target is a
+served ``va`` or ``standin`` the deployment's container serves the deployment's
+list, so a persona delta that sets the key there stops the build with
+``profile-invalid``.
 
 .. code-block:: yaml
 
-   facility:
-     name: "Example Research Facility"
-     ontology: data/facility_ontology.json
-
-The ``control_assistant`` and ``channel_finder_standalone`` templates ship a
-copy of the demo machine's compiled table at that path, so both render a
-working vocabulary out of the box.
+   config:
+     simulation.models: [SR]
 
 .. _config-health:
 
@@ -199,9 +185,9 @@ other key becomes a probe parameter.
 Built-in service categories
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Beyond the always-on framework checks, four built-in categories are
-**presence-gated on their config blocks**: they contribute rows only when the
-corresponding service is configured, so a minimal build shows no empty tiles.
+Beyond the always-on framework checks, these built-in categories are
+**presence-gated**: they contribute rows only when the corresponding service is
+configured or deployed, so a minimal build shows no empty tiles.
 
 - ``ariel`` — appears when a top-level ``ariel:`` block is configured. Reads
   the ARIEL interface's open ``/health`` page, which needs no credential, and
@@ -234,13 +220,13 @@ corresponding service is configured, so a minimal build shows no empty tiles.
   Bootstrapping a store creates neosemantics bookkeeping nodes whether or not a
   corpus was ever loaded, so counting ``(:Resource)`` specifically is what keeps
   an empty graph from reading as a populated one; a count of zero warns and
-  names ``osprey knowledge seed-graph`` as the remedy. The agent's own graph
+  names ``osprey build && osprey up`` as the remedy. The agent's own graph
   tools report the same degraded states from the inside — see
   :doc:`/how-to/facility-knowledge/use-facility-graph`.
 - ``reach`` — appears when this render has a client switched on for a shared
   service: hybrid logbook search and the OKF panel (the qmd sidecar), the
   graph MCP server (the graph store), the ARIEL panel and MCP server
-  (Postgres), agent telemetry (the OpenObserve store), the Bluesky MCP server
+  (Postgres), agent telemetry (the telemetry gateway), the Bluesky MCP server
   (the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
   virtual-accelerator connector. One row per service, and the address it
   knocks on is the one **the client itself resolves** from this config, in the
@@ -251,6 +237,22 @@ corresponding service is configured, so a minimal build shows no empty tiles.
   names the config key the client resolved it from, and a client switched on
   with nothing to resolve warns with the key that would give it one — the
   same condition ``osprey build`` refuses (:doc:`/how-to/build-profiles`).
+- ``telemetry_store`` — appears when ``telemetry_store`` is in
+  ``deployed_services``. One row, **ping**: ``GET /ping`` against the store's
+  HTTP interface at the address that fits where the check runs (the service
+  name from a container on the compose network, loopback and the published port
+  from the host). ``ok`` on HTTP 200, ``warning`` otherwise: a store that is
+  down loses no record, because the gateway queues on disk and retries.
+- ``telemetry_gateway`` — appears when ``telemetry_gateway`` is in
+  ``deployed_services``. Reads the gateway's own counters page and reports
+  whether it answers, a ``warning`` when an exporter's queue is more than 80 %
+  full (fix the store before restarting the gateway, or a full queue can lose a
+  batch), the refusals since the gateway started (information only), any
+  ``*.jsonl`` under ``var/audit`` that is not a regular file, and the audit
+  directories no feed reads until the next build. On the host it also keeps the
+  previous sample in ``var/health/telemetry_gateway.json`` and warns when send
+  failures or refusals rose since then, or when a queue has not drained for
+  five minutes.
 
 .. note::
 
@@ -264,7 +266,7 @@ corresponding service is configured, so a minimal build shows no empty tiles.
    service that is not running rather than a broken build, and the category says
    so in one line instead of failing the suite.
 
-All three are ordinary categories: valid under ``--category``, tunable via a
+All of them are ordinary categories: valid under ``--category``, tunable via a
 metadata-only override, and rendered as dashboard tiles with no extra
 configuration.
 
@@ -870,7 +872,9 @@ Raise it for a facility whose legitimate analyses run long — a fit over a
 day of archived data, a scan reconstruction — and lower it where a runaway
 script holding the sandbox is the worse outcome. The value is read once in
 the sandbox's MCP server process and held for that process's lifetime, so a
-change lands after ``osprey build`` and a restart of the stack.
+change lands after ``osprey build`` and a restart of the stack. The value
+must be a finite, positive number of seconds; any other value, ``null``
+included, refuses every run, so no run is left without a time bound.
 
 Agent Python — the python executor, the visualization tools and plan
 validation — starts with a fixed set of environment variables from the host:
@@ -896,9 +900,10 @@ naming one is an error, and the run does not start.
 
 ``audit.tool_call.enabled`` (default ``false``) turns on the full record: every
 osprey tool call, reads included, is written whole to
-``var/audit/<identity>/tool_call.jsonl`` and sent to the telemetry store as one
-log line --- arguments, result, control target, approval answer. The
-control-assistant preset turns it on; delete the lines to opt out.
+``var/audit/<identity>/tool_call.jsonl`` --- arguments, result, control
+target, approval answer. Where the telemetry store is deployed, its gateway
+reads the file into ``telemetry.audit_ledger`` with every other ledger file.
+The control-assistant preset turns it on; delete the lines to opt out.
 
 .. code-block:: yaml
 
@@ -919,20 +924,18 @@ control system's own data. The fields are listed in
 
 .. _config-ariel-demo-narrative:
 
-``ariel.demo_narrative`` — a demo logbook for a deployment with no simulation
------------------------------------------------------------------------------
+``ariel.demo_narrative`` — a demo logbook from the facility's scenarios
+-----------------------------------------------------------------------
 
-``ariel.demo_narrative`` names a directory of scenario narratives: one
-subdirectory per scenario, each holding a ``logbook.json`` in the
-scenario-bundle format (:ref:`simulation-bundle-logbook`) and the pictures its
-entries attach. A relative path resolves against the project root. On a
-deployment with no simulation, ``osprey up`` seeds every narrative in it
-(``nominal`` first, then the rest by name) into an empty logbook, pictures
-included, and ``osprey ariel quickstart`` does the same and then runs the
-enhancement modules. A logbook that already holds entries is never touched.
-The ``ariel-standalone`` preset sets it to ``data/logbook_seed``, which
-``osprey init`` fills from the control-assistant scenario bundles. Unset, no
-demo logbook is seeded.
+``ariel.demo_narrative`` is ``all`` or a list of scenario names. The logbook
+entries of those scenarios are read from the built simulator view, with the
+pictures they attach. ``osprey up`` seeds them (``nominal`` first, then the
+rest by name) into an empty logbook in place of the active scenarios' entries,
+and ``osprey ariel quickstart`` does the same and then runs the enhancement
+modules. A logbook that already holds entries is never touched. A name the
+simulator view does not list is refused, and so is a directory. The
+``ariel-standalone`` preset sets it to ``all``. Unset, a deploy seeds the
+active scenarios' entries.
 
 .. _config-ariel-entry-url:
 
@@ -1033,8 +1036,9 @@ variable's name; the token goes in the project's ``.env``.
 
 Every web terminal that exports telemetry receives the variable from the deploy
 ``.env`` through its own compose environment, never ``.env.users``, and
-``osprey up`` refuses the deploy when it is unset. The ``openobserve`` backend
-authenticates with its own account and refuses the key. See
+``osprey up`` refuses the deploy when it is unset. The ``gateway`` backend
+refuses the key: every sender authenticates to the deployment's telemetry
+gateway with its own login. See
 :doc:`/how-to/health-and-monitoring/monitor-agent`.
 
 .. _config-phoebus:
@@ -1145,10 +1149,6 @@ default. One row per image:
      - ``OSPREY_POSTGRES_IMAGE``
      - ``services.postgresql.image``
      - upstream pin
-   * - openobserve
-     - ``OSPREY_OPENOBSERVE_IMAGE``
-     - ``services.openobserve.image``
-     - upstream pin
    * - mongodb
      - ``OSPREY_MONGODB_IMAGE``
      - ``services.mongodb.image``
@@ -1185,6 +1185,10 @@ default. One row per image:
      - ``OSPREY_WORKER_IMAGE``
      - ``services.archive.image``
      - ``<project>``
+   * - history
+     - ``OSPREY_WORKER_IMAGE``
+     - ``services.history.image``
+     - ``<project>``
    * - bluesky
      - ``OSPREY_BLUESKY_BRIDGE_IMAGE``
      - ``services.bluesky.image``
@@ -1213,6 +1217,14 @@ default. One row per image:
 Point either of the first two layers at an internal registry mirror or a
 pinned digest when your deployment host cannot (or should not) pull public
 images.
+
+The telemetry store and the telemetry gateway are upstream pins with no row and
+no environment variable: ``services.telemetry_store.image`` and
+``services.telemetry_gateway.image`` in ``config.yml`` are the only way to
+change them. The store's tag decides whether the readers' query page is served
+at all — OSPREY serves that page only for an image tag whose page script it
+knows — so the tag comes from the config alone.
+
 Which of these images a deploy builds, and what naming another image does to
 that, is in :ref:`deployment-image-builds`.
 
@@ -1222,10 +1234,12 @@ row is **built by OSPREY** from your project, and its default reference is
 assembled rather than fixed: a project name, a per-service suffix, and the two
 axes below.
 
-``dispatch_worker``, ``ariel_sync`` and ``archive`` share one row value on
-purpose: all three run the bare project image, so all three read
-``OSPREY_WORKER_IMAGE``. Set that variable and all three services move to the
-image you name.
+``dispatch_worker``, ``ariel_sync``, ``archive`` and ``history`` share one
+row value on purpose: all four run the bare project image, so all four read
+``OSPREY_WORKER_IMAGE``. Set that variable and all four services move to the
+image you name. ``history`` (the history page) is rendered whenever the
+deployment runs the telemetry store and its web terminals sign people in; it is
+never listed in ``deployed_services``.
 
 .. _deployment-image-axes:
 

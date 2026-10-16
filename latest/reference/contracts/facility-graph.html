@@ -61,12 +61,12 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Audit Trail Contract" href="audit-trail.html" />
+    <link rel="next" title="Guarded Run Contract" href="guarded-run.html" />
     <link rel="prev" title="Channel Finder Contracts" href="channel-finder.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -393,11 +393,12 @@
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Contracts</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="connectors.html">Connector Contracts</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simulation-bundle.html">Simulation Bundle Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="partial-answers.html">Partial Answers</a></li>
 <li class="toctree-l2"><a class="reference internal" href="python-executor.html">Python Executor Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
 </ul>
@@ -478,21 +479,19 @@ as subject-predicate-object triples — which the neosemantics plugin turns into
 the nodes and relationships a query walks. Four kinds of thing matter to a
 query:</p>
 <ul class="simple">
-<li><p><strong>Devices</strong> — one node per physical device, carrying <code class="docutils literal notranslate"><span class="pre">sourceName</span></code>,
-<code class="docutils literal notranslate"><span class="pre">sectionCode</span></code>, <code class="docutils literal notranslate"><span class="pre">system</span></code>, <code class="docutils literal notranslate"><span class="pre">sPositionM</span></code> (position along the beamline) and
-<code class="docutils literal notranslate"><span class="pre">ordinalInSection</span></code>, plus the prose for the three levels the device sits
-under: <code class="docutils literal notranslate"><span class="pre">ringDescription</span></code>, <code class="docutils literal notranslate"><span class="pre">systemDescription</span></code> and <code class="docutils literal notranslate"><span class="pre">familyDescription</span></code>.</p></li>
+<li><p><strong>Devices</strong> — one node per physical device, carrying <code class="docutils literal notranslate"><span class="pre">deviceId</span></code>,
+<code class="docutils literal notranslate"><span class="pre">sourceName</span></code> (the device’s id), <code class="docutils literal notranslate"><span class="pre">system</span></code>, <code class="docutils literal notranslate"><span class="pre">placePath</span></code> and <code class="docutils literal notranslate"><span class="pre">sectionCode</span></code>, plus
+<code class="docutils literal notranslate"><span class="pre">sPositionM</span></code> (position along the beamline, in metres), <code class="docutils literal notranslate"><span class="pre">lengthM</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ordinalInPlace</span></code> and <code class="docutils literal notranslate"><span class="pre">ordinalInModel</span></code>, each only when the facility file
+carries it, and the prose for the levels the device sits under:
+<code class="docutils literal notranslate"><span class="pre">familyDescription</span></code> and <code class="docutils literal notranslate"><span class="pre">systemDescription</span></code>.</p></li>
 <li><p><strong>Channel bindings</strong> — one node per control system address, carrying
-<code class="docutils literal notranslate"><span class="pre">fullPv</span></code>, <code class="docutils literal notranslate"><span class="pre">protocol</span></code>, <code class="docutils literal notranslate"><span class="pre">confidence</span></code> and three texts: <code class="docutils literal notranslate"><span class="pre">description</span></code> is
-the sentence written for that one channel, while <code class="docutils literal notranslate"><span class="pre">fieldDescription</span></code> and
-<code class="docutils literal notranslate"><span class="pre">subfieldDescription</span></code> say what the last two tokens of the address mean. A
-device reaches its bindings over <code class="docutils literal notranslate"><span class="pre">HASBINDING</span></code>.</p></li>
+<code class="docutils literal notranslate"><span class="pre">bindingId</span></code>, <code class="docutils literal notranslate"><span class="pre">fullPv</span></code> and <code class="docutils literal notranslate"><span class="pre">description</span></code>, the sentence written for that
+one channel. A device reaches its bindings over <code class="docutils literal notranslate"><span class="pre">HASBINDING</span></code>.</p></li>
 <li><p><strong>Signals</strong> — what a binding reads or writes, reached over <code class="docutils literal notranslate"><span class="pre">READSSIGNAL</span></code> or
-<code class="docutils literal notranslate"><span class="pre">WRITESSIGNAL</span></code>. Exactly one of the two sits on every binding, so the
-direction of an address is a property of the graph rather than a guess from
-its name. That is what lets the corpus serve as the deployment’s channel
-roster: on a graph-mode build the queue server’s settables and readables are
-derived from these two predicates
+<code class="docutils literal notranslate"><span class="pre">WRITESSIGNAL</span></code>: a setpoint channel writes its signal and a readback channel
+reads it, as the channel’s <code class="docutils literal notranslate"><span class="pre">role</span></code> in the facility file says. The queue
+server’s settables and readables come from those same roles
 (<a class="reference internal" href="../../how-to/bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>).</p></li>
 <li><p><strong>Classes</strong> — the device ontology, linked by <code class="docutils literal notranslate"><span class="pre">SUBCLASSOF</span></code>. A device is
 typed by <code class="docutils literal notranslate"><span class="pre">TYPE</span></code>. This is what lets “every magnet” find an <code class="docutils literal notranslate"><span class="pre">HCorrector</span></code>
@@ -501,12 +500,12 @@ operator would say out loud, as <code class="docutils literal notranslate"><span
 </ul>
 <p>The descriptions are what makes the graph reachable from a phrase rather than
 only from a name: “the magnets that bend the beam” matches text no address
-spells. They sit on bindings rather than on signals because an address is
-ring-qualified and a signal is not — <code class="docutils literal notranslate"><span class="pre">SR:MAG:QF:01:CURRENT:SP</span></code> and its
-booster counterpart share one signal node but are described differently.</p>
-<p>The descriptions and <code class="docutils literal notranslate"><span class="pre">system</span></code> come from the generator, so they are there in a
-corpus <code class="docutils literal notranslate"><span class="pre">build-ttl</span></code> produced — the demo machine — and not necessarily in one
-imported straight from a facility’s own export. On such a corpus the way in is
+spells. They sit on bindings rather than on signals because a description is
+written for one address, while a signal node is shared by every address that
+reads or writes it.</p>
+<p>The descriptions and <code class="docutils literal notranslate"><span class="pre">system</span></code> come from the facility file, so they are there
+in the build’s graph view and not necessarily in a corpus imported straight
+from a facility’s own export. On such a corpus the way in is
 a name, an <code class="docutils literal notranslate"><span class="pre">altLabel</span></code>, a section or a class.</p>
 <p>Three spelling rules come from neosemantics and catch out anyone writing Cypher
 from memory:</p>
@@ -552,9 +551,9 @@ parameter set runs unedited.</p></li>
 notes). It does not dial the store, so a successful reply says nothing about
 whether the graph is up.</p></li>
 </ol>
-<p>In a deployed project the agent rarely needs the first two: whichever verb
-seeds or re-verifies the store — the staging step inside every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>,
-or <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span></code> — captures the live store’s schema (property
+<p>In a deployed project the agent rarely needs the first two: the staging step
+inside every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>, which seeds or re-verifies the store, captures the
+live store’s schema (property
 lists complete, not sampled) together with the curated examples, and bakes them
 into the rendered <code class="docutils literal notranslate"><span class="pre">facility-knowledge-graph</span></code> agent prompt, stamped with the
 seed marker’s checksum. Each example’s parameters are marked in the block as
@@ -599,11 +598,11 @@ query — add a filter, bound the traversal, or aggregate.</p>
       </div>
     </a>
     <a class="right-next"
-       href="audit-trail.html"
+       href="guarded-run.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Audit Trail Contract</p>
+        <p class="prev-next-title">Guarded Run Contract</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

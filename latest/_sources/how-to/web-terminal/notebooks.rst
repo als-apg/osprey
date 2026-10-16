@@ -71,9 +71,9 @@ serve, so running it returns a value rather than only importing two names.
 The channel comes from the deployment's own configuration, in this order: the
 ``archiver_freshness`` health check's channel, which a facility declares is
 still moving, then a control target's ``probe_channel``. A deployment that
-names neither — the ``hello-world`` preset runs a mock connector and declares
-no channel — gets the import line alone, because a cell naming a channel
-nothing serves would fail on its first run.
+names neither — the ``hello-world`` preset serves the simulator in process and
+declares no channel — gets the import line alone, because a cell naming a
+channel nothing serves would fail on its first run.
 
 Which machine a kernel writes to
 --------------------------------

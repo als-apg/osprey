@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -482,7 +482,9 @@ short-lived topic branches that PR back into it. Releases are CalVer tags
 </pre></div>
 </div>
 <p><strong>2. Make changes</strong> – follow the code standards below, add tests, update docs.</p>
-<p><strong>3. Test locally</strong> using the three-tier system:</p>
+<p><strong>3. Test locally.</strong> <code class="docutils literal notranslate"><span class="pre">scripts/gate.sh</span></code> is the one local spelling of the merge gate. Run
+<code class="docutils literal notranslate"><span class="pre">./scripts/gate.sh</span> <span class="pre">full</span></code> before you open a PR, and <code class="docutils literal notranslate"><span class="pre">./scripts/gate.sh</span> <span class="pre">fast</span> <span class="pre">&lt;test</span> <span class="pre">paths&gt;</span></code>
+over the tests you touched while you work. The helper scripts serve the loops around it:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Tier 1: Quick check (&lt; 30s) -- before every commit</span>
 ./scripts/quick_check.sh
 

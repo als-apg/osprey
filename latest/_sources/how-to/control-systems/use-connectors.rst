@@ -6,15 +6,17 @@ Use Connectors
 A connector is OSPREY's single interface to a control system, and a second,
 parallel connector is its interface to an archiver. Everything above them — the
 agent, the plans, the safety layers — is written against those two interfaces,
-so moving from a mock to real hardware is a change of ``control_system.type``
-and its connector block, not of code.
+so moving from the simulator to real hardware is a change of
+``control_system.type`` and its connector block, not of code.
 
 One API, whatever the machine
 -----------------------------
 
-The Python API is the same for every connector. The mock connector answers for
-**any** channel name without hardware access, which is what makes it the
-development and R&D default:
+The Python API is the same for every connector. The simulator served in
+process answers for the addresses of the built facility file without hardware
+or network access, which is what makes it the development and R&D default. Run
+``osprey build`` first; the simulator refuses an address outside the facility
+file:
 
 .. code-block:: python
 
@@ -22,27 +24,33 @@ development and R&D default:
 
    register_builtin_connectors()   # registers the built-in names; idempotent
 
-   # Create mock connector - works with ANY channel names
+   # The simulator in process - serves the addresses of the built facility file
    connector = await ConnectorFactory.create_control_system_connector({
-       'type': 'mock',
+       'type': 'virtual_accelerator',
        'connector': {
-           'mock': {
-               'response_delay_ms': 10,
-               'noise_level': 0.01
+           'virtual_accelerator': {
+               'serving': 'in_process',
+               'response_delay_ms': 10
            }
        }
    })
 
-   channel_value = await connector.read_channel('ANY:MADE:UP:NAME')
+   channel_value = await connector.read_channel('SR:BEAM:CURRENT')
    print(f"Value: {channel_value.value} {channel_value.metadata.units}")
 
-   # A state channel (EPICS mbbi/bi/bo, PVAccess NTEnum) reads as its integer
-   # state index, with the state names alongside it:
-   mode = await connector.read_channel('SR:DIAG:MODE')
-   print(f"{mode.value} means {mode.metadata.enum_label}")   # e.g. 2 means ACQUIRING
-   print(mode.metadata.enum_labels)  # ['OFFLINE', 'STANDBY', 'ACQUIRING', 'FAULT']
-
    await connector.disconnect()
+
+A state channel (EPICS mbbi/bi/bo, PVAccess NTEnum) reads as its integer state
+index, with the state names alongside it in the metadata: ``value`` is the
+index, ``metadata.enum_label`` the name of that state and
+``metadata.enum_labels`` every state name in order. A read of a four-state
+channel in its third state gives:
+
+.. code-block:: text
+
+   value                = 2
+   metadata.enum_label  = 'ACQUIRING'
+   metadata.enum_labels = ['OFFLINE', 'STANDBY', 'ACQUIRING', 'FAULT']
 
 Everything below is configuration only — which machine sits behind that API.
 
@@ -58,18 +66,14 @@ Pick a control system
 .. tab-set::
    :sync-group: cs
 
-   .. tab-item:: Mock
-      :sync: mock
+   .. tab-item:: Simulator in process
+      :sync: in-process
 
-      The default. Synthetic values for any channel name, no hardware or
-      network access required:
-
-      .. code-block:: yaml
-
-         control_system:
-           type: mock
-           connector:
-             mock: { response_delay_ms: 10, noise_level: 0.01 }
+      The default. The simulator, run inside the process that asks, serving
+      the addresses of the built facility file with no hardware or network
+      access. It is the Virtual Accelerator's in-process venue; see
+      :ref:`va-two-venues` for both venues and the one setting that picks
+      between them.
 
    .. tab-item:: EPICS
       :sync: epics
@@ -300,7 +304,7 @@ Pick a control system
       The containerized simulator, over real EPICS Channel Access -- it behaves
       like ``epics`` but tracks setpoints through the simulator's LUME-backed
       physics, so correctors move, BPMs respond, and plans actually run (the
-      mock connector can't do that):
+      simulator in process can't run plans):
 
       .. code-block:: yaml
 
@@ -335,9 +339,10 @@ independently of the control system:
    :sync-group: cs
 
    .. tab-item:: Mock
-      :sync: mock
+      :sync: in-process
 
-      Synthetic history for any channel — the development default:
+      History for the addresses of the built facility file — the development
+      default:
 
       .. code-block:: yaml
 
@@ -415,6 +420,17 @@ independently of the control system:
                username: readonly
                password_env: MONGODB_READONLY_PASSWORD
              timeout_s: 60     # seconds, default 60
+
+      The collection holds one document per instant: a ``date`` field plus one
+      field per channel sampled at that instant. A channel's field name is its
+      address, with ``%``, ``.`` and NUL written as ``%25``, ``%2E`` and
+      ``%00``, and a leading ``$`` as ``%24``; every other address is its own
+      field name. An address equal to one of the collection's own fields
+      (``_id``, ``date``, ``expireAt``, ``osprey_densified``, or the seed
+      manifest's ``fingerprint``, ``seeded_at``, ``touched_windows``,
+      ``touched_anchor`` and ``coverage``) has its first character written the
+      same way, so a channel named ``date`` is stored as ``%64ate``. A site writing its own store names its fields the same way,
+      so ``SR:MOT1.RBV`` is stored as ``SR:MOT1%2ERBV``.
 
       The password is only ever named, never written: ``auth.password_env`` is
       the environment variable that holds it. ``auth.source`` is the database

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Control Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -525,38 +532,44 @@
 <p>A connector is OSPREY’s single interface to a control system, and a second,
 parallel connector is its interface to an archiver. Everything above them — the
 agent, the plans, the safety layers — is written against those two interfaces,
-so moving from a mock to real hardware is a change of <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code>
-and its connector block, not of code.</p>
+so moving from the simulator to real hardware is a change of
+<code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> and its connector block, not of code.</p>
 <section id="one-api-whatever-the-machine">
 <h2>One API, whatever the machine<a class="headerlink" href="#one-api-whatever-the-machine" title="Link to this heading">#</a></h2>
-<p>The Python API is the same for every connector. The mock connector answers for
-<strong>any</strong> channel name without hardware access, which is what makes it the
-development and R&amp;D default:</p>
+<p>The Python API is the same for every connector. The simulator served in
+process answers for the addresses of the built facility file without hardware
+or network access, which is what makes it the development and R&amp;D default. Run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> first; the simulator refuses an address outside the facility
+file:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.connectors.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorFactory</span><span class="p">,</span> <span class="n">register_builtin_connectors</span>
 
 <span class="n">register_builtin_connectors</span><span class="p">()</span>   <span class="c1"># registers the built-in names; idempotent</span>
 
-<span class="c1"># Create mock connector - works with ANY channel names</span>
+<span class="c1"># The simulator in process - serves the addresses of the built facility file</span>
 <span class="n">connector</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">create_control_system_connector</span><span class="p">({</span>
-    <span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;mock&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;virtual_accelerator&#39;</span><span class="p">,</span>
     <span class="s1">&#39;connector&#39;</span><span class="p">:</span> <span class="p">{</span>
-        <span class="s1">&#39;mock&#39;</span><span class="p">:</span> <span class="p">{</span>
-            <span class="s1">&#39;response_delay_ms&#39;</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
-            <span class="s1">&#39;noise_level&#39;</span><span class="p">:</span> <span class="mf">0.01</span>
+        <span class="s1">&#39;virtual_accelerator&#39;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s1">&#39;serving&#39;</span><span class="p">:</span> <span class="s1">&#39;in_process&#39;</span><span class="p">,</span>
+            <span class="s1">&#39;response_delay_ms&#39;</span><span class="p">:</span> <span class="mi">10</span>
         <span class="p">}</span>
     <span class="p">}</span>
 <span class="p">})</span>
 
-<span class="n">channel_value</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">read_channel</span><span class="p">(</span><span class="s1">&#39;ANY:MADE:UP:NAME&#39;</span><span class="p">)</span>
+<span class="n">channel_value</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">read_channel</span><span class="p">(</span><span class="s1">&#39;SR:BEAM:CURRENT&#39;</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Value: </span><span class="si">{</span><span class="n">channel_value</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">channel_value</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">units</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
-<span class="c1"># A state channel (EPICS mbbi/bi/bo, PVAccess NTEnum) reads as its integer</span>
-<span class="c1"># state index, with the state names alongside it:</span>
-<span class="n">mode</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">read_channel</span><span class="p">(</span><span class="s1">&#39;SR:DIAG:MODE&#39;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">mode</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2"> means </span><span class="si">{</span><span class="n">mode</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">enum_label</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>   <span class="c1"># e.g. 2 means ACQUIRING</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">mode</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">enum_labels</span><span class="p">)</span>  <span class="c1"># [&#39;OFFLINE&#39;, &#39;STANDBY&#39;, &#39;ACQUIRING&#39;, &#39;FAULT&#39;]</span>
-
 <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">disconnect</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>A state channel (EPICS mbbi/bi/bo, PVAccess NTEnum) reads as its integer state
+index, with the state names alongside it in the metadata: <code class="docutils literal notranslate"><span class="pre">value</span></code> is the
+index, <code class="docutils literal notranslate"><span class="pre">metadata.enum_label</span></code> the name of that state and
+<code class="docutils literal notranslate"><span class="pre">metadata.enum_labels</span></code> every state name in order. A read of a four-state
+channel in its third state gives:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>value                = 2
+metadata.enum_label  = &#39;ACQUIRING&#39;
+metadata.enum_labels = [&#39;OFFLINE&#39;, &#39;STANDBY&#39;, &#39;ACQUIRING&#39;, &#39;FAULT&#39;]
 </pre></div>
 </div>
 <p>Everything below is configuration only — which machine sits behind that API.</p>
@@ -571,16 +584,13 @@ the <code class="docutils literal notranslate"><span class="pre">writes_enabled<
 <h2>Pick a control system<a class="headerlink" href="#pick-a-control-system" title="Link to this heading">#</a></h2>
 <div class="sd-tab-set docutils">
 <input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
-<label class="sd-tab-label" data-sync-group="cs" data-sync-id="mock" for="sd-tab-item-0">
-Mock</label><div class="sd-tab-content docutils">
-<p>The default. Synthetic values for any channel name, no hardware or
-network access required:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mock</span>
-<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">mock</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> response_delay_ms</span><span class="p">:</span><span class="w"> </span><span class="nv">10</span><span class="p p-Indicator">,</span><span class="nt"> noise_level</span><span class="p">:</span><span class="w"> </span><span class="nv">0.01</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</pre></div>
-</div>
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="in-process" for="sd-tab-item-0">
+Simulator in process</label><div class="sd-tab-content docutils">
+<p>The default. The simulator, run inside the process that asks, serving
+the addresses of the built facility file with no hardware or network
+access. It is the Virtual Accelerator’s in-process venue; see
+<a class="reference internal" href="use-virtual-accelerator.html#va-two-venues"><span class="std std-ref">Two venues</span></a> for both venues and the one setting that picks
+between them.</p>
 </div>
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" data-sync-group="cs" data-sync-id="epics" for="sd-tab-item-1">
@@ -788,7 +798,7 @@ Virtual Accelerator</label><div class="sd-tab-content docutils">
 <p>The containerized simulator, over real EPICS Channel Access – it behaves
 like <code class="docutils literal notranslate"><span class="pre">epics</span></code> but tracks setpoints through the simulator’s LUME-backed
 physics, so correctors move, BPMs respond, and plans actually run (the
-mock connector can’t do that):</p>
+simulator in process can’t run plans):</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
 </pre></div>
@@ -818,9 +828,10 @@ config is read, and again when the connector connects.</p>
 independently of the control system:</p>
 <div class="sd-tab-set docutils">
 <input checked="checked" id="sd-tab-item-6" name="sd-tab-set-1" type="radio">
-<label class="sd-tab-label" data-sync-group="cs" data-sync-id="mock" for="sd-tab-item-6">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="in-process" for="sd-tab-item-6">
 Mock</label><div class="sd-tab-content docutils">
-<p>Synthetic history for any channel — the development default:</p>
+<p>History for the addresses of the built facility file — the development
+default:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mock_archiver</span>
 </pre></div>
@@ -892,6 +903,16 @@ EPICS Archiver Appliance:</p>
 <span class="w">    </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">     </span><span class="c1"># seconds, default 60</span>
 </pre></div>
 </div>
+<p>The collection holds one document per instant: a <code class="docutils literal notranslate"><span class="pre">date</span></code> field plus one
+field per channel sampled at that instant. A channel’s field name is its
+address, with <code class="docutils literal notranslate"><span class="pre">%</span></code>, <code class="docutils literal notranslate"><span class="pre">.</span></code> and NUL written as <code class="docutils literal notranslate"><span class="pre">%25</span></code>, <code class="docutils literal notranslate"><span class="pre">%2E</span></code> and
+<code class="docutils literal notranslate"><span class="pre">%00</span></code>, and a leading <code class="docutils literal notranslate"><span class="pre">$</span></code> as <code class="docutils literal notranslate"><span class="pre">%24</span></code>; every other address is its own
+field name. An address equal to one of the collection’s own fields
+(<code class="docutils literal notranslate"><span class="pre">_id</span></code>, <code class="docutils literal notranslate"><span class="pre">date</span></code>, <code class="docutils literal notranslate"><span class="pre">expireAt</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey_densified</span></code>, or the seed
+manifest’s <code class="docutils literal notranslate"><span class="pre">fingerprint</span></code>, <code class="docutils literal notranslate"><span class="pre">seeded_at</span></code>, <code class="docutils literal notranslate"><span class="pre">touched_windows</span></code>,
+<code class="docutils literal notranslate"><span class="pre">touched_anchor</span></code> and <code class="docutils literal notranslate"><span class="pre">coverage</span></code>) has its first character written the
+same way, so a channel named <code class="docutils literal notranslate"><span class="pre">date</span></code> is stored as <code class="docutils literal notranslate"><span class="pre">%64ate</span></code>. A site writing its own store names its fields the same way,
+so <code class="docutils literal notranslate"><span class="pre">SR:MOT1.RBV</span></code> is stored as <code class="docutils literal notranslate"><span class="pre">SR:MOT1%2ERBV</span></code>.</p>
 <p>The password is only ever named, never written: <code class="docutils literal notranslate"><span class="pre">auth.password_env</span></code> is
 the environment variable that holds it. <code class="docutils literal notranslate"><span class="pre">auth.source</span></code> is the database
 the user is defined in.</p>

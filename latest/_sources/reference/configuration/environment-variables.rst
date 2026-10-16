@@ -105,8 +105,11 @@ container that is already running reads nothing from them.
 Virtual accelerator source
 ==========================
 
-Three variables in the deployment's ``.env`` decide what the virtual
-accelerator container runs and serves.
+The virtual accelerator container serves the simulator view that
+``osprey build`` writes under its data mount; the image runs
+``osprey.services.virtual_accelerator.entrypoint`` by name. These variables,
+rendered by the compose file, name the instance it serves as and the mount
+points it reads.
 
 .. list-table::
    :header-rows: 1
@@ -114,19 +117,27 @@ accelerator container runs and serves.
 
    * - Variable
      - What it does
-   * - ``VA_ENTRYPOINT_MODULE``
-     - The Python module the container runs. Operator-set. Empty or unset runs
-       ``osprey.services.virtual_accelerator.entrypoint``. It must be
-       importable inside the image; see :ref:`va-serving-your-own-model`.
-   * - ``VA_CHANNELS_FILE``
-     - The generated channel manifest's file name, which ``osprey build``
-       writes. Required by the container, which refuses to boot without it.
-   * - ``VA_LATTICE``
-     - The served tree's lattice file name, or ``none``, which
-       ``osprey build`` writes.
-
-How the build writes the last two --- append-only, with a value already on
-file winning --- is in :doc:`/how-to/deploy-project/env-chain`.
+   * - ``VA_INSTANCE``
+     - Which instance the container serves as: ``virtual_accelerator`` or
+       ``live_standin``. Required; a missing or unknown value refuses the
+       boot. It is written into the model logs and the model RPC's
+       ``status`` reply.
+   * - ``VA_DATA_DIR``
+     - The data root the simulator view sits under, read as
+       ``<VA_DATA_DIR>/simulator/``. Default ``/data``, where the compose file
+       mounts the render's ``build/data`` read-only.
+   * - ``VA_POLL_INTERVAL_S``
+     - The period of the served model's passes, in seconds, greater than
+       zero. Set by ``simulation.tick_s``; a project ``.env`` value is not
+       read.
+   * - ``VA_STATE_DIR``
+     - The directory holding the active scenarios ``osprey sim apply``
+       writes; the container re-reads them when they change. Unset serves
+       ``nominal`` alone.
+   * - ``VA_MODEL_WRITE_TOKEN``
+     - The secret a model RPC write must present, passed through from the
+       project ``.env`` to the virtual accelerator instance only. Unset or
+       empty refuses every model write.
 
 The Phoebus server's overrides
 ==============================
@@ -199,6 +210,32 @@ arrive under (:ref:`containerize-control-identity`):
      - Set by the entrypoint, to ``non-root-start``, when a container started
        without root could not apply an ``osprey-*`` service identity. The
        ``/health`` endpoint reports it and ``osprey health`` warns on it
+
+Four more tie a container's telemetry to the deployment's telemetry gateway and
+to the audit record:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 36 64
+
+   * - Variable
+     - What it carries
+   * - ``OSPREY_OTEL_GATEWAY_HOST``, ``OSPREY_OTEL_GATEWAY_PORT``
+     - Where this container reaches the gateway: its service name and the
+       port it listens on from a container on the compose network, an address
+       and the published port from one in the host's network namespace. The
+       ``telemetry_store`` and ``telemetry_gateway`` health categories read
+       them to tell where they run
+   * - ``OSPREY_TELEMETRY_LOGIN``
+     - The sender's own ``<identity>:<password>`` login to the gateway, from
+       that sender's ``.env.telemetry-sender.<identity>`` file. The gateway
+       stamps every record with the identity it authenticated, never one a
+       sender reports
+   * - ``OSPREY_TERMINAL_SESSION``
+     - The terminal session a launch belongs to, written into its audit
+       records and sent as the ``terminal.session`` attribute, so a record in
+       the store joins the ledger line the same launch wrote. Read by exact
+       name: other variables start with the same words
 
 .. seealso::
 

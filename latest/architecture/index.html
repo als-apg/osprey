@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -389,10 +389,11 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="data-flow.html">Data Flow</a></li>
+
 <li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp-servers.html">MCP Servers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="python-executor.html">Python Executor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="facility-file.html">Facility File and Its Views</a></li>
 <li class="toctree-l1"><a class="reference internal" href="virtual-accelerator.html">Virtual Accelerator</a></li>
 </ul>
 </div>
@@ -463,9 +464,9 @@ the tool interface, and <strong>pluggable connectors</strong> for protocol-agnos
 <p><span class="caption-text">Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
 </figcaption>
 </figure>
-<p>Six pages break that picture down — how a tool call is guarded, how a write
-travels, how reading differs from writing, and the three subsystems with
-architecture of their own:</p>
+<p>Six pages break that picture down — how a write is guarded on its way to the
+machine, how reading differs from writing, how one facility description feeds
+every service, and the subsystems with architecture of their own:</p>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
 <div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
@@ -473,23 +474,15 @@ architecture of their own:</p>
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 Safety Chain</div>
-<p class="sd-card-text">Four ways to write to a machine through the connector — a channel
-write, agent-written Python, a Bluesky plan, a notebook cell — the
+<p class="sd-card-text">Five ways to write to a machine through the connector — a channel
+write, agent-written Python, a pyAML tool, a Bluesky plan, a notebook
+cell — the
 Phoebus drive that does not reach it, and what stands in the way of
 each: the PreToolUse hooks, the gates below them, the connector, and
-the audit trail.</p>
+the audit trail. A single write step by step, and the guarded run
+two of the paths take.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="safety-chain.html"><span class="doc">Safety Chain</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Data Flow</div>
-<p class="sd-card-text">A control-system write from prompt to hardware, step by step — and
-where the three safety hooks fire along the way.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="data-flow.html"><span class="doc">Data Flow</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
@@ -517,11 +510,22 @@ with the complete tool list for each.</p>
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 Python Executor</div>
-<p class="sd-card-text">How agent-written Python actually runs: nine safety layers, the
+<p class="sd-card-text">How agent-written Python actually runs: ten safety layers, the
 readonly/readwrite execution modes, and the zones executed code may
 not touch.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="python-executor.html"><span class="doc">Python Executor</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Facility File and Its Views</div>
+<p class="sd-card-text">One description of the facility under <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>, the facility
+file the build makes of it, the view each service reads, the schema
+behind it and the simulation models.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="facility-file.html"><span class="doc">Facility File and Its Views</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">

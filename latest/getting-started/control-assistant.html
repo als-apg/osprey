@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -456,7 +456,7 @@ operators think in terms of <em>devices and physics</em> — “the booster’s 
 quadrupole” — not PV strings; they need to search the electronic logbook, pull
 historical trends, and produce shift reports. This tutorial builds the
 <strong>control-assistant</strong> agent, which adds those capabilities on top of the same
-mock control system and the same safety model.</p>
+simulator, now served from its container, and the same safety model.</p>
 <p>By the end you’ll have an agent that finds channels from natural-language
 descriptions, searches a seeded operations logbook, plots archived data, and runs
 control-room operator skills.</p>
@@ -474,7 +474,7 @@ control-room operator skills.</p>
 <p class="sd-card-text"><strong>Recommended:</strong></p>
 <ul class="simple">
 <li><p class="sd-card-text">Finish the <a class="reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a> first. This
-tutorial assumes you already understand the mock connector, the safety
+tutorial assumes you already understand the simulator in process, the safety
 limits system, and the human-approval flow, and it does <strong>not</strong> re-teach
 them.</p></li>
 </ul>
@@ -514,6 +514,12 @@ dependencies. Subsequent builds are near-instant.</p>
 agent reads and writes — a containerized simulator with LUME-backed physics, laid
 out in <a class="reference internal" href="../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a> — and the <strong>archive</strong>, a
 MongoDB store and a recorder service that holds what those channels did.</p>
+<p>The simulator serves two physics models: <code class="docutils literal notranslate"><span class="pre">SR</span></code>, solved as a periodic machine,
+and <code class="docutils literal notranslate"><span class="pre">LINE</span></code>, a short synthetic transfer line solved single-pass, whose
+channels start with <code class="docutils literal notranslate"><span class="pre">LINE:</span></code>. The web terminal’s <strong>LATTICE</strong> tab draws both.
+It opens on <code class="docutils literal notranslate"><span class="pre">LINE</span></code>, the first served model, and the selector in its header
+switches to <code class="docutils literal notranslate"><span class="pre">SR</span></code>; a single-pass model draws optics only. See
+<a class="reference internal" href="../how-to/web-terminal/lattice-dashboard.html"><span class="doc">Lattice Dashboard</span></a>.</p>
 <p><strong>The first deploy seeds the archive</strong>, and it is the step that takes the
 longest. It writes about a month of history for every channel the machine
 serves, reporting a step under the start phase every 15 seconds or so while it
@@ -626,8 +632,11 @@ scheme:</p>
 </div>
 <p>The first resolves to <code class="docutils literal notranslate"><span class="pre">SR:DIAG:DCCT:01:CURRENT:RB</span></code> (the storage-ring DC current
 transformer); the second resolves to the <code class="docutils literal notranslate"><span class="pre">SR:MAG:HCM:*:CURRENT:SP</span></code> family.</p>
-<p><strong>How it works.</strong> The channel database is organized as a hierarchy
-(<code class="docutils literal notranslate"><span class="pre">ring</span> <span class="pre">:</span> <span class="pre">system</span> <span class="pre">:</span> <span class="pre">family</span> <span class="pre">:</span> <span class="pre">device</span> <span class="pre">:</span> <span class="pre">field</span> <span class="pre">:</span> <span class="pre">subfield</span></code>), and the channel-finder
+<p><strong>How it works.</strong> The channel database is organized as a hierarchy whose
+levels are the facility’s place levels, then the device’s class, the device and
+one leaf per channel (<code class="docutils literal notranslate"><span class="pre">machine</span> <span class="pre">:</span> <span class="pre">sector</span> <span class="pre">:</span> <span class="pre">class</span> <span class="pre">:</span> <span class="pre">device</span> <span class="pre">:</span> <span class="pre">leaf</span></code> in the
+demo facility, so <code class="docutils literal notranslate"><span class="pre">SR:MAG:HCM:01:CURRENT:SP</span></code> is the leaf
+<code class="docutils literal notranslate"><span class="pre">SR</span> <span class="pre">:</span> <span class="pre">SECT1</span> <span class="pre">:</span> <span class="pre">HCorrector</span> <span class="pre">:</span> <span class="pre">SR/HCM01</span> <span class="pre">:</span> <span class="pre">current_setpoint</span></code>), and the channel-finder
 agent navigates it systematically: it checks prior examples
 (<code class="docutils literal notranslate"><span class="pre">view_examples</span></code>), explores the available options at each level
 (<code class="docutils literal notranslate"><span class="pre">get_options</span></code>), then constructs and validates the final addresses

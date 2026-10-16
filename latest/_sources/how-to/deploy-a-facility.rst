@@ -8,7 +8,7 @@ This page builds one facility deployment from an empty directory to running
 containers, using only ``osprey`` commands. Follow it in order and you end up
 with a git repository you can commit, review, and hand to a colleague.
 
-The facility is called **Demo Facility**. It runs three services, serves two web
+The facility is called **Demo Facility**. It runs four services, serves two web
 terminals — one read-only, one write-capable — and ships one container the
 facility writes itself.
 
@@ -49,14 +49,15 @@ scaffolding that goes with it:
    ├── personas/                         one delta per web-terminal persona
    ├── services/facility-mcp/            the facility's own container
    ├── scripts/verify.sh                 the post-deploy health check
-   ├── .env                              the deployment's one secret store
+   ├── .env                              the deployment's secrets
+   ├── .env.telemetry-*                  telemetry store credentials, one file per account
    ├── build/                            render target, kept out of git
    ├── var/                              agent memory and audit log, kept out of git
    ├── .gitlab-ci.yml                    emitted from the profile's deploy: block
    ├── ci-extra.yml                      your own CI jobs; never regenerated
    └── .gitignore
 
-Three services run:
+Four services run:
 
 .. list-table::
    :header-rows: 1
@@ -65,9 +66,13 @@ Three services run:
    * - Service
      - Comes from
      - What it does
-   * - ``openobserve``
+   * - ``telemetry_store``
      - packaged
-     - Telemetry store for the agent's logs and metrics.
+     - Telemetry store for the agent's logs, metrics and traces and the audit
+       ledger, queried with SQL.
+   * - ``telemetry_gateway``
+     - packaged
+     - Admits each sender by its own login and feeds the telemetry store.
    * - ``virtual_accelerator``
      - packaged
      - A containerized simulator with LUME-backed physics
@@ -199,7 +204,7 @@ Accelerator this facility drives.
 Step 3 — Name the facility and pin its services
 ===============================================
 
-Still in ``profile.yml``, under ``config:``, set these six values. Some
+Still in ``profile.yml``, under ``config:``, set these four values. Some
 are already present with a different value; some ship commented out.
 
 .. code-block:: yaml
@@ -208,16 +213,27 @@ are already present with a different value; some ship commented out.
      control_system.type: virtual_accelerator
      claude_code.servers.health.enabled: true
      system.timezone: America/Los_Angeles
-     facility.name: Demo Facility
-     facility.prefix: demo
      deployed_services:
-       - openobserve
+       - telemetry_store
+       - telemetry_gateway
 
 ``control_system.type: virtual_accelerator`` points the agent at the deployed
 simulator, so correctors move and BPMs read through exactly the approval and
 limit layers a live machine would use. The preset already ships this value; it
 is written out here because it is the line that changes when the deployment
 goes live (`Changing something later`_).
+
+The facility's display name is not a config key. Open
+``data/facility/identity.yaml`` (``osprey init`` wrote it with the facility
+code) and add the name:
+
+.. code-block:: yaml
+
+   code: ca
+   name: Demo Facility
+
+This name is what the agent prompts, the web landing page and the dispatcher
+dashboard show. A file without ``name`` shows the project name.
 
 A deployment describes **one real machine**. ``control_system.type`` names it,
 or — on a simulated baseline like this one — the single non-simulated block
@@ -232,15 +248,13 @@ block no target ever reaches. See
 
 ``deployed_services`` looks too short, and is not. The ``virtual_accelerator:``
 block and the ``services:`` entry you add in Step 4 each append their own
-service to this list at build time. Naming ``openobserve`` explicitly is what
-keeps the packaged skeleton's ``postgresql`` *out* — declared is not deployed,
+service to this list at build time. Naming the two telemetry services
+explicitly is what keeps the packaged skeleton's ``postgresql`` *out* — declared is not deployed,
 and this list is what ``osprey up`` reads.
 
-``facility.prefix`` is the facility's short token: the facility graph embeds it
-in every identifier it mints (:doc:`facility-knowledge/use-facility-graph`). It
-does not name containers. The web tier is named from ``project_name`` like the
-rest of the deployment, so this one runs ``demo-facility-nginx`` and one
-``demo-facility-web-<user>`` per operator (``demo-facility-web-alice``).
+The web tier is named from ``project_name`` like the rest of the deployment, so
+this one runs ``demo-facility-nginx`` and one ``demo-facility-web-<user>`` per
+operator (``demo-facility-web-alice``).
 
 ``system.timezone`` is the zone operator times are read in and every timestamp
 is shown in. Spell it exactly as the IANA time zone database does, case
@@ -527,10 +541,12 @@ Either way, edit ``.env`` and set ``ANTHROPIC_API_KEY`` (or the key for
 whichever provider your profile names) and ``DEMO_REGISTRY_TOKEN``. The
 repository's ``.gitignore`` keeps ``.env`` out of git.
 
-Service credentials such as ``ZO_ROOT_USER_PASSWORD`` stay blank. ``osprey up``
-mints a strong value for each unset one on first deploy and writes it back into
-``.env``, so a later rebuild comes up on the same credentials the running
-volumes were initialized with.
+The telemetry credentials do not go in ``.env``. The telemetry store's accounts
+and the senders' logins are minted into files of their own, ``.env.telemetry-*`` at
+the repo root, mode 0600 and outside the ``.env`` chain: ``osprey build`` writes
+them, and ``osprey up`` adds a key file per reader. A later rebuild keeps them,
+so the stack comes up on the same credentials its volumes were initialized
+with.
 
 ``.env.example`` is written by ``osprey init``. After you change
 ``env.required``, update the example alongside it — it is the documented list
@@ -619,13 +635,14 @@ Watch for these lines in the output:
 * ``Persisted 1 MCP server(s) to config.yml`` — the agent can reach
   ``facility-mcp``.
 
-Confirm the service list is exactly the three you expect:
+Confirm the service list is exactly the four you expect:
 
 .. code-block:: bash
 
-   osprey config --rendered | grep -A3 '^deployed_services:'
+   osprey config --rendered | grep -A4 '^deployed_services:'
 
-It should read ``openobserve``, ``facility-mcp``, ``virtual_accelerator``.
+It should read ``telemetry_store``, ``telemetry_gateway``, ``facility-mcp``,
+``virtual_accelerator``.
 
 
 Step 9 — Deploy and check

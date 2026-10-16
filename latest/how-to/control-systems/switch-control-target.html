@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Control Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -573,8 +580,9 @@ machine on every deployment.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">va</span></code></p></td>
 <td><p>The virtual accelerator: a simulator this deployment stands up, serving
-the same channel names over real Channel Access. A write here moves
-nothing real.</p></td>
+the same channel names from its container over real Channel Access, or
+in this process (see <a class="reference internal" href="use-virtual-accelerator.html#va-two-venues"><span class="std std-ref">Two venues</span></a>). A write here moves nothing
+real.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">standin</span></code></p></td>
 <td><p>The <strong>live stand-in</strong>: a second soft IOC the deployment runs for itself,
@@ -693,17 +701,6 @@ reads to prove the machine answered before the deployment moves onto it. It ship
 commented out — a facility’s channel names cannot be guessed, and a placeholder
 would make the live target look ready while naming a channel nothing answers.
 Set it to a channel your facility actually serves.</p>
-<p><strong>A strict limits posture</strong> (<code class="docutils literal notranslate"><span class="pre">limits_posture</span></code>).
-Limits checking must be <code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">true</span></code> with <code class="docutils literal notranslate"><span class="pre">allow_unlisted_channels:</span>
-<span class="pre">false</span></code> — every writable channel is on the list, and a channel that is not on
-the list is refused rather than allowed through. The posture is the target’s
-own: <code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.limits_checking</span></code> when that target’s
-connector type states a block, and the deployment-wide
-<code class="docutils literal notranslate"><span class="pre">control_system.limits_checking</span></code> when it does not. The refusal names whichever
-of the two answered, so you edit the line that decides rather than one it
-overrides. This gate guards <code class="docutils literal notranslate"><span class="pre">standin</span></code> too: both are machines you meet hardware
-behaviour on, and a rehearsal on a permissive posture rehearses the wrong
-facility.</p>
 <p><strong>An operator acknowledgment</strong> (<code class="docutils literal notranslate"><span class="pre">operator_ack_missing</span></code>).
 <code class="docutils literal notranslate"><span class="pre">control_system.target_switch.live_gateway_acknowledged</span></code> must be set, to the
 hostname of the live gateway this deployment is configured against. Setting it
@@ -722,7 +719,7 @@ deployment’s services, or drop <code class="docutils literal notranslate"><spa
 build profile — and rebuild. The archive belongs to the machine it records.</p>
 <p>There is one exemption. A deployment can always come <strong>home</strong> to its own
 baseline — whichever of the three that is — with none of the gates above
-applied: not the limits posture, not the acknowledgment, not the archive gate,
+applied: not the acknowledgment, not the archive gate,
 and not the gateway and probe-channel checks either. Stranding a deployment away
 from the machine it was built for is the less safe outcome of the two, and a
 baseline whose block is half authored — no gateways yet, the probe channel still
@@ -837,6 +834,9 @@ machine</a>.</p></td>
 </tbody>
 </table>
 </div>
+<p>A deployment serving the simulator in process is switchable like any simulator
+deployment: with a <code class="docutils literal notranslate"><span class="pre">live</span></code> or <code class="docutils literal notranslate"><span class="pre">standin</span></code> block in its config, it moves between
+the in-process <code class="docutils literal notranslate"><span class="pre">va</span></code> and those targets the same way.</p>
 <p>One key is not filled in for you. Each target names a <code class="docutils literal notranslate"><span class="pre">probe_channel</span></code> — the
 channel the switch reads to prove that target is reachable:</p>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -851,8 +851,9 @@ channel the switch reads to prove that target is reachable:</p>
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">va</span></code></p></td>
-<td><p>Shipped set, to a placeholder you replace with a channel your virtual
-accelerator’s model actually serves.</p></td>
+<td><p>Shipped set to a channel the demo facility serves. The build stops
+while it names a channel the facility file does not hold, so an
+imported facility replaces it with one of its own readbacks.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">live</span></code></p></td>
 <td><p>Shipped <strong>commented out</strong>. A facility’s channel names cannot be guessed,
@@ -938,14 +939,13 @@ of the same deployment can disagree about the first one: write posture is
 per target, so a simulator may be armed beside a live machine that is not.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">limits_strict</span></code></p></td>
-<td><p>Whether <strong>this target</strong> runs the strict limits posture — limits checking
-on and unlisted channels refused — which is what the <code class="docutils literal notranslate"><span class="pre">limits_posture</span></code>
-gate above requires. Rows can disagree here too, but only from the
-deployment’s config: a deployment can relax unlisted channels for its
-simulator alone. Unlike <code class="docutils literal notranslate"><span class="pre">writes_permitted</span></code>, no chip toggle
-moves it. A target whose config states neither setting reads
-<code class="docutils literal notranslate"><span class="pre">false</span></code>, because a deployment that has stated nothing has refused
-nothing.</p></td>
+<td><p>Whether <strong>this target</strong> runs exclusive limits — limits checking on and
+<code class="docutils literal notranslate"><span class="pre">mode:</span> <span class="pre">exclusive</span></code>, so only channels in the limits file can be written.
+Rows can disagree here too, but only from the deployment’s config: a
+deployment can state a different mode for one connector type. Unlike
+<code class="docutils literal notranslate"><span class="pre">writes_permitted</span></code>, no chip toggle moves it. A target whose config
+states neither setting reads <code class="docutils literal notranslate"><span class="pre">false</span></code>, because a deployment that has
+stated nothing has refused nothing.</p></td>
 </tr>
 </tbody>
 </table>
@@ -1041,16 +1041,14 @@ its own right, and it must not sit behind a soft label. Use <code class="docutil
 the machine your facility runs.</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>A simulated present with an invented past</strong></p></td>
-<td><p>Switching to a machine this deployment stands up for itself — the virtual
-accelerator or the stand-in — is refused while the deployment’s archiver
-is the mock one, which makes history up at read time. The pairing would
-put a made-up past next to a modelled present with nothing linking them.
-See “The honesty rule” in <a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p></td>
+<td><p>Switching to a machine this deployment stands up for itself and serves
+over the network — the virtual accelerator from its container, or the
+stand-in — is refused while the deployment’s archiver is the mock one,
+which makes history up at read time. The pairing would put a made-up past
+next to a modelled present with nothing linking them. See “The honesty
+rule” in <a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>The strict limits posture is not in place</strong></p></td>
-<td><p>Required toward <code class="docutils literal notranslate"><span class="pre">live</span></code> and toward <code class="docutils literal notranslate"><span class="pre">standin</span></code> alike. See <a class="reference internal" href="#go-live">Go live</a>.</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>The live machine’s gates</strong></p></td>
+<tr class="row-odd"><td><p><strong>The live machine’s gates</strong></p></td>
 <td><p>The operator acknowledgment, or the archive that belongs to the stand-in.
 Both are the live machine’s alone. See <a class="reference internal" href="#go-live">Go live</a>.</p></td>
 </tr>
@@ -1169,23 +1167,19 @@ block and nothing else — where the stand-in listens, and what proves it
 reachable. The <code class="docutils literal notranslate"><span class="pre">epics</span></code> block beside it is untouched, so a facility already
 pointed at its own control system can stand a rehearsal up next to it without
 losing sight of its machine.</p>
-<p><strong>Set the posture yourself.</strong> The strict limits pair is the profile’s to state,
-in its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block. The stand-in gets no block of its own — it is
-hardware-shaped, so it keeps the deployment-wide pair the live machine runs
-under, and only the simulator is relaxed:</p>
+<p><strong>Limits are the profile’s to state.</strong> Limits are optional, and the limits
+pair lives in the profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block. The stand-in gets no block of
+its own, so it runs the deployment-wide pair:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">control_system.limits_checking.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">control_system.limits_checking.allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-<span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.limits_checking.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">control_system.limits_checking.mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">optional</span>
 </pre></div>
 </div>
-<p>That first pair is what a switch to either real-machine target requires. Without
-it <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">standin</span></code> refuses with <code class="docutils literal notranslate"><span class="pre">limits_posture</span></code>, which is the
-right refusal: a rehearsal on a permissive posture rehearses a facility you do
-not have. Writing the relaxation under <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> instead of
-deployment-wide is what keeps the rehearsal honest — a per-type block replaces
-the pair above for that type alone, and must state both settings or <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<p><code class="docutils literal notranslate"><span class="pre">mode:</span> <span class="pre">exclusive</span></code> means only channels in the limits file can be written.
+<code class="docutils literal notranslate"><span class="pre">mode:</span> <span class="pre">optional</span></code> means channels in the file are held to their limits and every
+other channel is written with no limits. <code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">false</span></code> means no limits at
+all. A <code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.limits_checking</span></code> block replaces the
+pair above for that type alone, and must state both settings or <code class="docutils literal notranslate"><span class="pre">osprey</span>
 <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> refuse it.</p>
 <p><strong>Three rows on the roster.</strong> Ask where the deployment could go and you get one
 row per configured machine:</p>
@@ -1223,17 +1217,14 @@ web terminal’s header chip reads <em>Rehearsal</em> — named for what it is f
 the technical label kept on its ⓘ tooltip. It carries a real machine’s posture — the
 same limits, the same approval prompts — because it is operated as one, not
 because a write reaches the facility. What the stand-in rehearses is the procedure, not the risk.</p>
-<p><strong>Telling the two machines apart.</strong> Both run one image over one lattice, so the
-stand-in ships a small fixed offset on its BPM readouts: a read that comes back
-different is how you know which machine answered. That perturbation needs the
-shipped built-in lattice behind it. A deployment whose environment pins
-<code class="docutils literal notranslate"><span class="pre">VA_LATTICE=none</span></code>, or points the IOC at a facility channel file, serves that
-manifest unperturbed instead — and the stand-in then reads identically to the
-virtual accelerator beside it. The labels still tell them apart; the readings do
-not.</p>
-<p><strong>The archive belongs to the machine.</strong> The recorder records the stand-in, and
-the history seeded on the first deploy carries the same offsets the stand-in
-reads — so its past and its present describe one machine, the way a real
+<p><strong>Telling the two machines apart.</strong> Both run one image over one simulator view,
+and the stand-in carries no errors of its own. The two machines are told apart
+by a write to the sandbox not showing on the stand-in and by the model RPC
+status naming its instance (<code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> or <code class="docutils literal notranslate"><span class="pre">live_standin</span></code>).</p>
+<p><strong>The archive belongs to the machine.</strong> The history seeded on the first deploy
+is the composite’s history over the shared active set, the same samples
+whichever machine the archive belongs to, and the recorder then records the
+stand-in — so its past and its present describe one machine, the way a real
 machine’s do. That is also why the live machine is gated while both are running:
 see <a class="reference internal" href="#go-live">Go live</a>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> reaches both machines: a scenario changes
 the world, not one lane.</p>

@@ -13,13 +13,13 @@ passing the checks first. That guarantee belongs to the harness: a process on th
 starts a server by hand sits outside it, which is why access to the host is part of the trust
 boundary.
 
-The checks are the first gate, not the only one. There are four ways a value reaches a
-machine through the connector --- a single channel write, Python the agent wrote, a Bluesky
-plan, and a notebook cell --- and each has gates of its own below the checks. Two of them can
-also be driven by a person, from the BLUESKY panel or a Jupyter cell, and a person's action
-goes through none of the checks. All four end at the same connector and leave the same audit
-record. A deployment that enables the ``phoebus`` server and sets
-``phoebus.agent_access: read_write`` has a fifth: ``phoebus_drive`` passes the checks and then
+The checks are the first gate, not the only one. There are five ways a value reaches a
+machine through the connector --- a single channel write, Python the agent wrote, a pyAML tool
+the executor runs, a Bluesky plan, and a notebook cell --- and each has gates of its own below
+the checks. Two of them can also be driven by a person, from the BLUESKY panel or a Jupyter
+cell, and a person's action goes through none of the checks. All five end at the same
+connector and leave the same audit record. A deployment that enables the ``phoebus`` server
+and sets ``phoebus.agent_access: read_write`` has one more: ``phoebus_drive`` passes the checks and then
 the Phoebus product writes the value through its own connections, not through the connector
 --- see :ref:`A Phoebus drive <architecture-safety-chain-phoebus-drive>`.
 
@@ -74,7 +74,7 @@ next tool call; whether writes are switched on for that machine is rendered from
    a single file, at ``var/agent_data/control_target/control_context.json``, are not read ---
    including a narrowing that record held.
 
-Four paths below the checks
+Five paths below the checks
 ===========================
 
 One channel write
@@ -85,6 +85,9 @@ checks are its first gates. The control-system server then checks the limits onc
 that the machine is still the one the operator approved, and hands the values to the
 connector.
 
+.. raw:: html
+   :file: ../_diagrams/write-sequence.html
+
 Python the agent wrote
 ----------------------
 
@@ -93,13 +96,36 @@ in it. The Python executor takes over from there. Before the code runs, it is re
 patterns are refused, code that writes into the deployment's own files is refused, and
 read-only code may neither import a control-system client library nor spell a write;
 read-write code that plainly spells a client library's own put is refused by the approval hook
-before anyone is asked to approve it. Then the code runs in its own process with guards in
+before anyone is asked to approve it. Before a read-write run starts, the executor
+checks that the approval prompt recorded this call and that what the call carries matches
+what it recorded; otherwise nothing runs. This check runs beside the script on one host, not
+out of the script's reach. Then the code runs in its own process with guards in
 place: read-only code cannot write even if it tries, read-write code writes through the
 connector only because a client library's own put is refused (a PVAccess put, which the
 connector cannot carry yet, is limits-checked instead), it cannot write into the
 deployment's own files, and it is stopped after a time limit. When the code finishes, its result is saved to a record and the process ends at once,
 so nothing a library does on the way out can hold it open; the executor reports the run from
-that record. All nine layers are described on :doc:`python-executor`.
+that record. All ten layers are described on :doc:`python-executor`.
+
+.. _architecture-safety-chain-pyaml-tool:
+
+A pyAML tool
+------------
+
+``pyaml_measure`` runs one of pyAML's tuning tools --- an orbit response, a dispersion, a tune
+or a chromaticity routine; pyAML, the Python accelerator middle layer, calls them measurements
+--- on the control target. It is not how the agent measures: the agent reads channels, runs
+its own Python and queues plans for that. It is the one path on which the executor runs code
+OSPREY ships rather than code the agent wrote: the pyAML view the build rendered from the
+facility description, with the tool's settings from ``data/facility/measurement/``. The call
+passes the kill switch and the approval prompt. The prompt lists the model, the kind, the
+digest of the view the tool runs on and every setpoint the call steps; a call that would step
+more setpoints than a prompt can list is refused without asking. The tool then runs in the
+same sandbox as the agent's Python, under the same guards, and each setpoint it moves is an
+ordinary write through the connector --- under the target's run lock; the result lists each
+setpoint the call moved with its value before the call
+(:ref:`Guarded Runs <architecture-safety-chain-guarded-run>`). A pyAML write anywhere else,
+``execute`` included, is refused. See :doc:`/how-to/measure-with-pyaml`.
 
 A Bluesky plan
 --------------
@@ -154,12 +180,36 @@ would change it. The agent may edit notebooks only in the ``notebooks`` and ``ar
 folders under the agent-data root, held there by a file-write guard that protects the host's
 files, not the machine. See :doc:`/how-to/web-terminal/notebooks`.
 
+.. _architecture-safety-chain-guarded-run:
+
+Guarded Runs
+============
+
+None of the five paths remembers what it moved. Each write is checked on its own, and a
+script, a plan or a cell that stops half way leaves the machine where it stopped. A *guarded
+run* adds a lock around a run's writes, and only the two paths that run code in the
+executor's sandbox take part in it: Python the agent wrote and a pyAML tool. A channel write,
+a Bluesky plan and a notebook cell do not hold the lock, and nothing puts back what any path
+moved.
+
+**One run per machine.** A read-write Python run and a pyAML tool run each hold a lock on
+their control target for as long as they run, from whichever terminal, job or container of
+the deployment they were launched. A second run on that target, of either kind, is refused
+before it starts, naming the holder. The lock is between these two kinds of run only; it keeps
+no channel write, plan or cell off the machine.
+
+**What a stopped tool leaves.** Nothing is written back. A pyAML tool that stops, fails or is
+interrupted leaves the machine where it stopped, and its result lists each setpoint it moved
+with its value before the call; a run killed outright, at its time limit or otherwise, lists
+only the channels it attempted. :ref:`reference-guarded-run` has the lock and what a run
+reports.
+
 .. _architecture-safety-chain-shared:
 
 What every path shares
 ======================
 
-**The connector.** Each of the four paths ends at the connector, the last step before the
+**The connector.** Each of the five paths ends at the connector, the last step before the
 machine. On
 every write it asks the deployment's records one question --- may this person write to this
 machine right now --- and gets back one of three answers:

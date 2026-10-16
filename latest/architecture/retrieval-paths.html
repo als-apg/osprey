@@ -62,11 +62,11 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="MCP Servers" href="mcp-servers.html" />
-    <link rel="prev" title="Data Flow" href="data-flow.html" />
+    <link rel="prev" title="Safety Chain" href="safety-chain.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -389,10 +389,11 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="data-flow.html">Data Flow</a></li>
+
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Retrieval Paths</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp-servers.html">MCP Servers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="python-executor.html">Python Executor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="facility-file.html">Facility File and Its Views</a></li>
 <li class="toctree-l1"><a class="reference internal" href="virtual-accelerator.html">Virtual Accelerator</a></li>
 </ul>
 </div>
@@ -456,7 +457,7 @@
                   
   <section id="retrieval-paths">
 <span id="id1"></span><h1>Retrieval Paths<a class="headerlink" href="#retrieval-paths" title="Link to this heading">#</a></h1>
-<p>The <a class="reference internal" href="data-flow.html"><span class="doc">write path</span></a> is how OSPREY <em>writes</em>. Reading is a
+<p>The <a class="reference internal" href="safety-chain.html"><span class="doc">safety chain</span></a> is how OSPREY <em>writes</em>. Reading is a
 different shape: the agent
 answers questions from three independent retrieval stacks, each with its own
 index and its own answer to whether embeddings are involved at all.</p>
@@ -503,12 +504,12 @@ search drops to a substring scan when the sidecar is absent, and ARIEL’s
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="data-flow.html"
+       href="safety-chain.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Data Flow</p>
+        <p class="prev-next-title">Safety Chain</p>
       </div>
     </a>
     <a class="right-next"

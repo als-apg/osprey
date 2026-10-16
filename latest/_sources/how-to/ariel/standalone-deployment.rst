@@ -174,17 +174,16 @@ directly:
    ``anthropic``. That file is the deployment's one secret store, and a build
    never rewrites it, so a value set there survives every rebuild.
 
-3. **Replace the demo logbook.** ``data/logbook_seed/`` holds the
-   logbook narrative of the control-assistant demo scenarios: 29 entries of
-   fictional accelerator events, three of them with a plot, one directory per
-   scenario in the scenario-bundle logbook format
-   (:ref:`simulation-bundle-logbook`). ``ariel.demo_narrative`` names that
-   directory, and it is seeded only into an empty logbook. Either:
+3. **Replace the demo logbook.** ``ariel.demo_narrative: all`` seeds the
+   logbook entries of every scenario of the example facility in
+   ``data/facility/scenarios/``: 29 entries of fictional accelerator events,
+   three of them with a plot. It is seeded only into an empty logbook. Either:
 
    - Point ``ariel.ingestion.adapter`` / ``source_url`` at your facility's
      logbook system (see :doc:`data-ingestion`) and remove
      ``ariel.demo_narrative``, or
-   - Replace the narratives with your own, in the same format.
+   - Write your own entries into the scenarios' ``logbook`` blocks, or name
+     only some scenarios (see :ref:`config-ariel-demo-narrative`).
 
 Durable customization (a profile you own)
 -----------------------------------------

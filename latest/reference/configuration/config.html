@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -393,11 +393,12 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../contracts/index.html">Contracts</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/connectors.html">Connector Contracts</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../contracts/simulation-bundle.html">Simulation Bundle Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/partial-answers.html">Partial Answers</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/python-executor.html">Python Executor Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/audit-trail.html">Audit Trail Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
 </ul>
@@ -472,9 +473,10 @@
 <span class="pre">build</span></code> renders it from the build profile, so the profile is where you edit a
 setting and this file is where you look one up: <a class="reference internal" href="profile.html"><span class="doc">Build Profile — profile.yml</span></a> describes the
 authoring side, and this page catalogues what the rendered result means.</p>
-<p>The parts of that file gathered here are the facility this deployment belongs
-to (<code class="docutils literal notranslate"><span class="pre">facility:</span></code>), the diagnostic suite (<code class="docutils literal notranslate"><span class="pre">health:</span></code>), the browser UI’s
-documentation and feedback settings (<code class="docutils literal notranslate"><span class="pre">web:</span></code>), the artifact gallery’s own
+<p>The parts of that file gathered here are the models its simulator serves
+(<code class="docutils literal notranslate"><span class="pre">simulation:</span></code>), the
+diagnostic suite (<code class="docutils literal notranslate"><span class="pre">health:</span></code>), the browser UI’s documentation and feedback
+settings (<code class="docutils literal notranslate"><span class="pre">web:</span></code>), the artifact gallery’s own
 categories (<code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code>), the Python sandbox’s run ceiling
 (<code class="docutils literal notranslate"><span class="pre">python_executor:</span></code>), where screenshots are written (<code class="docutils literal notranslate"><span class="pre">screen_capture:</span></code>), the
 full tool-call record (<code class="docutils literal notranslate"><span class="pre">audit.tool_call:</span></code>), the links from an answer to a
@@ -488,10 +490,8 @@ in. Settings that only
 ever arrive from the environment are in <a class="reference internal" href="environment-variables.html"><span class="doc">Environment Variables</span></a>. A closing
 note records the <strong>protected set</strong> — the files and keys no agent-side writer
 may touch.</p>
-<section id="facility-whose-machine-this-is">
-<span id="config-facility"></span><h2><code class="docutils literal notranslate"><span class="pre">facility:</span></code> — whose machine this is<a class="headerlink" href="#facility-whose-machine-this-is" title="Link to this heading">#</a></h2>
-<p>Three keys say which facility the deployment serves, and one of them decides
-what the agent thinks your devices are called.</p>
+<section id="simulation-which-models-the-simulator-serves-and-how-fast-it-ticks">
+<span id="config-simulation"></span><h2><code class="docutils literal notranslate"><span class="pre">simulation:</span></code> — which models the simulator serves and how fast it ticks<a class="headerlink" href="#simulation-which-models-the-simulator-serves-and-how-fast-it-ticks" title="Link to this heading">#</a></h2>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 30.0%" />
@@ -503,53 +503,41 @@ what the agent thinks your devices are called.</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">facility.name</span></code></p></td>
-<td><p>Display name woven into the agent’s prompts and the web-terminal landing
-page. With no value set, the project name is used.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">simulation.models</span></code></p></td>
+<td><p>The models the simulator serves, by name from the facility file’s
+<code class="docutils literal notranslate"><span class="pre">models.yaml</span></code>. <code class="docutils literal notranslate"><span class="pre">null</span></code> or absent serves every model; <code class="docutils literal notranslate"><span class="pre">[texture]</span></code>
+and <code class="docutils literal notranslate"><span class="pre">[]</span></code> serve no physics. Every shipped preset sets <code class="docutils literal notranslate"><span class="pre">null</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code></p></td>
-<td><p>The facility’s short token. The facility graph embeds it in every
-identifier it mints (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">build-ttl</span> <span class="pre">--facility</span></code>
-defaults to it), and a multi-user deployment without a <code class="docutils literal notranslate"><span class="pre">personas</span></code>
-catalog runs its terminals from <code class="docutils literal notranslate"><span class="pre">/app/&lt;prefix&gt;-assistant</span></code> inside the
-container. It names no container, volume or image; those come from the
-profile’s <code class="docutils literal notranslate"><span class="pre">project_name:</span></code> (<a class="reference internal" href="profile.html#reference-profile"><span class="std std-ref">Build Profile — profile.yml</span></a>).</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">simulation.tick_s</span></code></p></td>
+<td><p>Seconds between the simulator’s ticks. Absent means <code class="docutils literal notranslate"><span class="pre">1.0</span></code>; every
+shipped preset sets <code class="docutils literal notranslate"><span class="pre">1.0</span></code>. A value at or below <code class="docutils literal notranslate"><span class="pre">0</span></code> stops the build
+with a <code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code> line naming the key.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">facility.ontology</span></code></p></td>
-<td><p>Path — relative to the project root — to this facility’s <strong>compiled
-ontology table</strong>, the JSON that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">compile-ontology</span></code>
-writes.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios</span></code></p></td>
+<td><p>The scenarios a deployment that has never chosen a set starts in, by
+name from the facility’s scenarios. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> activates them
+the way <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> would, before it seeds the archive and the
+logbook, and only while no set has been chosen. Absent, <code class="docutils literal notranslate"><span class="pre">null</span></code> or
+<code class="docutils literal notranslate"><span class="pre">[]</span></code> starts in <code class="docutils literal notranslate"><span class="pre">nominal</span></code> alone. The control-assistant preset sets
+<code class="docutils literal notranslate"><span class="pre">[rf-thermal]</span></code>; the other presets leave it out. A value that is not a
+list of non-empty names stops the build with a <code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code> line
+naming the key.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">facility.ontology</span></code> is the deployment’s device vocabulary: the class names
-your facility uses, the everyday words operators say for each one, and the
-FAMILY tokens that appear in channel names. The channel-finder subagent’s
-terminology table is rendered from it, so a deployment that declares its own
-table gets a subagent that speaks its words instead of the demo machine’s.</p>
-<p>Three behaviours are worth knowing before you set it:</p>
-<ul class="simple">
-<li><p><strong>Leave the key out</strong> and the terminology table renders without a vocabulary
-section, and says so — the subagent is told to match on names and
-descriptions and verify with a lookup rather than guess. That is the honest
-outcome, and it is deliberately not filled in from the ontology OSPREY ships
-with its demo machine.</p></li>
-<li><p><strong>Point it at a file that is not there</strong>, or at one that does not parse, and
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> stops and names the key and the path. A vocabulary that was
-declared and then quietly dropped would be the worst of the three outcomes.</p></li>
-<li><p><strong>Point it at your own table</strong> and the rows follow it exactly. Regenerate the
-table and rebuild whenever the ontology changes; the table and the channel
-database should be generated from the same source.</p></li>
-</ul>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">facility</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Example</span><span class="nv"> </span><span class="s">Research</span><span class="nv"> </span><span class="s">Facility&quot;</span>
-<span class="w">  </span><span class="nt">ontology</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/facility_ontology.json</span>
+<p><code class="docutils literal notranslate"><span class="pre">texture</span></code> is always served, and always last. A name the facility file does
+not hold stops the build with a <code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code> line that lists the valid
+names.</p>
+<p>A persona’s list applies when its simulator is served in process: each
+process holds its own composite. On a persona whose baseline target is a
+served <code class="docutils literal notranslate"><span class="pre">va</span></code> or <code class="docutils literal notranslate"><span class="pre">standin</span></code> the deployment’s container serves the deployment’s
+list, so a persona delta that sets the key there stops the build with
+<code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code>.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">simulation.models</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">SR</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">channel_finder_standalone</span></code> templates ship a
-copy of the demo machine’s compiled table at that path, so both render a
-working vocabulary out of the box.</p>
 </section>
 <section id="health-the-diagnostic-suite">
 <span id="config-health"></span><h2><code class="docutils literal notranslate"><span class="pre">health:</span></code> — the diagnostic suite<a class="headerlink" href="#health-the-diagnostic-suite" title="Link to this heading">#</a></h2>
@@ -670,9 +658,9 @@ other key becomes a probe parameter.</p>
 </section>
 <section id="built-in-service-categories">
 <h3>Built-in service categories<a class="headerlink" href="#built-in-service-categories" title="Link to this heading">#</a></h3>
-<p>Beyond the always-on framework checks, four built-in categories are
-<strong>presence-gated on their config blocks</strong>: they contribute rows only when the
-corresponding service is configured, so a minimal build shows no empty tiles.</p>
+<p>Beyond the always-on framework checks, these built-in categories are
+<strong>presence-gated</strong>: they contribute rows only when the corresponding service is
+configured or deployed, so a minimal build shows no empty tiles.</p>
 <ul>
 <li><p><code class="docutils literal notranslate"><span class="pre">ariel</span></code> — appears when a top-level <code class="docutils literal notranslate"><span class="pre">ariel:</span></code> block is configured. Reads
 the ARIEL interface’s open <code class="docutils literal notranslate"><span class="pre">/health</span></code> page, which needs no credential, and
@@ -705,13 +693,13 @@ bolt and reports the round-trip latency, and <strong>resources</strong>, the num
 Bootstrapping a store creates neosemantics bookkeeping nodes whether or not a
 corpus was ever loaded, so counting <code class="docutils literal notranslate"><span class="pre">(:Resource)</span></code> specifically is what keeps
 an empty graph from reading as a populated one; a count of zero warns and
-names <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span></code> as the remedy. The agent’s own graph
+names <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code> as the remedy. The agent’s own graph
 tools report the same degraded states from the inside — see
 <a class="reference internal" href="../../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">reach</span></code> — appears when this render has a client switched on for a shared
 service: hybrid logbook search and the OKF panel (the qmd sidecar), the
 graph MCP server (the graph store), the ARIEL panel and MCP server
-(Postgres), agent telemetry (the OpenObserve store), the Bluesky MCP server
+(Postgres), agent telemetry (the telemetry gateway), the Bluesky MCP server
 (the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
 virtual-accelerator connector. One row per service, and the address it
 knocks on is the one <strong>the client itself resolves</strong> from this config, in the
@@ -722,6 +710,22 @@ user’s agent reaches). A knock is a TCP connect; a closed port warns and
 names the config key the client resolved it from, and a client switched on
 with nothing to resolve warns with the key that would give it one — the
 same condition <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses (<a class="reference internal" href="../../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code> — appears when <code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code> is in
+<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>. One row, <strong>ping</strong>: <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/ping</span></code> against the store’s
+HTTP interface at the address that fits where the check runs (the service
+name from a container on the compose network, loopback and the published port
+from the host). <code class="docutils literal notranslate"><span class="pre">ok</span></code> on HTTP 200, <code class="docutils literal notranslate"><span class="pre">warning</span></code> otherwise: a store that is
+down loses no record, because the gateway queues on disk and retries.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code> — appears when <code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code> is in
+<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>. Reads the gateway’s own counters page and reports
+whether it answers, a <code class="docutils literal notranslate"><span class="pre">warning</span></code> when an exporter’s queue is more than 80 %
+full (fix the store before restarting the gateway, or a full queue can lose a
+batch), the refusals since the gateway started (information only), any
+<code class="docutils literal notranslate"><span class="pre">*.jsonl</span></code> under <code class="docutils literal notranslate"><span class="pre">var/audit</span></code> that is not a regular file, and the audit
+directories no feed reads until the next build. On the host it also keeps the
+previous sample in <code class="docutils literal notranslate"><span class="pre">var/health/telemetry_gateway.json</span></code> and warns when send
+failures or refusals rose since then, or when a queue has not drained for
+five minutes.</p></li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -734,7 +738,7 @@ is stopped, unreachable, rejecting its credential, or simply unseeded is a
 service that is not running rather than a broken build, and the category says
 so in one line instead of failing the suite.</p>
 </div>
-<p>All three are ordinary categories: valid under <code class="docutils literal notranslate"><span class="pre">--category</span></code>, tunable via a
+<p>All of them are ordinary categories: valid under <code class="docutils literal notranslate"><span class="pre">--category</span></code>, tunable via a
 metadata-only override, and rendered as dashboard tiles with no extra
 configuration.</p>
 </section>
@@ -1314,7 +1318,9 @@ submitted script:</p>
 day of archived data, a scan reconstruction — and lower it where a runaway
 script holding the sandbox is the worse outcome. The value is read once in
 the sandbox’s MCP server process and held for that process’s lifetime, so a
-change lands after <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and a restart of the stack.</p>
+change lands after <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and a restart of the stack. The value
+must be a finite, positive number of seconds; any other value, <code class="docutils literal notranslate"><span class="pre">null</span></code>
+included, refuses every run, so no run is left without a time bound.</p>
 <p>Agent Python — the python executor, the visualization tools and plan
 validation — starts with a fixed set of environment variables from the host:
 paths, locale, the interpreter, TLS trust, proxies, plotting caches, the
@@ -1334,9 +1340,10 @@ naming one is an error, and the run does not start.</p>
 <span id="config-audit-tool-call"></span><h2><code class="docutils literal notranslate"><span class="pre">audit.tool_call:</span></code> — the full record of every tool call<a class="headerlink" href="#audit-tool-call-the-full-record-of-every-tool-call" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">audit.tool_call.enabled</span></code> (default <code class="docutils literal notranslate"><span class="pre">false</span></code>) turns on the full record: every
 osprey tool call, reads included, is written whole to
-<code class="docutils literal notranslate"><span class="pre">var/audit/&lt;identity&gt;/tool_call.jsonl</span></code> and sent to the telemetry store as one
-log line — arguments, result, control target, approval answer. The
-control-assistant preset turns it on; delete the lines to opt out.</p>
+<code class="docutils literal notranslate"><span class="pre">var/audit/&lt;identity&gt;/tool_call.jsonl</span></code> — arguments, result, control
+target, approval answer. Where the telemetry store is deployed, its gateway
+reads the file into <code class="docutils literal notranslate"><span class="pre">telemetry.audit_ledger</span></code> with every other ledger file.
+The control-assistant preset turns it on; delete the lines to opt out.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">audit.tool_call.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">audit.tool_call.max_inline_bytes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">262144</span>
@@ -1352,19 +1359,17 @@ and those artifacts hold values: treat them with the access you give the
 control system’s own data. The fields are listed in
 <a class="reference internal" href="../contracts/audit-trail.html#audit-trail-tool-call"><span class="std std-ref">The full tool-call record</span></a>.</p>
 </section>
-<section id="ariel-demo-narrative-a-demo-logbook-for-a-deployment-with-no-simulation">
-<span id="config-ariel-demo-narrative"></span><h2><code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> — a demo logbook for a deployment with no simulation<a class="headerlink" href="#ariel-demo-narrative-a-demo-logbook-for-a-deployment-with-no-simulation" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> names a directory of scenario narratives: one
-subdirectory per scenario, each holding a <code class="docutils literal notranslate"><span class="pre">logbook.json</span></code> in the
-scenario-bundle format (<a class="reference internal" href="../contracts/simulation-bundle.html#simulation-bundle-logbook"><span class="std std-ref">logbook.json</span></a>) and the pictures its
-entries attach. A relative path resolves against the project root. On a
-deployment with no simulation, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> seeds every narrative in it
-(<code class="docutils literal notranslate"><span class="pre">nominal</span></code> first, then the rest by name) into an empty logbook, pictures
-included, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">quickstart</span></code> does the same and then runs the
-enhancement modules. A logbook that already holds entries is never touched.
-The <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> preset sets it to <code class="docutils literal notranslate"><span class="pre">data/logbook_seed</span></code>, which
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> fills from the control-assistant scenario bundles. Unset, no
-demo logbook is seeded.</p>
+<section id="ariel-demo-narrative-a-demo-logbook-from-the-facility-s-scenarios">
+<span id="config-ariel-demo-narrative"></span><h2><code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> — a demo logbook from the facility’s scenarios<a class="headerlink" href="#ariel-demo-narrative-a-demo-logbook-from-the-facility-s-scenarios" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> is <code class="docutils literal notranslate"><span class="pre">all</span></code> or a list of scenario names. The logbook
+entries of those scenarios are read from the built simulator view, with the
+pictures they attach. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> seeds them (<code class="docutils literal notranslate"><span class="pre">nominal</span></code> first, then the
+rest by name) into an empty logbook in place of the active scenarios’ entries,
+and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">quickstart</span></code> does the same and then runs the enhancement
+modules. A logbook that already holds entries is never touched. A name the
+simulator view does not list is refused, and so is a directory. The
+<code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> preset sets it to <code class="docutils literal notranslate"><span class="pre">all</span></code>. Unset, a deploy seeds the
+active scenarios’ entries.</p>
 </section>
 <section id="ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry">
 <span id="config-ariel-entry-url"></span><h2><code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code> — links from an answer to the logbook entry<a class="headerlink" href="#ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry" title="Link to this heading">#</a></h2>
@@ -1443,8 +1448,9 @@ variable’s name; the token goes in the project’s <code class="docutils liter
 </div>
 <p>Every web terminal that exports telemetry receives the variable from the deploy
 <code class="docutils literal notranslate"><span class="pre">.env</span></code> through its own compose environment, never <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses the deploy when it is unset. The <code class="docutils literal notranslate"><span class="pre">openobserve</span></code> backend
-authenticates with its own account and refuses the key. See
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses the deploy when it is unset. The <code class="docutils literal notranslate"><span class="pre">gateway</span></code> backend
+refuses the key: every sender authenticates to the deployment’s telemetry
+gateway with its own login. See
 <a class="reference internal" href="../../how-to/health-and-monitoring/monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a>.</p>
 </section>
 <section id="phoebus-the-phoebus-display-bridge">
@@ -1561,54 +1567,54 @@ default. One row per image:</p>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.postgresql.image</span></code></p></td>
 <td><p>upstream pin</p></td>
 </tr>
-<tr class="row-odd"><td><p>openobserve</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OPENOBSERVE_IMAGE</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">services.openobserve.image</span></code></p></td>
-<td><p>upstream pin</p></td>
-</tr>
-<tr class="row-even"><td><p>mongodb</p></td>
+<tr class="row-odd"><td><p>mongodb</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_MONGODB_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.mongodb.image</span></code></p></td>
 <td><p>upstream pin</p></td>
 </tr>
-<tr class="row-odd"><td><p>graphdb</p></td>
+<tr class="row-even"><td><p>graphdb</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_GRAPHDB_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.graphdb.image</span></code></p></td>
 <td><p>upstream pin</p></td>
 </tr>
-<tr class="row-even"><td><p>event_dispatcher</p></td>
+<tr class="row-odd"><td><p>event_dispatcher</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_DISPATCH_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.event_dispatcher.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-dispatch</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p>dispatch_worker</p></td>
+<tr class="row-even"><td><p>dispatch_worker</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.dispatch_worker.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>nextcloud_bridge</p></td>
+<tr class="row-odd"><td><p>nextcloud_bridge</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_NEXTCLOUD_BRIDGE_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.nextcloud_bridge.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-nextcloud-bridge</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p>gchat_bridge</p></td>
+<tr class="row-even"><td><p>gchat_bridge</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_GCHAT_BRIDGE_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.gchat_bridge.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-gchat-bridge</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>teams_bridge</p></td>
+<tr class="row-odd"><td><p>teams_bridge</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_TEAMS_BRIDGE_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.teams_bridge.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-teams-bridge</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p>ariel_sync</p></td>
+<tr class="row-even"><td><p>ariel_sync</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.ariel_sync.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>archive</p></td>
+<tr class="row-odd"><td><p>archive</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.archive.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>history</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.history.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p>bluesky</p></td>
@@ -1646,18 +1652,26 @@ default. One row per image:</p>
 </div>
 <p>Point either of the first two layers at an internal registry mirror or a
 pinned digest when your deployment host cannot (or should not) pull public
-images.
-Which of these images a deploy builds, and what naming another image does to
+images.</p>
+<p>The telemetry store and the telemetry gateway are upstream pins with no row and
+no environment variable: <code class="docutils literal notranslate"><span class="pre">services.telemetry_store.image</span></code> and
+<code class="docutils literal notranslate"><span class="pre">services.telemetry_gateway.image</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> are the only way to
+change them. The store’s tag decides whether the readers’ query page is served
+at all — OSPREY serves that page only for an image tag whose page script it
+knows — so the tag comes from the config alone.</p>
+<p>Which of these images a deploy builds, and what naming another image does to
 that, is in <a class="reference internal" href="../../how-to/deploy-project/compose-templates.html#deployment-image-builds"><span class="std std-ref">When a deploy builds an image</span></a>.</p>
 <p>A row whose packaged default reads <em>upstream pin</em> is an <strong>upstream pin</strong> — an
 image somebody else publishes, named exactly as they publish it. Every other
 row is <strong>built by OSPREY</strong> from your project, and its default reference is
 assembled rather than fixed: a project name, a per-service suffix, and the two
 axes below.</p>
-<p><code class="docutils literal notranslate"><span class="pre">dispatch_worker</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel_sync</span></code> and <code class="docutils literal notranslate"><span class="pre">archive</span></code> share one row value on
-purpose: all three run the bare project image, so all three read
-<code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code>. Set that variable and all three services move to the
-image you name.</p>
+<p><code class="docutils literal notranslate"><span class="pre">dispatch_worker</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel_sync</span></code>, <code class="docutils literal notranslate"><span class="pre">archive</span></code> and <code class="docutils literal notranslate"><span class="pre">history</span></code> share one
+row value on purpose: all four run the bare project image, so all four read
+<code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code>. Set that variable and all four services move to the
+image you name. <code class="docutils literal notranslate"><span class="pre">history</span></code> (the history page) is rendered whenever the
+deployment runs the telemetry store and its web terminals sign people in; it is
+never listed in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>.</p>
 <section id="the-two-image-axes">
 <span id="deployment-image-axes"></span><h4>The two image axes<a class="headerlink" href="#the-two-image-axes" title="Link to this heading">#</a></h4>
 <p>An OSPREY-built default is always spelled the same way:</p>
@@ -1844,7 +1858,7 @@ recorded in <a class="reference internal" href="../contracts/audit-trail.html#re
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-whose-machine-this-is"><code class="docutils literal notranslate"><span class="pre">facility:</span></code> — whose machine this is</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#simulation-which-models-the-simulator-serves-and-how-fast-it-ticks"><code class="docutils literal notranslate"><span class="pre">simulation:</span></code> — which models the simulator serves and how fast it ticks</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#health-the-diagnostic-suite"><code class="docutils literal notranslate"><span class="pre">health:</span></code> — the diagnostic suite</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-health-block">The <code class="docutils literal notranslate"><span class="pre">health:</span></code> block</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#probe-checks">Probe checks</a></li>
@@ -1871,7 +1885,7 @@ recorded in <a class="reference internal" href="../contracts/audit-trail.html#re
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#artifact-server-the-workspace-gallery-s-own-categories"><code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code> — the workspace gallery’s own categories</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python-executor-how-long-one-agent-script-may-run-and-what-it-inherits"><code class="docutils literal notranslate"><span class="pre">python_executor:</span></code> — how long one agent script may run, and what it inherits</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#audit-tool-call-the-full-record-of-every-tool-call"><code class="docutils literal notranslate"><span class="pre">audit.tool_call:</span></code> — the full record of every tool call</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-demo-narrative-a-demo-logbook-for-a-deployment-with-no-simulation"><code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> — a demo logbook for a deployment with no simulation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-demo-narrative-a-demo-logbook-from-the-facility-s-scenarios"><code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> — a demo logbook from the facility’s scenarios</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-entry-url-template-links-from-an-answer-to-the-logbook-entry"><code class="docutils literal notranslate"><span class="pre">ariel.entry_url_template</span></code> — links from an answer to the logbook entry</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-entry-text-how-much-of-each-entry-the-agent-reads"><code class="docutils literal notranslate"><span class="pre">ariel.entry_text:</span></code> — how much of each entry the agent reads</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-telemetry-signals-which-signals-the-agent-exports"><code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.signals</span></code> — which signals the agent exports</a></li>

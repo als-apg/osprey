@@ -62,11 +62,11 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Reference" href="../reference/index.html" />
-    <link rel="prev" title="Python Executor" href="python-executor.html" />
+    <link rel="prev" title="Facility File and Its Views" href="facility-file.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -389,10 +389,11 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="data-flow.html">Data Flow</a></li>
+
 <li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp-servers.html">MCP Servers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="python-executor.html">Python Executor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="facility-file.html">Facility File and Its Views</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Virtual Accelerator</a></li>
 </ul>
 </div>
@@ -457,13 +458,16 @@
   <section id="virtual-accelerator">
 <span id="architecture-virtual-accelerator"></span><h1>Virtual Accelerator<a class="headerlink" href="#virtual-accelerator" title="Link to this heading">#</a></h1>
 <p>The Virtual Accelerator is a single container that puts a whole facility on
-real EPICS. One process serves the facility’s entire channel namespace, with
-the physics behind the storage-ring channels supplied through the <a class="reference external" href="https://www.lume.science/">LUME</a> model interface: a pyAT lattice, wrapped as a
-<code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code> via <code class="docutils literal notranslate"><span class="pre">lume-pyat</span></code>, sits behind the magnet and BPM channels so
-that writing a corrector moves the orbit that the BPMs report. Everything else
-on the namespace is composed by the same simulation engine the <code class="docutils literal notranslate"><span class="pre">mock</span></code>
-connector uses, so a client sees one machine rather than a physics island
-surrounded by dead addresses.</p>
+real EPICS. One process serves the facility’s entire channel namespace from the
+simulator view <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes. Behind the channels a facility wires to
+a deck sits a physics model built through the <a class="reference external" href="https://www.lume.science/">LUME</a> model interface: the shipped pyat engine wraps a
+pyAT lattice as a <code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code> via <code class="docutils literal notranslate"><span class="pre">lume-pyat</span></code>, so that writing a corrector
+moves the orbit that the BPMs report. The texture model serves every channel no
+model wires, so a client sees one machine rather than a physics island
+surrounded by dead addresses. Served in process
+(<code class="docutils literal notranslate"><span class="pre">control_system.connector.virtual_accelerator.serving:</span> <span class="pre">in_process</span></code>), the
+same simulator reads the same view through the same composite, with no
+container and no network.</p>
 <p>This page is about how those pieces fit. Running one, and the
 <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> switch that selects it, are in
 <a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
@@ -473,7 +477,7 @@ surrounded by dead addresses.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 448" role="img" aria-labelledby="va-layer-map-title va-layer-map-desc">
   <title id="va-layer-map-title">Virtual Accelerator layer map</title>
-  <desc id="va-layer-map-desc">Values flow down five layers — manifest, lattice, model, physics bridge, serving — with the LUME model as the replaceable seam, and the serving layer publishing to Channel Access and PVAccess.</desc>
+  <desc id="va-layer-map-desc">Values flow down five layers — simulator view, deck, engine plug-in, composite, serving — with the engine plug-in as the replaceable seam, and the serving layer publishing to Channel Access and PVAccess.</desc>
   <defs>
     <marker id="va-layer-map-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -495,22 +499,22 @@ surrounded by dead addresses.</p>
   <line class="divider" x1="136" y1="248" x2="824" y2="248"/>
   <!-- bands: tag · name · note -->
   <text class="te" x="160" y="56">01</text>
-  <text class="tn" x="200" y="56">manifest/</text>
-  <text class="ts" x="800" y="56" text-anchor="end">channel set, generated from the facility databases</text>
+  <text class="tn" x="200" y="56">simulator/</text>
+  <text class="ts" x="800" y="56" text-anchor="end">the view osprey build writes: addresses.json · variables.json · served_models.json · decks/</text>
   <text class="te" x="160" y="112">02</text>
-  <text class="tn" x="200" y="112">lattice/</text>
-  <text class="ts" x="800" y="112" text-anchor="end">the ring: inventory · calibration · orbit solve</text>
-  <!-- focal band: the LUME seam -->
+  <text class="tn" x="200" y="112">decks/&lt;model&gt;.json</text>
+  <text class="ts" x="800" y="112" text-anchor="end">the deck a served physics model names, a byte copy from the facility tree</text>
+  <!-- focal band: the engine plug-in seam -->
   <rect class="nb-foc" x="136" y="136" width="688" height="56"/>
   <text class="te" x="160" y="168">03</text>
-  <text class="tn" x="200" y="168">model/</text>
-  <text class="ts" x="800" y="168" text-anchor="end">PyATRingModel — a LUMEModel, via lume-pyat</text>
+  <text class="tn" x="200" y="168">engine plug-in</text>
+  <text class="ts" x="800" y="168" text-anchor="end">pyat — a LUMEModel via lume-pyat, found under the osprey.simulation.engines entry-point group</text>
   <text class="te" x="160" y="224">04</text>
-  <text class="tn" x="200" y="224">ioc/physics_bridge</text>
+  <text class="tn" x="200" y="224">composite</text>
   <text class="ts" x="800" y="224" text-anchor="end">setpoint → calibration → solve → BPM readings</text>
   <text class="te" x="160" y="280">05</text>
   <text class="tn" x="200" y="280">serving/</text>
-  <text class="ts" x="800" y="280" text-anchor="end">pvdb + write_path · runner over lume-pva-apg</text>
+  <text class="ts" x="800" y="280" text-anchor="end">ModelRunner over lume-pva-apg</text>
   <!-- transports -->
   <rect class="mask" x="192" y="344" width="240" height="56" rx="6"/>
   <rect class="nb" x="192" y="344" width="240" height="56" rx="6"/>
@@ -522,42 +526,41 @@ surrounded by dead addresses.</p>
   <text class="ts" x="648" y="384" text-anchor="middle">model variables · container-internal</text>
 </svg>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">serving/</span></code> is typed against <code class="docutils literal notranslate"><span class="pre">lume.model.LUMEModel</span></code> and never imports
-<code class="docutils literal notranslate"><span class="pre">ioc/</span></code> or <code class="docutils literal notranslate"><span class="pre">model/</span></code>; <code class="docutils literal notranslate"><span class="pre">entrypoint.py</span></code> joins the halves. That boundary under
-<code class="docutils literal notranslate"><span class="pre">model/</span></code> is the one that matters: everything downstream reaches the ring only
-through a <code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code>’s public <code class="docutils literal notranslate"><span class="pre">set()</span></code> and <code class="docutils literal notranslate"><span class="pre">get()</span></code>, which is what makes
-the physics replaceable (see <a class="reference internal" href="#bringing-your-own-model">Bringing your own model</a>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">entrypoint.py</span></code> builds one composite over the simulator view and hands it to
+<code class="docutils literal notranslate"><span class="pre">ModelRunner</span></code> in <code class="docutils literal notranslate"><span class="pre">serving/</span></code>, which serves it on both transports. Under the
+composite, each physics model is an engine plug-in reached only through its
+<code class="docutils literal notranslate"><span class="pre">set()</span></code> and <code class="docutils literal notranslate"><span class="pre">get()</span></code>; that boundary is what makes the physics replaceable
+(see <a class="reference internal" href="#bringing-your-own-model">Bringing your own model</a>).</p>
 </section>
 <section id="what-gets-served">
 <h2>What gets served<a class="headerlink" href="#what-gets-served" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">manifest/</span></code> derives the served channel set from the facility’s channel
-databases rather than listing it, and classifies every address into one of
-three physics-fidelity partitions:</p>
-<dl class="simple">
-<dt><strong>pyat-coupled</strong></dt><dd><p>Storage-ring magnet currents and BPM positions. A write re-solves the
-closed orbit and pushes the new BPM readings before its completion is
-signalled, so a readback taken after a completed write is already the new
-orbit.</p>
-</dd>
-<dt><strong>sp-echo</strong></dt><dd><p>Booster and transfer-line magnets, RF and vacuum setpoints. The setpoint
-echoes onto its readback immediately, with no physics behind it.</p>
-</dd>
-<dt><strong>static-noisy</strong></dt><dd><p>Everything else, driven by the in-image simulation engine from the mounted
-<code class="docutils literal notranslate"><span class="pre">machine.json</span></code> — with the <code class="docutils literal notranslate"><span class="pre">mock</span></code> connector’s synthesis as the fallback,
-so the two backends never disagree about a channel neither has data for.</p>
-</dd>
-</dl>
-<p>The authoritative channel count lives in the manifest’s
-<code class="docutils literal notranslate"><span class="pre">_metadata.total_channels</span></code> — a few thousand addresses — rather than in prose
-that would rot.</p>
+<p>The served list is the simulator view’s <code class="docutils literal notranslate"><span class="pre">addresses.json</span></code>: its <code class="docutils literal notranslate"><span class="pre">channels</span></code>,
+every channel address the facility declares, then one
+<code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code> address for each served physics model. Which
+models are served is the view’s <code class="docutils literal notranslate"><span class="pre">served_models.json</span></code>, with the texture model
+always last. A physics model is one child of the composite, built from the
+view’s <code class="docutils literal notranslate"><span class="pre">variables.json</span></code> and its deck, <code class="docutils literal notranslate"><span class="pre">decks/&lt;model&gt;.&lt;its</span> <span class="pre">suffix&gt;</span></code>, through the
+engine plug-in its record names; the texture serves every channel no model
+wires. The container’s ready line prints how many channels it serves, so the
+count is read off the running service rather than kept in prose that would
+rot.</p>
+<p>The entrypoint, the runner and the model surface read the view through
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.view.SimulatorView</span></code>, the one reader every
+consumer of a view opens it with. Each wiring record of <code class="docutils literal notranslate"><span class="pre">variables.json</span></code>
+states what its engine’s <code class="docutils literal notranslate"><span class="pre">describe()</span></code> said of it at build time: its <code class="docutils literal notranslate"><span class="pre">role</span></code>
+(<code class="docutils literal notranslate"><span class="pre">setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">readback</span></code>, <code class="docutils literal notranslate"><span class="pre">monitor</span></code> or <code class="docutils literal notranslate"><span class="pre">output</span></code>), the transverse
+<code class="docutils literal notranslate"><span class="pre">plane</span></code> it steers or reads (<code class="docutils literal notranslate"><span class="pre">x</span></code>, <code class="docutils literal notranslate"><span class="pre">y</span></code> or none) and its <code class="docutils literal notranslate"><span class="pre">refresh</span></code>. A
+write’s pass publishes every served channel except those whose binding
+refreshes <code class="docutils literal notranslate"><span class="pre">periodic</span></code>, which the next periodic pass publishes. Each channel
+also names the node it is <code class="docutils literal notranslate"><span class="pre">on</span></code>. A view an older OSPREY wrote is refused
+before the ready line, with a message asking for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
 </section>
 <section id="two-transports-one-write-path">
 <h2>Two transports, one write path<a class="headerlink" href="#two-transports-one-write-path" title="Link to this heading">#</a></h2>
 <p>One process serves both protocols. <strong>Channel Access carries the whole
 namespace and is the authoritative view</strong>; PVAccess additionally serves the
 model’s own variables natively. Every setpoint write from either transport
-enters the same <code class="docutils literal notranslate"><span class="pre">write_path</span></code>, passes the same drive-limit clamp and physics
-hand-off, and is committed on both views — a write on either transport moves
+passes the same drive-limit clamp and physics hand-off, and is committed on both views — a write on either transport moves
 both, a refused write moves neither. Only the completion differs, forced by
 the protocols: CA put-completion carries no status, so a refusal withholds the
 echo and raises an alarm; a PVAccess put completes with the model’s error
@@ -572,13 +575,13 @@ surface belongs to the <code class="docutils literal notranslate"><span class="p
 </section>
 <section id="physics-is-optional">
 <h2>Physics is optional<a class="headerlink" href="#physics-is-optional" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code> names the lattice file the container serves; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
-writes it, and the value <code class="docutils literal notranslate"><span class="pre">none</span></code> boots the same service with no lattice: pyAT
-is never imported and the served model is the empty <code class="docutils literal notranslate"><span class="pre">NullModel</span></code>. The Channel Access
-namespace is <em>identical</em> to a lattice-backed boot; the only difference is that
-a pyat-coupled setpoint simply latches its written value. That is what makes
-the service usable for a facility that has a channel list but no model behind
-it yet.</p>
+<p>Which models are served is the view’s <code class="docutils literal notranslate"><span class="pre">served_models.json</span></code>, written from the
+profile’s <code class="docutils literal notranslate"><span class="pre">simulation.models</span></code>; the texture model is always served, last. A
+render whose served set is <code class="docutils literal notranslate"><span class="pre">texture</span></code> alone boots the same service with no
+physics model built. It serves the same channels, without the status address a
+physics model adds: a setpoint latches its written value and a readback
+follows its seed. That is what makes the service usable for a facility that has
+a channel list but no model behind it yet.</p>
 </section>
 <section id="the-lume-stack-and-its-pins">
 <h2>The LUME stack and its pins<a class="headerlink" href="#the-lume-stack-and-its-pins" title="Link to this heading">#</a></h2>
@@ -602,13 +605,13 @@ still settling:</p>
 <td><p>The generic model contract: <code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code>, <code class="docutils literal notranslate"><span class="pre">ScalarVariable</span></code>.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lume-pyat</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">0.1.0</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.2.0</span></code></p></td>
 <td><p>The facility-agnostic pyAT backend — one persistent lattice, atomic
 multi-variable writes, one solve per batch, rollback on a lost closed
 orbit.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lume-pva-apg[ca,pva]</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">0.1.4</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.1.5</span></code></p></td>
 <td><p>The serving stack <code class="docutils literal notranslate"><span class="pre">runner.py</span></code> subclasses — <code class="docutils literal notranslate"><span class="pre">pcaspy</span></code> for Channel
 Access, <code class="docutils literal notranslate"><span class="pre">p4p</span></code> for PVAccess. 0.1.3 adds the two hooks the model
 surface is built on: <code class="docutils literal notranslate"><span class="pre">_enqueue(...,</span> <span class="pre">jobs=)</span></code>, which runs a callable on
@@ -616,92 +619,126 @@ the run loop’s own thread batched with the writes already queued there,
 and <code class="docutils literal notranslate"><span class="pre">_cycle_output_names()</span></code>, which lets a subclass narrow the set of
 variables re-read after each cycle. 0.1.4 makes the model info the
 server announces follow the configuration it was given, so a variable
-held back from the channel namespace is not advertised as one.</p></td>
+held back from the channel namespace is not advertised as one. 0.1.5
+takes each variable’s display precision and description from the
+runner configuration, raises an alarm on an output the model names as
+failed, serves integer variables as integers on PVAccess, and exposes a
+public tick period whose ticks coalesce.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">lume-pva-apg</span></code> and <code class="docutils literal notranslate"><span class="pre">pcaspy</span></code> publish wheels for linux-x86_64 only and are
-marked accordingly, so <code class="docutils literal notranslate"><span class="pre">serving/runner.py</span></code> alone is unimportable off that
-platform; it is reached lazily, and the rest of <code class="docutils literal notranslate"><span class="pre">serving/</span></code> imports anywhere.
+<p><code class="docutils literal notranslate"><span class="pre">pcaspy</span></code> publishes wheels for linux-x86_64 only, so the <code class="docutils literal notranslate"><span class="pre">lume-pva-apg</span></code>
+entry that brings it is marked accordingly, and <code class="docutils literal notranslate"><span class="pre">serving/runner.py</span></code> alone is
+unimportable off that platform; it is reached lazily, and the rest of <code class="docutils literal notranslate"><span class="pre">serving/</span></code> imports anywhere.
 The live Channel Access suites run in the container venue under
 <code class="docutils literal notranslate"><span class="pre">scripts/va/live_ca/</span></code>.</p>
 <p>What OSPREY ships on top of <code class="docutils literal notranslate"><span class="pre">lume-pyat</span></code> is the <em>facility adapter</em>, not the
-pyAT machinery: <code class="docutils literal notranslate"><span class="pre">PyATRingModel</span></code> supplies only the facts upstream cannot know
-— which lattice to build, how a commanded current becomes a magnet strength,
-which variables exist, and how a boot failure should read.</p>
+pyAT machinery: the pyat engine plug-in (<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.pyat</span></code>,
+with <code class="docutils literal notranslate"><span class="pre">variable_from_wiring</span></code> in <code class="docutils literal notranslate"><span class="pre">pyat_variables</span></code>) supplies only the facts
+upstream cannot know — which deck to build, how a hardware value becomes a
+strength through its record’s calibration, which variables exist, and how a
+failed build reads on the model’s <code class="docutils literal notranslate"><span class="pre">STATUS</span></code> channel.</p>
 </section>
 <section id="bringing-your-own-model">
 <h2>Bringing your own model<a class="headerlink" href="#bringing-your-own-model" title="Link to this heading">#</a></h2>
-<p>The runner is built around one <code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code>, and the entrypoint is what
-chooses it. The shipped <code class="docutils literal notranslate"><span class="pre">entrypoint.py</span></code> builds <code class="docutils literal notranslate"><span class="pre">PyATRingModel</span></code> when
-<code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code> names a lattice and <code class="docutils literal notranslate"><span class="pre">NullModel</span></code> when it is <code class="docutils literal notranslate"><span class="pre">none</span></code>, and hands
-that to the runner. Nothing in a profile, <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> or <code class="docutils literal notranslate"><span class="pre">.env</span></code> passes it
-another.</p>
-<p><strong>A pyAT ring is data.</strong> Any facility’s pyAT deck is served by the shipped
-model. The served tree stages it as <code class="docutils literal notranslate"><span class="pre">data/simulation/lattice.json</span></code> beside the
-<code class="docutils literal notranslate"><span class="pre">va_bindings.json</span></code> that ties channels to it, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes that
-file’s name into <code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code>. How a tree comes to carry one is in
+<p>The runner serves one composite, and the composite builds one child per
+served physics model from the view’s <code class="docutils literal notranslate"><span class="pre">variables.json</span></code> and the model’s deck,
+<code class="docutils literal notranslate"><span class="pre">decks/&lt;model&gt;.&lt;its</span> <span class="pre">suffix&gt;</span></code>, through the engine plug-in the model’s record names:
+its <code class="docutils literal notranslate"><span class="pre">engine</span></code>, looked up in the <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines</span></code> entry-point
+group. Nothing in the entrypoint, a profile or <code class="docutils literal notranslate"><span class="pre">.env</span></code> names an engine.</p>
+<p><strong>A pyAT deck is data.</strong> Any facility’s pyAT deck is served by the shipped
+<code class="docutils literal notranslate"><span class="pre">pyat</span></code> engine. The facility tree stages it beside the model record that names
+it and the wiring that ties channels to its elements, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+copies it byte for byte into the view. How a tree comes to carry one is in
 <a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
-<p><strong>Any other backend is a different entrypoint.</strong> A surrogate, Cheetah or Bmad
-is a different <code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code>, so it arrives as a replacement entrypoint module.
-The image runs
-<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-u</span> <span class="pre">-m</span> <span class="pre">${VA_ENTRYPOINT_MODULE:-osprey.services.virtual_accelerator.entrypoint}</span></code>,
-and the module must be importable inside an image the facility builds.</p>
-<p>Either way the serving layer does not change. Model variables are keyed by
-their full channel address and resolved before the backend sees them, so a
-backend parses no channel names. The contract a replacement entrypoint honours
-is under <a class="reference internal" href="../contributing/extending-osprey.html#extending-lume-model"><span class="std std-ref">LUME model</span></a>.</p>
+<p><strong>Any other backend is a plug-in.</strong> A surrogate, Cheetah or Bmad is a different
+<code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code>, so it arrives as an engine module registered under that group,
+whose <code class="docutils literal notranslate"><span class="pre">build(model,</span> <span class="pre">wiring,</span> <span class="pre">deck,</span> <span class="pre">settings,</span> <span class="pre">active=...)</span></code> returns it. The image
+the facility builds installs the plug-in beside OSPREY; the entrypoint stays
+the shipped one.</p>
+<p>Either way the serving layer does not change. Each variable is named for the
+channel address its wiring record claims before the engine sees it, so a
+backend parses no channel names. The extension seam is under
+<a class="reference internal" href="../contributing/extending-osprey.html#extending-lume-model"><span class="std std-ref">LUME model</span></a>.</p>
 <section id="served-and-model-only-variables">
 <h3>Served and model-only variables<a class="headerlink" href="#served-and-model-only-variables" title="Link to this heading">#</a></h3>
 <p>A model declares more variables than the facility serves as channels. The line
-between the two is drawn once, at boot, and by name alone: a variable is
-<strong>served</strong> when its name is an address the channel manifest already serves,
-and <strong>model-only</strong> when it is not. Served variables are read and written like
-any other channel, on either transport. Model-only variables sit on no channel
-at all; the model RPC is the only way to reach them.</p>
-<p>Where the line falls here is not a judgement call. Every variable the model
-builds from the served tree is named for the channel address its binding
-claims, so the served half is exactly the machine’s own pyat-coupled
-addresses. Everything on the model-only half is something the model or the
-serving layer added beside them: the simulated imperfections, the optics of
-the whole solved ring, and the set of setpoints currently stuck.</p>
+between the two is drawn by name alone: a variable is <strong>served</strong> when its name
+is an address of <code class="docutils literal notranslate"><span class="pre">addresses.json</span></code>, and <strong>model-only</strong> when it is not. Served
+variables are read and written like any other channel, on either transport.
+Model-only variables sit on no channel at all; the model RPC is the only way to
+reach them, as <code class="docutils literal notranslate"><span class="pre">&lt;model&gt;/&lt;name&gt;</span></code>.</p>
+<p>Where the line falls here is not a judgement call. The pyat engine names every
+variable it builds from a wiring record for the channel address that record
+claims, so the served half is exactly the model’s wired addresses. Everything
+on the model-only half is something the model declares beside them: the faults
+every wired monitor and magnet can carry, and the optics of the whole solved
+lattice.</p>
 <p>That RPC is one pvAccess channel, <code class="docutils literal notranslate"><span class="pre">model_rpc</span></code>, and it takes six verbs.
-<code class="docutils literal notranslate"><span class="pre">info</span></code> lists the model’s variables and says which side of the line each one
-is on; <code class="docutils literal notranslate"><span class="pre">get</span></code> reads what the model holds for any of them, served side
-included; <code class="docutils literal notranslate"><span class="pre">diff</span></code> puts the value the control system serves beside the model’s
-own for each served variable; <code class="docutils literal notranslate"><span class="pre">status</span></code> reports on the server itself. <code class="docutils literal notranslate"><span class="pre">set</span></code>
-writes model-only variables, and <code class="docutils literal notranslate"><span class="pre">reset</span></code> returns them to the values they
-were seeded with at boot.</p>
+<code class="docutils literal notranslate"><span class="pre">info</span></code> lists every served address with <code class="docutils literal notranslate"><span class="pre">surface:</span> <span class="pre">served</span></code>, then each built
+model’s own variables as <code class="docutils literal notranslate"><span class="pre">&lt;model&gt;/&lt;name&gt;</span></code> with <code class="docutils literal notranslate"><span class="pre">surface:</span> <span class="pre">model</span></code>, each with
+its name, unit, value range and whether it is read-only. <code class="docutils literal notranslate"><span class="pre">get</span></code> reads served
+addresses from the composite and model variables from their model. <code class="docutils literal notranslate"><span class="pre">diff</span></code>
+puts the value the control system serves beside the composite’s own for every
+channel of <code class="docutils literal notranslate"><span class="pre">addresses.json</span></code>, the composite’s read without motion or readout.
+<code class="docutils literal notranslate"><span class="pre">status</span></code> reports on the server itself: <code class="docutils literal notranslate"><span class="pre">instance</span></code>, <code class="docutils literal notranslate"><span class="pre">endpoint</span></code>,
+<code class="docutils literal notranslate"><span class="pre">last_cycle_ms</span></code>, <code class="docutils literal notranslate"><span class="pre">queue_depth</span></code>, <code class="docutils literal notranslate"><span class="pre">uptime_s</span></code>, <code class="docutils literal notranslate"><span class="pre">last_refused_write</span></code>,
+<code class="docutils literal notranslate"><span class="pre">last_failed_pass</span></code>, which is <code class="docutils literal notranslate"><span class="pre">null</span></code> or the <code class="docutils literal notranslate"><span class="pre">error</span></code> and <code class="docutils literal notranslate"><span class="pre">uptime_s</span></code> of
+the latest publishing pass that failed, and <code class="docutils literal notranslate"><span class="pre">health</span></code>, the server’s health
+record.
+<code class="docutils literal notranslate"><span class="pre">set</span></code> writes model variables only: a served address, a value that is not
+finite and a name the composite refuses are each refused. <code class="docutils literal notranslate"><span class="pre">reset</span></code> writes
+every drifted writable model variable back to the value it held when its model
+was built at the active scenarios, and returns the names it reset.</p>
+<p>The health record counts every publishing pass. Its <code class="docutils literal notranslate"><span class="pre">state</span></code> is <code class="docutils literal notranslate"><span class="pre">serving</span></code>
+when the latest pass succeeded, <code class="docutils literal notranslate"><span class="pre">degraded</span></code> while up to
+<code class="docutils literal notranslate"><span class="pre">failed_pass_tolerance</span></code> passes in a row have failed (three by default), and
+<code class="docutils literal notranslate"><span class="pre">failed</span></code> once more than that have; a pass that succeeds returns it to
+<code class="docutils literal notranslate"><span class="pre">serving</span></code>. It also carries the latest pass’s outcome, <code class="docutils literal notranslate"><span class="pre">uptime_s</span></code> and
+wall-clock <code class="docutils literal notranslate"><span class="pre">at</span></code>, the <code class="docutils literal notranslate"><span class="pre">passes_ok</span></code> and <code class="docutils literal notranslate"><span class="pre">passes_failed</span></code> counters, and the
+latest failed pass. The runner rewrites the record atomically to
+<code class="docutils literal notranslate"><span class="pre">/run/osprey-va/health.json</span></code> inside the container after every pass, and the
+container’s compose healthcheck reads that file: it passes while the record is
+<code class="docutils literal notranslate"><span class="pre">serving</span></code> or <code class="docutils literal notranslate"><span class="pre">degraded</span></code> and fails on <code class="docutils literal notranslate"><span class="pre">failed</span></code>, a missing file or one that
+is not JSON. The ready line the container prints at boot reports the first
+pass only.</p>
 <p>Those two write verbs ask for an administrative token. The container reads it
 from <code class="docutils literal notranslate"><span class="pre">VA_MODEL_WRITE_TOKEN</span></code> at startup and compares what a caller presents
 against it; a call carrying no token, or a token that does not match, is
 refused before any model is touched, and a container started without the
 variable set refuses model writes outright. The read verbs are not gated.</p>
-<p>The model-only roster is the served tree’s own. Every monitor the bindings
-publish a reading for carries nine reading-error fields, and every magnet they
-drive a calibration factor and offset; a device the tree does not serve
-carries neither. Each is named for the element the deck spells it at, with a
-dot between element and field (<code class="docutils literal notranslate"><span class="pre">&lt;element&gt;.offset_x</span></code>,
-<code class="docutils literal notranslate"><span class="pre">&lt;element&gt;.cal_factor</span></code>), so no fault name parses as a channel address. A
-seed names its device either way the facility knows it — by an address the
-control system carries, or by the element it sits at — and a name the served
-bindings know under neither ends the boot rather than perturbing nothing.
-Where one element is driven by two setpoints, one calibration scales both,
-which is what a miscalibrated magnet does.</p>
-<p>Three read-only arrays sit beside them: the transverse tunes, and beta and the
-true orbit at each monitor, one row per monitor in ring order. They are
-computed when one of them is read and served from memory until the next solve,
-so a setpoint write never pays for them.</p>
-<p>The last model-only variable is the serving layer’s, not the model’s:
-<code class="docutils literal notranslate"><span class="pre">stuck_setpoints</span></code>, the addresses whose readbacks are frozen, written as text
-and settable at runtime. It is the one fault a deployment with no lattice
-behind it can still take.</p>
-<p>Writing a fault changes what the model holds, and the served readings derived
-from it are recomputed as the write lands — a magnet whose calibration moved is
-re-commanded with the value its operator last asked for, so the ring ends where
-the new calibration puts it. <code class="docutils literal notranslate"><span class="pre">diff</span></code> is where a readout fault becomes visible,
-as a served reading that has parted from the model’s own value.</p>
+<p>The model-only roster is the wiring’s own. Each fault is named
+<code class="docutils literal notranslate"><span class="pre">&lt;address&gt;/&lt;field&gt;</span></code> after the wired address it perturbs, so no fault name is
+a channel address. A monitor reading carries <code class="docutils literal notranslate"><span class="pre">offset</span></code>, <code class="docutils literal notranslate"><span class="pre">gain</span></code>, <code class="docutils literal notranslate"><span class="pre">noise</span></code>
+and <code class="docutils literal notranslate"><span class="pre">polarity</span></code> on its own axis, and a monitor one <code class="docutils literal notranslate"><span class="pre">roll</span></code>, on its x-axis
+reading or its only one. A setpoint on <code class="docutils literal notranslate"><span class="pre">PolynomB</span></code> or <code class="docutils literal notranslate"><span class="pre">KickAngle</span></code> carries
+<code class="docutils literal notranslate"><span class="pre">cal_factor</span></code> and <code class="docutils literal notranslate"><span class="pre">cal_offset</span></code>; a calibration is the supply’s, so where one
+element is driven by two setpoints, each is miscalibrated alone. A monitor’s
+roll turns the beam position in the deck’s unit, before the monitor’s
+conversion to the unit it publishes, and its offset, gain, noise and polarity
+then act on the published reading.</p>
+<p>Four read-only arrays sit beside them: <code class="docutils literal notranslate"><span class="pre">tunes</span></code>, <code class="docutils literal notranslate"><span class="pre">chromaticity</span></code>,
+<code class="docutils literal notranslate"><span class="pre">beta_at_monitors</span></code> and <code class="docutils literal notranslate"><span class="pre">orbit_at_monitors</span></code>, the last two one row per
+monitor element in lattice order. A <code class="docutils literal notranslate"><span class="pre">single_pass</span></code> model has no tunes, so it
+declares neither of the first two. They are computed when one of them is read
+and served from memory until the next solve, so a setpoint write never pays
+for them.</p>
+<p>The imperfections a machine starts from are scenario faults. A scenario under
+<code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/</span></code> names them in its <code class="docutils literal notranslate"><span class="pre">faults</span></code> block, keyed by model
+and then by address, each a value or a map of fault fields to values; the
+composite seeds them into its models when the scenario is active. Channel
+faults, named in the scenario’s <code class="docutils literal notranslate"><span class="pre">channel_faults</span></code> block, are faults of the
+composite’s channel layer rather than of a model, and act on wired and
+texture channels alike. A <code class="docutils literal notranslate"><span class="pre">stuck</span></code> setpoint accepts a write, reads the value
+written, and forwards none of it; its readback shows the machine where it
+was. A <code class="docutils literal notranslate"><span class="pre">frozen</span></code> reading serves the value it served when the scenario became
+active. A <code class="docutils literal notranslate"><span class="pre">disconnected</span></code> channel holds writes as <code class="docutils literal notranslate"><span class="pre">stuck</span></code> does, and its
+reading serves not-a-number, or for a non-float the value it served when the
+scenario became active, with the <code class="docutils literal notranslate"><span class="pre">udf</span></code> condition.</p>
+<p>A readout fault never moves the orbit; it changes what a monitor reports.
+<code class="docutils literal notranslate"><span class="pre">diff</span></code> is where it becomes visible, as a served reading that has parted from
+the composite’s own value.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
@@ -728,12 +765,12 @@ as a served reading that has parted from the model’s own value.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="python-executor.html"
+       href="facility-file.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Python Executor</p>
+        <p class="prev-next-title">Facility File and Its Views</p>
       </div>
     </a>
     <a class="right-next"

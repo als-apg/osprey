@@ -61,12 +61,12 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Notebooks" href="notebooks.html" />
+    <link rel="next" title="Lattice Dashboard" href="lattice-dashboard.html" />
     <link rel="prev" title="Theming" href="theming.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="theming.html">Theming</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -540,7 +547,7 @@ to do.</p>
 </div>
 <section id="panels-that-need-a-section-as-well-as-a-tick">
 <h2>Panels that need a section as well as a tick<a class="headerlink" href="#panels-that-need-a-section-as-well-as-a-tick" title="Link to this heading">#</a></h2>
-<p>For most panels that line is the whole gesture. Three of them need a second
+<p>For most panels that line is the whole gesture. Two of them need a second
 one: they are tabs onto a service that has to be configured before there is
 anything to show, and OSPREY will not guess at its address. Listing the panel
 without its section leaves the tab <strong>dark</strong> — no error, one line in the log
@@ -558,36 +565,23 @@ saying the panel is unavailable.</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lattice</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">lattice_dashboard:</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">host</span></code>, <code class="docutils literal notranslate"><span class="pre">port</span></code>, <code class="docutils literal notranslate"><span class="pre">auto_launch</span></code> for the lattice dashboard.</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel-finder</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel-finder</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">channel_finder:</span></code></p></td>
 <td><p>The pipeline and the channel database behind it — see
 <a class="reference internal" href="../../reference/contracts/channel-finder.html"><span class="doc">Channel Finder Contracts</span></a>.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">okf</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">okf</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">facility_knowledge:</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">bundle_path</span></code>, the compiled knowledge bundle the KNOWLEDGE tab serves.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>So a working lattice tab is two things, not one:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">panels</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">lattice</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-
-<span class="nt">lattice_dashboard</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">127.0.0.1</span>
-<span class="w">  </span><span class="nt">auto_launch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</pre></div>
-</div>
-<p>The shipped <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset leaves both halves to you for the
-lattice tab — the panel is not in its <code class="docutils literal notranslate"><span class="pre">web_panels:</span></code> list and the
-<code class="docutils literal notranslate"><span class="pre">lattice_dashboard:</span></code> stanza sits beside it commented out — and supplies both
-for KNOWLEDGE and CHANNELS, which is why those two work out of the box.</p>
+<p>The lattice tab launches from the <code class="docutils literal notranslate"><span class="pre">lattice:</span> <span class="pre">true</span></code> tick alone; a
+<code class="docutils literal notranslate"><span class="pre">lattice_dashboard</span></code> section (<code class="docutils literal notranslate"><span class="pre">host</span></code>, <code class="docutils literal notranslate"><span class="pre">port</span></code>, <code class="docutils literal notranslate"><span class="pre">auto_launch</span></code>) only moves
+where it listens. The shipped <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships that tick, and
+the sections for KNOWLEDGE and CHANNELS, which is why all three work out of the
+box. <a class="reference internal" href="lattice-dashboard.html"><span class="doc">Lattice Dashboard</span></a> describes the tab.</p>
 </section>
 <section id="where-the-panel-rail-lives">
 <h2>Where the panel rail lives<a class="headerlink" href="#where-the-panel-rail-lives" title="Link to this heading">#</a></h2>
@@ -748,12 +742,11 @@ lists matching channel names — substring matches first, looser fuzzy matches
 when those run dry. Arrow keys move through the list, <strong>Enter</strong> takes the
 highlighted name, <strong>Escape</strong> dismisses it. The suggestions only suggest — a
 name typed in full is accepted whether or not it appears in the list.</p>
-<p>The names come from the project’s Channel Finder catalog — the channel
-database, or in graph mode the Turtle corpus named by
-<code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code>: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes a snapshot of it next
-to the generated config, and the panel reads that snapshot — no
+<p>The names come from the project’s facility file (<code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>), in
+every channel-finder mode: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes a snapshot of its channels
+next to the generated config, and the panel reads that snapshot — no
 control-system traffic, and nothing to keep in sync at run time. A project
-that configures neither shows no suggestions and is otherwise unchanged.</p>
+with no facility file shows no suggestions and is otherwise unchanged.</p>
 <p>The feature is on by default, tuned under <code class="docutils literal notranslate"><span class="pre">web.channel_suggestions</span></code> in
 <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
@@ -769,12 +762,9 @@ form falls back to plain fields. Raise the limit to cover a larger facility,
 or set <code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">false</span></code> to turn the feature off and write no snapshot at
 all. A build profile overrides these keys from its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block in the
 dotted form, e.g. <code class="docutils literal notranslate"><span class="pre">web.channel_suggestions.max_channels:</span> <span class="pre">200000</span></code>.</p>
-<p>One staleness rule to know: editing a channel database or Turtle corpus
-inside the profile’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree changes the build fingerprint, so
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses until you rebuild — the snapshot cannot silently go
-stale on that path. A database or corpus referenced from <em>outside</em> the
-profile tree is not fingerprinted; its snapshot refreshes only on the next
-explicit <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+<p>One staleness rule to know: editing the facility tree changes the build
+fingerprint, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses until you rebuild — the snapshot cannot
+silently go stale.</p>
 </section>
 <section id="adding-your-own-panel">
 <h2>Adding your own panel<a class="headerlink" href="#adding-your-own-panel" title="Link to this heading">#</a></h2>
@@ -945,11 +935,11 @@ shape of it.</p>
       </div>
     </a>
     <a class="right-next"
-       href="notebooks.html"
+       href="lattice-dashboard.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Notebooks</p>
+        <p class="prev-next-title">Lattice Dashboard</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

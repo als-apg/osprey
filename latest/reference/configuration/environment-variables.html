@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -393,11 +393,12 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="../contracts/index.html">Contracts</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/connectors.html">Connector Contracts</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../contracts/simulation-bundle.html">Simulation Bundle Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/partial-answers.html">Partial Answers</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/python-executor.html">Python Executor Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/audit-trail.html">Audit Trail Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
 </ul>
@@ -577,8 +578,11 @@ container that is already running reads nothing from them.</p>
 </section>
 <section id="virtual-accelerator-source">
 <h2>Virtual accelerator source<a class="headerlink" href="#virtual-accelerator-source" title="Link to this heading">#</a></h2>
-<p>Three variables in the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> decide what the virtual
-accelerator container runs and serves.</p>
+<p>The virtual accelerator container serves the simulator view that
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes under its data mount; the image runs
+<code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.entrypoint</span></code> by name. These variables,
+rendered by the compose file, name the instance it serves as and the mount
+points it reads.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 32.0%" />
@@ -590,24 +594,35 @@ accelerator container runs and serves.</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">VA_ENTRYPOINT_MODULE</span></code></p></td>
-<td><p>The Python module the container runs. Operator-set. Empty or unset runs
-<code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.entrypoint</span></code>. It must be
-importable inside the image; see <a class="reference internal" href="../../how-to/control-systems/use-virtual-accelerator.html#va-serving-your-own-model"><span class="std std-ref">Serving your facility’s own model</span></a>.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">VA_INSTANCE</span></code></p></td>
+<td><p>Which instance the container serves as: <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> or
+<code class="docutils literal notranslate"><span class="pre">live_standin</span></code>. Required; a missing or unknown value refuses the
+boot. It is written into the model logs and the model RPC’s
+<code class="docutils literal notranslate"><span class="pre">status</span></code> reply.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">VA_CHANNELS_FILE</span></code></p></td>
-<td><p>The generated channel manifest’s file name, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
-writes. Required by the container, which refuses to boot without it.</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">VA_DATA_DIR</span></code></p></td>
+<td><p>The data root the simulator view sits under, read as
+<code class="docutils literal notranslate"><span class="pre">&lt;VA_DATA_DIR&gt;/simulator/</span></code>. Default <code class="docutils literal notranslate"><span class="pre">/data</span></code>, where the compose file
+mounts the render’s <code class="docutils literal notranslate"><span class="pre">build/data</span></code> read-only.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code></p></td>
-<td><p>The served tree’s lattice file name, or <code class="docutils literal notranslate"><span class="pre">none</span></code>, which
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">VA_POLL_INTERVAL_S</span></code></p></td>
+<td><p>The period of the served model’s passes, in seconds, greater than
+zero. Set by <code class="docutils literal notranslate"><span class="pre">simulation.tick_s</span></code>; a project <code class="docutils literal notranslate"><span class="pre">.env</span></code> value is not
+read.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">VA_STATE_DIR</span></code></p></td>
+<td><p>The directory holding the active scenarios <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code>
+writes; the container re-reads them when they change. Unset serves
+<code class="docutils literal notranslate"><span class="pre">nominal</span></code> alone.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">VA_MODEL_WRITE_TOKEN</span></code></p></td>
+<td><p>The secret a model RPC write must present, passed through from the
+project <code class="docutils literal notranslate"><span class="pre">.env</span></code> to the virtual accelerator instance only. Unset or
+empty refuses every model write.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>How the build writes the last two — append-only, with a value already on
-file winning — is in <a class="reference internal" href="../../how-to/deploy-project/env-chain.html"><span class="doc">Environment Variables (the .env chain)</span></a>.</p>
 </section>
 <section id="the-phoebus-server-s-overrides">
 <h2>The Phoebus server’s overrides<a class="headerlink" href="#the-phoebus-server-s-overrides" title="Link to this heading">#</a></h2>
@@ -692,6 +707,41 @@ wherever <code class="docutils literal notranslate"><span class="pre">OSPREY_CON
 <td><p>Set by the entrypoint, to <code class="docutils literal notranslate"><span class="pre">non-root-start</span></code>, when a container started
 without root could not apply an <code class="docutils literal notranslate"><span class="pre">osprey-*</span></code> service identity. The
 <code class="docutils literal notranslate"><span class="pre">/health</span></code> endpoint reports it and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> warns on it</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Four more tie a container’s telemetry to the deployment’s telemetry gateway and
+to the audit record:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 36.0%" />
+<col style="width: 64.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Variable</p></th>
+<th class="head"><p>What it carries</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_GATEWAY_HOST</span></code>, <code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_GATEWAY_PORT</span></code></p></td>
+<td><p>Where this container reaches the gateway: its service name and the
+port it listens on from a container on the compose network, an address
+and the published port from one in the host’s network namespace. The
+<code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code> and <code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code> health categories read
+them to tell where they run</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_TELEMETRY_LOGIN</span></code></p></td>
+<td><p>The sender’s own <code class="docutils literal notranslate"><span class="pre">&lt;identity&gt;:&lt;password&gt;</span></code> login to the gateway, from
+that sender’s <code class="docutils literal notranslate"><span class="pre">.env.telemetry-sender.&lt;identity&gt;</span></code> file. The gateway
+stamps every record with the identity it authenticated, never one a
+sender reports</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SESSION</span></code></p></td>
+<td><p>The terminal session a launch belongs to, written into its audit
+records and sent as the <code class="docutils literal notranslate"><span class="pre">terminal.session</span></code> attribute, so a record in
+the store joins the ledger line the same launch wrote. Read by exact
+name: other variables start with the same words</p></td>
 </tr>
 </tbody>
 </table>

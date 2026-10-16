@@ -1,0 +1,1142 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Describe your facility &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/describe-your-facility';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/describe-your-facility.html" />
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Measure with the pyAML Tools" href="measure-with-pyaml.html" />
+    <link rel="prev" title="Connect the Agent to Phoebus Displays" href="control-systems/phoebus-bridge.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="web-terminal/multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="agent-interfaces/index.html">Agent Interfaces</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="agent-interfaces/cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agent-interfaces/event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agent-interfaces/add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l3"><a class="reference internal" href="agent-interfaces/chat-bridges/microsoft-teams.html">Microsoft Teams</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+<li class="toctree-l2"><a class="reference internal" href="control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="run-scenarios.html">Run and write scenarios</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/picture-search.html">Picture Captions and Picture Search</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Describe your facility</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="describe-your-facility">
+<span id="how-to-describe-your-facility"></span><h1>Describe your facility<a class="headerlink" href="#describe-your-facility" title="Link to this heading">#</a></h1>
+<p>A deployment describes its facility once, as source files under
+<code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> combines them into one facility file,
+<code class="docutils literal notranslate"><span class="pre">build/facility.json</span></code>, and writes every file a service reads from it: the
+channel finder’s index, the limits database, the simulator’s channel list, the
+knowledge graph. Nothing else in the deployment lists a channel.</p>
+<p>This page walks the tree a fresh <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">control-assistant</span></code>
+writes, file by file, then the three ways records get into it: by hand, from
+an importer, and through a fix. What the build writes from the result is in
+<a class="reference internal" href="../architecture/facility-file.html"><span class="doc">Facility File and Its Views</span></a>.</p>
+<section id="the-tree">
+<h2>The tree<a class="headerlink" href="#the-tree" title="Link to this heading">#</a></h2>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>data/facility/
+  identity.yaml             who the facility is
+  records/
+    places.yaml             the facility&#39;s own tree of places
+    devices.yaml            the devices
+    channels.yaml           the control-system channels
+    groups.yaml             named sets of devices
+  classes.yaml              device classes the facility adds
+  models.yaml               the simulation models and their wiring
+  decks/                    the decks those models name
+  limits.yaml               the write limits
+  seeds.yaml                how a channel no model wires behaves when simulated
+  measurement/&lt;model&gt;.yaml  the measurements a model allows
+  scenarios/&lt;name&gt;.yaml     ways the simulated machine departs from its baseline
+  fixes.yaml                corrections to records another source states
+  imported/&lt;layer&gt;/         records an importer wrote
+  knowledge/                the facility knowledge pages
+</pre></div>
+</div>
+<p>Every file is optional. A deployment with no <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> at all builds
+a facility with no channel, and each file added states more. The
+control-assistant preset ships all of them except <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code>,
+<code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code> and <code class="docutils literal notranslate"><span class="pre">imported/</span></code>; the hello-world preset ships
+<code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">records/channels.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code> and
+<code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>.</p>
+<p>Check the tree at any time, without writing anything:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>facility<span class="w"> </span>validate
+osprey<span class="w"> </span>facility<span class="w"> </span>show
+osprey<span class="w"> </span>facility<span class="w"> </span>show<span class="w"> </span>SR:MAG:HCM:01:CURRENT:SP
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">validate</span></code> runs every check the build makes and prints each problem as one
+line, <code class="docutils literal notranslate"><span class="pre">facility:</span> <span class="pre">&lt;kind&gt;:</span> <span class="pre">&lt;record</span> <span class="pre">kind&gt;</span> <span class="pre">&lt;id&gt;</span> <span class="pre">—</span> <span class="pre">&lt;detail&gt;;</span> <span class="pre">fix:</span> <span class="pre">&lt;remedy&gt;</span></code>.
+<code class="docutils literal notranslate"><span class="pre">show</span></code> prints the record counts, the models and the views; given an id it
+prints that record with the file each of its fields came from. Both are
+described in full under <a class="reference internal" href="../reference/cli.html#cli-osprey-facility"><span class="std std-ref">osprey facility</span></a>.</p>
+</section>
+<section id="identity">
+<h2>Identity<a class="headerlink" href="#identity" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code> holds the facility’s <code class="docutils literal notranslate"><span class="pre">code</span></code> and, optionally, its <code class="docutils literal notranslate"><span class="pre">name</span></code>
+and <code class="docutils literal notranslate"><span class="pre">description</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">code</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ca</span>
+<span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Example Research Facility</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">code</span></code> names the facility in the knowledge graph and in each served
+model’s status channel, <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code>. Without the file the
+code is taken from the project name. The <code class="docutils literal notranslate"><span class="pre">name</span></code> is what agents and panels
+call the facility; a facility that states none is called by the project name.</p>
+</section>
+<section id="records">
+<h2>Records<a class="headerlink" href="#records" title="Link to this heading">#</a></h2>
+<p>The four files under <code class="docutils literal notranslate"><span class="pre">records/</span></code> each hold a list of records of one kind.
+Every record has an <code class="docutils literal notranslate"><span class="pre">id</span></code>, and a record states only what its author knows:
+a field left out is either filled by the build or stays absent.</p>
+<p><strong>Places</strong> are the facility’s own tree. A place’s id is its path,
+<code class="docutils literal notranslate"><span class="pre">SR/SECT1</span></code> under <code class="docutils literal notranslate"><span class="pre">SR</span></code>; <code class="docutils literal notranslate"><span class="pre">level</span></code> is the facility’s word for that depth.
+A place with a <code class="docutils literal notranslate"><span class="pre">span</span></code> covers a stretch of one model’s deck, from one marker
+element to the next, and every device the deck puts inside it belongs to that
+place without saying so.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR/SECT1</span>
+<span class="w">  </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sector</span>
+<span class="w">  </span><span class="nt">span</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR</span>
+<span class="w">    </span><span class="nt">from_marker</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SECT1</span>
+<span class="w">    </span><span class="nt">to_marker</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SECT2</span>
+</pre></div>
+</div>
+<p><strong>Devices</strong> carry a <code class="docutils literal notranslate"><span class="pre">class</span></code>, either one of the shared vocabulary’s classes
+(<code class="docutils literal notranslate"><span class="pre">Quadrupole</span></code>, <code class="docutils literal notranslate"><span class="pre">BeamPositionMonitor</span></code>, <code class="docutils literal notranslate"><span class="pre">Gauge</span></code>) or one the facility adds
+in <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code>. A device may state its <code class="docutils literal notranslate"><span class="pre">place</span></code>, a <code class="docutils literal notranslate"><span class="pre">label</span></code>, other
+<code class="docutils literal notranslate"><span class="pre">names</span></code> people use for it, and a position: <code class="docutils literal notranslate"><span class="pre">s</span></code> in metres along the deck of
+its <code class="docutils literal notranslate"><span class="pre">model</span></code>. A device a model wires takes its position from the deck.</p>
+<p><strong>Channels</strong> are the control-system addresses. A channel’s id is its full
+address, written exactly as the control system serves it; no part of the
+address means anything to OSPREY. What a channel is comes from its fields:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 78.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">role</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">readback</span></code> or <code class="docutils literal notranslate"><span class="pre">none</span></code>. Absent means readback.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pair</span></code></p></td>
+<td><p>On a setpoint, the address of its readback. Absent, the build pairs the
+setpoint with the one readback on the same device whose signal names the
+same quantity, else with itself.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tolerance</span></code></p></td>
+<td><p>On a float setpoint, how close its readback must come before a move
+counts as done: <code class="docutils literal notranslate"><span class="pre">{absolute:</span> <span class="pre">&lt;x&gt;}</span></code> in the channel’s unit or
+<code class="docutils literal notranslate"><span class="pre">{relative:</span> <span class="pre">&lt;fraction&gt;}</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">on</span></code></p></td>
+<td><p>The one device or place the channel belongs to, <code class="docutils literal notranslate"><span class="pre">{device:</span> <span class="pre">&lt;id&gt;}</span></code> or
+<code class="docutils literal notranslate"><span class="pre">{place:</span> <span class="pre">&lt;id&gt;}</span></code>. Absent, the channel belongs to nothing.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">endpoint_of</span></code></p></td>
+<td><p>The devices that share the channel, for a supply feeding several.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">signal</span></code></p></td>
+<td><p>A signal role of the shared vocabulary, such as <code class="docutils literal notranslate"><span class="pre">current_setpoint</span></code> or
+<code class="docutils literal notranslate"><span class="pre">position_x_readback</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">unit</span></code>, <code class="docutils literal notranslate"><span class="pre">description</span></code></p></td>
+<td><p>Free text. A channel that states no description and names a signal is
+given one composed from its owner, its signal and its unit.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">label</span></code>, <code class="docutils literal notranslate"><span class="pre">names</span></code></p></td>
+<td><p>The one name a person reads for the channel, and other names in use.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tags</span></code></p></td>
+<td><p>Free words. <code class="docutils literal notranslate"><span class="pre">in_context</span></code> narrows the in-context channel-finder index
+to the tagged channels.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">value_type</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">float</span></code>, <code class="docutils literal notranslate"><span class="pre">int</span></code>, <code class="docutils literal notranslate"><span class="pre">bool</span></code>, <code class="docutils literal notranslate"><span class="pre">enum</span></code>, <code class="docutils literal notranslate"><span class="pre">string</span></code> or <code class="docutils literal notranslate"><span class="pre">waveform</span></code>.
+Absent means float.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">options</span></code></p></td>
+<td><p>The labels of a <code class="docutils literal notranslate"><span class="pre">bool</span></code> or <code class="docutils literal notranslate"><span class="pre">enum</span></code> channel.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">shape</span></code></p></td>
+<td><p>The dimensions of a <code class="docutils literal notranslate"><span class="pre">waveform</span></code> channel.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">precision</span></code></p></td>
+<td><p>Optional, on float channels only: an integer from 0 to 17, the number
+of decimals a display shows. The simulator serves it as the channel’s
+display precision on both Channel Access and PVAccess.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">former_addresses</span></code>, <code class="docutils literal notranslate"><span class="pre">attributes</span></code></p></td>
+<td><p>Addresses the channel was known by, and a free map carried verbatim.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:QF:01:CURRENT:SP</span>
+<span class="w">  </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">setpoint</span>
+<span class="w">  </span><span class="nt">pair</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:QF:01:CURRENT:RB</span>
+<span class="w">  </span><span class="nt">tolerance</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">absolute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.01</span>
+<span class="w">  </span><span class="nt">unit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A</span>
+<span class="w">  </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">focusing quadrupole current setpoint</span>
+<span class="w">  </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Focusing quadrupole current setpoint</span>
+</pre></div>
+</div>
+<p><strong>Groups</strong> are named sets of devices: an id, a <code class="docutils literal notranslate"><span class="pre">description</span></code> in the
+facility’s words and the <code class="docutils literal notranslate"><span class="pre">members</span></code>. A group says which devices belong
+together; what a channel means stays on the channel.</p>
+<p><code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code> adds device classes the shared vocabulary lacks, each as the
+child of an existing class:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">class</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Kicker</span>
+<span class="w">  </span><span class="nt">parent</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Magnet</span>
+<span class="w">  </span><span class="nt">aliases</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">injection kicker</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+</section>
+<section id="layers">
+<h2>Layers<a class="headerlink" href="#layers" title="Link to this heading">#</a></h2>
+<p>Records reach the build from several sources at once, and each source is a
+<em>layer</em>. <code class="docutils literal notranslate"><span class="pre">records/</span></code> and <code class="docutils literal notranslate"><span class="pre">models.yaml</span></code> are the layer <code class="docutils literal notranslate"><span class="pre">authored</span></code>; each
+directory under <code class="docutils literal notranslate"><span class="pre">imported/</span></code> is the layer of that name. A layer states only
+the fields its source states.</p>
+<p>The build merges the layers field by field: per record and per field it takes
+the one value any layer states. Two layers stating different values for one
+field stop the build with <code class="docutils literal notranslate"><span class="pre">layer-conflict</span></code>, naming the record. A fix settles
+it (see <a class="reference internal" href="#fixes">Fixes</a>).</p>
+<p>The importers are <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">list</span></code>.</p>
+<section id="a-middle-layer-export">
+<h3>A Middle Layer export<a class="headerlink" href="#a-middle-layer-export" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span></code> reads a MATLAB Middle Layer export into
+<code class="docutils literal notranslate"><span class="pre">data/facility/imported/mml/</span></code>. From the export to a served model it is five
+steps; each is described in <a class="reference internal" href="import-mml-export.html"><span class="doc">Import a Middle Layer export</span></a>.</p>
+<ol class="arabic simple">
+<li><p><strong>Export.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span> <span class="pre">--print-exporter</span> <span class="pre">&gt;</span> <span class="pre">mml_export.m</span></code>
+prints the exporter. Run it in MATLAB once per sub-machine.</p></li>
+<li><p><strong>Draft the mapping.</strong> The first run of
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span> <span class="pre">&lt;stem&gt;.ao.json</span></code> writes
+<code class="docutils literal notranslate"><span class="pre">imported/mml/mapping.yaml</span></code> and stops with <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">mapping-draft</span></code>.
+The mapping holds every decision the export does not state.</p></li>
+<li><p><strong>Review the mapping.</strong> Replace every <code class="docutils literal notranslate"><span class="pre">null</span></code>. The top-level blocks are
+<code class="docutils literal notranslate"><span class="pre">models</span></code> (what each exported system is called as a model),
+<code class="docutils literal notranslate"><span class="pre">section_order</span></code>, <code class="docutils literal notranslate"><span class="pre">families</span></code> (each family’s <code class="docutils literal notranslate"><span class="pre">class</span></code>, <code class="docutils literal notranslate"><span class="pre">devices</span></code>,
+<code class="docutils literal notranslate"><span class="pre">description</span></code> and <code class="docutils literal notranslate"><span class="pre">fields</span></code>) and <code class="docutils literal notranslate"><span class="pre">directions</span></code> (whether each field is
+<code class="docutils literal notranslate"><span class="pre">read</span></code> or <code class="docutils literal notranslate"><span class="pre">write</span></code>). Where the export leaves a family’s shape open, a
+<code class="docutils literal notranslate"><span class="pre">judgments:</span></code> block carries one slot per question: a channel row beyond
+the family’s devices (<code class="docutils literal notranslate"><span class="pre">drop</span></code>, <code class="docutils literal notranslate"><span class="pre">device</span></code> or <code class="docutils literal notranslate"><span class="pre">{field:</span> <span class="pre">&lt;name&gt;}</span></code>), a
+device no channel binds (<code class="docutils literal notranslate"><span class="pre">drop</span></code> or <code class="docutils literal notranslate"><span class="pre">keep</span></code>), and a channel shared
+across devices (<code class="docutils literal notranslate"><span class="pre">keep_all</span></code> or an owning device).</p></li>
+<li><p><strong>Wire the model.</strong> Each model’s <code class="docutils literal notranslate"><span class="pre">wiring</span></code> block in the mapping lists the
+families the model drives or reads. Per family it names the
+<code class="docutils literal notranslate"><span class="pre">element_field</span></code>, the family field the model wires; <code class="docutils literal notranslate"><span class="pre">engine</span></code>, the deck
+attribute, index or axis the field acts on; and <code class="docutils literal notranslate"><span class="pre">calibration</span></code>,
+<code class="docutils literal notranslate"><span class="pre">linear</span></code> or <code class="docutils literal notranslate"><span class="pre">table</span></code>. From it the import writes one wiring record per
+address into <code class="docutils literal notranslate"><span class="pre">imported/mml/models.yaml</span></code>, beside the deck the export
+saved, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> copies both into the simulator view the
+simulator serves.</p></li>
+<li><p><strong>Accept.</strong> Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code>. For each model whose export
+carried a response matrix it compares that matrix with the one the
+imported model computes and prints one <code class="docutils literal notranslate"><span class="pre">response</span> <span class="pre">check</span> <span class="pre">&lt;model&gt;:</span> <span class="pre">…</span></code> line.
+A failing check exits 1. A passing one is the acceptance: the calibrations,
+nominals and element bindings of the imported model agree with the machine
+the export was sampled on.</p></li>
+</ol>
+<p>The files under <code class="docutils literal notranslate"><span class="pre">imported/mml/</span></code> belong to the import and are rewritten by
+every run. The import also creates <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>,
+<code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code> and <code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> when they
+do not exist, and never rewrites them afterwards. It refuses to run while
+authored record sources are present: every file of <code class="docutils literal notranslate"><span class="pre">records/</span></code> and
+<code class="docutils literal notranslate"><span class="pre">decks/</span></code>, <code class="docutils literal notranslate"><span class="pre">models.yaml</span></code>, and a <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>,
+<code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code> or measurement file it did not create itself.</p>
+</section>
+<section id="a-channel-list">
+<h3>A channel list<a class="headerlink" href="#a-channel-list" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">list</span> <span class="pre">FILE</span></code> reads a CSV of channel addresses into
+<code class="docutils literal notranslate"><span class="pre">data/facility/imported/list/</span></code>. A header row names <code class="docutils literal notranslate"><span class="pre">address</span></code> and any of
+<code class="docutils literal notranslate"><span class="pre">role</span></code>, <code class="docutils literal notranslate"><span class="pre">pair</span></code>, <code class="docutils literal notranslate"><span class="pre">device</span></code>, <code class="docutils literal notranslate"><span class="pre">place</span></code>, <code class="docutils literal notranslate"><span class="pre">unit</span></code>, <code class="docutils literal notranslate"><span class="pre">description</span></code>,
+<code class="docutils literal notranslate"><span class="pre">tags</span></code>, <code class="docutils literal notranslate"><span class="pre">s</span></code> and <code class="docutils literal notranslate"><span class="pre">model</span></code>; a file with no <code class="docutils literal notranslate"><span class="pre">address</span></code> column holds one
+address per line.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>address,role,device,unit,description
+SR:MAG:QF:01:CURRENT:SP,setpoint,QF01,A,Focusing quadrupole current
+SR:MAG:QF:01:CURRENT:RB,,QF01,A,Focusing quadrupole current readback
+</pre></div>
+</div>
+<p>The files under <code class="docutils literal notranslate"><span class="pre">imported/list/</span></code> belong to the import and are replaced by
+each run, so they are never edited by hand: a correction goes into the CSV or
+into <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>. A run whose list states no <code class="docutils literal notranslate"><span class="pre">s</span></code> leaves no
+<code class="docutils literal notranslate"><span class="pre">devices.yaml</span></code>. The list import runs beside authored records and merges with
+them field by field, where the mml import refuses while authored record
+sources are present.</p>
+</section>
+</section>
+<section id="fixes">
+<h2>Fixes<a class="headerlink" href="#fixes" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code> corrects a record another source states, without editing that
+source. Each fix names a record and gives the reason:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">schema</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey.facility.fixes/1</span>
+<span class="nt">fixes</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">op</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">set</span>
+<span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">channel</span>
+<span class="w">    </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:QF:SP</span>
+<span class="w">    </span><span class="nt">fields</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="nv">setpoint</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">was</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">mml</span><span class="p">:</span><span class="w"> </span><span class="nv">readback</span><span class="p p-Indicator">}}</span>
+<span class="w">    </span><span class="nt">why</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">The export lists the setpoint as a monitor.</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">op</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">add</span>
+<span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">device</span>
+<span class="w">    </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR/QF9</span>
+<span class="w">    </span><span class="nt">record</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">class</span><span class="p">:</span><span class="w"> </span><span class="nv">Quadrupole</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">why</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Missing from the export.</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">set</span></code> replaces the fields it names, each whole; <code class="docutils literal notranslate"><span class="pre">add</span></code> adds a record;
+<code class="docutils literal notranslate"><span class="pre">drop</span></code> removes one. <code class="docutils literal notranslate"><span class="pre">kind</span></code> is <code class="docutils literal notranslate"><span class="pre">place</span></code>, <code class="docutils literal notranslate"><span class="pre">device</span></code>, <code class="docutils literal notranslate"><span class="pre">channel</span></code>,
+<code class="docutils literal notranslate"><span class="pre">wiring</span></code>, <code class="docutils literal notranslate"><span class="pre">group</span></code> or <code class="docutils literal notranslate"><span class="pre">model</span></code>. A <code class="docutils literal notranslate"><span class="pre">set</span></code> states under <code class="docutils literal notranslate"><span class="pre">was</span></code> the value
+each layer held when the fix was written. When a later import changes that
+value, the build stops with <code class="docutils literal notranslate"><span class="pre">fix-stale</span></code> and prints the block to paste in its
+place, so a fix never silently outlives the fact it corrected. The result
+does not depend on the order of the fixes.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">show</span> <span class="pre">&lt;id&gt;</span></code> lists the fixes applied to a record.</p>
+</section>
+<section id="limits">
+<h2>Limits<a class="headerlink" href="#limits" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code> holds the write limits, one record per channel:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">records</span><span class="p">:</span>
+<span class="c1"># Symmetric range: the corrector current stays within [-12, 12].</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:HCM:01:CURRENT:SP</span>
+<span class="w">  </span><span class="nt">min_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">-12.0</span>
+<span class="w">  </span><span class="nt">max_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">12.0</span>
+<span class="c1"># Range plus largest single step: the cavity frequency in MHz.</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:RF:CAVITY:01:FREQUENCY:SP</span>
+<span class="w">  </span><span class="nt">min_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">500.0</span>
+<span class="w">  </span><span class="nt">max_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">500.8</span>
+<span class="w">  </span><span class="nt">max_step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.01</span>
+<span class="c1"># Blocked outright: no write reaches this setpoint.</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:VAC:ION-PUMP:01:VOLTAGE:SP</span>
+<span class="w">  </span><span class="nt">writable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+<p>A setpoint record with both <code class="docutils literal notranslate"><span class="pre">min_value</span></code> and <code class="docutils literal notranslate"><span class="pre">max_value</span></code> is writable within
+them; <code class="docutils literal notranslate"><span class="pre">max_step</span></code> bounds a single change; <code class="docutils literal notranslate"><span class="pre">writable:</span> <span class="pre">false</span></code> blocks every
+write; <code class="docutils literal notranslate"><span class="pre">confirm:</span> <span class="pre">false</span></code> turns off the re-read after a write.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders the records into <code class="docutils literal notranslate"><span class="pre">build/data/channel_limits.json</span></code>,
+the file the connector’s reference monitor and the runtime’s limits check
+enforce on every write. That file is an output: a profile that ships its own stops the build. The file
+holds the records of <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code> and nothing else. What happens to a
+channel with no record is the deployment’s choice,
+<code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.mode</span></code>: under <code class="docutils literal notranslate"><span class="pre">exclusive</span></code> the limits file
+is the complete list of writable channels and a channel without a record is
+refused; under <code class="docutils literal notranslate"><span class="pre">optional</span></code> a channel without a record is written with no
+limits. Both presets ship <code class="docutils literal notranslate"><span class="pre">optional</span></code>.</p>
+</section>
+<section id="seeds">
+<h2>Seeds<a class="headerlink" href="#seeds" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code> says how a channel behaves in the simulator when no model
+wires it. It is keyed by address:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">SR:BEAM:CURRENT</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">nominal</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">250.0</span>
+<span class="w">  </span><span class="nt">noise</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">absolute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">nominal</span></code> is the value at start; <code class="docutils literal notranslate"><span class="pre">noise</span></code> is Gaussian, <code class="docutils literal notranslate"><span class="pre">{absolute:</span>
+<span class="pre">&lt;sigma&gt;}</span></code> in the channel’s unit or <code class="docutils literal notranslate"><span class="pre">{relative:</span> <span class="pre">&lt;fraction&gt;}</span></code>; <code class="docutils literal notranslate"><span class="pre">drift</span></code> is
+<code class="docutils literal notranslate"><span class="pre">{amplitude,</span> <span class="pre">period_s}</span></code>; <code class="docutils literal notranslate"><span class="pre">clamp</span></code> is <code class="docutils literal notranslate"><span class="pre">[low,</span> <span class="pre">high]</span></code>; <code class="docutils literal notranslate"><span class="pre">linear</span></code> makes the
+value a weighted sum of other channels. A wired channel starts from its deck
+and needs no seed. The build stops with <code class="docutils literal notranslate"><span class="pre">seed-invalid</span></code> when a nominal lies
+outside the channel’s limits.</p>
+</section>
+<section id="models-and-decks">
+<h2>Models and decks<a class="headerlink" href="#models-and-decks" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">models.yaml</span></code> lists the simulation models. A model has a <code class="docutils literal notranslate"><span class="pre">name</span></code>, the
+<code class="docutils literal notranslate"><span class="pre">engine</span></code> that runs it, the <code class="docutils literal notranslate"><span class="pre">deck</span></code> it runs over, the engine’s <code class="docutils literal notranslate"><span class="pre">settings</span></code>
+and a <code class="docutils literal notranslate"><span class="pre">wiring</span></code> list that ties channel addresses to elements of the deck:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">LINE</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyat</span>
+<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decks/LINE.json</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">pyat</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">solve</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">single_pass</span>
+<span class="w">      </span><span class="nt">twiss_in</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">beta</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">7.448848</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">4.786082</span><span class="p p-Indicator">]</span>
+<span class="w">        </span><span class="nt">alpha</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">-1.333207</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">0.885765</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">wiring</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">LINE:DIAG:BPM:01:POSITION:X</span>
+<span class="w">    </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BPM01</span>
+<span class="w">    </span><span class="nt">engine</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">axis</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">x</span>
+<span class="w">    </span><span class="nt">calibration</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">curve</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">linear</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0</span><span class="p p-Indicator">,</span><span class="nt"> offset</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">energy_scaling</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">none</span>
+</pre></div>
+</div>
+<p>A wiring record’s <code class="docutils literal notranslate"><span class="pre">calibration</span></code> converts between the channel’s hardware
+value and the engine’s physics value, as a <code class="docutils literal notranslate"><span class="pre">linear</span></code> gain and offset or a
+<code class="docutils literal notranslate"><span class="pre">table</span></code>. Channels no model wires are served by the texture model from their
+seeds. Which models a deployment serves, and what a failed one looks like, is
+in <a class="reference internal" href="../architecture/facility-file.html#architecture-simulation-models"><span class="std std-ref">Simulation models</span></a>.</p>
+</section>
+<section id="measurement">
+<h2>Measurement<a class="headerlink" href="#measurement" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> states which measurements a model allows and
+what they use:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">kinds</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">orm</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">dispersion</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">trm</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">crm</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">chromaticity_monitor</span><span class="p p-Indicator">]</span>
+<span class="nt">groups</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">bpm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR/BPM</span>
+<span class="w">  </span><span class="nt">hcor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR/HCM</span>
+<span class="w">  </span><span class="nt">vcor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR/VCM</span>
+<span class="w">  </span><span class="nt">quad</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">SR/QF</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">SR/QD</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">sext</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">SR/SF</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">SR/SD</span><span class="p p-Indicator">]</span>
+<span class="nt">instruments</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">tune</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DIAG:TUNE:X</span>
+<span class="w">  </span><span class="nt">rf</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:RF:CAVITY:01:FREQUENCY:SP</span>
+<span class="nt">n_step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<span class="nt">n_avg_meas</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="nt">fit_order</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<span class="nt">sleep_between_step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
+<span class="nt">sleep_between_meas</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
+<span class="nt">corrector_delta</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0e-05</span>
+<span class="nt">quad_delta</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.001</span>
+<span class="nt">sextu_delta</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.01</span>
+<span class="nt">frequency_delta</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100.0</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">kinds</span></code> names the allowed measurements: <code class="docutils literal notranslate"><span class="pre">orm</span></code>, <code class="docutils literal notranslate"><span class="pre">dispersion</span></code>, <code class="docutils literal notranslate"><span class="pre">trm</span></code>,
+<code class="docutils literal notranslate"><span class="pre">crm</span></code> and <code class="docutils literal notranslate"><span class="pre">chromaticity_monitor</span></code>. <code class="docutils literal notranslate"><span class="pre">groups</span></code> names the group, or the list
+of groups taken together, that plays each part (<code class="docutils literal notranslate"><span class="pre">bpm</span></code>, <code class="docutils literal notranslate"><span class="pre">hcor</span></code>, <code class="docutils literal notranslate"><span class="pre">vcor</span></code>,
+<code class="docutils literal notranslate"><span class="pre">quad</span></code>, <code class="docutils literal notranslate"><span class="pre">sext</span></code>) and
+<code class="docutils literal notranslate"><span class="pre">instruments</span></code> the channel each instrument is read or stepped on (<code class="docutils literal notranslate"><span class="pre">tune</span></code>,
+<code class="docutils literal notranslate"><span class="pre">rf</span></code>). Each kind needs its own members and step keys, and the build stops
+when the file allows a kind without them, names a member its model does
+not wire, or names a <code class="docutils literal notranslate"><span class="pre">tune</span></code> reading of one plane that no single reading of
+the other plane pairs with:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 40.0%" />
+<col style="width: 35.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Kind</p></th>
+<th class="head"><p>Groups and instruments</p></th>
+<th class="head"><p>Keys</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">orm</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bpm</span></code>, <code class="docutils literal notranslate"><span class="pre">hcor</span></code>, <code class="docutils literal notranslate"><span class="pre">vcor</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">corrector_delta</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dispersion</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bpm</span></code>, <code class="docutils literal notranslate"><span class="pre">hcor</span></code>, <code class="docutils literal notranslate"><span class="pre">vcor</span></code>, <code class="docutils literal notranslate"><span class="pre">rf</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">frequency_delta</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">trm</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">quad</span></code>, <code class="docutils literal notranslate"><span class="pre">tune</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">quad_delta</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">crm</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">sext</span></code>, <code class="docutils literal notranslate"><span class="pre">tune</span></code>, <code class="docutils literal notranslate"><span class="pre">rf</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">sextu_delta</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">chromaticity_monitor</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tune</span></code>, <code class="docutils literal notranslate"><span class="pre">rf</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">n_step</span></code>, <code class="docutils literal notranslate"><span class="pre">n_avg_meas</span></code>, <code class="docutils literal notranslate"><span class="pre">fit_order</span></code>, <code class="docutils literal notranslate"><span class="pre">sleep_between_step</span></code>,
+<code class="docutils literal notranslate"><span class="pre">sleep_between_meas</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A model solved in a single pass allows <code class="docutils literal notranslate"><span class="pre">orm</span></code> alone. A group plays one role;
+only <code class="docutils literal notranslate"><span class="pre">hcor</span></code> and <code class="docutils literal notranslate"><span class="pre">vcor</span></code> may name the same group. A role naming several
+groups is one pyAML array named after the role. The tools
+that run these measurements are in <a class="reference internal" href="measure-with-pyaml.html"><span class="doc">Measure with the pyAML Tools</span></a>.</p>
+</section>
+<section id="scenarios">
+<h2>Scenarios<a class="headerlink" href="#scenarios" title="Link to this heading">#</a></h2>
+<p>Each file under <code class="docutils literal notranslate"><span class="pre">scenarios/</span></code> is one way the simulated machine departs from
+its baseline: overrides, faults, archive history and logbook entries.
+Writing and applying them is in <a class="reference internal" href="run-scenarios.html"><span class="doc">Run and write scenarios</span></a>.</p>
+</section>
+<section id="knowledge">
+<h2>Knowledge<a class="headerlink" href="#knowledge" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">knowledge/</span></code> is the facility knowledge bundle: the pages agents read about
+subsystems, devices and procedures. A page links itself to a device with the
+<code class="docutils literal notranslate"><span class="pre">device_id</span></code> key of its frontmatter; the build names a page whose id is no
+device of the facility and goes on. The bundle’s format is in
+<a class="reference internal" href="facility-knowledge/okf-bundle.html"><span class="doc">The OKF Bundle</span></a>.</p>
+</section>
+<section id="build">
+<h2>Build<a class="headerlink" href="#build" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
+</pre></div>
+</div>
+<p>The build runs the same checks as <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code>, in fixed
+stages, and stops at the first that fails: each file parses, the layers merge
+and the fixes apply, the result fits the schema, every id a record names
+exists, and the pair, value, limits and seed rules hold. Then it computes
+what no source states (each device’s place and position from the decks, each
+wiring record’s unit and range) and writes <code class="docutils literal notranslate"><span class="pre">build/facility.json</span></code> and the
+views.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../architecture/facility-file.html"><span class="doc">Facility File and Its Views</span></a></dt><dd><p>The facility file, each view the build writes from it and what reads
+it.</p>
+</dd>
+<dt><a class="reference internal" href="../reference/cli.html#cli-osprey-facility"><span class="std std-ref">osprey facility</span></a></dt><dd><p>Every exit and message of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code>, <code class="docutils literal notranslate"><span class="pre">show</span></code> and
+the importers.</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="control-systems/phoebus-bridge.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Connect the Agent to Phoebus Displays</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="measure-with-pyaml.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Measure with the pyAML Tools</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-tree">The tree</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#identity">Identity</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#records">Records</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#layers">Layers</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-middle-layer-export">A Middle Layer export</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-channel-list">A channel list</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fixes">Fixes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limits">Limits</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#seeds">Seeds</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#models-and-decks">Models and decks</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#measurement">Measurement</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#scenarios">Scenarios</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#knowledge">Knowledge</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build">Build</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/describe-your-facility.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

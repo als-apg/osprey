@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 current active has-children"><a class="current reference internal" href="#">Multi-User Support</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -770,7 +777,7 @@ persona renders is not stated here: the build derives
 and writes it into <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> as the persona’s <code class="docutils literal notranslate"><span class="pre">project</span></code> and
 <code class="docutils literal notranslate"><span class="pre">project_path</span></code>. Spelling either key beside a <code class="docutils literal notranslate"><span class="pre">build_profile</span></code> is
 refused. An entry with no <code class="docutils literal notranslate"><span class="pre">build_profile</span></code> — a persona rendered
-somewhere else — still names its <code class="docutils literal notranslate"><span class="pre">project_path</span></code> itself, and proves
+somewhere else — still names its <code class="docutils literal notranslate"><span class="pre">project</span></code> and <code class="docutils literal notranslate"><span class="pre">project_path</span></code> itself, and proves
 its tier by that render: the build reads the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> there, the
 same file <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reads, so such a persona may be the
 <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> or sit on a shared card like any other. A bundled
@@ -918,7 +925,7 @@ osprey<span class="w"> </span>up
 above, so no extra flags or configuration are needed. Alongside the web tier,
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings up everything else the control-assistant tutorial deploys
 — the virtual accelerator, the bluesky services, and the supporting
-PostgreSQL/OpenObserve containers — so the control-room terminals open onto a
+PostgreSQL and telemetry containers — so the control-room terminals open onto a
 working machine, the logbook terminal onto a live logbook and the knowledge
 terminal onto a seeded facility graph, not an empty shell.</p>
 <div class="admonition note">
@@ -1011,7 +1018,7 @@ names it derives itself.</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p>The <code class="docutils literal notranslate"><span class="pre">default_persona</span></code>, and every user when there is no <code class="docutils literal notranslate"><span class="pre">personas</span></code> catalog</p></td>
+<tr class="row-even"><td><p>The <code class="docutils literal notranslate"><span class="pre">default_persona</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;registry.url&gt;/web-terminal:&lt;tag&gt;</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p>Every other persona</p></td>
@@ -1023,8 +1030,8 @@ names it derives itself.</p>
 <p><code class="docutils literal notranslate"><span class="pre">&lt;persona&gt;</span></code> is the persona’s key in the <code class="docutils literal notranslate"><span class="pre">personas</span></code> catalog, not its
 <code class="docutils literal notranslate"><span class="pre">project</span></code>. The <code class="docutils literal notranslate"><span class="pre">project</span></code> is <code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-&lt;persona&gt;</span></code>, which the build
 derives from the profile’s <code class="docutils literal notranslate"><span class="pre">project_name:</span></code>.
-The default persona keeps the unsuffixed name, so adding a catalog never
-renames the image its users already pull.</p>
+A persona whose image is built elsewhere states its <code class="docutils literal notranslate"><span class="pre">project</span></code>, the project
+the image was built from, and its terminal runs in <code class="docutils literal notranslate"><span class="pre">/app/&lt;project&gt;</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">&lt;tag&gt;</span></code> is <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_tag</span></code>, <code class="docutils literal notranslate"><span class="pre">latest</span></code> when unset.
 A <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> in it is expanded from the environment of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>, and a
 variable that is unset there expands to nothing.
@@ -1051,9 +1058,13 @@ builds as <code class="docutils literal notranslate"><span class="pre">&lt;proje
 <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.image</span></code> when login is on; see <a class="reference internal" href="login.html"><span class="doc">Require a Login</span></a>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span></code> and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuse a registry-mode config with no <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> (code
-<code class="docutils literal notranslate"><span class="pre">web_terminals.registry_mode_missing_url</span></code>), with or without a <code class="docutils literal notranslate"><span class="pre">personas</span></code>
-catalog.
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to render it.</p>
+<code class="docutils literal notranslate"><span class="pre">web_terminals.registry_mode_missing_url</span></code>).
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to render it.
+They also refuse a config with web terminals enabled and no <code class="docutils literal notranslate"><span class="pre">personas</span></code>
+catalog or no <code class="docutils literal notranslate"><span class="pre">default_persona</span></code>, in either image source (code
+<code class="docutils literal notranslate"><span class="pre">web_terminals.requires_catalog</span></code>), and an in-effect persona with neither
+<code class="docutils literal notranslate"><span class="pre">build_profile</span></code> nor <code class="docutils literal notranslate"><span class="pre">project</span></code> (code <code class="docutils literal notranslate"><span class="pre">web_terminals.persona_missing_project</span></code>);
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses both before it mints anything.</p>
 <p>For example, with this config:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">registry</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/accelerator/demo</span>
@@ -1176,6 +1187,77 @@ admin login inside a container sees only its own. <a class="reference internal" 
 not buy you.</p>
 </section>
 </section>
+<section id="the-history-page">
+<span id="multi-user-history-page"></span><h2>The history page<a class="headerlink" href="#the-history-page" title="Link to this heading">#</a></h2>
+<p>Where the web terminals sign people on (<code class="docutils literal notranslate"><span class="pre">auth.method</span></code> of <code class="docutils literal notranslate"><span class="pre">password</span></code> or
+<code class="docutils literal notranslate"><span class="pre">oidc</span></code>) and the deployment runs the telemetry store, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> also runs
+a history page: every session the store holds, each with its conversation,
+tool calls, approvals and preflight checks, read in a browser. It is served at
+<code class="docutils literal notranslate"><span class="pre">/history/</span></code> on the <strong>readers’ origin</strong>, the web tier’s second server on its
+own port (<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.reader_port</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.reader_origin</span></code> behind a load balancer), so a page an
+agent wrote on the terminals’ origin cannot read it. A visit without a valid
+sign-in goes to the terminals’ sign-in and comes back. Without sign-on there is
+no history page; each terminal still shows its own past sessions.</p>
+<p>Who sees what is decided per person, from the roster, every time a page loads:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">authorization</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">roles</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">operator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="nv">readwrite</span><span class="p p-Indicator">,</span><span class="nt"> history</span><span class="p">:</span><span class="w"> </span><span class="nv">all</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">users</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span><span class="w">          </span><span class="c1"># history: own, the default</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">admin</span>
+<span class="w">        </span><span class="nt">history</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">all</span>
+
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">telemetry_store</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">readers</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol</span><span class="w">                 </span><span class="c1"># a reader is a reader everywhere</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><strong>Own</strong> (the default): the sessions recorded under the person’s own roster
+name.</p></li>
+<li><p><strong>All</strong>: <code class="docutils literal notranslate"><span class="pre">history:</span> <span class="pre">all</span></code> on the person’s roster entry, or on a role in
+<code class="docutils literal notranslate"><span class="pre">authorization.roles</span></code> the person holds, shows every user’s sessions.</p></li>
+<li><p><strong>A reader</strong> — a roster user named under
+<code class="docutils literal notranslate"><span class="pre">services.telemetry_store.readers</span></code>, or a reader recognised by its
+<code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code> — sees every user’s sessions, bounded by that reader’s
+<code class="docutils literal notranslate"><span class="pre">tables</span></code> and <code class="docutils literal notranslate"><span class="pre">days_back</span></code> (<a class="reference internal" href="../../health-and-monitoring/read-the-record.html"><span class="doc">Read the Record</span></a>).
+The reader entry takes precedence over <code class="docutils literal notranslate"><span class="pre">history:</span></code>.</p></li>
+</ul>
+<p>The rules at the edges:</p>
+<ul class="simple">
+<li><p>A shared card’s sessions are recorded under the card’s name, so they are
+listed only for <code class="docutils literal notranslate"><span class="pre">all</span></code> viewers and readers. Opening a shared card never
+widens the opener’s own scope. Signing in <em>as</em> a shared card lists nothing
+unless the card’s own roster entry (or its role) says <code class="docutils literal notranslate"><span class="pre">history:</span> <span class="pre">all</span></code>.</p></li>
+<li><p>A person admitted to a card by an access rule, with no roster entry of their
+own, is refused: the page has no person to scope by.</p></li>
+<li><p>A dispatched job is recorded under its worker, <code class="docutils literal notranslate"><span class="pre">dispatch-worker-&lt;i&gt;</span></code>, so it
+is visible to <code class="docutils literal notranslate"><span class="pre">all</span></code> viewers and readers; the dispatch dashboard links each
+run to it.</p></li>
+<li><p>A preflight check filed by the queueserver appears on a person’s own page
+only when it matches that person’s own queue-submit call within 60 seconds;
+agent-authored session plans run inside the queueserver container, so an
+unmatched row is never attributed to anyone in an own view. <code class="docutils literal notranslate"><span class="pre">all</span></code> viewers
+and readers see every row as stored.</p></li>
+<li><p>A payload the record stored outside itself is shown as a marked reference.</p></li>
+<li><p>Where several people are signed in in one browser, the page shows the last
+sign-in and offers a switch among the others, each in their own scope.</p></li>
+<li><p>A change to the roster, the roles or the readers applies on the next page
+load after <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>; a person taken out of <code class="docutils literal notranslate"><span class="pre">readers</span></code> is back in their
+own scope then, even with the page still open.</p></li>
+</ul>
+<p>Every page query runs in the store as a view account for that one person, so
+the scope above is a permission of the database, not a filter of the page. The
+store’s <code class="docutils literal notranslate"><span class="pre">query_log</span></code> names both the view account and the person.</p>
+</section>
 <section id="related-pages">
 <h2>Related pages<a class="headerlink" href="#related-pages" title="Link to this heading">#</a></h2>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
@@ -1266,6 +1348,7 @@ and the service containers.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-stack-records">What the stack records</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-history-page">The history page</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#related-pages">Related pages</a></li>
 </ul>
   </nav></div>

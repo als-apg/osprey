@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -659,7 +666,7 @@ reports <code class="docutils literal notranslate"><span class="pre">&lt;service
 in a step of its own even under <code class="docutils literal notranslate"><span class="pre">-d</span></code>, and starts everything with
 <code class="docutils literal notranslate"><span class="pre">up</span> <span class="pre">--no-build</span></code>, so an image that is neither on the host nor pullable fails
 with compose’s own error naming it.</p>
-<p>The project image (dispatch worker, ARIEL sync, record archive) has no
+<p>The project image (dispatch worker, ARIEL sync, record archive, history page) has no
 <code class="docutils literal notranslate"><span class="pre">build:</span></code> block. The deploy builds it itself on every start unless the host
 is prebuilt or every one of those services it deploys names another image
 (<code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code> or <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.image</span></code>).</p>
@@ -730,7 +737,10 @@ fails at <code class="docutils literal notranslate"><span class="pre">up</span><
 </tr>
 <tr class="row-odd"><td><p>The upstream pins</p></td>
 <td><p>One row at a time: <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.image</span></code> (or the row’s
-<code class="docutils literal notranslate"><span class="pre">OSPREY_..._IMAGE</span></code> variable) naming your mirrored copy.</p></td>
+<code class="docutils literal notranslate"><span class="pre">OSPREY_..._IMAGE</span></code> variable) naming your mirrored copy. The
+telemetry store and gateway have no variable; keep the store’s tag
+when you mirror it, since its query page is served only for a tag
+OSPREY knows.</p></td>
 </tr>
 <tr class="row-even"><td><p>The web tier’s images</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">registry.url</span></code> plus <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.image_tag</span></code>.</p></td>
@@ -757,8 +767,10 @@ there is no one-shell equivalent.</p></td>
 <span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/pgvector/pgvector:pg16</span>
 <span class="w">  </span><span class="nt">mongodb</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/mongo:7</span>
-<span class="w">  </span><span class="nt">openobserve</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/openobserve:v0.92.2</span>
+<span class="w">  </span><span class="nt">telemetry_store</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/clickhouse/clickhouse-server:26.8.18.2</span>
+<span class="w">  </span><span class="nt">telemetry_gateway</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/opentelemetry-collector-contrib:0.162.0</span>
 <span class="w">  </span><span class="nt">graphdb</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.example.org/mirror/neo4j:5.26-community</span>
 <span class="w">  </span><span class="nt">bluesky</span><span class="p">:</span>

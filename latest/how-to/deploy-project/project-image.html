@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -581,9 +588,21 @@ project image (tagged <code class="docutils literal notranslate"><span class="pr
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w">                            </span><span class="c1"># renders the container repo too</span>
 <span class="nb">cd</span><span class="w"> </span>build/.image/my-project<span class="w">              </span><span class="c1"># the context the build rendered</span>
 docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span>-f<span class="w"> </span>build/Dockerfile<span class="w"> </span>.
-docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">10100</span>:10100<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span>my-project
+<span class="nb">cd</span><span class="w"> </span>-<span class="w">                                    </span><span class="c1"># back to the deployment repo root</span>
+docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">10100</span>:10100<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--env-file<span class="w"> </span>.env.telemetry-sender.&lt;host<span class="w"> </span>identity&gt;<span class="w"> </span>my-project
 </pre></div>
 </div>
+<p>The second <code class="docutils literal notranslate"><span class="pre">--env-file</span></code> is the sender login gateway telemetry needs
+(<code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.enabled:</span> <span class="pre">true</span></code> with <code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">gateway</span></code>).
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> mints <code class="docutils literal notranslate"><span class="pre">.env.telemetry-sender.&lt;identity&gt;</span></code> at the repo root,
+mode 0600, for each sender; a container run by hand is a host launch and sends
+under <code class="docutils literal notranslate"><span class="pre">deployment.host_identity</span></code> from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, so that is the
+<code class="docutils literal notranslate"><span class="pre">&lt;host</span> <span class="pre">identity&gt;</span></code> to pass. Without it the container’s <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> refuses
+to start. With gateway telemetry off, drop that flag. Records reach the gateway
+only while the deployment’s gateway runs (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>) and the container
+shares the host network: replace <code class="docutils literal notranslate"><span class="pre">-p</span> <span class="pre">10100:10100</span></code> with <code class="docutils literal notranslate"><span class="pre">--network</span> <span class="pre">host</span></code>,
+and the container sends to the gateway’s loopback publish.</p>
 <p>Then open <a class="reference external" href="http://localhost:10100">http://localhost:10100</a>. The container’s <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> prints a login
 URL (<code class="docutils literal notranslate"><span class="pre">…/?token=…</span></code>) to its logs at startup; open that URL to set your session
 cookie, after which it redirects to the clean address. Anything that can read
@@ -592,7 +611,7 @@ sets <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINA
 explains why it is printing no URL — browse to
 <code class="docutils literal notranslate"><span class="pre">http://localhost:10100/?token=&lt;that</span> <span class="pre">value&gt;</span></code> instead. Secrets are
 passed at runtime via <code class="docutils literal notranslate"><span class="pre">--env-file</span></code> — the <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> guarantees
-<code class="docutils literal notranslate"><span class="pre">.env</span></code> itself never enters the image.</p>
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> and every <code class="docutils literal notranslate"><span class="pre">.env.telemetry-*</span></code> file never enter the image.</p>
 </section>
 <section id="build-arguments">
 <h2>Build Arguments<a class="headerlink" href="#build-arguments" title="Link to this heading">#</a></h2>
@@ -1117,6 +1136,7 @@ the one the server runs as.</p>
 <h2>Runtime State and Volumes<a class="headerlink" href="#runtime-state-and-volumes" title="Link to this heading">#</a></h2>
 <p>Two kinds of state are worth persisting across container restarts:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">10100</span>:10100<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--env-file<span class="w"> </span>.env.telemetry-sender.&lt;host<span class="w"> </span>identity&gt;<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span>my-project-agent-data:/app/my-project/var/agent_data<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span>my-project-home:/home/osprey<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>my-project
@@ -1161,7 +1181,8 @@ so an arm64 build must compile them from source, which is where it breaks.
 Build (and run) the amd64 image under Docker Desktop’s emulation instead; it
 matches the usual amd64 deployment target:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>build<span class="w"> </span>--platform<span class="w"> </span>linux/amd64<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span>.
-docker<span class="w"> </span>run<span class="w"> </span>--platform<span class="w"> </span>linux/amd64<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">10100</span>:10100<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span>my-project
+docker<span class="w"> </span>run<span class="w"> </span>--platform<span class="w"> </span>linux/amd64<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">10100</span>:10100<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--env-file<span class="w"> </span>.env.telemetry-sender.&lt;host<span class="w"> </span>identity&gt;<span class="w"> </span>my-project
 </pre></div>
 </div>
 </section>
@@ -1221,8 +1242,10 @@ lets <code class="docutils literal notranslate"><span class="pre">useradd</span>
 user</p></td>
 </tr>
 <tr class="row-even"><td><p>Narrow the ownership change</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">chown</span> <span class="pre">-R</span> <span class="pre">osprey:osprey</span></code> on <code class="docutils literal notranslate"><span class="pre">var/</span></code> only, plus
-<code class="docutils literal notranslate"><span class="pre">build/data/facility_knowledge</span></code> when the deployment renders one.
+<td><p><code class="docutils literal notranslate"><span class="pre">chown</span> <span class="pre">-R</span> <span class="pre">osprey:osprey</span></code> on <code class="docutils literal notranslate"><span class="pre">var/</span></code> only, plus the directory
+<code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code> names under <code class="docutils literal notranslate"><span class="pre">build/</span></code>
+(<code class="docutils literal notranslate"><span class="pre">build/data/facility/knowledge</span></code> for the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>
+preset) when the deployment names one.
 Not the project root — that blanket chown is what hands the render
 away</p></td>
 </tr>

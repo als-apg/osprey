@@ -61,12 +61,12 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Virtual Accelerator" href="virtual-accelerator.html" />
+    <link rel="next" title="Facility File and Its Views" href="facility-file.html" />
     <link rel="prev" title="MCP Servers" href="mcp-servers.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -389,10 +389,11 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="data-flow.html">Data Flow</a></li>
+
 <li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp-servers.html">MCP Servers</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Python Executor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="facility-file.html">Facility File and Its Views</a></li>
 <li class="toctree-l1"><a class="reference internal" href="virtual-accelerator.html">Virtual Accelerator</a></li>
 </ul>
 </div>
@@ -516,8 +517,15 @@ helper is injected into the subprocess namespace for saving objects to the
 artifact gallery. The <code class="docutils literal notranslate"><span class="pre">artifact_type</span></code> parameter overrides automatic type
 detection (e.g., <code class="docutils literal notranslate"><span class="pre">&quot;figure&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;dataframe&quot;</span></code>); <code class="docutils literal notranslate"><span class="pre">category</span></code> is a free-form
 grouping label used by the gallery UI.</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">execute</span></code> and <code class="docutils literal notranslate"><span class="pre">execute_file</span></code> tool parameters and the JSON they return
-are documented in <a class="reference internal" href="../reference/contracts/python-executor.html"><span class="doc">Python Executor Contract</span></a>.</p>
+<p>A render that carries a pyAML view adds two tools to the same server, and a
+render without one registers neither: <code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> measures a response
+matrix or the chromaticity on the control target through a generated script,
+every write of one measurement under the control target’s run lock, and
+<code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code> solves a served model’s orbit response on its deck
+in a sandbox child (see <a class="reference internal" href="../how-to/measure-with-pyaml.html"><span class="doc">Measure with the pyAML Tools</span></a>).</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">execute</span></code>, <code class="docutils literal notranslate"><span class="pre">execute_file</span></code>, <code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> and
+<code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code> tool parameters and the JSON they return are
+documented in <a class="reference internal" href="../reference/contracts/python-executor.html"><span class="doc">Python Executor Contract</span></a>.</p>
 </section>
 <section id="where-code-runs">
 <h2>Where Code Runs<a class="headerlink" href="#where-code-runs" title="Link to this heading">#</a></h2>
@@ -566,7 +574,7 @@ project’s own environment, so executed code sees the same imports either way.<
 </section>
 <section id="security-model">
 <h2>Security Model<a class="headerlink" href="#security-model" title="Link to this heading">#</a></h2>
-<p>Nine safety layers are applied in sequence:</p>
+<p>Ten safety layers are applied in sequence:</p>
 <ol class="arabic">
 <li><p><strong>Static safety check</strong> (<code class="docutils literal notranslate"><span class="pre">quick_safety_check</span></code>)—blocks dangerous
 patterns such as dynamic code evaluation, dynamic imports, and
@@ -586,6 +594,21 @@ change.</p></li>
 (<code class="docutils literal notranslate"><span class="pre">detect_control_system_operations</span></code>)—identifies read and write
 patterns. In <code class="docutils literal notranslate"><span class="pre">readonly</span></code> mode, detected writes cause immediate
 rejection.</p></li>
+<li><p><strong>Approved-call check</strong> (<code class="docutils literal notranslate"><span class="pre">_check_approved_call</span></code>)—before it spawns a
+<code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run of a guarded tool (<code class="docutils literal notranslate"><span class="pre">execute</span></code>, <code class="docutils literal notranslate"><span class="pre">execute_file</span></code>,
+<code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code>) whose approval policy asks, the executor reads the
+record the approval prompt left for this tool call. The call’s
+<code class="docutils literal notranslate"><span class="pre">approved_target</span></code> must equal what the prompt recorded and name the
+run’s own control target; for <code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> the call’s <code class="docutils literal notranslate"><span class="pre">approved_view_sha256</span></code>
+must equal the recorded view digest as well. Without a record,
+or with a field that differs, nothing is spawned and the result carries
+<code class="docutils literal notranslate"><span class="pre">failure_kind:</span> <span class="pre">approval_missing</span></code>. A stated <code class="docutils literal notranslate"><span class="pre">approval.enabled</span></code> that is
+not <code class="docutils literal notranslate"><span class="pre">true</span></code> or <code class="docutils literal notranslate"><span class="pre">false</span></code> (or an <code class="docutils literal notranslate"><span class="pre">approval</span></code> section that is not a
+mapping) runs nothing and carries <code class="docutils literal notranslate"><span class="pre">failure_kind:</span> <span class="pre">approval_config_invalid</span></code>.
+Nothing of the record reaches the subprocess, which evaluates no approval
+policy itself. A call that reaches the server without passing the
+approval hook gets no read-write run on a deployment whose policy asks; such a
+deployment states <code class="docutils literal notranslate"><span class="pre">approval.enabled:</span> <span class="pre">false</span></code>.</p></li>
 <li><p><strong>Readonly runtime guard</strong>—the declared mode is exported into the
 subprocess as <code class="docutils literal notranslate"><span class="pre">OSPREY_EXECUTION_MODE</span></code>. In a <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run every
 entry point listed under <a class="reference internal" href="#python-executor-write-surface"><span class="std std-ref">What counts as a control-system write</span></a> is
@@ -612,7 +635,7 @@ pass, and how a connector’s own put is told apart are described under
 <a class="reference internal" href="#python-executor-armed-block"><span class="std std-ref">What a readwrite run refuses</span></a>; the migration is under
 <a class="reference internal" href="#python-executor-write-channel"><span class="std std-ref">Writing from executed code</span></a>.</p>
 <p>The block occupies the readonly guard’s slot: a run gets exactly one of
-layer 5 and layer 7. It is installed before the user code runs and is not
+layer 6 and layer 8. It is installed before the user code runs and is not
 wrapped in <code class="docutils literal notranslate"><span class="pre">try</span></code>, so a block that cannot install aborts the run rather
 than letting it write unguarded. Where the limits database is on, the
 connector checks every <code class="docutils literal notranslate"><span class="pre">write_channel</span></code> value against it before the value
@@ -706,7 +729,7 @@ outside the executor.</p>
 <section id="what-a-readwrite-run-refuses">
 <span id="python-executor-armed-block"></span><h3>What a readwrite run refuses<a class="headerlink" href="#what-a-readwrite-run-refuses" title="Link to this heading">#</a></h3>
 <p>A <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run may write, but only through the connector. The raw-put
-block (layer 7) reads the same table as the list above and splits its client
+block (layer 8) reads the same table as the list above and splits its client
 rows into four buckets, so the page, the executor and the notebook kernel
 agree on every row:</p>
 <p><code class="docutils literal notranslate"><span class="pre">_ARMED_BLOCKED</span></code> — <strong>refused</strong> unless a connector is making the put. The
@@ -1012,7 +1035,7 @@ for what the rest of it contains.</p>
 <code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code> utilities (<code class="docutils literal notranslate"><span class="pre">read_channel()</span></code>, <code class="docutils literal notranslate"><span class="pre">write_channel()</span></code>),
 not direct connector imports. The execution wrapper configures these
 automatically from the deployment context, so code works with any
-connector (EPICS, Mock, etc.) and notebooks remain reproducible.</p>
+connector (EPICS, the simulator, etc.) and notebooks remain reproducible.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -1058,11 +1081,11 @@ executed code is usually written to perform.</p></li>
       </div>
     </a>
     <a class="right-next"
-       href="virtual-accelerator.html"
+       href="facility-file.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Virtual Accelerator</p>
+        <p class="prev-next-title">Facility File and Its Views</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

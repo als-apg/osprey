@@ -165,10 +165,11 @@ tell. Both leave the queue stopped, so the next plan waits until **Start**.
    :icon: question
 
    **A banner says this deployment is browse-only.**
-      Your project is pointed at the ``mock`` control system, which cannot
-      execute plans — plans can be composed and validated, but the queue
-      refuses to hold them. The banner names the exact command that switches
-      to the Virtual Accelerator; see
+      Your project is a deployment serving the simulator in process, which
+      cannot execute plans — plans can be composed and validated, but the
+      queue refuses to hold them. The banner names the exact command that
+      serves the simulator from its container
+      (``osprey set config.control_system.connector.virtual_accelerator.serving=served``); see
       :doc:`/how-to/control-systems/use-virtual-accelerator`.
 
    **Run or Start is refused.**

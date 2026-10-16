@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 current active has-children"><a class="reference internal" href="index.html">Multi-User Support</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -611,6 +618,11 @@ can reach the page is trusted.</p></td>
 <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> decides what it does there — nothing, vouch for the caller, or
 ask the authentication service. The terminal behind it always checks a
 credential of its own; the postures differ only in who supplies it.</p>
+<p>The snippets on this page show only the keys their section is about; the
+deployment also carries the <code class="docutils literal notranslate"><span class="pre">personas</span></code> catalog and <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> from
+the multi-user page (see the worked example in
+<a class="reference internal" href="index.html#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>), and <code class="docutils literal notranslate"><span class="pre">persona:</span> <span class="pre">readwrite</span></code> / <code class="docutils literal notranslate"><span class="pre">readonly</span></code>
+name entries of that catalog.</p>
 <section id="choose-a-method">
 <h2>Choose a method<a class="headerlink" href="#choose-a-method" title="Link to this heading">#</a></h2>
 <p><strong>Token</strong> needs no stanza. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints an operator secret for every
@@ -1307,8 +1319,9 @@ show that one person holds them.</p></li>
 (<code class="docutils literal notranslate"><span class="pre">web_terminals.live_writer_without_control_identity</span></code>): an owner-only card
 behind a login wall with no <code class="docutils literal notranslate"><span class="pre">control_identity</span></code>, whose persona arms writes
 on a live control-system target. Its writes would arrive as <code class="docutils literal notranslate"><span class="pre">osprey</span></code>.
-Cards writing only to a mock or simulated target never trigger it, and
-neither do cards without a login wall.</p></li>
+Cards writing only to a target other than <code class="docutils literal notranslate"><span class="pre">live</span></code> — the simulator
+(<code class="docutils literal notranslate"><span class="pre">va</span></code>, served from its container or in process) or the stand-in — never
+trigger it, and neither do cards without a login wall.</p></li>
 </ul>
 </section>
 <section id="serve-it-over-https">

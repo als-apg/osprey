@@ -61,12 +61,12 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Simulation Bundle Contract" href="simulation-bundle.html" />
+    <link rel="next" title="Partial Answers" href="partial-answers.html" />
     <link rel="prev" title="The osprey health --json Contract" href="health-json.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -393,11 +393,12 @@
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Contracts</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Connector Contracts</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simulation-bundle.html">Simulation Bundle Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="partial-answers.html">Partial Answers</a></li>
 <li class="toctree-l2"><a class="reference internal" href="python-executor.html">Python Executor Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
 </ul>
@@ -511,6 +512,27 @@ handle – the machine did answer.</p>
 occupy a slot. <code class="docutils literal notranslate"><span class="pre">0</span></code> keeps everything – remembering that an unattended
 polling loop will then grow the gallery without bound.</p>
 </section>
+<section id="addresses-outside-the-facility">
+<h2>Addresses Outside the Facility<a class="headerlink" href="#addresses-outside-the-facility" title="Link to this heading">#</a></h2>
+<p>A connector that holds the facility’s whole address set – the simulator
+served in process, and the mock archiver – knows when an address is not one
+of its channels, and says so:</p>
+<ul class="simple">
+<li><p>A read of such an address raises <code class="docutils literal notranslate"><span class="pre">ChannelNotFoundError</span></code>, whose message is
+<code class="docutils literal notranslate"><span class="pre">&lt;address&gt;</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">a</span> <span class="pre">channel</span> <span class="pre">of</span> <span class="pre">this</span> <span class="pre">facility</span></code>.</p></li>
+<li><p>A write to such an address is not raised: it comes back with outcome
+<code class="docutils literal notranslate"><span class="pre">refused</span></code> and <code class="docutils literal notranslate"><span class="pre">refusal_reason</span></code> <code class="docutils literal notranslate"><span class="pre">CHANNEL_NOT_FOUND</span></code>, so the outcomes of
+the other writes in the same batch are kept.</p></li>
+</ul>
+<p>The controls tools report both as error type <code class="docutils literal notranslate"><span class="pre">not_found</span></code>, naming the address
+under <code class="docutils literal notranslate"><span class="pre">details.channel</span></code>. A read that names several channels still succeeds
+for the ones that answered and names the unknown address under <code class="docutils literal notranslate"><span class="pre">missing</span></code>
+(see <a class="reference internal" href="partial-answers.html"><span class="doc">Partial Answers</span></a>); a batch write reports the unknown address as its
+<code class="docutils literal notranslate"><span class="pre">refused</span></code> row beside the rows that were written.</p>
+<p>A Channel Access connector cannot tell an unknown name from an unreachable one
+– a search that finds nothing times out – so it reports a connection error
+for both.</p>
+</section>
 <section id="write-confirmation">
 <h2>Write Confirmation<a class="headerlink" href="#write-confirmation" title="Link to this heading">#</a></h2>
 <p>A write is <strong>confirmed</strong> when the channel it wrote now holds the value that was
@@ -540,8 +562,9 @@ on <code class="xref py py-class docutils literal notranslate"><span class="pre"
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">refused</span></code></p></td>
 <td><p>Nothing was written. A gate stopped the write before it left OSPREY –
-write posture, a limit, a channel marked not writable – and
-<code class="docutils literal notranslate"><span class="pre">refusal_reason</span></code> names which one.</p></td>
+write posture, a limit, a channel marked not writable, an address that
+is not a channel of the facility – and <code class="docutils literal notranslate"><span class="pre">refusal_reason</span></code> names which
+one.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">failed</span></code></p></td>
 <td><p>The value was sent and the control system did not take it.</p></td>
@@ -578,12 +601,8 @@ took the value and others did not.</p>
 <section id="switching-confirmation-off">
 <h3>Switching confirmation off<a class="headerlink" href="#switching-confirmation-off" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">confirm</span></code> is a per-channel boolean in the limits database, sitting beside
-<code class="docutils literal notranslate"><span class="pre">writable</span></code>:</p>
+<code class="docutils literal notranslate"><span class="pre">writable</span></code>, which every entry states:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;defaults&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;confirm&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
-<span class="w">  </span><span class="p">},</span>
 <span class="w">  </span><span class="nt">&quot;SHUTTER:OPEN_CMD&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
 <span class="w">    </span><span class="nt">&quot;confirm&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
@@ -591,8 +610,10 @@ took the value and others did not.</p>
 <span class="p">}</span>
 </pre></div>
 </div>
-<p>A channel’s own entry wins; failing that the <code class="docutils literal notranslate"><span class="pre">defaults</span></code> block applies; failing
-that, confirmation is on. Switch it off for the channels a re-read cannot answer
+<p>A channel’s own entry decides; an entry that does not state <code class="docutils literal notranslate"><span class="pre">confirm</span></code>, or a
+channel with no entry, has confirmation on. The database holds no <code class="docutils literal notranslate"><span class="pre">defaults</span></code>
+block: a top-level <code class="docutils literal notranslate"><span class="pre">defaults</span></code> key, or an entry without <code class="docutils literal notranslate"><span class="pre">writable</span></code>, fails the
+load. Switch it off for the channels a re-read cannot answer
 for – a command channel that resets itself, a register that cannot be read back
 – so those writes report <code class="docutils literal notranslate"><span class="pre">unrequested</span></code> rather than <code class="docutils literal notranslate"><span class="pre">unconfirmed</span></code>. A call
 site may pass <code class="docutils literal notranslate"><span class="pre">confirm=True</span></code> or <code class="docutils literal notranslate"><span class="pre">confirm=False</span></code> to decide for one call;
@@ -708,39 +729,52 @@ executor subprocesses and kernels where <code class="docutils literal notranslat
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">limits_checking</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                     </span><span class="c1"># Enable limits validation</span>
-<span class="w">    </span><span class="nt">database_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./limits_db.json</span><span class="w">   </span><span class="c1"># Path to the channel limits JSON</span>
-<span class="w">    </span><span class="nt">allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">    </span><span class="c1"># Block writes to channels not in the database</span>
+<span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">exclusive</span><span class="w">                   </span><span class="c1"># Only channels in the database can be written</span>
 <span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">virtual_accelerator</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">limits_checking</span><span class="p">:</span><span class="w">                </span><span class="c1"># This connector type&#39;s own posture,</span>
 <span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                 </span><span class="c1"># replacing the pair above for it alone</span>
-<span class="w">        </span><span class="nt">allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">        </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">optional</span>
 </pre></div>
 </div>
 <p>When enabled, every <code class="docutils literal notranslate"><span class="pre">write_channel()</span></code> call is validated against the limits
 database before the write reaches hardware. The database format is the
 per-channel configuration above.</p>
+<p>Limits are optional, and <code class="docutils literal notranslate"><span class="pre">mode</span></code> chooses between two ways of using the
+database:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">mode:</span> <span class="pre">exclusive</span></code> — only channels in the database can be written. A channel
+with no record is refused.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mode:</span> <span class="pre">optional</span></code> — channels in the database are held to their limits, and
+every other channel is written with no limits.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">false</span></code> means no limits at all.</p>
 <p>The posture is per connector type. <code class="docutils literal notranslate"><span class="pre">control_system.limits_checking</span></code> is what a
 type inherits when it says nothing about itself, and
 <code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.limits_checking</span></code> answers for that type
-instead — so one deployment can refuse unlisted channels on its live machine
-while letting them through on a simulator. Three rules govern the per-type
+instead — so one deployment can run <code class="docutils literal notranslate"><span class="pre">exclusive</span></code> on its live machine and
+<code class="docutils literal notranslate"><span class="pre">optional</span></code> on a simulator. Three rules govern the per-type
 block:</p>
 <ul class="simple">
 <li><p><strong>It replaces, it does not merge.</strong> A per-type block must state both
-<code class="docutils literal notranslate"><span class="pre">enabled</span></code> and <code class="docutils literal notranslate"><span class="pre">allow_unlisted_channels</span></code>; neither is inherited. A block
+<code class="docutils literal notranslate"><span class="pre">enabled</span></code> and <code class="docutils literal notranslate"><span class="pre">mode</span></code>; neither is inherited. A block
 stating one alone is refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>,
 naming the missing setting — and a half-written block that reaches a running
 deployment anyway, by a hand-edited <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> or an older render, blocks
 every write until it is completed.</p></li>
 <li><p><strong>The database stays deployment-wide.</strong> <code class="docutils literal notranslate"><span class="pre">database_path</span></code> is not a per-type
 setting: the deployment mounts one limits file, and every target is checked
-against it.</p></li>
-<li><p><strong>Only explicit values decide.</strong> <code class="docutils literal notranslate"><span class="pre">allow_unlisted_channels</span></code> is true, false,
-or unstated. With limits checking enabled, an <code class="docutils literal notranslate"><span class="pre">allow_unlisted_channels</span></code>
-that no key states refuses unlisted channels — permission needs an explicit
-<code class="docutils literal notranslate"><span class="pre">true</span></code>. A deployment that states no limits posture at all runs no limits
-checking, and nothing on that path refuses an unlisted channel.</p></li>
+against it. A profile that states it is refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>,
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code>: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes
+<code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code> from <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> and sets
+<code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.database_path</span></code> to it in the rendered config.</p></li>
+<li><p><strong>Only explicit values decide.</strong> <code class="docutils literal notranslate"><span class="pre">mode</span></code> is <code class="docutils literal notranslate"><span class="pre">exclusive</span></code>, <code class="docutils literal notranslate"><span class="pre">optional</span></code>, or
+unstated. With limits checking enabled, a <code class="docutils literal notranslate"><span class="pre">mode</span></code> that no key states refuses
+a channel with no record — permission needs an explicit <code class="docutils literal notranslate"><span class="pre">optional</span></code>. Any
+other value, and any leaf the block does not define, is refused by <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>. A deployment that states no limits posture
+at all runs no limits checking, and nothing on that path refuses a channel
+with no record.</p></li>
 </ul>
 <p><code class="docutils literal notranslate"><span class="pre">max_step</span></code> is the one limit that costs a read. It caps how far a single write
 may move a channel, which means measuring the channel’s present value first —
@@ -760,13 +794,12 @@ does not answer inside it reads as “could not be measured”, which refuses th
 write. Raising it buys a slow channel room, never a weaker check. The python
 executor’s sandbox applies the same number, so a script’s step check and the
 connector’s wait the same length of time for the same channel.</p>
-<p>A refusal about an unlisted channel — and the target switch’s
-<code class="docutils literal notranslate"><span class="pre">limits_posture</span></code> refusal — names the key that answered, the per-type one where
-a block spoke and the deployment-wide one where none did, so an operator edits
-the line that decides rather than one it overrides. The <code class="docutils literal notranslate"><span class="pre">channel_limits</span></code> tool
-reports the same pair for the target the deployment is on, including <code class="docutils literal notranslate"><span class="pre">null</span></code> where
-nothing states an answer, alongside <code class="docutils literal notranslate"><span class="pre">allow_unlisted_key</span></code> naming the key it
-read.</p>
+<p>A refusal about a channel with no record names the key that answered, the
+per-type one where a block spoke and the deployment-wide one where none did, so
+an operator edits the line that decides rather than one it overrides. The
+<code class="docutils literal notranslate"><span class="pre">channel_limits</span></code> tool reports <code class="docutils literal notranslate"><span class="pre">mode</span></code> for the target the deployment is on,
+including <code class="docutils literal notranslate"><span class="pre">null</span></code> where nothing states one, alongside <code class="docutils literal notranslate"><span class="pre">mode_key</span></code> naming the
+key it read.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
@@ -888,11 +921,11 @@ relabeled – to your backend’s UTC wire format; <code class="docutils literal
       </div>
     </a>
     <a class="right-next"
-       href="simulation-bundle.html"
+       href="partial-answers.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Simulation Bundle Contract</p>
+        <p class="prev-next-title">Partial Answers</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -916,6 +949,7 @@ relabeled – to your backend’s UTC wire format; <code class="docutils literal
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reading-large-values">Reading Large Values</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#addresses-outside-the-facility">Addresses Outside the Facility</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-confirmation">Write Confirmation</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-confirmation-off">Switching confirmation off</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-values-are-compared">How values are compared</a></li>

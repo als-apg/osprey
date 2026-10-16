@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -393,11 +393,12 @@
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Contracts</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="connectors.html">Connector Contracts</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simulation-bundle.html">Simulation Bundle Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="partial-answers.html">Partial Answers</a></li>
 <li class="toctree-l2"><a class="reference internal" href="python-executor.html">Python Executor Contract</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
 </ul>
@@ -592,6 +593,9 @@ characters of each entry’s <code class="docutils literal notranslate"><span cl
 <code class="docutils literal notranslate"><span class="pre">ariel.entry_text.read_chars</span></code>. An entry cut there also carries
 <code class="docutils literal notranslate"><span class="pre">raw_text_truncated:</span> <span class="pre">true</span></code> and its full <code class="docutils literal notranslate"><span class="pre">raw_text_length</span></code>. <code class="docutils literal notranslate"><span class="pre">entry_get</span></code>
 returns the whole entry. See <a class="reference internal" href="../configuration/config.html#config-ariel-entry-text"><span class="std std-ref">ariel.entry_text: — how much of each entry the agent reads</span></a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">entries_by_ids</span></code> names each requested ID the logbook does not hold under
+<code class="docutils literal notranslate"><span class="pre">missing</span></code>, mapped to <code class="docutils literal notranslate"><span class="pre">null</span></code>; when it holds none of them the call fails as
+<code class="docutils literal notranslate"><span class="pre">nothing_answered</span></code>. See <a class="reference internal" href="partial-answers.html"><span class="doc">Partial Answers</span></a>.</p>
 <section id="attachment-summaries">
 <h3>Attachment summaries<a class="headerlink" href="#attachment-summaries" title="Link to this heading">#</a></h3>
 <p>Every tool that returns entries describes their attachments with one summary

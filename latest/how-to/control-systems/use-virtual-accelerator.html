@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Control Systems</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -524,7 +531,8 @@
 <span id="how-to-use-virtual-accelerator"></span><h1>Use the Virtual Accelerator<a class="headerlink" href="#use-the-virtual-accelerator" title="Link to this heading">#</a></h1>
 <p>How to run the Control Assistant tutorial against a <strong>Virtual Accelerator</strong> — a
 containerized simulator that serves real EPICS Channel Access, with PyAT physics
-behind the storage-ring lattice channels, so correctors move and BPMs respond.
+behind the channels your facility wires to a lattice, so correctors move and
+BPMs respond.
 How it is put together is <a class="reference internal" href="../../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
@@ -535,7 +543,7 @@ How it is put together is <a class="reference internal" href="../../architecture
 <li><p class="sd-card-text">Which channels the simulator serves, and what the build will not invent</p></li>
 <li><p class="sd-card-text">Pointing a project at the Virtual Accelerator the stack already deploys</p></li>
 <li><p class="sd-card-text">Moving a running deployment between the machines it describes</p></li>
-<li><p class="sd-card-text">Switching back to the mock, and why plans go browse-only there</p></li>
+<li><p class="sd-card-text">The simulator’s two venues, and why plans go browse-only in process</p></li>
 <li><p class="sd-card-text">How <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> scenarios behave in Virtual Accelerator mode</p></li>
 <li><p class="sd-card-text">Write limits</p></li>
 <li><p class="sd-card-text">The stored archive the stack deploys, and the one pairing it refuses</p></li>
@@ -559,22 +567,19 @@ the deployment <strong>starts</strong> on:</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">mock</span></code></p></td>
-<td><p>The in-process simulation. No container, no network — every channel
-returns a synthesized value. The fallback for environments with no
-containers to depend on; plans are browse-only there (below).</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> <em>(default)</em></p></td>
+<td><p>The simulator. Served from its container, it speaks real EPICS Channel
+Access: the magnet setpoints your facility wires to a deck drive a live
+pyAT lattice and BPM readbacks respond, and every other channel is
+composed by the same simulation engine. The tutorial’s default, and
+deployed as part of its stack. The same simulator can also run in
+process, with no container; see <a class="reference internal" href="#two-venues">Two venues</a>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> <em>(default)</em></p></td>
-<td><p>A containerized simulator serving real EPICS Channel Access. Storage-
-ring magnet setpoints drive a live pyAT lattice and BPM readbacks respond;
-every other channel is composed by the same simulation engine the mock
-uses. The tutorial’s default, and deployed as part of its stack.</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">epics</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">epics</span></code></p></td>
 <td><p>Production EPICS, pointed at the facility gateway. Untouched by this
 guide.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">live_standin</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">live_standin</span></code></p></td>
 <td><p>The <strong>live stand-in</strong> — a second soft IOC the deployment runs for
 itself, served by the EPICS connector from its own connector block.
 Available only where the build profile stood one up; see <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing
@@ -585,43 +590,41 @@ against a live target</a>.</p></td>
 </div>
 <p>The Virtual Accelerator is a <strong>local physics simulator</strong>, not a digital twin —
 it is not synced to any real machine. The OSPREY agent reads and writes it
-exactly as it does the mock or a real machine; only the backend changes.</p>
-<p>The physics behind the ring channels is one of two things: the shipped pyAT
-ring model, built on the facility-agnostic <code class="docutils literal notranslate"><span class="pre">lume-pyat</span></code> package, over the
-lattice your data tree stages, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> names in <code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code>;
-or none, with <code class="docutils literal notranslate"><span class="pre">VA_LATTICE=none</span></code>. A backend other than pyAT is a replacement
-entrypoint, covered in <a class="reference internal" href="#va-serving-your-own-model"><span class="std std-ref">Serving your facility’s own model</span></a>.</p>
+exactly as it does a real machine; only the backend changes.</p>
+<p>The physics behind the channels comes from the profile’s
+<code class="docutils literal notranslate"><span class="pre">simulation.models</span></code>: the container builds each served physics model through
+the engine its record names and serves them together with the texture model as
+one composite. The shipped engine is pyAT, built on the facility-agnostic
+<code class="docutils literal notranslate"><span class="pre">lume-pyat</span></code> package, over the deck your facility tree stages. A render that
+serves <code class="docutils literal notranslate"><span class="pre">texture</span></code> alone serves the same channels with no physics behind them:
+a setpoint holds the value written to it and a readback follows its seed. A
+physics engine other than pyAT is an engine plug-in, covered in
+<a class="reference internal" href="#va-serving-your-own-model"><span class="std std-ref">Serving your facility’s own model</span></a>.</p>
 </section>
 <section id="what-channels-it-serves">
 <h2>What channels it serves<a class="headerlink" href="#what-channels-it-serves" title="Link to this heading">#</a></h2>
-<p>Your project’s own. At build time OSPREY expands whatever channel databases the
-project’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree stages at the tier being built — <code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>,
-<code class="docutils literal notranslate"><span class="pre">in_context</span></code>, <code class="docutils literal notranslate"><span class="pre">middle_layer</span></code>, in any combination — into the channel
-manifest the container serves, and reports which of them fed the set and which
-the tree does not stage at that tier.</p>
-<p>There is no fallback. A build that deploys services and declares a
-<code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span></code> block does not quietly come up serving the framework’s
-demo machine under your facility’s name — where the tree cannot back a channel
-set, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses and names the gap. Five things count as a gap: no
-channel database staged at that tier; a database staged but one of the files
-the manifest is generated from missing — the scenario seed, the machine-state
-list or the drive limits; databases that are all present and name no channel;
-databases present that disagree about which channels the facility has; and a
-staged database that is there and unreadable, which stops the build rather than
-being read past. Either the accelerator serves the project’s own channels, or
-the build stops there.</p>
-<p>One absence changes what the simulator can <em>do</em>, so the build spells it out
-rather than leaving it to be inferred. <code class="docutils literal notranslate"><span class="pre">hierarchical</span></code> is the only database
-that carries a hierarchy path, and those identity keys are what pair a readback
-with its setpoint and what every partition rule reads. A tree staging the
-others without it gets an accelerator that serves no setpoints, pairs no
-readback with a setpoint, and drives every channel as static noise rather than
-physics.</p>
-<p>A channel’s <em>address</em> text is free — any facility’s namespace is served as it
-is written. Its <code class="docutils literal notranslate"><span class="pre">subfield</span></code> <em>value</em> is not: that field is a reserved
-vocabulary, where <code class="docutils literal notranslate"><span class="pre">SP</span></code> marks the writable channel and <code class="docutils literal notranslate"><span class="pre">RB</span></code> marks its
-readback, and a channel carrying any other token is neither written nor paired
-with one.</p>
+<p>Your project’s own. Every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders the facility definition
+under <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> into the simulator view, <code class="docutils literal notranslate"><span class="pre">build/data/simulator/</span></code>,
+which the compose file mounts at <code class="docutils literal notranslate"><span class="pre">/data/simulator/</span></code>. The container serves the
+<code class="docutils literal notranslate"><span class="pre">channels</span></code> of the view’s <code class="docutils literal notranslate"><span class="pre">addresses.json</span></code> — every channel address the
+facility declares — and one <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code> channel for each
+served physics model; its ready line in <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span></code> prints the count.
+Nothing is invented and no other channel list feeds the set: a data mount
+without the view refuses the boot and names the missing file, and a facility
+tree the build cannot render stops in <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code>’s own stops
+before the view is written.</p>
+<p>A channel’s role, not its address, says what it is. A channel record with
+<code class="docutils literal notranslate"><span class="pre">role:</span> <span class="pre">setpoint</span></code> is written, and its readback is the record’s <code class="docutils literal notranslate"><span class="pre">pair</span></code>. A
+setpoint that names none is paired by the build with the one readback on the
+same device whose signal names the same quantity, else it is its own readback.
+A setpoint’s <code class="docutils literal notranslate"><span class="pre">tolerance</span></code>, next to its <code class="docutils literal notranslate"><span class="pre">pair</span></code>, says how close that readback
+must come before a move counts as done; the build stops when the readback’s
+seeded motion is wider than it. A channel with no role is a readback. The
+address text is the facility’s own and is served as it is written: no token
+inside it means anything to OSPREY.</p>
+<p>A facility whose models wire no channel is served by the texture alone: a
+setpoint holds the value written to it, a readback follows its seed, and no
+physics runs behind either.</p>
 </section>
 <section id="quickstart">
 <h2>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">#</a></h2>
@@ -663,8 +666,9 @@ archive lives, so the deployment already reads a real store. On one with no
 archive of its own — still reading the mock archiver, which makes its history
 up as it is asked for it — the build <strong>refuses</strong> the profile, and says what to
 do instead: point <code class="docutils literal notranslate"><span class="pre">archiver.type</span></code> at a store this deployment writes
-(<code class="docutils literal notranslate"><span class="pre">mongodb_archiver</span></code> for the store the preset deploys), or stay on <code class="docutils literal notranslate"><span class="pre">mock</span></code> for
-an honestly storeless deployment. <a class="reference internal" href="#the-honesty-rule">The honesty rule</a> below explains why.</p>
+(<code class="docutils literal notranslate"><span class="pre">mongodb_archiver</span></code> for the store the preset deploys), or keep the simulator
+in process for an honestly storeless deployment. <a class="reference internal" href="#the-honesty-rule">The honesty rule</a> below
+explains why.</p>
 </section>
 <section id="switching-a-running-deployment">
 <h2>Switching a running deployment<a class="headerlink" href="#switching-a-running-deployment" title="Link to this heading">#</a></h2>
@@ -695,62 +699,86 @@ facility wrote there — so <code class="docutils literal notranslate"><span cla
 runs beside it. <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">standin</span></code> moves the deployment onto the stand-in;
 <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">live</span></code> from there walks the real go-live path, gates and
 all.</p>
-<p>The two simulated machines are told apart by reading them: one image over one
-lattice, but a small fixed offset on the stand-in’s BPM readouts. (Where the
-environment pins <code class="docutils literal notranslate"><span class="pre">VA_LATTICE=none</span></code> or a facility channel file, there is no
-lattice to displace — the stand-in serves that manifest unperturbed, and reads
-identically to the Virtual Accelerator beside it.) The label stays honest either
-way: the banner reads <code class="docutils literal notranslate"><span class="pre">LIVE</span> <span class="pre">MACHINE</span> <span class="pre">(stand-in)</span></code> and the Web Terminal’s
-header chip reads <code class="docutils literal notranslate"><span class="pre">STAND-IN</span></code>.
+<p>The two simulated machines run one image over one simulator view, and the
+stand-in carries no errors of its own: it exists to rehearse the live safety
+posture, not different physics. The two machines are told apart by a write to
+the sandbox not showing on the stand-in and by the model RPC status naming its
+instance (<code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> or <code class="docutils literal notranslate"><span class="pre">live_standin</span></code>). The label stays honest:
+the banner reads <code class="docutils literal notranslate"><span class="pre">LIVE</span> <span class="pre">MACHINE</span> <span class="pre">(stand-in)</span></code> and the Web Terminal’s header chip
+reads <code class="docutils literal notranslate"><span class="pre">STAND-IN</span></code>.
 <a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> has the ritual itself.</p>
 <p><strong>Scenarios reach both machines.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> writes one scenario file
 and both containers poll it, so a scenario changes the world rather than one
 lane. There is no scenario that applies to the simulator but not to the stand-in,
 and switching targets does not undo one.</p>
 <p><strong>The archive belongs to the machine.</strong> The recorder records the stand-in when
-one is deployed, and the history seeded on the first deploy carries the same BPM
-offsets the stand-in reads — so its past and its present describe one machine,
-the way a real machine’s do. What the two halves share is the systematic error,
-not the individual samples: the seeded past carries the same systematic offsets
-as the stand-in’s readout, not the same numbers, because the seed’s values are
-generated rather than read off the running IOC. While that store is being
+one is deployed, so the store’s past and the stand-in’s present describe one
+machine, the way a real machine’s do. While that store is being
 recorded, the <code class="docutils literal notranslate"><span class="pre">live</span></code> target is refused — a real machine’s readings must not
 land in a stand-in’s archive. <a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> says how to clear
 that.</p>
 </section>
-<section id="switching-back-to-the-mock">
-<h2>Switching back to the mock<a class="headerlink" href="#switching-back-to-the-mock" title="Link to this heading">#</a></h2>
+<section id="two-venues">
+<span id="va-two-venues"></span><h2>Two venues<a class="headerlink" href="#two-venues" title="Link to this heading">#</a></h2>
+<p>The simulator is one connector type, <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>, reached in one of
+two venues. Where it runs is a setting under its connector block:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
+<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">virtual_accelerator</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">serving</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_process</span><span class="w">   </span><span class="c1"># or: served (the default)</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">served</span></code> — the simulator’s container, serving the facility’s channels over
+Channel Access and PVAccess and answering the model RPC. This is the default
+whenever the type is stated, and what the rest of this page describes.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">in_process</span></code> — the same simulator view and composite, run inside the
+process that asks. It needs no Docker, opens no port and serves no Channel
+Access, and it answers no model RPC. The <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset runs this way.</p></li>
+</ul>
+<p>A config whose <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> section states no <code class="docutils literal notranslate"><span class="pre">type</span></code> gets the simulator
+in process, and its <code class="docutils literal notranslate"><span class="pre">serving</span></code> leaf is not read: a section that names nothing
+dials nothing. <code class="docutils literal notranslate"><span class="pre">serving:</span> <span class="pre">in_process</span></code> is refused on a deployment whose own type
+is not <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>; on such a deployment the <code class="docutils literal notranslate"><span class="pre">va</span></code> target is the
+served container.</p>
 <p>An environment with no containers to depend on can run the tutorial on the
-in-process simulation instead:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>mock
+simulator in process:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.control_system.connector.virtual_accelerator.serving<span class="o">=</span>in_process
 osprey<span class="w"> </span>build
 osprey<span class="w"> </span>up
 </pre></div>
 </div>
-<p>Read one consequence before you do: <strong>plans become browse-only.</strong> The mock
-does not settle-wait a corrector’s readback against its setpoint, which every
-plan needs between grid points, so a plan started there would never
-complete. Rather than let one start and hang, the stack refuses earlier — plans
-can still be listed, authored, validated and staged into the shared draft, but
-the queue will not hold them, and both the panels and the agent report a
-browse-only deployment with the exact command that flips it back. Everything
-that is not a plan — channel reads and writes, the archiver, the Channel
-Finder — works as before. The <code class="docutils literal notranslate"><span class="pre">epics</span></code> block keeps its production values
-throughout.</p>
+<p>Read one consequence before you do: <strong>plans become browse-only.</strong> The simulator
+in process speaks no Channel Access, and the queue worker builds its devices
+over Channel Access, so a plan started there could not drive a channel. Rather
+than let one start and fail, the stack refuses earlier — plans can still be
+listed, authored, validated and staged into the shared draft, but the queue
+will not hold them, and both the panels and the agent report a browse-only
+deployment with the exact command that flips it back
+(<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">config.control_system.connector.virtual_accelerator.serving=served</span></code>).
+Everything that is not a plan — channel reads and writes, the archiver, the
+Channel Finder — works as before. The <code class="docutils literal notranslate"><span class="pre">epics</span></code> block keeps its production
+values throughout.</p>
 <p>The archive follows the flip on its own. The recorder records <strong>only</strong> a machine
-this deployment owns, so with no stand-in deployed it stops writing on <code class="docutils literal notranslate"><span class="pre">mock</span></code>
-and idles; it re-reads the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> every 30 seconds, so the
-change takes effect within one poll and no restart or rebuild is involved.
-Nothing is deleted — the history already in the store stays readable, it simply
-stops growing, and it ages out under the retention window as usual.
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> will report the archive as <strong>stale</strong> (a warning, not an error)
-once the newest sample is older than the freshness threshold, which is the
-honest answer to “is this archive still being written”. Flipping back to
-<code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> restarts recording within a poll too.</p>
+this deployment owns and serves over the network, so with no stand-in deployed
+it stops writing while the simulator runs in process and idles; it re-reads the
+project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> every 30 seconds, so the change takes effect within one
+poll and no restart or rebuild is involved. Nothing is deleted — the history
+already in the store stays readable, it simply stops growing, and it ages out
+under the retention window as usual. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> will report the archive
+as <strong>stale</strong> (a warning, not an error) once the newest sample is older than the
+freshness threshold, which is the honest answer to “is this archive still being
+written”. Flipping back to <code class="docutils literal notranslate"><span class="pre">served</span></code> restarts recording within a poll too.</p>
 <p>A stand-in changes that answer, because the recorder follows the machine rather
-than the <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> line: the stand-in keeps running and is still
-the machine this deployment records, so it keeps being recorded on <code class="docutils literal notranslate"><span class="pre">mock</span></code> as
-well.</p>
+than the <code class="docutils literal notranslate"><span class="pre">control_system</span></code> section: the stand-in keeps running and is still
+the machine this deployment records, so it keeps being recorded while the
+simulator runs in process as well.</p>
+<p><code class="docutils literal notranslate"><span class="pre">mock</span></code> is no longer a control-system type. A config or profile that states it
+is refused, and the refusal names the new spelling:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>`mock` is retired: the simulator in process is `control_system.type: virtual_accelerator` with `control_system.connector.virtual_accelerator.serving: in_process` (`osprey set connector=virtual_accelerator config.control_system.connector.virtual_accelerator.serving=in_process`), then rebuild with `osprey build`.
+</pre></div>
+</div>
 </section>
 <section id="connecting-to-the-ioc">
 <h2>Connecting to the IOC<a class="headerlink" href="#connecting-to-the-ioc" title="Link to this heading">#</a></h2>
@@ -763,7 +791,7 @@ environment setup is needed.</p>
 </section>
 <section id="what-the-ioc-serves-and-how-often">
 <h2>What the IOC serves, and how often<a class="headerlink" href="#what-the-ioc-serves-and-how-often" title="Link to this heading">#</a></h2>
-<p>Three settings reach the container through the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> rather
+<p>Two settings reach the container through its compose environment rather
 than being fixed in the image, because each is a property of the machine you
 are standing in for, or of who may alter it, rather than of OSPREY:</p>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -778,21 +806,13 @@ are standing in for, or of who may alter it, rather than of OSPREY:</p>
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">VA_POLL_INTERVAL_S</span></code></p></td>
-<td><p>Seconds between telemetry ticks — how often the IOC republishes the
-values it reads out of the simulation engine. Default <code class="docutils literal notranslate"><span class="pre">1.0</span></code>. Lower it
+<td><p>Seconds between the served model’s passes — how often the IOC
+republishes the values it reads out of the composite. Set by
+<code class="docutils literal notranslate"><span class="pre">simulation.tick_s</span></code> (default <code class="docutils literal notranslate"><span class="pre">1.0</span></code>), which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders
+into the compose file; a project <code class="docutils literal notranslate"><span class="pre">.env</span></code> value is not read. Lower it
 for a demo that should look live; raise it on a very large namespace.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">VA_NOISE_LEVEL</span></code></p></td>
-<td><p>Fractional noise on the synthesised channel values, default <code class="docutils literal notranslate"><span class="pre">0.01</span></code>.
-<code class="docutils literal notranslate"><span class="pre">0</span></code> serves them flat, which is what a test that compares readings
-wants. Write the value as
-<code class="docutils literal notranslate"><span class="pre">control_system.connector.virtual_accelerator.noise_level</span></code> in your
-configuration — unset, it falls through to
-<code class="docutils literal notranslate"><span class="pre">control_system.connector.mock.noise_level</span></code>, so one simulated machine
-is described once — and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders it as this variable’s
-default.</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">VA_MODEL_WRITE_TOKEN</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">VA_MODEL_WRITE_TOKEN</span></code></p></td>
 <td><p>The credential a write to the model’s own variables must present over
 the model RPC (see <a class="reference internal" href="../../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>). Unset, the
 container refuses every such write; reads need no token. There is no
@@ -801,40 +821,52 @@ default to fall back on — set it in the deployment’s <code class="docutils l
 </tbody>
 </table>
 </div>
-<p>The two numbers are refused at boot if they are not a number, or out of range,
-rather than being clamped — so a typo shows up in <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span></code> instead of
-quietly changing what the machine looks like. Leave either empty and the
-default applies. A variable exported in the deployment’s own <code class="docutils literal notranslate"><span class="pre">.env</span></code> outranks
-the rendered default, so a single run can be made noisier or quieter without
-editing the configuration.</p>
+<p>The poll interval is refused at boot if it is not a number, or not greater
+than zero, rather than being clamped — so a typo shows up in <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span></code>
+instead of quietly changing what the machine looks like.</p>
 </section>
 <section id="serving-your-facility-s-own-model">
 <span id="va-serving-your-own-model"></span><h2>Serving your facility’s own model<a class="headerlink" href="#serving-your-facility-s-own-model" title="Link to this heading">#</a></h2>
 <section id="a-pyat-lattice">
 <h3>A pyAT lattice<a class="headerlink" href="#a-pyat-lattice" title="Link to this heading">#</a></h3>
-<p>Stage the deck as <code class="docutils literal notranslate"><span class="pre">data/simulation/lattice.json</span></code> with the
-<code class="docutils literal notranslate"><span class="pre">va_bindings.json</span></code> that ties your channels to it. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">mml</span> <span class="pre">emit</span></code> writes
-both from an export that carries a virtual accelerator (see
-<a class="reference internal" href="../use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>). Then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the file’s
-name into <code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code> in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>. A tree without bindings gets
-<code class="docutils literal notranslate"><span class="pre">VA_LATTICE=none</span></code>. No code and no image are involved.</p>
+<p>Stage the deck in the facility tree as <code class="docutils literal notranslate"><span class="pre">data/facility/decks/&lt;model&gt;.json</span></code>
+and name it in the model’s record in <code class="docutils literal notranslate"><span class="pre">data/facility/models.yaml</span></code>, with the
+<code class="docutils literal notranslate"><span class="pre">wiring</span></code> that ties each channel to an element of the deck:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;model&gt;</span>
+<span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyat</span>
+<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decks/&lt;model&gt;.json</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> copies the deck into the simulator view as
+<code class="docutils literal notranslate"><span class="pre">decks/&lt;model&gt;.json</span></code>, and the container builds the model from that copy when
+<code class="docutils literal notranslate"><span class="pre">simulation.models</span></code> serves it. No code and no image are involved.</p>
 </section>
 <section id="another-backend">
 <h3>Another backend<a class="headerlink" href="#another-backend" title="Link to this heading">#</a></h3>
+<p>A physics engine other than pyAT is an engine plug-in. The container looks up
+the <code class="docutils literal notranslate"><span class="pre">engine</span></code> each model record names in the <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines</span></code>
+entry-point group and calls the registered module’s <code class="docutils literal notranslate"><span class="pre">build</span></code>, which returns
+the <code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code> serving that model’s wiring over its deck; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+reaches the same module through the same group when it checks the facility
+tree. The shipped <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.pyat</span></code> is the reference
+implementation of the contract.</p>
 <ol class="arabic">
-<li><p>Write the entrypoint module to the contract in <a class="reference internal" href="../../contributing/extending-osprey.html#extending-lume-model"><span class="std std-ref">LUME model</span></a>.</p></li>
-<li><p>Build an image that carries OSPREY’s virtual-accelerator install and your
-module. The usual shape is a Dockerfile <code class="docutils literal notranslate"><span class="pre">FROM</span></code> the image OSPREY builds
-for the project, adding your package.</p></li>
-<li><p>Name it as the service’s image with <code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.image</span></code>,
-or <code class="docutils literal notranslate"><span class="pre">OSPREY_VA_IMAGE</span></code> for one shell (<a class="reference internal" href="../../reference/configuration/config.html#deployment-image-overrides"><span class="std std-ref">Overriding Service Images</span></a>).</p></li>
-<li><p>Set <code class="docutils literal notranslate"><span class="pre">VA_ENTRYPOINT_MODULE=&lt;your.module&gt;</span></code> in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>. Empty
-or unset runs the shipped entrypoint. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> never writes it.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># project .env</span>
-<span class="nv">VA_ENTRYPOINT_MODULE</span><span class="o">=</span>my_facility.va_entrypoint
+<li><p>Write the engine module to the contract
+<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.EnginePlugin</span></code> states;
+<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.pyat</span></code> implements it.</p></li>
+<li><p>Register it under the entry-point group in your package’s metadata, and
+install the package where <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">&quot;osprey.simulation.engines&quot;</span><span class="k">]</span>
+<span class="n">my_engine</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_facility.engine&quot;</span>
 </pre></div>
 </div>
 </li>
+<li><p>Build an image that carries OSPREY’s virtual-accelerator install and your
+package. The usual shape is a Dockerfile <code class="docutils literal notranslate"><span class="pre">FROM</span></code> the image OSPREY builds
+for the project, adding your package.</p></li>
+<li><p>Name it as the service’s image with <code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.image</span></code>,
+or <code class="docutils literal notranslate"><span class="pre">OSPREY_VA_IMAGE</span></code> for one shell (<a class="reference internal" href="../../reference/configuration/config.html#deployment-image-overrides"><span class="std std-ref">Overriding Service Images</span></a>).</p></li>
+<li><p>Name the engine in the model’s record: <code class="docutils literal notranslate"><span class="pre">engine:</span> <span class="pre">my_engine</span></code>.</p></li>
 </ol>
 <p>Naming the image in <code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.image</span></code> renders the service
 without a build, so no deploy rebuilds it from OSPREY’s recipe.
@@ -843,52 +875,27 @@ image has to be on the host or pullable where it is named;
 <a class="reference internal" href="../deploy-project/compose-templates.html#deployment-image-builds"><span class="std std-ref">When a deploy builds an image</span></a> says when each start builds.</p>
 </section>
 </section>
-<section id="running-from-a-source-checkout">
-<h2>Running from a source checkout<a class="headerlink" href="#running-from-a-source-checkout" title="Link to this heading">#</a></h2>
-<p>If you are working from an OSPREY <strong>source checkout</strong> rather than a generated
-project — developing the Virtual Accelerator itself, or running it without
-deploying a stack — launch the container directly:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/va/run_va.sh<span class="w"> </span><span class="o">[</span>DATA_DIR<span class="o">]</span>
-</pre></div>
-</div>
-<p>The image is defined under <code class="docutils literal notranslate"><span class="pre">docker/virtual-accelerator/</span></code>; see its
-<code class="docutils literal notranslate"><span class="pre">README.md</span></code> for build details. The script builds the image if it is missing
-(<code class="docutils literal notranslate"><span class="pre">OSPREY_VA_REBUILD=1</span></code> forces a rebuild) and runs in the foreground.</p>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p><code class="docutils literal notranslate"><span class="pre">DATA_DIR</span></code> is the <code class="docutils literal notranslate"><span class="pre">data/simulation</span></code> <strong>directory</strong> (never a single file)
-that the container mounts read-only. It defaults to the <em>packaged preset’s</em>
-copy, <strong>not</strong> your project — so with no argument, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> in
-your project writes a scenario file the running IOC never sees. Pass your
-project’s directory explicitly to use its scenarios (the script then also
-mounts the project’s <code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation</span></code> state directory, which is what
-makes scenario switches reach the IOC):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/va/run_va.sh<span class="w"> </span>~/my-project/data/simulation
-</pre></div>
-</div>
-</div>
-</section>
 <section id="scenarios">
 <h2>Scenarios<a class="headerlink" href="#scenarios" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">&lt;scenario&gt;</span></code> works in Virtual Accelerator mode exactly as it
-does for the mock. Applying a scenario writes the project’s
-<code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation/active_scenarios</span></code> file; the in-container engine polls
-it and, within about a second, composed channel values reflect the new scenario.
-One behavioral difference from the mock: in VA mode a scenario switch only
-refreshes the engine-composed channels — setpoints you wrote during the session
-live in the IOC’s own records and <strong>survive</strong> the switch. (In mock mode, written
-values are reset.)</p>
-<p>The container mounts two of the project’s directories: <code class="docutils literal notranslate"><span class="pre">data/simulation</span></code> for
-the machine model (rebuilt from your profile on every build) and
-<code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation</span></code> for that scenario state (written while the system
-runs). Both are automatic for the deployed service; if you launched the
-container by hand, see the warning under <a class="reference internal" href="#running-from-a-source-checkout">Running from a source checkout</a>.</p>
-<p>What a scenario bundle may contain, how bundles compose, and what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span>
-<span class="pre">apply</span></code> refuses is the <a class="reference internal" href="../../reference/contracts/simulation-bundle.html"><span class="doc">Simulation Bundle Contract</span></a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">&lt;scenario&gt;</span></code> works the same in both venues. Applying a
+scenario writes the project’s <code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation/active_scenarios</span></code>
+file; the in-container engine polls it and, within about a second, composed
+channel values reflect the new scenario. One behavioral difference between the
+venues: served, a scenario switch only refreshes the engine-composed channels —
+setpoints you wrote during the session live in the IOC’s own records and
+<strong>survive</strong> the switch. (In process, written values are reset.) <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span>
+<span class="pre">apply</span> <span class="pre">still</span></code> serves every reading without drift, couplings or noise.</p>
+<p>The served simulator’s container mounts two directories: the render’s data root
+(<code class="docutils literal notranslate"><span class="pre">build/data</span></code>, read-only, holding the simulator view the build writes, rebuilt
+on every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>) and the scenario state directory
+(<code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation</span></code>, written by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> while the system
+runs). Both mounts are automatic for the deployed service.</p>
+<p>What a scenario may contain, how scenarios compose, and what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span>
+<span class="pre">apply</span></code> refuses is in <a class="reference internal" href="../run-scenarios.html"><span class="doc">Run and write scenarios</span></a>.</p>
 </section>
 <section id="write-limits">
 <h2>Write limits<a class="headerlink" href="#write-limits" title="Link to this heading">#</a></h2>
-<p>Channels listed in the project’s <code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code> carry a min/max range,
+<p>Channels with a record in <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> carry a min/max range,
 and a write outside that range is rejected before it reaches the IOC; an
 in-range write goes through. The mandatory write-approval flow applies
 unchanged — the Virtual Accelerator connector inherits the same write-safety
@@ -938,26 +945,26 @@ when it says nothing about itself; a <code class="docutils literal notranslate">
 <code class="docutils literal notranslate"><span class="pre">connector:</span></code> entry answers for that type instead.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">limits_checking</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                       </span><span class="c1"># the posture the live machine runs</span>
-<span class="w">    </span><span class="nt">allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">      </span><span class="c1"># under, and every type inherits</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># the pair every type inherits: only channels</span>
+<span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">exclusive</span><span class="w">        </span><span class="c1"># in the limits file can be written</span>
 <span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">virtual_accelerator</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">limits_checking</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                   </span><span class="c1"># ... and the simulator alone lets</span>
-<span class="w">        </span><span class="nt">allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># an unlisted channel through</span>
+<span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">      </span><span class="c1"># ... and on the simulator alone a channel</span>
+<span class="w">        </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">optional</span><span class="w">     </span><span class="c1"># with no record is written with no limits</span>
 </pre></div>
 </div>
 <p>That is the shape <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> ends up in; write it in the build profile’s
-<code class="docutils literal notranslate"><span class="pre">config:</span></code> block as flat dotted keys, as the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset
-does. A per-type block replaces the inherited pair as a <em>whole</em>: nothing is
+<code class="docutils literal notranslate"><span class="pre">config:</span></code> block as flat dotted keys. A per-type block replaces the inherited pair as a <em>whole</em>: nothing is
 borrowed from the deployment-wide block, so both settings have to be written
 out. A block stating one of them alone is refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>, naming the one that is missing. The limits database
-itself stays deployment-wide — <code class="docutils literal notranslate"><span class="pre">limits_checking.database_path</span></code> is one file
-for every target, and a per-type block does not take a path.</p>
+itself stays deployment-wide — the build renders one limits database from
+<code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> for every target, and a per-type block does
+not take a path.</p>
 <p>With the pair above, a write to the simulator is still checked against the
-ranges <code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code> gives for the channels it lists; what changes
-is that a channel the file does <em>not</em> list is allowed through on the
+ranges the records in <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> give; what changes
+is that a channel with <em>no</em> record is allowed through on the
 simulator and refused on the live machine and the stand-in. That strict
 posture is what a switch to either real-machine target requires, and
 rehearsing it is what the stand-in is for. See <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing against a live
@@ -973,7 +980,8 @@ Virtual Accelerator:</p>
 <ul class="simple">
 <li><p><strong>the store</strong> — a MongoDB service (<code class="docutils literal notranslate"><span class="pre">archiver-mongodb</span></code> on the deployment’s
 network, published on host port 27017 by default), holding one collection of
-timestamped samples;</p></li>
+timestamped samples; every channel the facility declares is recorded under
+its own address, an EPICS field name (<code class="docutils literal notranslate"><span class="pre">.RBV</span></code>) included;</p></li>
 <li><p><strong>the recorder</strong> — a small service that reads the running machine on a fixed
 cadence and writes what answered into that collection.</p></li>
 </ul>
@@ -1036,7 +1044,7 @@ deployment recorded.</p>
   <text class="ts" x="576" y="245">every 10 s from deploy on</text>
 
   <text class="ta" x="480" y="276" text-anchor="middle">the join is meant to be invisible — same timestamps, same baselines, noise rather than a step</text>
-  <text class="ta ta-warn" x="480" y="300" text-anchor="middle">on control_system: mock the recorder idles by design — history stays readable and the archive reports stale, which is a warning, not an error</text>
+  <text class="ta ta-warn" x="480" y="300" text-anchor="middle">with the simulator served in process the recorder idles by design — history stays readable and the archive reports stale, which is a warning, not an error</text>
 </svg>
 </div>
 <section id="what-history-is-there">
@@ -1065,10 +1073,11 @@ answering, never a value carried forward.</p>
 samples land on the same timestamps and around the same baselines, so where the
 seed ends and recording begins there is noise, not a step an operator would
 rightly chase.</p>
-<p><strong>With a stand-in deployed, this is the stand-in’s archive.</strong> The recorder
-samples the stand-in and the seeded past carries its offsets, so the BPM history
-read out of the store — including from the simulator target — is the
-stand-in’s. See <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing against a live target</a>.</p>
+<p><strong>With a stand-in deployed, this is the stand-in’s archive.</strong> The seeded past is
+the composite’s history over the shared active set, the same samples whichever
+machine the archive belongs to, and the recorder then samples the stand-in, so
+the history read out of the store — including from the simulator target — is
+the stand-in’s. See <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing against a live target</a>.</p>
 <p>Retention is enforced by the store itself: dense samples expire after the hot
 span, the coarse ones after the retention window, so a long-running deployment
 stays bounded rather than growing forever. The collection is zstd-compressed;
@@ -1095,9 +1104,10 @@ it has.</p>
 <section id="the-honesty-rule">
 <h2>The honesty rule<a class="headerlink" href="#the-honesty-rule" title="Link to this heading">#</a></h2>
 <p>There is one configuration this stack refuses: a machine the deployment stands
-up for itself — the <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> control system, or the
-<code class="docutils literal notranslate"><span class="pre">live_standin</span></code> one — paired with the <strong>mock archiver</strong>, or with no archiver
-set at all, which resolves to the same thing.</p>
+up for itself and serves over the network — the <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> control
+system served from its container, or the <code class="docutils literal notranslate"><span class="pre">live_standin</span></code> one — paired with the
+<strong>mock archiver</strong>, or with no archiver set at all, which resolves to the same
+thing.</p>
 <p>The reason is what the two do differently. The Virtual Accelerator serves
 channels that move for modelled reasons: you step a corrector, the orbit
 responds. The mock archiver does not store anything; it synthesizes a
@@ -1125,8 +1135,8 @@ a <code class="docutils literal notranslate"><span class="pre">va_archiver:</spa
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> / <code class="docutils literal notranslate"><span class="pre">restart</span></code></p></td>
 <td><p>The deploy aborts before starting anything, and names the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
 edit: set <code class="docutils literal notranslate"><span class="pre">type:</span></code> under <code class="docutils literal notranslate"><span class="pre">archiver:</span></code> to a connector reading a store
-this stack writes, or set <code class="docutils literal notranslate"><span class="pre">type:</span></code> under <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> back to
-<code class="docutils literal notranslate"><span class="pre">mock</span></code>.</p></td>
+this stack writes, or serve the simulator in process
+(<code class="docutils literal notranslate"><span class="pre">control_system.connector.virtual_accelerator.serving:</span> <span class="pre">in_process</span></code>).</p></td>
 </tr>
 <tr class="row-even"><td><p>MCP server startup</p></td>
 <td><p>The server refuses to start on such a <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, so a file
@@ -1141,8 +1151,9 @@ deploy time.</p></td>
 </table>
 </div>
 <p>Two pairings that look similar are perfectly legal, because nothing lies in
-either: <strong>mock control system + mock archiver</strong> is the honestly storeless
-deployment (nothing is claimed to be real), and <strong>EPICS + mock archiver</strong> is a
+either: <strong>the simulator in process + mock archiver</strong> is the honestly storeless
+deployment (it has no recorder, so a synthesized archive is the only one it can
+have, and nothing is claimed to be real), and <strong>EPICS + mock archiver</strong> is a
 real machine that simply has no archive attached yet.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
@@ -1207,7 +1218,7 @@ reporting the key as merely unset.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quickstart">Quickstart</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-a-running-deployment">Switching a running deployment</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rehearsing-against-a-live-target">Rehearsing against a live target</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-back-to-the-mock">Switching back to the mock</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#two-venues">Two venues</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#connecting-to-the-ioc">Connecting to the IOC</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-ioc-serves-and-how-often">What the IOC serves, and how often</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serving-your-facility-s-own-model">Serving your facility’s own model</a><ul class="visible nav section-nav flex-column">
@@ -1215,7 +1226,6 @@ reporting the key as merely unset.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#another-backend">Another backend</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-from-a-source-checkout">Running from a source checkout</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#scenarios">Scenarios</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-limits">Write limits</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#arm-writes-here-without-arming-the-machine">Arm writes here without arming the machine</a></li>

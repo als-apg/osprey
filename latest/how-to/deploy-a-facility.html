@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -522,7 +529,7 @@
 <p>This page builds one facility deployment from an empty directory to running
 containers, using only <code class="docutils literal notranslate"><span class="pre">osprey</span></code> commands. Follow it in order and you end up
 with a git repository you can commit, review, and hand to a colleague.</p>
-<p>The facility is called <strong>Demo Facility</strong>. It runs three services, serves two web
+<p>The facility is called <strong>Demo Facility</strong>. It runs four services, serves two web
 terminals — one read-only, one write-capable — and ships one container the
 facility writes itself.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
@@ -556,7 +563,8 @@ scaffolding that goes with it:</p>
 ├── personas/                         one delta per web-terminal persona
 ├── services/facility-mcp/            the facility&#39;s own container
 ├── scripts/verify.sh                 the post-deploy health check
-├── .env                              the deployment&#39;s one secret store
+├── .env                              the deployment&#39;s secrets
+├── .env.telemetry-*                  telemetry store credentials, one file per account
 ├── build/                            render target, kept out of git
 ├── var/                              agent memory and audit log, kept out of git
 ├── .gitlab-ci.yml                    emitted from the profile&#39;s deploy: block
@@ -564,7 +572,7 @@ scaffolding that goes with it:</p>
 └── .gitignore
 </pre></div>
 </div>
-<p>Three services run:</p>
+<p>Four services run:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 26.0%" />
@@ -578,17 +586,22 @@ scaffolding that goes with it:</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">openobserve</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code></p></td>
 <td><p>packaged</p></td>
-<td><p>Telemetry store for the agent’s logs and metrics.</p></td>
+<td><p>Telemetry store for the agent’s logs, metrics and traces and the audit
+ledger, queried with SQL.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code></p></td>
+<td><p>packaged</p></td>
+<td><p>Admits each sender by its own login and feeds the telemetry store.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code></p></td>
 <td><p>packaged</p></td>
 <td><p>A containerized simulator with LUME-backed physics
 (<a class="reference internal" href="../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>), serving EPICS Channel Access
 on port 5064 and standing in for the real machine.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">facility-mcp</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">facility-mcp</span></code></p></td>
 <td><p>this profile</p></td>
 <td><p>The facility’s own MCP server on port 10900, built from a Dockerfile that
 lives in the profile.</p></td>
@@ -714,16 +727,15 @@ Accelerator this facility drives.</p>
 </section>
 <section id="step-3-name-the-facility-and-pin-its-services">
 <h2>Step 3 — Name the facility and pin its services<a class="headerlink" href="#step-3-name-the-facility-and-pin-its-services" title="Link to this heading">#</a></h2>
-<p>Still in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, under <code class="docutils literal notranslate"><span class="pre">config:</span></code>, set these six values. Some
+<p>Still in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, under <code class="docutils literal notranslate"><span class="pre">config:</span></code>, set these four values. Some
 are already present with a different value; some ship commented out.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
 <span class="w">  </span><span class="nt">claude_code.servers.health.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">system.timezone</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">America/Los_Angeles</span>
-<span class="w">  </span><span class="nt">facility.name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Demo Facility</span>
-<span class="w">  </span><span class="nt">facility.prefix</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">demo</span>
 <span class="w">  </span><span class="nt">deployed_services</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openobserve</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">telemetry_store</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">telemetry_gateway</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">control_system.type:</span> <span class="pre">virtual_accelerator</span></code> points the agent at the deployed
@@ -731,6 +743,15 @@ simulator, so correctors move and BPMs read through exactly the approval and
 limit layers a live machine would use. The preset already ships this value; it
 is written out here because it is the line that changes when the deployment
 goes live (<a class="reference internal" href="#changing-something-later">Changing something later</a>).</p>
+<p>The facility’s display name is not a config key. Open
+<code class="docutils literal notranslate"><span class="pre">data/facility/identity.yaml</span></code> (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> wrote it with the facility
+code) and add the name:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">code</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ca</span>
+<span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Demo Facility</span>
+</pre></div>
+</div>
+<p>This name is what the agent prompts, the web landing page and the dispatcher
+dashboard show. A file without <code class="docutils literal notranslate"><span class="pre">name</span></code> shows the project name.</p>
 <p>A deployment describes <strong>one real machine</strong>. <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> names it,
 or — on a simulated baseline like this one — the single non-simulated block
 under <code class="docutils literal notranslate"><span class="pre">control_system.connector</span></code> does, and the three control targets
@@ -743,14 +764,12 @@ block no target ever reaches. See
 <a class="reference internal" href="control-systems/switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> looks too short, and is not. The <code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span></code>
 block and the <code class="docutils literal notranslate"><span class="pre">services:</span></code> entry you add in Step 4 each append their own
-service to this list at build time. Naming <code class="docutils literal notranslate"><span class="pre">openobserve</span></code> explicitly is what
-keeps the packaged skeleton’s <code class="docutils literal notranslate"><span class="pre">postgresql</span></code> <em>out</em> — declared is not deployed,
+service to this list at build time. Naming the two telemetry services
+explicitly is what keeps the packaged skeleton’s <code class="docutils literal notranslate"><span class="pre">postgresql</span></code> <em>out</em> — declared is not deployed,
 and this list is what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reads.</p>
-<p><code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code> is the facility’s short token: the facility graph embeds it
-in every identifier it mints (<a class="reference internal" href="facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>). It
-does not name containers. The web tier is named from <code class="docutils literal notranslate"><span class="pre">project_name</span></code> like the
-rest of the deployment, so this one runs <code class="docutils literal notranslate"><span class="pre">demo-facility-nginx</span></code> and one
-<code class="docutils literal notranslate"><span class="pre">demo-facility-web-&lt;user&gt;</span></code> per operator (<code class="docutils literal notranslate"><span class="pre">demo-facility-web-alice</span></code>).</p>
+<p>The web tier is named from <code class="docutils literal notranslate"><span class="pre">project_name</span></code> like the rest of the deployment, so
+this one runs <code class="docutils literal notranslate"><span class="pre">demo-facility-nginx</span></code> and one <code class="docutils literal notranslate"><span class="pre">demo-facility-web-&lt;user&gt;</span></code> per
+operator (<code class="docutils literal notranslate"><span class="pre">demo-facility-web-alice</span></code>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">system.timezone</span></code> is the zone operator times are read in and every timestamp
 is shown in. Spell it exactly as the IANA time zone database does, case
 included (<code class="docutils literal notranslate"><span class="pre">America/Los_Angeles</span></code>, not <code class="docutils literal notranslate"><span class="pre">america/los_angeles</span></code>), or
@@ -1000,10 +1019,12 @@ yet, start from the documented list:</p>
 <p>Either way, edit <code class="docutils literal notranslate"><span class="pre">.env</span></code> and set <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code> (or the key for
 whichever provider your profile names) and <code class="docutils literal notranslate"><span class="pre">DEMO_REGISTRY_TOKEN</span></code>. The
 repository’s <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> keeps <code class="docutils literal notranslate"><span class="pre">.env</span></code> out of git.</p>
-<p>Service credentials such as <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code> stay blank. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
-mints a strong value for each unset one on first deploy and writes it back into
-<code class="docutils literal notranslate"><span class="pre">.env</span></code>, so a later rebuild comes up on the same credentials the running
-volumes were initialized with.</p>
+<p>The telemetry credentials do not go in <code class="docutils literal notranslate"><span class="pre">.env</span></code>. The telemetry store’s accounts
+and the senders’ logins are minted into files of their own, <code class="docutils literal notranslate"><span class="pre">.env.telemetry-*</span></code> at
+the repo root, mode 0600 and outside the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes
+them, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> adds a key file per reader. A later rebuild keeps them,
+so the stack comes up on the same credentials its volumes were initialized
+with.</p>
 <p><code class="docutils literal notranslate"><span class="pre">.env.example</span></code> is written by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>. After you change
 <code class="docutils literal notranslate"><span class="pre">env.required</span></code>, update the example alongside it — it is the documented list
 that whoever sets this up next will read.</p>
@@ -1081,11 +1102,12 @@ Watch for these lines in the output:</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">Persisted</span> <span class="pre">1</span> <span class="pre">MCP</span> <span class="pre">server(s)</span> <span class="pre">to</span> <span class="pre">config.yml</span></code> — the agent can reach
 <code class="docutils literal notranslate"><span class="pre">facility-mcp</span></code>.</p></li>
 </ul>
-<p>Confirm the service list is exactly the three you expect:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>config<span class="w"> </span>--rendered<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-A3<span class="w"> </span><span class="s1">&#39;^deployed_services:&#39;</span>
+<p>Confirm the service list is exactly the four you expect:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>config<span class="w"> </span>--rendered<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-A4<span class="w"> </span><span class="s1">&#39;^deployed_services:&#39;</span>
 </pre></div>
 </div>
-<p>It should read <code class="docutils literal notranslate"><span class="pre">openobserve</span></code>, <code class="docutils literal notranslate"><span class="pre">facility-mcp</span></code>, <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>.</p>
+<p>It should read <code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code>, <code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code>, <code class="docutils literal notranslate"><span class="pre">facility-mcp</span></code>,
+<code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>.</p>
 </section>
 <section id="step-9-deploy-and-check">
 <h2>Step 9 — Deploy and check<a class="headerlink" href="#step-9-deploy-and-check" title="Link to this heading">#</a></h2>

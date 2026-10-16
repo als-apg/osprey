@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -598,7 +605,11 @@ colors of OSPREY’s plain terminal output). They never affect each other.</p>
 <h2>Giving each user their own default<a class="headerlink" href="#giving-each-user-their-own-default" title="Link to this heading">#</a></h2>
 <p>In a multi-user deployment every user gets their own terminal, but they all run
 the same image — so they all read the same <code class="docutils literal notranslate"><span class="pre">web.theme</span></code>. To start a particular
-user somewhere else, add <code class="docutils literal notranslate"><span class="pre">theme</span></code> to their entry in the user list:</p>
+user somewhere else, add <code class="docutils literal notranslate"><span class="pre">theme</span></code> to their entry in the user list. The snippet
+shows only the keys this section is about; the deployment also carries the
+<code class="docutils literal notranslate"><span class="pre">personas</span></code> catalog and <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> from the multi-user page (see the
+worked example in <a class="reference internal" href="multi-user/index.html#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>), and <code class="docutils literal notranslate"><span class="pre">persona:</span>
+<span class="pre">readwrite</span></code> / <code class="docutils literal notranslate"><span class="pre">readonly</span></code> name entries of that catalog.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">users</span><span class="p">:</span>
@@ -613,8 +624,9 @@ theme to also pin light or dark. It overrides <code class="docutils literal notr
 terminal only, and their own pick in the display menu still wins over it.</p>
 <p>The landing page that lists everyone’s terminals uses the deployment-wide
 <code class="docutils literal notranslate"><span class="pre">web.theme</span></code>, and so does the sign-in page a user reaches from it, which also
-shows the facility name from <code class="docutils literal notranslate"><span class="pre">facility.name</span></code> above the OSPREY wordmark. Both
-are shown before anyone has said who they are, so there is no personal setting
+shows the facility’s name above the OSPREY wordmark. That name is the one the
+build’s facility identity records, or the project name when it records none.
+Both are shown before anyone has said who they are, so there is no personal setting
 to apply yet.</p>
 </section>
 <section id="a-navy-and-teal-terminal">

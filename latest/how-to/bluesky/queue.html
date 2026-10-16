@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -799,9 +806,9 @@ started. An agent meets this where the deployment did not grant it a
 token, where the token it holds does not match the bridge’s, or where
 no launch token is configured at all — hand the start to the operator.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">browse_only_connector</span></code></dt><dd><p class="sd-card-text">This deployment cannot execute plans at all — it is pointed at the
-<code class="docutils literal notranslate"><span class="pre">mock</span></code> control system. Composing still works; the refusal names the
-command that switches to an executing connector.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">browse_only_connector</span></code></dt><dd><p class="sd-card-text">This deployment cannot execute plans at all — it is a deployment
+serving the simulator in process. Composing still works; the refusal
+names the command that serves the simulator from its container.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">session_plan_unvalidated</span></code></dt><dd><p class="sd-card-text">An agent-written plan must pass validation, byte for byte, before it
 runs — see <a class="reference internal" href="write-plans.html"><span class="doc">Write Your Own Plans</span></a>.</p>
@@ -874,12 +881,13 @@ queue comes up armed is <code class="docutils literal notranslate"><span class="
 <p class="sd-card-text">Whether a deployment can execute plans at all is decided by its control
 system. The queue worker builds its devices over Channel Access, so the
 connectors that speak it execute plans — <code class="docutils literal notranslate"><span class="pre">epics</span></code>, <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>
-and the live stand-in — and every other one browses. <code class="docutils literal notranslate"><span class="pre">mock</span></code> browses
-because it moves nothing; a connector for another protocol browses because
-no device layer for it exists yet, which is a gap in the plan stack rather
-than a property of the facility. The panels and the agent both surface this
-as a capability banner; on the <code class="docutils literal notranslate"><span class="pre">mock</span></code> connector it names the flip:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>virtual_accelerator
+and the live stand-in — and every other one browses. A deployment serving
+the simulator in process browses because it speaks no Channel Access; a
+connector for another protocol browses because no device layer for it
+exists yet, which is a gap in the plan stack rather than a property of the
+facility. The panels and the agent both surface this as a capability
+banner; on a deployment serving the simulator in process it names the flip:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.control_system.connector.virtual_accelerator.serving<span class="o">=</span>served
 </pre></div>
 </div>
 <p class="sd-card-text">Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> afterwards to carry the change into
@@ -889,9 +897,9 @@ works; one still reading the mock archiver is refused at build time, and told
 to point <code class="docutils literal notranslate"><span class="pre">archiver.type</span></code> at a store its deployment writes first — see
 <a class="reference internal" href="../control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
 <p class="sd-card-text">One timing detail worth knowing: the channel limits a plan’s writes are
-checked against come from the file
-<code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.database_path</span></code> names, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
-stages its <strong>own copy</strong> of that file for the plan lane. So widening or
+checked against come from the records in <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code>,
+which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders into the limits database it stages for the
+plan lane. So widening or
 tightening a limit in your deployment repository reaches the queue server at
 the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> (and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>) — not the moment you save the
 file.</p>

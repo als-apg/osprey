@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -393,11 +393,12 @@
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Contracts</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="connectors.html">Connector Contracts</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simulation-bundle.html">Simulation Bundle Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="partial-answers.html">Partial Answers</a></li>
 <li class="toctree-l2"><a class="reference internal" href="python-executor.html">Python Executor Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
 </ul>
@@ -478,21 +479,22 @@ of choosing and running one, see <a class="reference internal" href="../../how-t
 <h2>Database Contracts, per Paradigm<a class="headerlink" href="#database-contracts-per-paradigm" title="Link to this heading">#</a></h2>
 <section id="in-context">
 <span id="channel-finder-db-in-context"></span><h3>In-context<a class="headerlink" href="#in-context" title="Link to this heading">#</a></h3>
-<p>A flat JSON structure loaded by <code class="docutils literal notranslate"><span class="pre">TemplateChannelDatabase</span></code>, with standalone
-entries and template entries for device families:</p>
+<p>A flat JSON structure, the index <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes from every channel, or
+from the subset the facility tags <code class="docutils literal notranslate"><span class="pre">in_context</span></code>: one row per channel, sorted by
+address, loaded by the flat <code class="docutils literal notranslate"><span class="pre">ChannelDatabase</span></code>. A row’s <code class="docutils literal notranslate"><span class="pre">channel</span></code> is the
+channel’s <code class="docutils literal notranslate"><span class="pre">label</span></code>, else its address:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;schema&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;osprey.facility.channel_finder/1&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;channels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;template&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;channel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;TerminalVoltageReadBack&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;channel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;TerminalVoltageReadBack&quot;</span><span class="p">,</span>
 <span class="w">     </span><span class="nt">&quot;address&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;TerminalVoltageReadBack&quot;</span><span class="p">,</span>
-<span class="w">     </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Actual value of the terminal potential&quot;</span><span class="p">},</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;template&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;base_name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;BPM&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;instances&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">],</span>
-<span class="w">     </span><span class="nt">&quot;sub_channels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;XPosition&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;YPosition&quot;</span><span class="p">],</span>
-<span class="w">     </span><span class="nt">&quot;address_pattern&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;BPM{instance:02d}{suffix}&quot;</span><span class="p">,</span>
-<span class="w">     </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Beam Position Monitors&quot;</span><span class="p">}</span>
+<span class="w">     </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Actual value of the terminal potential&quot;</span><span class="p">}</span>
 <span class="w">  </span><span class="p">]</span>
 <span class="p">}</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">count</span></code> is the number of rows.</p>
 </section>
 <section id="hierarchical">
 <span id="channel-finder-db-hierarchical"></span><h3>Hierarchical<a class="headerlink" href="#hierarchical" title="Link to this heading">#</a></h3>
@@ -541,7 +543,13 @@ roster in its <code class="docutils literal notranslate"><span class="pre">setup
 <span class="p">}</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">DeviceList</span></code> holds <code class="docutils literal notranslate"><span class="pre">[sector,</span> <span class="pre">device]</span></code> pairs, parallel to <code class="docutils literal notranslate"><span class="pre">CommonNames</span></code>.
+<p><code class="docutils literal notranslate"><span class="pre">DeviceList</span></code> holds <code class="docutils literal notranslate"><span class="pre">[place</span> <span class="pre">index,</span> <span class="pre">ordinal]</span></code> pairs: the device’s place
+numbered among its sibling places at the same level, by beam position, and the
+device’s ordinal inside that place. A device whose place has no sibling places
+— one at the machine itself, or with no place — has place index 0, and those
+devices are numbered together, so no two rows of a family are equal.
+<code class="docutils literal notranslate"><span class="pre">PlaceList</span></code>, when present, holds each device’s place beside its row.
+It is parallel to <code class="docutils literal notranslate"><span class="pre">CommonNames</span></code>, which is each device’s label, else its id.
 An existing MML export keeps its metadata keys (<code class="docutils literal notranslate"><span class="pre">Units</span></code>, <code class="docutils literal notranslate"><span class="pre">DataType</span></code>,
 <code class="docutils literal notranslate"><span class="pre">Description</span></code>, …) — the pipeline skips them during navigation rather than
 requiring their removal.</p>
@@ -553,39 +561,38 @@ database can describe a facility that runs both. The <code class="docutils liter
 takes a <code class="docutils literal notranslate"><span class="pre">protocol</span></code> argument to pick between them; without one it returns the
 <code class="docutils literal notranslate"><span class="pre">ChannelNames</span></code> list, and asking for a protocol the field does not carry is an
 error naming the keys it does.</p>
-<p><strong>Provenance.</strong> A database written by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">mml</span> <span class="pre">emit</span></code> carries one top-level
-<code class="docutils literal notranslate"><span class="pre">_provenance</span></code> string naming the exporter version and the checksums of the two
-files it was built from — the export and the reviewed mapping. It is a string,
-not a nested object, so the pipeline’s system listing passes over it like any
-other underscore key. See <a class="reference internal" href="../../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a> for the install
-flow that writes it.</p>
+<p><strong>The row count.</strong> Every index <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes states <code class="docutils literal notranslate"><span class="pre">count</span></code> beside
+<code class="docutils literal notranslate"><span class="pre">schema</span></code>: the rows of an in-context index, the leaves of a hierarchical
+tree, the distinct addresses listed under the fields of a middle-layer index
+(a channel of no family is not counted). <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">benchmark</span></code>
+records it as the run’s <code class="docutils literal notranslate"><span class="pre">channel_count</span></code> and refuses an index that does not
+state it; in graph mode the number is the store’s channel count. A
+middle-layer System cannot be named <code class="docutils literal notranslate"><span class="pre">schema</span></code> or <code class="docutils literal notranslate"><span class="pre">count</span></code>.</p>
 </section>
 <section id="graph">
 <span id="channel-finder-db-graph"></span><h3>Graph<a class="headerlink" href="#graph" title="Link to this heading">#</a></h3>
 <p>The graph pipeline has no channel database of its own: the facility graph
 describes the machine. Its contract is the graph schema documented in
-<a class="reference internal" href="../../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>, authored as the Turtle
-corpus <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> names. Load that corpus into the
-<code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> store with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span></code>.</p>
+<a class="reference internal" href="../../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>, carried by the Turtle
+corpus <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes from the facility file into
+<code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code>. The build writes that path into every rendered
+<code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block as <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code> unless the profile names a corpus of
+its own. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> loads that corpus into the <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> store.</p>
 <p>The corpus is the source of truth, and two things are built from it. The store
 answers questions about structure — which device an address belongs to, what a
 class is a kind of — and the device card and the agent’s Cypher tools read it.
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> also derives a flat search index from the same file, and a
-graph-mode project ships that index as <code class="docutils literal notranslate"><span class="pre">data/channel_databases/graph.duckdb</span></code>
-(<code class="docutils literal notranslate"><span class="pre">services.graphdb.index_path</span></code>). Nothing parses the corpus while the
-deployment runs; rebuild the index with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">build-index</span></code>
-whenever the corpus changes, and seed the store from the same file so the two
-agree.</p>
-<p>The corpus is also this deployment’s <strong>channel roster</strong> — the one answer to
-which channels the facility has, and which of them are written. The web
-interface enumerates and validates against it, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> derives the
-queue server’s plan devices from it (<a class="reference internal" href="../../how-to/bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>). Both
-read the index built from the corpus, not the store, and both need a corpus
-this deployment holds (<code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code>), or an <code class="docutils literal notranslate"><span class="pre">index_path</span></code>
-that names an index built elsewhere: a deployment pointed at a store the
-facility runs, holding no corpus file of its own and no such index, has
-nothing to enumerate, and the two web routes say so — naming that key —
-instead of reporting a facility with no channels.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> also derives a flat search index from the same file, and every
+render with a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block ships that index as
+<code class="docutils literal notranslate"><span class="pre">data/channel_databases/graph.duckdb</span></code> under the render, a fixed path no key
+moves. Nothing parses the corpus while the deployment runs; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span>
+<span class="pre">osprey</span> <span class="pre">up</span></code> rebuilds the index and reseeds the store from the same file, so the
+two agree.</p>
+<p>The deployment’s <strong>channel roster</strong> — the one answer to which channels the
+facility has, and which of them are written — is the facility file
+(<code class="docutils literal notranslate"><span class="pre">facility.json</span></code>) the build writes at the root of the render, not the corpus
+or the index. The web interface enumerates and validates against it, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> derives the queue server’s plan devices from it
+(<a class="reference internal" href="../../how-to/bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>).</p>
 </section>
 </section>
 <section id="configuration-reference">
@@ -595,11 +602,13 @@ instead of reporting a facility with no channels.</p>
 <span class="w">  </span><span class="nt">pipeline_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_context</span><span class="w">  </span><span class="c1"># &quot;in_context&quot;, &quot;hierarchical&quot;, &quot;middle_layer&quot;, or &quot;graph&quot;</span>
 <span class="w">  </span><span class="nt">pipelines</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">in_context</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="nv">template</span><span class="p p-Indicator">,</span><span class="nt"> path</span><span class="p">:</span><span class="w"> </span><span class="nv">data/channel_databases/in_context.json</span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="nv">data/channel_finder/in_context.json</span><span class="p p-Indicator">}</span>
 <span class="w">    </span><span class="nt">hierarchical</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="nv">hierarchical</span><span class="p p-Indicator">,</span><span class="nt"> path</span><span class="p">:</span><span class="w"> </span><span class="nv">data/channel_databases/hierarchical.json</span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="nv">data/channel_finder/hierarchical.json</span><span class="p p-Indicator">}</span>
 <span class="w">    </span><span class="nt">middle_layer</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="nv">middle_layer</span><span class="p p-Indicator">,</span><span class="nt"> path</span><span class="p">:</span><span class="w"> </span><span class="nv">data/channel_databases/middle_layer.json</span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">database</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/channel_finder/middle_layer.json</span>
+<span class="w">        </span><span class="nt">duckdb_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/channel_finder/middle_layer.duckdb</span>
 <span class="w">    </span><span class="c1"># graph has no entry: it is configured by the `services.graphdb` block.</span>
 <span class="w">  </span><span class="nt">benchmark</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">dataset_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/benchmarks/queries.json</span>
@@ -624,7 +633,7 @@ artifacts when you run <code class="docutils literal notranslate"><span class="p
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> after you edit the config. There is no public Python
 <code class="docutils literal notranslate"><span class="pre">find_channels(...)</span></code> entry point — drive the resolver from natural
 language via the agent, or invoke the CLI directly:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>generate<span class="w"> </span>--source<span class="w"> </span>my_channels.json<span class="w">   </span><span class="c1"># build database from template</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>validate<span class="w">     </span><span class="c1"># check the configured database</span>
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>benchmark<span class="w">    </span><span class="c1"># evaluate on a query dataset</span>
 </pre></div>
 </div>

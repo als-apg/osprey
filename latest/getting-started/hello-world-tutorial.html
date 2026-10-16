@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -452,8 +452,9 @@
 <h1>Hello World Tutorial<a class="headerlink" href="#hello-world-tutorial" title="Link to this heading">#</a></h1>
 <p>Build and run your first OSPREY agent in about five minutes, with no containers
 and no hardware. The <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset is the smallest deployment that
-still shows the whole write-safety chain: a mock control system that invents
-channel values, fourteen safety and bookkeeping hooks, and a browser interface.</p>
+still shows the whole write-safety chain: the simulator, served in this
+process, that answers for the channels of your facility file, fourteen safety
+and bookkeeping hooks, and a browser interface.</p>
 <p>Three <code class="docutils literal notranslate"><span class="pre">osprey</span></code> commands take you from nothing to a running agent:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>my-first-agent<span class="w"> </span>--preset<span class="w"> </span>hello-world
 <span class="nb">cd</span><span class="w"> </span>my-first-agent
@@ -525,22 +526,39 @@ write-safety chain), three rules, and one output style:</p>
 <span class="w">  </span><span class="c1"># whose write tools it guarded. Only a read-only deployment may drop them.</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">writes-check</span><span class="w">   </span><span class="c1"># Kill switch: refuse every write while writes_enabled is false</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">approval</span><span class="w">       </span><span class="c1"># Gate hardware-write tool calls on human approval prompt</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">limits</span><span class="w">         </span><span class="c1"># Enforce per-channel min/max limits, from data/channel_limits.json</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">limits</span><span class="w">         </span><span class="c1"># Enforce per-channel min/max limits, from data/facility/limits.yaml</span>
 </pre></div>
 </div>
 <p>And all remaining configuration lives in the <code class="docutils literal notranslate"><span class="pre">config:</span></code> block, one dotted key
 per line:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="c1"># Which control system to talk to. &quot;mock&quot; invents channels in-process, so</span>
-<span class="w">  </span><span class="c1"># reads work with no hardware and no containers behind them.</span>
-<span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mock</span>
-<span class="w">  </span><span class="c1"># Writes are refused until this is on. Uncomment it, rebuild, and the limits</span>
-<span class="w">  </span><span class="c1"># and approval hooks above take over from there.</span>
-<span class="w">  </span><span class="c1"># control_system.writes_enabled: true</span>
+<span class="w">  </span><span class="c1"># Which control system to talk to. `virtual_accelerator` is the simulator of</span>
+<span class="w">  </span><span class="c1"># the built facility; `serving: in_process` runs it inside this process — the</span>
+<span class="w">  </span><span class="c1"># facility&#39;s channels, its seeds and scenarios, no hardware and no containers</span>
+<span class="w">  </span><span class="c1"># — and refuses any address outside the facility. `served` reaches the same</span>
+<span class="w">  </span><span class="c1"># simulator in its container over Channel Access. The control-assistant</span>
+<span class="w">  </span><span class="c1"># preset shows the EPICS connector configuration,</span>
+<span class="w">  </span><span class="c1"># and `osprey config --defaults` lists every shipped connector type.</span>
+<span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
+<span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.serving</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_process</span>
+<span class="w">  </span><span class="c1"># The FIRST guard in the write-safety chain: while false, every hardware</span>
+<span class="w">  </span><span class="c1"># write is refused before the limits check or the approval prompt is even</span>
+<span class="w">  </span><span class="c1"># consulted. Set it true, rebuild, and the two hooks below take over.</span>
+<span class="w">  </span><span class="nt">control_system.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="c1"># ...</span>
+<span class="w">  </span><span class="c1"># The SECOND guard: every write is checked against the records in</span>
+<span class="w">  </span><span class="c1"># data/facility/limits.yaml (per-channel min/max and writable flags).</span>
+<span class="w">  </span><span class="nt">control_system.limits_checking.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="c1"># ...</span>
+<span class="w">  </span><span class="c1"># The THIRD guard: a write that passed the master switch and the limits check</span>
+<span class="w">  </span><span class="c1"># still pauses for a yes/no prompt. Applied by the approval hook, so it</span>
+<span class="w">  </span><span class="c1"># reaches only hook-wired tools; everything else is gated by the rendered</span>
+<span class="w">  </span><span class="c1"># settings.json permissions.</span>
+<span class="w">  </span><span class="nt">approval.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="c1"># ...</span>
 </pre></div>
 </div>
-<p>That commented <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> line is the one this tutorial
+<p>That <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled:</span> <span class="pre">false</span></code> line is the one this tutorial
 comes back to in Step 7. For everything the profile can hold, see
 <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
 <div class="admonition warning">
@@ -596,8 +614,12 @@ identically there; this tutorial assumes the web terminal.</p>
 </section>
 <section id="step-5-read-some-channels">
 <h2>Step 5: Read Some Channels<a class="headerlink" href="#step-5-read-some-channels" title="Link to this heading">#</a></h2>
-<p>The mock connector accepts <strong>any</strong> channel name and invents a plausible value
-for it — that is the whole trick behind a five-minute first session. Try:</p>
+<p>The simulator serves the channels of <code class="docutils literal notranslate"><span class="pre">build/facility.json</span></code>, which
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes from <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>, inside this process — that is
+the whole trick behind a five-minute first session. The session is on the
+<code class="docutils literal notranslate"><span class="pre">va</span></code> target, and the web terminal’s header chip reads “Simulator”. Any other
+address is answered with <code class="docutils literal notranslate"><span class="pre">&lt;address&gt;</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">a</span> <span class="pre">channel</span> <span class="pre">of</span> <span class="pre">this</span> <span class="pre">facility</span></code>, for
+example <code class="docutils literal notranslate"><span class="pre">ANY:RANDOM:NAME</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">a</span> <span class="pre">channel</span> <span class="pre">of</span> <span class="pre">this</span> <span class="pre">facility</span></code>. Try:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read channel SR:BEAM:CURRENT
 </pre></div>
 </div>
@@ -634,7 +656,7 @@ just fired: the build bakes the switch into the agent’s denied permissions,
 and the <code class="docutils literal notranslate"><span class="pre">writes-check</span></code> hook enforces the same switch again as defense in
 depth.</p></li>
 <li><p><strong>Limits</strong> (<code class="docutils literal notranslate"><span class="pre">limits</span></code> hook) — the value is checked against per-channel
-bounds and writable flags in <code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code>.</p></li>
+bounds and writable flags in <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code>.</p></li>
 <li><p><strong>Approval</strong> (<code class="docutils literal notranslate"><span class="pre">approval</span></code> hook) — a write that passes both still pauses
 for your explicit yes/no before anything is executed.</p></li>
 </ol>
@@ -645,11 +667,12 @@ guarded. Only a read-only deployment may drop them.</p>
 </section>
 <section id="step-7-enable-writes-in-profile-yml">
 <h2>Step 7: Enable Writes — in profile.yml<a class="headerlink" href="#step-7-enable-writes-in-profile-yml" title="Link to this heading">#</a></h2>
-<p>Open <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, find the <code class="docutils literal notranslate"><span class="pre">config:</span></code> block from Step 2, and uncomment
-one line:</p>
+<p>Open <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, find the <code class="docutils literal notranslate"><span class="pre">config:</span></code> block from Step 2, and set one
+key to <code class="docutils literal notranslate"><span class="pre">true</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mock</span>
-<span class="w">  </span><span class="nt">control_system.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># ← was commented out</span>
+<span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
+<span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.serving</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_process</span>
+<span class="w">  </span><span class="nt">control_system.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># ← was false</span>
 </pre></div>
 </div>
 <p>Then re-render and relaunch:</p>
@@ -663,17 +686,18 @@ where the change belongs, and the rebuild carries it into the render.</p>
 </section>
 <section id="step-8-write-with-the-guards-watching">
 <h2>Step 8: Write with the Guards Watching<a class="headerlink" href="#step-8-write-with-the-guards-watching" title="Link to this heading">#</a></h2>
-<p>The limits database that ships with this preset, <code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code>,
-declares three channels: two writable quadrupole setpoints with bounds, and one
-read-only measurement. With writes enabled, all three remaining behaviors are
-now observable.</p>
+<p>The limits file that ships with this preset, <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code>,
+holds three records: two writable quadrupole setpoints with bounds, and one
+read-only measurement. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes them into the render’s limits
+database, <code class="docutils literal notranslate"><span class="pre">build/data/channel_limits.json</span></code>, which is what the guards read.
+With writes enabled, all three remaining behaviors are now observable.</p>
 <p><strong>A write inside its limits</strong> — pauses for your approval:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Set SR:MAG:QF:01:CURRENT:SP to 150
 </pre></div>
 </div>
 <p>150 sits inside the 0–300 range declared for this channel, so the limits
 check passes and the approval prompt appears in the terminal, naming the
-channel and value. Approve it, and the mock connector accepts the write.
+channel and value. Approve it, and the simulator accepts the write.
 Nothing is ever written without this step.</p>
 <p><strong>A write outside its limits</strong> — blocked:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Set SR:MAG:QF:01:CURRENT:SP to 500
@@ -682,38 +706,57 @@ Nothing is ever written without this step.</p>
 <p>500 is above the channel’s maximum of 300, so the write is refused: the
 <code class="docutils literal notranslate"><span class="pre">limits</span></code> hook denies it, and the connector checks the same limits database
 once more at execution time — so even an approved write cannot carry an
-out-of-range value to the (mock) hardware. Approval is a gate on writes the
+out-of-range value to the (simulated) hardware. Approval is a gate on writes the
 limits allow; it is not a way around them.</p>
 <p><strong>A write to a read-only channel</strong> — blocked regardless of value:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Set SR:BEAM:CURRENT to 1.0
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">SR:BEAM:CURRENT</span></code> is a measurement, marked <code class="docutils literal notranslate"><span class="pre">&quot;writable&quot;:</span> <span class="pre">false</span></code> in the
-limits database, so the write is refused whatever the value.</p>
+<p><code class="docutils literal notranslate"><span class="pre">SR:BEAM:CURRENT</span></code> is a measurement, marked <code class="docutils literal notranslate"><span class="pre">writable:</span> <span class="pre">false</span></code> in the
+limits file, so the write is refused whatever the value.</p>
 </section>
-<section id="step-9-edit-the-limits-database">
-<h2>Step 9: Edit the Limits Database<a class="headerlink" href="#step-9-edit-the-limits-database" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code> is your first editable safety artifact. The
+<section id="step-9-edit-the-limits-file">
+<h2>Step 9: Edit the Limits File<a class="headerlink" href="#step-9-edit-the-limits-file" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> is your first editable safety artifact. The
 shipped file looks like this (comments abridged):</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">records</span><span class="p">:</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:QF:01:CURRENT:SP</span>
+<span class="w">  </span><span class="nt">min_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
+<span class="w">  </span><span class="nt">max_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300.0</span>
+<span class="w">  </span><span class="nt">writable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:QD:01:CURRENT:SP</span>
+<span class="w">  </span><span class="nt">min_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
+<span class="w">  </span><span class="nt">max_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">250.0</span>
+<span class="w">  </span><span class="nt">writable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:BEAM:CURRENT</span>
+<span class="w">  </span><span class="nt">writable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes one entry per record into
+<code class="docutils literal notranslate"><span class="pre">build/data/channel_limits.json</span></code>, each stating <code class="docutils literal notranslate"><span class="pre">writable</span></code> and <code class="docutils literal notranslate"><span class="pre">confirm</span></code>:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;defaults&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;confirm&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
-<span class="w">  </span><span class="p">},</span>
-<span class="w">  </span><span class="nt">&quot;SR:MAG:QF:01:CURRENT:SP&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;min_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;max_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">300.0</span><span class="p">},</span>
-<span class="w">  </span><span class="nt">&quot;SR:MAG:QD:01:CURRENT:SP&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;min_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;max_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">250.0</span><span class="p">},</span>
-<span class="w">  </span><span class="nt">&quot;SR:BEAM:CURRENT&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">}</span>
+<span class="w">  </span><span class="nt">&quot;_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;4.0&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;SR:BEAM:CURRENT&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;confirm&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;SR:MAG:QD:01:CURRENT:SP&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;min_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;max_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">250.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;confirm&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;SR:MAG:QF:01:CURRENT:SP&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;min_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;max_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">300.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;confirm&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}</span>
 <span class="p">}</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">confirm:</span> <span class="pre">true</span></code> means every write is checked: the connector reads the
-channel back once and compares what it finds with the value that was sent, so a
-write that did not land is reported rather than assumed.</p>
-<p>Channels not listed here are still writable — the preset sets
-<code class="docutils literal notranslate"><span class="pre">allow_unlisted_channels:</span> <span class="pre">true</span></code> so the mock’s invented channels stay usable;
-a production deployment sets it <code class="docutils literal notranslate"><span class="pre">false</span></code> so an unknown channel fails closed.
-Listing a channel is how you put bounds on it. Add one:</p>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="nt">&quot;SR:MAG:CORR:01:CURRENT:SP&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;min_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-5.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;max_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">5.0</span><span class="p">}</span>
+<p>That file is generated output: edit <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code> and rebuild. A profile
+that ships its own <code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code> stops the build. <code class="docutils literal notranslate"><span class="pre">writable:</span> <span class="pre">true</span></code> may be
+left out, and it cannot stand in for the bounds: a setpoint record without both
+<code class="docutils literal notranslate"><span class="pre">min_value</span></code> and <code class="docutils literal notranslate"><span class="pre">max_value</span></code> is written <code class="docutils literal notranslate"><span class="pre">writable:</span> <span class="pre">false</span></code>, so a record is
+either bounded or a block. <code class="docutils literal notranslate"><span class="pre">confirm:</span> <span class="pre">true</span></code>, the value a record gets when it does not state
+one, means every write is checked: the connector reads the channel back once
+and compares what it finds with the value that was sent, so a write that did
+not land is reported rather than assumed.</p>
+<p>Channels not listed here are written with no limits — the preset sets
+<code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.mode:</span> <span class="pre">optional</span></code>. Under <code class="docutils literal notranslate"><span class="pre">mode:</span> <span class="pre">exclusive</span></code>
+only channels in the limits file can be written. Listing a channel is how you
+put bounds on it. Add one record:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:MAG:CORR:01:CURRENT:SP</span>
+<span class="w">  </span><span class="nt">min_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">-5.0</span>
+<span class="w">  </span><span class="nt">max_value</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span>
 </pre></div>
 </div>
 <p>Then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> to carry the change into the render, and try writes on
@@ -722,18 +765,64 @@ or in <code class="docutils literal notranslate"><span class="pre">profile.yml</
 </section>
 <section id="step-10-first-containers-deploy-the-telemetry-store">
 <h2>Step 10: First Containers — Deploy the Telemetry Store<a class="headerlink" href="#step-10-first-containers-deploy-the-telemetry-store" title="Link to this heading">#</a></h2>
-<p>Everything so far ran container-free. The preset declares exactly one
-containerized service, and this is the deployment lesson:</p>
+<p>Everything so far ran container-free. The preset declares exactly two
+containerized services, the telemetry store and the gateway that feeds it, and
+this is the deployment lesson:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w"> </span>-d
 </pre></div>
 </div>
-<p>This needs a container runtime (Docker or Podman) and starts <strong>OpenObserve</strong>, a
-local telemetry store bound to localhost, with its UI at
-<a class="reference external" href="http://localhost:10050">http://localhost:10050</a> (<code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> + 50). The agent already
-emits its logs and metrics there, so
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> plus <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> gives you a queryable record of every
-session out of the box — see <a class="reference internal" href="../how-to/health-and-monitoring/monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a>. Stop the stack
-with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code>; the agent itself keeps working without it.</p>
+<p>This needs a container runtime (Docker or Podman). It starts the store, bound to
+localhost, and the gateway the agent sends its logs and metrics to; the gateway
+also reads the audit ledger under <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code> into the store. The preset names
+one reader, <code class="docutils literal notranslate"><span class="pre">operator</span></code>: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> writes its key to
+<code class="docutils literal notranslate"><span class="pre">.env.telemetry-reader.operator</span></code> and prints that file’s path and the store’s
+query page, <a class="reference external" href="http://127.0.0.1:10804/play?user=operator">http://127.0.0.1:10804/play?user=operator</a>
+(<code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> + 804), never the key itself.</p>
+<p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, ask the agent something, then ask the store what it
+recorded. This query lists the newest events and ledger records of the last
+hour:</p>
+<div class="highlight-postgresql notranslate"><div class="highlight"><pre><span></span><span class="c1">-- What the agent recorded in the last hour: its own events (prompts,</span>
+<span class="c1">-- responses, API calls) from otel_logs and the records its tools filed in</span>
+<span class="c1">-- audit_ledger, the newest ten of each, newest first.</span>
+<span class="k">SELECT</span><span class="w"> </span><span class="n">source</span><span class="p">,</span><span class="w"> </span><span class="nb">Timestamp</span><span class="p">,</span><span class="w"> </span><span class="k">User</span><span class="p">,</span><span class="w"> </span><span class="n">SessionId</span><span class="p">,</span><span class="w"> </span><span class="n">what</span>
+<span class="k">FROM</span>
+<span class="p">(</span>
+<span class="w">    </span><span class="k">SELECT</span>
+<span class="w">        </span><span class="s1">&#39;otel_logs&#39;</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">source</span><span class="p">,</span>
+<span class="w">        </span><span class="nb">Timestamp</span><span class="p">,</span>
+<span class="w">        </span><span class="k">User</span><span class="p">,</span>
+<span class="w">        </span><span class="n">SessionId</span><span class="p">,</span>
+<span class="w">        </span><span class="k">Event</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">what</span>
+<span class="w">    </span><span class="k">FROM</span><span class="w"> </span><span class="n">telemetry</span><span class="mf">.</span><span class="n">otel_logs</span>
+<span class="w">    </span><span class="k">WHERE</span><span class="w"> </span><span class="nb">Timestamp</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">now</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nb">INTERVAL</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="k">HOUR</span>
+
+<span class="w">    </span><span class="k">UNION</span><span class="w"> </span><span class="k">ALL</span>
+
+<span class="w">    </span><span class="k">SELECT</span>
+<span class="w">        </span><span class="s1">&#39;audit_ledger&#39;</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">source</span><span class="p">,</span>
+<span class="w">        </span><span class="nb">Timestamp</span><span class="p">,</span>
+<span class="w">        </span><span class="k">User</span><span class="p">,</span>
+<span class="w">        </span><span class="n">SessionId</span><span class="p">,</span>
+<span class="w">        </span><span class="n">concat</span><span class="p">(</span><span class="n">Surface</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;: &#39;</span><span class="p">,</span><span class="w"> </span><span class="n">Decision</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">what</span>
+<span class="w">    </span><span class="k">FROM</span><span class="w"> </span><span class="n">telemetry</span><span class="mf">.</span><span class="n">audit_ledger</span>
+<span class="w">    </span><span class="k">WHERE</span><span class="w"> </span><span class="nb">Timestamp</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">now</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nb">INTERVAL</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="k">HOUR</span>
+<span class="p">)</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="nb">Timestamp</span><span class="w"> </span><span class="k">DESC</span>
+<span class="k">LIMIT</span><span class="w"> </span><span class="mf">10</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">source</span>
+</pre></div>
+</div>
+<p>Save it as <code class="docutils literal notranslate"><span class="pre">hello-world-tutorial.sql</span></code> in the repo root and send it as
+<code class="docutils literal notranslate"><span class="pre">operator</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">KEY</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>sed<span class="w"> </span>-n<span class="w"> </span><span class="s1">&#39;s/^password=//p&#39;</span><span class="w"> </span>.env.telemetry-reader.operator<span class="k">)</span><span class="s2">&quot;</span>
+curl<span class="w"> </span>-sS<span class="w"> </span>--user<span class="w"> </span><span class="s2">&quot;operator:</span><span class="nv">$KEY</span><span class="s2">&quot;</span><span class="w"> </span>--data-binary<span class="w"> </span>@hello-world-tutorial.sql<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;http://127.0.0.1:10804/?http_wait_end_of_query=1&quot;</span>
+</pre></div>
+</div>
+<p>Each row names its <code class="docutils literal notranslate"><span class="pre">source</span></code> table, the time, the <code class="docutils literal notranslate"><span class="pre">User</span></code> it was recorded
+under and the session. Or paste the query into the query page with the key.
+See <a class="reference internal" href="../how-to/health-and-monitoring/monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a> for what the store
+holds and <a class="reference internal" href="../how-to/health-and-monitoring/read-the-record.html"><span class="doc">Read the Record</span></a> for readers.
+Stop the stack with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code>; the agent itself keeps working without it.</p>
 <p>The commands you now know are the complete lifecycle, and they are the same
 for a production facility deployment: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> once, then edit →
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> → <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> / <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> forever after.</p>
@@ -818,7 +907,7 @@ or volume.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-6-attempt-a-write-and-get-refused">Step 6: Attempt a Write — and Get Refused</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-7-enable-writes-in-profile-yml">Step 7: Enable Writes — in profile.yml</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-8-write-with-the-guards-watching">Step 8: Write with the Guards Watching</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-9-edit-the-limits-database">Step 9: Edit the Limits Database</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-9-edit-the-limits-file">Step 9: Edit the Limits File</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-10-first-containers-deploy-the-telemetry-store">Step 10: First Containers — Deploy the Telemetry Store</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
 </ul>

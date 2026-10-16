@@ -62,11 +62,11 @@
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
     <link rel="next" title="The Bridge Dispatch Payload" href="bridge-dispatch.html" />
-    <link rel="prev" title="Facility Graph Contracts" href="facility-graph.html" />
+    <link rel="prev" title="Guarded Run Contract" href="guarded-run.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -393,11 +393,12 @@
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Contracts</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="connectors.html">Connector Contracts</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simulation-bundle.html">Simulation Bundle Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="partial-answers.html">Partial Answers</a></li>
 <li class="toctree-l2"><a class="reference internal" href="python-executor.html">Python Executor Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Audit Trail Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
 </ul>
@@ -904,8 +905,9 @@ under the asserted identity.</p>
 <p>The default audit files hold identifiers and never values. With
 <code class="docutils literal notranslate"><span class="pre">audit.tool_call.enabled</span></code> on (see <a class="reference internal" href="../configuration/config.html#config-audit-tool-call"><span class="std std-ref">audit.tool_call: — the full record of every tool call</span></a>), every
 osprey MCP server also files one record per tool call — reads included — in
-<code class="docutils literal notranslate"><span class="pre">var/audit/&lt;identity&gt;/tool_call.jsonl</span></code>, and sends the same record to the
-telemetry store as one log line.</p>
+<code class="docutils literal notranslate"><span class="pre">var/audit/&lt;identity&gt;/tool_call.jsonl</span></code>. Where a deployment runs the
+telemetry store, the telemetry gateway reads that file like every other ledger
+file (see <a class="reference internal" href="#audit-trail-in-the-store"><span class="std std-ref">The record in the telemetry store</span></a>).</p>
 <p>This is the one surface that holds values: the full arguments, the full
 result, and what the tool noted while it ran. It does not use the default
 record shape, and the default files are the same whether it is on or off.</p>
@@ -968,14 +970,30 @@ are saved as a JSON artifact and the record carries
 <code class="docutils literal notranslate"><span class="pre">{&quot;size&quot;,</span> <span class="pre">&quot;sha256&quot;,</span> <span class="pre">&quot;artifact_id&quot;}</span></code> in its place; a failed save keeps the size
 and hash, leaves <code class="docutils literal notranslate"><span class="pre">artifact_id</span></code> <code class="docutils literal notranslate"><span class="pre">null</span></code> and names the error type in
 <code class="docutils literal notranslate"><span class="pre">artifact_error</span></code>.</p>
-<p>The telemetry copy goes where the harness’s own telemetry goes, as OTLP/HTTP
-JSON to <code class="docutils literal notranslate"><span class="pre">&lt;endpoint&gt;/v1/logs</span></code>; nothing is sent when telemetry is off or the
-protocol is <code class="docutils literal notranslate"><span class="pre">grpc</span></code>. Each line’s body is the record, and it is searchable by
-<code class="docutils literal notranslate"><span class="pre">event.name</span></code> = <code class="docutils literal notranslate"><span class="pre">osprey.tool_call</span></code>, <code class="docutils literal notranslate"><span class="pre">session.id</span></code> (the harness’s own
-attribute, so the line sits beside its events for the same conversation),
-<code class="docutils literal notranslate"><span class="pre">tool_use_id</span></code>, <code class="docutils literal notranslate"><span class="pre">tool_name</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey.server</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey.decision</span></code>. The
-file is the authoritative copy: a full send queue or an unreachable endpoint
-costs the telemetry line, never the file line.</p>
+<p>The file is the only copy the tool writes. Nothing the MCP server sends over
+the network carries the record.</p>
+</section>
+<section id="the-record-in-the-telemetry-store">
+<span id="audit-trail-in-the-store"></span><h2>The record in the telemetry store<a class="headerlink" href="#the-record-in-the-telemetry-store" title="Link to this heading">#</a></h2>
+<p>Where <code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code> and <code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code> are deployed, the gateway
+reads every <code class="docutils literal notranslate"><span class="pre">*.jsonl</span></code> file under <code class="docutils literal notranslate"><span class="pre">var/audit/&lt;identity&gt;/</span></code> — the tool-call
+record, approvals, preflight checks and every other surface — into the table
+<code class="docutils literal notranslate"><span class="pre">telemetry.audit_ledger</span></code>. The identity comes from the directory the file is
+in, never from the record, and lands in the <code class="docutils literal notranslate"><span class="pre">User</span></code> column; the surface, the
+session ids and the tool-use id land in <code class="docutils literal notranslate"><span class="pre">Surface</span></code>, <code class="docutils literal notranslate"><span class="pre">SessionId</span></code>,
+<code class="docutils literal notranslate"><span class="pre">TerminalSession</span></code> and <code class="docutils literal notranslate"><span class="pre">ToolUseId</span></code>, so a ledger row joins the agent
+harness’s own events in <code class="docutils literal notranslate"><span class="pre">telemetry.otel_logs</span></code> on <code class="docutils literal notranslate"><span class="pre">(User,</span> <span class="pre">SessionId)</span></code> and
+<code class="docutils literal notranslate"><span class="pre">(User,</span> <span class="pre">ToolUseId)</span></code>. The <code class="docutils literal notranslate"><span class="pre">Body</span></code> column holds the line as the writer wrote
+it; a line over the gateway’s size cap is stored once, cut and marked, with its
+leading fields kept.</p>
+<p>The files stay authoritative. The feed is at least once: a gateway stopped
+between a stored batch and its acknowledgement stores that batch again on its
+next start, so a query that counts rows de-duplicates on the natural key
+(<a class="reference internal" href="../../how-to/health-and-monitoring/agent-record.html#agent-record-dedup"><span class="std std-ref">the keys</span></a>). A directory that appears after the last
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> is not read until the next one; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> lists it.</p>
+<p>The Tiled catalog a plan lane writes is not part of this record and stays out
+of the store and the archive: it is beamline data, with its own retention and
+backup, not a record of what the agent was asked and did.</p>
 </section>
 <section id="which-directory-a-record-lands-in">
 <span id="audit-trail-identity-ladder"></span><h2>Which directory a record lands in<a class="headerlink" href="#which-directory-a-record-lands-in" title="Link to this heading">#</a></h2>
@@ -1087,12 +1105,12 @@ be the file that grows.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="facility-graph.html"
+       href="guarded-run.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Facility Graph Contracts</p>
+        <p class="prev-next-title">Guarded Run Contract</p>
       </div>
     </a>
     <a class="right-next"
@@ -1131,6 +1149,7 @@ be the file that grows.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-full-tool-call-record">The full tool-call record</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-record-in-the-telemetry-store">The record in the telemetry store</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#which-directory-a-record-lands-in">Which directory a record lands in</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#who-can-read-it">Who can read it</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-trail-is-not">What the trail is not</a></li>

@@ -3,7 +3,7 @@
 Retrieval Paths
 ===============
 
-The :doc:`write path <data-flow>` is how OSPREY *writes*. Reading is a
+The :doc:`safety chain <safety-chain>` is how OSPREY *writes*. Reading is a
 different shape: the agent
 answers questions from three independent retrieval stacks, each with its own
 index and its own answer to whether embeddings are involved at all.

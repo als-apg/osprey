@@ -1,0 +1,834 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Facility File and Its Views &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'architecture/facility-file';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/architecture/facility-file.html" />
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Virtual Accelerator" href="virtual-accelerator.html" />
+    <link rel="prev" title="Python Executor" href="python-executor.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="safety-chain.html">Safety Chain</a></li>
+
+
+
+
+
+
+<li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
+<li class="toctree-l1"><a class="reference internal" href="mcp-servers.html">MCP Servers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="python-executor.html">Python Executor</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Facility File and Its Views</a></li>
+<li class="toctree-l1"><a class="reference internal" href="virtual-accelerator.html">Virtual Accelerator</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Architecture</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Facility File and Its Views</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="facility-file-and-its-views">
+<span id="architecture-facility-file"></span><h1>Facility File and Its Views<a class="headerlink" href="#facility-file-and-its-views" title="Link to this heading">#</a></h1>
+<p>OSPREY keeps one description of a facility and derives everything else from
+it. The sources under <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> are combined by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> into
+the <em>facility file</em>, and each service reads a <em>view</em> of that file, a file in
+the shape the service needs. No service keeps a channel list of its own, so
+the channel finder, the limits check, the simulator and the knowledge graph
+cannot disagree about which channels exist or what they are.</p>
+<p>Writing the sources is in <a class="reference internal" href="../how-to/describe-your-facility.html"><span class="doc">Describe your facility</span></a>. This page is
+about what the build makes of them.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>data/facility/                build/
+  identity.yaml                 facility.json
+  records/        osprey        data/simulator/
+  models.yaml     build         data/channel_limits.json
+  limits.yaml    ───────►       data/facility_facts.json, .md
+  seeds.yaml                    data/graph/facility.ttl
+  fixes.yaml                    data/channel_finder/&lt;mode&gt;.json
+  imported/&lt;layer&gt;/             data/bluesky_devices.yml
+  ...
+</pre></div>
+</div>
+<section id="the-facility-file">
+<h2>The facility file<a class="headerlink" href="#the-facility-file" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">build/facility.json</span></code> is every record of the facility in one document:
+<code class="docutils literal notranslate"><span class="pre">identity</span></code>, <code class="docutils literal notranslate"><span class="pre">classes</span></code>, <code class="docutils literal notranslate"><span class="pre">places</span></code>, <code class="docutils literal notranslate"><span class="pre">devices</span></code>, <code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">groups</span></code>,
+<code class="docutils literal notranslate"><span class="pre">models</span></code> with their wiring, <code class="docutils literal notranslate"><span class="pre">limits</span></code> and <code class="docutils literal notranslate"><span class="pre">scenarios</span></code>. It holds two
+things no source file does. The first is what the build computes: the readback
+each setpoint is paired with, each device’s place and position along its
+model’s deck, a device’s ordinal among its class, and each wiring record’s
+unit, direction and operating point. The second is <code class="docutils literal notranslate"><span class="pre">provenance</span></code>: per record,
+which layer and file stated each field, which fixes were applied and which
+fields the build filled. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">show</span> <span class="pre">&lt;id&gt;</span></code> prints it.</p>
+<p>The file is the same in every render of a build. It carries no timestamp, no
+version and no absolute path, so equal sources give equal bytes.</p>
+</section>
+<section id="two-halves-of-the-build">
+<h2>Two halves of the build<a class="headerlink" href="#two-halves-of-the-build" title="Link to this heading">#</a></h2>
+<p>The first half makes the facility file, once, in memory. It runs in fixed
+stages and a stage runs only when every earlier one is clean:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 18.0%" />
+<col style="width: 82.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Stage</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>load</p></td>
+<td><p>Parses each source file and refuses unknown keys and fields only the
+build may write.</p></td>
+</tr>
+<tr class="row-odd"><td><p>combine</p></td>
+<td><p>Merges the layers field by field, applies <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code> and fills the
+defaults.</p></td>
+</tr>
+<tr class="row-even"><td><p>schema</p></td>
+<td><p>Holds the combined file to the facility schema.</p></td>
+</tr>
+<tr class="row-odd"><td><p>references</p></td>
+<td><p>Every id a record names exists; device classes and signal roles are
+known.</p></td>
+</tr>
+<tr class="row-even"><td><p>records</p></td>
+<td><p>The pair, value, limits and seed rules.</p></td>
+</tr>
+<tr class="row-odd"><td><p>compute</p></td>
+<td><p>Spans, places, positions, wiring and engines, read off the decks.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The second half writes. A build renders more than one tree (the deployment’s
+own, one per persona, one per container image) and each render receives the
+same facility file and the views its own configuration asks for. A view a
+render does not carry is named on stderr with the configuration key that left
+it out; a channel-finder index the profile did not select is neither written
+nor named.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code> runs both halves into a temporary directory and
+writes nothing into the repo.</p>
+</section>
+<section id="the-views">
+<h2>The views<a class="headerlink" href="#the-views" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 16.0%" />
+<col style="width: 30.0%" />
+<col style="width: 20.0%" />
+<col style="width: 34.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>View</p></th>
+<th class="head"><p>Written to (under the render)</p></th>
+<th class="head"><p>Written when</p></th>
+<th class="head"><p>Read by</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>simulator</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">data/simulator/</span></code></p></td>
+<td><p>always</p></td>
+<td><p>The Virtual Accelerator container, the same simulator served in
+process and the <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span></code> commands.</p></td>
+</tr>
+<tr class="row-odd"><td><p>limits</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code></p></td>
+<td><p>always</p></td>
+<td><p>The connector’s reference monitor and the runtime’s limits check, on
+every write.</p></td>
+</tr>
+<tr class="row-even"><td><p>facts</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">data/facility_facts.json</span></code>, <code class="docutils literal notranslate"><span class="pre">data/facility_facts.md</span></code></p></td>
+<td><p>always</p></td>
+<td><p>The agents’ prompts and the <code class="docutils literal notranslate"><span class="pre">facility_description</span></code> tool.</p></td>
+</tr>
+<tr class="row-odd"><td><p>bluesky</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">data/bluesky_devices.yml</span></code></p></td>
+<td><p>the render runs a Bluesky lane</p></td>
+<td><p>The Bluesky worker, as its device file.</p></td>
+</tr>
+<tr class="row-even"><td><p>in_context, hierarchical, middle_layer</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">data/channel_finder/&lt;mode&gt;.json</span></code>; <code class="docutils literal notranslate"><span class="pre">middle_layer.duckdb</span></code> beside the
+middle-layer index</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode</span></code> selects it</p></td>
+<td><p>The channel finder.</p></td>
+</tr>
+<tr class="row-odd"><td><p>graph</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code></p></td>
+<td><p>always</p></td>
+<td><p>The graph store <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> seeds, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span>
+<span class="pre">seed-from-ttl</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p>pyaml</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">data/pyaml/&lt;model&gt;/configuration.yaml</span></code> and the files it names
+(<code class="docutils literal notranslate"><span class="pre">lattice.json</span></code>, <code class="docutils literal notranslate"><span class="pre">trm.json</span></code>, <code class="docutils literal notranslate"><span class="pre">crm.json</span></code>)</p></td>
+<td><p>a served model names a deck and has a measurement file</p></td>
+<td><p>The measurement tools, and the approval prompt, which shows the view’s
+digest the facts record carries.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>pyAML.</strong> One configuration per measured model: its arrays, magnets, BPMs,
+RF plant and tools, read from the facility file and the model’s measurement
+file, beside the deck it runs the design simulator on. Each group role is one
+array, named after its group, or after the role when the role names several
+groups. A periodic model whose
+measurement file allows <code class="docutils literal notranslate"><span class="pre">trm</span></code> or <code class="docutils literal notranslate"><span class="pre">crm</span></code> gets <code class="docutils literal notranslate"><span class="pre">trm.json</span></code> or <code class="docutils literal notranslate"><span class="pre">crm.json</span></code>, the
+design response of its <code class="docutils literal notranslate"><span class="pre">quad</span></code> or <code class="docutils literal notranslate"><span class="pre">sext</span></code> group, whenever every member has a
+modelled column; the tune or chromaticity correction tool that loads it is
+added only when the matrix has rank two. The build names on
+stderr what it leaves out. A served model that cannot have a view is named as
+<code class="docutils literal notranslate"><span class="pre">pyAML</span> <span class="pre">view</span> <span class="pre">omitted</span> <span class="pre">for</span> <span class="pre">&lt;model&gt;:</span> <span class="pre">&lt;reason&gt;</span></code>. Setpoints pyAML has no magnet
+model for are counted as <code class="docutils literal notranslate"><span class="pre">view</span> <span class="pre">pyaml:</span> <span class="pre">&lt;model&gt;</span> <span class="pre">leaves</span> <span class="pre">out</span> <span class="pre">N</span> <span class="pre">setpoint(s)</span> <span class="pre">pyAML</span>
+<span class="pre">has</span> <span class="pre">no</span> <span class="pre">magnet</span> <span class="pre">model</span> <span class="pre">for:</span> <span class="pre">&lt;first</span> <span class="pre">three</span> <span class="pre">addresses&gt;,</span> <span class="pre">…</span></code>. Correctors whose element
+has no length to carry a kick – a zero-length element whose pass applies
+polynomials, or a zero-length corrector with no element beside it to lend a
+length – follow as <code class="docutils literal notranslate"><span class="pre">view</span> <span class="pre">pyaml:</span> <span class="pre">&lt;model&gt;</span> <span class="pre">leaves</span> <span class="pre">out</span> <span class="pre">N</span> <span class="pre">corrector(s)</span> <span class="pre">whose</span>
+<span class="pre">element</span> <span class="pre">has</span> <span class="pre">no</span> <span class="pre">length</span> <span class="pre">to</span> <span class="pre">carry</span> <span class="pre">a</span> <span class="pre">kick:</span> <span class="pre">&lt;first</span> <span class="pre">three</span> <span class="pre">addresses&gt;,</span> <span class="pre">…</span></code>; <code class="docutils literal notranslate"><span class="pre">N</span></code>
+counts setpoint addresses.</p>
+<p><strong>Simulator.</strong> The view lists every channel address of the facility
+(<code class="docutils literal notranslate"><span class="pre">addresses.json</span></code>), every model with its wiring (<code class="docutils literal notranslate"><span class="pre">variables.json</span></code>), the
+models this render serves (<code class="docutils literal notranslate"><span class="pre">served_models.json</span></code>), the seeds, the scenarios
+and a byte copy of each deck. A simulator serves exactly the channels of
+<code class="docutils literal notranslate"><span class="pre">addresses.json</span></code>; an address outside it does not exist.</p>
+<p><strong>Limits.</strong> One entry per record of <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code> and nothing else. A
+channel without a record is decided at write time by
+<code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.mode</span></code>.</p>
+<p><strong>Facts.</strong> What agents are told about the facility: its identity, the place
+tree with device counts, the device classes with their aliases, the signals in
+use and the models. It is how an agent knows the facility’s own words without
+a prompt written by hand.</p>
+<p><strong>Bluesky.</strong> One settable per setpoint, with its paired readback and the
+tolerance it settles within, and one readable per readback.</p>
+<p><strong>Channel finder.</strong> Three indexes, one per file-backed pipeline; a render
+carries the one its profile’s <code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code> selects. The fourth
+pipeline, <code class="docutils literal notranslate"><span class="pre">graph</span></code>, reads the graph store.</p>
+<p><strong>Graph.</strong> The facility file as Turtle: one node per place, device, channel
+and group, with the device classes as a class tree.</p>
+</section>
+<section id="the-schema">
+<span id="architecture-facility-schema"></span><h2>The schema<a class="headerlink" href="#the-schema" title="Link to this heading">#</a></h2>
+<p>The facility file’s shape is two LinkML schema modules,
+<code class="docutils literal notranslate"><span class="pre">src/osprey/facility/schema/core.yaml</span></code> (the records) and <code class="docutils literal notranslate"><span class="pre">vocabulary.yaml</span></code>
+(the shared device-class tree, the signal roles and the property names, each
+with the aliases people use for them). The build validates the combined file
+against the model generated from them.</p>
+<p>The two modules carry NARAD’s LinkML schemas forward. NARAD requires more of a facility than a bare channel
+list can state, so <code class="docutils literal notranslate"><span class="pre">loosenings.yaml</span></code>, beside the two modules, records what
+became of each slot NARAD requires: one row per slot with its <code class="docutils literal notranslate"><span class="pre">fate</span></code>
+(<code class="docutils literal notranslate"><span class="pre">dropped</span></code>, <code class="docutils literal notranslate"><span class="pre">optional</span></code>, <code class="docutils literal notranslate"><span class="pre">renamed:&lt;slot&gt;</span></code> or <code class="docutils literal notranslate"><span class="pre">header</span></code>) and the reason.
+In the other direction the graph view writes the facility file as Turtle in
+NARAD’s terms, the <code class="docutils literal notranslate"><span class="pre">narad_p:</span></code> predicates and <code class="docutils literal notranslate"><span class="pre">narad_sem:</span></code> classes of
+<code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code>, which is what the knowledge graph loads.</p>
+<p>A facility extends the vocabulary without touching the schema: a device class
+it adds in <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code> is a child of a vocabulary class, and reaches the
+facts view and the graph’s class tree with its aliases.</p>
+</section>
+<section id="simulation-models">
+<span id="architecture-simulation-models"></span><h2>Simulation models<a class="headerlink" href="#simulation-models" title="Link to this heading">#</a></h2>
+<p>A facility file’s <code class="docutils literal notranslate"><span class="pre">models</span></code> are what stands behind the channels when the
+deployment runs against a simulator. Each model record names an <code class="docutils literal notranslate"><span class="pre">engine</span></code>, a
+<code class="docutils literal notranslate"><span class="pre">deck</span></code> and the <code class="docutils literal notranslate"><span class="pre">wiring</span></code> that ties channel addresses to elements of the
+deck.</p>
+<p><strong>Engines are plug-ins.</strong> An engine is a module registered in the
+<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines</span></code> entry-point group under the name a model’s
+<code class="docutils literal notranslate"><span class="pre">engine</span></code> gives. OSPREY ships <code class="docutils literal notranslate"><span class="pre">pyat</span></code>. The build reaches the engine to read
+the deck (where each element sits, each wired channel’s operating point, what
+each wiring record is) without building a model, and stops with
+<code class="docutils literal notranslate"><span class="pre">engine-missing</span></code> when no installed package registers the name. The contract
+is under <a class="reference internal" href="../contributing/extending-osprey.html#extending-lume-model"><span class="std std-ref">LUME model</span></a>.</p>
+<p><strong>The texture model serves the rest.</strong> Every channel no model wires is served
+by <code class="docutils literal notranslate"><span class="pre">texture</span></code>, from its seed: a setpoint holds the value written to it, a
+readback follows its nominal with the noise and drift its seed states.
+<code class="docutils literal notranslate"><span class="pre">texture</span></code> is always served, so a facility with a channel list and no physics
+model is still a whole machine to a client.</p>
+<p><strong>A render chooses what it serves.</strong> <code class="docutils literal notranslate"><span class="pre">simulation.models</span></code> names the physics
+models a render serves; absent, it serves every model the facility file holds,
+and <code class="docutils literal notranslate"><span class="pre">[]</span></code> serves <code class="docutils literal notranslate"><span class="pre">texture</span></code> alone. The choice is written into the simulator
+view’s <code class="docutils literal notranslate"><span class="pre">served_models.json</span></code>. Every model’s record and deck are in the view
+whether or not it is served, so the set can change without a different view
+shape.</p>
+<p><strong>A failed model does not take the machine down.</strong> Each served physics model
+has a status channel, <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code>, which exists in no other
+view. A model whose engine cannot build it, over a deck that does not load for
+one, is left failed: its status channel carries the
+engine’s error text, and every other model and every texture channel is still
+served. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">status</span></code> prints one <code class="docutils literal notranslate"><span class="pre">&lt;model&gt;:</span> <span class="pre">&lt;status&gt;</span></code> line per served
+model, <code class="docutils literal notranslate"><span class="pre">ok</span></code> or that text, and names the log the simulator appends to.</p>
+<p>How the composite serves the models over Channel Access and PVAccess is in
+<a class="reference internal" href="virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../how-to/describe-your-facility.html"><span class="doc">Describe your facility</span></a></dt><dd><p>The source tree, file by file.</p>
+</dd>
+<dt><a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a></dt><dd><p>Running the simulator and serving a facility’s own model.</p>
+</dd>
+<dt><a class="reference internal" href="../reference/configuration/config.html"><span class="doc">Runtime Configuration — config.yml</span></a></dt><dd><p><code class="docutils literal notranslate"><span class="pre">simulation.models</span></code>, <code class="docutils literal notranslate"><span class="pre">simulation.tick_s</span></code> and
+<code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.mode</span></code>.</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="python-executor.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Python Executor</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="virtual-accelerator.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Virtual Accelerator</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-facility-file">The facility file</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#two-halves-of-the-build">Two halves of the build</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-views">The views</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-schema">The schema</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#simulation-models">Simulation models</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/architecture/facility-file.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

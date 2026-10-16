@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -548,10 +555,12 @@ full <code class="docutils literal notranslate"><span class="pre">services:</spa
 copies source and configuration into a per-service build directory; <code class="docutils literal notranslate"><span class="pre">osprey</span>
 <span class="pre">up</span></code> hands the result to Docker or Podman Compose. A deployment created from the
 <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset deploys a full stack out of the box:
-<code class="docutils literal notranslate"><span class="pre">postgresql</span></code>, <code class="docutils literal notranslate"><span class="pre">openobserve</span></code>, <code class="docutils literal notranslate"><span class="pre">event_dispatcher</span></code> and <code class="docutils literal notranslate"><span class="pre">dispatch_worker</span></code>,
+<code class="docutils literal notranslate"><span class="pre">postgresql</span></code>, <code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code> and <code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code>,
+<code class="docutils literal notranslate"><span class="pre">event_dispatcher</span></code> and <code class="docutils literal notranslate"><span class="pre">dispatch_worker</span></code>,
 <code class="docutils literal notranslate"><span class="pre">bluesky</span></code> (with its co-deployed Tiled data server), <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>,
 <code class="docutils literal notranslate"><span class="pre">bluesky_web</span></code>, and the multi-user web-terminal stack. Even the minimal
-<code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset deploys one service (<code class="docutils literal notranslate"><span class="pre">openobserve</span></code>, for telemetry).
+<code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset deploys the telemetry pair (<code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code> and
+<code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code>).
 You only need this page when you add or customize a containerized service.</p>
 </section>
 <section id="service-configuration">
@@ -590,13 +599,14 @@ build profiles that ship multiple applications.</p>
 </section>
 <section id="the-graph-store-graphdb">
 <h3>The graph store (<code class="docutils literal notranslate"><span class="pre">graphdb</span></code>)<a class="headerlink" href="#the-graph-store-graphdb" title="Link to this heading">#</a></h3>
-<p>Alongside <code class="docutils literal notranslate"><span class="pre">postgresql</span></code> and <code class="docutils literal notranslate"><span class="pre">openobserve</span></code>, the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset
+<p>Alongside <code class="docutils literal notranslate"><span class="pre">postgresql</span></code> and the telemetry store, the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset
 deploys a <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> service: a Neo4j store holding the facility’s knowledge
 graph. Its <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block names the image, the bolt port the seeder
 and the health checks dial (<code class="docutils literal notranslate"><span class="pre">port_host</span></code>), the HTTP port of the Neo4j Browser an
-operator opens (<code class="docutils literal notranslate"><span class="pre">http_port_host</span></code>), the Turtle corpus to load (<code class="docutils literal notranslate"><span class="pre">ttl_path</span></code>,
-resolved against the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> directory), and the JVM memory the container
-runs with.</p>
+operator opens (<code class="docutils literal notranslate"><span class="pre">http_port_host</span></code>), the corpus the store seeds (<code class="docutils literal notranslate"><span class="pre">ttl_path</span></code>,
+resolved against the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> directory, and filled with the graph view the
+build writes from the facility file, <code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code>, when the block
+does not spell one), and the JVM memory the container runs with.</p>
 <p>Two more keys bound what one <em>query</em> may cost rather than what the container may
 use: <code class="docutils literal notranslate"><span class="pre">query_timeout_s</span></code> (15 seconds by default) is the transaction timeout the
 store enforces on a single query, so a runaway traversal is cancelled
@@ -606,21 +616,59 @@ truncated. The OSPREY agent’s graph search reads both, and tells you when a
 result was cut short. Raising them spends the agent’s context window rather than
 the store’s memory — a few thousand rows crowd out the conversation long before
 they trouble Neo4j. For what the agent does with the store once it is up — the
-query tools, the read-only posture, and how to generate a corpus of your own —
-see <a class="reference internal" href="../facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
+query tools and the read-only posture — see
+<a class="reference internal" href="../facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
 <p>The block carries <strong>no password</strong>, deliberately — the same convention
 <code class="docutils literal notranslate"><span class="pre">postgresql</span></code> follows. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code> into the
 project <code class="docutils literal notranslate"><span class="pre">.env</span></code> when it is unset, and the container reads it from there; a
 password written into <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> would be read by nobody.</p>
-<p>On a first bring-up the deploy starts the store ahead of the rest of the stack,
-bootstraps it, and imports <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code> — a store that came up empty would answer
-every query with zero rows, which reads as wrong data rather than as no data.
-Later deploys find the corpus already there and leave it alone. If bootstrapping
-or seeding fails the deploy warns and carries on, naming <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span>
-<span class="pre">seed-graph</span></code> (see <a class="reference internal" href="../facility-knowledge/okf-bundle.html"><span class="doc">The OKF Bundle</span></a>), the verb that finishes the job by hand.</p>
+<p>Every deploy starts the store ahead of the rest of the stack, bootstraps it, and
+compares the store’s seed marker with the digest of <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code>. A store that
+already holds that corpus is left alone; any other store, an empty one included,
+is wiped and the corpus imported, so a changed facility file reaches the store
+on the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code> with no seeding step. A store whose graph configuration is
+not OSPREY’s is replaced the same way. If bootstrapping or seeding fails the
+deploy warns and carries on, naming <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">up</span></code>, which
+finishes the job once the cause is fixed.</p>
 <p>To query a graph store this deployment does <em>not</em> run, point the block at it
 instead of deploying one — see
 <a class="reference internal" href="../facility-knowledge/use-facility-graph.html#graph-external-store"><span class="std std-ref">Pointing at a store the facility runs</span></a>.</p>
+</section>
+<section id="the-telemetry-store-telemetry-store">
+<span id="deploy-telemetry-store"></span><h3>The telemetry store (<code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code>)<a class="headerlink" href="#the-telemetry-store-telemetry-store" title="Link to this heading">#</a></h3>
+<p>Every preset deploys <code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code> and <code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code> together: a
+ClickHouse database holding the agent’s telemetry and the audit ledger, and the
+OpenTelemetry Collector that feeds it. What they hold and how the agent reaches
+them is in <a class="reference internal" href="../health-and-monitoring/monitor-agent.html"><span class="doc">Monitor Your OSPREY Agent</span></a>; who may read
+them, in <a class="reference internal" href="../health-and-monitoring/read-the-record.html"><span class="doc">Read the Record</span></a>. Three things
+about running them belong here.</p>
+<p><strong>The schema is OSPREY’s.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> creates every table of the database
+<code class="docutils literal notranslate"><span class="pre">telemetry</span></code> and, on each later run, compares the live tables with this
+release’s. A change the store can make in place — a new column or index, a new
+retention — is applied. Any other change — a different sorting, partition or
+primary key, a column whose type or default changed, a column or index removed
+or redefined — is refused, naming the table and the difference, and nothing is
+touched. Such a change is migrated by hand, renaming and copying, as the
+store’s administrator (<code class="docutils literal notranslate"><span class="pre">osprey_admin</span></code>, password in <code class="docutils literal notranslate"><span class="pre">.env.telemetry-admin</span></code>):</p>
+<ol class="arabic simple">
+<li><p>Rename the table: <code class="docutils literal notranslate"><span class="pre">RENAME</span> <span class="pre">TABLE</span> <span class="pre">telemetry.&lt;table&gt;</span> <span class="pre">TO</span> <span class="pre">telemetry.&lt;table&gt;_pre_&lt;version&gt;</span></code>.</p></li>
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. It creates the table anew, empty, and the stack runs on it.</p></li>
+<li><p>Copy the rows back one daily partition at a time:
+<code class="docutils literal notranslate"><span class="pre">INSERT</span> <span class="pre">INTO</span> <span class="pre">telemetry.&lt;table&gt;</span> <span class="pre">(&lt;columns&gt;)</span> <span class="pre">SELECT</span> <span class="pre">&lt;columns&gt;</span> <span class="pre">FROM</span> <span class="pre">telemetry.&lt;table&gt;_pre_&lt;version&gt;</span> <span class="pre">WHERE</span> <span class="pre">toDate(Timestamp)</span> <span class="pre">=</span> <span class="pre">'&lt;day&gt;'</span></code>,
+naming the columns both tables share (<code class="docutils literal notranslate"><span class="pre">TimeUnix</span></code> in place of <code class="docutils literal notranslate"><span class="pre">Timestamp</span></code>
+for the metrics tables).</p></li>
+<li><p>Drop the renamed table once the counts agree.</p></li>
+</ol>
+<p><strong>The gateway keeps its place in each ledger file</strong> in its own volume. A gateway
+that loses that volume reads every ledger file from the start again, once, and
+the ledger rows still inside the retention window are stored a second time. Readers and the history
+page drop duplicates on each table’s natural key (<a class="reference internal" href="../health-and-monitoring/agent-record.html#agent-record-dedup"><span class="std std-ref">Duplicate rows</span></a>),
+so nothing else needs doing.</p>
+<p><strong>The ledger directories are fixed at build time.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> gives the
+gateway one reader per <code class="docutils literal notranslate"><span class="pre">var/audit/&lt;identity&gt;/</span></code> directory it finds. A directory
+that appears afterwards is <em>not fed until the next build</em>; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code>
+lists it under <code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code> until <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
+have run.</p>
 </section>
 </section>
 <section id="cli-commands">
@@ -1141,6 +1189,7 @@ co-deploy, documented with the ARIEL logbook search it serves.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-configuration">Service Configuration</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#service-lookup-namespaces">Service lookup namespaces</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-graph-store-graphdb">The graph store (<code class="docutils literal notranslate"><span class="pre">graphdb</span></code>)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-telemetry-store-telemetry-store">The telemetry store (<code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code>)</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cli-commands">CLI Commands</a></li>

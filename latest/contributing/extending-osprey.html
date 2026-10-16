@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -665,61 +665,79 @@ side. Deployer view: <a class="reference internal" href="../how-to/web-terminal/
 </section>
 <section id="lume-model">
 <span id="extending-lume-model"></span><h2>LUME model<a class="headerlink" href="#lume-model" title="Link to this heading">#</a></h2>
-<p>The virtual accelerator serves one <code class="docutils literal notranslate"><span class="pre">lume.model.LUMEModel</span></code>, chosen by the
-module the container runs. The shipped
-<code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.entrypoint</span></code> builds
-<code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.model.pyat.PyATRingModel</span></code> over the
-served tree’s lattice, or the floor,
-<code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.serving.model_stub.NullModel</span></code>, which
-serves a channel list and no physics. A different pyAT deck needs no code (see
-“Bringing your own model” on <a class="reference internal" href="../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>). A
-different backend is a replacement entrypoint module named in
-<code class="docutils literal notranslate"><span class="pre">VA_ENTRYPOINT_MODULE</span></code>. For a shipped model wrapped so that setpoint writes
-carry a calibration and push recomputed readings back onto their channels, see
-<code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.serving.write_path.SetpointRoutedModel</span></code>.</p>
-<p>A replacement entrypoint honours the same contract as the shipped one, which
-is its reference implementation:</p>
+<p>The virtual accelerator serves one composite, and each physics model under it
+is a <code class="docutils literal notranslate"><span class="pre">lume.model.LUMEModel</span></code> built by an <em>engine plug-in</em>. The container
+always runs the shipped <code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.entrypoint</span></code>; a
+different physics backend is a different plug-in, never a different
+entrypoint. A different pyAT deck needs no code at all (see “Bringing your own
+model” on <a class="reference internal" href="../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>). The shipped pyat plug-in,
+<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.pyat</span></code>, is the reference implementation.</p>
+<p>What a plug-in is given and asked for:</p>
 <ul class="simple">
-<li><p><strong>Runnable and importable.</strong> The container runs it as
-<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-u</span> <span class="pre">-m</span> <span class="pre">&lt;module&gt;</span></code>, so it is importable in the image and has a
-<code class="docutils literal notranslate"><span class="pre">__main__</span></code> guard, or is a package with a <code class="docutils literal notranslate"><span class="pre">__main__.py</span></code>. Its image is one
-the facility builds on top of OSPREY’s, because the stock image installs
-OSPREY and nothing else.</p></li>
-<li><p><strong>The same inputs.</strong> The data directory is <code class="docutils literal notranslate"><span class="pre">VA_DATA_DIR</span></code>, default
-<code class="docutils literal notranslate"><span class="pre">/data/simulation</span></code>. The channel manifest <code class="docutils literal notranslate"><span class="pre">VA_CHANNELS_FILE</span></code> is required
-and resolved against that directory, and the manifest is the served
-namespace. <code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code> and <code class="docutils literal notranslate"><span class="pre">VA_STATE_DIR</span></code> are set too. Channel Access is
-served on <code class="docutils literal notranslate"><span class="pre">EPICS_CAS_SERVER_PORT</span></code>, which the image’s command exports from
-<code class="docutils literal notranslate"><span class="pre">EPICS_CA_SERVER_PORT</span></code>, and pvAccess on <code class="docutils literal notranslate"><span class="pre">EPICS_PVAS_SERVER_PORT</span></code>. The
-deployment’s health check is a TCP connect to the Channel Access port and
-nothing more.</p></li>
-<li><p><strong>Clamp writes to the drive bands.</strong> The shipped entrypoint reads
-<code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code> from the data directory and hands the bands to the
-runner, which clamps every written value into its band before anything else
-happens to it (the clamp is
-<code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.serving.write_path.clamp_into</span></code>). A
-replacement that builds its own server without them serves setpoints with no
-band on the IOC side. The connector’s own <code class="docutils literal notranslate"><span class="pre">limits_checking</span></code> is separate and
-unchanged.</p></li>
-<li><p><strong>Announce readiness.</strong> Once every boot value is on the wire, print one line
-starting with <code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.entrypoint.READY_MARKER</span></code>
+<li><p><strong>Registration.</strong> A plug-in is a module registered under the
+<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines</span></code> entry-point group in its package’s own
+<code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>, under the name a model record’s <code class="docutils literal notranslate"><span class="pre">engine</span></code> gives. The
+composite looks it up with <code class="docutils literal notranslate"><span class="pre">metadata.entry_points(group=ENGINE_GROUP,</span>
+<span class="pre">name=...)</span></code>; an engine no package registers fails that model.</p></li>
+<li><p><strong>Build-time contract.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> calls four pure functions of the
+module, none of which builds a model: <code class="docutils literal notranslate"><span class="pre">locate</span></code> gives an element’s place
+along the deck, <code class="docutils literal notranslate"><span class="pre">prepare</span></code> checks the deck against the model’s settings,
+<code class="docutils literal notranslate"><span class="pre">start_values</span></code> derives each wired channel’s operating point from the deck,
+and <code class="docutils literal notranslate"><span class="pre">describe(record)</span></code> says what one wiring record is. <code class="docutils literal notranslate"><span class="pre">describe</span></code>
+returns <code class="docutils literal notranslate"><span class="pre">{role,</span> <span class="pre">plane,</span> <span class="pre">refresh}</span></code>: <code class="docutils literal notranslate"><span class="pre">role</span></code> is <code class="docutils literal notranslate"><span class="pre">setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">readback</span></code>,
+<code class="docutils literal notranslate"><span class="pre">monitor</span></code> or <code class="docutils literal notranslate"><span class="pre">output</span></code>; <code class="docutils literal notranslate"><span class="pre">plane</span></code> is <code class="docutils literal notranslate"><span class="pre">x</span></code> or <code class="docutils literal notranslate"><span class="pre">y</span></code> for a record that
+steers or reads one transverse plane, else <code class="docutils literal notranslate"><span class="pre">None</span></code>; <code class="docutils literal notranslate"><span class="pre">refresh</span></code> is
+<code class="docutils literal notranslate"><span class="pre">pass</span></code> for a value each write’s solve updates, or <code class="docutils literal notranslate"><span class="pre">periodic</span></code> for one
+only the periodic solve publishes. The build stamps the description into each wiring record
+of the simulator view, so no reader re-derives it from engine attributes.</p></li>
+<li><p><strong>Build.</strong> The composite calls the module’s
+<code class="docutils literal notranslate"><span class="pre">build(model,</span> <span class="pre">wiring,</span> <span class="pre">deck,</span> <span class="pre">settings,</span> <span class="pre">active=...)</span></code> once per served model.
+<code class="docutils literal notranslate"><span class="pre">wiring</span></code> is the model’s wiring records from the simulator view’s
+<code class="docutils literal notranslate"><span class="pre">variables.json</span></code>, <code class="docutils literal notranslate"><span class="pre">deck</span></code> is the path of the model’s deck,
+<code class="docutils literal notranslate"><span class="pre">decks/&lt;model&gt;.&lt;its</span> <span class="pre">suffix&gt;</span></code>, or <code class="docutils literal notranslate"><span class="pre">None</span></code> for a model that names none,
+<code class="docutils literal notranslate"><span class="pre">settings</span></code> is the model record’s settings, and <code class="docutils literal notranslate"><span class="pre">active</span></code> holds the active
+scenarios’ setpoint values and fault seeds. It returns the <code class="docutils literal notranslate"><span class="pre">LUMEModel</span></code>.</p></li>
+<li><p><strong>Set and get.</strong> The composite reaches the model only through its <code class="docutils literal notranslate"><span class="pre">set()</span></code>
+and <code class="docutils literal notranslate"><span class="pre">get()</span></code>. Each variable is named for the channel address its wiring
+record claims, so a plug-in parses no channel names.</p></li>
+<li><p><strong>Report a failed build.</strong> A <code class="docutils literal notranslate"><span class="pre">build</span></code> that raises leaves the model failed:
+its <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code> channel carries the text the module’s
+optional <code class="docutils literal notranslate"><span class="pre">error_text(exc)</span></code> gives, else the exception’s own text, and the
+rest of the namespace is still served.</p></li>
+<li><p><strong>The contract in code.</strong> <code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.EnginePlugin</span></code> names
+the five functions above, and <code class="docutils literal notranslate"><span class="pre">isinstance(module,</span> <span class="pre">EnginePlugin)</span></code> checks a
+module states them. Its docstring lists the optional functions —
+<code class="docutils literal notranslate"><span class="pre">error_text</span></code>, <code class="docutils literal notranslate"><span class="pre">fault_variables</span></code>, <code class="docutils literal notranslate"><span class="pre">polynomial_kicks</span></code>,
+<code class="docutils literal notranslate"><span class="pre">response_matrix</span></code> — and what a model whose engine lacks each gets.</p></li>
+</ul>
+<p>What the container keeps the same for every engine:</p>
+<ul class="simple">
+<li><p><strong>The environment.</strong> <code class="docutils literal notranslate"><span class="pre">VA_INSTANCE</span></code> is required; <code class="docutils literal notranslate"><span class="pre">VA_DATA_DIR</span></code> (default
+<code class="docutils literal notranslate"><span class="pre">/data</span></code>) is the data root the simulator view sits under; <code class="docutils literal notranslate"><span class="pre">VA_STATE_DIR</span></code>,
+<code class="docutils literal notranslate"><span class="pre">VA_POLL_INTERVAL_S</span></code> and <code class="docutils literal notranslate"><span class="pre">VA_MODEL_WRITE_TOKEN</span></code> are read as the
+entrypoint describes them. Channel Access is served on
+<code class="docutils literal notranslate"><span class="pre">EPICS_CAS_SERVER_PORT</span></code>, which the image’s command exports from
+<code class="docutils literal notranslate"><span class="pre">EPICS_CA_SERVER_PORT</span></code>.</p></li>
+<li><p><strong>Clamping.</strong> The runner clamps every written setpoint into the
+<code class="docutils literal notranslate"><span class="pre">value_range</span></code> the view’s limits records give it before anything else
+happens to the value. The connector’s own <code class="docutils literal notranslate"><span class="pre">limits_checking</span></code> is separate
+and unchanged.</p></li>
+<li><p><strong>The ready line.</strong> Once the first publishing pass has published, the
+entrypoint prints one line starting with
+<code class="docutils literal notranslate"><span class="pre">osprey.services.virtual_accelerator.entrypoint.READY_MARKER</span></code>
 (<code class="docutils literal notranslate"><span class="pre">virtual</span> <span class="pre">accelerator</span> <span class="pre">IOC</span> <span class="pre">serving</span> <span class="pre">PVs</span></code>), followed by <code class="docutils literal notranslate"><span class="pre">:</span> <span class="pre">&lt;N&gt;</span> <span class="pre">channels</span></code>.
 The image boot check and the container test fixtures wait on that line and
-read the count out of it.</p></li>
-<li><p><strong>Leave on SIGTERM.</strong> The image’s command <code class="docutils literal notranslate"><span class="pre">exec</span></code>s Python, so the module
-is the container’s first process and receives <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">stop</span></code>’s SIGTERM
-itself. A first process with no handler for it ignores it and is killed when
-the stop timeout runs out. The shipped entrypoint installs handlers for
-SIGINT and SIGTERM once its servers are up, and they leave through the
+read the count out of it. A first pass that fails exits non-zero without
+it.</p></li>
+<li><p><strong>SIGTERM.</strong> The image’s command <code class="docutils literal notranslate"><span class="pre">exec</span></code>s Python, so the entrypoint is
+the container’s first process and receives <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">stop</span></code>’s SIGTERM
+itself; it handles SIGTERM as it handles SIGINT and leaves through the
 runner’s own exit.</p></li>
-<li><p><strong>One module for every instance.</strong> With a live stand-in, both containers
-run the same image and the same <code class="docutils literal notranslate"><span class="pre">VA_ENTRYPOINT_MODULE</span></code>.</p></li>
+<li><p><strong>One image for every instance.</strong> With a live stand-in, both containers run
+the same image and the same entrypoint; <code class="docutils literal notranslate"><span class="pre">VA_INSTANCE</span></code> tells them apart.</p></li>
 </ul>
-<p>The seam is guarded in both directions: <code class="docutils literal notranslate"><span class="pre">tests/va/test_facility_seam.py</span></code>
-pins that a facility without a lattice boots with no accelerator-physics
-imports on the path at all, and <code class="docutils literal notranslate"><span class="pre">tests/va/test_pyat_ring_model.py</span></code> covers
-the shipped ring model. How to deploy a replacement is in
-<a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-serving-your-own-model"><span class="std std-ref">Serving your facility’s own model</span></a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">tests/va/test_entrypoint.py</span></code> pins what the shipped entrypoint reads and
+refuses. How to deploy a plug-in is in <a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-serving-your-own-model"><span class="std std-ref">Serving your facility’s own model</span></a>.</p>
 </section>
 <section id="agent-harness">
 <span id="extending-agent-harness"></span><h2>Agent harness<a class="headerlink" href="#agent-harness" title="Link to this heading">#</a></h2>

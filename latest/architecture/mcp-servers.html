@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -389,10 +389,11 @@
 
 
 
-<li class="toctree-l1"><a class="reference internal" href="data-flow.html">Data Flow</a></li>
+
 <li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">MCP Servers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="python-executor.html">Python Executor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="facility-file.html">Facility File and Its Views</a></li>
 <li class="toctree-l1"><a class="reference internal" href="virtual-accelerator.html">Virtual Accelerator</a></li>
 </ul>
 </div>
@@ -674,14 +675,17 @@ them (<code class="docutils literal notranslate"><span class="pre">artifact_list
 </ul>
 <p><strong>Lattice Dashboard:</strong></p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">lattice_init</span></code> – Load a lattice file into the dashboard and compute optics.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">lattice_state</span></code> – Get current lattice state (summary, families, figures, baseline).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">lattice_set_param</span></code> – Set a magnet family parameter override.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lattice_refresh</span></code> – Trigger recomputation of lattice figures.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_refresh</span></code> – Recompute figures: a figure name refreshes that one figure,
+<code class="docutils literal notranslate"><span class="pre">verify</span></code> runs <code class="docutils literal notranslate"><span class="pre">da</span></code> and <code class="docutils literal notranslate"><span class="pre">lma</span></code>, and no argument refreshes the selected model’s fast figures.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">lattice_set_baseline</span></code> – Snapshot the current state as the comparison baseline.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">lattice_clear_baseline</span></code> – Discard the saved comparison baseline.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lattice_get_figure</span></code> – Retrieve a rendered lattice figure (e.g., optics, layout) by name.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lattice_get_data</span></code> – Retrieve the underlying numeric data behind a named figure.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_get_figure</span></code> – Return a named figure with its status and key when it is current for
+the inputs on screen, else an error naming its status (stale, computing, failed, not yet
+computed) or the reason the model cannot draw it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_get_data</span></code> – Return the numeric data behind a named figure with its status and key
+when it is current for the inputs on screen, else the same errors as <code class="docutils literal notranslate"><span class="pre">lattice_get_figure</span></code>.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">lattice_get_settings</span></code> – Get current dashboard settings (display options, baselines).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">lattice_update_settings</span></code> – Update dashboard settings.</p></li>
 </ul>
@@ -718,7 +722,7 @@ clicking that layout).</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">session_log</span></code> – Retrieve the structured session activity log.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">session_summary</span></code> – Return a compact inventory of all data and artifacts in the session.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">submit_response</span></code> – Submit a formatted response to the web terminal.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">facility_description</span></code> – Get facility description and context.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">facility_description</span></code> – Get the hand-written facility description and the build’s generated facts page (places with device counts, device classes with their groups, models, and the signals and roles the channels use).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">prior_answer_read</span></code> – Read the full text of an earlier answer a chat bridge replayed shortened (dispatched runs only).</p></li>
 </ul>
 <p><strong>Setup / Diagnostics:</strong></p>

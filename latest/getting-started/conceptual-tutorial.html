@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -513,18 +513,19 @@ no credential for the operator interfaces that could change safety settings.</p>
 <h2>The Connector Abstraction<a class="headerlink" href="#the-connector-abstraction" title="Link to this heading">#</a></h2>
 <p>OSPREY does not talk to your control system directly. It uses a
 <strong>connector</strong> — an adapter that translates tool calls into the
-appropriate protocol (EPICS Channel Access, mock data, or a custom
-backend).</p>
+appropriate protocol (EPICS Channel Access, the built-in simulator, or a
+custom backend).</p>
 <p>You select the connector in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> by setting
-<code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> in its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block. Change <code class="docutils literal notranslate"><span class="pre">mock</span></code> to
-<code class="docutils literal notranslate"><span class="pre">epics</span></code> and the same agent, tools, and safety hooks work against real
+<code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> in its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block. Change
+<code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> (the simulator, served in process or from its
+container) to <code class="docutils literal notranslate"><span class="pre">epics</span></code> and the same agent, tools, and safety hooks work against real
 hardware. No code changes, no reconfiguration — one setting.</p>
 </section>
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h2>
 <p>Now that you understand the core concepts, you’re ready to build:</p>
 <dl class="simple">
-<dt><strong>Start here:</strong> <a class="reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a></dt><dd><p>Build your first agent with one MCP server and a mock control system.
+<dt><strong>Start here:</strong> <a class="reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a></dt><dd><p>Build your first agent with one MCP server and the simulator served in process.
 Three commands: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>.</p>
 </dd>
 <dt><strong>Then scale up:</strong> <a class="reference internal" href="control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a></dt><dd><p>Add channel finding, logbook search, an archive of its own, and

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -621,7 +628,7 @@ preset does not reach an existing deployment.</p>
 <h3>What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes<a class="headerlink" href="#what-osprey-init-writes" title="Link to this heading">#</a></h3>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
   profile.yml     the full configuration — edit freely
-  data/           facility content: channel databases, knowledge, lattice
+  data/           the facility tree (data/facility/) and the agent&#39;s other data
   .env.example    every variable the agent reads, documented, no values
   .env.shared     shared, committed defaults — no secrets
   .env            your values and secrets (only when your shell had keys to seed)
@@ -642,12 +649,30 @@ the preset calls for them — a <code class="docutils literal notranslate"><span
 the profile ships its <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block commented out, so there are no
 coordinates to render one from. Fill the block in and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">ci</span></code>
 writes the pipeline — see <a class="reference internal" href="deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>.</p>
-<p>A preset with a simulated machine carries it under <code class="docutils literal notranslate"><span class="pre">data/simulation/</span></code>:
-<code class="docutils literal notranslate"><span class="pre">machine.json</span></code> and one directory per scenario under <code class="docutils literal notranslate"><span class="pre">scenarios/</span></code>. What those
-files hold is the <a class="reference internal" href="../reference/contracts/simulation-bundle.html"><span class="doc">Simulation Bundle Contract</span></a>.</p>
 <p>Directories for your own artifacts (<code class="docutils literal notranslate"><span class="pre">rules/</span></code>, <code class="docutils literal notranslate"><span class="pre">skills/</span></code>, and the rest) are
 <strong>not</strong> created up front. Create the ones you need; a directory you never create
 simply means the profile contributes nothing of that kind.</p>
+</section>
+<section id="the-facility-tree">
+<h3>The facility tree<a class="headerlink" href="#the-facility-tree" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> holds every source of the facility file: the authored files
+and the <code class="docutils literal notranslate"><span class="pre">imported/&lt;layer&gt;/</span></code> directories the importers write.
+<a class="reference internal" href="describe-your-facility.html"><span class="doc">Describe your facility</span></a> walks the tree file by file.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reads the tree and writes the facility file and its views into
+the render, never back into <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>build/
+  facility.json                    the facility file
+  data/channel_limits.json         the limits view
+  data/facility_facts.json         the facts view
+  data/simulator/                  the simulator view and its decks
+  data/pyaml/&lt;model&gt;/              the pyAML view, per served model with a measurement file
+  data/graph/facility.ttl          the graph view
+  data/channel_finder/&lt;mode&gt;.json  the channel-finder view the profile selects
+  data/bluesky_devices.yml         the device view, when Bluesky is configured
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">show</span></code> prints the facility the tree builds and each view’s
+path. What a scenario file holds is in <a class="reference internal" href="run-scenarios.html"><span class="doc">Run and write scenarios</span></a>.</p>
 </section>
 </section>
 <section id="convention-directories">
@@ -765,8 +790,12 @@ channel:</p>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.osprey-manifest.json</span></code></p></td>
 <td><p>the build itself</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data/simulation/channel_manifest.json</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code></p></td>
-<td><p>the profile’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> directory</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data/simulation/channel_limits.json</span></code></p></td>
+<td><p>the build, from <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">data/pyaml/&lt;model&gt;/</span></code></p></td>
+<td><p>the build: the pyAML view, per served model with a measurement file
+(<code class="docutils literal notranslate"><span class="pre">data/facility/measurement/&lt;model&gt;.yaml</span></code>)</p></td>
 </tr>
 </tbody>
 </table>
@@ -1108,20 +1137,9 @@ flat key is what a type inherits, not a floor over it.</p>
 <p>The named plan is then invisible to the agent and non-runnable. The same
 block’s <code class="docutils literal notranslate"><span class="pre">plan_dir</span></code> key does the opposite — it installs a directory of your
 facility’s own plans; see <a class="reference internal" href="bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>.</p>
-<p><code class="docutils literal notranslate"><span class="pre">bluesky.devices_file</span></code> names the third piece: the file listing the devices
-those plans may drive or record.</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">bluesky</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">devices_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/bluesky_devices.yml</span>
-</pre></div>
-</div>
-<p>That default puts the file inside the project, so it is built and shipped with
-the deployment. An absolute path is yours instead — the build reads it where it
-is and never rewrites or relocates it. A malformed entry fails the build, and a
-deployment on a real control system with no file yet at a project path gets one
-written for it, derived from the same description of the facility the channel
-finder reads: its knowledge graph corpus in graph mode, its channel-finder
-database otherwise. The file’s format and the three cases are in
-<a class="reference internal" href="bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>.</p>
+<p>The third piece, the file listing the devices those plans may drive or
+record, is not a profile key: the build writes it from your facility file. Its
+format is in <a class="reference internal" href="bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>.</p>
 </section>
 </section>
 <section id="one-repository-several-hosts">
@@ -1241,9 +1259,8 @@ Put it in <code class="docutils literal notranslate"><span class="pre">.env</spa
 </section>
 <section id="who-else-writes-to-env">
 <h3>Who else writes to <code class="docutils literal notranslate"><span class="pre">.env</span></code><a class="headerlink" href="#who-else-writes-to-env" title="Link to this heading">#</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> both append to the file — minted credentials
-and derived pointers respectively — and both leave a value already on file
-alone; <a class="reference internal" href="deploy-project/env-chain.html#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a> has what each writes and why.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> appends minted credentials to the file and leaves a value
+already on file alone; <a class="reference internal" href="deploy-project/env-chain.html#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a> has what it writes and why.</p>
 </section>
 </section>
 <section id="profile-yaml-reference">
@@ -1252,20 +1269,6 @@ alone; <a class="reference internal" href="deploy-project/env-chain.html#deploym
 servers, tool permissions, <code class="docutils literal notranslate"><span class="pre">services</span></code>, <code class="docutils literal notranslate"><span class="pre">va_archiver</span></code>, lifecycle commands,
 <code class="docutils literal notranslate"><span class="pre">env</span></code>, dependencies and the execution environment — is in
 <a class="reference internal" href="../reference/configuration/profile.html"><span class="doc">Build Profile — profile.yml</span></a>.</p>
-</section>
-<section id="regenerating-a-channel-database">
-<h2>Regenerating a channel database<a class="headerlink" href="#regenerating-a-channel-database" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">build-database</span></code> writes the generated database <strong>into the
-profile</strong>, not into the project — beside the CSV inputs it came from, where it
-survives a rebuild. The sequence is meant to run to completion:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>build-database
-<span class="c1"># the deployment now reports its build as out of date</span>
-osprey<span class="w"> </span>build
-<span class="c1"># the report clears</span>
-</pre></div>
-</div>
-<p>The drift report in between is the reminder that the new database has not been
-deployed yet — not a problem to fix. Use <code class="docutils literal notranslate"><span class="pre">--output</span></code> to write somewhere else.</p>
 </section>
 <section id="building">
 <h2>Building<a class="headerlink" href="#building" title="Link to this heading">#</a></h2>
@@ -1364,7 +1367,7 @@ build that was fine yesterday.</p>
 <h2>What the build does<a class="headerlink" href="#what-the-build-does" title="Link to this heading">#</a></h2>
 <ol class="arabic simple">
 <li><p>Settle the profile (materialize from a preset on first use, or read the one
-you named), writing any <code class="docutils literal notranslate"><span class="pre">--set</span></code> / <code class="docutils literal notranslate"><span class="pre">--tier</span></code> into it.</p></li>
+you named), writing any <code class="docutils literal notranslate"><span class="pre">--set</span></code> into it.</p></li>
 <li><p>Resolve and validate the profile, including any persona delta merged over it.</p></li>
 <li><p>Check <code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code>; abort if unsatisfied.</p></li>
 <li><p>Clear the previous render. <code class="docutils literal notranslate"><span class="pre">build/</span></code> is wiped whole and re-made; nothing
@@ -1513,6 +1516,7 @@ relax the constraint in the profile.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#preset-profile-build">Preset → Profile → Build</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-a-deployment">Creating a deployment</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-osprey-init-writes">What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-facility-tree">The facility tree</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#convention-directories">Convention directories</a><ul class="visible nav section-nav flex-column">
@@ -1544,7 +1548,6 @@ relax the constraint in the profile.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#profile-yaml-reference">Profile YAML reference</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#regenerating-a-channel-database">Regenerating a channel database</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#building">Building</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#checking-a-profile-without-building">Checking a profile without building</a></li>
 </ul>

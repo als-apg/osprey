@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -523,8 +530,8 @@
   <section id="monitor-your-osprey-agent">
 <span id="how-to-monitor-agent"></span><h1>Monitor Your OSPREY Agent<a class="headerlink" href="#monitor-your-osprey-agent" title="Link to this heading">#</a></h1>
 <p>How to emit the OSPREY agent’s operational telemetry — logs, metrics and traces — over
-OpenTelemetry (OTLP), and optionally view it in a self-hosted store deployed
-alongside your project.</p>
+OpenTelemetry (OTLP), and optionally keep it in a store deployed alongside your
+project, together with the audit ledger.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -532,12 +539,10 @@ alongside your project.</p>
 <li><p class="sd-card-text">What telemetry the agent emits and how it is transported (OTLP)</p></li>
 <li><p class="sd-card-text"><strong>Phase 1:</strong> enabling emit against any OTLP-compatible backend
 (backend-agnostic)</p></li>
-<li><p class="sd-card-text"><strong>Phase 2:</strong> the local OpenObserve add-on the presets deploy by default,
-for an all-in-one, air-gapped store</p></li>
+<li><p class="sd-card-text"><strong>Phase 2:</strong> the telemetry store and gateway the presets deploy by
+default, for an all-in-one, air-gapped record</p></li>
+<li><p class="sd-card-text">How each sender logs in, and how the endpoint follows where it runs</p></li>
 <li><p class="sd-card-text">The full-content-capture posture and how to suppress content categories</p></li>
-<li><p class="sd-card-text">The store’s two identities — the browser login and the telemetry ingest
-account — and what each one can read</p></li>
-<li><p class="sd-card-text">Rotation, data-volume, and restart caveats</p></li>
 </ul>
 <p class="sd-card-text"><strong>Prerequisites (Phase 2 only):</strong> Docker (or Podman) installed locally.</p>
 </div>
@@ -546,22 +551,23 @@ account — and what each one can read</p></li>
 <p>The OSPREY agent can emit its operational telemetry — structured event logs,
 runtime metrics and traces — over the OpenTelemetry Protocol (OTLP). Projects built from
 the bundled presets ship with telemetry <strong>already enabled</strong> and pointed at the
-local OpenObserve store; the mechanism itself only stays off when a config has
+local telemetry gateway; the mechanism itself only stays off when a config has
 no <code class="docutils literal notranslate"><span class="pre">telemetry:</span></code> block under <code class="docutils literal notranslate"><span class="pre">claude_code:</span></code>. There are two ways to consume
 it:</p>
 <ul class="simple">
 <li><p><strong>Phase 1 — any OTLP endpoint (backend-agnostic).</strong> Point the agent at an
 OTLP collector or observability platform you already run. OSPREY only produces
 OTLP; it does not care what receives it.</p></li>
-<li><p><strong>Phase 2 — the local OpenObserve add-on (the scaffolded default).</strong> A
-single-binary OpenObserve store deployed next to your project with
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>; all telemetry stays on the same host. This is the
-turn-key option when you have no existing observability stack.</p></li>
+<li><p><strong>Phase 2 — the telemetry store and gateway (the scaffolded default).</strong> Two
+containers deployed next to your project with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>: a database that
+holds the record, and an OpenTelemetry Collector in front of it that admits
+each sender by its own login and also reads the audit ledger files. All
+telemetry stays on the same host.</p></li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Traces are exported to the same endpoint as logs and metrics. The exporter
-appends <code class="docutils literal notranslate"><span class="pre">/v1/traces</span></code> to it, which is OpenObserve’s traces route. For a
+<p>Traces are exported to the same endpoint as logs and metrics; the exporter
+appends <code class="docutils literal notranslate"><span class="pre">/v1/traces</span></code> to it. The Phase 2 gateway takes all three. For a
 Phase 1 collector that takes no traces, leave them out with <code class="docutils literal notranslate"><span class="pre">signals</span></code> (see
 <a class="reference internal" href="#monitor-agent-signals"><span class="std std-ref">Export without traces</span></a>).</p>
 </div>
@@ -575,7 +581,7 @@ pointed at an endpoint:</p>
 <span class="w">  </span><span class="nt">telemetry</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">    </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${OTEL_EXPORTER_OTLP_ENDPOINT}</span><span class="w">   </span><span class="c1"># your OTLP collector</span>
-<span class="w">    </span><span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http/protobuf</span><span class="w">                    </span><span class="c1"># default; or grpc</span>
+<span class="w">    </span><span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http/protobuf</span><span class="w">                    </span><span class="c1"># default; or http/json, grpc</span>
 <span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">token_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OTLP_COLLECTOR_TOKEN</span><span class="w">          </span><span class="c1"># variable holding the bearer token</span>
 <span class="w">    </span><span class="nt">resource_attributes</span><span class="p">:</span><span class="w">                       </span><span class="c1"># attached to every record</span>
@@ -599,17 +605,16 @@ pointed at an endpoint:</p>
 <td><p>Master switch. <code class="docutils literal notranslate"><span class="pre">false</span></code> (the default) emits nothing.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">backend</span></code></p></td>
-<td><p>Backend hint — <code class="docutils literal notranslate"><span class="pre">generic</span></code> for a plain OTLP endpoint, <code class="docutils literal notranslate"><span class="pre">openobserve</span></code>
-for the Phase 2 add-on.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">generic</span></code> (the default when unset) for an endpoint you name, or
+<code class="docutils literal notranslate"><span class="pre">gateway</span></code> for the Phase 2 telemetry gateway.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">endpoint</span></code></p></td>
 <td><p>OTLP base endpoint. Use the <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> form so the value comes from your
 <code class="docutils literal notranslate"><span class="pre">.env</span></code> rather than being committed to <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">protocol</span></code></p></td>
-<td><p>OTLP transport. Defaults to <code class="docutils literal notranslate"><span class="pre">http/protobuf</span></code>. <code class="docutils literal notranslate"><span class="pre">grpc</span></code> requires an
-explicit <code class="docutils literal notranslate"><span class="pre">endpoint</span></code>: it is refused against the auto-derived
-<code class="docutils literal notranslate"><span class="pre">openobserve</span></code> endpoint, which is HTTP-only.</p></td>
+<td><p>OTLP transport. Defaults to <code class="docutils literal notranslate"><span class="pre">http/protobuf</span></code>. The gateway takes
+<code class="docutils literal notranslate"><span class="pre">http/protobuf</span></code> and <code class="docutils literal notranslate"><span class="pre">http/json</span></code>; <code class="docutils literal notranslate"><span class="pre">grpc</span></code> is for <code class="docutils literal notranslate"><span class="pre">generic</span></code> only.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">signals</span></code></p></td>
 <td><p>Which of <code class="docutils literal notranslate"><span class="pre">metrics</span></code>, <code class="docutils literal notranslate"><span class="pre">logs</span></code> and <code class="docutils literal notranslate"><span class="pre">traces</span></code> to export. Defaults to all
@@ -618,7 +623,8 @@ three; see <a class="reference internal" href="#monitor-agent-signals"><span cla
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">auth.token_env</span></code></p></td>
 <td><p>The environment variable holding the collector’s bearer token; the agent
 sends <code class="docutils literal notranslate"><span class="pre">Authorization:</span> <span class="pre">Bearer</span> <span class="pre">&lt;value&gt;</span></code>. Holds the variable’s name, never
-the token.</p></td>
+the token. <code class="docutils literal notranslate"><span class="pre">generic</span></code> only: under <code class="docutils literal notranslate"><span class="pre">gateway</span></code> each sender logs in with
+its own login.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">resource_attributes</span></code></p></td>
 <td><p>Attributes stamped onto every emitted record — useful for separating
@@ -638,9 +644,8 @@ OTLP_COLLECTOR_TOKEN=&lt;the collector&#39;s token&gt;
 <p>On a web-terminal deploy, every <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> in the <code class="docutils literal notranslate"><span class="pre">telemetry</span></code> block that has
 no <code class="docutils literal notranslate"><span class="pre">:-default</span></code> must be set in the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses
 the deploy and names the key and the variable. None of these values is copied
-into <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, the one file every web terminal shares — the only
-exception is the store account name <code class="docutils literal notranslate"><span class="pre">ZO_INGEST_USER_EMAIL</span></code> (Phase 2) — so a
-value the terminals need from this block does not reach them from there.</p>
+into <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, the one file every web terminal shares, so a value the
+terminals need from this block does not reach them from there.</p>
 <p>The web terminals receive the variable <code class="docutils literal notranslate"><span class="pre">auth.token_env</span></code> names from the
 deploy <code class="docutils literal notranslate"><span class="pre">.env</span></code> through their own compose environment, never <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>,
 and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses the deploy when it is unset. Every other <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code>
@@ -667,182 +672,125 @@ events, so a list without <code class="docutils literal notranslate"><span class
 tool-call record is written either way.</p>
 </section>
 </section>
-<section id="phase-2-the-local-openobserve-add-on">
-<h2>Phase 2 — The local OpenObserve add-on<a class="headerlink" href="#phase-2-the-local-openobserve-add-on" title="Link to this heading">#</a></h2>
-<p>If you do not already run an observability stack, OSPREY ships an
-<a class="reference external" href="https://openobserve.ai/">OpenObserve</a> service: a single binary that ingests
-OTLP directly and serves a browser UI, with no external dependencies. Everything
-stays on the deploy host.</p>
-<section id="check-the-service-is-enabled">
-<h3>1. Check the service is enabled<a class="headerlink" href="#check-the-service-is-enabled" title="Link to this heading">#</a></h3>
-<p>Projects ship with the <code class="docutils literal notranslate"><span class="pre">openobserve</span></code> service already declared in
-<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> <strong>and</strong> listed under <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> — it deploys by
-default. If your project removed it, restore it:</p>
+<section id="phase-2-the-telemetry-store-and-gateway">
+<h2>Phase 2 — The telemetry store and gateway<a class="headerlink" href="#phase-2-the-telemetry-store-and-gateway" title="Link to this heading">#</a></h2>
+<p>If you do not already run an observability stack, OSPREY deploys one of its
+own: two services that keep the agent’s telemetry and the audit ledger on the
+deploy host, queryable with SQL.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code> — a ClickHouse database
+(<code class="docutils literal notranslate"><span class="pre">clickhouse/clickhouse-server</span></code>) holding the database <code class="docutils literal notranslate"><span class="pre">telemetry</span></code>.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> creates its tables, its accounts and their limits. It publishes
+its HTTP port on the host’s loopback only.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code> — an OpenTelemetry Collector
+(<code class="docutils literal notranslate"><span class="pre">opentelemetry-collector-contrib</span></code>). It receives OTLP over HTTP from the
+agent, refuses any sender without a valid login, stamps every record with
+the sender’s name, and writes to the store with an account that can only
+insert. It also reads every ledger file under <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code> into the table
+<code class="docutils literal notranslate"><span class="pre">audit_ledger</span></code>.</p></li>
+</ul>
+<p>The tables are <code class="docutils literal notranslate"><span class="pre">otel_logs</span></code>, <code class="docutils literal notranslate"><span class="pre">otel_traces</span></code>, the five <code class="docutils literal notranslate"><span class="pre">otel_metrics_*</span></code>
+tables (the Collector’s own table names and columns, so its upstream
+documentation applies) and <code class="docutils literal notranslate"><span class="pre">audit_ledger</span></code>. Every row carries the sender in
+<code class="docutils literal notranslate"><span class="pre">User</span></code>, and the session columns <code class="docutils literal notranslate"><span class="pre">SessionId</span></code>, <code class="docutils literal notranslate"><span class="pre">TerminalSession</span></code> and
+<code class="docutils literal notranslate"><span class="pre">ToolUseId</span></code> are the same on both sides, so the agent’s own events and its
+ledger records join on them. For the ledger table, see
+<a class="reference internal" href="../../reference/contracts/audit-trail.html#audit-trail-in-the-store"><span class="std std-ref">The record in the telemetry store</span></a>.</p>
+<section id="check-the-services-are-deployed">
+<h3>1. Check the services are deployed<a class="headerlink" href="#check-the-services-are-deployed" title="Link to this heading">#</a></h3>
+<p>Projects ship with both services declared in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> <strong>and</strong> listed
+under <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>. If your project removed them, restore them:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">openobserve</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/openobserve</span>
-<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10050</span><span class="w">         </span><span class="c1"># host port for the UI + OTLP ingest (deployment.port_base + 50)</span>
+<span class="w">  </span><span class="nt">telemetry_store</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/telemetry_store</span>
+<span class="w">    </span><span class="nt">retention_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">14</span><span class="w">       </span><span class="c1"># the store drops rows older than this</span>
+<span class="w">    </span><span class="nt">readers</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">operator</span><span class="w">       </span><span class="c1"># who may query it with SQL</span>
+<span class="w">  </span><span class="nt">telemetry_gateway</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/telemetry_gateway</span>
 
 <span class="nt">deployed_services</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openobserve</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">telemetry_store</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">telemetry_gateway</span>
 </pre></div>
 </div>
+<p>Both publish on fixed slots above <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code>: the store at + 804
+(<code class="docutils literal notranslate"><span class="pre">services.telemetry_store.port</span></code>) on loopback, the gateway at + 51
+(<code class="docutils literal notranslate"><span class="pre">services.telemetry_gateway.port</span></code>) on <code class="docutils literal notranslate"><span class="pre">deployment.bind_address</span></code>. The store’s
+container memory is <code class="docutils literal notranslate"><span class="pre">services.telemetry_store.memory</span></code> (default <code class="docutils literal notranslate"><span class="pre">2g</span></code>).</p>
 </section>
-<section id="know-the-store-s-two-identities">
-<h3>2. Know the store’s two identities<a class="headerlink" href="#know-the-store-s-two-identities" title="Link to this heading">#</a></h3>
-<p>The store carries two separate identities, and they do different jobs:</p>
+<section id="build-and-deploy">
+<h3>2. Build and deploy<a class="headerlink" href="#build-and-deploy" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
+osprey<span class="w"> </span>up
+</pre></div>
+</div>
+<p>There is nothing to set by hand. Every account has its secret in a file of its
+own at the repo root, mode 0600, outside the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
-<col style="width: 16.0%" />
 <col style="width: 40.0%" />
-<col style="width: 44.0%" />
+<col style="width: 60.0%" />
 </colgroup>
 <thead>
-<tr class="row-odd"><th class="head"><p>Identity</p></th>
-<th class="head"><p><code class="docutils literal notranslate"><span class="pre">.env</span></code> variables</p></th>
-<th class="head"><p>What it is for</p></th>
+<tr class="row-odd"><th class="head"><p>File</p></th>
+<th class="head"><p>Whose</p></th>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><strong>Root</strong></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_EMAIL</span></code>, <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code></p></td>
-<td><p>Initializes the store on its first start, and logs <em>you</em> into the
-browser UI. It never leaves the deploy host: nothing on the wire
-authenticates as root.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.env.telemetry-admin</span></code></p></td>
+<td><p>The store’s own administrator, <code class="docutils literal notranslate"><span class="pre">osprey_admin</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>Ingest</strong></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">ZO_INGEST_USER_EMAIL</span></code>, <code class="docutils literal notranslate"><span class="pre">ZO_INGEST_SA_TOKEN</span></code></p></td>
-<td><p>The account the agent authenticates as when it ships telemetry. This is
-the credential that travels — into the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, and into
-web-terminal environments.</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.env.telemetry-ingest</span></code></p></td>
+<td><p>The gateway’s insert-only account</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.env.telemetry-sender.&lt;identity&gt;</span></code></p></td>
+<td><p>One sender’s login: a roster user, a dispatch worker, or the host
+identity (<code class="docutils literal notranslate"><span class="pre">deployment.host_identity</span></code>) for runs on the host</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.env.telemetry-senders.htpasswd</span></code></p></td>
+<td><p>What the gateway checks the logins against</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.env.telemetry-archive</span></code></p></td>
+<td><p>The archive’s read-only account</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.env.telemetry-history</span></code>, <code class="docutils literal notranslate"><span class="pre">.env.telemetry-history-gate</span></code></p></td>
+<td><p>The history page, where it is deployed</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.env.telemetry-reader.&lt;name&gt;</span></code></p></td>
+<td><p>One reader’s key (<a class="reference internal" href="read-the-record.html"><span class="doc">Read the Record</span></a>)</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>You do not have to set either one. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> writes whatever is missing
-into the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>, so the answer to “what do I log in with” is always
-that file:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>grep<span class="w"> </span>ZO_<span class="w"> </span>~/my-project/.env
-</pre></div>
-</div>
-<p><strong>Root</strong> is written before the store starts, because the store reads it to
-initialize itself. The minted password is short on purpose: you read it off a
-terminal and type it into a browser login form, so it is 12 characters drawn
-from an alphabet with the easily-misread characters (<code class="docutils literal notranslate"><span class="pre">l</span> <span class="pre">I</span> <span class="pre">1</span> <span class="pre">O</span> <span class="pre">0</span></code>) removed.
-Every character still comes from a cryptographic random source, so it is short
-to type without being easy to guess. Set the pair yourself, in the project’s
-<code class="docutils literal notranslate"><span class="pre">.env</span></code>, if you want specific values:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># .env</span>
-<span class="nv">ZO_ROOT_USER_EMAIL</span><span class="o">=</span>you@example.com
-<span class="nv">ZO_ROOT_USER_PASSWORD</span><span class="o">=</span>choose-a-strong-password
-</pre></div>
-</div>
-<p><strong>Ingest</strong> cannot work that way, and this is the asymmetry worth remembering:
-its secret is issued by the <em>store</em>, not chosen by OSPREY, so it cannot exist
-before the store is running. The deploy creates the account and reads its token
-back — see step 3. Only the account <em>name</em> is written up front, and you may set
-it to an address of your choosing; the token half is never yours to write.</p>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p><strong>The ingest identity can read, shorten, and delete everything the store
-holds.</strong> It is a real OpenObserve service account, and its token can do
-more than write telemetry:</p>
-<ul class="simple">
-<li><p>search every stream already in the store, which means the agent’s full
-conversation transcripts;</p></li>
-<li><p>list the store’s users;</p></li>
-<li><p>change a stream’s retention, so it can shorten how long the record is
-kept;</p></li>
-<li><p>delete a stream outright.</p></li>
-</ul>
-<p>It cannot create users. So the credential that writes the record can also
-read it back, shorten it, or erase it. OpenObserve has no ingest-only role
-in any edition, so this is as narrow as the shipped identity gets. The token
-reaches every process that exports telemetry, headless dispatch runs
-included. Guard it as closely as the telemetry itself. What it does buy you
-is that the root password stays on the deploy host and never reaches a
-config file, a container environment, or the network.</p>
-</div>
-<div class="admonition important">
-<p class="admonition-title">Important</p>
-<p><strong>Publishing this store beyond</strong> <code class="docutils literal notranslate"><span class="pre">localhost</span></code> <strong>exposes agent transcripts.</strong>
-It holds full agent conversation transcripts, and both identities can read
-them. Reach it over an SSH tunnel, or put it behind TLS, rather than binding
-it to every interface. The minted password is a per-deploy random value, so
-it stays usable wherever the store is published — what exposure changes is
-who can reach the login, not how strong the password is.</p>
-</div>
-</section>
-<section id="deploy-it">
-<h3>3. Deploy it<a class="headerlink" href="#deploy-it" title="Link to this heading">#</a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w">        </span><span class="c1"># brings up openobserve alongside your other services</span>
-</pre></div>
-</div>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> starts the store first, then provisions the ingest identity
-against it and saves the token the store issues into the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>.
-There is nothing to set by hand. The run reports what it did under the
-<code class="docutils literal notranslate"><span class="pre">openobserve</span></code> group:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>telemetry store started
-ingest identity verified        # the token already on file works
-ingest identity provisioned     # the deploy had to create, harvest, or reissue one
-</pre></div>
-</div>
-<p>Only a run that <em>writes</em> says more, naming which of the three happened:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>created the telemetry ingest account and saved its token → .env
-read the telemetry ingest token back from the store → .env
-the telemetry ingest token was refused, so a new one was issued → .env
-</pre></div>
-</div>
-<p>A verified token is silent — no extra lines means nothing needed changing.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>On a deployment that has never been started, <code class="docutils literal notranslate"><span class="pre">ZO_INGEST_SA_TOKEN</span></code> is
-simply absent from <code class="docutils literal notranslate"><span class="pre">.env</span></code> until this step runs. The deploy’s preflight
-checks <strong>defer</strong> that one variable rather than refusing to start, because it
-is the one credential an operator cannot supply. For the same reason,
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> against a never-started deployment warns that
-<code class="docutils literal notranslate"><span class="pre">ZO_INGEST_SA_TOKEN</span></code> is unresolved and leaves the telemetry auth header
-out; that warning is expected, and the value is resolved again when the
-agent starts.</p>
-</div>
-<p>If the store is unreachable, or the store refuses the root credential, the
-deploy warns with a named remedy and carries on — telemetry is the only thing
-affected, and every other service in the deployment comes up as usual. The
-remedy is almost always to run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> again once the store is running.</p>
-<p>The UI is then available at <code class="docutils literal notranslate"><span class="pre">http://localhost:10050</span></code> — the layout’s
-<code class="docutils literal notranslate"><span class="pre">openobserve</span></code> slot, <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> + 50; <code class="docutils literal notranslate"><span class="pre">services.openobserve.port</span></code>
-moves it. Log in with the <strong>root</strong> credentials. Verify the service is
-recognized with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes every file but the reader keys, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
+mints. Each file reaches exactly the container that acts as that account,
+and no other: a terminal holds its own login and nothing else. The web
+terminals, the dispatch workers and host runs each send under their own name.
+To rotate a secret, delete its file and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>;
+the services that hold it are recreated. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code> keeps the files.</p>
+<p>Verify both services with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code>: <code class="docutils literal notranslate"><span class="pre">telemetry_store</span></code> checks the
+store answers, and <code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code> checks the gateway’s export queues and
+refusal counters, and lists any audit directory it does not read yet.</p>
 </section>
 <section id="point-the-agent-at-it">
-<h3>4. Point the agent at it<a class="headerlink" href="#point-the-agent-at-it" title="Link to this heading">#</a></h3>
-<p>Wire the <code class="docutils literal notranslate"><span class="pre">telemetry:</span></code> block to <code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">openobserve</span></code> and name the <strong>ingest</strong>
-identity in the <code class="docutils literal notranslate"><span class="pre">openobserve:</span></code> sub-block — never the root account. <strong>Do not
-set</strong> <code class="docutils literal notranslate"><span class="pre">endpoint</span></code> for this backend — omit it and the agent derives the OTLP
-ingest URL automatically per network context:</p>
+<h3>3. Point the agent at it<a class="headerlink" href="#point-the-agent-at-it" title="Link to this heading">#</a></h3>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">telemetry</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openobserve</span>
-<span class="w">    </span><span class="c1"># No `endpoint:` here — for the openobserve backend it is derived</span>
-<span class="w">    </span><span class="c1"># automatically (see the note below).</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gateway</span>
 <span class="w">    </span><span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http/protobuf</span>
-<span class="w">    </span><span class="nt">openobserve</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${ZO_INGEST_USER_EMAIL:-ingest@example.com}</span>
-<span class="w">      </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${ZO_INGEST_SA_TOKEN}</span>
-<span class="w">      </span><span class="nt">org</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
 </pre></div>
 </div>
 <p>This is what the bundled presets already ship, so a project scaffolded from one
-needs no edit here. The token reference deliberately carries <strong>no</strong> <code class="docutils literal notranslate"><span class="pre">:-</span></code>
-fallback: a default value would be a credential the store never issued, and
-telemetry would fail with a plausible-looking secret on file instead of an
-obviously missing one. The account name does carry a fallback, because it is a
-name rather than a secret.</p>
+needs no edit here. The block names <strong>no endpoint and no credential</strong>: under
+<code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">gateway</span></code> the endpoint follows where the sender runs, and the login
+comes from the sender’s own file. Setting <code class="docutils literal notranslate"><span class="pre">endpoint</span></code> or <code class="docutils literal notranslate"><span class="pre">auth.token_env</span></code>
+under this backend stops the build.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 336" role="img" aria-labelledby="otel-endpoint-title otel-endpoint-desc">
-  <title id="otel-endpoint-title">Where the OTLP endpoint points, by running context</title>
-  <desc id="otel-endpoint-desc">One OpenObserve store is reached under a different host name depending on where the emitter runs: localhost from a plain host run, the compose service name openobserve from a bridge-networked container, and localhost again from a host-networked container where the compose DNS name would not resolve. The port is the one the store publishes (services.openobserve.port); only a bridge-networked container reaches it on the image's fixed listen port, 5080.</desc>
+  <title id="otel-endpoint-title">Where a sender reaches the telemetry gateway, by running context</title>
+  <desc id="otel-endpoint-desc">One telemetry gateway is reached under a different address depending on where the sender runs: the address the gateway publishes from a plain host run, which carries no gateway variables; the same published address from a host-networked container, declared by OSPREY_OTEL_GATEWAY_HOST and OSPREY_OTEL_GATEWAY_PORT; and the compose service name telemetry_gateway on the collector's listen port, 4318, from a bridge-networked container. The published address is deployment.bind_address (loopback for a wildcard) and services.telemetry_gateway.port.</desc>
   <defs>
     <marker id="otel-endpoint-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -854,77 +802,78 @@ name rather than a secret.</p>
   <line class="e" x1="316" y1="252" x2="612" y2="184" marker-end="url(#otel-endpoint-arr)"/>
 
   <text class="te" x="16" y="26">WHERE THE EMITTER RUNS</text>
-  <text class="te" x="620" y="26">ONE STORE</text>
+  <text class="te" x="620" y="26">ONE GATEWAY</text>
 
   <rect class="nb" x="16" y="40" width="300" height="64" rx="6"/>
   <text class="tn" x="166" y="64" text-anchor="middle">the agent on your host</text>
   <text class="ts" x="166" y="81" text-anchor="middle">osprey web / osprey query</text>
-  <text class="ts" x="166" y="96" text-anchor="middle">host resolves to localhost</text>
+  <text class="ts" x="166" y="96" text-anchor="middle">dials the published address</text>
 
   <rect class="nb" x="16" y="130" width="300" height="64" rx="6"/>
   <text class="tn" x="166" y="154" text-anchor="middle">bridge-networked container</text>
   <text class="ts" x="166" y="171" text-anchor="middle">the containerized dispatch worker</text>
-  <text class="ts" x="166" y="186" text-anchor="middle">host must be openobserve, port must be 5080</text>
+  <text class="ts" x="166" y="186" text-anchor="middle">service name, listen port 4318</text>
 
   <rect class="nb" x="16" y="220" width="300" height="64" rx="6"/>
   <text class="tn" x="166" y="244" text-anchor="middle">host-networked container</text>
   <text class="ts" x="166" y="261" text-anchor="middle">network_mode: host</text>
-  <text class="ts" x="166" y="276" text-anchor="middle">host must be localhost</text>
+  <text class="ts" x="166" y="276" text-anchor="middle">the same published address</text>
 
   <rect class="mask" x="346" y="88" width="184" height="15"/>
-  <text class="ta" x="352" y="100">leave OSPREY_OTEL_OPENOBSERVE_HOST unset</text>
-  <rect class="mask" x="346" y="143" width="184" height="15"/>
-  <text class="ta" x="352" y="155">OSPREY_OTEL_OPENOBSERVE_HOST=openobserve</text>
-  <rect class="mask" x="346" y="220" width="180" height="15"/>
-  <text class="ta" x="352" y="232">OSPREY_OTEL_OPENOBSERVE_HOST=localhost</text>
+  <text class="ta" x="352" y="100">no OSPREY_OTEL_GATEWAY_* set</text>
+  <rect class="mask" x="346" y="143" width="216" height="15"/>
+  <text class="ta" x="352" y="155">OSPREY_OTEL_GATEWAY_HOST=telemetry_gateway</text>
+  <rect class="mask" x="346" y="220" width="216" height="15"/>
+  <text class="ta" x="352" y="232">OSPREY_OTEL_GATEWAY_HOST/_PORT = published</text>
 
   <rect class="nb-st" x="620" y="120" width="300" height="84" rx="6"/>
-  <text class="tn" x="770" y="148" text-anchor="middle">OpenObserve</text>
-  <text class="ts" x="770" y="167" text-anchor="middle">http://&lt;host&gt;:&lt;port&gt;/api/&lt;org&gt;</text>
-  <text class="ts" x="770" y="185" text-anchor="middle">one store, reached by three names</text>
+  <text class="tn" x="770" y="148" text-anchor="middle">telemetry gateway</text>
+  <text class="ts" x="770" y="167" text-anchor="middle">http://&lt;host&gt;:&lt;port&gt;, one login per sender</text>
+  <text class="ts" x="770" y="185" text-anchor="middle">one gateway, reached by two addresses</text>
 
-  <text class="ta ta-warn" x="480" y="308" text-anchor="middle">the port follows services.openobserve.port — only the bridge case uses the image's fixed 5080; do not hardcode endpoint:</text>
-  <text class="ta ta-warn" x="480" y="324" text-anchor="middle">hardcoding endpoint: points every context at one host and silently drops the records from the others</text>
+  <text class="ta ta-warn" x="480" y="308" text-anchor="middle">the published port follows services.telemetry_gateway.port — only the bridge case uses the fixed 4318</text>
+  <text class="ta ta-warn" x="480" y="324" text-anchor="middle">backend: gateway takes no endpoint: — the build refuses one, since no single address fits every context</text>
 </svg>
 </div>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
-<p>For <code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">openobserve</span></code> the OTLP endpoint is <strong>auto-derived</strong> and you
-should not hardcode it. The derived form is <code class="docutils literal notranslate"><span class="pre">http://&lt;host&gt;:&lt;port&gt;/api/&lt;org&gt;</span></code>,
-with both halves chosen for the running context:</p>
+<p>The gateway is reached under a different address depending on where the
+sender runs:</p>
 <ul class="simple">
-<li><p><strong>On the host</strong> (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> / <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> on your machine) the host
-is <code class="docutils literal notranslate"><span class="pre">localhost</span></code> and the port is the one the store <strong>publishes</strong> —
-<code class="docutils literal notranslate"><span class="pre">services.openobserve.port</span></code>, so moving the store moves the exporter
-with it.</p></li>
+<li><p><strong>On the host</strong> (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> / <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> on your machine), at the
+address the gateway publishes: <code class="docutils literal notranslate"><span class="pre">deployment.bind_address</span></code> (loopback for a
+wildcard bind) and <code class="docutils literal notranslate"><span class="pre">services.telemetry_gateway.port</span></code>.</p></li>
 <li><p><strong>Inside a host-networked container</strong> (every web-terminal persona
-container, a dispatch worker on the host network) the container’s
-loopback is the host’s, so the address is the same published one. The
-framework’s compose files declare the host explicitly
-(<code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_OPENOBSERVE_HOST=127.0.0.1</span></code> or <code class="docutils literal notranslate"><span class="pre">localhost</span></code>), because
-the emitter’s own container detection would otherwise pick the compose
-DNS name, which resolves to nothing there.</p></li>
+container, a dispatch worker on the host network), at that same published
+address. The container’s compose file declares it as
+<code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_GATEWAY_HOST</span></code> and <code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_GATEWAY_PORT</span></code>.</p></li>
 <li><p><strong>Inside a bridge-networked container</strong> (the default containerized
-dispatch worker) the store is reachable only by its compose service DNS
-name, <code class="docutils literal notranslate"><span class="pre">openobserve</span></code>, and on the port it <strong>listens</strong> on inside its own
-container (5080) rather than the published one. The dispatch-worker
-service declares both, <code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_OPENOBSERVE_HOST=openobserve</span></code> and
-<code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_OPENOBSERVE_PORT=5080</span></code>. That explicit declaration — rather
-than sniffing the container runtime — is what makes emit work identically
-under Docker and Podman.</p></li>
+dispatch worker), at the compose service name and the port the gateway
+listens on inside its own container: <code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_GATEWAY_HOST=telemetry_gateway</span></code>,
+<code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_GATEWAY_PORT=4318</span></code>.</p></li>
 </ul>
-<p>If you run your own containerized emitter, set
-<code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_OPENOBSERVE_HOST</span></code> to whatever host reaches OpenObserve from
-inside that container — the compose service name on a bridge network
-(with <code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_OPENOBSERVE_PORT</span></code> naming the listen port), or
-<code class="docutils literal notranslate"><span class="pre">localhost</span></code> when the container uses host networking (<code class="docutils literal notranslate"><span class="pre">network_mode:</span> <span class="pre">host</span></code>),
-where the compose DNS name would not resolve and the published port
-applies. Leave both unset on a plain host run. Hardcoding <code class="docutils literal notranslate"><span class="pre">endpoint:</span></code>
-instead would point every context at the same address and silently drop
-records from the ones it doesn’t fit.</p>
+<p>A process that carries neither variable is a host run. The pair is
+declared, never sniffed, so emit works the same under Docker and Podman. If
+you run your own containerized emitter, set both to whatever reaches the
+gateway from inside that container, and give it a sender login.</p>
 </div>
-<p>On its next run the agent emits to OpenObserve, and its logs, metrics and traces
-appear in the UI.</p>
+<p>On its next run the agent’s logs, metrics and traces land in the store. To
+query them, see <a class="reference internal" href="read-the-record.html"><span class="doc">Read the Record</span></a>.</p>
+</section>
+<section id="know-what-the-gateway-reads">
+<h3>4. Know what the gateway reads<a class="headerlink" href="#know-what-the-gateway-reads" title="Link to this heading">#</a></h3>
+<p>The gateway reads one ledger directory per identity, <code class="docutils literal notranslate"><span class="pre">var/audit/&lt;identity&gt;/</span></code>,
+each with its own reader, so a broken file in one directory stalls only that
+identity’s feed. The set of directories is fixed when <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders
+the gateway: a directory that appears afterwards is <strong>not fed until the next
+build</strong>, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> lists it under <code class="docutils literal notranslate"><span class="pre">telemetry_gateway</span></code> until then.
+A <code class="docutils literal notranslate"><span class="pre">*.jsonl</span></code> entry that is not a regular file — a FIFO, a symlink — is
+reported by the same check, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> renames it to
+<code class="docutils literal notranslate"><span class="pre">&lt;name&gt;.refused-&lt;time&gt;</span></code> (kept, out of the feed) before it starts the gateway;
+it refuses to start when it cannot.</p>
+<p>Each record is stamped from the login it arrived with (<code class="docutils literal notranslate"><span class="pre">User</span></code>); any
+<code class="docutils literal notranslate"><span class="pre">osprey.*</span></code> attribute a sender sets itself is dropped. A record dated before
+the store’s retention window or more than an hour ahead is dropped and counted.</p>
 </section>
 </section>
 <section id="content-capture">
@@ -959,84 +908,28 @@ Their full arguments and results are in the osprey tool-call record
 <p>If you route telemetry to a shared or off-host backend (Phase 1), review these
 gates and disable the categories you do not want to leave the machine.</p>
 </section>
-<section id="upgrading-an-existing-deployment">
-<h2>Upgrading an existing deployment<a class="headerlink" href="#upgrading-an-existing-deployment" title="Link to this heading">#</a></h2>
-<p>Deployments made before the ingest account existed pointed their telemetry at
-the root credentials. Rebuilding the project moves <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> onto the
-ingest account, and the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> creates the account and saves its
-token — both automatic.</p>
-<p>One file may need a hand: <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, the environment your web terminals
-run with. If OSPREY rendered it and you never edited it, the next
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> re-renders it from the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> and the variable
-arrives on its own. A file you have edited by hand is never rewritten — that is
-what keeps your edits intact — so on such a deployment the deploy prints an
-advisory naming <code class="docutils literal notranslate"><span class="pre">ZO_INGEST_USER_EMAIL</span></code> as missing from that file, and the
-fix is a write of your own: <strong>append</strong> the variable.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># use the same value the project&#39;s .env has</span>
-grep<span class="w"> </span><span class="s1">&#39;^ZO_INGEST_USER_EMAIL=&#39;</span><span class="w"> </span>~/my-project/.env<span class="w"> </span>&gt;&gt;<span class="w"> </span>~/my-project/.env.users
-</pre></div>
-</div>
-<p>A later assignment wins in an environment file, so appending disturbs nothing
-already in it. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">env</span> <span class="pre">--output</span> <span class="pre">.env.users</span></code> re-renders the file
-instead — that <strong>replaces it whole</strong>, so reach for it only if nothing in the
-file was added by hand.</p>
-<p>Until the variable is present, those terminals authenticate as whatever the
-reference falls back to inside the container, and the store rejects their
-records.</p>
-</section>
 <section id="caveats">
 <h2>Caveats<a class="headerlink" href="#caveats" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p><strong>One administrator.</strong> The OpenObserve add-on provisions a single root
-account from <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_EMAIL</span></code> / <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code>. It is
-intended for a single operator or a small trusted team on the deploy host,
-not for multi-tenant access control.</p></li>
-<li><p><strong>Rotating the ingest token is delete-and-recreate.</strong> OpenObserve cannot
-reissue a service account’s token in place, so rotation means removing the
-account and creating it again. You only do the first half: delete the ingest
-account in the store’s UI, and the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> finds the token on file
-no longer works, issues a new one, and writes it back to <code class="docutils literal notranslate"><span class="pre">.env</span></code>. A dead
-token in <code class="docutils literal notranslate"><span class="pre">.env</span></code> heals itself on the next start rather than needing repair.
-Every start checks the token it has before touching anything, so a working
-one is never rotated out from under something else that uses it.</p></li>
-<li><p><strong>Recreating the data volume destroys the ingest identity.</strong> The account
-lives inside the <code class="docutils literal notranslate"><span class="pre">openobserve_data</span></code> volume; its token lives in <code class="docutils literal notranslate"><span class="pre">.env</span></code>.
-Remove that volume and you are left with a credential on file for an account
-the store no longer has, and telemetry is refused. The next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
-detects exactly this and provisions a fresh identity, so no manual repair is
-needed. The same volume also holds the root password the store was first
-initialized with — a volume kept from an earlier deploy beside a freshly
-minted <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code> is reported with its own remedy.</p></li>
-<li><p><strong>``osprey restart`` provisions, but cannot deliver.</strong> A restart re-runs the
-provisioning, so the store and <code class="docutils literal notranslate"><span class="pre">.env</span></code> agree afterwards, but a restarted
-container keeps the definition it already had — a token written during a
-restart reaches the containers at the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p></li>
-<li><p><strong>Data volume growth is bounded by retention, not a size cap.</strong> Ingested
-telemetry persists in a named container volume, which has no portable hard
-size limit — so the store is bounded by <em>age</em>: <code class="docutils literal notranslate"><span class="pre">services.openobserve.retention_days</span></code>
-(default 14) sets <code class="docutils literal notranslate"><span class="pre">ZO_COMPACT_DATA_RETENTION_DAYS</span></code> in the container, dropping
-telemetry older than N days (OpenObserve’s floor is 3 days). Raise it for
-longer history, but watch disk. Removing the volume still discards all history;
-back it up if you need retention across redeploys.</p></li>
-<li><p><strong>Health.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> reports the store’s <code class="docutils literal notranslate"><span class="pre">/healthz</span></code> readiness (a
-running container is not necessarily ready), the effective retention (warning
-if below OpenObserve’s floor of 3 days), and the percentage-full of the disk
-the volume grows into.</p></li>
-<li><p><strong>Local by design.</strong> The service binds to localhost by default. Do not expose
-the store’s published port (<code class="docutils literal notranslate"><span class="pre">services.openobserve.port</span></code>, 10050 by default)
-beyond the host without putting authentication and transport security in
-front of it.</p></li>
-<li><p><strong>The dashboard’s per-run telemetry link follows the deployment’s origin.</strong>
-The event dispatcher’s dashboard links each run to its own records only when
-it can name a host a browser will resolve. On a loopback-bound store that host
-is <code class="docutils literal notranslate"><span class="pre">localhost</span></code>. On a store published to the network it is the host of
-<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.external_origin</span></code> (or <code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code> when that is
-unset). A store published to the network by a deployment that declares
-neither gets no link at all, rather than one pointing at whichever machine the
-operator’s browser happens to be. The link opens the organization named by
-<code class="docutils literal notranslate"><span class="pre">claude_code.telemetry.openobserve.org</span></code>, the same one the agent exports to.
-The link is rendered at deploy time, so changing either value takes effect at
-the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p></li>
+<li><p><strong>Local by design.</strong> The store publishes on the host’s loopback only. People
+query it through the readers’ origin of the web tier, or over an SSH tunnel
+to the deploy host (<a class="reference internal" href="read-the-record.html"><span class="doc">Read the Record</span></a>); its accounts, not the network,
+decide who reads what.</p></li>
+<li><p><strong>Data volume growth is bounded by retention, not a size cap.</strong> The store
+keeps its tables in a named container volume, which has no portable size
+limit, so it is bounded by <em>age</em>: <code class="docutils literal notranslate"><span class="pre">services.telemetry_store.retention_days</span></code>
+(default 14) drops rows older than that, including rows already stored when
+the value is lowered. Raise it for longer history, but watch disk. The daily
+archive keeps a copy beyond it (<a class="reference internal" href="agent-record.html"><span class="doc">Keep the Agent Record</span></a>).</p></li>
+<li><p><strong>The store is down, the record is not.</strong> The gateway queues on disk and
+retries while the store is unreachable; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> reports the store
+as degraded, not the deployment as broken. Fix the store before restarting
+the gateway when its export queue is over 80% full: a gateway stopped with a
+full ledger queue can lose the batch it was holding.</p></li>
+<li><p><strong>The dispatch dashboard links each run to the history page</strong> where the page
+is deployed. A dispatched job is recorded under its worker’s name,
+<code class="docutils literal notranslate"><span class="pre">dispatch-worker-&lt;i&gt;</span></code>, so the link opens for people with <code class="docutils literal notranslate"><span class="pre">history:</span> <span class="pre">all</span></code>
+and for readers (<a class="reference internal" href="../web-terminal/multi-user/index.html#multi-user-history-page"><span class="std std-ref">The history page</span></a>).</p></li>
 </ul>
 </section>
 </section>
@@ -1093,15 +986,14 @@ the next <code class="docutils literal notranslate"><span class="pre">osprey</sp
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#export-without-traces">Export without traces</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-2-the-local-openobserve-add-on">Phase 2 — The local OpenObserve add-on</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#check-the-service-is-enabled">1. Check the service is enabled</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#know-the-store-s-two-identities">2. Know the store’s two identities</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#deploy-it">3. Deploy it</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#point-the-agent-at-it">4. Point the agent at it</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-2-the-telemetry-store-and-gateway">Phase 2 — The telemetry store and gateway</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#check-the-services-are-deployed">1. Check the services are deployed</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#build-and-deploy">2. Build and deploy</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#point-the-agent-at-it">3. Point the agent at it</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#know-what-the-gateway-reads">4. Know what the gateway reads</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#content-capture">Content capture</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#upgrading-an-existing-deployment">Upgrading an existing deployment</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#caveats">Caveats</a></li>
 </ul>
   </nav></div>

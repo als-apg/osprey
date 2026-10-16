@@ -35,8 +35,16 @@ artifact gallery. The ``artifact_type`` parameter overrides automatic type
 detection (e.g., ``"figure"``, ``"dataframe"``); ``category`` is a free-form
 grouping label used by the gallery UI.
 
-The ``execute`` and ``execute_file`` tool parameters and the JSON they return
-are documented in :doc:`/reference/contracts/python-executor`.
+A render that carries a pyAML view adds two tools to the same server, and a
+render without one registers neither: ``pyaml_measure`` measures a response
+matrix or the chromaticity on the control target through a generated script,
+every write of one measurement under the control target's run lock, and
+``model_response_matrix`` solves a served model's orbit response on its deck
+in a sandbox child (see :doc:`/how-to/measure-with-pyaml`).
+
+The ``execute``, ``execute_file``, ``pyaml_measure`` and
+``model_response_matrix`` tool parameters and the JSON they return are
+documented in :doc:`/reference/contracts/python-executor`.
 
 Where Code Runs
 ===============
@@ -97,7 +105,7 @@ project's own environment, so executed code sees the same imports either way.
 Security Model
 ==============
 
-Nine safety layers are applied in sequence:
+Ten safety layers are applied in sequence:
 
 1. **Static safety check** (``quick_safety_check``)---blocks dangerous
    patterns such as dynamic code evaluation, dynamic imports, and
@@ -121,7 +129,23 @@ Nine safety layers are applied in sequence:
    patterns. In ``readonly`` mode, detected writes cause immediate
    rejection.
 
-5. **Readonly runtime guard**---the declared mode is exported into the
+5. **Approved-call check** (``_check_approved_call``)---before it spawns a
+   ``readwrite`` run of a guarded tool (``execute``, ``execute_file``,
+   ``pyaml_measure``) whose approval policy asks, the executor reads the
+   record the approval prompt left for this tool call. The call's
+   ``approved_target`` must equal what the prompt recorded and name the
+   run's own control target; for ``pyaml_measure`` the call's ``approved_view_sha256``
+   must equal the recorded view digest as well. Without a record,
+   or with a field that differs, nothing is spawned and the result carries
+   ``failure_kind: approval_missing``. A stated ``approval.enabled`` that is
+   not ``true`` or ``false`` (or an ``approval`` section that is not a
+   mapping) runs nothing and carries ``failure_kind: approval_config_invalid``.
+   Nothing of the record reaches the subprocess, which evaluates no approval
+   policy itself. A call that reaches the server without passing the
+   approval hook gets no read-write run on a deployment whose policy asks; such a
+   deployment states ``approval.enabled: false``.
+
+6. **Readonly runtime guard**---the declared mode is exported into the
    subprocess as ``OSPREY_EXECUTION_MODE``. In a ``readonly`` run every
    entry point listed under :ref:`python-executor-write-surface` is
    replaced with a refusing function, the connectors refuse
@@ -129,11 +153,11 @@ Nine safety layers are applied in sequence:
    gateway --- so a write is refused at runtime and at the network layer
    however it is spelled.
 
-6. **Filesystem guard**---the runtime half of layer 2, patched into the
+7. **Filesystem guard**---the runtime half of layer 2, patched into the
    subprocess so it also sees paths the source did not spell out. Emitted
    in **every** execution mode.
 
-7. **Raw-put block** (``osprey.runtime.raw_put_block``, armed
+8. **Raw-put block** (``osprey.runtime.raw_put_block``, armed
    mode)---in a ``readwrite`` run a write goes through ``write_channel()`` /
    ``write_channels()`` from ``osprey.runtime``, and nowhere else. The
    connector underneath them is what applies the write posture, the limits
@@ -150,18 +174,18 @@ Nine safety layers are applied in sequence:
    :ref:`python-executor-write-channel`.
 
    The block occupies the readonly guard's slot: a run gets exactly one of
-   layer 5 and layer 7. It is installed before the user code runs and is not
+   layer 6 and layer 8. It is installed before the user code runs and is not
    wrapped in ``try``, so a block that cannot install aborts the run rather
    than letting it write unguarded. Where the limits database is on, the
    connector checks every ``write_channel`` value against it before the value
    leaves.
 
-8. **Process isolation**---code always runs in a separate subprocess, never
+9. **Process isolation**---code always runs in a separate subprocess, never
    inside the MCP server process.
 
-9. **Execution timeout**---configurable via
-   ``python_executor.execution_timeout_seconds`` (default 600 s). The
-   process is killed if it exceeds the limit.
+10. **Execution timeout**---configurable via
+    ``python_executor.execution_timeout_seconds`` (default 600 s). The
+    process is killed if it exceeds the limit.
 
 .. code-block:: yaml
 
@@ -253,7 +277,7 @@ What a readwrite run refuses
 ----------------------------
 
 A ``readwrite`` run may write, but only through the connector. The raw-put
-block (layer 7) reads the same table as the list above and splits its client
+block (layer 8) reads the same table as the list above and splits its client
 rows into four buckets, so the page, the executor and the notebook kernel
 agree on every row:
 
@@ -595,7 +619,7 @@ and the operator alert are what is missing.
    ``osprey.runtime`` utilities (``read_channel()``, ``write_channel()``),
    not direct connector imports. The execution wrapper configures these
    automatically from the deployment context, so code works with any
-   connector (EPICS, Mock, etc.) and notebooks remain reproducible.
+   connector (EPICS, the simulator, etc.) and notebooks remain reproducible.
 
 .. note::
 

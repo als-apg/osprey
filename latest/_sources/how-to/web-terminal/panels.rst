@@ -23,7 +23,7 @@ Enable OSPREY's built-in panels in ``config.yml``:
 Panels that need a section as well as a tick
 --------------------------------------------
 
-For most panels that line is the whole gesture. Three of them need a second
+For most panels that line is the whole gesture. Two of them need a second
 one: they are tabs onto a service that has to be configured before there is
 anything to show, and OSPREY will not guess at its address. Listing the panel
 without its section leaves the tab **dark** — no error, one line in the log
@@ -36,9 +36,6 @@ saying the panel is unavailable.
    * - Panel
      - Also needs
      - What lives in that section
-   * - ``lattice``
-     - ``lattice_dashboard:``
-     - ``host``, ``port``, ``auto_launch`` for the lattice dashboard.
    * - ``channel-finder``
      - ``channel_finder:``
      - The pipeline and the channel database behind it — see
@@ -47,22 +44,11 @@ saying the panel is unavailable.
      - ``facility_knowledge:``
      - ``bundle_path``, the compiled knowledge bundle the KNOWLEDGE tab serves.
 
-So a working lattice tab is two things, not one:
-
-.. code-block:: yaml
-
-   web:
-     panels:
-       lattice: true
-
-   lattice_dashboard:
-     host: 127.0.0.1
-     auto_launch: true
-
-The shipped ``control-assistant`` preset leaves both halves to you for the
-lattice tab — the panel is not in its ``web_panels:`` list and the
-``lattice_dashboard:`` stanza sits beside it commented out — and supplies both
-for KNOWLEDGE and CHANNELS, which is why those two work out of the box.
+The lattice tab launches from the ``lattice: true`` tick alone; a
+``lattice_dashboard`` section (``host``, ``port``, ``auto_launch``) only moves
+where it listens. The shipped ``control-assistant`` preset ships that tick, and
+the sections for KNOWLEDGE and CHANNELS, which is why all three work out of the
+box. :doc:`lattice-dashboard` describes the tab.
 
 Where the panel rail lives
 --------------------------
@@ -253,12 +239,11 @@ when those run dry. Arrow keys move through the list, **Enter** takes the
 highlighted name, **Escape** dismisses it. The suggestions only suggest — a
 name typed in full is accepted whether or not it appears in the list.
 
-The names come from the project's Channel Finder catalog — the channel
-database, or in graph mode the Turtle corpus named by
-``services.graphdb.ttl_path``: ``osprey build`` writes a snapshot of it next
-to the generated config, and the panel reads that snapshot — no
+The names come from the project's facility file (``data/facility/``), in
+every channel-finder mode: ``osprey build`` writes a snapshot of its channels
+next to the generated config, and the panel reads that snapshot — no
 control-system traffic, and nothing to keep in sync at run time. A project
-that configures neither shows no suggestions and is otherwise unchanged.
+with no facility file shows no suggestions and is otherwise unchanged.
 
 The feature is on by default, tuned under ``web.channel_suggestions`` in
 ``config.yml``:
@@ -278,12 +263,9 @@ or set ``enabled: false`` to turn the feature off and write no snapshot at
 all. A build profile overrides these keys from its ``config:`` block in the
 dotted form, e.g. ``web.channel_suggestions.max_channels: 200000``.
 
-One staleness rule to know: editing a channel database or Turtle corpus
-inside the profile's ``data/`` tree changes the build fingerprint, so
-``osprey up`` refuses until you rebuild — the snapshot cannot silently go
-stale on that path. A database or corpus referenced from *outside* the
-profile tree is not fingerprinted; its snapshot refreshes only on the next
-explicit ``osprey build``.
+One staleness rule to know: editing the facility tree changes the build
+fingerprint, so ``osprey up`` refuses until you rebuild — the snapshot cannot
+silently go stale.
 
 Adding your own panel
 ---------------------

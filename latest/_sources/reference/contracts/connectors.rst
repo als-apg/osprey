@@ -53,6 +53,29 @@ handle -- the machine did answer.
 occupy a slot. ``0`` keeps everything -- remembering that an unattended
 polling loop will then grow the gallery without bound.
 
+Addresses Outside the Facility
+------------------------------
+
+A connector that holds the facility's whole address set -- the simulator
+served in process, and the mock archiver -- knows when an address is not one
+of its channels, and says so:
+
+- A read of such an address raises ``ChannelNotFoundError``, whose message is
+  ``<address> is not a channel of this facility``.
+- A write to such an address is not raised: it comes back with outcome
+  ``refused`` and ``refusal_reason`` ``CHANNEL_NOT_FOUND``, so the outcomes of
+  the other writes in the same batch are kept.
+
+The controls tools report both as error type ``not_found``, naming the address
+under ``details.channel``. A read that names several channels still succeeds
+for the ones that answered and names the unknown address under ``missing``
+(see :doc:`partial-answers`); a batch write reports the unknown address as its
+``refused`` row beside the rows that were written.
+
+A Channel Access connector cannot tell an unknown name from an unreachable one
+-- a search that finds nothing times out -- so it reports a connection error
+for both.
+
 Write Confirmation
 ------------------
 
@@ -81,8 +104,9 @@ Every write ends in exactly one of six outcomes:
      - What it means
    * - ``refused``
      - Nothing was written. A gate stopped the write before it left OSPREY --
-       write posture, a limit, a channel marked not writable -- and
-       ``refusal_reason`` names which one.
+       write posture, a limit, a channel marked not writable, an address that
+       is not a channel of the facility -- and ``refusal_reason`` names which
+       one.
    * - ``failed``
      - The value was sent and the control system did not take it.
    * - ``confirmed``
@@ -114,23 +138,21 @@ Switching confirmation off
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``confirm`` is a per-channel boolean in the limits database, sitting beside
-``writable``:
+``writable``, which every entry states:
 
 .. code-block:: json
 
    {
-     "defaults": {
-       "writable": true,
-       "confirm": true
-     },
      "SHUTTER:OPEN_CMD": {
        "writable": true,
        "confirm": false
      }
    }
 
-A channel's own entry wins; failing that the ``defaults`` block applies; failing
-that, confirmation is on. Switch it off for the channels a re-read cannot answer
+A channel's own entry decides; an entry that does not state ``confirm``, or a
+channel with no entry, has confirmation on. The database holds no ``defaults``
+block: a top-level ``defaults`` key, or an entry without ``writable``, fails the
+load. Switch it off for the channels a re-read cannot answer
 for -- a command channel that resets itself, a register that cannot be read back
 -- so those writes report ``unrequested`` rather than ``unconfirmed``. A call
 site may pass ``confirm=True`` or ``confirm=False`` to decide for one call;
@@ -265,39 +287,53 @@ Limits Checking
    control_system:
      limits_checking:
        enabled: true                     # Enable limits validation
-       database_path: ./limits_db.json   # Path to the channel limits JSON
-       allow_unlisted_channels: false    # Block writes to channels not in the database
+       mode: exclusive                   # Only channels in the database can be written
      connector:
        virtual_accelerator:
          limits_checking:                # This connector type's own posture,
            enabled: true                 # replacing the pair above for it alone
-           allow_unlisted_channels: true
+           mode: optional
 
 When enabled, every ``write_channel()`` call is validated against the limits
 database before the write reaches hardware. The database format is the
 per-channel configuration above.
 
+Limits are optional, and ``mode`` chooses between two ways of using the
+database:
+
+- ``mode: exclusive`` — only channels in the database can be written. A channel
+  with no record is refused.
+- ``mode: optional`` — channels in the database are held to their limits, and
+  every other channel is written with no limits.
+
+``enabled: false`` means no limits at all.
+
 The posture is per connector type. ``control_system.limits_checking`` is what a
 type inherits when it says nothing about itself, and
 ``control_system.connector.<type>.limits_checking`` answers for that type
-instead — so one deployment can refuse unlisted channels on its live machine
-while letting them through on a simulator. Three rules govern the per-type
+instead — so one deployment can run ``exclusive`` on its live machine and
+``optional`` on a simulator. Three rules govern the per-type
 block:
 
 - **It replaces, it does not merge.** A per-type block must state both
-  ``enabled`` and ``allow_unlisted_channels``; neither is inherited. A block
+  ``enabled`` and ``mode``; neither is inherited. A block
   stating one alone is refused by ``osprey build`` and ``osprey validate``,
   naming the missing setting — and a half-written block that reaches a running
   deployment anyway, by a hand-edited ``config.yml`` or an older render, blocks
   every write until it is completed.
 - **The database stays deployment-wide.** ``database_path`` is not a per-type
   setting: the deployment mounts one limits file, and every target is checked
-  against it.
-- **Only explicit values decide.** ``allow_unlisted_channels`` is true, false,
-  or unstated. With limits checking enabled, an ``allow_unlisted_channels``
-  that no key states refuses unlisted channels — permission needs an explicit
-  ``true``. A deployment that states no limits posture at all runs no limits
-  checking, and nothing on that path refuses an unlisted channel.
+  against it. A profile that states it is refused by ``osprey build``,
+  ``osprey validate`` and ``osprey facility validate``: ``osprey build`` writes
+  ``data/channel_limits.json`` from ``data/facility/limits.yaml`` and sets
+  ``control_system.limits_checking.database_path`` to it in the rendered config.
+- **Only explicit values decide.** ``mode`` is ``exclusive``, ``optional``, or
+  unstated. With limits checking enabled, a ``mode`` that no key states refuses
+  a channel with no record — permission needs an explicit ``optional``. Any
+  other value, and any leaf the block does not define, is refused by ``osprey
+  build`` and ``osprey validate``. A deployment that states no limits posture
+  at all runs no limits checking, and nothing on that path refuses a channel
+  with no record.
 
 ``max_step`` is the one limit that costs a read. It caps how far a single write
 may move a channel, which means measuring the channel's present value first —
@@ -319,13 +355,12 @@ write. Raising it buys a slow channel room, never a weaker check. The python
 executor's sandbox applies the same number, so a script's step check and the
 connector's wait the same length of time for the same channel.
 
-A refusal about an unlisted channel — and the target switch's
-``limits_posture`` refusal — names the key that answered, the per-type one where
-a block spoke and the deployment-wide one where none did, so an operator edits
-the line that decides rather than one it overrides. The ``channel_limits`` tool
-reports the same pair for the target the deployment is on, including ``null`` where
-nothing states an answer, alongside ``allow_unlisted_key`` naming the key it
-read.
+A refusal about a channel with no record names the key that answered, the
+per-type one where a block spoke and the deployment-wide one where none did, so
+an operator edits the line that decides rather than one it overrides. The
+``channel_limits`` tool reports ``mode`` for the target the deployment is on,
+including ``null`` where nothing states one, alongside ``mode_key`` naming the
+key it read.
 
 .. seealso::
 

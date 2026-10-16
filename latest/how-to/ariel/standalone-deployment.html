@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -685,17 +692,16 @@ a wiped <code class="docutils literal notranslate"><span class="pre">build/</spa
 <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code> or <code class="docutils literal notranslate"><span class="pre">CBORG_API_KEY</span></code>). The default provider is
 <code class="docutils literal notranslate"><span class="pre">anthropic</span></code>. That file is the deployment’s one secret store, and a build
 never rewrites it, so a value set there survives every rebuild.</p></li>
-<li><p><strong>Replace the demo logbook.</strong> <code class="docutils literal notranslate"><span class="pre">data/logbook_seed/</span></code> holds the
-logbook narrative of the control-assistant demo scenarios: 29 entries of
-fictional accelerator events, three of them with a plot, one directory per
-scenario in the scenario-bundle logbook format
-(<a class="reference internal" href="../../reference/contracts/simulation-bundle.html#simulation-bundle-logbook"><span class="std std-ref">logbook.json</span></a>). <code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code> names that
-directory, and it is seeded only into an empty logbook. Either:</p>
+<li><p><strong>Replace the demo logbook.</strong> <code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative:</span> <span class="pre">all</span></code> seeds the
+logbook entries of every scenario of the example facility in
+<code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/</span></code>: 29 entries of fictional accelerator events,
+three of them with a plot. It is seeded only into an empty logbook. Either:</p>
 <ul class="simple">
 <li><p>Point <code class="docutils literal notranslate"><span class="pre">ariel.ingestion.adapter</span></code> / <code class="docutils literal notranslate"><span class="pre">source_url</span></code> at your facility’s
 logbook system (see <a class="reference internal" href="data-ingestion.html"><span class="doc">Data Ingestion</span></a>) and remove
 <code class="docutils literal notranslate"><span class="pre">ariel.demo_narrative</span></code>, or</p></li>
-<li><p>Replace the narratives with your own, in the same format.</p></li>
+<li><p>Write your own entries into the scenarios’ <code class="docutils literal notranslate"><span class="pre">logbook</span></code> blocks, or name
+only some scenarios (see <a class="reference internal" href="../../reference/configuration/config.html#config-ariel-demo-narrative"><span class="std std-ref">ariel.demo_narrative — a demo logbook from the facility’s scenarios</span></a>).</p></li>
 </ul>
 </li>
 </ol>

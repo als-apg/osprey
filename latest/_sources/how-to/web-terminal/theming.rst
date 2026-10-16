@@ -92,7 +92,11 @@ Giving each user their own default
 
 In a multi-user deployment every user gets their own terminal, but they all run
 the same image — so they all read the same ``web.theme``. To start a particular
-user somewhere else, add ``theme`` to their entry in the user list:
+user somewhere else, add ``theme`` to their entry in the user list. The snippet
+shows only the keys this section is about; the deployment also carries the
+``personas`` catalog and ``default_persona`` from the multi-user page (see the
+worked example in :ref:`multi-user-registry-images`), and ``persona:
+readwrite`` / ``readonly`` name entries of that catalog.
 
 .. code-block:: yaml
 
@@ -110,8 +114,9 @@ terminal only, and their own pick in the display menu still wins over it.
 
 The landing page that lists everyone's terminals uses the deployment-wide
 ``web.theme``, and so does the sign-in page a user reaches from it, which also
-shows the facility name from ``facility.name`` above the OSPREY wordmark. Both
-are shown before anyone has said who they are, so there is no personal setting
+shows the facility's name above the OSPREY wordmark. That name is the one the
+build's facility identity records, or the project name when it records none.
+Both are shown before anyone has said who they are, so there is no personal setting
 to apply yet.
 
 A navy-and-teal terminal

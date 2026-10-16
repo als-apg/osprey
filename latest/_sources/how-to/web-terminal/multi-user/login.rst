@@ -33,6 +33,12 @@ Two things to read off the drawing. The front door is nginx, and
 ask the authentication service. The terminal behind it always checks a
 credential of its own; the postures differ only in who supplies it.
 
+The snippets on this page show only the keys their section is about; the
+deployment also carries the ``personas`` catalog and ``default_persona`` from
+the multi-user page (see the worked example in
+:ref:`multi-user-registry-images`), and ``persona: readwrite`` / ``readonly``
+name entries of that catalog.
+
 Choose a method
 ===============
 
@@ -716,8 +722,9 @@ Lint also warns, without refusing the build:
   (``web_terminals.live_writer_without_control_identity``): an owner-only card
   behind a login wall with no ``control_identity``, whose persona arms writes
   on a live control-system target. Its writes would arrive as ``osprey``.
-  Cards writing only to a mock or simulated target never trigger it, and
-  neither do cards without a login wall.
+  Cards writing only to a target other than ``live`` --- the simulator
+  (``va``, served from its container or in process) or the stand-in --- never
+  trigger it, and neither do cards without a login wall.
 
 
 .. _multi-user-https:

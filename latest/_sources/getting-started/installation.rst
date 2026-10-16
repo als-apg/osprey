@@ -318,7 +318,7 @@ OSPREY is installed and ready to use. Here's what to do next:
       :link: hello-world-tutorial
       :link-type: doc
 
-      Build your first agent with a mock control system. One MCP server, zero
+      Build your first agent with the simulator served in process. One MCP server, zero
       complexity. Takes about five minutes.
 
    .. grid-item-card:: **Guided Facility Setup**

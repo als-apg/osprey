@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Oct 15, 2026"/>
+    <meta name="docbuild:last-update" content="Oct 16, 2026"/>
   </head>
   
   
@@ -401,6 +401,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../web-terminal/lattice-dashboard.html">Lattice Dashboard</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/notebooks.html">Notebooks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
 <li class="toctree-l2 has-children"><a class="reference internal" href="../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -426,6 +427,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/agent-record.html">Keep the Agent Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/read-the-record.html">Read the Record</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../health-and-monitoring/reconstruct-session.html">Reconstruct a Session</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -435,7 +438,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../describe-your-facility.html">Describe your facility</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../measure-with-pyaml.html">Measure with the pyAML Tools</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../run-scenarios.html">Run and write scenarios</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
@@ -637,23 +644,17 @@ the rename has happened. Do it yourself in that case:</p>
 <section id="what-a-deploy-writes-back">
 <h2>What a deploy writes back<a class="headerlink" href="#what-a-deploy-writes-back" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> also <em>writes</em> to <code class="docutils literal notranslate"><span class="pre">.env</span></code>. On first deploy it mints any missing
-service tokens and passwords (for example <code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code>,
-<code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code>, or <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code>) so no service ever starts
-on a blank or publicly-known credential, appends them under a “Minted by
-deploy” heading, and restricts the file to owner-only permissions.
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> appends the pointers it derives from what it just rendered —
-currently two: <code class="docutils literal notranslate"><span class="pre">VA_CHANNELS_FILE</span></code>, the name of the virtual accelerator’s
-generated channel manifest (a name, not a path: the entrypoint resolves it
-against its data mount), and <code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code>, which states the lattice that
-manifest is backed by rather than letting the entrypoint default it away —
-under a “Derived by build” heading.</p>
-<p>A third variable, <code class="docutils literal notranslate"><span class="pre">VA_ENTRYPOINT_MODULE</span></code>, reaches the same container through
-the same passthrough and is the operator’s to set: it names the Python module
-the virtual accelerator runs, and empty or unset runs OSPREY’s own. The build
-never writes it, so nothing is reported about it
-(<a class="reference internal" href="../control-systems/use-virtual-accelerator.html#va-serving-your-own-model"><span class="std std-ref">Serving your facility’s own model</span></a>).</p>
-<p>Both writers are append-only, and a value already on file always wins. A value
-that disagrees with what a writer would have put there is <em>reported</em>, by name
+service tokens and passwords (for example <code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> or
+<code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code>) so no service ever starts on a blank or publicly-known
+credential, appends them under a “Minted by deploy” heading, and restricts the
+file to owner-only permissions. The telemetry store’s accounts are the
+exception: each has its own <code class="docutils literal notranslate"><span class="pre">.env.telemetry-&lt;account&gt;</span></code> file at the repo root,
+mode 0600, outside the env chain, so a container is handed only the accounts
+it acts as.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes nothing into <code class="docutils literal notranslate"><span class="pre">.env</span></code>: the virtual accelerator reads
+the simulator view the build renders under <code class="docutils literal notranslate"><span class="pre">build/data/simulator/</span></code>.</p>
+<p>The deploy’s write is append-only, and a value already on file always wins. A
+value that disagrees with what it would have put there is <em>reported</em>, by name
 and never by value, for you to resolve by hand. That is what makes the stack
 reproducible: a later start comes up on the same credentials the running
 containers were initialized with, instead of minting a second set they do not
