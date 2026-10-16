@@ -148,19 +148,6 @@ services:
       # anything against a project root.
       CONFIG_FILE: /app/golden-project/build/config.yml
       TZ: UTC
-      # OpenObserve telemetry (opt-in): the worker and its CLI subprocess run on
-      # this bridge network, so the store is reachable by its compose service
-      # DNS name, not localhost. Declaring the host here — rather than sniffing
-      # the container runtime — is what makes emit work under docker AND podman.
-      # Inert unless claude_code.telemetry is enabled with backend: openobserve.
-      #
-      # The port is declared beside it because on this network it is NOT the
-      # published one: the DNS name answers on the port the store LISTENS on
-      # inside its container, which `services.openobserve.port` says nothing
-      # about. Without this line the emitter would derive the published port,
-      # which is right from the host and wrong from here.
-      OSPREY_OTEL_OPENOBSERVE_HOST: openobserve
-      OSPREY_OTEL_OPENOBSERVE_PORT: "5080"
       # The plan queue's bridge, by its in-network compose service key — the
       # same address the Bluesky sidecar is handed. Without it the agent this
       # worker runs falls back to the loopback URL of the bridge's PUBLISHED

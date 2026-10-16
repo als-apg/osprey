@@ -1,7 +1,7 @@
 """Published documentation addresses that runtime messages link.
 
 Runtime refusals and warnings that enforce a documented limit link the page
-that states it, and a remedy that needs the installer links the installer's
+that states it, and a remedy that needs the guided setup links the setup's
 page. The addresses are the published site's, not a deployment's
 ``web.docs_url``, because these lines reach a terminal or a container log.
 
@@ -18,20 +18,20 @@ DEPLOY_DOCS_URL: str = "https://als-apg.github.io/osprey/how-to/deploy-a-facilit
 #: and a user ceiling.
 PERIMETER_LIMITS_URL: str = f"{DEPLOY_DOCS_URL}#perimeter-limits"
 
-#: The installer's page. A remedy whose fix is authoring or converting profile
+#: The guided setup's page. A remedy whose fix is authoring or converting profile
 #: blocks sends the operator here.
-INSTALL_DOCS_URL: str = "https://als-apg.github.io/osprey/getting-started/osprey-install.html"
+SETUP_DOCS_URL: str = "https://als-apg.github.io/osprey/getting-started/osprey-install.html"
 
 
-def installer_remedy(fact: str) -> str:
-    """The sentence every remedy that needs the installer ends with.
+def setup_remedy(fact: str) -> str:
+    """The sentence every remedy that needs the guided setup ends with.
 
-    One action with its link, then the one fact that makes the installer the
+    One action with its link, then the one fact that makes the setup the
     fix, so the surfaces that send an operator there cannot word the same
     advice differently.
 
-    :param fact: A clause with no trailing period, stating what the installer
+    :param fact: A clause with no trailing period, stating what the setup
         does for this operator.
-    :return: ``Follow the installer guide at <URL>: <fact>.``
+    :return: ``Follow the guided setup at <URL>: <fact>.``
     """
-    return f"Follow the installer guide at {INSTALL_DOCS_URL}: {fact}."
+    return f"Follow the guided setup at {SETUP_DOCS_URL}: {fact}."

@@ -19,11 +19,14 @@ from typing import Any
 import yaml
 
 from osprey.services.ariel_search.vocabulary.model import (
+    _EDGE_TEXT,
     CONCEPT_KINDS,
     Concept,
     ConceptKind,
     Vocabulary,
-    normalize,
+    interior_pattern,
+    match_tokens,
+    token_key,
 )
 from osprey.services.ariel_search.vocabulary.stopwords import _ENGLISH_FTS_STOPWORDS
 
@@ -152,25 +155,46 @@ def _parse_concept(
         # this canonical is still reported against the entry that claimed it.
         claimed[canonical] = index
     kind = _validate_kind(label, raw, errors)
-    forms = _validate_forms(label, raw, canonical, errors)
+    validated = _validate_forms(label, raw, canonical, errors)
 
-    if errors or canonical is None or kind is None or forms is None:
+    if (
+        errors
+        or canonical is None
+        or not isinstance(raw_canonical, str)
+        or kind is None
+        or validated is None
+    ):
         return None, errors
-    return Concept(canonical=canonical, kind=kind, forms=forms), errors
+    forms, raw_forms = validated
+    return (
+        Concept(
+            canonical=canonical,
+            kind=kind,
+            forms=forms,
+            raw_canonical=raw_canonical,
+            raw_forms=raw_forms,
+        ),
+        errors,
+    )
+
+
+def _match_key(text: str) -> str:
+    """Return the lookup key of ``text``: its :func:`match_tokens` norms, space-joined."""
+    return token_key(match_tokens(text))
 
 
 def _validate_canonical(
     label: str, raw: dict[str, Any], claimed: dict[str, int], errors: list[str]
 ) -> str | None:
-    """Return the normalized canonical, appending any error it has."""
+    """Return the canonical's lookup key, appending any error it has."""
     if "canonical" not in raw:
         errors.append(f"{label}: missing required key 'canonical'")
         return None
     value = raw["canonical"]
-    if not isinstance(value, str) or not normalize(value):
+    canonical = _match_key(value) if isinstance(value, str) else ""
+    if not canonical:
         errors.append(f"{label}: 'canonical' must be a non-empty string")
         return None
-    canonical = normalize(value)
     first = claimed.get(canonical)
     if first is not None:
         errors.append(
@@ -196,8 +220,13 @@ def _validate_kind(label: str, raw: dict[str, Any], errors: list[str]) -> Concep
 
 def _validate_forms(
     label: str, raw: dict[str, Any], canonical: str | None, errors: list[str]
-) -> tuple[str, ...] | None:
-    """Return the normalized, de-duplicated forms, appending any errors."""
+) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
+    """Return ``(forms, raw_forms)``, appending any errors.
+
+    ``forms`` holds the de-duplicated lookup keys; ``raw_forms`` holds every
+    accepted spelling as written, in file order, including spellings whose key
+    repeats an earlier one.
+    """
     if "forms" not in raw:
         errors.append(f"{label}: missing required key 'forms'")
         return None
@@ -210,11 +239,12 @@ def _validate_forms(
         return None
 
     forms: list[str] = []
+    raw_forms: list[str] = []
     for position, item in enumerate(value):
         if not isinstance(item, str):
             errors.append(f"{label}: forms[{position}] must be a string, got {type(item).__name__}")
             continue
-        form = normalize(item)
+        form = _match_key(item)
         if not form:
             errors.append(f"{label}: forms[{position}] must be a non-empty string")
             continue
@@ -224,10 +254,13 @@ def _validate_forms(
                 f"'{canonical}' after normalization"
             )
             continue
-        # A form repeated inside one concept is harmless; keep the first.
+        # A form repeated inside one concept is harmless; keep the first key,
+        # but every distinct spelling, since each contributes its own pattern.
         if form not in forms:
             forms.append(form)
-    return tuple(forms)
+        if item not in raw_forms:
+            raw_forms.append(item)
+    return tuple(forms), tuple(raw_forms)
 
 
 def _collect_warnings(
@@ -237,6 +270,7 @@ def _collect_warnings(
     warnings = _stopword_warnings(concepts, canonical_to_acronym, canonical_to_shorthand)
     warnings.extend(_ambiguous_form_warnings(concepts))
     warnings.extend(_prefix_collision_warnings(concepts))
+    warnings.extend(_punctuation_warnings(concepts))
     return warnings
 
 
@@ -319,6 +353,34 @@ def _prefix_collision_warnings(concepts: list[Concept]) -> list[str]:
     return warnings
 
 
+def _punctuation_warnings(concepts: list[Concept]) -> list[str]:
+    """Warn about each raw form whose edge punctuation changes how it matches.
+
+    A form with a clause break between two of its tokens (``vert. orbit``)
+    matches only text that breaks at the same place. A form whose only edge
+    characters sit at its outer ends (``(BPM)``) matches as its stripped key,
+    since outer edges are ignored in queries and entries alike.
+    """
+    warnings: list[str] = []
+    for concept in concepts:
+        for raw in concept.raw_forms:
+            tokens = match_tokens(raw)
+            if not tokens:
+                continue
+            if any(left or right for left, right in interior_pattern(tokens)):
+                warnings.append(
+                    f'form "{raw}" (concept "{concept.canonical}"): its interior '
+                    "punctuation is required — only text that breaks the same way matches"
+                )
+            elif tokens[0].opens or tokens[-1].closes:
+                warnings.append(
+                    f'form "{raw}" (concept "{concept.canonical}") is matched as '
+                    f'"{token_key(tokens)}" — edge punctuation ({_EDGE_TEXT}) is ignored in '
+                    "queries and entries"
+                )
+    return warnings
+
+
 def _differing_concepts(
     short_bindings: list[Concept], long_bindings: list[Concept]
 ) -> tuple[Concept, Concept] | None:
@@ -353,7 +415,25 @@ def _build_vocabulary(concepts: list[Concept]) -> Vocabulary:
         forms_to_concepts=_form_bindings(concepts),
         canonical_to_concept={concept.canonical: concept for concept in concepts},
         max_form_tokens=max(len(text.split()) for text in matchable),
+        interior_patterns=_interior_patterns(concepts),
     )
+
+
+def _interior_patterns(
+    concepts: list[Concept],
+) -> dict[str, frozenset[tuple[tuple[bool, bool], ...]]]:
+    """Map each lookup key to the clause-break patterns of its raw spellings.
+
+    One pattern per raw spelling: a ``(left closes, right opens)`` pair for each
+    interior token boundary. Patterns are unioned over every raw spelling of
+    every concept binding the key.
+    """
+    patterns: dict[str, set[tuple[tuple[bool, bool], ...]]] = {}
+    for concept in concepts:
+        for spelling in (concept.raw_canonical, *concept.raw_forms):
+            tokens = match_tokens(spelling)
+            patterns.setdefault(token_key(tokens), set()).add(interior_pattern(tokens))
+    return {key: frozenset(found) for key, found in patterns.items()}
 
 
 __all__ = ["load_vocabulary"]

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -52,18 +53,13 @@ def test_the_command_exit_code_passes_through():
 
 def test_a_command_past_its_bound_is_stopped_with_its_process_group(tmp_path):
     pid_file = tmp_path / "grandchild.pid"
-    child = textwrap.dedent(
-        f"""
-        import subprocess, time
-        grandchild = subprocess.Popen(["sleep", "60"])
-        with open({str(pid_file)!r}, "w") as f:
-            f.write(str(grandchild.pid))
-        time.sleep(60)
-        """
-    )
-    result = _run("1", "--", sys.executable, "-c", child)
+    # A shell is ready in milliseconds, so the bound is spent on the command
+    # itself rather than on an interpreter starting up.
+    command = ["sh", "-c", f"sleep 60 & echo $! > {shlex.quote(str(pid_file))}; wait"]
+    result = _run("1", "--", *command)
     assert result.returncode == 124
     assert "still running after 1 s" in result.stderr
+    assert pid_file.exists(), "the child was not ready inside the 1 s bound: no grandchild pid file"
     pid = int(pid_file.read_text())
     try:
         assert _pid_is_gone(pid, within=5.0)
@@ -74,12 +70,22 @@ def test_a_command_past_its_bound_is_stopped_with_its_process_group(tmp_path):
             pass
 
 
-def test_a_command_that_ignores_sigterm_is_killed_after_the_grace():
-    child = "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
+def test_a_command_that_ignores_sigterm_is_killed_after_the_grace(tmp_path):
+    marker = tmp_path / "sigterm-ignored"
+    # An ignored signal stays ignored across exec, so the marker proves the
+    # sleep that receives SIGTERM is the one that ignores it.
+    command = ["sh", "-c", f"trap '' TERM; : > {shlex.quote(str(marker))}; exec sleep 60"]
     started = time.monotonic()
-    result = _run("--grace", "1", "1", "--", sys.executable, "-c", child)
+    result = _run("--grace", "1", "1", "--", *command)
+    elapsed = time.monotonic() - started
     assert result.returncode == 124
-    assert time.monotonic() - started < 10
+    assert marker.exists(), (
+        "the child was not ready inside the 1 s bound: SIGTERM was never ignored"
+    )
+    # Bound plus grace: anything shorter means the command died of SIGTERM and
+    # the SIGKILL path never ran.
+    assert elapsed >= 2.0
+    assert elapsed < 10
 
 
 def test_sigint_reaches_the_command_and_the_wrapper_dies_of_it():

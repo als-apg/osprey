@@ -1,0 +1,366 @@
+extensions:
+  basicauth/senders:
+    htpasswd:
+      file: /etc/otelcol/senders.htpasswd
+  file_storage/state:
+    directory: /var/lib/otelcol/state
+    create_directory: true
+    fsync: true
+    recreate: true
+    compaction:
+      on_start: true
+      on_rebound: true
+      directory: /var/lib/otelcol/compact
+      cleanup_on_start: true
+      rebound_needed_threshold_mib: 100
+      rebound_trigger_threshold_mib: 10
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        max_request_body_size: 20971520
+        compression_algorithms:
+        - ''
+        - gzip
+        include_metadata: false
+        auth:
+          authenticator: basicauth/senders
+  file_log/d2bd806c97f0e:
+    include:
+    - /audit/alice/*.jsonl
+    include_file_path: true
+    include_file_path_resolved: true
+    start_at: beginning
+    storage: file_storage/state
+    max_concurrent_files: 2
+    max_log_size: 1048576
+    max_log_size_behavior: truncate
+    on_truncate: read_whole_file
+    force_flush_period: 60s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 0
+    operators:
+    - id: ledger_anchor
+      type: regex_parser
+      regex: ^\{"ts":"(?P<ledger_ts>[^"]+)","surface":"(?P<ledger_surface>[^"\\]{1,256})"
+      on_error: send_quiet
+    - id: ledger_route
+      type: router
+      routes:
+      - expr: attributes.ledger_surface == "tool_call"
+        output: ledger_tool_call
+      default: ledger_envelope
+    - id: ledger_tool_call
+      type: regex_parser
+      regex: ^\{"ts":"[^"]+","surface":"[^"\\]{1,256}","actor":"(?P<ledger_actor>(?:[^"\\]|\\.)*)","posture":"(?:[^"\\]|\\.)*","posture_source":"(?:[^"\\]|\\.)*","session":(?:null|"(?P<ledger_session>(?:[^"\\]|\\.)*)"),"session_id":(?:null|"(?P<ledger_session_id>(?:[^"\\]|\\.)*)"),"tool_use_id":(?:null|"(?P<ledger_tool_use_id>(?:[^"\\]|\\.)*)"),"duration_ms":(?:null|"?(?P<ledger_duration_ms>-?Infinity|NaN|-?[0-9][0-9.eE+-]*)"?),"server":"(?:[^"\\]|\\.)*","subject":"(?:[^"\\]|\\.)*","decision":"(?P<ledger_decision>(?:[^"\\]|\\.)*)"
+      on_error: send_quiet
+      output: ledger_time
+    - id: ledger_envelope
+      type: regex_parser
+      regex: ^\{"ts":"[^"]+","surface":"[^"\\]{1,256}","actor":"(?P<ledger_actor>(?:[^"\\]|\\.)*)","posture":"(?:[^"\\]|\\.)*","posture_source":"(?:[^"\\]|\\.)*","session":(?:null|"(?P<ledger_session>(?:[^"\\]|\\.)*)")(?:,"on_behalf_of":"(?P<ledger_on_behalf_of>(?:[^"\\]|\\.)*)")?,"subject":"(?:[^"\\]|\\.)*","decision":"(?P<ledger_decision>(?:[^"\\]|\\.)*)","reason":"(?:[^"\\]|\\.)*"(?:,"detail":"(?:[^"\\]|\\.)*")?(?:,"role":"(?:[^"\\]|\\.)*")?(?:,"tool_use_id":"(?P<ledger_tool_use_id>[A-Za-z0-9_-]{1,128})")?
+      on_error: send_quiet
+      output: ledger_time
+    - id: ledger_time
+      type: time_parser
+      parse_from: attributes.ledger_ts
+      layout_type: gotime
+      layout: 2006-01-02T15:04:05.999999999Z07:00
+      on_error: send_quiet
+    - id: ledger_identity
+      type: add
+      field: resource["osprey.user"]
+      value: EXPR("alice")
+  file_log/daf7380e68ee0:
+    include:
+    - /audit/queueserver/*.jsonl
+    include_file_path: true
+    include_file_path_resolved: true
+    start_at: beginning
+    storage: file_storage/state
+    max_concurrent_files: 2
+    max_log_size: 1048576
+    max_log_size_behavior: truncate
+    on_truncate: read_whole_file
+    force_flush_period: 60s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 0
+    operators:
+    - id: ledger_anchor
+      type: regex_parser
+      regex: ^\{"ts":"(?P<ledger_ts>[^"]+)","surface":"(?P<ledger_surface>[^"\\]{1,256})"
+      on_error: send_quiet
+    - id: ledger_route
+      type: router
+      routes:
+      - expr: attributes.ledger_surface == "tool_call"
+        output: ledger_tool_call
+      default: ledger_envelope
+    - id: ledger_tool_call
+      type: regex_parser
+      regex: ^\{"ts":"[^"]+","surface":"[^"\\]{1,256}","actor":"(?P<ledger_actor>(?:[^"\\]|\\.)*)","posture":"(?:[^"\\]|\\.)*","posture_source":"(?:[^"\\]|\\.)*","session":(?:null|"(?P<ledger_session>(?:[^"\\]|\\.)*)"),"session_id":(?:null|"(?P<ledger_session_id>(?:[^"\\]|\\.)*)"),"tool_use_id":(?:null|"(?P<ledger_tool_use_id>(?:[^"\\]|\\.)*)"),"duration_ms":(?:null|"?(?P<ledger_duration_ms>-?Infinity|NaN|-?[0-9][0-9.eE+-]*)"?),"server":"(?:[^"\\]|\\.)*","subject":"(?:[^"\\]|\\.)*","decision":"(?P<ledger_decision>(?:[^"\\]|\\.)*)"
+      on_error: send_quiet
+      output: ledger_time
+    - id: ledger_envelope
+      type: regex_parser
+      regex: ^\{"ts":"[^"]+","surface":"[^"\\]{1,256}","actor":"(?P<ledger_actor>(?:[^"\\]|\\.)*)","posture":"(?:[^"\\]|\\.)*","posture_source":"(?:[^"\\]|\\.)*","session":(?:null|"(?P<ledger_session>(?:[^"\\]|\\.)*)")(?:,"on_behalf_of":"(?P<ledger_on_behalf_of>(?:[^"\\]|\\.)*)")?,"subject":"(?:[^"\\]|\\.)*","decision":"(?P<ledger_decision>(?:[^"\\]|\\.)*)","reason":"(?:[^"\\]|\\.)*"(?:,"detail":"(?:[^"\\]|\\.)*")?(?:,"role":"(?:[^"\\]|\\.)*")?(?:,"tool_use_id":"(?P<ledger_tool_use_id>[A-Za-z0-9_-]{1,128})")?
+      on_error: send_quiet
+      output: ledger_time
+    - id: ledger_time
+      type: time_parser
+      parse_from: attributes.ledger_ts
+      layout_type: gotime
+      layout: 2006-01-02T15:04:05.999999999Z07:00
+      on_error: send_quiet
+    - id: ledger_identity
+      type: add
+      field: resource["osprey.user"]
+      value: EXPR("queueserver")
+  file_log/d6c8b4535ccc8:
+    include:
+    - /audit/sidecar/*.jsonl
+    include_file_path: true
+    include_file_path_resolved: true
+    start_at: beginning
+    storage: file_storage/state
+    max_concurrent_files: 2
+    max_log_size: 1048576
+    max_log_size_behavior: truncate
+    on_truncate: read_whole_file
+    force_flush_period: 60s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 0
+    operators:
+    - id: ledger_anchor
+      type: regex_parser
+      regex: ^\{"ts":"(?P<ledger_ts>[^"]+)","surface":"(?P<ledger_surface>[^"\\]{1,256})"
+      on_error: send_quiet
+    - id: ledger_route
+      type: router
+      routes:
+      - expr: attributes.ledger_surface == "tool_call"
+        output: ledger_tool_call
+      default: ledger_envelope
+    - id: ledger_tool_call
+      type: regex_parser
+      regex: ^\{"ts":"[^"]+","surface":"[^"\\]{1,256}","actor":"(?P<ledger_actor>(?:[^"\\]|\\.)*)","posture":"(?:[^"\\]|\\.)*","posture_source":"(?:[^"\\]|\\.)*","session":(?:null|"(?P<ledger_session>(?:[^"\\]|\\.)*)"),"session_id":(?:null|"(?P<ledger_session_id>(?:[^"\\]|\\.)*)"),"tool_use_id":(?:null|"(?P<ledger_tool_use_id>(?:[^"\\]|\\.)*)"),"duration_ms":(?:null|"?(?P<ledger_duration_ms>-?Infinity|NaN|-?[0-9][0-9.eE+-]*)"?),"server":"(?:[^"\\]|\\.)*","subject":"(?:[^"\\]|\\.)*","decision":"(?P<ledger_decision>(?:[^"\\]|\\.)*)"
+      on_error: send_quiet
+      output: ledger_time
+    - id: ledger_envelope
+      type: regex_parser
+      regex: ^\{"ts":"[^"]+","surface":"[^"\\]{1,256}","actor":"(?P<ledger_actor>(?:[^"\\]|\\.)*)","posture":"(?:[^"\\]|\\.)*","posture_source":"(?:[^"\\]|\\.)*","session":(?:null|"(?P<ledger_session>(?:[^"\\]|\\.)*)")(?:,"on_behalf_of":"(?P<ledger_on_behalf_of>(?:[^"\\]|\\.)*)")?,"subject":"(?:[^"\\]|\\.)*","decision":"(?P<ledger_decision>(?:[^"\\]|\\.)*)","reason":"(?:[^"\\]|\\.)*"(?:,"detail":"(?:[^"\\]|\\.)*")?(?:,"role":"(?:[^"\\]|\\.)*")?(?:,"tool_use_id":"(?P<ledger_tool_use_id>[A-Za-z0-9_-]{1,128})")?
+      on_error: send_quiet
+      output: ledger_time
+    - id: ledger_time
+      type: time_parser
+      parse_from: attributes.ledger_ts
+      layout_type: gotime
+      layout: 2006-01-02T15:04:05.999999999Z07:00
+      on_error: send_quiet
+    - id: ledger_identity
+      type: add
+      field: resource["osprey.user"]
+      value: EXPR("sidecar")
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  transform/identity:
+    error_mode: ignore
+    log_statements:
+    - context: resource
+      statements:
+      - delete_matching_keys(resource.attributes, "^osprey\\.")
+      - set(resource.attributes["osprey.user"], otelcol.client.auth.attributes["username"])
+      - delete_key(resource.attributes, "session.id") where resource.attributes["session.id"] != nil and (not IsString(resource.attributes["session.id"]) or not IsMatch(resource.attributes["session.id"], "^[A-Za-z0-9._-]{1,128}$"))
+      - delete_key(resource.attributes, "terminal.session") where resource.attributes["terminal.session"] != nil and (not IsString(resource.attributes["terminal.session"]) or not IsMatch(resource.attributes["terminal.session"], "^[A-Za-z0-9._-]{1,128}$"))
+    - context: scope
+      statements:
+      - delete_matching_keys(scope.attributes, "^osprey\\.")
+    - context: log
+      statements:
+      - delete_matching_keys(log.attributes, "^osprey\\.")
+      - set(log.attributes["osprey.user"], otelcol.client.auth.attributes["username"])
+      - delete_key(log.attributes, "session.id") where log.attributes["session.id"] != nil and (not IsString(log.attributes["session.id"]) or not IsMatch(log.attributes["session.id"], "^[A-Za-z0-9._-]{1,128}$"))
+      - delete_key(log.attributes, "terminal.session") where log.attributes["terminal.session"] != nil and (not IsString(log.attributes["terminal.session"]) or not IsMatch(log.attributes["terminal.session"], "^[A-Za-z0-9._-]{1,128}$"))
+      - set(log.attributes["event.name"], log.event_name) where log.event_name != "" and log.attributes["event.name"] == nil
+      - set(log.time, log.observed_time) where log.time_unix_nano == 0
+    trace_statements:
+    - context: resource
+      statements:
+      - delete_matching_keys(resource.attributes, "^osprey\\.")
+      - set(resource.attributes["osprey.user"], otelcol.client.auth.attributes["username"])
+      - delete_key(resource.attributes, "session.id") where resource.attributes["session.id"] != nil and (not IsString(resource.attributes["session.id"]) or not IsMatch(resource.attributes["session.id"], "^[A-Za-z0-9._-]{1,128}$"))
+      - delete_key(resource.attributes, "terminal.session") where resource.attributes["terminal.session"] != nil and (not IsString(resource.attributes["terminal.session"]) or not IsMatch(resource.attributes["terminal.session"], "^[A-Za-z0-9._-]{1,128}$"))
+    - context: scope
+      statements:
+      - delete_matching_keys(scope.attributes, "^osprey\\.")
+    - context: span
+      statements:
+      - delete_matching_keys(span.attributes, "^osprey\\.")
+      - set(span.links, nil)
+      - set(span.attributes["osprey.user"], otelcol.client.auth.attributes["username"])
+      - delete_key(span.attributes, "session.id") where span.attributes["session.id"] != nil and (not IsString(span.attributes["session.id"]) or not IsMatch(span.attributes["session.id"], "^[A-Za-z0-9._-]{1,128}$"))
+      - delete_key(span.attributes, "terminal.session") where span.attributes["terminal.session"] != nil and (not IsString(span.attributes["terminal.session"]) or not IsMatch(span.attributes["terminal.session"], "^[A-Za-z0-9._-]{1,128}$"))
+    - context: spanevent
+      statements:
+      - delete_matching_keys(spanevent.attributes, "^osprey\\.")
+    metric_statements:
+    - context: resource
+      statements:
+      - delete_matching_keys(resource.attributes, "^osprey\\.")
+      - set(resource.attributes["osprey.user"], otelcol.client.auth.attributes["username"])
+      - delete_key(resource.attributes, "session.id") where resource.attributes["session.id"] != nil and (not IsString(resource.attributes["session.id"]) or not IsMatch(resource.attributes["session.id"], "^[A-Za-z0-9._-]{1,128}$"))
+      - delete_key(resource.attributes, "terminal.session") where resource.attributes["terminal.session"] != nil and (not IsString(resource.attributes["terminal.session"]) or not IsMatch(resource.attributes["terminal.session"], "^[A-Za-z0-9._-]{1,128}$"))
+    - context: scope
+      statements:
+      - delete_matching_keys(scope.attributes, "^osprey\\.")
+    - context: datapoint
+      statements:
+      - delete_matching_keys(datapoint.attributes, "^osprey\\.")
+      - set(datapoint.exemplars, nil)
+      - set(datapoint.attributes["osprey.user"], otelcol.client.auth.attributes["username"])
+      - delete_key(datapoint.attributes, "session.id") where datapoint.attributes["session.id"] != nil and (not IsString(datapoint.attributes["session.id"]) or not IsMatch(datapoint.attributes["session.id"], "^[A-Za-z0-9._-]{1,128}$"))
+      - delete_key(datapoint.attributes, "terminal.session") where datapoint.attributes["terminal.session"] != nil and (not IsString(datapoint.attributes["terminal.session"]) or not IsMatch(datapoint.attributes["terminal.session"], "^[A-Za-z0-9._-]{1,128}$"))
+  filter/clamp:
+    error_mode: ignore
+    logs:
+      log_record:
+      - log.time < Now() - Duration("336h") or log.time > Now() + Duration("1h")
+    traces:
+      span:
+      - span.start_time < Now() - Duration("336h") or span.start_time > Now() + Duration("1h")
+    metrics:
+      datapoint:
+      - datapoint.time < Now() - Duration("336h") or datapoint.time > Now() + Duration("1h")
+  transform/ledger:
+    error_mode: ignore
+    log_statements:
+    - context: log
+      statements:
+      - delete_matching_keys(log.attributes, "^osprey\\.")
+      - set(log.attributes["osprey.audit.session_id"], log.attributes["ledger_session_id"]) where log.attributes["ledger_session_id"] != nil and log.attributes["ledger_session_id"] != ""
+      - set(log.attributes["osprey.audit.session"], log.attributes["ledger_session"]) where log.attributes["ledger_session"] != nil and log.attributes["ledger_session"] != ""
+      - set(log.attributes["osprey.audit.tool_use_id"], log.attributes["ledger_tool_use_id"]) where log.attributes["ledger_tool_use_id"] != nil and log.attributes["ledger_tool_use_id"] != ""
+      - set(log.attributes["osprey.audit.duration_ms"], log.attributes["ledger_duration_ms"]) where log.attributes["ledger_duration_ms"] != nil and log.attributes["ledger_duration_ms"] != ""
+      - set(log.attributes["osprey.audit.actor"], log.attributes["ledger_actor"]) where log.attributes["ledger_actor"] != nil and log.attributes["ledger_actor"] != ""
+      - set(log.attributes["osprey.audit.decision"], log.attributes["ledger_decision"]) where log.attributes["ledger_decision"] != nil and log.attributes["ledger_decision"] != ""
+      - set(log.attributes["osprey.audit.surface"], log.attributes["ledger_surface"]) where log.attributes["ledger_surface"] != nil and log.attributes["ledger_surface"] != ""
+      - set(log.attributes["osprey.audit.on_behalf_of"], log.attributes["ledger_on_behalf_of"]) where log.attributes["ledger_on_behalf_of"] != nil and log.attributes["ledger_on_behalf_of"] != ""
+      - set(log.attributes["osprey.audit.surface"], "unparsed") where not (log.attributes["ledger_surface"] != nil)
+      - set(log.attributes["osprey.audit.unparsed"], true) where not (log.attributes["ledger_surface"] != nil)
+      - set(log.attributes["osprey.audit.truncated"], true) where Len(log.body) >= 1048576
+      - set(log.attributes["osprey.audit.incomplete"], true) where log.attributes["ledger_surface"] != nil and not IsMatch(log.body, "\\}$") and Len(log.body) < 1048576
+      - set(log.attributes["osprey.audit.time_unparsed"], true) where log.attributes["ledger_surface"] != nil and log.time_unix_nano == 0
+      - set(log.time, log.observed_time) where log.time_unix_nano == 0
+      - set(log.attributes["osprey.user"], resource.attributes["osprey.user"])
+      - delete_key(log.attributes, "osprey.audit.on_behalf_of") where not (resource.attributes["osprey.user"] == "sidecar" or ((resource.attributes["osprey.user"] == "queueserver") and log.attributes["ledger_surface"] == "preflight"))
+      - delete_matching_keys(log.attributes, "^ledger_")
+  filter/ledger-path:
+    error_mode: ignore
+    logs:
+      log_record:
+      - log.attributes["log.file.path_resolved"] != log.attributes["log.file.path"] or log.attributes["log.file.path_resolved"] == nil
+exporters:
+  clickhouse/otlp:
+    endpoint: http://telemetry_store:8123
+    username: ingest
+    password: ${env:OSPREY_TELEMETRY_INGEST_PASSWORD}
+    database: telemetry
+    async_insert: false
+    create_schema: false
+    ttl: 0
+    logs_table_name: otel_logs
+    timeout: 30s
+    sending_queue:
+      enabled: true
+      storage: file_storage/state
+      sizer: bytes
+      queue_size: 1073741824
+      batch:
+        sizer: bytes
+        max_size: 8388608
+    retry_on_failure:
+      max_elapsed_time: 0
+  clickhouse/ledger:
+    endpoint: http://telemetry_store:8123
+    username: ingest
+    password: ${env:OSPREY_TELEMETRY_INGEST_PASSWORD}
+    database: telemetry
+    async_insert: false
+    create_schema: false
+    ttl: 0
+    logs_table_name: audit_ledger
+    timeout: 30s
+    sending_queue:
+      enabled: true
+      storage: file_storage/state
+      sizer: bytes
+      queue_size: 1073741824
+      block_on_overflow: true
+      batch:
+        sizer: bytes
+        max_size: 8388608
+    retry_on_failure:
+      max_elapsed_time: 0
+service:
+  telemetry:
+    metrics:
+      readers:
+      - pull:
+          exporter:
+            prometheus:
+              host: 0.0.0.0
+              port: 8888
+  extensions:
+  - basicauth/senders
+  - file_storage/state
+  pipelines:
+    logs/otlp:
+      receivers:
+      - otlp
+      processors:
+      - memory_limiter
+      - transform/identity
+      - filter/clamp
+      exporters:
+      - clickhouse/otlp
+    traces:
+      receivers:
+      - otlp
+      processors:
+      - memory_limiter
+      - transform/identity
+      - filter/clamp
+      exporters:
+      - clickhouse/otlp
+    metrics:
+      receivers:
+      - otlp
+      processors:
+      - memory_limiter
+      - transform/identity
+      - filter/clamp
+      exporters:
+      - clickhouse/otlp
+    logs/ledger:
+      receivers:
+      - file_log/d2bd806c97f0e
+      - file_log/daf7380e68ee0
+      - file_log/d6c8b4535ccc8
+      processors:
+      - transform/ledger
+      - filter/ledger-path
+      - filter/clamp
+      exporters:
+      - clickhouse/ledger

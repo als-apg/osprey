@@ -38,7 +38,7 @@ def encode_claude_project_path(project_dir: Path | str) -> str:
     ``<config-dir>/projects/<encoded>/`` where ``<encoded>`` is the absolute
     cwd with every non-alphanumeric character normalized to ``-``. This
     helper exists so every callsite computes the same name — keep this in
-    sync with the bundled CLI if its encoding ever changes.
+    sync with the CLI if its encoding ever changes.
     """
     abs_path = str(Path(project_dir).resolve())
     return _CLAUDE_PROJECT_DIR_NORMALIZE.sub("-", abs_path)

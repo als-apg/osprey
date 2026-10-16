@@ -277,3 +277,24 @@ class TestAgentChildEnvironment:
         env = captured["env"]
         assert isinstance(env, dict)
         assert "OSPREY_TERMINAL_SECRET" not in env
+
+    def test_the_agent_child_is_offered_the_task_list_tools(
+        self, runner, monkeypatch, lifecycle_repo
+    ):
+        stub_build(lifecycle_repo)
+        monkeypatch.setattr("osprey.cli.chat_cmd._launch_companion_servers", lambda project_dir: [])
+        monkeypatch.setenv("CLAUDE_CODE_ENABLE_TODO_TOOLS", "0")
+
+        captured: dict[str, object] = {}
+
+        def fake_run(argv, *args, **kwargs):  # noqa: ARG001 - the command position subprocess.run is called at
+            captured["env"] = kwargs.get("env")
+            return SimpleNamespace(returncode=0)
+
+        with patch_subprocess("osprey.cli.chat_cmd", side_effect=fake_run):
+            result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
+
+        assert result.exit_code == 0
+        env = captured["env"]
+        assert isinstance(env, dict)
+        assert env["CLAUDE_CODE_ENABLE_TODO_TOOLS"] == "1"

@@ -86,8 +86,13 @@ services:
       # label makes such an edit a document change. Empty when the invocation
       # did not set the variable (a hand-run `docker compose up`).
       osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+{%- if 'telemetry_gateway' in (deployed_services | default([], true)) %}
+      # The same trigger for this worker's telemetry login file: a login
+      # minted anew recreates this worker and no other service.
+      osprey.telemetry.cred.digest: "${OSPREY_TELEMETRY_DIGEST_DISPATCH_WORKER_{{ i }}:-}"
+{%- endif %}
     restart: unless-stopped
-{% if osprey_env_chain | default([]) %}
+{% if osprey_env_chain | default([]) or 'telemetry_gateway' in (deployed_services | default([], true)) %}
     # Provider auth: the worker's startup hook (inject_provider_env) resolves
     # the LLM provider key (e.g. ALS_APG_API_KEY -> ANTHROPIC_AUTH_TOKEN) from
     # the process environment. `env_file:` is read by the compose CLI on the
@@ -108,9 +113,17 @@ services:
     # ROOT — so these are the deployment's own chain files, not copies inside
     # the disposable render.
     env_file:
-{%- for env_chain_file in osprey_env_chain %}
+{%- for env_chain_file in osprey_env_chain | default([]) %}
       - {{ env_chain_file }}
 {%- endfor %}
+{%- if 'telemetry_gateway' in (deployed_services | default([], true)) %}
+      # This worker's telemetry login: its own file at the repo root, one
+      # login and nothing else. The exception to "only files that exist" —
+      # listed whenever the gateway is deployed, because `osprey build`
+      # creates it before this file is rendered, so `status`, `down` and
+      # `logs` resolve it on any built repo.
+      - .env.telemetry-sender.dispatch-worker-{{ i }}
+{%- endif %}
 {% endif %}
     environment:
       # No :-default (see event_dispatcher compose): fail closed on an unset token.
@@ -207,34 +220,7 @@ services:
       # anything against a project root.
       CONFIG_FILE: /app/{{ osprey_labels.project_name }}/build/config.yml
       TZ: {{ system.timezone }}
-{%- if on_host %}
-      # OpenObserve telemetry (opt-in): on the host namespace this container's
-      # loopback IS the host's, so the store is reachable at the port it
-      # publishes there — the compose service DNS name resolves to nothing from
-      # here. Declaring the host explicitly is what settles it: the emitter's
-      # own fallback sees a container and would reach for the service name.
-      # Inert unless claude_code.telemetry is enabled with backend: openobserve.
-      #
-      # The variable carries a HOST only. The port half needs no declaration
-      # here: from the host's loopback the store answers on the port it
-      # PUBLISHES, and the emitter reads that from `services.openobserve.port`
-      # in the config this worker already mounts — so moving the store moves
-      # the exporter with it.
-      OSPREY_OTEL_OPENOBSERVE_HOST: localhost
-{%- else %}
-      # OpenObserve telemetry (opt-in): the worker and its CLI subprocess run on
-      # this bridge network, so the store is reachable by its compose service
-      # DNS name, not localhost. Declaring the host here — rather than sniffing
-      # the container runtime — is what makes emit work under docker AND podman.
-      # Inert unless claude_code.telemetry is enabled with backend: openobserve.
-      #
-      # The port is declared beside it because on this network it is NOT the
-      # published one: the DNS name answers on the port the store LISTENS on
-      # inside its container, which `services.openobserve.port` says nothing
-      # about. Without this line the emitter would derive the published port,
-      # which is right from the host and wrong from here.
-      OSPREY_OTEL_OPENOBSERVE_HOST: openobserve
-      OSPREY_OTEL_OPENOBSERVE_PORT: "5080"
+{%- if not on_host %}
 {%- if 'bluesky' in (deployed_services | default([])) %}
       # The plan queue's bridge, by its in-network compose service key — the
       # same address the Bluesky sidecar is handed. Without it the agent this
@@ -265,14 +251,14 @@ services:
 {%- endfor %}
 {%- endif %}
 {#- Address of the archiver store, for the same reason and by the same
-    convention as OSPREY_OTEL_OPENOBSERVE_HOST above: whichever address is the
+    convention as the bridge URL above: whichever address is the
     right one from where this worker actually runs. The worker answers questions
     about what the machine did, so its agent reaches for `archiver_read` like
     any other -- but the connection block in config.yml is written for the HOST
     side (`localhost` and the published `port_host`), which from inside a
     bridge-networked container names its own loopback.
 
-    Gated on `deployed_services` membership, like the openobserve link above and
+    Gated on `deployed_services` membership, like the bridge URL above and
     for a sharper reason than symmetry: these two are a LITERAL address, not a
     fallback. A project whose archiver is a store someone else runs -- a
     facility MongoDB, an Archiver Appliance -- has a config block that is
@@ -297,6 +283,7 @@ services:
 {% endif %}
 {{- dial.ariel_store(postgres_deployed, on_host, osprey_host_dial_address, services, osprey_ports) }}
 {{- dial.qmd_sidecars(osprey_qmd, deployed_services | default([]), on_host) }}
+{{- dial.telemetry_gateway(deployed_services | default([]), on_host, osprey_host_dial_address, services, osprey_ports) }}
 {#- Last in the block, unlike the other service templates, where `TZ:` is the
     last line and the call sits under it: this one's `environment:` ends with
     the mode-dependent store addresses, and the axis is documented as the

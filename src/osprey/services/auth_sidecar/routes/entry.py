@@ -40,8 +40,9 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Annotated
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
 
 from osprey.interfaces.common_middleware import url_mount_prefix
@@ -56,6 +57,7 @@ from ..app import (
     get_settings,
 )
 from ..passwords import PasswordCheck, check_password, generation_tag
+from ..return_to import acceptable_return_to
 from ..revocation import RevocationStore
 from ..sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
 from ..throttle import AttemptThrottle
@@ -63,6 +65,7 @@ from .login import (
     _DEFAULT_THEME_FAMILY,
     _NO_STORE_HEADERS,
     DENIAL_MESSAGE,
+    FIELD_NEXT,
     FIELD_PASSWORD,
     MAX_USERNAME_LENGTH,
     THROTTLE_MESSAGE,
@@ -164,6 +167,7 @@ def render(
     error: str | None = None,
     cards: Sequence[OpenedCard] = (),
     headers: dict[str, str] | None = None,
+    next_target: str = "",
 ) -> Response:
     """Render the card-less page in one of its three shapes.
 
@@ -175,6 +179,8 @@ def render(
         error: The message to show above the form, or ``None``.
         cards: The unlocked cards, for the ``cards`` shape.
         headers: Extra response headers, merged over the no-store default.
+        next_target: The validated return-to the form carries in a hidden field,
+            or ``""`` for none.
 
     Returns:
         The rendered page.
@@ -191,6 +197,7 @@ def render(
             "cards": [{"name": card.name, "href": _href(card), "own": card.own} for card in cards],
             "theme_blocks": _theme_blocks(settings.web_theme or _DEFAULT_THEME_FAMILY),
             "app_name": settings.web_app_name,
+            "next": next_target,
         },
         status_code=status_code,
         headers={**_NO_STORE_HEADERS, **(headers or {})},
@@ -203,13 +210,16 @@ def opened_response(
     codec: SessionCodec,
     session: SessionState,
     cards: Sequence[OpenedCard],
+    next_target: str = "",
 ) -> Response:
-    """The answer to a card-less login that opened at least one card.
+    """The answer to a card-less login that opened at least one card or reader.
 
-    One card is a 303 to that terminal; several are the list page, every link
-    on which is already unlocked. Either way the session cookie carries the
-    attribute set every login issues. Never called with no card: the caller
-    refuses instead.
+    A sign-in that arrived with a validated return-to — the history page's own
+    sign-in, above all — is a 303 back to it, whatever it opened. Otherwise one
+    card is a 303 to that terminal and several are the list page, every link on
+    which is already unlocked. Either way the session cookie carries the
+    attribute set every login issues. Never called with nothing opened: the
+    caller refuses instead.
 
     Args:
         request: The inbound request.
@@ -217,12 +227,15 @@ def opened_response(
         codec: The app's session codec.
         session: The session with every opened card minted into it.
         cards: The opened cards, own cards first.
+        next_target: The validated return-to, or ``""`` for none.
 
     Returns:
         The redirect or the list page, carrying the session cookie.
     """
     response: Response
-    if len(cards) == 1:
+    if next_target:
+        response = RedirectResponse(next_target, status_code=303, headers=_NO_STORE_HEADERS)
+    elif len(cards) == 1:
         response = RedirectResponse(_href(cards[0]), status_code=303, headers=_NO_STORE_HEADERS)
     else:
         response = render(request, shape="cards", status_code=200, cards=cards)
@@ -236,6 +249,19 @@ def opened_response(
         path="/",
     )
     return response
+
+
+def card_less_next(raw: object, settings: AuthSettings) -> str:
+    """The return-to a card-less sign-in honours, or ``""`` for none.
+
+    The card login falls back to the clicked card's terminal; a card-less one
+    has no card to fall back to, so a refused or absent value is simply none
+    and the sign-in answers as it always has.
+    """
+    accepted = acceptable_return_to(raw, history_origin=settings.history_origin)
+    if accepted is None and isinstance(raw, str) and raw.strip():
+        logger.warning("card-less sign-in requested a return-to it may not use; ignoring it")
+    return accepted or ""
 
 
 def refuse_no_card(request: Request, *, subject: str) -> Response:
@@ -258,12 +284,18 @@ def refuse_no_card(request: Request, *, subject: str) -> Response:
 async def enter_page(
     request: Request,
     settings: Annotated[AuthSettings, Depends(get_settings)],
+    return_to: Annotated[list[str] | None, Query(alias=FIELD_NEXT)] = None,
 ) -> Response:
     """Show the card-less sign-in, or hand an OIDC browser to its handshake.
+
+    A validated ``next`` travels on: into the form's hidden field under
+    password login, and through the hop to :data:`OIDC_ENTRY_PATH` under OIDC.
 
     Args:
         request: The inbound request.
         settings: The deployment's frozen settings.
+        return_to: Where to return after the sign-in. Exactly one value is
+            read; none or several mean none.
 
     Returns:
         The sign-in form under password login; a 302 to :data:`OIDC_ENTRY_PATH`
@@ -272,15 +304,19 @@ async def enter_page(
     Raises:
         HTTPException: 404 under any other method.
     """
+    target = card_less_next(_only(return_to), settings)
     if settings.method == "oidc":
-        return RedirectResponse(OIDC_ENTRY_PATH, status_code=302, headers=_NO_STORE_HEADERS)
+        location = OIDC_ENTRY_PATH
+        if target:
+            location = f"{OIDC_ENTRY_PATH}?{FIELD_NEXT}={quote(target, safe='')}"
+        return RedirectResponse(location, status_code=302, headers=_NO_STORE_HEADERS)
     if settings.method != "password":
         raise HTTPException(
             status_code=404,
             detail="this deployment does not use password login",
             headers=_NO_STORE_HEADERS,
         )
-    return render(request, shape="form", status_code=200)
+    return render(request, shape="form", status_code=200, next_target=target)
 
 
 @router.post(ENTRY_PATH)
@@ -341,6 +377,7 @@ async def enter_submit(
         )
 
     form = await request.form()
+    target = card_less_next(_only(_form_values(form, FIELD_NEXT)), settings)
     submitted = _form_values(form, FIELD_USERNAME)
     name = _only(submitted)
     if name is None:
@@ -374,6 +411,7 @@ async def enter_submit(
             error=THROTTLE_MESSAGE,
             username=shown,
             headers={"Retry-After": str(math.ceil(delay))},
+            next_target=target,
         )
 
     password = _only(_form_values(form, FIELD_PASSWORD)) or ""
@@ -397,7 +435,14 @@ async def enter_submit(
                 audit.REASON_CREDENTIAL_UNEVALUABLE if unevaluable else audit.REASON_BAD_CREDENTIAL
             ),
         )
-        return render(request, shape="form", status_code=401, error=DENIAL_MESSAGE, username=shown)
+        return render(
+            request,
+            shape="form",
+            status_code=401,
+            error=DENIAL_MESSAGE,
+            username=shown,
+            next_target=target,
+        )
 
     throttle.record_success(shown)
 
@@ -439,7 +484,7 @@ async def enter_submit(
         openers.append(opener)
 
     response = opened_response(
-        request, settings, codec, session, tuple(card for card, _ in admitted)
+        request, settings, codec, session, tuple(card for card, _ in admitted), target
     )
     for (card, grant), opener in zip(admitted, openers, strict=True):
         logger.info("password sign-in for %r opened %r", name, card.name)

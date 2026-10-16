@@ -11,10 +11,12 @@ or because every caller of a private helper holding the call is itself covered.
 A site that nothing covers fails the test with its file and line, so a client
 upgrade that adds a new put path cannot pass unnoticed.
 
-The ``libca`` handle pyepics loads carries the same three symbols as attributes.
-A run that reaches ``epics.ca.libca`` directly calls C without going through
-any Python entry point; those attributes are listed below as documented
-cooperative bypasses rather than rows of the partition.
+The ``libca`` handles carry the same three symbols as attributes: the one
+pyepics loads for itself, and the one ``epicscorelibs.ca.cadef`` loads in its
+module body and aioca reads through. A run that reaches either handle directly
+calls C without going through any Python entry point; those attributes are
+listed below as documented cooperative bypasses rather than rows of the
+partition. A readonly run closes them, which is pinned here as well.
 """
 
 from __future__ import annotations
@@ -27,7 +29,10 @@ from pathlib import Path
 import pytest
 
 from osprey.runtime.raw_put_block import _HANDLE_PUT_SYMBOLS
-from osprey.services.python_executor.write_surface import _ARMED_BLOCKED
+from osprey.services.python_executor.write_surface import (
+    _ARMED_BLOCKED,
+    _READONLY_WRITE_TARGETS,
+)
 
 #: The C entry points a Channel Access write leaves the process through.
 PUT_SYMBOLS: frozenset[str] = frozenset(
@@ -48,12 +53,26 @@ SCANNED_SOURCES: tuple[tuple[str, str], ...] = (
 _LIBCA_HANDLE = "epics.ca.libca"
 _CADEF_MODULE = "epicscorelibs.ca.cadef"
 
-#: The attributes of the pyepics ``libca`` handle that write a channel. Code
-#: that calls them directly bypasses every Python entry point; the armed
-#: partition does not list them because the connector-routed path never
-#: touches them, and a caller reaching for the raw handle is outside the
-#: cooperative contract the partition enforces.
+#: The ``libca`` handle ``cadef`` loads in its module body. No scanned source
+#: calls a put through it, but it is reachable from any script that can reach
+#: ``cadef``, ``importlib`` included.
+_CADEF_LIBCA_HANDLE = "epicscorelibs.ca.cadef.libca"
+
+#: The attributes of the ``libca`` handles that write a channel. Code that
+#: calls them directly bypasses every Python entry point; the armed partition
+#: does not list them because the connector-routed path never touches them,
+#: and a caller reaching for the raw handle is outside the cooperative
+#: contract the partition enforces.
 COOPERATIVE_BYPASSES: dict[tuple[str, str], str] = {
+    (_CADEF_LIBCA_HANDLE, "ca_array_put"): (
+        "raw handle attribute; aioca puts through cadef.ca_array_put, which is refused"
+    ),
+    (_CADEF_LIBCA_HANDLE, "ca_array_put_callback"): (
+        "raw handle attribute; aioca puts through cadef.ca_array_put_callback, which is refused"
+    ),
+    (_CADEF_LIBCA_HANDLE, "ca_sg_array_put"): (
+        "raw handle attribute; aioca never calls the synchronous-group put"
+    ),
     (_LIBCA_HANDLE, "ca_array_put"): (
         "raw handle attribute; pyepics reaches it only from ca.put, which is refused"
     ),
@@ -251,11 +270,27 @@ def test_every_put_site_calls_a_known_receiver(sites: list[PutSite]) -> None:
 
 
 def test_cooperative_bypasses_match_the_handle_symbols() -> None:
-    assert {attr for _handle, attr in COOPERATIVE_BYPASSES} == set(_HANDLE_PUT_SYMBOLS)
     assert set(_HANDLE_PUT_SYMBOLS) == PUT_SYMBOLS
+    for handle in {handle for handle, _attr in COOPERATIVE_BYPASSES}:
+        assert {attr for h, attr in COOPERATIVE_BYPASSES if h == handle} == PUT_SYMBOLS, (
+            f"{handle} lists only some of the put symbols"
+        )
     for row, reason in COOPERATIVE_BYPASSES.items():
         assert reason.strip(), f"{row} has no reason"
         assert row not in _ARMED_BLOCKED, f"{row} is a bypass, not a partition row"
+
+
+def test_readonly_closes_the_cadef_libca_bypasses() -> None:
+    """A bypass armed mode tolerates is one a readonly run refuses by name.
+
+    The handle predates the guard's ``ctypes`` gate, and a put symbol it has
+    already resolved is cached on the instance, so the readonly table has to
+    name it. pyepics' handle is closed as the gate hands it out instead.
+    """
+    readonly = {(dotted, attr) for dotted, attrs in _READONLY_WRITE_TARGETS for attr in attrs}
+    for row in COOPERATIVE_BYPASSES:
+        if row[0] == _CADEF_LIBCA_HANDLE:
+            assert row in readonly, f"{row} is not refused in a readonly run"
 
 
 # --- the coverage rule, on synthetic sources --------------------------------

@@ -87,6 +87,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
@@ -94,9 +95,10 @@ from osprey.deployment import control_identity
 from osprey.deployment.control_identity import CONTROL_IDENTITY_CONTAINER_PATH
 from osprey.port_layout import default_port
 from osprey.utils.workspace import container_image_context
-from tests._container_support import docker_cli_unavailable_reason
+from tests._container_support import docker_cli_unavailable_reason_once
+from tests.e2e._telemetry_sender import sender_env_file_args
 
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
 #: The port the project image serves on INSIDE the container: the ``web`` slot
@@ -159,7 +161,7 @@ def _init_and_build_repo(out_dir: Path) -> Path:
             "--set",
             "provider=als-apg",
             "--set",
-            "model=claude-haiku-4-5-20251001",
+            "model=claude-haiku-5-5",
             "--no-git",
         ],
     )
@@ -610,16 +612,19 @@ def _post_chat(
 @pytest.mark.requires_als_apg
 def test_generated_image_serves_agent_over_http(built_image):
     """Boot the image's CMD and drive one real LLM turn through osprey web."""
-    tag, _repo, _project_name, _out_dir = built_image
+    tag, repo, _project_name, _out_dir = built_image
+    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
 
-    # Mirror the production run contract (`docker run --env-file .env`): pass
-    # the raw provider secret, never a pre-resolved token. The full osprey web
-    # stack resolves ${ALS_APG_API_KEY} from config at runtime and stands up
-    # an internal proxy that authenticates upstream with it — injecting a
-    # pre-resolved ANTHROPIC_AUTH_TOKEN would bypass that and leave config
-    # resolution (and the proxy) without the key.
+    # Mirror the production run contract (`docker run --env-file .env
+    # --env-file .env.telemetry-sender.<host identity>`): pass the raw provider
+    # secret, never a pre-resolved token. The full osprey web stack resolves
+    # ${ALS_APG_API_KEY} from config at runtime and stands up an internal proxy
+    # that authenticates upstream with it — injecting a pre-resolved
+    # ANTHROPIC_AUTH_TOKEN would bypass that and leave config resolution (and
+    # the proxy) without the key. The sender file is the login the image's
+    # gateway telemetry pre-flight requires; no gateway runs here.
     api_key = os.environ["ALS_APG_API_KEY"]  # guaranteed present by requires_als_apg
-    env_args = ["-e", f"ALS_APG_API_KEY={api_key}"]
+    env_args = ["-e", f"ALS_APG_API_KEY={api_key}", *sender_env_file_args(repo, config)]
 
     # The endpoint override rides the same contract. It is deliberately absent
     # from the image (build-time rendering never bakes the builder's

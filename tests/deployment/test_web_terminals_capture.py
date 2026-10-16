@@ -103,7 +103,18 @@ class RunRecorder:
         self.calls: list[dict] = []
 
     def __call__(
-        self, cmd, *, env=None, cwd=None, spool_name, repo_root=None, check=True, on_line=None
+        self,
+        cmd,
+        *,
+        env=None,
+        cwd=None,
+        spool_name,
+        repo_root=None,
+        check=True,
+        on_line=None,
+        timeout=None,
+        watch=None,
+        watch_interval=None,  # noqa: ARG002 - run_captured's keyword-only arguments
     ):
         self.calls.append(
             {
@@ -114,6 +125,8 @@ class RunRecorder:
                 "repo_root": repo_root,
                 "check": check,
                 "on_line": on_line,
+                "timeout": timeout,
+                "watch": watch,
             }
         )
         return CapturedProcess(list(cmd), 0, spool_path=None)
@@ -673,6 +686,21 @@ def test_the_services_build_streams_per_image_progress(monkeypatch, tmp_path):
     assert callable(recorder.by_spool("build-services")["on_line"])
     for other in ("compose-services-rm", "compose-services-up", "compose-web-up"):
         assert recorder.by_spool(other)["on_line"] is None
+
+
+@pytest.mark.usefixtures("reporter")
+def test_both_stacks_ups_are_bounded_and_watched(monkeypatch, tmp_path):
+    """podman-compose loops forever on a dependency that never comes healthy;
+    each stack's `up` is the call that can, so each carries the limit and watch."""
+    recorder = _stub_web_stack(monkeypatch, tmp_path)
+
+    provision.deploy_up_web_terminals(_web_config(), ["docker-compose.yml"], False, {}, [])
+
+    for name in ("compose-services-up", "compose-web-up"):
+        assert recorder.by_spool(name)["timeout"] > 0
+        assert callable(recorder.by_spool(name)["watch"])
+    for name in ("compose-services-rm", "compose-web-rm", "compose-web-pull"):
+        assert recorder.by_spool(name)["timeout"] is None
 
 
 @pytest.mark.usefixtures("reporter")

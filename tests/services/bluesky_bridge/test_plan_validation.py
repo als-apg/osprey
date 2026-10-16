@@ -965,6 +965,77 @@ class TestDeclaredPointCountGate:
         assert "opened no run" in reason
         assert "scan_metadata(" in reason
 
+    async def test_a_plan_that_moves_a_channel_it_never_records_is_rejected(self):
+        """A run whose events carry only the read channels has lost the value
+        each point was taken at: nothing downstream can say which reading
+        belongs to which setting. The rejection names the unrecorded channel
+        and hands the author the fix.
+        """
+        body = _role_mock_body(
+            _GATE_PARAMS,
+            textwrap.dedent(
+                """\
+                def build_plan(devices, params):
+                    movable = devices[params.correctors[0]]
+                    readable = devices[params.readbacks[0]]
+
+                    @bpp.run_decorator(
+                        md=scan_metadata(
+                            movable=params.correctors, readable=params.readbacks, points=1
+                        )
+                    )
+                    def _sweep():
+                        yield from bps.mv(movable, 1.0)
+                        yield from bps.trigger_and_read([readable])
+
+                    return _sweep()
+                """
+            ),
+        )
+        result = await validate_plan(body, plan_name="role_mocks", sample_args=_GATE_SAMPLE_ARGS)
+        assert result.passed is False
+        assert len(result.reasons) == 1
+        reason = result.reasons[0]
+        assert "'c1'" in reason
+        assert "trigger_and_read" in reason
+        assert "role_mocks" in reason
+        assert "Dry-run failed" not in reason
+
+    async def test_only_the_moved_channels_left_unrecorded_are_named(self):
+        """Two channels moved, one recorded: the reason names the other one
+        alone, so the author is pointed at exactly what is missing."""
+        body = _role_mock_body(
+            _GATE_PARAMS,
+            textwrap.dedent(
+                """\
+                def build_plan(devices, params):
+                    first = devices[params.correctors[0]]
+                    second = devices[params.correctors[1]]
+                    readable = devices[params.readbacks[0]]
+
+                    @bpp.run_decorator(
+                        md=scan_metadata(
+                            movable=params.correctors, readable=params.readbacks, points=1
+                        )
+                    )
+                    def _sweep():
+                        yield from bps.mv(first, 1.0, second, 2.0)
+                        yield from bps.trigger_and_read([first, readable])
+
+                    return _sweep()
+                """
+            ),
+        )
+        result = await validate_plan(
+            body,
+            plan_name="role_mocks",
+            sample_args={"correctors": ["c1", "c2"], "readbacks": ["b1"]},
+        )
+        assert result.passed is False
+        assert len(result.reasons) == 1
+        assert "'c2'" in result.reasons[0]
+        assert "'c1'" not in result.reasons[0]
+
     def test_the_gated_value_is_the_one_the_authoring_helper_stamps(self):
         """The gate reads what `scan_metadata()` writes. Pinned so the two
         cannot drift into a gate that rejects correctly-authored plans.

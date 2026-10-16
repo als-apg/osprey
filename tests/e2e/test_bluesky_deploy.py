@@ -101,13 +101,16 @@ from tests.e2e.profile_edits import set_pairs
 # than letting the layout place it.
 BRIDGE_PORT = 18090
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
-# ``hello-world`` deploys OpenObserve unconditionally (it is baked into
-# ``deployed_services``, with no profile knob to drop it) on its slot in the
-# port block, which a locally-running tutorial stack routinely holds — and a
-# bound-port collision aborts `up` before the bluesky containers it creates
-# alongside it ever start. Moved to a high, unassigned port, same defensive
-# convention as BRIDGE_PORT above. Nothing in this proof touches telemetry.
-OPENOBSERVE_PORT = 25081
+# ``hello-world`` deploys the telemetry store and its gateway on their slots in
+# the port block, which a locally-running tutorial stack routinely holds — and
+# a bound-port collision aborts `up` before the bluesky containers it creates
+# alongside it ever start. Both are moved to high, unassigned ports, same
+# defensive convention as BRIDGE_PORT above, and PORT_BASE moves the block
+# itself, which carries the gateway's own metrics port that no key moves.
+# Nothing in this proof touches telemetry.
+TELEMETRY_GATEWAY_PORT = 24319
+TELEMETRY_STORE_PORT = 28124
+PORT_BASE = 22200
 # The fixture builds/deploys under this project name; the compose template
 # renders each container_name AND the bridge's locally-built image as
 # ``<project>-<service>`` (services/bluesky/docker-compose.yml.j2), so
@@ -215,7 +218,16 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--preset",
             "hello-world",
             "--no-git",
-            *set_pairs({"config": {"services.openobserve.port": OPENOBSERVE_PORT}}),
+            *set_pairs(
+                {
+                    "config": {
+                        "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
+                        "services.telemetry_store.port": TELEMETRY_STORE_PORT,
+                    }
+                }
+            ),
+            "--set",
+            f"port_base={PORT_BASE}",
             # The `bluesky.port` edit is what opts this project into the bluesky
             # stack at all: a `bluesky:` profile block is what `_inject_bluesky`
             # keys on.

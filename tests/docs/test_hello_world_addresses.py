@@ -21,7 +21,7 @@ HELLO_WORLD = REPO_ROOT / "src/osprey/templates/facilities/hello_world"
 ADDRESS = re.compile(r"\b[A-Z][A-Z0-9_]*(?::[A-Z0-9_]+)+\b")
 
 #: The mock connector's refusal for an address outside the facility file.
-REFUSAL = re.compile(rf"({ADDRESS.pattern}) is not in build/facility\.json")
+REFUSAL = re.compile(rf"({ADDRESS.pattern}) is not a channel of this facility")
 
 
 def _channels() -> set[str]:
@@ -39,7 +39,7 @@ def _refused_examples() -> set[str]:
 
 def test_the_tutorial_shows_the_refusal_of_an_unknown_address() -> None:
     refused = _refused_examples()
-    assert refused, "the tutorial shows no '<address> is not in build/facility.json' refusal"
+    assert refused, "the tutorial shows no '<address> is not a channel of this facility' refusal"
     assert not refused & _channels()
 
 

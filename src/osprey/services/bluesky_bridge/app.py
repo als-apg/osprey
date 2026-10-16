@@ -813,6 +813,47 @@ def write_session_plan(request: PlanSessionWriteRequest) -> dict:
     return {"name": name, "content_hash": hash_plan_body(final_content)}
 
 
+@app.get("/plans/session")
+def list_session_plans() -> list[dict[str, Any]]:
+    """List every authored session-tier plan file, validated or not. Reaches NO hardware.
+
+    `GET /plans` is the registry — the set a caller can resolve and run — and
+    it quarantines a session file with no passing validation record by design
+    (the load gate in `plan_loader`). That is the right view for every
+    consumer that resolves a plan to run it, and the wrong one for a consumer
+    that retires plans it did not author: a file whose validation is still in
+    flight, or failed, is on disk and invisible to the registry, so a cleanup
+    reading the registry would leave it behind to pass validation later. This
+    route is the authored set itself, the read counterpart of
+    `POST /plans/session` and `DELETE /plans/session/{name}`.
+
+    Scope is exactly one directory, as for the write and delete routes:
+    `resolve_session_plan_dir()` and nowhere else, so every name listed is one
+    `DELETE /plans/session/{name}` can retire, and no shipped/preset/facility
+    plan is ever handed to a caller that deletes what it lists. Ungated for
+    the same reason the delete route is: reading a directory touches no device.
+
+    ``validated`` is computed fresh from each file's current content, exactly
+    as `GET /plans/{name}/source` computes it, so a re-authored file reports
+    unvalidated until its new bytes pass.
+
+    Returns:
+        `[{"name", "validated"}]` sorted by name — `name` is the file stem.
+    """
+    entries: list[dict[str, Any]] = []
+    for path in sorted(resolve_session_plan_dir().glob("*.py")):
+        if not path.is_file():
+            continue
+        content = path.read_text(encoding="utf-8")
+        entries.append(
+            {
+                "name": path.stem,
+                "validated": validation_records.has_passing_record(hash_plan_body(content)),
+            }
+        )
+    return entries
+
+
 @app.post("/plans/validate")
 async def validate_session_plan(request: PlanValidateRequest) -> dict:
     """Validate the CURRENT on-disk content of a session plan file.

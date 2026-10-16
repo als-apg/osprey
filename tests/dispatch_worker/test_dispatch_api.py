@@ -183,7 +183,6 @@ def test_dispatch_rejects_wildcard_denied_tool(client):
         ("WebFetch", True),
         ("WebSearch", True),
         ("Bash", True),
-        ("TaskOutput", True),
         ("TaskStop", True),
         ("mcp__plugin_playwright_playwright__browser_click", True),
         ("mcp__plugin_playwright_playwright__", True),  # bare prefix still matches
@@ -735,17 +734,15 @@ claude_code:
   provider: cborg
 """
 
-# Telemetry enabled but misconfigured (openobserve backend, password missing) —
-# resolve() raises TelemetryConfigError. The worker must degrade telemetry, not
-# lose provider auth.
+#: A gateway telemetry block; the worker under test carries no login for it, so
+#: resolve() raises TelemetryConfigError. The worker must degrade telemetry, not
+#: lose provider auth.
 _TELEMETRY_BROKEN_CONFIG = """\
 claude_code:
   provider: anthropic
   telemetry:
     enabled: true
-    backend: openobserve
-    openobserve:
-      user: root@example.com
+    backend: gateway
 """
 
 
@@ -813,15 +810,16 @@ def test_inject_provider_env_no_proxy_for_native(tmp_path, monkeypatch):
 
 
 def test_inject_provider_env_degrades_on_telemetry_misconfig(tmp_path, monkeypatch, caplog):
-    """A broken telemetry block must NOT cost the worker its provider auth.
+    """A worker without its gateway login must NOT lose its provider auth.
 
-    Telemetry is an observability add-on; a misconfig degrades it (logged loud)
-    while provider auth/model injection still happens (F4 regression guard).
+    Telemetry is an observability add-on; a missing login degrades it (logged
+    at ERROR) while provider auth/model injection still happens.
     """
     import logging
 
     _render_config(tmp_path, _TELEMETRY_BROKEN_CONFIG)
     fake = _isolated_environ(monkeypatch, tmp_path, ANTHROPIC_API_KEY="sk-ant")
+    fake.pop("OSPREY_TELEMETRY_LOGIN", None)
 
     with caplog.at_level(logging.ERROR):
         dispatch_api._inject_provider_env_once()
@@ -1161,3 +1159,111 @@ def test_dispatch_request_drops_malformed_prior_answer_runs_instead_of_refusing(
     _wait_for_terminal(client, resp.json()["run_id"])
 
     assert captured["prior_answer_runs"] == [_RUN]
+
+
+# ---------------------------------------------------------------------------
+# The Claude Code the worker's runs execute, named at startup
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def pinned_render(monkeypatch, tmp_path, real_agent_cli):  # noqa: ARG001 - opts into the real lookup
+    """A render pinned to the build the image's global install reports."""
+    from osprey.agent_runner import launcher
+
+    render = tmp_path / "build"
+    render.mkdir()
+    (render / "config.yml").write_text("claude_code:\n  cli_version: '2.1.146'\n")
+    monkeypatch.setenv("CONFIG_FILE", str(render / "config.yml"))
+    monkeypatch.setattr("shutil.which", lambda *_a, **_k: "/usr/local/bin/claude")
+    monkeypatch.setattr(launcher, "_probe_cli_version", lambda _exe: "2.1.146")
+    monkeypatch.setattr(dispatch_api, "_inject_provider_env_once", lambda: None)
+    monkeypatch.setattr(dispatch_api, "_load_persisted_runs", lambda: None)
+    return render
+
+
+async def _start_and_stop_the_worker() -> None:
+    async with dispatch_api._lifespan(dispatch_api.app):
+        pass
+    await asyncio.sleep(0)  # let the cancelled cleanup task settle
+
+
+def _cli_lines(caplog) -> list:
+    return [r for r in caplog.records if r.getMessage().startswith("Claude Code CLI")]
+
+
+@pytest.mark.asyncio
+async def test_the_worker_startup_line_names_the_build_headless_runs_execute(pinned_render, caplog):
+    from osprey.agent_runner.primitives import build_agent_options
+
+    with caplog.at_level("INFO", logger=dispatch_api.logger.name):
+        await _start_and_stop_the_worker()
+
+    (line,) = _cli_lines(caplog)
+    assert line.levelname == "INFO"
+    assert line.getMessage() == "Claude Code CLI: /usr/local/bin/claude (2.1.146)"
+    # The line names the executable a run is actually pointed at.
+    options = build_agent_options(pinned_render, disallowed_tools=[], env={})
+    assert options.cli_path == "/usr/local/bin/claude"
+
+
+@pytest.mark.parametrize(
+    ("config", "found", "error", "expected"),
+    [
+        (
+            "'2.1.146'",
+            "2.1.999",
+            "AgentCliUnavailableError",
+            "npm install -g @anthropic-ai/claude-code@2.1.146",
+        ),
+        ("'2.1.146'", None, "AgentCliUnavailableError", "did not report a version"),
+        ("'2.1.146'", "timeout", "AgentCliUnavailableError", "did not answer"),
+        ("'latest'", "2.1.146", "ValueError", "exact version"),
+    ],
+    ids=["another-version", "no-version", "probe-timeout", "not-a-version"],
+)
+@pytest.mark.asyncio
+async def test_a_worker_whose_pinned_build_is_not_installed_refuses_to_start(
+    pinned_render, caplog, monkeypatch, config, found, error, expected
+):
+    """It could only refuse every job, so it accepts none and says why."""
+    import subprocess
+
+    from osprey.agent_runner import launcher
+
+    (pinned_render / "config.yml").write_text(f"claude_code:\n  cli_version: {config}\n")
+
+    def probe(exe):
+        if found == "timeout":
+            raise subprocess.TimeoutExpired([exe, "--version"], 15)
+        return found
+
+    monkeypatch.setattr(launcher, "_probe_cli_version", probe)
+    reached: list[str] = []
+    monkeypatch.setattr(
+        dispatch_api, "_inject_provider_env_once", lambda: reached.append("provider env")
+    )
+
+    with pytest.raises(Exception) as refused:
+        async with dispatch_api._lifespan(dispatch_api.app):
+            reached.append("accepting jobs")
+
+    assert type(refused.value).__name__ == error
+    message = str(refused.value)
+    assert message.startswith("Refusing to start the dispatch worker.\n")
+    assert expected in message
+    assert reached == [], "nothing else was started"
+    assert refused.value.__cause__ is None
+    assert not _cli_lines(caplog), "no line claims a build the worker does not have"
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("pinned_render")
+async def test_a_worker_with_no_claude_at_all_refuses_to_start(monkeypatch):
+    from osprey.agent_runner.errors import AgentCliUnavailableError
+
+    monkeypatch.setattr("shutil.which", lambda *_a, **_k: None)
+
+    with pytest.raises(AgentCliUnavailableError, match="no `claude` was found on PATH"):
+        async with dispatch_api._lifespan(dispatch_api.app):
+            pytest.fail("the worker started")

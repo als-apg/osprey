@@ -340,7 +340,7 @@ That is the entire setup: the preset ships the ``modules.web_terminals`` block
 above, so no extra flags or configuration are needed. Alongside the web tier,
 ``osprey up`` brings up everything else the control-assistant tutorial deploys
 — the virtual accelerator, the bluesky services, and the supporting
-PostgreSQL/OpenObserve containers — so the control-room terminals open onto a
+PostgreSQL and telemetry containers — so the control-room terminals open onto a
 working machine, the logbook terminal onto a live logbook and the knowledge
 terminal onto a seeded facility graph, not an empty shell.
 
@@ -626,6 +626,82 @@ answered: ``grep -r alice var/audit/`` there sees every subdirectory, while the
 admin login inside a container sees only its own. :ref:`The audit trail
 <audit-trail-record>` has the record shape, and what append-only does and does
 not buy you.
+
+.. _multi-user-history-page:
+
+The history page
+================
+
+Where the web terminals sign people on (``auth.method`` of ``password`` or
+``oidc``) and the deployment runs the telemetry store, ``osprey up`` also runs
+a history page: every session the store holds, each with its conversation,
+tool calls, approvals and preflight checks, read in a browser. It is served at
+``/history/`` on the **readers' origin**, the web tier's second server on its
+own port (``modules.web_terminals.reader_port``, or
+``modules.web_terminals.reader_origin`` behind a load balancer), so a page an
+agent wrote on the terminals' origin cannot read it. A visit without a valid
+sign-in goes to the terminals' sign-in and comes back. Without sign-on there is
+no history page; each terminal still shows its own past sessions.
+
+Who sees what is decided per person, from the roster, every time a page loads:
+
+.. code-block:: yaml
+
+   modules:
+     web_terminals:
+       authorization:
+         roles:
+           operator: {persona: readwrite, history: all}
+       users:
+         - name: alice
+           index: 0
+           persona: readwrite          # history: own, the default
+         - name: carol
+           index: 3
+           persona: admin
+           history: all
+
+   services:
+     telemetry_store:
+       readers:
+         - name: carol                 # a reader is a reader everywhere
+
+- **Own** (the default): the sessions recorded under the person's own roster
+  name.
+- **All**: ``history: all`` on the person's roster entry, or on a role in
+  ``authorization.roles`` the person holds, shows every user's sessions.
+- **A reader** — a roster user named under
+  ``services.telemetry_store.readers``, or a reader recognised by its
+  ``oidc_subject`` — sees every user's sessions, bounded by that reader's
+  ``tables`` and ``days_back`` (:doc:`/how-to/health-and-monitoring/read-the-record`).
+  The reader entry takes precedence over ``history:``.
+
+The rules at the edges:
+
+- A shared card's sessions are recorded under the card's name, so they are
+  listed only for ``all`` viewers and readers. Opening a shared card never
+  widens the opener's own scope. Signing in *as* a shared card lists nothing
+  unless the card's own roster entry (or its role) says ``history: all``.
+- A person admitted to a card by an access rule, with no roster entry of their
+  own, is refused: the page has no person to scope by.
+- A dispatched job is recorded under its worker, ``dispatch-worker-<i>``, so it
+  is visible to ``all`` viewers and readers; the dispatch dashboard links each
+  run to it.
+- A preflight check filed by the queueserver appears on a person's own page
+  only when it matches that person's own queue-submit call within 60 seconds;
+  agent-authored session plans run inside the queueserver container, so an
+  unmatched row is never attributed to anyone in an own view. ``all`` viewers
+  and readers see every row as stored.
+- A payload the record stored outside itself is shown as a marked reference.
+- Where several people are signed in in one browser, the page shows the last
+  sign-in and offers a switch among the others, each in their own scope.
+- A change to the roster, the roles or the readers applies on the next page
+  load after ``osprey up``; a person taken out of ``readers`` is back in their
+  own scope then, even with the page still open.
+
+Every page query runs in the store as a view account for that one person, so
+the scope above is a permission of the database, not a filter of the page. The
+store's ``query_log`` names both the view account and the person.
 
 Related pages
 =============

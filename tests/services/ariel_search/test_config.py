@@ -539,6 +539,7 @@ class TestVocabularyConfig:
         assert config.vocabulary.expand_by_default is True
         assert config.vocabulary.canonical_to_acronym is True
         assert config.vocabulary.canonical_to_shorthand is False
+        assert config.vocabulary.expand_entries is False
         assert config.vocabulary.expand_modes is None
         assert config.loaded_vocabulary is None
         assert config.vocabulary_errors == []
@@ -556,6 +557,7 @@ class TestVocabularyConfig:
                     "expand_by_default": False,
                     "canonical_to_acronym": False,
                     "canonical_to_shorthand": True,
+                    "expand_entries": True,
                     "expand_modes": ["keyword"],
                 },
             }
@@ -566,17 +568,30 @@ class TestVocabularyConfig:
             expand_by_default=False,
             canonical_to_acronym=False,
             canonical_to_shorthand=True,
+            expand_entries=True,
             expand_modes=("keyword",),
         )
 
     @pytest.mark.parametrize(
         "key",
-        ["enabled", "expand_by_default", "canonical_to_acronym", "canonical_to_shorthand"],
+        [
+            "enabled",
+            "expand_by_default",
+            "canonical_to_acronym",
+            "canonical_to_shorthand",
+            "expand_entries",
+        ],
     )
     def test_non_boolean_knob_is_refused(self, key: str) -> None:
         """A present-but-non-boolean knob raises, naming the full dotted key."""
         with pytest.raises(ValueError, match=rf"ariel\.vocabulary\.{key} must be a boolean"):
             ARIELConfig.from_dict(_config_dict(**{key: "yes"}))
+
+    def test_expand_entries_defaults_off_and_parses_on(self) -> None:
+        """expand_entries is off unless stated, and a stated true round-trips."""
+        assert ARIELConfig.from_dict(_config_dict()).vocabulary.expand_entries is False
+        config = ARIELConfig.from_dict(_config_dict(expand_entries=True))
+        assert config.vocabulary.expand_entries is True
 
     @pytest.mark.parametrize("value", [123, "", "   "])
     def test_bad_path_is_refused(self, value: object) -> None:
@@ -793,8 +808,8 @@ class TestResolveExpandModes:
         )
         assert config.resolve_expand_modes() == ("keyword",)
 
-    def test_unset_means_every_enabled_module(self) -> None:
-        """Unset resolves to all enabled search modules."""
+    def test_unset_with_entries_expanded_means_every_enabled_module(self) -> None:
+        """With entries expanded, unset resolves to all enabled search modules."""
         config = ARIELConfig.from_dict(
             {
                 "database": {"uri": "postgresql://localhost:5432/ariel"},
@@ -803,6 +818,37 @@ class TestResolveExpandModes:
                     "semantic": {"enabled": True, "model": "m"},
                     "hybrid": {"enabled": False},
                 },
+                "vocabulary": {"expand_entries": True},
+            }
+        )
+        assert config.resolve_expand_modes() == ("keyword", "semantic")
+
+    def test_unset_without_entries_expanded_leaves_the_dense_modes_out(self) -> None:
+        """Expanding the query alone makes dense retrieval worse than not expanding
+        (JLAB-TN-26-024), so unset keeps semantic and hybrid on the typed query
+        until the entries are expanded too."""
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost:5432/ariel"},
+                "search_modules": {
+                    "keyword": {"enabled": True},
+                    "semantic": {"enabled": True, "model": "m"},
+                    "hybrid": {"enabled": True},
+                },
+            }
+        )
+        assert config.resolve_expand_modes() == ("keyword",)
+
+    def test_explicit_list_wins_without_entries_expanded(self) -> None:
+        """A configured list names the dense modes on purpose; it is kept."""
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost:5432/ariel"},
+                "search_modules": {
+                    "keyword": {"enabled": True},
+                    "semantic": {"enabled": True, "model": "m"},
+                },
+                "vocabulary": {"expand_modes": ["keyword", "semantic"]},
             }
         )
         assert config.resolve_expand_modes() == ("keyword", "semantic")
@@ -1170,6 +1216,23 @@ def _entry_text_config(entry_text: object) -> ARIELConfig:
     )
 
 
+class TestEmbeddedSearch:
+    """Tests for the ``ariel.embedded_search`` switch."""
+
+    _DB = {"database": {"uri": "postgresql://localhost:5432/ariel"}}
+
+    def test_off_when_absent(self) -> None:
+        assert ARIELConfig.from_dict(dict(self._DB)).embedded_search is False
+
+    def test_read_when_set(self) -> None:
+        assert ARIELConfig.from_dict({**self._DB, "embedded_search": True}).embedded_search
+
+    @pytest.mark.parametrize("value", ["true", 1, 0.0])
+    def test_a_value_that_is_not_a_boolean_is_refused_by_name(self, value: object) -> None:
+        with pytest.raises(ValueError, match=r"ariel\.embedded_search"):
+            ARIELConfig.from_dict({**self._DB, "embedded_search": value})
+
+
 class TestEntryTextConfig:
     """Tests for the ``ariel.entry_text`` budgets."""
 
@@ -1475,3 +1538,191 @@ class TestEnhancementProviderKey:
     def test_no_fallback_module_names_module_key(self, name: str) -> None:
         resolved = _module_config(name, {"enabled": True}, {"provider": "openai"})
         assert resolved["provider_key"] == f"ariel.enhancement_modules.{name}.provider"
+
+
+class TestEntryExpanderAccessors:
+    """Tests for ``ARIELConfig.entry_expander()`` and ``entry_expander_or_none()``."""
+
+    _PATH_REQUIRED = (
+        "ariel.vocabulary.path: "
+        "ariel.vocabulary.path is required when ariel.vocabulary.enabled is true"
+    )
+
+    @pytest.fixture(autouse=True)
+    def _fresh_log_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Each test starts with no expander cause logged yet in this process."""
+        import osprey.services.ariel_search.config as config_module
+
+        monkeypatch.setattr(config_module, "_LOGGED_EXPANDER_KEYS", set())
+
+    def test_entry_expander_built_from_vocabulary_and_gates(self, vocabulary_file: Path) -> None:
+        """Key on with a usable vocabulary yields an expander carrying the gates."""
+        from osprey.services.ariel_search.vocabulary.entry import EntryExpander
+
+        config = ARIELConfig.from_dict(
+            _config_dict(
+                enabled=True,
+                path=str(vocabulary_file),
+                expand_entries=True,
+                canonical_to_acronym=False,
+                canonical_to_shorthand=True,
+            ),
+        )
+        expander = config.entry_expander()
+        assert isinstance(expander, EntryExpander)
+        assert expander.vocabulary is config.loaded_vocabulary
+        assert expander.canonical_to_acronym is False
+        assert expander.canonical_to_shorthand is True
+
+    def test_entry_expander_same_object_twice(self, vocabulary_file: Path) -> None:
+        """Repeated calls, through either accessor, return the cached object."""
+        config = ARIELConfig.from_dict(
+            _config_dict(enabled=True, path=str(vocabulary_file), expand_entries=True),
+        )
+        first = config.entry_expander()
+        assert first is not None
+        assert config.entry_expander() is first
+        assert config.entry_expander_or_none() is first
+
+    def test_entry_expander_recomputed_after_replace(self, vocabulary_file: Path) -> None:
+        """``dataclasses.replace`` drops the cache, so the copy reflects its own settings."""
+        import dataclasses
+
+        config = ARIELConfig.from_dict(
+            _config_dict(enabled=True, path=str(vocabulary_file), expand_entries=True),
+        )
+        original = config.entry_expander()
+        assert original is not None
+
+        regated = dataclasses.replace(
+            config,
+            vocabulary=dataclasses.replace(config.vocabulary, canonical_to_shorthand=True),
+        )
+        rebuilt = regated.entry_expander()
+        assert rebuilt is not None
+        assert rebuilt is not original
+        assert rebuilt.canonical_to_shorthand is True
+
+        switched_off = dataclasses.replace(
+            config, vocabulary=dataclasses.replace(config.vocabulary, expand_entries=False)
+        )
+        assert switched_off.entry_expander() is None
+        assert config.entry_expander() is original
+
+    def test_entry_expander_config_is_unhashable_and_compares_without_cache(
+        self, vocabulary_file: Path
+    ) -> None:
+        """The cache slot plays no part in equality or repr."""
+        data = _config_dict(enabled=True, path=str(vocabulary_file), expand_entries=True)
+        warmed = ARIELConfig.from_dict(data)
+        cold = ARIELConfig.from_dict(data)
+        warmed.entry_expander()
+        assert warmed == cold
+        assert "_entry_expander=" not in repr(warmed)
+        with pytest.raises(TypeError):
+            hash(warmed)
+
+    def test_entry_expander_none_when_key_off(self, vocabulary_file: Path) -> None:
+        """An active vocabulary with the key off expands nothing."""
+        config = ARIELConfig.from_dict(
+            _config_dict(enabled=True, path=str(vocabulary_file)),
+        )
+        assert config.vocabulary_active is True
+        assert config.entry_expander() is None
+        assert config.entry_expander_or_none() is None
+
+    def test_entry_expander_none_when_vocabulary_disabled(self, tmp_path: Path) -> None:
+        """Key on with the vocabulary disabled is None, silently."""
+        config = ARIELConfig.from_dict(
+            _config_dict(enabled=False, path=str(tmp_path / "nope.yml"), expand_entries=True),
+        )
+        assert config.entry_expander() is None
+        assert config.entry_expander_or_none() is None
+        assert config.vocabulary_warnings == []
+
+    def test_entry_expander_raises_on_load_error_with_exact_message(self, tmp_path: Path) -> None:
+        """An enabled vocabulary that failed to load raises its first error verbatim."""
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        missing = tmp_path / "missing.yml"
+        config = ARIELConfig.from_dict(
+            _config_dict(enabled=True, path=str(missing), expand_entries=True),
+        )
+        assert config.vocabulary_errors
+        expected = config.vocabulary_errors[0]
+        assert expected.startswith(f"ariel.vocabulary.path: {missing} — ")
+
+        with pytest.raises(ModuleConfigError) as excinfo:
+            config.entry_expander()
+        assert str(excinfo.value) == expected
+        assert excinfo.value.key == "ariel.vocabulary.path"
+
+    def test_entry_expander_raises_when_path_missing_with_exact_message(self) -> None:
+        """Enabled with no path raises the path-required message under the key."""
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        config = ARIELConfig.from_dict(_config_dict(enabled=True, expand_entries=True))
+        assert (
+            "ariel.vocabulary.path is required when ariel.vocabulary.enabled is true"
+            in config.validate()
+        )
+        with pytest.raises(ModuleConfigError) as excinfo:
+            config.entry_expander()
+        assert str(excinfo.value) == self._PATH_REQUIRED
+        assert excinfo.value.key == "ariel.vocabulary.path"
+
+    def test_entry_expander_unusable_reraises_every_call(self, tmp_path: Path) -> None:
+        """The unusable outcome is never cached: every call raises, even after the twin."""
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        config = ARIELConfig.from_dict(
+            _config_dict(enabled=True, path=str(tmp_path / "missing.yml"), expand_entries=True),
+        )
+        assert config.entry_expander_or_none() is None
+        for _ in range(3):
+            with pytest.raises(ModuleConfigError):
+                config.entry_expander()
+        assert config.entry_expander_or_none() is None
+        with pytest.raises(ModuleConfigError):
+            config.entry_expander()
+
+    def test_entry_expander_or_none_logs_cause_once(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The twin returns None and logs the cause once per process."""
+        import logging
+
+        missing = tmp_path / "missing.yml"
+        data = _config_dict(enabled=True, path=str(missing), expand_entries=True)
+        config = ARIELConfig.from_dict(data)
+        other = ARIELConfig.from_dict(data)
+
+        with caplog.at_level(logging.WARNING, logger="osprey.services.ariel_search.config"):
+            assert config.entry_expander_or_none() is None
+            assert config.entry_expander_or_none() is None
+            assert other.entry_expander_or_none() is None
+
+        messages = [
+            r.getMessage()
+            for r in caplog.records
+            if r.name == "osprey.services.ariel_search.config"
+        ]
+        assert len(messages) == 1
+        assert config.vocabulary_errors[0] in messages[0]
+
+    def test_entry_expander_or_none_logs_path_required_cause(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The twin logs the exact path-required message as its cause."""
+        import logging
+
+        config = ARIELConfig.from_dict(_config_dict(enabled=True, expand_entries=True))
+        with caplog.at_level(logging.WARNING, logger="osprey.services.ariel_search.config"):
+            assert config.entry_expander_or_none() is None
+        messages = [
+            r.getMessage()
+            for r in caplog.records
+            if r.name == "osprey.services.ariel_search.config"
+        ]
+        assert len(messages) == 1
+        assert self._PATH_REQUIRED in messages[0]

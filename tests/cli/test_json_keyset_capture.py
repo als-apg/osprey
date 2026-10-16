@@ -428,6 +428,8 @@ def build_ariel_status_repository(stats: dict[str, Any]) -> MagicMock:
         ]
     )
     repository.get_last_ingestion = AsyncMock(return_value=None)
+    repository.has_input_key_column = AsyncMock(return_value=True)
+    repository.get_embedding_build_counts = AsyncMock(return_value={"r1": 7})
     repository.schema_facts = AsyncMock(
         return_value=SchemaFacts(has_v2_fts=True, has_copy_state=True)
     )

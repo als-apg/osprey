@@ -28,8 +28,8 @@ on:
         default: ''
       run_benchmarks:
         description: >-
-          Run the on-demand benchmark lanes (channel-finder MCP benchmarks)
-          instead of the E2E lane. The home for e2e suites that are useful
+          Run the on-demand benchmark lanes (channel-finder MCP benchmarks
+          and the Tier 2 model benchmark) instead of the E2E lane. The home for e2e suites that are useful
           but too expensive to run on every PR — trigger before a release or
           after touching the code they exercise.
         required: false
@@ -117,18 +117,7 @@ concurrency:
 # Note: This workflow runs tests, linting, docs build, and package checks
 # For documentation deployment to GitHub Pages, see .github/workflows/docs.yml
 
-# Pull openobserve from our ghcr mirror rather than ECR Public. ECR Public
-# rate-limits anonymous pulls per source IP and GitHub-hosted runners share
-# egress IPs, so E2E deploys intermittently died on
-# "toomanyrequests: Rate exceeded". Set at workflow level because the ref is
-# identical in every deploying job; jobs that don't deploy ignore it.
-#
-# The mirror is PRIVATE, so each deploying job also needs the ghcr login step.
-# Populate/refresh it with .github/workflows/mirror-openobserve.yml, which must
-# be re-run whenever the pin in
-# src/osprey/templates/services/openobserve/docker-compose.yml.j2 moves.
 env:
-  OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.92.2
   # ALS-APG endpoint. The probes address the gateway themselves rather than
   # through the provider catalog, so every LLM-touching job (probes and pytest
   # alike) reads its endpoint from here. This line is where a fork's own
@@ -148,6 +137,10 @@ env:
   # not a vars. lookup: a fork that has not set the variable would get an empty
   # value and refuse every e2e lane rather than run them.
   OSPREY_E2E_PROVIDER: als-apg
+  # Every lane runs one model: the main model, each agent's model and the
+  # three alias models collapse onto it, and the judge grades with it too.
+  OSPREY_E2E_FORCE_MODEL: claude-haiku-5-5
+  OSPREY_E2E_JUDGE_MODEL: claude-haiku-5-5
   # Every pytest step writes its diagnostics here (tests/ci_diagnostics.py): the
   # per-worker event log, the stack samples, and the container snapshot a test's
   # first failure in a module takes while its stack is still up. The capture
@@ -186,7 +179,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.11', '3.12']
+        python-version: ['3.11', '3.12', '3.14']
         os: [ubuntu-latest, macos-latest]
         # Each cell runs as two jobs. `cli` is tests/cli alone; `rest` is
         # everything else. Measured on the per-test event logs of a full run,
@@ -222,7 +215,12 @@ jobs:
         # coverage cell: same interpreter, different OS, so a failure isolates
         # to the OS. 3.11 stays covered on ubuntu, and on macOS everywhere
         # except pull requests.
-        exclude: ${{ fromJSON(github.event_name == 'pull_request' && '[{"python-version":"3.11","os":"macos-latest"}]' || '[]') }}
+        #
+        # 3.14 runs on ubuntu only, on every event. It is in the matrix for the
+        # interpreter's own removals -- behaviour 3.11 and 3.12 only warn about
+        # and 3.14 raises on -- and those do not depend on the OS. A third macOS
+        # cell would put a main-push run at 6 macOS jobs against the ceiling of 5.
+        exclude: ${{ fromJSON(github.event_name == 'pull_request' && '[{"python-version":"3.11","os":"macos-latest"},{"python-version":"3.14","os":"macos-latest"}]' || '[{"python-version":"3.14","os":"macos-latest"}]') }}
 
     steps:
     - name: Checkout repository
@@ -254,6 +252,13 @@ jobs:
       # ever left the install set — test_ci_workflow_wiring.py pins the stack in
       # [project] dependencies for that reason.
       run: uv sync --extra dev --extra virtual-accelerator
+
+    - name: Install the pinned Claude Code CLI
+      # One Claude Code runs in this lane: the version OSPREY pins, installed
+      # where PATH finds it. The suite's real-binary checks run that install
+      # and fail, never skip, without it; every other test is pointed at a
+      # stand-in and needs no binary.
+      uses: ./.github/actions/install-pinned-claude-code
 
     - name: Run unit tests
       # timeout-minutes is deliberately below the job's cap. A JOB timeout is a
@@ -699,6 +704,17 @@ jobs:
         BASE_REF: ${{ github.event.pull_request.base.ref }}
       run: python3 scripts/plugin_version.py check --base "origin/$BASE_REF"
 
+    - name: No tracked file is gitignored
+      # A tracked file an ignore rule matches is one a fresh `git add` would silently drop.
+      if: ${{ !cancelled() }}
+      run: |
+        ignored=$(git ls-files -ci --exclude-standard)
+        if [ -n "$ignored" ]; then
+          echo "::error::tracked files matched by .gitignore (narrow the rule or untrack the file):"
+          echo "$ignored"
+          exit 1
+        fi
+
     - name: Run mypy (type checking)
       run: uv run python scripts/mypy_gate.py
 
@@ -883,9 +899,9 @@ jobs:
       with:
         node-version: '22'
 
-    # The unit test checks the deny lists against the recorded inventories;
-    # this step proves every recorded name against the real binaries.
-    - name: Check the recorded CLI tool inventories against the pinned builds
+    # The unit test checks the deny lists against the recorded inventory;
+    # this step proves every recorded name against the real binary.
+    - name: Check the recorded CLI tool inventory against the pinned build
       timeout-minutes: 5
       run: uv run python scripts/cli_tool_inventory.py --check
 
@@ -1129,6 +1145,7 @@ jobs:
           tests/interfaces/ariel/test_embedded_nav.py \
           tests/interfaces/ariel/test_display_menu.py \
           tests/interfaces/ariel/test_vocabulary_banner.py \
+          tests/interfaces/history/test_history_page_browser.py \
           tests/interfaces/test_browser_helper.py \
           tests/interfaces/test_lattice_dashboard_browser.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
@@ -1237,16 +1254,12 @@ jobs:
     - name: Install dependencies
       run: uv sync
 
-    - name: Put the SDK's bundled Claude CLI on PATH
-      # Same reasoning as the agentic lane above: `claude-agent-sdk` ships a
-      # working `claude` binary but installs no console script, so a fresh
-      # runner has none on PATH. Verify before exporting, so a missing binary
-      # fails the lane loudly instead of turning the smoke below into a
-      # "command not found" that reads like a plugin failure.
-      run: |
-        bundled="$(uv run python -c "import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / '_bundled')")"
-        "$bundled/claude" --version
-        echo "$bundled" >> "$GITHUB_PATH"
+    - name: Install the pinned Claude Code CLI
+      # One Claude Code runs in this lane: the version OSPREY pins, installed
+      # where PATH finds it. Every agent run here is pointed at that install
+      # and refuses to start without it, so a lane that lacks it fails loudly
+      # rather than skipping its agent tests or running some other build.
+      uses: ./.github/actions/install-pinned-claude-code
 
     - name: Install the osprey plugin from the in-repo marketplace
       # The checkout itself is the marketplace source, so this proves the
@@ -1263,7 +1276,7 @@ jobs:
       run: |
         claude plugin details osprey@osprey | tee /tmp/details.txt
         grep -q 'Skills (10)' /tmp/details.txt
-        for s in contribute design-philosophy doc-sync housekeeping install panel pre-commit release test-audit upstream-scout; do grep -q "$s" /tmp/details.txt; done
+        for s in contribute design-philosophy doc-sync housekeeping panel pre-commit release setup test-audit upstream-scout; do grep -q "$s" /tmp/details.txt; done
 
   build-boot-smoke:
     name: Tier 1 — Build + MCP boot (${{ matrix.preset }})
@@ -1335,13 +1348,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -1373,7 +1379,7 @@ jobs:
           -H "Content-Type: application/json" \
           -H "anthropic-version: 2023-06-01" \
           -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
         if [ "$HTTP_CODE" != "200" ]; then
           echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
           echo "   Body (first 500 chars):"
@@ -1384,20 +1390,12 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
-    - name: Put the SDK's bundled Claude CLI on PATH
-      # `claude-agent-sdk` ships a working `claude` binary but installs no
-      # console script, so a fresh runner has none on PATH. The SDK finds its
-      # own bundled copy, but osprey's launcher and health check shell
-      # `claude` off PATH, and every agent test skips when `claude --version`
-      # fails -- a lane that reports green having executed nothing. Exposing
-      # the bundled binary makes the SDK, the product, and the skip guards
-      # agree on one CLI, with no npm install and no SDK/CLI version drift.
-      # Verify before exporting: a missing binary must fail the lane loudly
-      # rather than silently restore the skips this step exists to remove.
-      run: |
-        bundled="$(uv run python -c "import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / '_bundled')")"
-        "$bundled/claude" --version
-        echo "$bundled" >> "$GITHUB_PATH"
+    - name: Install the pinned Claude Code CLI
+      # One Claude Code runs in this lane: the version OSPREY pins, installed
+      # where PATH finds it. Every agent run here is pointed at that install
+      # and refuses to start without it, so a lane that lacks it fails loudly
+      # rather than skipping its agent tests or running some other build.
+      uses: ./.github/actions/install-pinned-claude-code
 
     - name: Run Tier 3 agentic test for preset
       timeout-minutes: 55
@@ -1419,6 +1417,20 @@ jobs:
       with:
         name: agentic-per-preset-${{ matrix.preset }}
         engine: docker
+
+    # Belt-and-suspenders on top of the tutorial test's own try/finally: the
+    # hello-world tutorial test deploys the telemetry store and gateway under
+    # one fixed compose project. Every name here is exact (never a prune, -a
+    # or wildcard) and matches TUTORIAL_PROJECT_NAME in
+    # tests/e2e/test_preset_agentic.py.
+    - name: Clean up any stranded tutorial-stack resources
+      if: always()
+      run: |
+        docker rm -f osprey-e2e-hello-world-tutorial-telemetry-gateway || true
+        docker rm -f osprey-e2e-hello-world-tutorial-telemetry-store || true
+        docker volume rm osprey-e2e-hello-world-tutorial_telemetry_store_data || true
+        docker volume rm osprey-e2e-hello-world-tutorial_gateway-state || true
+        docker network rm osprey-e2e-hello-world-tutorial_osprey-network || true
 
   e2e-tests:
     name: E2E Tests
@@ -1453,13 +1465,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -1487,7 +1492,7 @@ jobs:
           -H "Content-Type: application/json" \
           -H "anthropic-version: 2023-06-01" \
           -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
         if [ "$HTTP_CODE" != "200" ]; then
           echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
           head -c 500 /tmp/probe.txt; echo
@@ -1495,15 +1500,12 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
-    - name: Put the SDK's bundled Claude CLI on PATH
-      # See the identical step in agentic-per-preset: the SDK bundles a
-      # `claude` binary but installs no console script, so without this the
-      # CLI-gated tests in this lane skip and the lane greens having run only
-      # the tests that need no agent.
-      run: |
-        bundled="$(uv run python -c "import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / '_bundled')")"
-        "$bundled/claude" --version
-        echo "$bundled" >> "$GITHUB_PATH"
+    - name: Install the pinned Claude Code CLI
+      # One Claude Code runs in this lane: the version OSPREY pins, installed
+      # where PATH finds it. Every agent run here is pointed at that install
+      # and refuses to start without it, so a lane that lacks it fails loudly
+      # rather than skipping its agent tests or running some other build.
+      uses: ./.github/actions/install-pinned-claude-code
 
     - name: Run E2E tests
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -1543,8 +1545,8 @@ jobs:
           # container images. Exclude them all here to avoid
           # double-execution — and because full-stack deploys leave
           # host-global residue (fixed `<project>-web-<user>`/`<project>-nginx`
-          # container names, the host-global openobserve data volume with
-          # root creds pinned on first init) that breaks later tests sharing
+          # container names, named store volumes whose credentials are
+          # pinned on first init) that breaks later tests sharing
           # this runner. NOTE: "--ignore" means "not in this secret-gated
           # LLM lane," NOT "not tested" — every ignored file below runs in
           # its own job (the deploy-lifecycle jobs run on PRs into main
@@ -1628,15 +1630,20 @@ jobs:
             --ignore=tests/e2e/test_full_chain_auth.py \
             --ignore=tests/e2e/test_jupyter_panel_lifecycle.py \
             --ignore=tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py \
-            --ignore=tests/e2e/test_openobserve_telemetry.py \
+            --ignore=tests/e2e/test_telemetry_store_e2e.py \
+            --ignore=tests/e2e/test_telemetry_access_e2e.py \
             --ignore=tests/e2e/test_sdk_helpers.py \
+            --ignore=tests/e2e/test_scripted_model.py \
+            --ignore=tests/e2e/claude_code/test_safety_gates_scripted.py \
             --ignore=tests/e2e/test_mcp_readiness.py \
             --ignore=tests/e2e/test_dispatch_deploy_render.py \
             --ignore=tests/e2e/web_terminals/test_scaffold_render_roundtrip.py \
             --ignore=tests/e2e/web_terminals/test_skills_overlay_discovery.py \
             --ignore=tests/e2e/web_terminals/test_loopback_chokepoint.py \
             --ignore=tests/e2e/web_terminals/test_session_restart_e2e.py \
-            --ignore=tests/e2e/web_terminals/test_terminal_auth_e2e.py
+            --ignore=tests/e2e/web_terminals/test_terminal_auth_e2e.py \
+            --ignore=tests/e2e/web_terminals/test_persona_permissions_scripted.py \
+            --ignore=tests/e2e/tier2
         fi
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
     # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
@@ -1646,27 +1653,122 @@ jobs:
       with:
         name: e2e-tests
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    # E2E_FILTER can run any full-stack module here, so every one is named.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p queue-e2e down || true
+        docker rm -f queue-e2e-telemetry-store || true
+        docker rm -f queue-e2e-telemetry-gateway || true
+        docker volume ls -q --filter "name=^queue-e2e_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-bluesky-deploy down || true
+        docker rm -f osprey-e2e-bluesky-deploy-telemetry-store || true
+        docker rm -f osprey-e2e-bluesky-deploy-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-bluesky-deploy_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-catalog down || true
+        docker rm -f osprey-e2e-catalog-telemetry-store || true
+        docker rm -f osprey-e2e-catalog-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-catalog_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-tiled down || true
+        docker rm -f osprey-e2e-tiled-telemetry-store || true
+        docker rm -f osprey-e2e-tiled-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-tiled_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p panels-proj down || true
+        docker rm -f panels-proj-telemetry-store || true
+        docker rm -f panels-proj-telemetry-gateway || true
+        docker volume ls -q --filter "name=^panels-proj_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p plan-agentic down || true
+        docker rm -f plan-agentic-telemetry-store || true
+        docker rm -f plan-agentic-telemetry-gateway || true
+        docker volume ls -q --filter "name=^plan-agentic_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p orm-roundtrip down || true
+        docker rm -f orm-roundtrip-telemetry-store || true
+        docker rm -f orm-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^orm-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p grid-scan-roundtrip down || true
+        docker rm -f grid-scan-roundtrip-telemetry-store || true
+        docker rm -f grid-scan-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^grid-scan-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p bump-roundtrip down || true
+        docker rm -f bump-roundtrip-telemetry-store || true
+        docker rm -f bump-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^bump-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p preflight-probe down || true
+        docker rm -f preflight-probe-telemetry-store || true
+        docker rm -f preflight-probe-telemetry-gateway || true
+        docker volume ls -q --filter "name=^preflight-probe_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p sandbox-escape down || true
+        docker rm -f sandbox-escape-telemetry-store || true
+        docker rm -f sandbox-escape-telemetry-gateway || true
+        docker volume ls -q --filter "name=^sandbox-escape_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-dispatch down || true
+        docker rm -f osprey-e2e-dispatch-telemetry-store || true
+        docker rm -f osprey-e2e-dispatch-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-dispatch_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-overlay down || true
+        docker rm -f osprey-e2e-overlay-telemetry-store || true
+        docker rm -f osprey-e2e-overlay-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-overlay_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p suproj down || true
+        docker rm -f suproj-telemetry-store || true
+        docker rm -f suproj-telemetry-gateway || true
+        docker volume ls -q --filter "name=^suproj_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-va-substrate down || true
+        docker rm -f osprey-e2e-va-substrate-telemetry-store || true
+        docker rm -f osprey-e2e-va-substrate-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-va-substrate_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p lane-e2e down || true
+        docker rm -f lane-e2e-telemetry-store || true
+        docker rm -f lane-e2e-telemetry-gateway || true
+        docker volume ls -q --filter "name=^lane-e2e_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-telemetry-store down || true
+        docker rm -f osprey-e2e-telemetry-store-telemetry-store || true
+        docker rm -f osprey-e2e-telemetry-store-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-telemetry-store_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-telemetry-access down || true
+        docker rm -f osprey-e2e-telemetry-access-telemetry-store || true
+        docker rm -f osprey-e2e-telemetry-access-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-telemetry-access_" \
+          | xargs -r docker volume rm -f || true
 
 
   e2e-no-model:
     name: Model-Free E2E (the tests/e2e files that reach no gateway)
     runs-on: ubuntu-latest
-    # Every same-repo pull request, and same-repo is the image mirror's
-    # condition rather than a credential's: this lane declares no gateway key,
-    # but the OpenObserve pin at the workflow level is a private package and
-    # the token a fork run holds cannot read it. No `full-ci` label — nothing
-    # here spends model tokens, so there is nothing for a label to protect,
-    # and a lane that only runs on labelled pull requests proves nothing on
-    # the ones that break it.
+    # Every pull request, fork pull requests included: this lane declares no
+    # gateway key and every image it pulls is public (the store from Docker
+    # Hub, the collector from public ghcr), so there is nothing a fork run's
+    # token cannot read. No `full-ci` label — nothing here spends model
+    # tokens, so there is nothing for a label to protect, and a lane that only
+    # runs on labelled pull requests proves nothing on the ones that break it.
     # No actor guard either. The lanes that exclude `dependabot[bot]` do so
     # because they resolve an Actions secret, which a Dependabot run cannot
-    # see; this one resolves none. Its only credential is the run's own
-    # GITHUB_TOKEN, read-only on a Dependabot run — and read-only is the
-    # access reading the mirror takes. Excluding Dependabot here would take
-    # the model-free proof off the pull requests that move the dependency
-    # set, which is where it is worth the most.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    # Not measured on a runner: no lane has run these ten files on their own.
+    # see; this one resolves none. Excluding Dependabot here would take the
+    # model-free proof off the pull requests that move the dependency set,
+    # which is where it is worth the most.
+    if: github.event_name == 'pull_request'
+    # Not measured on a runner: no lane has run these files on their own.
     # Sized against tiled-roundtrip-e2e (30), the closest shape here — one
     # compose stack, no image build, no model call — with the step cap under
     # the job cap so a hang fails THIS step and leaves the capture step below
@@ -1682,13 +1784,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -1710,14 +1805,12 @@ jobs:
         set -euo pipefail
         docker info > /dev/null
 
-    - name: Put the SDK's bundled Claude CLI on PATH
-      # See the identical step in e2e-tests: the SDK bundles a `claude` binary
-      # but installs no console script, so without this the CLI-gated tests
-      # in the skills-overlay module skip — and a skip fails this lane.
-      run: |
-        bundled="$(uv run python -c "import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / '_bundled')")"
-        "$bundled/claude" --version
-        echo "$bundled" >> "$GITHUB_PATH"
+    - name: Install the pinned Claude Code CLI
+      # One Claude Code runs in this lane: the version OSPREY pins, installed
+      # where PATH finds it. Every agent run here is pointed at that install
+      # and refuses to start without it, so a lane that lacks it fails loudly
+      # rather than skipping its agent tests or running some other build.
+      uses: ./.github/actions/install-pinned-claude-code
 
     - name: Run the model-free E2E files
       timeout-minutes: 25
@@ -1727,19 +1820,19 @@ jobs:
         # would select nothing and green it. Every test this step selects
         # carries model_free, and the wiring test holds the two equal.
         #
-        # The telemetry module is named first because it is the only one that
-        # deploys a stack, and xdist hands the first file to the first worker.
+        # The two telemetry modules are named first because they are the only
+        # ones that deploy a stack, and xdist hands the first files to the
+        # first workers; each has its own project name and port base.
         # -n 4 --dist loadfile is the mode these files already run under in
         # the shared lane: loadfile keeps a file's tests on one worker, and
         # the three real-process web-terminal modules each bind an ephemeral
         # port, so nothing here contends for a fixed one.
-        #
-        # --deselect: that one test appends a live agent turn to an otherwise
-        # synthetic round-trip and is gated on the gateway key this lane does
-        # not hold. Selected, it would skip; skipping fails this lane.
         uv run pytest \
-          tests/e2e/test_openobserve_telemetry.py \
+          tests/e2e/test_telemetry_store_e2e.py \
+          tests/e2e/test_telemetry_access_e2e.py \
           tests/e2e/test_sdk_helpers.py \
+          tests/e2e/test_scripted_model.py \
+          tests/e2e/claude_code/test_safety_gates_scripted.py \
           tests/e2e/test_mcp_readiness.py \
           tests/e2e/test_dispatch_deploy_render.py \
           tests/e2e/web_terminals/test_scaffold_render_roundtrip.py \
@@ -1747,7 +1840,7 @@ jobs:
           tests/e2e/web_terminals/test_loopback_chokepoint.py \
           tests/e2e/web_terminals/test_session_restart_e2e.py \
           tests/e2e/web_terminals/test_terminal_auth_e2e.py \
-          --deselect tests/e2e/test_openobserve_telemetry.py::test_live_agent_metric_lands \
+          tests/e2e/web_terminals/test_persona_permissions_scripted.py \
           -v --tb=short --durations=15 -n 4 --dist loadfile \
           --junitxml=junit-e2e-no-model.xml
 
@@ -1789,6 +1882,24 @@ jobs:
       with:
         name: e2e-no-model
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    # The two telemetry modules deploy a store each, under their own project.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-telemetry-store down || true
+        docker rm -f osprey-e2e-telemetry-store-telemetry-store || true
+        docker rm -f osprey-e2e-telemetry-store-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-telemetry-store_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-telemetry-access down || true
+        docker rm -f osprey-e2e-telemetry-access-telemetry-store || true
+        docker rm -f osprey-e2e-telemetry-access-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-telemetry-access_" \
+          | xargs -r docker volume rm -f || true
 
 
   channel-finder-benchmarks:
@@ -1858,7 +1969,7 @@ jobs:
           -H "Content-Type: application/json" \
           -H "anthropic-version: 2023-06-01" \
           -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
         if [ "$HTTP_CODE" != "200" ]; then
           echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
           head -c 500 /tmp/probe.txt; echo
@@ -1866,13 +1977,12 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
-    - name: Put the SDK's bundled Claude CLI on PATH
-      # See the identical step in agentic-per-preset: without it the
-      # benchmark module's CLI-gated tests skip and the lane greens empty.
-      run: |
-        bundled="$(uv run python -c "import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / '_bundled')")"
-        "$bundled/claude" --version
-        echo "$bundled" >> "$GITHUB_PATH"
+    - name: Install the pinned Claude Code CLI
+      # One Claude Code runs in this lane: the version OSPREY pins, installed
+      # where PATH finds it. Every agent run here is pointed at that install
+      # and refuses to start without it, so a lane that lacks it fails loudly
+      # rather than skipping its agent tests or running some other build.
+      uses: ./.github/actions/install-pinned-claude-code
 
     - name: Fetch the pinned neosemantics (n10s) jar for the graph benchmark lane
       # The fourth paradigm, `graph`, is scored against a real Neo4j +
@@ -1901,6 +2011,76 @@ jobs:
       run: |
         uv run pytest tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py -v --tb=short
 
+  tier2-model-benchmark:
+    name: Tier 2 — Model benchmark (on demand)
+    runs-on: ubuntu-latest
+    # Tier 2 tests measure what a model can do in OSPREY rather than gate a
+    # change: each task is fair, but a capable model may still miss it, so a
+    # miss says something about the model, not about the PR. They live in
+    # tests/e2e/tier2/, which the e2e-tests lane ignores, and run only here,
+    # behind the same `run_benchmarks` dispatch input as the channel-finder
+    # benchmarks (`gh workflow run ci.yml -f run_benchmarks=true`). No rerun
+    # marker: every attempt is scored. Deliberately NOT in
+    # all-checks-passed's needs — a dispatch-gated job has no result on PR
+    # runs.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_benchmarks
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      run: uv sync --extra dev
+
+    - name: Pre-flight LLM endpoint reachability check
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        # Same probe as e2e-tests: fail fast if the proxy is unreachable.
+        if [ -z "${ALS_APG_API_KEY:-}" ]; then
+          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
+          exit 1
+        fi
+        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL}"
+        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
+        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
+          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
+          -H "Content-Type: application/json" \
+          -H "anthropic-version: 2023-06-01" \
+          -H "Authorization: Bearer $ALS_APG_API_KEY" \
+          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+        if [ "$HTTP_CODE" != "200" ]; then
+          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
+          head -c 500 /tmp/probe.txt; echo
+          exit 1
+        fi
+        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+
+    - name: Install the pinned Claude Code CLI
+      # The agent runs refuse to start without the pinned Claude Code, so a
+      # lane that lacks it fails loudly rather than skipping its tests.
+      uses: ./.github/actions/install-pinned-claude-code
+
+    - name: Run Tier 2 model benchmarks
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        # The chart-value-reading benchmark deploys a full stack and runs on the
+        # benchmark board only; this job carries the stack-free tier-2 tests.
+        uv run pytest tests/e2e/tier2/ --ignore=tests/e2e/tier2/test_chart_value_reading.py \
+          -v --tb=short
+
   deploy-e2e:
     name: Deploy E2E Test (build + deploy pipeline)
     runs-on: ubuntu-latest
@@ -1922,13 +2102,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -1965,18 +2138,18 @@ jobs:
         # an alias word such as haiku. It is the smallest model the gateway
         # serves, and the lane makes no model call.
         uv run osprey init hello-world-test --preset hello-world \
-          --set provider=als-apg --set model=claude-haiku-4-5-20251001
+          --set provider=als-apg --set model=claude-haiku-5-5
         cd hello-world-test
         uv run osprey build --skip-deps --skip-lifecycle
         ls -la
 
-    - name: osprey up (deploys openobserve for hello-world)
+    - name: osprey up (deploys the telemetry store and gateway for hello-world)
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
         cd hello-world-test
-        # hello-world declares deployed_services: [openobserve], so this
-        # verifies a single-service deploy succeeding end-to-end.
+        # hello-world declares deployed_services: [telemetry_store,
+        # telemetry_gateway], so this verifies that pair deploying end-to-end.
         uv run osprey up -d --dev
 
     # Runs BEFORE the teardown below: the cleanup step deletes the very
@@ -2024,13 +2197,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -2062,7 +2228,7 @@ jobs:
           -H "Content-Type: application/json" \
           -H "anthropic-version: 2023-06-01" \
           -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
         if [ "$HTTP_CODE" != "200" ]; then
           echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
           head -c 500 /tmp/probe.txt; echo
@@ -2086,6 +2252,18 @@ jobs:
       with:
         name: dispatch-deploy-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-dispatch down || true
+        docker rm -f osprey-e2e-dispatch-telemetry-store || true
+        docker rm -f osprey-e2e-dispatch-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-dispatch_" \
+          | xargs -r docker volume rm -f || true
 
 
   single-user-narrowing-e2e:
@@ -2116,13 +2294,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -2154,7 +2325,7 @@ jobs:
           -H "Content-Type: application/json" \
           -H "anthropic-version: 2023-06-01" \
           -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
         if [ "$HTTP_CODE" != "200" ]; then
           echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
           head -c 500 /tmp/probe.txt; echo
@@ -2178,6 +2349,18 @@ jobs:
       with:
         name: single-user-narrowing-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p suproj down || true
+        docker rm -f suproj-telemetry-store || true
+        docker rm -f suproj-telemetry-gateway || true
+        docker volume ls -q --filter "name=^suproj_" \
+          | xargs -r docker volume rm -f || true
 
 
   dispatch-overlay-e2e:
@@ -2210,13 +2393,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -2248,7 +2424,7 @@ jobs:
           -H "Content-Type: application/json" \
           -H "anthropic-version: 2023-06-01" \
           -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
         if [ "$HTTP_CODE" != "200" ]; then
           echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
           head -c 500 /tmp/probe.txt; echo
@@ -2275,6 +2451,18 @@ jobs:
       with:
         name: dispatch-overlay-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-overlay down || true
+        docker rm -f osprey-e2e-overlay-telemetry-store || true
+        docker rm -f osprey-e2e-overlay-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-overlay_" \
+          | xargs -r docker volume rm -f || true
 
 
   bluesky-deploy-e2e:
@@ -2292,13 +2480,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2326,6 +2507,18 @@ jobs:
       with:
         name: bluesky-deploy-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-bluesky-deploy down || true
+        docker rm -f osprey-e2e-bluesky-deploy-telemetry-store || true
+        docker rm -f osprey-e2e-bluesky-deploy-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-bluesky-deploy_" \
+          | xargs -r docker volume rm -f || true
 
 
   bluesky-web-deploy-e2e:
@@ -2347,13 +2540,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2384,6 +2570,18 @@ jobs:
       with:
         name: bluesky-web-deploy-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p panels-proj down || true
+        docker rm -f panels-proj-telemetry-store || true
+        docker rm -f panels-proj-telemetry-gateway || true
+        docker volume ls -q --filter "name=^panels-proj_" \
+          | xargs -r docker volume rm -f || true
 
 
   trajectory-deploy-e2e:
@@ -2402,13 +2600,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2494,13 +2685,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -2530,6 +2714,18 @@ jobs:
       with:
         name: va-substrate-equivalence-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-va-substrate down || true
+        docker rm -f osprey-e2e-va-substrate-telemetry-store || true
+        docker rm -f osprey-e2e-va-substrate-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-va-substrate_" \
+          | xargs -r docker volume rm -f || true
 
 
   orm-roundtrip-e2e:
@@ -2574,13 +2770,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2628,6 +2817,33 @@ jobs:
       with:
         name: orm-roundtrip-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p orm-roundtrip down || true
+        docker rm -f orm-roundtrip-telemetry-store || true
+        docker rm -f orm-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^orm-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p grid-scan-roundtrip down || true
+        docker rm -f grid-scan-roundtrip-telemetry-store || true
+        docker rm -f grid-scan-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^grid-scan-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p bump-roundtrip down || true
+        docker rm -f bump-roundtrip-telemetry-store || true
+        docker rm -f bump-roundtrip-telemetry-gateway || true
+        docker volume ls -q --filter "name=^bump-roundtrip_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p preflight-probe down || true
+        docker rm -f preflight-probe-telemetry-store || true
+        docker rm -f preflight-probe-telemetry-gateway || true
+        docker volume ls -q --filter "name=^preflight-probe_" \
+          | xargs -r docker volume rm -f || true
 
 
   bluesky-queue-e2e:
@@ -2650,13 +2866,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -2687,6 +2896,18 @@ jobs:
       with:
         name: bluesky-queue-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p queue-e2e down || true
+        docker rm -f queue-e2e-telemetry-store || true
+        docker rm -f queue-e2e-telemetry-gateway || true
+        docker volume ls -q --filter "name=^queue-e2e_" \
+          | xargs -r docker volume rm -f || true
 
 
   scan-agentic-e2e:
@@ -2731,13 +2952,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -2769,7 +2983,7 @@ jobs:
           -H "Content-Type: application/json" \
           -H "anthropic-version: 2023-06-01" \
           -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
         if [ "$HTTP_CODE" != "200" ]; then
           echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
           head -c 500 /tmp/probe.txt; echo
@@ -2777,14 +2991,12 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
-    - name: Put the SDK's bundled Claude CLI on PATH
-      # See the identical step in agentic-per-preset. This lane's zero-skip
-      # gate below is what first surfaced the missing CLI: pytest passed
-      # while both live tests skipped on `claude --version`.
-      run: |
-        bundled="$(uv run python -c "import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / '_bundled')")"
-        "$bundled/claude" --version
-        echo "$bundled" >> "$GITHUB_PATH"
+    - name: Install the pinned Claude Code CLI
+      # One Claude Code runs in this lane: the version OSPREY pins, installed
+      # where PATH finds it. Every agent run here is pointed at that install
+      # and refuses to start without it, so a lane that lacks it fails loudly
+      # rather than skipping its agent tests or running some other build.
+      uses: ./.github/actions/install-pinned-claude-code
 
     - name: Run scan stack agentic E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -2851,6 +3063,18 @@ jobs:
       with:
         name: scan-agentic-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p plan-agentic down || true
+        docker rm -f plan-agentic-telemetry-store || true
+        docker rm -f plan-agentic-telemetry-gateway || true
+        docker volume ls -q --filter "name=^plan-agentic_" \
+          | xargs -r docker volume rm -f || true
 
 
   archiver-world-e2e:
@@ -2878,10 +3102,10 @@ jobs:
       with:
         fetch-depth: 0
 
-    # No ghcr login step, unlike the orm lane it is otherwise modelled on: the
-    # trimmed stack pulls nothing from ghcr. The VA image builds locally from
+    # No ghcr login step: the trimmed stack pulls nothing from a private
+    # registry. The VA image builds locally from
     # python:3.11-slim, mongodb is mongo:7 from Docker Hub, and the recorder
-    # reuses the VA image — openobserve is not deployed here at all.
+    # reuses the VA image — no telemetry store is deployed here at all.
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -2993,13 +3217,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -3029,6 +3246,18 @@ jobs:
       with:
         name: tiled-roundtrip-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-tiled down || true
+        docker rm -f osprey-e2e-tiled-telemetry-store || true
+        docker rm -f osprey-e2e-tiled-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-tiled_" \
+          | xargs -r docker volume rm -f || true
 
 
   bluesky-catalog-e2e:
@@ -3051,13 +3280,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -3085,6 +3307,18 @@ jobs:
       with:
         name: bluesky-catalog-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-catalog down || true
+        docker rm -f osprey-e2e-catalog-telemetry-store || true
+        docker rm -f osprey-e2e-catalog-telemetry-gateway || true
+        docker volume ls -q --filter "name=^osprey-e2e-catalog_" \
+          | xargs -r docker volume rm -f || true
 
 
   bluesky-sandbox-escape-e2e:
@@ -3109,13 +3343,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -3146,6 +3373,18 @@ jobs:
       with:
         name: bluesky-sandbox-escape-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p sandbox-escape down || true
+        docker rm -f sandbox-escape-telemetry-store || true
+        docker rm -f sandbox-escape-telemetry-gateway || true
+        docker volume ls -q --filter "name=^sandbox-escape_" \
+          | xargs -r docker volume rm -f || true
 
 
   nextcloud-talk-bridge-e2e:
@@ -3185,7 +3424,7 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror + Nextcloud Talk fixture)
+    - name: Log in to ghcr (Nextcloud Talk fixture)
       uses: docker/login-action@v4
       with:
         registry: ghcr.io
@@ -3205,6 +3444,12 @@ jobs:
 
     - name: Install osprey
       run: uv sync --extra dev
+
+    - name: Install the pinned Claude Code CLI
+      # The dispatch worker this lane starts refuses to run without an
+      # installed `claude` reporting the pinned version, so the pin goes on
+      # PATH before any test brings the dispatcher/worker pair up.
+      uses: ./.github/actions/install-pinned-claude-code
 
     - name: Pull the pinned Nextcloud Talk fixture image
       run: |
@@ -3239,7 +3484,7 @@ jobs:
           -H "Content-Type: application/json" \
           -H "anthropic-version: 2023-06-01" \
           -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
         if [ "$HTTP_CODE" != "200" ]; then
           echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
           head -c 500 /tmp/probe.txt; echo
@@ -3327,6 +3572,12 @@ jobs:
       # backstop; this is the fix.
       run: uv sync --extra dev --extra gchat
 
+    - name: Install the pinned Claude Code CLI
+      # The dispatch worker this lane starts refuses to run without an
+      # installed `claude` reporting the pinned version, so the pin goes on
+      # PATH before any test brings the dispatcher/worker pair up.
+      uses: ./.github/actions/install-pinned-claude-code
+
     - name: Pull the Pub/Sub emulator image
       run: |
         # The fixture pulls this itself when absent, but a FAILED pull there is
@@ -3362,7 +3613,7 @@ jobs:
           -H "Content-Type: application/json" \
           -H "anthropic-version: 2023-06-01" \
           -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
         if [ "$HTTP_CODE" != "200" ]; then
           echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
           head -c 500 /tmp/probe.txt; echo
@@ -3475,6 +3726,12 @@ jobs:
       # job that syncs only `dev` collects nothing here. The zero-skip gate at
       # the bottom of this job is the backstop; this is the fix.
       run: uv sync --extra dev --extra teams
+
+    - name: Install the pinned Claude Code CLI
+      # The dispatch worker this lane starts refuses to run without an
+      # installed `claude` reporting the pinned version, so the pin goes on
+      # PATH before any test brings the dispatcher/worker pair up.
+      uses: ./.github/actions/install-pinned-claude-code
 
     - name: Run Microsoft Teams bridge E2E
       # Well inside the job cap, so the diagnostics step below still runs.
@@ -3994,16 +4251,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    # The workflow-level OSPREY_OPENOBSERVE_IMAGE points the compose template
-    # at the ghcr mirror; the pull needs this login, exactly as every other
-    # openobserve-deploying lane does.
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -4045,10 +4292,8 @@ jobs:
       run: |
         for case in profile divergent orphan persona; do
           project="osprey-e2e-wb-${case}"
-          docker rm -f "${project}-openobserve" || true
           docker rm -f "${project}-ariel-postgres" || true
           docker compose -p "$project" down || true
-          docker volume rm "${project}_openobserve_data" || true
           docker volume rm "${project}_ariel_postgres_data" || true
         done
 
@@ -4120,7 +4365,11 @@ jobs:
         done
         docker rm -f osprey-e2e-mus-p3-nginx || true
         docker rm -f osprey-e2e-mus-p3-registry || true
+        docker rm -f osprey-e2e-mus-p3-telemetry-store || true
+        docker rm -f osprey-e2e-mus-p3-telemetry-gateway || true
         docker compose -p osprey-e2e-mus-p3 down || true
+        docker volume rm osprey-e2e-mus-p3_telemetry_store_data || true
+        docker volume rm osprey-e2e-mus-p3_gateway-state || true
 
   auth-perimeter-e2e:
     name: Auth Perimeter E2E (real sidecar image + nginx auth_request)
@@ -4337,6 +4586,15 @@ jobs:
     # build_lanes` pins the RELATION (strictly more than either sibling, at both
     # caps), not these numbers; record the first cold wall clock in the PR body
     # so the margin is sized from a measurement rather than from this estimate.
+    # The telemetry store and gateway add no build (public images, a pull
+    # each) and the history service runs the project image already built, so
+    # they cost container starts only: on a developer host the whole module
+    # runs in about 5 minutes with the project image built, 1 minute warm.
+    # The history cases add a second `osprey up` (no build) and six browser
+    # runs; re-measured with them on a developer host: the whole module in
+    # 114 s warm. The cold runner time is still the three image builds, so
+    # both caps stand; `test_full_chain_auth_lane_caps_are_the_measured_ones`
+    # pins them, and moving either is a re-measurement.
     timeout-minutes: 85
     # Same PR scoping as the two auth lanes above: same-repo PRs only, since
     # this drives a real `osprey up` (container and volume lifecycle) against
@@ -4392,6 +4650,11 @@ jobs:
 
     - name: Install osprey
       run: uv sync --extra dev
+
+    # The reader origin's `/play` page and the history page are proved in a
+    # real browser against this lane's stack.
+    - name: Install Playwright chromium
+      run: uv run playwright install chromium --with-deps
 
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
     # `--dev` stages this branch's locally-built wheel into both real images, so
@@ -4454,16 +4717,21 @@ jobs:
       if: always()
       run: |
         docker compose -p osprey-e2e-full-chain-auth down || true
-        for user in alice bob carol kiosk dave; do
+        for user in alice bob carol dave kiosk erin; do
           docker rm -f "osprey-e2e-full-chain-auth-web-${user}" || true
         done
         docker rm -f osprey-e2e-full-chain-auth-auth || true
         docker rm -f osprey-e2e-full-chain-auth-nginx || true
+        docker rm -f osprey-e2e-full-chain-auth-telemetry-store || true
+        docker rm -f osprey-e2e-full-chain-auth-telemetry-gateway || true
+        docker rm -f osprey-e2e-full-chain-auth-history || true
         docker volume ls -q --filter "name=^osprey-e2e-full-chain-auth_" \
           | xargs -r docker volume rm -f || true
         docker rmi -f osprey-e2e-full-chain-auth-auth:local || true
-        docker rmi -f fullchain-operator-operator:local || true
-        docker rmi -f fullchain-probe-probe:local || true
+        docker rmi -f fullchain-operator:local || true
+        docker rmi -f fullchain-probe:local || true
+        # The project image `osprey up` builds, which the history service runs.
+        docker rmi -f osprey-e2e-full-chain-auth:local || true
 
   jupyter-panel-e2e:
     name: Notebook Panel E2E (deployed persona + a kernel that follows the terminal)
@@ -4485,16 +4753,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-
-    # The workflow-level OSPREY_OPENOBSERVE_IMAGE points the compose template
-    # at the ghcr mirror; the pull needs this login, exactly as every other
-    # openobserve-deploying lane does.
-    - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -4550,6 +4808,8 @@ jobs:
       run: |
         docker rm -f osprey-e2e-jnb-web-alice || true
         docker rm -f osprey-e2e-jnb-nginx || true
+        docker rm -f osprey-e2e-jnb-telemetry-store || true
+        docker rm -f osprey-e2e-jnb-telemetry-gateway || true
         docker compose -p osprey-e2e-jnb down || true
         docker volume ls -q --filter "name=^osprey-e2e-jnb_" \
           | xargs -r docker volume rm -f || true
@@ -4656,7 +4916,11 @@ jobs:
         done
         podman rm -f osprey-e2e-mus-p3-nginx || true
         podman rm -f osprey-e2e-mus-p3-registry || true
+        podman rm -f osprey-e2e-mus-p3-telemetry-store || true
+        podman rm -f osprey-e2e-mus-p3-telemetry-gateway || true
         podman compose -p osprey-e2e-mus-p3 down || true
+        podman volume rm osprey-e2e-mus-p3_telemetry_store_data || true
+        podman volume rm osprey-e2e-mus-p3_gateway-state || true
 
   two-shape-boot-e2e:
     name: Two-Shape Boot E2E (bridge + host network axis, podman-compose)
@@ -4765,25 +5029,28 @@ jobs:
         print("✅ compose provider is podman-compose 1.0.6")
         PY
 
-    - name: Pre-flight — ports 21781 and 21791 must be free on the runner
-      # Under the host shape these are REAL binds on the runner, not
-      # publications into a VM as they were on the author's macOS host. If
-      # anything else already holds either port the module's exposure test
-      # reads a foreign socket out of the runner's own /proc/net/tcp and fails
-      # in a way that points at the feature rather than at the runner. Refusing
-      # here costs a second and names the actual cause.
+    - name: Pre-flight — the module's host ports must be free on the runner
+      # 21781 and 21791 are the dispatcher and worker. Under the host shape
+      # these are REAL binds on the runner, not publications into a VM as they
+      # were on the author's macOS host. If anything else already holds either
+      # port the module's exposure test reads a foreign socket out of the
+      # runner's own /proc/net/tcp and fails in a way that points at the
+      # feature rather than at the runner. 18151, 18152 and 18904 are the
+      # telemetry case's gateway, gateway counters and store, published on the
+      # runner's loopback from that case's own port block. Refusing here costs
+      # a second and names the actual cause.
       #
       # Fails open if `ss` is missing: an absent tool is not evidence of a busy
       # port, and the module's own preflight would still refuse below.
       run: |
-        for port in 21781 21791; do
+        for port in 21781 21791 18151 18152 18904; do
           if ss -ltnH "sport = :$port" 2>/dev/null | grep -q .; then
             echo "❌ port $port is already bound on this runner:"
             ss -ltnp "sport = :$port" || true
             exit 1
           fi
         done
-        echo "✅ 21781 and 21791 are free"
+        echo "✅ 21781, 21791, 18151, 18152 and 18904 are free"
 
     - name: Diagnostic — podman's inspect .State schema (health-field spelling)
       # INFORMATIONAL, not protective. The module reads the health field
@@ -4878,8 +5145,13 @@ jobs:
         podman rm -f osprey-e2e-two-shape-event-dispatcher || true
         podman rm -f osprey-e2e-two-shape-dispatch-worker-1 || true
         podman rm -f osprey-e2e-two-shape-schema-probe || true
+        podman rm -f osprey-e2e-two-shape-telemetry-telemetry-store || true
+        podman rm -f osprey-e2e-two-shape-telemetry-telemetry-gateway || true
         podman volume rm osprey-e2e-two-shape_dispatch_workspace_1 || true
+        podman volume rm osprey-e2e-two-shape-telemetry_telemetry_store_data || true
+        podman volume rm osprey-e2e-two-shape-telemetry_gateway-state || true
         podman network rm osprey-e2e-two-shape_osprey-network || true
+        podman network rm osprey-e2e-two-shape-telemetry_osprey-network || true
         podman rmi -f osprey-e2e-two-shape:local || true
         podman rmi -f osprey-e2e-two-shape-dispatch:local || true
 
@@ -5399,7 +5671,7 @@ jobs:
           -H "Content-Type: application/json" \
           -H "anthropic-version: 2023-06-01" \
           -H "Authorization: Bearer $ALS_APG_API_KEY" \
-          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+          -d '{"model":"claude-haiku-5-5","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
         if [ "$HTTP_CODE" != "200" ]; then
           echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
           head -c 500 /tmp/probe.txt; echo
@@ -5470,16 +5742,12 @@ jobs:
         rm -rf /tmp/bench-ioc-buildx-cache
         mv /tmp/bench-ioc-buildx-cache-new /tmp/bench-ioc-buildx-cache
 
-    - name: Put the SDK's bundled Claude CLI on PATH
-      # See the identical step in scan-agentic-e2e. Every test in this module
-      # is gated on `is_claude_code_available()`, which shells `claude
-      # --version` off PATH — and claude-agent-sdk installs no `claude` console
-      # script, so without this step the whole module skips on a runner where
-      # the SDK would in fact work.
-      run: |
-        bundled="$(uv run python -c "import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / '_bundled')")"
-        "$bundled/claude" --version
-        echo "$bundled" >> "$GITHUB_PATH"
+    - name: Install the pinned Claude Code CLI
+      # One Claude Code runs in this lane: the version OSPREY pins, installed
+      # where PATH finds it. Every agent run here is pointed at that install
+      # and refuses to start without it, so a lane that lacks it fails loudly
+      # rather than skipping its agent tests or running some other build.
+      uses: ./.github/actions/install-pinned-claude-code
 
     - name: Run the control-target switch agentic E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -5519,11 +5787,11 @@ jobs:
         # deployed nothing and measured nothing. pytest's exit code cannot
         # express the difference.
         #
-        # The `claude` CLI case is the live one, not a hypothetical:
-        # claude-agent-sdk bundles its own CLI and installs no `claude` console
-        # script, so this module's `is_claude_code_available()` skipif can fire
-        # on a runner where the SDK would in fact work — and because that
-        # skipif is module-wide here, it takes all ten tests with it.
+        # The `claude` CLI case is the live one, not a hypothetical: a fresh
+        # runner has no `claude` on PATH until the lane installs the pinned
+        # one, so this module's `is_claude_code_available()` skipif can fire —
+        # and because that skipif is module-wide here, it takes all ten tests
+        # with it.
         #
         # Safe alongside two scenarios' `flaky(reruns=2)`: pytest-rerunfailures
         # does not record rerun attempts as testcases, so an absorbed sampling
@@ -5797,17 +6065,6 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Log in to ghcr (openobserve mirror)
-      # The deployment renders the observability service, and the image it
-      # pulls is the workflow-level `OSPREY_OPENOBSERVE_IMAGE` — a private
-      # mirror. Without the login `osprey up` fails on an unauthorized pull
-      # long after the container work has started.
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -5907,6 +6164,18 @@ jobs:
       with:
         name: va-bluesky-deploy-e2e
         engine: docker
+    # Belt and suspenders: the deploy's own teardown does not run when the job
+    # is killed. A hosted runner is discarded with the job, but a self-hosted
+    # or reused runner, or a local `act` run, keeps the store's port and its
+    # credential-pinned volume. Names are exact, never a prune.
+    - name: Clean up any stranded stack resources
+      if: always()
+      run: |
+        docker compose -p lane-e2e down || true
+        docker rm -f lane-e2e-telemetry-store || true
+        docker rm -f lane-e2e-telemetry-gateway || true
+        docker volume ls -q --filter "name=^lane-e2e_" \
+          | xargs -r docker volume rm -f || true
 
     - name: Clean up the target images
       # The image built here is the only one left to remove: the module tears

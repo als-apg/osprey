@@ -6,10 +6,11 @@ that names a deck and has a ``measurement/<model>.yaml``::
     configuration.yaml   the pyAML accelerator: its design simulator, the
                          ``live`` OSPREY control system, one device per magnet,
                          BPM and instrument the measurement file's groups and
-                         instruments name, one array per group role (one
-                         group named as both ``hcor`` and ``vcor`` is two
-                         arrays, one per plane) and one tool per measurement
-                         kind
+                         instruments name, one array per group role, named
+                         after its group, or after the role when the role
+                         names several (one group named as both ``hcor`` and
+                         ``vcor`` is two arrays, one per plane), and one tool
+                         per measurement kind
     lattice.json         the design simulator's lattice, referenced as
                          ``${path:lattice.json}``: the model's deck with each
                          corrector the view drives carrying its kick as the
@@ -70,6 +71,7 @@ __all__ = [
     "PYAML_DIR",
     "PyamlView",
     "ROLE_PLANES",
+    "SINGLE_PASS_KINDS",
     "TOOL_KEYS",
     "TRAJECTORY_RM_FILE",
     "TRAJECTORY_RM_INDEX_FILE",
@@ -199,6 +201,9 @@ INSTRUMENT_CLASSES: dict[str, tuple[str, ...]] = {
     "exists": ("injection_busy",),
     "optional": ("bunch_clean_enable", "beam_current", "rf_status"),
 }
+
+#: The kinds a model solved in a single pass allows.
+SINGLE_PASS_KINDS: tuple[str, ...] = ("orm", "trajectory")
 
 #: The setpoints each kind writes: its group roles, and ``rf`` for the setpoint
 #: the view's RF plant steps. The approval prompt lists every one of them. A
@@ -361,8 +366,9 @@ def measurement_groups(doc: Mapping[str, Any], model: str) -> dict[str, list[str
     ``bpm`` is the readbacks the model wires as monitors, in both planes;
     ``hcor`` the setpoints the model wires whose plane its engine describes as
     ``x``, ``vcor`` those it describes as ``y``; ``quad`` and ``sext`` every
-    setpoint the model wires. Each is taken over the channels on a member device
-    of the role's group and the channels naming one as an endpoint, visiting the
+    setpoint the model wires. Each is taken over the member devices of every
+    group the role names: the channels on a member device and the channels
+    naming one as an endpoint, visiting the
     devices in ``(s, id)`` order, an address listed once at its first device and
     the addresses within a device sorted. A combined corrector, one device
     steered in both planes, keeps each setpoint in the role of its own plane, so
@@ -399,18 +405,23 @@ def _measurement_groups(
     doc: Mapping[str, Any], model: str, wiring: Mapping[str, Mapping[str, Any]]
 ) -> dict[str, list[str]]:
     """:func:`measurement_groups` over the model's wiring entries, by address."""
+    from osprey.facility.sources import group_families
+
     record = _model_record(doc, model)
     groups_named = (record.get("measurement") or {}).get("groups") or {}
     groups = {str(group["id"]): group for group in doc.get("groups", [])}
     on_device = _channels_of(doc)
     found: dict[str, list[str]] = {}
     for role in GROUP_ROLES:
-        group_id = groups_named.get(role)
-        if group_id is None:
+        if groups_named.get(role) is None:
             continue
         wanted = "monitor" if role == "bpm" else "setpoint"
         plane = ROLE_PLANES.get(role)
-        members = (groups.get(str(group_id)) or {}).get("members") or []
+        members = [
+            member
+            for group_id in group_families(groups_named.get(role))
+            for member in (groups.get(group_id) or {}).get("members") or []
+        ]
         addresses: dict[str, None] = {}
         for device in _device_order(doc, members):
             for address in sorted(set(on_device.get(device, ()))):
@@ -461,9 +472,14 @@ def trajectory_slots(doc: Mapping[str, Any], model: str) -> dict[str, Any]:
     measurement = _model_record(doc, model).get("measurement") or {}
     if _TRAJECTORY_KIND not in (measurement.get("kinds") or []):
         raise KeyError(f"the measurement file of model {model!r} does not list {_TRAJECTORY_KIND}")
+    from osprey.facility.sources import group_families
+
     groups = {str(group["id"]): group for group in doc.get("groups", [])}
-    group_id = (measurement.get("groups") or {}).get("bpm")
-    members = (groups.get(str(group_id)) or {}).get("members") or []
+    members = [
+        member
+        for group_id in group_families((measurement.get("groups") or {}).get("bpm"))
+        for member in (groups.get(group_id) or {}).get("members") or []
+    ]
     signals = {str(channel["id"]): channel.get("signal") for channel in doc.get("channels", [])}
     on_device = _channels_of(doc)
     slots: dict[str, Any] = {}
@@ -491,9 +507,9 @@ def trajectory_slots(doc: Mapping[str, Any], model: str) -> dict[str, Any]:
 
 def _yaml_text(body: Mapping[str, Any]) -> str:
     """``body`` as block-style YAML in insertion order, no line folded."""
-    import yaml
+    from osprey_connectors import yaml_loader
 
-    return yaml.safe_dump(
+    return yaml_loader.safe_dump(
         dict(body),
         sort_keys=False,
         default_flow_style=False,
@@ -944,9 +960,12 @@ def _trajectory_files(
     settings, each corrector stepped by the hardware width whose kick-angle
     span is the measurement file's ``corrector_delta``. The matrix is hardware
     reading per hardware setpoint, a row per turn-by-turn reading and a column
-    per corrector, each named by its channel address; the sidecar holds the
-    lattice index of every row (``bpm_index``) and of every column
-    (``hcor_index`` then ``vcor_index``).
+    per corrector, each named by its channel address. A corrector whose step
+    has no solve on the model, its kick losing the launched particle, keeps
+    its column as a column of zeros. The sidecar holds the lattice index of
+    every row (``bpm_index``) and of every column (``hcor_index`` then
+    ``vcor_index``), and each unsolved corrector mapped to the engine's text
+    (``unsolved``).
 
     Args:
         inputs: The render's view inputs.
@@ -960,9 +979,10 @@ def _trajectory_files(
 
     Raises:
         FacilityBuildError: ``engine-invalid``: the model's engine states no
-            ``response_matrix()``, refuses the response, or answers one that
-            is not a finite matrix of the correctors asked for with a plane
-            and an index for every row and column; ``value-invalid``: a corrector's calibration gives no
+            ``response_matrix()``, refuses the response, answers it with no
+            corrector solved, or answers one that is not a finite matrix of
+            the correctors asked for with a plane and an index for every row
+            and column; ``value-invalid``: a corrector's calibration gives no
             hardware step.
     """
     from importlib import metadata
@@ -1035,41 +1055,50 @@ def _trajectory_files(
         ) from exc
 
     try:
-        rows, columns, matrix, bpm_index, hcor_index, vcor_index = answer
-    except (TypeError, ValueError) as exc:
-        raise unanswered("an answer that is not its six parts") from exc
+        rows = [str(row) for row in answer.rows]
+        columns = [str(column) for column in answer.columns]
+        unsolved = {str(address): str(text) for address, text in answer.unsolved.items()}
+        answered_matrix, answered_index = answer.matrix, answer.index or {}
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise unanswered("an answer that is not a response matrix") from exc
     try:
-        rows = [str(row) for row in rows]
-        columns = [str(column) for column in columns]
-        values = [[float(f"{float(value):.9g}") for value in row] for row in matrix]
-        indices = {
-            "bpm_index": [int(index) for index in bpm_index],
-            "hcor_index": [int(index) for index in hcor_index],
-            "vcor_index": [int(index) for index in vcor_index],
-        }
+        solved = [[float(f"{float(value):.9g}") for value in row] for row in answered_matrix]
+        index = {str(address): int(place) for address, place in answered_index.items()}
     except (TypeError, ValueError) as exc:
         raise unanswered("a value or an index that is no number") from exc
-    if columns != list(correctors):
+    if [corrector for corrector in correctors if corrector not in unsolved] != columns or set(
+        unsolved
+    ) - set(correctors):
         raise unanswered(
-            f"columns {', '.join(columns) or 'none'}, which are not the correctors asked for "
+            f"columns {', '.join(columns) or 'none'} and unsolved "
+            f"{', '.join(unsolved) or 'none'}, which are not the correctors asked for "
             f"({', '.join(correctors)})"
         )
-    if len(values) != len(rows) or any(len(row) != len(columns) for row in values):
+    if unsolved and not columns:
+        raise stop(
+            "engine-invalid",
+            f"engine {engine_name} solves no corrector of model {model}'s {asked}: "
+            f"{'; '.join(unsolved.values())}",
+            "give the model a deck, wiring and settings its first turn solves on",
+        )
+    if len(solved) != len(rows) or any(len(row) != len(columns) for row in solved):
         raise unanswered(f"a matrix that is not {len(rows)} rows by {len(columns)} columns")
-    if len(indices["bpm_index"]) != len(rows):
-        raise unanswered(f"{len(indices['bpm_index'])} row indices for {len(rows)} rows")
-    if len(indices["hcor_index"]) + len(indices["vcor_index"]) != len(columns):
-        raise unanswered(
-            f"{len(indices['hcor_index']) + len(indices['vcor_index'])} column indices for "
-            f"{len(columns)} columns"
-        )
-    if len(indices["hcor_index"]) != len(hcor):
-        raise unanswered(
-            f"{len(indices['hcor_index'])} horizontal column indices for {len(hcor)} "
-            "horizontal correctors"
-        )
-    if not all(math.isfinite(value) for row in values for value in row):
+    missing = [address for address in [*rows, *correctors] if address not in index]
+    if missing:
+        raise unanswered(f"no index for {', '.join(missing)}")
+    if not all(math.isfinite(value) for row in solved for value in row):
         raise unanswered("a value that is not finite")
+    at = {column: place for place, column in enumerate(columns)}
+    values = [
+        [row[at[corrector]] if corrector in at else 0.0 for corrector in correctors]
+        for row in solved
+    ]
+    indices: dict[str, Any] = {
+        "bpm_index": [index[row] for row in rows],
+        "hcor_index": [index[corrector] for corrector in hcor],
+        "vcor_index": [index[corrector] for corrector in vcor],
+        "unsolved": unsolved,
+    }
     row_planes: list[str] = []
     for row in rows:
         plane = (by_address.get(row) or {}).get("plane")
@@ -1080,7 +1109,7 @@ def _trajectory_files(
         "type": ORBIT_RESPONSE_MATRIX_DATA_TYPE,
         "matrix": values,
         "observable_names": rows,
-        "variable_names": columns,
+        "variable_names": correctors,
         "observable_planes": row_planes,
         "variable_planes": [
             *(PLANE_WORDS["x"] for _ in indices["hcor_index"]),
@@ -1096,12 +1125,15 @@ def _trajectory_files(
 def _names(
     magnets: Sequence[_Magnet], bpms: Sequence[_Bpm], groups_named: Mapping[str, Any], rf: Any
 ) -> ViewNames:
+    from osprey.facility.sources import group_families
     from pyaml_cs_osprey.names import ViewNames
 
     return ViewNames.build(
         magnets=[magnet.address for magnet in magnets],
         bpms=[bpm.device for bpm in bpms],
-        groups={role: str(groups_named[role]) for role in GROUP_ROLES if role in groups_named},
+        groups={
+            role: group_families(groups_named[role]) for role in GROUP_ROLES if role in groups_named
+        },
         rf=str(rf) if rf is not None else None,
     )
 
@@ -1237,7 +1269,7 @@ def _configuration(
         arrays.append(
             {
                 "type": array_type,
-                "name": names.array_name(role, str(groups_named[role])),
+                "name": names.array_name(role),
                 "elements": members,
             }
         )
@@ -1284,7 +1316,7 @@ def _configuration(
             monitor["rf_plant_name"] = RF_PLANT_NAME
         devices.append(monitor)
 
-    array_of = {role: names.array_name(role, str(group)) for role, group in groups_named.items()}
+    array_of = {role: names.array_name(role) for role in groups_named}
     for kind in kinds:
         if kind not in KIND_TOOLS:
             continue

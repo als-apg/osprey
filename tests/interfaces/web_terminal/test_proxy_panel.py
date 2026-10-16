@@ -430,7 +430,14 @@ class TestDispatcherMcpHop:
     """
 
     @pytest.fixture
-    def app_and_client_events(self, workspace_dir):
+    def app_and_client_events(self, workspace_dir, monkeypatch):
+        """An EVENTS panel app whose container holds the dispatcher bearer.
+
+        The bearer is in the environment before the app is built: population
+        takes it out of ``os.environ`` into the credential holder the proxy
+        reads, so setting it after construction would hold nothing.
+        """
+        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
         custom = [
             {
                 "id": "events",
@@ -445,15 +452,29 @@ class TestDispatcherMcpHop:
         ]
         yield from panel_app(workspace_dir, custom)
 
+    @pytest.fixture
+    def app_and_client_events_without_bearer(self, workspace_dir, monkeypatch):
+        """The same panel in a deployment that supplied no dispatcher bearer."""
+        monkeypatch.delenv("EVENT_DISPATCHER_TOKEN", raising=False)
+        custom = [
+            {
+                "id": "events",
+                "label": "EVENTS",
+                "url": DISPATCHER_BACKEND_URL,
+                "configDefined": True,
+                "rewriteJsonPaths": ["mcp"],
+            },
+        ]
+        yield from panel_app(workspace_dir, custom)
+
     def _post(self, client, headers=None):
         sent = {"accept": MCP_ACCEPT, "content-type": "application/json"}
         sent.update(headers or {})
         return client.post("/panel/events/mcp", headers=sent, content=MCP_CALL_BODY)
 
-    def test_the_hop_reaches_the_transport_path(self, app_and_client_events, monkeypatch):
+    def test_the_hop_reaches_the_transport_path(self, app_and_client_events):
         """The dispatcher's MCP endpoint, spelled from the constant both ends read."""
         app, client = app_and_client_events
-        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
         captured = _capture_stream(
             app,
             _FakeStreamResponse(
@@ -469,9 +490,7 @@ class TestDispatcherMcpHop:
         assert captured["content"] == MCP_CALL_BODY
 
     @pytest.mark.parametrize("upstream_type", ["application/json", "text/event-stream"])
-    def test_the_answer_is_relayed_unchanged(
-        self, app_and_client_events, monkeypatch, upstream_type
-    ):
+    def test_the_answer_is_relayed_unchanged(self, app_and_client_events, upstream_type):
         """A transport answers one call as JSON and the next as a stream.
 
         Which one it chose is the client's to read, so the content-type comes
@@ -479,7 +498,6 @@ class TestDispatcherMcpHop:
         JSON-RPC envelope is parsed, not rendered.
         """
         app, client = app_and_client_events
-        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
         _capture_stream(
             app,
             _FakeStreamResponse(headers={"content-type": upstream_type}, chunks=(MCP_ANSWER_BODY,)),
@@ -491,10 +509,9 @@ class TestDispatcherMcpHop:
         assert resp.headers["content-type"] == upstream_type
         assert resp.content == MCP_ANSWER_BODY
 
-    def test_the_session_id_travels_in_both_directions(self, app_and_client_events, monkeypatch):
+    def test_the_session_id_travels_in_both_directions(self, app_and_client_events):
         """The handle the transport hands out is the one the next call presents."""
         app, client = app_and_client_events
-        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
         captured = _capture_stream(
             app,
             _FakeStreamResponse(
@@ -509,12 +526,9 @@ class TestDispatcherMcpHop:
         assert _lower(captured["headers"])["mcp-session-id"] == MCP_SESSION_ID
         assert resp.headers["mcp-session-id"] == MCP_SESSION_ID
 
-    def test_a_notification_is_relayed_as_202_with_no_body(
-        self, app_and_client_events, monkeypatch
-    ):
+    def test_a_notification_is_relayed_as_202_with_no_body(self, app_and_client_events):
         """A JSON-RPC notification is answered with a status and nothing else."""
         app, client = app_and_client_events
-        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
         _capture_stream(
             app, _FakeStreamResponse(status_code=202, headers={"content-length": "0"}, chunks=())
         )
@@ -531,7 +545,6 @@ class TestDispatcherMcpHop:
         refusal here is the hop's and not the configuration's.
         """
         app, client = app_and_client_events
-        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
         monkeypatch.setattr(proxy, "_rewrite_content", _refuse_rewrite)
 
         # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
@@ -598,7 +611,6 @@ class TestDispatcherMcpHop:
         writes. Neither is anything the caller supplied.
         """
         app, client = app_and_client_events
-        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
         monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
         captured = _capture_stream(
             app,
@@ -624,10 +636,9 @@ class TestDispatcherMcpHop:
         assert forwarded[OWNER_HEADER.lower()] == "alice"
         assert "cookie" not in forwarded
 
-    def test_no_bearer_when_the_container_holds_none(self, app_and_client_events, monkeypatch):
+    def test_no_bearer_when_the_container_holds_none(self, app_and_client_events_without_bearer):
         """A deployment without the token sends no credential rather than a blank one."""
-        app, client = app_and_client_events
-        monkeypatch.delenv("EVENT_DISPATCHER_TOKEN", raising=False)
+        app, client = app_and_client_events_without_bearer
         captured = _capture_stream(
             app,
             _FakeStreamResponse(
@@ -641,12 +652,15 @@ class TestDispatcherMcpHop:
         assert "authorization" not in _lower(captured["headers"])
 
     @pytest.fixture
-    def untrusted_events_client(self, workspace_dir, request):
+    def untrusted_events_client(self, workspace_dir, request, monkeypatch):
         """An EVENTS panel in a shape that earns no credential.
 
         The parameter is the backend URL and whether the config loader declared
-        the panel; each row below drops one half of what the gate requires.
+        the panel; each row below drops one half of what the gate requires. The
+        container does hold the bearer, so what the hop is told is the gate's
+        doing and not an empty holder's.
         """
+        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
         url, config_defined = request.param
         panel = {"id": "events", "label": "EVENTS", "url": url, "rewriteJsonPaths": ["mcp"]}
         if config_defined:
@@ -676,7 +690,6 @@ class TestDispatcherMcpHop:
         it.
         """
         app, client = untrusted_events_client
-        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
         monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
         captured = _capture_stream(
             app,

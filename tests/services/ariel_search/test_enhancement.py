@@ -29,6 +29,7 @@ from osprey.services.ariel_search.enhancement.semantic_processor import (
 from osprey.services.ariel_search.enhancement.text_embedding import (
     TextEmbeddingModule,
 )
+from osprey.services.ariel_search.enhancement.text_embedding import embedder as embedder_mod
 from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
     embedding_input,
     fit_to_input_limit,
@@ -41,6 +42,7 @@ from tests.services.ariel_search.fake_providers import (
 )
 
 TABLES_QUERY = "information_schema.tables"
+COLUMNS_QUERY = "information_schema.columns"
 
 #: The registry lookup as shipped, captured before any test routes it.
 _REAL_GET_PROVIDER = ProviderRegistry.get_provider
@@ -59,6 +61,14 @@ def _route_provider(monkeypatch, provider_cls, lookups=None):
 
     monkeypatch.setattr(ProviderRegistry, "get_provider", get_provider)
     return provider_cls
+
+
+@pytest.fixture(autouse=True)
+def _input_key_absence_unlogged():
+    """Start every test with no embedding table reported as lacking ``input_key``."""
+    embedder_mod._INPUT_KEY_ABSENT_LOGGED.clear()
+    yield
+    embedder_mod._INPUT_KEY_ABSENT_LOGGED.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -1928,3 +1938,603 @@ class TestBaseHealthContract:
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(_embedding_module().health_check(), 0.2)
         assert time.monotonic() - started < 1.5
+
+
+# ---------------------------------------------------------------------------
+# _fit_expanded: the cut walk for an expanded entry
+# ---------------------------------------------------------------------------
+
+
+class _SpyExpander:
+    """Wraps an expander and records the ``limit`` of every scan."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.limits = []
+
+    def expand(self, text, *, limit=None, tokens=None):
+        self.limits.append(limit)
+        return self.inner.expand(text, limit=limit, tokens=tokens)
+
+
+def _fit_expander(unit_vocabulary_file):
+    from osprey.services.ariel_search.vocabulary import EntryExpander
+    from osprey.services.ariel_search.vocabulary.loader import load_vocabulary
+
+    loaded, errors, _warnings = load_vocabulary(
+        unit_vocabulary_file, canonical_to_acronym=True, canonical_to_shorthand=False
+    )
+    assert errors == []
+    return _SpyExpander(
+        EntryExpander(loaded, canonical_to_acronym=True, canonical_to_shorthand=False)
+    )
+
+
+def _fit(raw, expander, *, room, floor, scanned=None):
+    from osprey.services.ariel_search.enhancement.text_embedding.embedder import _fit_expanded
+    from osprey.services.ariel_search.vocabulary.model import match_tokens
+
+    return _fit_expanded(raw, match_tokens(raw), expander, room=room, floor=floor, scanned=scanned)
+
+
+def _bytes_at(raw, cut, expansion):
+    added = sum(len((" " + i.text).encode()) for i in expansion.insertions if i.anchor <= cut)
+    return len(raw[:cut].encode()) + added
+
+
+def _word_ends(raw):
+    import re
+
+    return {m.end() for m in re.finditer(r"\S+", raw)}
+
+
+def _floor(raw, room):
+    """The shortest whitespace-aligned prefix of at least three quarters of ``room``."""
+    return min(end for end in _word_ends(raw) if len(raw[:end].encode()) >= room * 3 // 4)
+
+
+class TestFitExpanded:
+    """``_fit_expanded`` picks a word-aligned cut whose expansion fits the room."""
+
+    def test_fit_expanded_uncut_entry_keeps_whole_text(self, unit_vocabulary_file):
+        raw = "RF trip at BPM 3, quad reset"
+        expander = _fit_expander(unit_vocabulary_file)
+        cut, expansion = _fit(raw, expander, room=200, floor=len(raw))
+        assert cut == len(raw)
+        assert expansion.text == (
+            "RF radio frequency trip at BPM beam position monitor 3, quad quadrupole reset"
+        )
+        assert _bytes_at(raw, cut, expansion) <= 200
+
+    def test_fit_expanded_uncut_entry_never_cut_when_terms_overflow(self, unit_vocabulary_file):
+        # 15 acronyms in a short entry: the raw text stays whole, the caller drops
+        # the trailing insertions that do not fit.
+        raw = " ".join(["RF trip"] * 15)
+        room = len(raw) + 40
+        expander = _fit_expander(unit_vocabulary_file)
+        cut, expansion = _fit(raw, expander, room=room, floor=len(raw))
+        assert cut == len(raw)
+        assert len(expansion.insertions) == 15
+        assert _bytes_at(raw, cut, expansion) > room
+        assert len(expander.limits) == 2  # walk scan + one confirming re-scan at the floor
+
+    def test_fit_expanded_cut_entry_picks_largest_fitting_word_end(self, unit_vocabulary_file):
+        raw = "BPM drift " + "filler word " * 40
+        room = 200
+        floor = _floor(raw, room)
+        expander = _fit_expander(unit_vocabulary_file)
+        cut, expansion = _fit(raw, expander, room=room, floor=floor)
+        assert cut in _word_ends(raw)
+        assert floor <= cut
+        assert _bytes_at(raw, cut, expansion) <= room
+        # One more word would overflow.
+        nxt = min(end for end in _word_ends(raw) if end > cut)
+        assert _bytes_at(raw, nxt, expansion) > room
+
+    def test_fit_expanded_dense_entry_falls_back_to_floor(self, unit_vocabulary_file):
+        raw = " ".join(["BPM trip"] * 100)
+        room = 120
+        floor = _floor(raw, room)
+        expander = _fit_expander(unit_vocabulary_file)
+        cut, expansion = _fit(raw, expander, room=room, floor=floor)
+        assert cut == floor
+        assert len(raw[:cut].encode()) >= room * 3 // 4
+        assert all(i.anchor <= cut for i in expansion.insertions)
+
+    def test_fit_expanded_expansion_is_scanned_up_to_the_cut(self, unit_vocabulary_file):
+        raw = "word " * 30 + "RF " + "word " * 30
+        room = 100
+        floor = _floor(raw, room)
+        expander = _fit_expander(unit_vocabulary_file)
+        cut, expansion = _fit(raw, expander, room=room, floor=floor)
+        assert expander.limits[-1] == cut
+        assert all(i.anchor <= cut for i in expansion.insertions)
+
+    def test_fit_expanded_runs_at_most_three_rescans(self, unit_vocabulary_file):
+        raw = ("RF BPM quad " * 60).strip()
+        room = 300
+        floor = _floor(raw, room)
+        expander = _fit_expander(unit_vocabulary_file)
+        from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+            _utf8_prefix,
+        )
+
+        scanned = expander.inner.expand(raw, limit=len(_utf8_prefix(raw, room)))
+        cut, _expansion = _fit(raw, expander, room=room, floor=floor, scanned=scanned)
+        assert 1 <= len(expander.limits) <= 3
+        assert floor <= cut
+
+    def test_fit_expanded_reuses_given_scan(self, unit_vocabulary_file):
+        raw = "RF trip"
+        expander = _fit_expander(unit_vocabulary_file)
+        scanned = expander.inner.expand(raw, limit=len(raw))
+        _fit(raw, expander, room=100, floor=len(raw), scanned=scanned)
+        assert expander.limits == [len(raw)]
+
+    def test_fit_expanded_ignores_torn_token_at_room_end(self, unit_vocabulary_file):
+        # The room ends inside the last word: that word's end is not a candidate.
+        raw = "alpha beta gamma RFQ"
+        room = len("alpha beta gamma RF")
+        expander = _fit_expander(unit_vocabulary_file)
+        cut, expansion = _fit(raw, expander, room=room, floor=len("alpha beta gamma"))
+        assert cut == len("alpha beta gamma")
+        assert expansion.insertions == ()
+
+    def test_fit_expanded_no_boundary_floor_is_final(self, unit_vocabulary_file):
+        raw = "RF " + "x" * 400
+        room = 200
+        floor = len(raw.encode()[:room].decode())
+        expander = _fit_expander(unit_vocabulary_file)
+        cut, expansion = _fit(raw, expander, room=room, floor=floor)
+        assert cut == floor
+        assert expander.limits[-1] == floor
+
+    def test_fit_expanded_multibyte_text_counts_bytes(self, unit_vocabulary_file):
+        raw = "RF " + "ünïcödé " * 40
+        room = 150
+        floor = _floor(raw, room)
+        expander = _fit_expander(unit_vocabulary_file)
+        cut, expansion = _fit(raw, expander, room=room, floor=floor)
+        assert cut in _word_ends(raw)
+        assert _bytes_at(raw, cut, expansion) <= room
+        assert len(raw[:cut].encode()) >= room * 3 // 4
+
+    def test_fit_expanded_random_invariants(self, unit_vocabulary_file):
+        import random
+
+        rng = random.Random(1234)
+        words = ["RF", "BPM", "quad", "trip", "beam", "ünï", "orbit", "BPMs", "x" * 9, "TS"]
+        expander = _fit_expander(unit_vocabulary_file)
+        for _ in range(200):
+            raw = " ".join(rng.choice(words) for _ in range(rng.randint(1, 120)))
+            room = rng.randint(40, 400)
+            if len(raw.encode()) <= room:
+                floor = len(raw)
+            else:
+                floor = _floor(raw, room)
+            expander.limits.clear()
+            cut, expansion = _fit(raw, expander, room=room, floor=floor)
+            assert len(expander.limits) <= 4
+            assert floor <= cut
+            assert cut == len(raw) or cut in _word_ends(raw)
+            assert expander.limits[-1] == cut
+            if cut > floor:
+                assert _bytes_at(raw, cut, expansion) <= room
+
+
+# ---------------------------------------------------------------------------
+# build_embedding_input: the embed input with optional entry expansion
+# ---------------------------------------------------------------------------
+
+
+def _build(raw, att, max_tokens, expander=None):
+    from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+        build_embedding_input,
+    )
+
+    return build_embedding_input(raw, att, max_tokens, expander=expander)
+
+
+#: ``max_input_tokens`` whose byte room for the entry text is exactly ``room``.
+def _tokens_for(room):
+    from osprey.services.ariel_search.enhancement.text_embedding.embedder import RESERVED_TOKENS
+
+    return room + RESERVED_TOKENS
+
+
+class TestBuildEmbeddingInput:
+    """``build_embedding_input`` keeps today's bytes without an expander and fits terms with one."""
+
+    _SAMPLES = (
+        ("beam lost", None),
+        ("x" * 100, None),
+        ("x" * 100, "cap"),
+        ("x" * 100, "c" * 100),
+        ("加" * 100, "图" * 10),
+        ("y" * 20, ""),
+        ("RF trip at BPM 3, quad reset", "   "),
+    )
+
+    def test_embedding_input_without_expander_is_byte_exact(self):
+        for raw, att in self._SAMPLES:
+            built = _build(raw, att, 40)
+            assert built.text == embedding_input(raw, att, 40)
+            if not (att or "").strip():
+                assert built.text == fit_to_input_limit(raw, 40)
+
+    def test_embedding_input_returns_the_built_text_object(self):
+        text = "y" * 20
+        assert _build(text, None, 40).text is text
+        assert embedding_input(text, None, 40) is text
+
+    def test_embedding_input_kept_chars_counts_raw_code_points_only(self):
+        assert _build("beam lost", "cap", 40).kept_chars == len("beam lost")
+        assert _build("x" * 100, "cap", 40).kept_chars == 28
+        assert _build("加" * 100, "图" * 10, 40).kept_chars == 8
+        assert _build("x" * 100, None, 40).kept_chars == 32
+
+    def test_EmbeddingInput_is_a_frozen_value(self):
+        import dataclasses
+
+        from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+            EmbeddingInput,
+        )
+
+        value = EmbeddingInput(text="a", kept_chars=1)
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            value.text = "b"
+
+    def test_embedding_input_short_entry_embeds_every_term(self, unit_vocabulary_file):
+        expander = _fit_expander(unit_vocabulary_file)
+        raw = "RF trip at BPM 3, quad reset"
+
+        built = _build(raw, None, 512, expander)
+
+        assert built.text == expander.inner.expand(raw).text
+        assert built.kept_chars == len(raw)
+
+    def test_embedding_input_without_matches_is_today_bytes(self, unit_vocabulary_file):
+        expander = _fit_expander(unit_vocabulary_file)
+        short = "beam lost at injection"
+        long = "beam lost at injection " * 20
+
+        assert _build(short, None, 512, expander).text is short
+        assert _build(long, None, 40, expander).text == fit_to_input_limit(long, 40)
+        assert expander.limits[-1] == len(fit_to_input_limit(long, 40))
+
+    def test_embedding_input_short_entry_is_never_cut_terms_dropped_whole(
+        self, unit_vocabulary_file
+    ):
+        expander = _fit_expander(unit_vocabulary_file)
+        raw = "RF trip at BPM 3, quad reset"
+        # Room for the raw text, " radio frequency" and " quadrupole", but not
+        # " beam position monitor": once a term overflows the rest are dropped.
+        room = len(raw) + len(" radio frequency") + len(" quadrupole")
+
+        built = _build(raw, None, _tokens_for(room), expander)
+
+        assert built.text == "RF radio frequency trip at BPM 3, quad reset"
+        assert built.kept_chars == len(raw)
+        assert len(built.text.encode()) <= room
+
+    def test_embedding_input_long_entry_cut_at_word_end_above_floor(self, unit_vocabulary_file):
+        expander = _fit_expander(unit_vocabulary_file)
+        raw = "RF trip at BPM 3, quad reset and the vertical orbit drifted " * 6
+        room = 120
+
+        built = _build(raw, None, _tokens_for(room), expander)
+
+        assert len(built.text.encode()) <= room
+        cut = built.kept_chars
+        assert cut in _word_ends(raw)
+        assert cut >= _floor(raw, room)
+        assert len(raw[:cut].encode()) >= room * 3 // 4
+        assert "radio frequency" in built.text
+        # Every inserted term is matched over the text actually embedded.
+        assert len(expander.limits) <= 1 + 3
+        assert expander.limits[0] == len(fit_to_input_limit(raw, _tokens_for(room)))
+
+    def test_embedding_input_output_is_raw_prefix_plus_ordered_insertions(
+        self, unit_vocabulary_file
+    ):
+        expander = _fit_expander(unit_vocabulary_file)
+        raw = "quad trip, BPM 4 noisy, RF ok, then quad again " * 5
+        for room in (40, 63, 90, 150, 400):
+            built = _build(raw, None, _tokens_for(room), expander)
+            cut = built.kept_chars
+            full = expander.inner.expand(raw[:cut])
+            # The output is raw[:cut] with a prefix of the cut text's insertions.
+            n = len(full.insertions)
+            renders = []
+            for k in range(n + 1):
+                pos, parts = 0, []
+                for ins in full.insertions[:k]:
+                    parts.append(raw[pos : ins.anchor] + " " + ins.text)
+                    pos = ins.anchor
+                parts.append(raw[pos:cut])
+                renders.append("".join(parts))
+            assert built.text in renders
+            assert len(built.text.encode()) <= room
+
+    def test_embedding_input_no_boundary_in_window_falls_back_to_byte_cut(
+        self, unit_vocabulary_file
+    ):
+        expander = _fit_expander(unit_vocabulary_file)
+        raw = "RF " + "x" * 100
+        tokens = _tokens_for(40)
+
+        built = _build(raw, None, tokens, expander)
+
+        assert built.text == fit_to_input_limit(raw, tokens)
+        assert built.kept_chars == 40
+
+    def test_embedding_input_torn_token_is_never_matched(self, unit_vocabulary_file):
+        expander = _fit_expander(unit_vocabulary_file)
+        raw = "x " * 18 + "BPM trip"  # the room ends inside "BPM"
+        tokens = _tokens_for(37)
+
+        built = _build(raw, None, tokens, expander)
+
+        assert built.text == fit_to_input_limit(raw, tokens)
+        assert "beam position monitor" not in built.text
+
+    def test_embedding_input_picture_text_keeps_its_quarter(self, unit_vocabulary_file):
+        expander = _fit_expander(unit_vocabulary_file)
+        raw = "RF trip at BPM 3, quad reset " * 10
+        att = "c" * 200
+        budget = 120
+
+        built = _build(raw, att, _tokens_for(budget), expander)
+
+        assert built.text.endswith("\n" + "c" * (budget // 4))
+        assert len(built.text.encode()) <= budget
+        assert "radio frequency" in built.text
+        assert built.kept_chars < len(raw)
+
+    def test_embedding_input_running_key_composition(self, unit_vocabulary_file):
+        from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+            INPUT_RULE,
+            running_input_key,
+        )
+        from osprey.services.ariel_search.vocabulary.entry import classify_build_keys
+
+        expander = _fit_expander(unit_vocabulary_file).inner
+
+        assert INPUT_RULE == 1
+        assert running_input_key(None) == "r1"
+        assert running_input_key(expander) == f"r1:{expander.key}"
+        for key in (running_input_key(None), running_input_key(expander)):
+            classify_build_keys({}, key)
+
+
+# ---------------------------------------------------------------------------
+# TextEmbeddingModule: entry expansion bound through bind()
+# ---------------------------------------------------------------------------
+
+
+def _ariel_config(vocabulary=None):
+    """An ARIELConfig, with entry expansion switched on against *vocabulary* when given."""
+    config = {"database": {"uri": "postgresql://localhost/test"}}
+    if vocabulary is not None:
+        config["vocabulary"] = {"enabled": True, "path": str(vocabulary), "expand_entries": True}
+    return ARIELConfig.from_dict(config)
+
+
+class TestTextEmbeddingEnhanceExpander:
+    """enhance() builds its input with the expander bound from the ARIEL configuration."""
+
+    @pytest.mark.asyncio
+    async def test_enhance_without_expander_sends_identical_text_and_insert(self, monkeypatch):
+        """With expansion off, the provider text and the INSERT match an unbound module's."""
+        entry = {"entry_id": "entry-001", "raw_text": "RF trip at BPM 3. " * 10}
+        models = [{"name": "test-model", "dimension": 4, "max_input_tokens": 40}]
+
+        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
+        unbound = _embedding_module(models=models)
+        unbound_conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+        await unbound.enhance(entry, unbound_conn)
+
+        bound = _embedding_module(models=models)
+        bound.bind(_ariel_config())
+        bound_conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+        await bound.enhance(entry, bound_conn)
+
+        assert bound._expander is None
+        assert provider.calls[1]["texts"] == provider.calls[0]["texts"]
+        assert provider.calls[1]["texts"] == [embedding_input(entry["raw_text"], None, 40)]
+        assert bound_conn.calls == unbound_conn.calls
+        assert len([sql for sql in bound_conn.sql if "INSERT INTO" in sql]) == 1
+
+    @pytest.mark.asyncio
+    async def test_enhance_with_expander_sends_the_expanded_text(
+        self, monkeypatch, unit_vocabulary_file
+    ):
+        """A bound expander's terms are inserted inline into the text the provider receives."""
+        from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+            DEFAULT_MAX_INPUT_TOKENS,
+            build_embedding_input,
+        )
+
+        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
+        config = _ariel_config(unit_vocabulary_file)
+        module = _embedding_module()
+        module.bind(config)
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)], COLUMNS_QUERY: [(1,)]})
+        raw = "RF trip at BPM 3"
+
+        await module.enhance({"entry_id": "entry-001", "raw_text": raw}, conn)
+
+        expected = build_embedding_input(
+            raw, None, DEFAULT_MAX_INPUT_TOKENS, expander=config.entry_expander()
+        ).text
+        assert expected == "RF radio frequency trip at BPM beam position monitor 3"
+        assert provider.calls[0]["texts"] == [expected]
+
+    @pytest.mark.asyncio
+    async def test_enhance_with_expander_logs_truncation_with_kept_chars(
+        self, monkeypatch, caplog, unit_vocabulary_file
+    ):
+        """A cut expanded entry logs how much of its own text was kept, not the input length."""
+        from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+            build_embedding_input,
+        )
+
+        _route_provider(monkeypatch, make_fake_embedding_provider())
+        config = _ariel_config(unit_vocabulary_file)
+        module = _embedding_module(
+            models=[{"name": "test-model", "dimension": 4, "max_input_tokens": 160}]
+        )
+        module.bind(config)
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)], COLUMNS_QUERY: [(1,)]})
+        raw = "RF 故障 BPM 漂移 " * 20
+        built = build_embedding_input(raw, None, 160, expander=config.entry_expander())
+        assert built.kept_chars < len(raw)
+        assert built.kept_chars != len(built.text)
+
+        with caplog.at_level(logging.INFO, logger="ariel"):
+            await module.enhance({"entry_id": "entry-cjk", "raw_text": raw}, conn)
+
+        records = [r.getMessage() for r in caplog.records if "entry-cjk" in r.getMessage()]
+        assert len(records) == 1
+        assert f"{len(raw)} characters" in records[0]
+        assert f"first {built.kept_chars} " in records[0]
+
+    @pytest.mark.asyncio
+    async def test_enhance_does_not_log_truncation_when_the_expanded_entry_is_whole(
+        self, monkeypatch, caplog, unit_vocabulary_file
+    ):
+        """An entry kept whole is not logged, however long its inserted terms make the input."""
+        _route_provider(monkeypatch, make_fake_embedding_provider())
+        module = _embedding_module()
+        module.bind(_ariel_config(unit_vocabulary_file))
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)], COLUMNS_QUERY: [(1,)]})
+
+        with caplog.at_level(logging.INFO, logger="ariel"):
+            await module.enhance({"entry_id": "entry-whole", "raw_text": "RF trip"}, conn)
+
+        assert not [r for r in caplog.records if "entry-whole" in r.getMessage()]
+
+
+# ---------------------------------------------------------------------------
+# TextEmbeddingModule: the input_key column probe and write
+# ---------------------------------------------------------------------------
+
+
+def _absent_log_lines(caplog):
+    """Log lines reporting an embedding table without an ``input_key`` column."""
+    return [r.getMessage() for r in caplog.records if "no input_key column" in r.getMessage()]
+
+
+class TestTextEmbeddingInputKey:
+    """enhance() writes the build key into tables that have an ``input_key`` column."""
+
+    @pytest.mark.asyncio
+    async def test_input_key_column_present_binds_the_running_key(self, monkeypatch):
+        """With the column present and expansion off, the INSERT binds ``input_key='r1'``."""
+        _route_provider(monkeypatch, make_fake_embedding_provider(vectors=[[0.1, 0.2, 0.3, 0.4]]))
+        module = _embedding_module()
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)], COLUMNS_QUERY: [(1,)]})
+
+        await module.enhance({"entry_id": "entry-001", "raw_text": "Beam at 500mA."}, conn)
+
+        probes = conn.recorder.matching(COLUMNS_QUERY)
+        assert [params for _sql, params in probes] == [["text_embeddings_test_model"]]
+        inserts = conn.recorder.matching("INSERT INTO")
+        assert len(inserts) == 1
+        sql, params = inserts[0]
+        assert "input_key" in sql
+        assert "input_key = EXCLUDED.input_key" in " ".join(sql.split())
+        assert params == ["entry-001", [0.1, 0.2, 0.3, 0.4], "r1"]
+
+    @pytest.mark.asyncio
+    async def test_input_key_column_present_binds_the_expander_key(
+        self, monkeypatch, unit_vocabulary_file
+    ):
+        """With expansion on, the bound key names the expander the input was built with."""
+        from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+            running_input_key,
+        )
+
+        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
+        config = _ariel_config(unit_vocabulary_file)
+        module = _embedding_module()
+        module.bind(config)
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)], COLUMNS_QUERY: [(1,)]})
+
+        await module.enhance({"entry_id": "entry-001", "raw_text": "RF trip at BPM 3"}, conn)
+
+        ((_sql, params),) = conn.recorder.matching("INSERT INTO")
+        assert params[2] == running_input_key(config.entry_expander())
+        assert params[2].startswith("r1:")
+        assert "radio frequency" in provider.calls[0]["texts"][0]
+
+    @pytest.mark.asyncio
+    async def test_input_key_column_absent_embeds_unexpanded_and_omits_the_column(
+        self, monkeypatch, caplog, unit_vocabulary_file
+    ):
+        """Without the column the entry is embedded unexpanded and the INSERT omits it."""
+        provider = _route_provider(monkeypatch, make_fake_embedding_provider())
+        module = _embedding_module()
+        module.bind(_ariel_config(unit_vocabulary_file))
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+
+        with caplog.at_level(logging.INFO, logger="ariel"):
+            await module.enhance({"entry_id": "entry-001", "raw_text": "RF trip at BPM 3"}, conn)
+
+        assert provider.calls[0]["texts"] == ["RF trip at BPM 3"]
+        ((sql, params),) = conn.recorder.matching("INSERT INTO")
+        assert "input_key" not in sql
+        assert len(params) == 2
+        lines = _absent_log_lines(caplog)
+        assert len(lines) == 1
+        assert "text_embeddings_test_model" in lines[0]
+
+    @pytest.mark.asyncio
+    async def test_input_key_probe_runs_once_per_table_and_logs_once_per_process(
+        self, monkeypatch, caplog
+    ):
+        """The probe is cached per module; the absence is logged once across modules."""
+        _route_provider(monkeypatch, make_fake_embedding_provider())
+        first = _embedding_module()
+        second = _embedding_module()
+        conn = _FakeConnection(rows_for={TABLES_QUERY: [(True,)]})
+
+        with caplog.at_level(logging.INFO, logger="ariel"):
+            await first.enhance({"entry_id": "e1", "raw_text": "one"}, conn)
+            await first.enhance({"entry_id": "e2", "raw_text": "two"}, conn)
+            await second.enhance({"entry_id": "e3", "raw_text": "three"}, conn)
+
+        assert len(conn.recorder.matching(COLUMNS_QUERY)) == 2
+        assert len(_absent_log_lines(caplog)) == 1
+
+    @pytest.mark.asyncio
+    async def test_input_key_column_on_one_of_two_tables(self, monkeypatch, caplog):
+        """Each model's table is probed; only the table with the column gets ``input_key``."""
+        _route_provider(monkeypatch, make_fake_embedding_provider(vectors=[[0.5, 0.5]]))
+        module = _embedding_module(
+            models=[{"name": "model-a", "dimension": 2}, {"name": "model-b", "dimension": 2}]
+        )
+        # Execute order after the rows_for table check: probe a, INSERT a, probe b, INSERT b.
+        conn = _FakeConnection(
+            rows_for={TABLES_QUERY: [(True,)]},
+            results=[[(1,)], [], [], []],
+        )
+
+        with caplog.at_level(logging.INFO, logger="ariel"):
+            await module.enhance({"entry_id": "entry-001", "raw_text": "Beam at 500mA."}, conn)
+
+        probes = conn.recorder.matching(COLUMNS_QUERY)
+        assert [params for _sql, params in probes] == [
+            ["text_embeddings_model_a"],
+            ["text_embeddings_model_b"],
+        ]
+        inserts = conn.recorder.matching("INSERT INTO")
+        assert len(inserts) == 2
+        assert "text_embeddings_model_a" in inserts[0][0]
+        assert inserts[0][1] == ["entry-001", [0.5, 0.5], "r1"]
+        assert "text_embeddings_model_b" in inserts[1][0]
+        assert "input_key" not in inserts[1][0]
+        assert inserts[1][1] == ["entry-001", [0.5, 0.5]]
+        lines = _absent_log_lines(caplog)
+        assert len(lines) == 1
+        assert "text_embeddings_model_b" in lines[0]

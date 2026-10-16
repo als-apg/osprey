@@ -42,6 +42,7 @@ from osprey.interfaces.web_terminal.operator_session import (
     _format_tool_name,
     validate_project_directory,
 )
+from tests._agent_cli import STUB_AGENT_CLI
 from tests.interfaces.web_terminal._fakes import (
     PRESET_SYSTEM_PROMPT,
     assistant_message,
@@ -844,18 +845,18 @@ class FakeChatSession:
         self.start_error: Exception | None = None
         # What ``started_commands`` answers, the threads it was asked on, and
         # what it does when asked.
-        self.running_commands: list = []
+        self.running_commands: list | None = []
         self.look_threads: list[int] = []
         self.look_error: Exception | None = None
         self.on_look: Callable[[], None] | None = None
 
-    def started_commands(self) -> list:
+    def started_commands(self) -> list | None:
         self.look_threads.append(threading.get_ident())
         if self.on_look is not None:
             self.on_look()
         if self.look_error is not None:
             raise self.look_error
-        return list(self.running_commands)
+        return None if self.running_commands is None else list(self.running_commands)
 
     async def start(self, *, resume_id=None):
         self.resume_id = resume_id
@@ -1355,19 +1356,46 @@ class TestOperatorRegistryChatPool:
         assert held == [False] * len(a.look_threads)
 
     @pytest.mark.asyncio
-    async def test_reap_idle_counts_a_failed_look_as_nothing_running(self, caplog):
+    async def test_reap_idle_keeps_a_chat_whose_process_table_could_not_be_read(self, caplog):
         registry = OperatorRegistry(chat_idle_seconds=10.0)
         factory = _session_factory()
         with _patch_session(factory):
             a, _ = await registry.get_or_create_chat_session("stale-chat", cwd="/tmp")
-        a.last_activity = time.monotonic() - 100
+        stale = time.monotonic() - 100
+        a.last_activity = stale
+        a.running_commands = None
+
+        with caplog.at_level(logging.WARNING):
+            reaped = await registry.reap_idle_chat_sessions()
+
+        assert reaped == 0
+        assert registry.get_chat_session("stale-chat") is a
+        assert a.stop_calls == 0
+        assert a.last_activity > stale
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "stale-chat" in r.getMessage()
+        ]
+        assert len(warnings) == 1
+
+    @pytest.mark.asyncio
+    async def test_reap_idle_keeps_a_chat_whose_look_failed(self, caplog):
+        registry = OperatorRegistry(chat_idle_seconds=10.0)
+        factory = _session_factory()
+        with _patch_session(factory):
+            a, _ = await registry.get_or_create_chat_session("stale-chat", cwd="/tmp")
+        stale = time.monotonic() - 100
+        a.last_activity = stale
         a.look_error = OSError("ps")
 
         with caplog.at_level(logging.WARNING):
             reaped = await registry.reap_idle_chat_sessions()
 
-        assert reaped == 1
-        assert registry.get_chat_session("stale-chat") is None
+        assert reaped == 0
+        assert registry.get_chat_session("stale-chat") is a
+        assert a.stop_calls == 0
+        assert a.last_activity > stale
         warnings = [
             r
             for r in caplog.records
@@ -1575,6 +1603,7 @@ class TestOperatorChatLaunchParity:
             setting_sources=["project"],
             mcp_servers="/tmp/.mcp.json",
             strict_mcp_config=True,
+            cli_path=STUB_AGENT_CLI,
             **identity,
         )
         assert options.env["PATH"] == "/usr/bin"
@@ -1626,7 +1655,7 @@ class TestOperatorChatLaunchParity:
             await session.start()
 
         (options,) = captured
-        assert options.env == {}
+        assert options.env == {"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}
         sdk_env.assert_not_called()
         await session.stop()
 

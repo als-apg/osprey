@@ -63,10 +63,10 @@ SPEAR3_LINE = (
 SPEAR3_WRAPPED_LINES = (
     "facility: place-wrapped: device StorageRing/VG55_AM1 — layer mml states s 234.144"
     " in periodic model StorageRing, outside its deck of length 234.143986; the device"
-    " is placed at s 1.35099997e-05; fix: state s 1.35099997e-05, or drop it",
+    " is placed at s 1.35099997e-05; fix: state an s within [0, 234.143986], or drop it",
     "facility: place-wrapped: device StorageRing/VP28_AM1 — layer mml states s 234.144"
     " in periodic model StorageRing, outside its deck of length 234.143986; the device"
-    " is placed at s 1.35099997e-05; fix: state s 1.35099997e-05, or drop it",
+    " is placed at s 1.35099997e-05; fix: state an s within [0, 234.143986], or drop it",
 )
 NSLS2_LINES = [
     "response check LTB: model BPMx/HCM inside band 1.000 (pass at 0.99)",
@@ -486,22 +486,20 @@ def test_a_column_half_flipped_is_not_reversed() -> None:
 def test_a_corrector_whose_sweep_has_no_solve_leaves_its_column_out(
     spear3: Path, spear3_blocks: tuple[Block, ...], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """One corrector's sweep has no solve; every other column is still judged."""
+    """The first sweep's solve is refused; every other column is still judged."""
     from lume_pyat.exceptions import OrbitSolveError
+    from lume_pyat.simulator import PyATSimulator
 
-    from osprey.simulation.engines import pyat
+    original = PyATSimulator.solve
+    calls = {"count": 0}
 
-    unsolved = spear3_blocks[0].entries[0].actuator_address
-    original = pyat.response_matrix
+    def solve(self: Any) -> Any:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise OrbitSolveError("closed orbit solve raised AtError: lost")
+        return original(self)
 
-    def response_matrix(deck: Any, wiring: Any, settings: Any, correctors: Any, step: Any) -> Any:
-        if unsolved in correctors:
-            raise OrbitSolveError(
-                f"closed orbit solve raised AtError: lost (while stepping {unsolved})"
-            )
-        return original(deck, wiring, settings, correctors, step)
-
-    monkeypatch.setattr(pyat, "response_matrix", response_matrix)
+    monkeypatch.setattr(PyATSimulator, "solve", solve)
     facility = _facility(spear3)
     document = build_facility(facility, project_name="scratch")
     model = next(model for model in document["models"] if model["name"] == "StorageRing")
@@ -515,6 +513,7 @@ def test_a_corrector_whose_sweep_has_no_solve_leaves_its_column_out(
             if entry.actuator_address != unsolved
         ]
 
+    unsolved = spear3_blocks[0].entries[0].actuator_address
     assert [block.name for block in blocks] == [block.name for block in spear3_blocks]
     for block, whole in zip(blocks, spear3_blocks, strict=True):
         assert measured(block) == measured(whole, unsolved), block.name
@@ -525,30 +524,79 @@ def test_a_corrector_whose_sweep_has_no_solve_leaves_its_column_out(
     assert sum((block.left_out for block in blocks), LeftOut()) == LeftOut(unsolved=2)
 
 
-def test_every_column_of_a_model_is_swept_in_one_engine_call(
+def test_a_model_is_swept_in_one_engine_call(
     spear3: Path, spear3_blocks: tuple[Block, ...], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The deck is copied once per model, not once per corrector, and every column still answers."""
+    """Every corrector of the model is stepped in one call of the engine."""
     from osprey.simulation.engines import pyat
 
     original = pyat.response_matrix
-    swept: list[list[str]] = []
+    calls: list[list[str]] = []
 
-    def response_matrix(deck: Any, wiring: Any, settings: Any, correctors: Any, step: Any) -> Any:
-        swept.append(list(correctors))
+    def recording(deck: Any, wiring: Any, settings: Any, correctors: Any, step: Any) -> Any:
+        calls.append(list(correctors))
         return original(deck, wiring, settings, correctors, step)
 
-    monkeypatch.setattr(pyat, "response_matrix", response_matrix)
+    monkeypatch.setattr(pyat, "response_matrix", recording)
     facility = _facility(spear3)
     document = build_facility(facility, project_name="scratch")
     model = next(model for model in document["models"] if model["name"] == "StorageRing")
 
     blocks = compare(facility, document, model)
 
-    columns = {entry.actuator_address for block in spear3_blocks for entry in block.entries}
-    assert len(swept) == 1
-    assert set(swept[0]) >= columns > set()
-    assert blocks == spear3_blocks
+    def measured(block: Block) -> list[tuple[str, str, float]]:
+        return [
+            (entry.monitor_address, entry.actuator_address, entry.model_value)
+            for entry in block.entries
+        ]
+
+    assert len(calls) == 1
+    assert len(calls[0]) == len(set(calls[0]))
+    assert [measured(block) for block in blocks] == [measured(block) for block in spear3_blocks]
+
+
+def test_of_two_correctors_only_the_one_with_no_solve_is_left_out(
+    spear3: Path, spear3_blocks: tuple[Block, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A refused step drops its own corrector; the other's response is a clean run's."""
+    from lume_pyat.exceptions import OrbitSolveError
+    from lume_pyat.simulator import PyATSimulator
+
+    facility = _facility(spear3)
+    document = build_facility(facility, project_name="scratch")
+    model = next(model for model in document["models"] if model["name"] == "StorageRing")
+    first, second = list(
+        dict.fromkeys(entry.actuator_address for entry in spear3_blocks[0].entries)
+    )[:2]
+    width = 1.5e-4
+    wanted = [(first, width, width), (second, width, width)]
+
+    def responses() -> dict[tuple[str, float], dict[str, float] | None]:
+        return response_check._responses(
+            response_check._engine("pyat"),
+            facility / model["deck"],
+            list(model["wiring"]),
+            model.get("settings"),
+            wanted,
+        )
+
+    clean = responses()
+    original = PyATSimulator.solve
+    calls = {"count": 0}
+
+    def solve(self: Any) -> Any:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise OrbitSolveError("closed orbit solve raised AtError: lost")
+        return original(self)
+
+    monkeypatch.setattr(PyATSimulator, "solve", solve)
+
+    failing = responses()
+
+    assert failing[(first, width)] is None
+    assert clean[(first, width)]
+    assert failing[(second, width)] == clean[(second, width)]
 
 
 def test_a_corrector_the_engine_refuses_stays_loud(spear3: Path) -> None:
@@ -558,14 +606,12 @@ def test_a_corrector_the_engine_refuses_stays_loud(spear3: Path) -> None:
     model = next(model for model in document["models"] if model["name"] == "StorageRing")
 
     with pytest.raises(ValueError):
-        response_check._response(
+        response_check._responses(
             response_check._engine("pyat"),
             facility / model["deck"],
             list(model["wiring"]),
             model.get("settings"),
-            "NOT:A:SETPOINT",
-            1.0e-4,
-            1.0e-4,
+            [("NOT:A:SETPOINT", 1.0e-4, 1.0e-4)],
         )
 
 

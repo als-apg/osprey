@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from osprey.services.ariel_search.ingestion.ingest import EntryIngestOutcome
     from osprey.services.ariel_search.ingestion.scheduler import StopReason
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
+    from osprey.services.ariel_search.vocabulary import EntryExpander
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +132,8 @@ class QmdResyncResult:
         mirror_path: Absolute mirror root the pass wrote into.
         watermark: Highest ``updated_at`` observed, which becomes the starting
             point of the next pass. ``None`` when the scan matched no rows.
+        expansion_key: Key of the entry expander the pass rendered with, or
+            ``None`` when entry expansion is off.
     """
 
     scanned: int
@@ -141,6 +144,7 @@ class QmdResyncResult:
     rebuild: bool
     mirror_path: str
     watermark: datetime | None
+    expansion_key: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +210,25 @@ def _ariel_config(config_dict: dict) -> ARIELConfig:
     from osprey.services.ariel_search import ARIELConfig
 
     return ARIELConfig.from_dict(config_dict, _postgresql_services(), base=_port_base())
+
+
+def _resolve_entry_expander(config: ARIELConfig, progress: _ProgressCb) -> EntryExpander | None:
+    """Resolve the entry expander before a command touches the database.
+
+    A command that writes entries refuses up front when entry expansion is
+    switched on but the vocabulary cannot be used, rather than storing
+    unexpanded text. When expansion is active the operator sees one line naming
+    the vocabulary size and the expansion key.
+
+    Raises:
+        ModuleConfigError: If ``expand_entries`` is on and the vocabulary is
+            unusable.
+    """
+    expander = config.entry_expander()
+    if expander is not None and progress:
+        concepts = expander.vocabulary.concept_count
+        progress(f"Vocabulary: OK ({concepts} concepts, entries expanded, key {expander.key})")
+    return expander
 
 
 def _require_ingestion_block(config_dict: dict) -> None:
@@ -322,53 +345,192 @@ def check_vocabulary(
     }
 
 
-def vocabulary_status(config_dict: dict, config_dir: Path | None = None) -> dict:
-    """Summarize the configured vocabulary for ``osprey ariel status``.
+def _status_expander(config: ARIELConfig) -> tuple[EntryExpander | None, bool]:
+    """Resolve the entry expander for status without raising.
 
-    Deliberately database-free: the operator most in need of this line is the
-    one whose panel will not start, and a status command that needed Postgres
-    before it could say the vocabulary is broken would never reach them.
+    Returns:
+        ``(expander, unusable)``: the expander or None, and whether entry
+        expansion is configured on but the vocabulary cannot back it.
+    """
+    from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+    try:
+        return config.entry_expander(), False
+    except ModuleConfigError:
+        return None, True
+
+
+def _vocabulary_document(
+    status: str,
+    config: ARIELConfig | None,
+    *,
+    errors: list[str] | None = None,
+    concepts: int = 0,
+) -> dict:
+    """Build the vocabulary document of :func:`_status_config`.
+
+    The expander is resolved only for an ``ok`` vocabulary; on every other
+    status ``entry_expansion`` reports it inactive.
+
+    Args:
+        status: ``"ok"``, ``"invalid"`` or ``"disabled"``.
+        config: The parsed config, or None when the section does not parse.
+        errors: The vocabulary errors; none when omitted.
+        concepts: The loaded vocabulary's concept count.
+
+    Returns:
+        ``{"status", "concepts", "errors", "entry_expansion"}``, where
+        ``entry_expansion`` is ``{"configured": bool, "active": bool,
+        "key": str | None}``: ``configured`` is
+        ``ariel.vocabulary.expand_entries``, ``active`` says an expander runs,
+        and ``key`` is that expander's ``e1:<16hex>`` key.
+    """
+    configured = config is not None and config.vocabulary.expand_entries
+    expander = None
+    if configured and status == "ok":
+        assert config is not None
+        expander, _unusable = _status_expander(config)
+    return {
+        "status": status,
+        "concepts": concepts,
+        "errors": errors if errors is not None else [],
+        "entry_expansion": {
+            "configured": configured,
+            "active": expander is not None,
+            "key": expander.key if expander is not None else None,
+        },
+    }
+
+
+def _status_config(config_dict: dict, config_dir: Path | None) -> tuple[ARIELConfig | None, dict]:
+    """Parse the ``ariel`` section once for status and summarize its vocabulary.
+
+    Deliberately database-free: the operator most in need of the vocabulary
+    line is the one whose panel will not start, and a status command that
+    needed Postgres before it could say the vocabulary is broken would never
+    reach them.
 
     Args:
         config_dict: The raw ``ariel`` section.
-        config_dir: Directory holding the config.yml it came from.
+        config_dir: Directory holding the config.yml it came from; a relative
+            ``ariel.vocabulary.path`` resolves against it, never the CWD.
 
     Returns:
+        ``(config, vocabulary)``: the parsed config, or None when the section
+        is empty or does not parse, and the vocabulary document
         ``{"status": "ok" | "invalid" | "disabled", "concepts": int,
-        "errors": [...]}``. A config that will not even parse — a legacy
-        ``ariel.pipelines`` section, a malformed block — is ``invalid`` carrying
-        the parse message, because nothing downstream can expand anything
-        either.
+        "errors": [...], "entry_expansion": {...}}``. A config that will not
+        even parse — a legacy ``ariel.pipelines`` section, a malformed block —
+        is ``invalid`` carrying the parse message, because nothing downstream
+        can expand anything either. ``entry_expansion`` is present on every
+        path: ``configured`` (``ariel.vocabulary.expand_entries``), ``active``
+        (an expander runs) and ``key`` (the expander key ``e1:<16hex>``, or
+        None when none runs).
     """
     from osprey.services.ariel_search import ARIELConfig
 
     if not config_dict:
-        return {"status": "disabled", "concepts": 0, "errors": []}
+        return None, _vocabulary_document("disabled", None)
 
     try:
-        # Not ``_ariel_config``: this is the one caller that must resolve a
-        # relative vocabulary path against the config file's own directory.
+        # Not ``_ariel_config``: status must resolve a relative vocabulary path
+        # against the config file's own directory.
         config = ARIELConfig.from_dict(
             config_dict, _postgresql_services(), config_dir=config_dir, base=_port_base()
         )
-        if not config.vocabulary.enabled:
-            return {"status": "disabled", "concepts": 0, "errors": []}
+    except Exception as exc:  # any parse failure is reportable here
+        return None, _vocabulary_document("invalid", None, errors=[str(exc)])
+
+    if not config.vocabulary.enabled:
+        return config, _vocabulary_document("disabled", config)
+
+    try:
         # validate() is the single source of truth for what is wrong with the
         # block: it carries the loader's errors AND "enabled without a path".
         # The prefix filter keeps unrelated config errors out of this one line.
         errors = [error for error in config.validate() if error.startswith("ariel.vocabulary")]
-    except Exception as exc:  # any parse failure is reportable here
-        return {"status": "invalid", "concepts": 0, "errors": [str(exc)]}
+    except Exception as exc:  # a validator that raises is still reportable
+        errors = [str(exc)]
 
     if errors:
-        return {"status": "invalid", "concepts": 0, "errors": errors}
+        return config, _vocabulary_document("invalid", config, errors=errors)
 
     vocabulary = config.loaded_vocabulary
-    return {
-        "status": "ok",
-        "concepts": vocabulary.concept_count if vocabulary is not None else 0,
-        "errors": [],
+    concepts = vocabulary.concept_count if vocabulary is not None else 0
+    return config, _vocabulary_document("ok", config, concepts=concepts)
+
+
+async def _embedding_build_verdict(
+    config: ARIELConfig,
+    repository: ARIELRepository,
+    table: str,
+    expander: EntryExpander | None,
+    vocabulary_unusable: bool,
+) -> dict[str, Any]:
+    """Report how the rows of one text embedding table were built.
+
+    The first applicable reason wins: the ``text_embedding`` module is off
+    (``disabled``), no configured model maps to *table* (``unconfigured``),
+    the table has no ``input_key`` column (``schema``), entry expansion is on
+    but the vocabulary cannot back it (``vocabulary``). Otherwise the stale
+    counts are computed against the running build key; with entry expansion
+    on while the vocabulary is disabled that key carries no expander and the
+    reason is ``vocabulary_disabled``.
+
+    Args:
+        config: The parsed ARIEL config.
+        repository: Repository to count the table's rows per build key.
+        table: The ``text_embeddings_*`` table name.
+        expander: The entry expander in use, or None.
+        vocabulary_unusable: Entry expansion is on and the vocabulary cannot
+            back it.
+
+    Returns:
+        ``{built_with, stale, verdict_unavailable, model}``: the row count
+        per stored build key (or None), the stale count per cause code (a
+        dict iff ``verdict_unavailable`` is None or ``vocabulary_disabled``),
+        the reason no plain verdict is available (or None), and the
+        configured model ``{name, dimension}`` of *table* (or None).
+    """
+    from osprey.services.ariel_search.database.migrations import model_to_table_name
+    from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+        running_input_key,
+    )
+    from osprey.services.ariel_search.vocabulary.entry import classify_build_keys
+
+    module = config.enhancement_modules.get("text_embedding")
+    match = next(
+        (
+            m
+            for m in (module.models if module else None) or []
+            if model_to_table_name(m.name) == table
+        ),
+        None,
+    )
+    verdict: dict[str, Any] = {
+        "built_with": None,
+        "stale": None,
+        "verdict_unavailable": None,
+        "model": {"name": match.name, "dimension": match.dimension} if match else None,
     }
+    if not config.is_enhancement_module_enabled("text_embedding"):
+        verdict["verdict_unavailable"] = "disabled"
+        return verdict
+    if match is None:
+        verdict["verdict_unavailable"] = "unconfigured"
+        return verdict
+    counts = await repository.get_embedding_build_counts(table)
+    if counts is None:
+        verdict["verdict_unavailable"] = "schema"
+        return verdict
+    verdict["built_with"] = counts
+    if vocabulary_unusable:
+        verdict["verdict_unavailable"] = "vocabulary"
+        return verdict
+    if config.vocabulary.expand_entries and not config.vocabulary.enabled:
+        verdict["verdict_unavailable"] = "vocabulary_disabled"
+    verdict["stale"] = classify_build_keys(counts, running_input_key(expander))
+    return verdict
 
 
 _EMPTY_MODULE_COUNTS = {"complete": 0, "failed": 0, "pending": 0, "gave_up": 0}
@@ -587,21 +749,31 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
         model is configured.
         ``image_embedding_tables`` lists the picture tables
         (``table``, ``pictures``, ``dimension``, ``active``) apart from the
-        text tables of ``embedding_tables``.
+        text tables of ``embedding_tables``. Every ``embedding_tables``
+        element carries ``built_with``, ``stale``, ``verdict_unavailable``
+        and ``model`` (:func:`_embedding_build_verdict`); its ``dimension``
+        stays the probed width.
     """
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.attachments.compose import caption_model_id
     from osprey.services.ariel_search.config import registered_ariel_names
 
     # Computed first and unconditionally: the vocabulary line must survive a
-    # database that is down and a config that will not parse.
-    vocabulary = vocabulary_status(config_dict, config_dir)
+    # database that is down and a config that will not parse. The same parse
+    # builds the service, so a relative vocabulary path resolves against
+    # config_dir for both.
+    parsed, vocabulary = _status_config(config_dict, config_dir)
 
     if not config_dict:
         return {"status": "error", "message": "ARIEL not configured", "vocabulary": vocabulary}
+    if parsed is None:
+        return {"status": "error", "message": vocabulary["errors"][0], "vocabulary": vocabulary}
+    config = parsed
+    # Resolved before the database is touched: an unusable vocabulary is a
+    # verdict of its own, never a reason the status cannot be assembled.
+    expander, vocabulary_unusable = _status_expander(config)
 
     try:
-        config = _ariel_config(config_dict)
         service = await create_ariel_service(config)
         async with service:
             healthy, message = await service.health_check()
@@ -618,6 +790,12 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
                 stats = await service.repository.get_enhancement_stats()
             registered = registered_ariel_names("ariel_enhancement_modules")
             tables = await service.repository.get_embedding_tables()
+            builds = [
+                await _embedding_build_verdict(
+                    config, service.repository, t.table_name, expander, vocabulary_unusable
+                )
+                for t in tables
+            ]
             image_tables = await service.repository.get_image_embedding_tables()
             last_ingestion = await service.repository.get_last_ingestion()
             attachments = await _attachments_status(config, service.repository)
@@ -659,8 +837,9 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
                         "entries": t.entry_count,
                         "dimension": t.dimension,
                         "active": t.is_active,
+                        **build,
                     }
-                    for t in tables
+                    for t, build in zip(tables, builds, strict=True)
                 ],
                 "image_embedding_tables": [
                     {
@@ -760,7 +939,13 @@ async def run_sync(
     from osprey.services.ariel_search.ingestion.scheduler import IngestionScheduler
 
     _require_ingestion_block(config_dict)
-    config = _ariel_config(config_dict)
+    # Sync does a full ingest on a fresh database (the scheduler default skips
+    # when no prior run exists), so the override goes onto a copy before the
+    # one parse that migrations, the scheduler and the service all share.
+    sync_dict = copy.deepcopy(config_dict)
+    sync_dict.setdefault("ingestion", {}).setdefault("watch", {})["require_initial_ingest"] = False
+    config = _ariel_config(sync_dict)
+    _resolve_entry_expander(config, progress)
 
     # Step 1: Migrate
     if progress:
@@ -779,17 +964,11 @@ async def run_sync(
         await pool.close()
 
     # Step 2: Incremental ingest via scheduler
-    # Override require_initial_ingest so sync does a full ingest on fresh databases
-    # (the scheduler default skips when no prior run exists)
-    sync_dict = copy.deepcopy(config_dict)
-    sync_dict.setdefault("ingestion", {}).setdefault("watch", {})["require_initial_ingest"] = False
-    sync_config = _ariel_config(sync_dict)
-
-    service = await create_ariel_service(sync_config)
+    service = await create_ariel_service(config)
     async with service:
-        scheduler = IngestionScheduler(config=sync_config, repository=service.repository)
+        scheduler = IngestionScheduler(config=config, repository=service.repository)
         if progress:
-            ingestion = sync_config.ingestion
+            ingestion = config.ingestion
             source = (ingestion.source_url if ingestion else None) or "unknown"
             progress(f"Polling for new entries (source: {source})...")
 
@@ -809,6 +988,7 @@ async def run_sync(
         budget_s=catchup_budget(config_dict, time.monotonic() - poll_start),
         stop_event=asyncio.Event(),
         progress=progress,
+        config=config,
     )
 
     return SyncResult(
@@ -891,6 +1071,7 @@ async def run_ingest(
         config_dict["ingestion"]["adapter"] = adapter
 
     config = _ariel_config(config_dict)
+    _resolve_entry_expander(config, progress)
     since = localize_facility(since)
     adapter_instance = get_adapter(config)
 
@@ -1037,6 +1218,7 @@ async def run_watch(
             "No ingestion source configured. "
             "Set ingestion.source_url in config.yml or use --source."
         )
+    _resolve_entry_expander(config, progress)
 
     service = await create_ariel_service(config)
     async with service:
@@ -1110,7 +1292,7 @@ async def run_watch(
             poll_start = time.monotonic()
             if busy is None or busy:
                 await _retry_busy_migrations()
-            await resync_qmd_mirror_best_effort(config_dict, progress)
+            await resync_qmd_mirror_best_effort(config_dict, progress, config=config)
             result = await inner_poll_once(*args, **kwargs)
             try:
                 await run_catchup(
@@ -1118,6 +1300,7 @@ async def run_watch(
                     budget_s=catchup_budget(config_dict, time.monotonic() - poll_start),
                     stop_event=scheduler._stop_event,
                     progress=progress,
+                    config=config,
                 )
             except Exception as e:  # cleanup is not an ingestion failure.
                 get_logger("ariel").warning(f"Enhance cleanup failed, continuing: {e}")
@@ -1164,6 +1347,7 @@ async def run_sync_watch(
     import asyncio
     import signal
 
+    from osprey.services.ariel_search.exceptions import ModuleConfigError
     from osprey.services.ariel_search.ingestion.scheduler import StopReason
     from osprey.utils.logger import get_logger
 
@@ -1172,6 +1356,8 @@ async def run_sync_watch(
         try:
             synced = await run_sync(config_dict, progress=progress)
             busy_skipped = list(synced.busy_skipped)
+        except ModuleConfigError:  # a configuration no retry can fix.
+            raise
         except Exception as e:  # the loop's backoff owns the retries.
             failure = f"{type(e).__name__}: {e}"
             get_logger("ariel").warning(f"Initial sync failed, watching anyway: {failure}")
@@ -1220,7 +1406,7 @@ QMD_WATERMARK_FORMAT_VERSION = 1
 #: Markdown renderer format represented by a current watermark. Bump this when
 #: existing rows must be re-rendered even though their database values did not
 #: change; old markers will then force one full backfill scan.
-QMD_RENDERER_VERSION = 1
+QMD_RENDERER_VERSION = 2
 
 #: Rows fetched per page while scanning for changed entries. Bounds the memory
 #: a rebuild of a large logbook needs without making the scan chatty.
@@ -1286,17 +1472,21 @@ def _atomic_write_text(path: Path, text: str) -> None:
         raise
 
 
-def _read_qmd_watermark(mirror_root: Path) -> datetime | None:
+def _read_qmd_watermark(mirror_root: Path, *, expansion_key: str | None = None) -> datetime | None:
     """Read the resync watermark stored at the mirror root.
 
     Args:
         mirror_root: Mirror root directory, which may not exist yet.
+        expansion_key: Key of the entry expander the coming pass renders with,
+            or ``None`` when entry expansion is off. A marker written under a
+            different key describes files rendered differently, so it is not
+            current.
 
     Returns:
         The stored timestamp as an aware UTC ``datetime``, or ``None`` when no
-        current, valid watermark exists. Missing, legacy, corrupt, and
-        version-mismatched markers all fall back to a full scan, which is
-        correct but slower -- never wrong.
+        current, valid watermark exists. Missing, legacy, corrupt,
+        version-mismatched, and differently keyed markers all fall back to a
+        full scan, which is correct but slower -- never wrong.
     """
     import json
     from datetime import UTC, datetime
@@ -1323,6 +1513,8 @@ def _read_qmd_watermark(mirror_root: Path) -> datetime | None:
         or renderer_version != QMD_RENDERER_VERSION
     ):
         return None
+    if payload.get("expansion_key") != expansion_key:
+        return None
 
     raw_moment = payload.get("updated_at")
     if not isinstance(raw_moment, str):
@@ -1334,12 +1526,17 @@ def _read_qmd_watermark(mirror_root: Path) -> datetime | None:
     return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
 
 
-def _write_qmd_watermark(mirror_root: Path, moment: datetime) -> None:
+def _write_qmd_watermark(
+    mirror_root: Path, moment: datetime, *, expansion_key: str | None = None
+) -> None:
     """Store the resync watermark at the mirror root.
 
     Args:
         mirror_root: Mirror root directory. It is created if missing.
         moment: Highest ``updated_at`` the pass observed.
+        expansion_key: Key of the entry expander the pass rendered with. The
+            field is recorded only when expansion is on, so a marker written
+            with expansion off carries no ``expansion_key`` at all.
 
     Raises:
         OSError: If the watermark cannot be written. A pass that exported rows
@@ -1355,6 +1552,8 @@ def _write_qmd_watermark(mirror_root: Path, moment: datetime) -> None:
         "renderer_version": QMD_RENDERER_VERSION,
         "updated_at": normalized.isoformat(),
     }
+    if expansion_key is not None:
+        payload["expansion_key"] = expansion_key
     serialized = json.dumps(payload, separators=(",", ":"), sort_keys=True)
     mirror_root.mkdir(parents=True, exist_ok=True)
     _atomic_write_text(mirror_root / QMD_WATERMARK_NAME, f"{serialized}\n")
@@ -1490,6 +1689,8 @@ async def run_qmd_resync(
     rebuild: bool = False,
     page_size: int = QMD_RESYNC_PAGE_SIZE,
     progress: _ProgressCb = None,
+    *,
+    config: ARIELConfig | None = None,
 ) -> QmdResyncResult | None:
     """Re-export entries whose rows changed outside the enhancement loop.
 
@@ -1511,6 +1712,8 @@ async def run_qmd_resync(
             what recovers a mirror after ``osprey ariel purge``.
         page_size: Rows per scan page.
         progress: Optional progress sink.
+        config: The caller's parsed config; when given it is used instead of
+            parsing ``config_dict``, so one command reads one vocabulary.
 
     Returns:
         A :class:`QmdResyncResult`, or ``None`` when the ``qmd_export`` module
@@ -1518,6 +1721,8 @@ async def run_qmd_resync(
 
     Raises:
         ValueError: If ``qmd_export`` is enabled without a ``mirror_path``.
+        ModuleConfigError: If entry expansion is on and the vocabulary is
+            unusable; raised before a rebuild wipes the mirror.
     """
     from psycopg.rows import dict_row
 
@@ -1527,9 +1732,13 @@ async def run_qmd_resync(
 
     logger = get_logger("ariel")
 
-    config = _ariel_config(config_dict)
+    if config is None:
+        config = _ariel_config(config_dict)
     if not config.is_enhancement_module_enabled("qmd_export"):
         return None
+
+    expander = _resolve_entry_expander(config, progress)
+    expansion_key = expander.key if expander is not None else None
 
     mirror_root = _qmd_mirror_root(config)
     removed = 0
@@ -1541,7 +1750,7 @@ async def run_qmd_resync(
         # would make the next incremental pass skip everything older than it.
         (mirror_root / QMD_WATERMARK_NAME).unlink(missing_ok=True)
     else:
-        watermark = _read_qmd_watermark(mirror_root)
+        watermark = _read_qmd_watermark(mirror_root, expansion_key=expansion_key)
 
     if progress:
         scope = "full rebuild" if rebuild else f"changed since {watermark or 'the beginning'}"
@@ -1568,7 +1777,7 @@ async def run_qmd_resync(
                             if highest is None or moment > highest:
                                 highest = moment
                         try:
-                            if write_entry(mirror_root, entry):
+                            if write_entry(mirror_root, entry, expander=expander):
                                 written += 1
                             else:
                                 unchanged += 1
@@ -1594,7 +1803,7 @@ async def run_qmd_resync(
     if written:
         _touch_qmd_marker(mirror_root)
     if highest is not None:
-        _write_qmd_watermark(mirror_root, highest)
+        _write_qmd_watermark(mirror_root, highest, expansion_key=expansion_key)
 
     if progress:
         progress(
@@ -1611,12 +1820,15 @@ async def run_qmd_resync(
         rebuild=rebuild,
         mirror_path=str(mirror_root),
         watermark=highest,
+        expansion_key=expansion_key,
     )
 
 
 async def resync_qmd_mirror_best_effort(
     config_dict: dict,
     progress: _ProgressCb = None,
+    *,
+    config: ARIELConfig | None = None,
 ) -> QmdResyncResult | None:
     """Run :func:`run_qmd_resync` as a pre-step that cannot fail its caller.
 
@@ -1627,15 +1839,19 @@ async def resync_qmd_mirror_best_effort(
     Args:
         config_dict: Raw ``ariel`` config section.
         progress: Optional progress sink, used only when something was written.
+        config: The caller's parsed config, handed on to :func:`run_qmd_resync`.
 
     Returns:
         The pass result, or ``None`` when the module is disabled or the pass
         failed.
     """
+    from osprey.services.ariel_search.exceptions import ModuleConfigError
     from osprey.utils.logger import get_logger
 
     try:
-        result = await run_qmd_resync(config_dict)
+        result = await run_qmd_resync(config_dict, config=config)
+    except ModuleConfigError:  # a configuration problem stops the caller too.
+        raise
     except Exception as e:  # a mirror problem must not stop ingestion.
         get_logger("ariel").warning(f"qmd mirror resync failed, continuing: {e}")
         return None
@@ -1711,6 +1927,7 @@ async def run_enhance(
         ValueError: With :data:`FORCE_REFUSAL` when ``force`` names a picture module.
     """
     config = _ariel_config(config_dict)
+    _resolve_entry_expander(config, progress)
     if module and _runs_in_catchup(module):
         if force:
             raise ValueError(FORCE_REFUSAL)
@@ -2395,6 +2612,7 @@ async def run_catchup(
     budget_s: float | None,
     stop_event: asyncio.Event | None,
     progress: _ProgressCb = None,
+    config: ARIELConfig | None = None,
 ) -> EnhanceResult:
     """Run one catch-up pass: the text modules, then the picture modules.
 
@@ -2415,6 +2633,8 @@ async def run_catchup(
         budget_s: Seconds the pass may spend; None for no limit.
         stop_event: Checked before each entry and each picture.
         progress: Optional progress callback.
+        config: The caller's parsed config; when given it is used instead of
+            parsing ``config_dict``, so one command reads one vocabulary.
 
     Returns:
         The text stage's result, with the picture entries walked added to
@@ -2424,7 +2644,8 @@ async def run_catchup(
 
     logger = get_logger("ariel")
     started = time.monotonic()
-    config = _ariel_config(config_dict)
+    if config is None:
+        config = _ariel_config(config_dict)
     text = await _run_text_enhance(config, None, False, 1000, progress, stop_event=stop_event)
     names = _catchup_module_names(config)
     if not names:
@@ -2639,16 +2860,28 @@ async def run_reembed(
     force: bool,
     progress: _ProgressCb = None,
 ) -> ReembedResult:
-    """Re-embed entries with a new or existing model."""
+    """Re-embed entries with a new or existing model.
+
+    Every vector is written with the build key of the input it was embedded
+    from. A pre-existing table without the key column is refused before any
+    entry is read, since its vectors could not be told apart afterwards.
+
+    Raises:
+        ModuleConfigError: If entry expansion is on and the vocabulary is
+            unusable, or the table predates the ``input_key`` column.
+    """
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.database.migrations import model_to_table_name
     from osprey.services.ariel_search.enhancement.text_embedding import TextEmbeddingMigration
     from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
-        embedding_input,
-        fit_to_input_limit,
+        build_embedding_input,
+        running_input_key,
     )
+    from osprey.services.ariel_search.exceptions import ModuleConfigError
 
     config = _ariel_config(config_dict)
+    expander = _resolve_entry_expander(config, progress)
+    input_key = running_input_key(expander)
     table_name = model_to_table_name(model)
     limit = _embedding_input_limit(config, model)
 
@@ -2659,6 +2892,7 @@ async def run_reembed(
             progress(f"  Dimension: {dimension}")
             progress(f"  Batch size: {batch_size}")
             progress(f"  Input limit: {limit} tokens")
+            progress(f"  Running key: {input_key}")
             progress(f"  Force overwrite: {force}")
         return ReembedResult(processed=0, skipped=0, errors=0, dry_run=True)
 
@@ -2667,7 +2901,12 @@ async def run_reembed(
         tables = await service.repository.get_embedding_tables()
         table_exists = any(t.table_name == table_name for t in tables)
 
-        if not table_exists:
+        if table_exists:
+            if not await service.repository.has_input_key_column(table_name):
+                raise ModuleConfigError(
+                    "schema behind code: run osprey ariel migrate", key="osprey ariel migrate"
+                )
+        else:
             if progress:
                 progress(f"Creating embedding table: {table_name}")
             migration = TextEmbeddingMigration([(model, dimension)])
@@ -2727,10 +2966,11 @@ async def run_reembed(
                             skipped += 1
                             continue
 
-                    if attachment_text and attachment_text.strip():
-                        batch_texts.append(embedding_input(raw_text or "", attachment_text, limit))
-                    else:
-                        batch_texts.append(fit_to_input_limit(raw_text or "", limit))
+                    batch_texts.append(
+                        build_embedding_input(
+                            raw_text or "", attachment_text, limit, expander=expander
+                        ).text
+                    )
                     batch_ids.append(entry_id)
 
                     if len(batch_texts) >= batch_size:
@@ -2746,6 +2986,7 @@ async def run_reembed(
                             progress,
                             api_key=api_key,
                             dimensions=dimensions,
+                            input_key=input_key,
                         )
                         processed += p
                         errors += e
@@ -2765,6 +3006,7 @@ async def run_reembed(
                         progress,
                         api_key=api_key,
                         dimensions=dimensions,
+                        input_key=input_key,
                     )
                     processed += p
                     errors += e
@@ -2785,11 +3027,14 @@ async def _embed_batch(
     *,
     api_key: str | None = None,
     dimensions: int | None = None,
+    input_key: str | None = None,
 ) -> tuple[int, int]:
     """Embed a batch of texts and upsert into the table. Returns (processed, errors).
 
     ``dimensions`` is passed to the provider only when given, so a provider that
     does not cut vectors to the table's length is called without the key.
+    ``input_key``, when given, is stored beside each vector and, under ``force``,
+    replaced together with it.
     """
     try:
         embed_kwargs: dict[str, Any] = {}
@@ -2804,19 +3049,25 @@ async def _embed_batch(
             **embed_kwargs,
         )
 
+        if input_key is None:
+            columns, placeholders, update = "entry_id, embedding", "%s, %s", ""
+        else:
+            columns, placeholders = "entry_id, embedding, input_key", "%s, %s, %s"
+            update = ", input_key = EXCLUDED.input_key"
         conflict_clause = (
-            "ON CONFLICT (entry_id) DO UPDATE SET embedding = EXCLUDED.embedding"
+            f"ON CONFLICT (entry_id) DO UPDATE SET embedding = EXCLUDED.embedding{update}"
             if force
             else "ON CONFLICT (entry_id) DO NOTHING"
         )
         for eid, emb in zip(batch_ids, embeddings, strict=True):
+            params = (eid, emb) if input_key is None else (eid, emb, input_key)
             await cur.execute(
                 f"""
-                INSERT INTO {table_name} (entry_id, embedding)
-                VALUES (%s, %s)
+                INSERT INTO {table_name} ({columns})
+                VALUES ({placeholders})
                 {conflict_clause}
                 """,
-                (eid, emb),
+                params,
             )
         if progress:
             # Use cumulative count -- caller tracks total
@@ -2861,6 +3112,7 @@ async def run_quickstart(
         config_dict["ingestion"]["adapter"] = "generic_json"
 
     config = _ariel_config(config_dict)
+    _resolve_entry_expander(config, progress)
 
     if progress:
         progress("Checking database connection...")

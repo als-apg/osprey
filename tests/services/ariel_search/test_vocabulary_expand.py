@@ -13,6 +13,8 @@ from osprey.services.ariel_search.vocabulary import (
     load_vocabulary,
     normalize,
 )
+from osprey.services.ariel_search.vocabulary.expand import Token, match_tokens
+from osprey.services.ariel_search.vocabulary.model import _EDGE_TEXT
 
 CONTROL_ASSISTANT_VOCABULARY = """
 concepts:
@@ -46,6 +48,15 @@ concepts:
     forms:
       - lost beam
       - beam dump
+"""
+
+BPM_PLURAL_VOCABULARY = """
+concepts:
+  - canonical: beam position monitor
+    kind: acronym
+    forms:
+      - bpm
+      - bpms
 """
 
 #: The three members of `SYNONYM_VOCABULARY`, each with the other two.
@@ -365,6 +376,43 @@ class TestDeduplication:
 
         assert expansion.flattened_text == "bpm beam position beam position monitor"
 
+    def test_trailing_punctuation_keeps_the_surface_and_appends_the_canonical(
+        self, control_assistant: Vocabulary
+    ) -> None:
+        """The group's `original` is the stripped token; the surface `?` stays put."""
+        expansion = expand("bpm?", control_assistant)
+
+        assert pairs(expansion) == [("bpm", ("beam position monitor",))]
+        assert expansion.flattened_text == "bpm? beam position monitor"
+
+    def test_punctuated_query_terms_count_as_present(self, tmp_path: Path) -> None:
+        """Behaviour change: dedupe compares stripped match tokens, not raw split words.
+
+        Before, `bpm,` and `monitor.` were whole words that never equalled `bpm`
+        or `monitor`, so both `bpm` and `beam position monitor` were appended
+        although the query already said them. Now only the genuinely new `bpms`
+        is added.
+        """
+        vocabulary = load(tmp_path, BPM_PLURAL_VOCABULARY)
+
+        expansion = expand("bpm, beam position monitor.", vocabulary)
+
+        assert pairs(expansion) == [
+            ("bpm", ("beam position monitor",)),
+            ("beam position monitor", ("bpm", "bpms")),
+        ]
+        assert expansion.flattened_text == "bpm, beam position monitor. bpms"
+
+    def test_bracketed_query_term_counts_as_present(self, control_assistant: Vocabulary) -> None:
+        """Behaviour change: `(troubleshoot)` already contains `troubleshoot`.
+
+        Before, the raw word `(troubleshoot)` hid the canonical from the
+        containment check and `troubleshoot` was appended a second time.
+        """
+        expansion = expand("ts (troubleshoot)", control_assistant)
+
+        assert expansion.flattened_text == "ts (troubleshoot)"
+
     def test_span_is_never_its_own_alternative(self) -> None:
         vocabulary = build_vocabulary(
             [
@@ -412,6 +460,103 @@ class TestNormalization:
 
     def test_normalize_is_the_shared_rule(self) -> None:
         assert normalize("Beam-Position   Monitor") == "beam position monitor"
+
+
+class TestMatchTokens:
+    """The shared tokenizer: normalize's split, edge stripping, original offsets."""
+
+    def test_match_tokens_hyphen_word_with_trailing_comma(self) -> None:
+        """`RF-trip,` splits at the hyphen; both tokens end their word at `p`."""
+        assert match_tokens("RF-trip,") == [
+            Token("rf", 0, 2, opens=False, closes=False, word_end=7),
+            Token("trip", 3, 7, opens=False, closes=True, word_end=7),
+        ]
+
+    def test_match_tokens_bracketed_acronym_with_period(self) -> None:
+        """`(BPM).` strips both edges; the core sits strictly inside them."""
+        text = "(BPM)."
+        assert match_tokens(text) == [Token("bpm", 1, 4, opens=True, closes=True, word_end=4)]
+        assert text[1:4] == "BPM"
+
+    def test_match_tokens_agrees_with_normalize_without_edges(self) -> None:
+        """Without edge characters the joined norms are exactly `normalize`."""
+        text = "  Beam-Position   Monitor t/s i/o\tSR01C "
+        tokens = match_tokens(text)
+
+        assert " ".join(t.norm for t in tokens) == normalize(text)
+        assert not any(t.opens or t.closes for t in tokens)
+        assert [text[t.start : t.end] for t in tokens] == [
+            "Beam",
+            "Position",
+            "Monitor",
+            "t/s",
+            "i/o",
+            "SR01C",
+        ]
+
+    def test_match_tokens_edge_only_token_is_dropped_and_breaks(self) -> None:
+        """A spaced `(` / `...` / `:` vanishes but closes left and opens right."""
+        tokens = match_tokens("beam ... position ( monitor :")
+
+        assert [t.norm for t in tokens] == ["beam", "position", "monitor"]
+        assert [(t.opens, t.closes) for t in tokens] == [
+            (False, True),
+            (True, True),
+            (True, True),
+        ]
+
+    def test_match_tokens_interior_punctuation_is_kept(self) -> None:
+        """Only the edges strip: `a.b` keeps its dot; `vert.` closes."""
+        tokens = match_tokens("vert. orbit a.b")
+
+        assert [t.norm for t in tokens] == ["vert", "orbit", "a.b"]
+        assert [(t.opens, t.closes) for t in tokens] == [
+            (False, True),
+            (False, False),
+            (False, False),
+        ]
+
+    def test_match_tokens_every_edge_character_strips(self) -> None:
+        """Each character named in `_EDGE_TEXT` is stripped from both ends."""
+        for edge in _EDGE_TEXT.split(" "):
+            assert match_tokens(f"{edge}x{edge}") == [
+                Token("x", 1, 2, opens=True, closes=True, word_end=2)
+            ], edge
+
+    def test_match_tokens_edge_text_renders_space_joined(self) -> None:
+        assert _EDGE_TEXT == ", . : ; ! ? ( ) [ ] \" '"
+
+    def test_match_tokens_empty_and_edge_only_text(self) -> None:
+        assert match_tokens("") == []
+        assert match_tokens("  ... ( ) - ") == []
+
+    def test_match_tokens_offsets_index_the_original_string(self) -> None:
+        """Offsets are code points into the untouched input, case and all."""
+        text = "Check the BPM. RF-BPM, ok"
+        tokens = match_tokens(text)
+
+        assert [text[t.start : t.end] for t in tokens] == [
+            "Check",
+            "the",
+            "BPM",
+            "RF",
+            "BPM",
+            "ok",
+        ]
+        assert [text[: t.word_end].rsplit(" ", 1)[-1] for t in tokens] == [
+            "Check",
+            "the",
+            "BPM",
+            "RF-BPM",
+            "RF-BPM",
+            "ok",
+        ]
+
+    def test_match_tokens_is_reexported_from_expand(self) -> None:
+        from osprey.services.ariel_search.vocabulary import expand, model
+
+        assert expand.match_tokens is model.match_tokens
+        assert expand.Token is model.Token
 
 
 class TestTextAgnostic:
@@ -518,3 +663,213 @@ class TestSynonymConcepts:
         expansion = expand("orm", vocabulary)
 
         assert pairs(expansion) == [("orm", ("orbit response matrix", "beam loss", "lost beam"))]
+
+
+PUNCTUATED_FORM_VOCABULARY = """
+concepts:
+  - canonical: vertical orbit
+    kind: shorthand
+    forms:
+      - vert. orbit
+"""
+
+
+def scan(
+    text: str,
+    vocabulary: Vocabulary,
+    *,
+    canonical_to_acronym: bool = True,
+    canonical_to_shorthand: bool = False,
+    limit: int | None = None,
+) -> list[tuple[str, int, int, tuple[str, ...], tuple[str, ...]]]:
+    """Run the private scan over `text` and flatten each span for assertions.
+
+    Args:
+        text: Text to tokenize and scan.
+        vocabulary: The vocabulary to match against.
+        canonical_to_acronym: Gate for `acronym` concepts.
+        canonical_to_shorthand: Gate for `shorthand` concepts.
+        limit: Optional code-point cap on a span's last token end.
+
+    Returns:
+        One `(key, start, stop, alternatives, concepts)` tuple per span.
+    """
+    from osprey.services.ariel_search.vocabulary.expand import _Gates, _scan
+
+    tokens = match_tokens(text)
+    gates = _Gates(
+        canonical_to_acronym=canonical_to_acronym,
+        canonical_to_shorthand=canonical_to_shorthand,
+    )
+    return [
+        (
+            " ".join(token.norm for token in tokens[span.start : span.stop]),
+            span.start,
+            span.stop,
+            tuple(span.alternatives),
+            tuple(span.concepts),
+        )
+        for span in _scan(tokens, vocabulary, gates, limit=limit)
+    ]
+
+
+class TestScan:
+    """The one shared scan: spans, bound concepts, interior patterns, limit."""
+
+    def test_scan_yields_token_range_alternatives_and_concepts(
+        self, control_assistant: Vocabulary
+    ) -> None:
+        assert scan("check the BPM now", control_assistant) == [
+            ("bpm", 2, 3, ("beam position monitor",), ("beam position monitor",)),
+        ]
+
+    def test_scan_ambiguous_form_binds_every_canonical_in_file_order(
+        self, ambiguous: Vocabulary
+    ) -> None:
+        assert scan("ts", ambiguous) == [
+            ("ts", 0, 1, ("troubleshoot", "timing system"), ("troubleshoot", "timing system")),
+        ]
+
+    def test_scan_matched_canonical_binds_itself(self, control_assistant: Vocabulary) -> None:
+        assert scan("Beam-Position Monitor", control_assistant) == [
+            ("beam position monitor", 0, 3, ("bpm",), ("beam position monitor",)),
+        ]
+
+    def test_scan_gated_off_canonical_is_not_a_span(self, control_assistant: Vocabulary) -> None:
+        assert scan("troubleshoot", control_assistant, canonical_to_shorthand=False) == []
+        assert scan("troubleshoot", control_assistant, canonical_to_shorthand=True) == [
+            ("troubleshoot", 0, 1, ("t/s", "ts"), ("troubleshoot",)),
+        ]
+
+    def test_scan_span_both_form_and_canonical_binds_deduped_in_file_order(self) -> None:
+        vocabulary = build_vocabulary(
+            [
+                Concept(canonical="orbit", kind="synonym", forms=("orb",)),
+                Concept(canonical="closed orbit", kind="synonym", forms=("orbit",)),
+            ]
+        )
+
+        assert scan("orbit", vocabulary) == [
+            ("orbit", 0, 1, ("closed orbit", "orb"), ("closed orbit", "orbit")),
+        ]
+
+    def test_scan_synonym_form_alternatives_include_siblings(self, synonyms: Vocabulary) -> None:
+        assert scan("lost beam", synonyms) == [
+            ("lost beam", 0, 2, ("beam loss", "beam dump"), ("beam loss",)),
+        ]
+
+    def test_scan_empty_alternative_span_is_still_yielded(self) -> None:
+        vocabulary = build_vocabulary(
+            [Concept(canonical="beam", kind="synonym", forms=("beam",))],
+        )
+
+        assert scan("beam position", vocabulary) == [("beam", 0, 1, (), ("beam",))]
+
+    def test_scan_spans_do_not_overlap_and_longest_wins(self) -> None:
+        vocabulary = build_vocabulary(
+            [
+                Concept(canonical="beam current", kind="shorthand", forms=("beam",)),
+                Concept(canonical="bpm", kind="shorthand", forms=("beam position monitor",)),
+            ]
+        )
+
+        assert [span[:3] for span in scan("beam position monitor beam", vocabulary)] == [
+            ("beam position monitor", 0, 3),
+            ("beam", 3, 4),
+        ]
+
+    def test_interior_period_after_first_token_matches_nothing(
+        self, control_assistant: Vocabulary
+    ) -> None:
+        assert scan("beam. position monitor", control_assistant) == []
+        assert pairs(expand("beam. position monitor", control_assistant)) == []
+
+    def test_interior_spaced_period_matches_nothing(self, control_assistant: Vocabulary) -> None:
+        assert scan("beam . position monitor", control_assistant) == []
+        assert pairs(expand("beam . position monitor", control_assistant)) == []
+
+    def test_interior_comma_inside_canonical_matches_nothing(
+        self, control_assistant: Vocabulary
+    ) -> None:
+        assert scan("beam position, monitor", control_assistant) == []
+
+    def test_interior_outer_edges_do_not_block_a_span(self, control_assistant: Vocabulary) -> None:
+        assert [span[:3] for span in scan("(beam position monitor).", control_assistant)] == [
+            ("beam position monitor", 0, 3),
+        ]
+        assert pairs(expand("(BPM), ts.", control_assistant)) == [
+            ("bpm", ("beam position monitor",)),
+            ("ts", ("troubleshoot",)),
+        ]
+
+    def test_interior_pattern_of_form_matches_its_own_punctuation(self, tmp_path: Path) -> None:
+        vocabulary = load(tmp_path, PUNCTUATED_FORM_VOCABULARY)
+
+        assert scan("vert. orbit drift", vocabulary) == [
+            ("vert orbit", 0, 2, ("vertical orbit",), ("vertical orbit",)),
+        ]
+        assert pairs(expand("vert. orbit drift", vocabulary)) == [
+            ("vert orbit", ("vertical orbit",)),
+        ]
+
+    def test_interior_pattern_of_form_rejects_unpunctuated_text(self, tmp_path: Path) -> None:
+        vocabulary = load(tmp_path, PUNCTUATED_FORM_VOCABULARY)
+
+        assert scan("vert orbit drift", vocabulary) == []
+        assert pairs(expand("vert orbit drift", vocabulary)) == []
+
+    def test_interior_fallback_for_hand_built_multi_token_form(self) -> None:
+        vocabulary = build_vocabulary(
+            [Concept(canonical="bpm", kind="shorthand", forms=("beam position monitor",))],
+        )
+        assert vocabulary.interior_patterns == {}
+
+        assert scan("beam position monitor", vocabulary) == [
+            ("beam position monitor", 0, 3, ("bpm",), ("bpm",)),
+        ]
+        assert scan("beam, position monitor", vocabulary) == []
+        assert scan("beam position. monitor", vocabulary) == []
+
+    def test_interior_rejected_span_falls_through_to_narrower_widths(self) -> None:
+        vocabulary = build_vocabulary(
+            [
+                Concept(canonical="bpm", kind="shorthand", forms=("beam position monitor",)),
+                Concept(canonical="mon", kind="shorthand", forms=("monitor",)),
+            ]
+        )
+
+        assert [span[:3] for span in scan("beam. position monitor", vocabulary)] == [
+            ("monitor", 2, 3),
+        ]
+
+    def test_limit_none_scans_the_whole_text(self, control_assistant: Vocabulary) -> None:
+        assert [span[0] for span in scan("ts then bpm", control_assistant)] == ["ts", "bpm"]
+
+    def test_limit_admits_span_ending_exactly_at_limit(self, control_assistant: Vocabulary) -> None:
+        text = "ts then bpm"
+        end = text.index("bpm") + len("bpm")
+
+        assert [span[0] for span in scan(text, control_assistant, limit=end)] == ["ts", "bpm"]
+        assert [span[0] for span in scan(text, control_assistant, limit=end - 1)] == ["ts"]
+
+    def test_limit_counts_the_core_not_trailing_edges(self, control_assistant: Vocabulary) -> None:
+        text = "bpm. more"
+
+        assert [span[0] for span in scan(text, control_assistant, limit=3)] == ["bpm"]
+
+    def test_limit_crossing_span_falls_back_to_narrower_width(self) -> None:
+        vocabulary = build_vocabulary(
+            [
+                Concept(canonical="bp", kind="shorthand", forms=("beam position",)),
+                Concept(canonical="bpm", kind="shorthand", forms=("beam position monitor",)),
+            ]
+        )
+        text = "beam position monitor"
+        limit = text.index("monitor") + 2
+
+        assert [span[:3] for span in scan(text, vocabulary, limit=limit)] == [
+            ("beam position", 0, 2),
+        ]
+
+    def test_limit_zero_yields_nothing(self, control_assistant: Vocabulary) -> None:
+        assert scan("bpm", control_assistant, limit=0) == []

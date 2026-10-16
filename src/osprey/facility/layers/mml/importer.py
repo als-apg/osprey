@@ -104,9 +104,9 @@ from osprey.facility.layers.mml.mapping import (
     Mapping,
     Problem,
     TuneBlock,
-    _text,
     check_mapping,
     exported_number,
+    exported_text,
     field_roles,
     load_or_draft,
 )
@@ -174,6 +174,11 @@ class Exports:
         va: Each system's sampled model facts (``<stem>.va.json``).
         responses: Each system's response export (``<stem>.response.json``).
         states: Each system's ``state`` block of ``<stem>.model.json``.
+        correctors: Each system's families the export tags as tune (``quad``)
+            and chromaticity (``sext``) correctors, in export order: the
+            ``families`` keys of ``<stem>.model.json``'s ``tune_response`` and
+            ``chromaticity_response``. A refused or absent section gives no
+            entry.
         decks: Each system's saved deck (``<stem>.lattice.mat``).
     """
 
@@ -182,6 +187,7 @@ class Exports:
     va: dict[str, Any] = field(default_factory=dict)
     responses: dict[str, Path] = field(default_factory=dict)
     states: dict[str, dict[str, Any]] = field(default_factory=dict)
+    correctors: dict[str, dict[str, tuple[str, ...]]] = field(default_factory=dict)
     decks: dict[str, Path] = field(default_factory=dict)
 
     @property
@@ -251,13 +257,35 @@ def read_exports(paths: Sequence[Path]) -> Exports:
             exports.responses[system] = response
         model = paired_sibling(loaded.source, MODEL_SUFFIX)
         if model is not None:
-            state = load_sibling(model).get("state")
+            facts = load_sibling(model)
+            state = facts.get("state")
             if isinstance(state, dict):
                 exports.states[system] = state
+            correctors = _tagged_correctors(facts)
+            if correctors:
+                exports.correctors[system] = correctors
         deck = paired_sibling(loaded.source, LATTICE_SUFFIX)
         if deck is not None:
             exports.decks[system] = deck
     return exports
+
+
+#: Each tuning group role and the ``<stem>.model.json`` section naming its correctors.
+_CORRECTOR_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("quad", "tune_response"),
+    ("sext", "chromaticity_response"),
+)
+
+
+def _tagged_correctors(facts: dict[str, Any]) -> dict[str, tuple[str, ...]]:
+    """The families each tuning role's section of a model export names, in export order."""
+    tagged: dict[str, tuple[str, ...]] = {}
+    for role, section in _CORRECTOR_SECTIONS:
+        block = facts.get(section)
+        families = block.get("families") if isinstance(block, dict) else None
+        if isinstance(families, dict) and families:
+            tagged[role] = tuple(str(family) for family in families)
+    return tagged
 
 
 #: What every line about a deck that disagrees with its export ends in.
@@ -581,7 +609,7 @@ def _devices(view: FamilyView, klass: str | None, model: str) -> Iterable[dict[s
         device: dict[str, Any] = {}
         if klass is not None:
             device["class"] = klass
-        name = _text(names[index]) if names is not None else None
+        name = exported_text(names[index]) if names is not None else None
         if name is not None:
             device["label"] = name
         s = exported_number(positions[index]) if positions is not None else None
@@ -634,8 +662,8 @@ def _field_scalar(fld: FieldView, key: str, index: int, n_devices: int) -> str |
     """The scalar ``fld.body[key]`` gives one device: its slot of a per-device list, or itself."""
     value = fld.body.get(key)
     if isinstance(value, (list, tuple)):
-        return _text(value[index]) if len(value) == n_devices else None
-    return _text(value)
+        return exported_text(value[index]) if len(value) == n_devices else None
+    return exported_text(value)
 
 
 def _field_number(fld: FieldView, key: str, index: int, n_devices: int) -> float | None:
@@ -690,7 +718,7 @@ def _channels(
         signal = described.signal if described is not None else None
         for key in fld.keys:
             for index, slot in enumerate(fld.slots(key)[: view.n_devices]):
-                address = _text(slot)
+                address = exported_text(slot)
                 if address is None:
                     continue
                 writes = role is not None and role.role == SETPOINT_ROLE
@@ -835,7 +863,7 @@ def _is_transport(exports: Exports, system: str) -> bool:
     if stated is not None:
         return bool(stated)
     ad = exports.ad.get(system)
-    return isinstance(ad, dict) and _text(ad.get("MachineType")) == TRANSPORT
+    return isinstance(ad, dict) and exported_text(ad.get("MachineType")) == TRANSPORT
 
 
 def _model(exports: Exports, system: str, name: str) -> dict[str, Any]:
@@ -958,9 +986,9 @@ def _sorted(rows: Iterable[dict[str, Any]], key: str) -> list[dict[str, Any]]:
 
 
 def _dump(path: Path, rows: list[dict[str, Any]]) -> Path:
-    import yaml
+    from osprey_connectors import yaml_loader
 
-    text = yaml.safe_dump(
+    text = yaml_loader.safe_dump(
         rows, sort_keys=False, default_flow_style=False, allow_unicode=True, width=100
     )
     path.write_text(text, encoding="utf-8")

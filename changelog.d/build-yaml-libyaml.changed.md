@@ -1,0 +1,1 @@
+`osprey build` and `osprey facility validate` read and write the facility's YAML through libyaml when PyYAML has it, cutting the YAML share of a large import's build several-fold; outputs are unchanged.

@@ -19,9 +19,11 @@ What :func:`seed_once` writes, relative to ``data/facility/``:
   wires. A wired channel starts from its deck, so its nominal is not written
   and the import says how many it skipped.
 * ``measurement/<model>.yaml``: for each model that carries wiring, the groups
-  and instruments its wiring names, the measurements they allow and pyAML's
-  step and settle keys (:data:`TUNING`); the import names, per group role,
-  the families wired beside the one the role is seeded from.
+  and instruments its wiring names, every measurement kind they allow
+  (:data:`osprey.facility.views.pyaml.KIND_MEMBERS`) and pyAML's step and
+  settle keys (:data:`TUNING`). ``quad`` and ``sext`` list the families the
+  export tags as tune and chromaticity correctors; the import names the
+  wired families each leaves out, and a role it does not write.
 * ``classes.yaml``: one row per class of the mapping the vocabulary lacks,
   each declared branch ahead of the classes that extend it.
 * ``identity.yaml``: the mapping's ``facility:`` block, which is then removed
@@ -58,9 +60,9 @@ from osprey.facility.layers.mml.mapping import (
     SETPOINT_ROLE,
     Mapping,
     Model,
-    _text,
     dump_mapping,
     exported_number,
+    exported_text,
     field_roles,
 )
 
@@ -133,6 +135,12 @@ _OFFSET_ABS_TOL = 1.0e-12
 _FACILITY_KEY = "facility"
 
 _SINGLE_PASS = "single_pass"
+
+#: Each tuning group role and the MML tag of the families the export lists for it.
+_TAGGED_ROLES: tuple[tuple[str, str], ...] = (
+    ("quad", "Tune Corrector"),
+    ("sext", "Chromaticity Corrector"),
+)
 
 #: Measurement group role -> the engine block of the family that fills it.
 _GROUP_ENGINES: tuple[tuple[str, tuple[str, int]], ...] = (
@@ -222,7 +230,13 @@ def seed_once(
         if model is None or not entry.get("wiring") or path.exists():
             continue
         document, lines = _measurement(
-            model, entry, mapping, carried.get(model.raw, set()), claims, group_of
+            model,
+            entry,
+            mapping,
+            carried.get(model.raw, set()),
+            claims,
+            group_of,
+            exports.correctors.get(model.raw, {}),
         )
         seeded.written.append(_write(path, document))
         seeded.lines.extend(lines)
@@ -266,7 +280,7 @@ def _claims(views: Iterable[FamilyView], mapping: Mapping) -> dict[str, _Claim]:
             found: dict[str, list[int]] = {}
             for key in fld.keys:
                 for index, slot in enumerate(fld.slots(key)[: view.n_devices]):
-                    address = _text(slot)
+                    address = exported_text(slot)
                     if address is None:
                         continue
                     held = claims.get(address)
@@ -438,24 +452,29 @@ def _measurement(
     carried: set[str],
     claims: dict[str, _Claim],
     group_of: dict[str, str],
+    tagged: dict[str, tuple[str, ...]],
 ) -> tuple[dict[str, Any], list[str]]:
-    """One wired model's measurement file, and a line per group role several families fill.
+    """One wired model's measurement file, and a line per tuning role it narrows or leaves out.
 
-    Each group role is the first family of the model's wiring whose engine
-    block fills it; for ``quad`` and ``sext`` the families not taken are
-    named in one line each. ``rf`` is the first setpoint wired to the
-    engine's frequency, and ``tune`` the tune readback the model's ``tune``
-    block wires: its ``x`` plane's address, or its one waveform address.
-    ``kinds`` lists the measurements those resolve: the orbit response needs
-    the monitors and both corrector planes, and dispersion, on a model that
-    is not solved in a single pass, the ``rf`` instrument too; the tune
-    response needs the quadrupoles and the ``tune`` instrument. A group role
-    names the group that holds the family, which is a fold of plane twins
-    where the import folded them.
+    ``bpm``, ``hcor`` and ``vcor`` are each the first family of the model's
+    wiring whose engine block fills the role. ``quad`` and ``sext`` list the
+    families the export tags as tune and chromaticity correctors (``tagged``)
+    that the model wires with the role's engine block, as their groups sorted;
+    one line names the wired families of that block left out. A role whose
+    wired families the export tags none of is not written, and one line says
+    so. ``rf`` is the first setpoint wired to the engine's frequency, and
+    ``tune`` the tune readback the model's ``tune`` block wires: its ``x``
+    plane's address, or its one waveform address. ``kinds`` lists every kind
+    whose members (:data:`osprey.facility.views.pyaml.KIND_MEMBERS`) the file
+    names, those a single-pass model allows only. A group role names the
+    group that holds the family, which is a fold of plane twins where the
+    import folded them.
     """
-    groups: dict[str, str] = {}
+    from osprey.facility.views.pyaml import KIND_MEMBERS, SINGLE_PASS_KINDS
+
+    groups: dict[str, Any] = {}
     monitors: dict[str, str] = {}
-    filling: dict[str, list[str]] = {}
+    filling: dict[str, list[tuple[str, str]]] = {}
     for raw, wired in model.wiring.items():
         if raw not in carried or wired.engine is None:
             continue
@@ -466,13 +485,26 @@ def _measurement(
         for role, block in _GROUP_ENGINES:
             if (engine.attribute, engine.index) == block:
                 groups.setdefault(role, group_of.get(token, token))
-                filling.setdefault(role, []).append(token)
-    lines = [
-        f"measurement {model.name}: {role} seeded from {tokens[0]}; "
-        f"also wired: {', '.join(tokens[1:])}"
-        for role in ("quad", "sext")
-        if len(tokens := filling.get(role, [])) > 1
-    ]
+                filling.setdefault(role, []).append((raw, token))
+    lines: list[str] = []
+    for role, tag in _TAGGED_ROLES:
+        groups.pop(role, None)
+        families = filling.get(role, [])
+        listed = [token for raw, token in families if raw in tagged.get(role, ())]
+        rest = [token for raw, token in families if raw not in tagged.get(role, ())]
+        if listed:
+            ids = sorted({group_of.get(token, token) for token in listed})
+            groups[role] = ids
+            if rest:
+                lines.append(
+                    f"measurement {model.name}: {role} lists {', '.join(ids)}; "
+                    f"also wired: {', '.join(rest)}"
+                )
+        elif families:
+            lines.append(
+                f"measurement {model.name}: {role} not seeded: the export tags no {tag}; "
+                f"wired: {', '.join(rest)}"
+            )
     if monitors:
         groups["bpm"] = monitors.get("x", next(iter(monitors.values())))
     ordered = {
@@ -497,13 +529,13 @@ def _measurement(
             instruments["tune"] = address
 
     settings = (entry.get("settings") or {}).get(entry.get("engine")) or {}
-    kinds: list[str] = []
-    if {"bpm", "hcor", "vcor"} <= set(ordered):
-        kinds.append("orm")
-        if "rf" in instruments and settings.get("solve") != _SINGLE_PASS:
-            kinds.append("dispersion")
-    if "quad" in ordered and "tune" in instruments:
-        kinds.append("trm")
+    periodic = settings.get("solve") != _SINGLE_PASS
+    kinds = [
+        kind
+        for kind, members in KIND_MEMBERS.items()
+        if all(member in ordered or member in instruments for member in members)
+        and (periodic or kind in SINGLE_PASS_KINDS)
+    ]
 
     document: dict[str, Any] = {"kinds": kinds, "groups": ordered}
     if instruments:
@@ -633,7 +665,7 @@ def _device_address(fld: FieldView, device: int) -> str | None:
     """The address one device answers on through a field, or ``None``."""
     for key in fld.keys:
         slots = fld.slots(key)
-        address = _text(slots[device]) if device < len(slots) else None
+        address = exported_text(slots[device]) if device < len(slots) else None
         if address is not None:
             return address
     return None
@@ -729,15 +761,15 @@ def _load(path: Path) -> Any:
 
 
 def _parse(text: str) -> Any:
-    import yaml
+    from osprey_connectors import yaml_loader
 
-    return yaml.safe_load(text)
+    return yaml_loader.safe_load(text)
 
 
 def _write(path: Path, document: Any) -> Path:
-    import yaml
+    from osprey_connectors import yaml_loader
 
-    text = yaml.safe_dump(
+    text = yaml_loader.safe_dump(
         document, sort_keys=False, default_flow_style=False, allow_unicode=True, width=100
     )
     path.parent.mkdir(parents=True, exist_ok=True)

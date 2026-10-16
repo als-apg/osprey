@@ -111,6 +111,11 @@ def build_pty_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
 #:   (``live``) on this seam, so it never forces a respawn, and leaving it in
 #:   keeps the deny list to names that provably differ per connection.
 #:
+#: * ``OSPREY_TERMINAL_SESSION`` — stamped beside ``OSPREY_POSTURE_SESSION``
+#:   with the same value, so the same shape.
+#: * ``OTEL_RESOURCE_ATTRIBUTES`` — rewritten on the same spawn to carry that
+#:   session as ``terminal.session``; otherwise the process's own value.
+#:
 #: Fingerprinting any of these would make a mere reconnect or tab-switch kill a
 #: running agent session, which is the liveness half of this contract.
 POOL_FINGERPRINT_EXCLUDED_ENV = frozenset(
@@ -119,6 +124,8 @@ POOL_FINGERPRINT_EXCLUDED_ENV = frozenset(
         "OSPREY_TELEMETRY_SESSION_ID",
         "OSPREY_TELEMETRY_SESSION_START",
         "OSPREY_POSTURE_SESSION",
+        "OSPREY_TERMINAL_SESSION",
+        "OTEL_RESOURCE_ATTRIBUTES",
     }
 )
 
@@ -297,15 +304,27 @@ class PtySession:
         expire, which is logged and then let go. Returning is therefore not
         proof of death: :attr:`is_alive` is, and it is the probe anything that
         needs to *know* the child is gone must poll. What became of the started
-        processes is in the log line this method writes.
+        processes is in the log line this method writes. When the process table
+        cannot be read while the child is alive, the started groups cannot be
+        looked for: only the child's own group is reached, and a warning says so.
+        Each read is bounded, so a process table that never answers adds about
+        six seconds and no more.
         """
         # Taken before the hang-up: a process the agent started in a session
-        # of its own keeps its parent link only until the agent exits.
-        groups = (
-            process_tree.tree_groups(self._process.pid)
-            if self._process is not None and self._process.poll() is None
-            else []
-        )
+        # of its own keeps its parent link only until the agent exits. A failed
+        # read is retried while the child lives, since no later one can find them.
+        groups: list[process_tree.ProcessGroup] = []
+        process = self._process
+        if process is not None and process.poll() is None:
+            rows = process_tree.read_while_alive(lambda: process.poll() is None)
+            if rows is None:
+                logger.warning(
+                    "Could not read the process table while the PTY child %d was alive; "
+                    "what it started is left running",
+                    process.pid,
+                )
+            else:
+                groups = process_tree.tree_groups(process.pid, rows)
 
         # Close master fd FIRST — the kernel sends SIGHUP to the entire
         # session (all process groups under this session leader), which is the
@@ -363,16 +382,18 @@ class PtySession:
                     process_tree.describe(survivors),
                 )
 
-    def started_commands(self) -> list[process_tree.ProcessGroup]:
+    def started_commands(self) -> list[process_tree.ProcessGroup] | None:
         """The commands the agent started in process groups of their own, still running.
 
         What ending this session would also end, beyond the agent and the
-        helpers in its own group. Empty once the child has exited. Blocking
-        (it runs ``ps``): call it off the loop.
+        helpers in its own group. Empty once the child has exited; ``None``
+        when the process table could not be read while it was alive, so what
+        it started is unknown. Blocking (it runs ``ps``): call it off the loop.
         """
-        if self._process is None or self._process.poll() is not None:
+        process = self._process
+        if process is None or process.poll() is not None:
             return []
-        return process_tree.started_groups(self._process.pid)
+        return process_tree.started_groups(process.pid, lambda: process.poll() is None)
 
     @property
     def pid(self) -> int | None:

@@ -10,6 +10,7 @@ import asyncio
 import atexit
 import fnmatch
 import os
+import sys
 import threading
 from collections.abc import Callable
 from datetime import datetime
@@ -59,6 +60,40 @@ def _configure_pyepics_libca() -> None:
         logger.debug("Configured PYEPICS_LIBCA from epicscorelibs: %s", os.environ["PYEPICS_LIBCA"])
     except Exception:  # epicscorelibs absent/failed -> pyepics falls back to its own resolution
         logger.debug("epicscorelibs libca unavailable; using pyepics default libca resolution")
+
+
+def _keep_shared_ca_context(epics: Any) -> None:
+    """Stop aioca destroying a Channel Access context pyepics also uses.
+
+    A CA context belongs to a thread. When aioca makes the first CA call on a
+    thread, it creates the context there and registers an ``atexit`` hook that
+    destroys it. If pyepics later loads libca on that same thread, it adopts
+    that context instead of making its own. At exit aioca destroys the
+    context, and the interpreter then garbage-collects pyepics' cached PVs,
+    whose ``__del__`` clears subscriptions on the freed context: a segfault.
+
+    So aioca is told not to destroy the shared context. That matches this
+    connector's choice to skip pyepics' own ``finalize_libca``: nobody tears CA
+    down at exit, and the OS reclaims the sockets. aioca still clears its own
+    channels at exit, on a context that is still alive. A no-op when aioca is
+    not loaded, when it adopted a context rather than creating one, or when
+    pyepics runs on a context of its own.
+    """
+    catools = sys.modules.get("aioca._catools")
+    if catools is None:
+        return
+    context = getattr(catools, "_Context", None)
+    initial = getattr(epics.ca, "initial_context", None)
+    if (
+        context is not None
+        and getattr(context, "_should_destroy", False)
+        and initial
+        and getattr(context, "_ca_context", None) == initial
+    ):
+        context._should_destroy = False
+        logger.debug(
+            "EPICS connector: pyepics shares aioca's CA context; aioca will not destroy it"
+        )
 
 
 def _alarm_name(code: Any) -> str:
@@ -167,6 +202,75 @@ def _readback_alarm_fields(readback: Any) -> tuple[str | None, int | None]:
     severity = _severity_int(raw.get("severity") if isinstance(raw, dict) else None)
 
     return (str(status) if status is not None else None, severity)
+
+
+#: Channel Access native types that carry integers, with the range each one's
+#: wire type holds: DBR_SHORT is int16, DBR_LONG int32 and DBR_CHAR uint8.
+#: pyepics casts a value into that type without checking it, so 1.5 reaches a
+#: ``longout`` as 1 and 2**31 as -2147483648.
+_CA_INTEGER_RANGES = {1: (-(2**15), 2**15 - 1), 4: (0, 2**8 - 1), 5: (-(2**31), 2**31 - 1)}
+_CA_CHAR = 4
+
+
+def _ca_native_type(ftype: Any) -> int | None:
+    """The plain DBR type of a pyepics field type, or ``None`` when unknown.
+
+    The plain, STS, TIME, GR and CTRL families are seven types apart, so the
+    native type is the remainder — the arithmetic ``epics.dbr.native_type``
+    does, without importing pyepics here.
+    """
+    if isinstance(ftype, int) and not isinstance(ftype, bool) and ftype >= 0:
+        return ftype % 7
+    return None
+
+
+def _integer_write_problem(native_type: int | None, value: Any) -> str | None:
+    """Why *value* cannot go to an integer channel exactly, or ``None`` if it can.
+
+    Each element is read the way pyepics would convert it — ``int(text, 0)``
+    for a string, ``int()`` for a number — and must stay the same number and
+    fit the channel's wire type. Text bound for a char array is the one string
+    write left alone: pyepics writes it as characters.
+    """
+    if native_type not in _CA_INTEGER_RANGES:
+        return None
+    if isinstance(value, str | bytes):
+        if native_type == _CA_CHAR:
+            return None
+        elements: Any = [value]
+    elif isinstance(value, list | tuple) or hasattr(value, "tolist"):
+        elements = value.tolist() if hasattr(value, "tolist") else value
+        if not isinstance(elements, list):
+            elements = [elements]
+    else:
+        elements = [value]
+    low, high = _CA_INTEGER_RANGES[native_type]
+    for element in elements:
+        if isinstance(element, str | bytes):
+            try:
+                number: Any = int(element, 0)
+            except ValueError:
+                return f"{element!r} is not a whole number, and the channel holds integers"
+        elif isinstance(element, bool | int):
+            number = int(element)
+        elif isinstance(element, float) and element.is_integer():
+            number = int(element)
+        else:
+            return f"{element!r} is not a whole number, and the channel holds integers"
+        if not low <= number <= high:
+            return f"{element!r} is outside the channel's integer range [{low}, {high}]"
+    return None
+
+
+def _char_array_text(value: Any) -> str | None:
+    """The text a char array holds, up to its first NUL, or ``None`` if not text."""
+    elements = value.tolist() if hasattr(value, "tolist") else value
+    if not isinstance(elements, list | tuple) or not all(
+        isinstance(element, int) and not isinstance(element, bool) for element in elements
+    ):
+        return None
+    raw = bytes(element & 0xFF for element in elements)
+    return raw.split(b"\0", 1)[0].decode("utf-8", errors="replace")
 
 
 # Normative-type identifiers the PVA read path maps specially. Compared with a
@@ -467,8 +571,15 @@ class EPICSConnector(ControlSystemConnector):
 
             os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
 
-            # Clear EPICS cache to pick up new environment
-            self._epics.ca.clear_cache()
+            # Clear EPICS cache to pick up new environment. Only once libca is
+            # loaded: before that there is nothing to clear, and the context
+            # pyepics creates on first use reads the environment set above.
+            # Calling it anyway would load libca on this thread, where it
+            # would adopt (then detach this thread from) any CA context aioca
+            # already made here.
+            if getattr(self._epics.ca, "libca", None) is not None:
+                self._epics.ca.clear_cache()
+                _keep_shared_ca_context(self._epics)
 
             logger.debug(f"Configured EPICS gateway: {address}:{port}")
             self._epics_configured = True
@@ -484,12 +595,10 @@ class EPICSConnector(ControlSystemConnector):
         # when the IOC posts an event. An IOC that computes a readback on get
         # posts none, so a cached read of it never changes. `fresh_reads` makes
         # every Channel Access read ask the IOC instead, at one round trip each.
-        # A ${VAR:-false} placeholder resolves to a string, and bool("false") is
-        # True, so a string is read for what it spells.
-        fresh_reads = config.get("fresh_reads", False)
-        if isinstance(fresh_reads, str):
-            fresh_reads = fresh_reads.strip().lower() in ("true", "1", "yes", "on")
-        self._fresh_reads = bool(fresh_reads)
+        self._fresh_reads = config_flag(
+            config.get("fresh_reads"),
+            key=f"control_system.connector.{self._connector_type}.fresh_reads",
+        )
 
         # Configure PVAccess routing. Addresses matching one of these globs are
         # served by the p4p client; every other address keeps using Channel
@@ -1093,12 +1202,28 @@ class EPICSConnector(ControlSystemConnector):
                     # issued. The refusal itself is built on the loop, by the base class's
                     # one helper, so all four connectors word it identically.
                     return ("refused", e)  # sentinel: no caput issued
+            # The channel's own type decides whether the value can go out
+            # exactly. caput looks the PV up in the same pyepics cache, so this
+            # adds no second connection; a PV that never connects is answered
+            # here, where nothing has been sent.
+            pv = self._epics.get_pv(channel_address, connect=True)
+            if not pv.connected:
+                return ("unreachable", None)
+            native_type = _ca_native_type(getattr(pv, "ftype", None))
+            problem = _integer_write_problem(native_type, value)
+            if problem is not None:
+                return ("refused", ValueError(problem))
+            payload = value
+            if native_type in _CA_INTEGER_RANGES and isinstance(value, list | tuple):
+                # pyepics refuses a float element of an integer array outright,
+                # even a whole one; the check above has proved each is whole.
+                payload = [int(e) if isinstance(e, float) else e for e in value]
             try:
                 # The put-callback is Channel Access's acknowledgement that the
                 # IOC processed the put, so a confirming write waits for it: the
                 # read that follows would otherwise race the record's own
                 # processing. A write nobody asked to confirm does not wait.
-                success = self._epics.caput(channel_address, value, wait=confirm, timeout=timeout)
+                success = self._epics.caput(channel_address, payload, wait=confirm, timeout=timeout)
             except control_system_refusals as e:
                 # The control system was asked and said no. Every other caput
                 # error stays a raised failure: it leaves the outcome genuinely
@@ -1144,6 +1269,19 @@ class EPICSConnector(ControlSystemConnector):
                 ),
             )
 
+        if put_result == "unreachable" or payload is None:
+            # pyepics answers None only for a PV that is not connected, and
+            # returns it before any put is made.
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.FAILED,
+                error_message=(
+                    f"Write to '{channel_address}' failed: the channel did not connect, "
+                    "so nothing was sent"
+                ),
+            )
+
         if not payload:
             return ChannelWriteResult(
                 channel_address=channel_address,
@@ -1180,6 +1318,18 @@ class EPICSConnector(ControlSystemConnector):
         alarm_status, alarm_severity = _readback_alarm_fields(observed)
         metadata = getattr(observed, "metadata", None)
         enum_label = getattr(metadata, "enum_label", None) if metadata is not None else None
+
+        if isinstance(value, str):
+            # Text written to a char array comes back as its bytes: the channel
+            # holds the text when those bytes, up to the NUL pyepics appends,
+            # spell it.
+            raw = getattr(metadata, "raw_metadata", None) or {}
+            if "char" in str(raw.get("type") if isinstance(raw, dict) else ""):
+                text = _char_array_text(observed.value)
+                if text is not None:
+                    observed = ChannelValue(
+                        value=text, timestamp=observed.timestamp, metadata=observed.metadata
+                    )
 
         if values_match(value, observed.value, enum_label=enum_label):
             logger.debug(f"EPICS write confirmed: {channel_address} = {observed.value}")

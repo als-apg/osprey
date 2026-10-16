@@ -34,8 +34,12 @@ def create_enhancers_from_config(
         names: When given, only these module names are considered; execution
             order and the enabled check still apply.
 
+    Each instance is configured with its own module section, then bound to
+    the whole ``config`` through ``bind`` exactly once.
+
     Returns:
-        List of configured enhancement module instances, in execution order
+        List of configured and bound enhancement module instances, in
+        execution order
 
     Raises:
         ValueError: If ``stage`` is not one of ``inline``, ``catchup``, ``all``.
@@ -65,6 +69,7 @@ def create_enhancers_from_config(
             module_config = config.get_enhancement_module_config(name)
             if module_config:
                 enhancer.configure(module_config)
+        enhancer.bind(config)
         enhancers.append(enhancer)
     return enhancers
 

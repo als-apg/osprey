@@ -57,8 +57,8 @@ from osprey.facility.layers.mml.mapping import (
     DeviceIdentity,
     ImportStop,
     SameAs,
-    _text,
-    _vocabulary,
+    exported_text,
+    vocabulary_parents,
 )
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
@@ -69,6 +69,9 @@ __all__ = [
     "common_class",
     "device_ids",
     "endpoints",
+    "id_token",
+    "lent_rows",
+    "row_coordinate",
     "split_identities",
     "stated_ids",
 ]
@@ -89,7 +92,8 @@ _WORD_BREAK = re.compile(r"([^0-9A-Za-z]+)")
 _ANSWER = "write address, a list of names, {coordinates: <stem>} or {same_as: <family>}"
 
 
-def _word(text: str) -> str:
+def id_token(text: str) -> str:
+    """Every run of characters other than letters and digits as one ``_``, trimmed of ``_``."""
     return _NON_WORD.sub("_", text).strip("_")
 
 
@@ -126,7 +130,7 @@ def _local_name(name: str, system: str) -> str:
         if name.upper().startswith(prefix.upper()):
             name = name[len(prefix) :]
             break
-    return _word(name)
+    return id_token(name)
 
 
 def _address_token(address: str) -> str:
@@ -138,15 +142,15 @@ def _address_token(address: str) -> str:
         colon = head.find(":")
         if 0 <= colon < opening:
             head = head[colon + 1 :]
-        if _word(head):
-            return _word(head)
+        if id_token(head):
+            return id_token(head)
     if ":" in address:
         parts = address.split(":")
         if parts[1].strip():
-            return _word(parts[1].strip())
+            return id_token(parts[1].strip())
     parts = _UNDERSCORE_SEPARATOR.split(address)
     if len(parts) >= 2 and parts[1].strip():
-        return _word(parts[1].strip())
+        return id_token(parts[1].strip())
     return ""
 
 
@@ -156,7 +160,7 @@ def _slot_addresses(view: FamilyView, index: int) -> list[str]:
     for fld in view.fields.values():
         for key in fld.keys:
             slots = fld.slots(key)
-            address = _text(slots[index]) if index < len(slots) else None
+            address = exported_text(slots[index]) if index < len(slots) else None
             if address is not None:
                 found.append(address)
     return found
@@ -219,7 +223,7 @@ def _address_ids(
         addresses = _slot_addresses(view, index)
         system = _system_of_slot(addresses, systems, view.system)
         token = next((t for t in map(_address_token, addresses) if t), "")
-        base = f"{models[system]}/{token or f'{_word(view.raw_name)}_{index}'}"
+        base = f"{models[system]}/{token or f'{id_token(view.raw_name)}_{index}'}"
         device, suffix = base, index
         while device in taken:
             device = f"{base}_{suffix}"
@@ -249,7 +253,7 @@ def _whole(value: Any) -> int | None:
     return int(value)
 
 
-def _coordinate(row: Any) -> tuple[int, int] | None:
+def row_coordinate(row: Any) -> tuple[int, int] | None:
     """A DeviceList row as ``(sector, device)``, or ``None`` where it states no such pair."""
     if not isinstance(row, (list, tuple)) or len(row) != 2:
         return None
@@ -259,12 +263,12 @@ def _coordinate(row: Any) -> tuple[int, int] | None:
 
 def _row_key(row: Any) -> Any:
     """What a DeviceList row is matched by: its coordinate, else its text."""
-    found = _coordinate(row)
+    found = row_coordinate(row)
     return found if found is not None else repr(row)
 
 
 def _row_text(row: Any) -> str:
-    found = _coordinate(row)
+    found = row_coordinate(row)
     return f"[{found[0]}, {found[1]}]" if found is not None else repr(row)
 
 
@@ -282,7 +286,7 @@ def _coordinate_ids(
         return None
     ids: list[str] = []
     for index, row in enumerate(view.device_rows):
-        found = _coordinate(row)
+        found = row_coordinate(row)
         if found is None:
             invalid.append(
                 f"{key}: {raw} device {index + 1} in {view.system} states no "
@@ -294,7 +298,7 @@ def _coordinate_ids(
     return ids
 
 
-def _lent_rows(target: FamilyView, target_ids: Sequence[str]) -> tuple[dict[Any, str], set[Any]]:
+def lent_rows(target: FamilyView, target_ids: Sequence[str]) -> tuple[dict[Any, str], set[Any]]:
     """Each row's id as the target's first slot at it, and the rows it states
     at slots that are different devices."""
     first: dict[Any, str] = {}
@@ -320,7 +324,7 @@ def _matched_ids(
     where it is matched, whatever the target's answer.
     """
     raw, key = view.raw_name, f"families.{view.raw_name}.devices"
-    first, repeated = _lent_rows(target, target_ids)
+    first, repeated = lent_rows(target, target_ids)
     ids: list[str] = []
     for row in view.device_rows or ():
         found = _row_key(row)
@@ -478,7 +482,7 @@ def axis_twins(first: FamilyView, second: FamilyView) -> bool:
             if len(ours) != len(theirs):
                 return False
             for mine, yours in zip(ours, theirs, strict=True):
-                a, b = _text(mine), _text(yours)
+                a, b = exported_text(mine), exported_text(yours)
                 if a == b:
                     continue
                 if a is None or b is None or not _one_axis_apart(a, b):
@@ -505,7 +509,7 @@ def endpoints(views: Iterable[FamilyView], ids: Sequence[Sequence[str]]) -> dict
         for fld in view.fields.values():
             for key in fld.keys:
                 for index, slot in enumerate(fld.slots(key)[: view.n_devices]):
-                    address = _text(slot)
+                    address = exported_text(slot)
                     if address is None:
                         continue
                     devices = owners.setdefault(address, [])
@@ -539,7 +543,7 @@ def split_identities(
         for fld in view.fields.values():
             for key in fld.keys:
                 for index, slot in enumerate(fld.slots(key)[: view.n_devices]):
-                    address = _text(slot)
+                    address = exported_text(slot)
                     if address is None or address not in wired:
                         continue
                     found = bound.setdefault(address, {}).setdefault(view.raw_name, [])
@@ -597,6 +601,6 @@ def common_class(
         return None
     if first == second:
         return first
-    parents: dict[str, str | None] = {**_vocabulary(), **(branches or {})}
+    parents: dict[str, str | None] = {**vocabulary_parents(), **(branches or {})}
     ancestors = _lineage(second, parents)
     return next((name for name in _lineage(first, parents) if name in ancestors), None)

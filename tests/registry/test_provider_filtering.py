@@ -114,7 +114,8 @@ class TestInitializeProvidersFiltering:
 
     def _make_provider_class(self, name):
         """Create a real provider class stub inheriting from BaseProvider."""
-        cls = type(f"Mock{name}Provider", (BaseProvider,), {"name": name})
+        flags = dict.fromkeys(BaseProvider._REQUIRED_FLAGS, False)
+        cls = type(f"Mock{name}Provider", (BaseProvider,), {"name": name, **flags})
         # Remove abstract method requirements so it passes issubclass check
         cls.__abstractmethods__ = frozenset()
         return cls

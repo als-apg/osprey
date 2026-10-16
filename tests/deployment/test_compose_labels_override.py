@@ -70,7 +70,7 @@ services:
 
 
 def _write_config(project: Path, deployed_services: list[str]) -> Path:
-    """A config declaring the shipped ``openobserve`` and the facility ``site-probe``."""
+    """A config declaring the shipped ``postgresql`` and the facility ``site-probe``."""
     probe = project / "services" / "site-probe"
     probe.mkdir(parents=True, exist_ok=True)
     (probe / "docker-compose.yml.j2").write_text(SITE_PROBE_TEMPLATE, encoding="utf-8")
@@ -81,7 +81,7 @@ def _write_config(project: Path, deployed_services: list[str]) -> Path:
         "build_dir": str(project / "build"),
         "system": {"timezone": "UTC"},
         "services": {
-            "openobserve": {"path": "./services/openobserve", "port": 5080},
+            "postgresql": {"path": "./services/postgresql", "port": 5432},
             "site-probe": {"path": "./services/site-probe"},
         },
         "deployed_services": deployed_services,
@@ -94,7 +94,7 @@ def _render(
     project: Path, monkeypatch: pytest.MonkeyPatch, deployed_services: list[str] | None = None
 ) -> list[str]:
     """Render the project from inside it and return the rendered compose files."""
-    services = ["openobserve", "site-probe"] if deployed_services is None else deployed_services
+    services = ["postgresql", "site-probe"] if deployed_services is None else deployed_services
     config_path = _write_config(project, services)
     _copy_service_templates(project)
     monkeypatch.chdir(project)
@@ -128,7 +128,7 @@ def test_every_rendered_service_gets_the_four_generated_labels(
 
     services = _override(tmp_path)["services"]
 
-    assert list(services) == ["openobserve", "site-probe"]
+    assert list(services) == ["postgresql", "site-probe"]
     for entry in services.values():
         assert entry == {"labels": _expected_labels(tmp_path)}
 
@@ -140,7 +140,7 @@ def test_a_template_that_spells_no_labels_is_named_too(
 
     services = _override(tmp_path)["services"]
 
-    assert services["site-probe"] == services["openobserve"]
+    assert services["site-probe"] == services["postgresql"]
 
 
 def test_the_override_leaves_the_env_digest_to_the_templates(
@@ -285,7 +285,7 @@ def test_the_podman_document_carries_the_labels_on_every_service(
 
     assert _f_entries(argv) == [str(tmp_path / MERGED_COMPOSE_FILENAME)]
     services = yaml.safe_load((tmp_path / MERGED_COMPOSE_FILENAME).read_text())["services"]
-    for name in ("openobserve", "site-probe"):
+    for name in ("postgresql", "site-probe"):
         for key, value in _expected_labels(tmp_path).items():
             assert services[name]["labels"][key] == value
     assert services["site-probe"]["labels"]["site.owner"] == "ops"
@@ -332,7 +332,7 @@ def test_docker_compose_config_shows_the_four_labels_on_every_service(
     assert result.returncode == 0, result.stderr
     services = json.loads(result.stdout)["services"]
     expected = {**_expected_labels(tmp_path), CONFIG_DIGEST_LABEL: env[CONFIG_DIGEST_VAR]}
-    assert set(services) == {"openobserve", "site-probe"}
+    assert set(services) == {"postgresql", "site-probe"}
     for name, service in services.items():
         for key, value in expected.items():
             assert service["labels"][key] == value, (name, key)

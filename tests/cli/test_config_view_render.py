@@ -200,6 +200,11 @@ class TestTheDefaultsLedger:
         """``build_dir``'s reader falls back to ``./build``, so the ledger says so."""
         assert "\nbuild_dir: ./build\n" in config_cmd._render_defaults_ledger()
 
+    def test_defaults_show_expand_entries_off(self):
+        """The entry-expansion switch is in the ledger, off by default."""
+        ledger = config_cmd._render_defaults_ledger()
+        assert "\nariel.vocabulary.expand_entries: false\n" in ledger
+
     def test_the_empty_string_default_stays_quoted(self):
         """Unquoted, an empty value would read back as null rather than as ''."""
         loaded = yaml.safe_load(config_cmd._render_defaults_ledger())

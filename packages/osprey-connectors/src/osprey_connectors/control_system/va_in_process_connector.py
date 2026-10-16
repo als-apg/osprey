@@ -5,7 +5,7 @@ The connector serves exactly the channel and status addresses of the simulator v
 through the composite (:class:`~osprey_connectors.simulation.composite.Composite`):
 the texture and one physics child per served model whose engine is not
 ``texture``. An address outside the view is refused with
-``<address> is not in build/facility.json``.
+``<address> is not a channel of this facility``.
 
 * A read carries the composite's value, motion included; a ``bool`` or
   ``enum`` channel reads as its option index, a waveform as an array of its
@@ -70,6 +70,7 @@ from osprey_connectors.control_system.base import (
     WriteOutcome,
     values_match,
 )
+from osprey_connectors.errors import NOT_A_CHANNEL, ChannelNotFoundError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation.view import (
     VARIABLES_FILE,
@@ -94,7 +95,6 @@ __all__ = [
     "SIMULATOR_VIEW_SETTING",
     "VAInProcessConnector",
     "active_set_sha256",
-    "not_in_facility",
     "simulation_state_dir",
     "simulator_view_dir",
 ]
@@ -135,14 +135,6 @@ COMMAND_NOT_REPLAYED = "a command is never replayed"
 
 #: Why an operation on a connector that is not connected is refused.
 NOT_CONNECTED = "the in-process simulator is not connected"
-
-#: Why an address the built facility file does not hold is refused.
-_NOT_IN_FACILITY = "not in build/facility.json"
-
-
-def not_in_facility(address: str) -> str:
-    """The refusal for an address the built facility file does not hold."""
-    return f"{address} is {_NOT_IN_FACILITY}"
 
 
 def _loaded_config_path() -> str | None:
@@ -492,7 +484,7 @@ class VAInProcessConnector(ControlSystemConnector):
         for _seq_no, address, value in writes:
             record = self._records.get(address)
             if record is None or address not in self._channels:
-                return address, _NOT_IN_FACILITY
+                return address, NOT_A_CHANNEL
             if address in self._commands:
                 return address, COMMAND_NOT_REPLAYED
             if record.get("role") != "setpoint":
@@ -575,13 +567,13 @@ class VAInProcessConnector(ControlSystemConnector):
         """The composite, once ``address`` is one it serves.
 
         Raises:
-            ValueError: ``address`` is not in the view.
+            ChannelNotFoundError: ``address`` is not a channel of the facility.
             RuntimeError: The connector is not connected.
         """
         if self._composite is None:
             raise RuntimeError(NOT_CONNECTED)
         if address not in self._served:
-            raise ValueError(not_in_facility(address))
+            raise ChannelNotFoundError(address)
         return self._composite
 
     def _wire(self, address: str, value: Any) -> Any:
@@ -648,7 +640,7 @@ class VAInProcessConnector(ControlSystemConnector):
         """Read a channel as the simulator serves it, motion included.
 
         Raises:
-            ValueError: The address is not in the built facility file.
+            ChannelNotFoundError: The address is not a channel of the facility.
         """
         await asyncio.sleep(self._response_delay)
         self._sync()
@@ -681,7 +673,7 @@ class VAInProcessConnector(ControlSystemConnector):
         """The channel record's description and its variable's unit.
 
         Raises:
-            ValueError: The address is not in the built facility file.
+            ChannelNotFoundError: The address is not a channel of the facility.
         """
         composite = self._require(channel_address)
         self._sync()
@@ -751,7 +743,15 @@ class VAInProcessConnector(ControlSystemConnector):
         if self._composite is None:
             raise RuntimeError(NOT_CONNECTED)
         if channel_address not in self._served:
-            return self._refused(channel_address, value, not_in_facility(channel_address))
+            unknown = ChannelNotFoundError(channel_address)
+            logger.warning(f"In-process write refused: {channel_address}: {unknown}")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.REFUSED,
+                refusal_reason=ChannelNotFoundError.reason,
+                error_message=str(unknown),
+            )
         self._sync()
         if self._composite.supported_variables[channel_address].read_only:
             return self._refused(
@@ -871,7 +871,7 @@ class VAInProcessConnector(ControlSystemConnector):
         """Subscribe to a channel; the callback fires after a tick or a write.
 
         Raises:
-            ValueError: The address is not in the built facility file.
+            ChannelNotFoundError: The address is not a channel of the facility.
         """
         self._require(channel_address)
         self._sync()

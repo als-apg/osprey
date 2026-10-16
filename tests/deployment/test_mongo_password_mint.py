@@ -75,7 +75,7 @@ def test_mongodb_deploy_mints_mongo_root_password(_clean_token_env, tmp_path):
     assert len(env["MONGO_ROOT_PASSWORD"]) == 64
     # A mongodb-only deploy must not mint unrelated service tokens.
     assert "ARIEL_DB_PASSWORD" not in env
-    assert "ZO_ROOT_USER_PASSWORD" not in env
+    assert "GRAPHDB_PASSWORD" not in env
 
 
 def test_mongo_root_password_generator_is_uri_safe_every_time():

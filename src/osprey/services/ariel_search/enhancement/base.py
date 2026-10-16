@@ -22,6 +22,7 @@ __all__ = [
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
 
+    from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.migrations import BaseMigration
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
@@ -200,6 +201,19 @@ class BaseEnhancementModule(ABC):
 
         Args:
             config: Module-specific configuration dict
+        """
+
+    def bind(self, config: "ARIELConfig") -> None:  # noqa: B027
+        """Bind the module to the parsed ARIEL configuration.
+
+        Called once per instance, after :meth:`configure`, with the whole
+        parsed ``ARIELConfig``. Override in subclasses that read config beyond
+        their own section — for example ``config.entry_expander_or_none()``.
+        An override must never raise for the vocabulary: an unusable
+        vocabulary leaves the module running without entry expansion.
+
+        Args:
+            config: The parsed ARIEL configuration.
         """
 
     async def run_entry(

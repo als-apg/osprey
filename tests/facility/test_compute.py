@@ -431,7 +431,7 @@ class TestStatedPositions:
         assert _warnings(tmp_path, files) == [
             f"facility: place-wrapped: device {device} — layer authored states s 3.800013 in "
             "periodic model SR, outside its deck of length 3.8; the device is placed at "
-            f"s {WRAPPED}; fix: state s {WRAPPED}, or drop it"
+            f"s {WRAPPED}; fix: state an s within [0, 3.8], or drop it"
             for device in ("SR/SPARE", "SR/SPARE2")
         ]
 
@@ -447,7 +447,7 @@ class TestStatedPositions:
         assert _warnings(tmp_path, files) == [
             "facility: place-wrapped: device SR/SPARE — layer authored states s -0.5 in "
             "periodic model SR, outside its deck of length 3.8; the device is placed at "
-            "s 3.3; fix: state s 3.3, or drop it"
+            "s 3.3; fix: state an s within [0, 3.8], or drop it"
         ]
 
     def test_a_failing_stage_keeps_its_stops_and_a_wrap_does_not_hide_them(self, tmp_path):

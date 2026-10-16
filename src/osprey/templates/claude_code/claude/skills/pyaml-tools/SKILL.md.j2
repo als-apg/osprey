@@ -58,7 +58,7 @@ configuration the build wrote; nothing else in the deployment edits it.
 
 ### The result
 
-- `rows` and `columns` name each reading and each stepped setpoint by its address and device id; `deltas` gives each step by address, or by group id for a group.
+- `rows` and `columns` name each reading and each stepped setpoint by its address and device id; `deltas` gives each step by address, or by array name for a group.
 - The matrix is in the file `data_file` names and in the artifact `artifact_id` names; the result carries its `shape`, never the matrix.
 - A result with `completed` false stopped part-way: report every entry of `moved` (address, device, value before the call) and the `error` when there is one to the operator; those setpoints are where the run left them.
 - A measurement that reaches the execution timeout is killed: its error names only the channels it attempted, without their values before the call. Read them and report them to the operator.
@@ -71,6 +71,7 @@ configuration the build wrote; nothing else in the deployment edits it.
 - `mcp__python__model_response_matrix(model, correctors)` solves a served model's orbit response on the model's own deck. It writes nothing and asks for no approval.
 - Each corrector steps by the measurement file's `corrector_delta`, converted to the corrector's hardware unit; each entry is a readback change in its hardware unit per setpoint change in its own.
 - `rows` and `columns` name each monitor readback and each corrector by address and device id.
+- A corrector with no solve has no column; `unsolved` names it with the engine's text. Name those correctors and the text to the operator; never read a missing column as zero response.
 - A solve longer than the executor's timeout is stopped and refused; name fewer correctors.
 
 ---

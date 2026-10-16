@@ -24,9 +24,11 @@ lives in the same scenario (``data/facility/scenarios/rf-thermal.yaml``): the th
 CAVITY01 thermal excursions are placed with ``at_when``, the logbook's own
 ``{days_ago, time}``, so they resolve against the same apply-time T0 onto the
 days the entries narrate — nine and seven days back, and the trip four days back
-at 03:05 with forward power at zero from 03:15 to 04:30. They sit at fixed
-wall-clock times rather than at a fixed proportion of whatever window the agent
-asks for, which is what makes them storable in a real archiver; because the
+at 03:05 with forward power at zero from 03:15 to 04:30. That trip is the
+beam dump: the DCCT beam current drops to zero at the 03:15 trip and stays
+there until the 04:30 refill; the two earlier excursions do not lose the beam.
+They sit at fixed wall-clock times rather than at a fixed proportion of whatever
+window the agent asks for, which is what makes them storable in a real archiver; because the
 anchor is set when the scenario is applied, the test stays date-agnostic all the
 same. Two consequences for the agent's search: the prompt's "early hours four
 days ago" points at the trip, and a lookback shorter than about ten days will
@@ -76,10 +78,9 @@ from tests.e2e.test_preset_agentic import (
     _to_workflow_result,
 )
 
-# We only gate on HAS_SDK — the Claude Agent SDK ships a bundled ``claude``
-# binary inside its package, so a system-PATH ``claude --version`` check
-# (which is_claude_code_available() runs) would spuriously skip this test
-# on CI runners where the SDK is installed but no system ``claude`` is.
+# We only gate on HAS_SDK — the run executes the installed pinned ``claude``,
+# and a runner without it must fail this test loudly, not skip it the way a
+# ``claude --version`` gate (is_claude_code_available()) would.
 pytestmark = [
     pytest.mark.e2e,
     pytest.mark.agentic_benchmark,
@@ -138,7 +139,7 @@ async def test_rf_cavity01_correlation_flow(tmp_path: Path) -> None:
         "rf_correlation_demo",
         template="control_assistant",
         provider="als-apg",
-        model="claude-opus-5-5",
+        model="claude-haiku-5-5",
     )
     # Switch the mock connectors' data substrate to the ``rf-thermal`` scenario
     # bundle — the CAVITY01 thermal excursions placed on the logbook's own days,
@@ -253,10 +254,14 @@ async def test_rf_cavity01_correlation_flow(tmp_path: Path) -> None:
             "thermal events and the cooling-manifold investigation/"
             "repair.\n"
             "\n"
+            "A committed diagnosis accompanied by honest caveats — about "
+            "limits of the data, gaps, or inconsistencies the agent "
+            "noticed — still PASSES. Noting caveats is not hedging.\n"
+            "\n"
             "Failures: naming CAVITY02 instead of CAVITY01, attributing the dump "
             "to vacuum / magnets / injection (the archiver data "
-            "unambiguously points to RF), or hedging without "
-            "committing to a specific cavity."
+            "unambiguously points to RF), or hedging — declining to name "
+            "a specific cavity or offering no mechanism at all."
         ),
     )
     assert eval.passed, eval.reasoning

@@ -191,8 +191,7 @@ field stop the build with ``layer-conflict``, naming the record. A fix settles
 it (see `Fixes`_).
 
 The importers are ``osprey facility import mml`` and
-``osprey facility import list``. A third layer, ``pyaml``, joins them for a
-facility described in pyAML.
+``osprey facility import list``.
 
 A Middle Layer export
 ---------------------
@@ -399,8 +398,8 @@ what they use:
      bpm: SR/BPM
      hcor: SR/HCM
      vcor: SR/VCM
-     quad: SR/QF
-     sext: SR/SF
+     quad: [SR/QF, SR/QD]
+     sext: [SR/SF, SR/SD]
    instruments:
      tune: SR:DIAG:TUNE:X
      rf: SR:RF:CAVITY:01:FREQUENCY:SP
@@ -421,10 +420,12 @@ what they use:
 
 ``kinds`` names the allowed measurements: ``orm``, ``dispersion``, ``trm``,
 ``crm``, ``chromaticity_monitor`` and ``trajectory``. ``groups`` names the
-group that plays each part (``bpm``, ``hcor``, ``vcor``, ``quad``, ``sext``)
-and ``instruments`` the channel each instrument is read, stepped or fired on
-(``tune``, ``rf``, ``injection_request``, ``injection_busy``, and the optional
-``bunch_clean_enable``, ``beam_current`` and ``rf_status``). Each kind needs its own members and step keys, and the build stops
+group, or the list of groups taken together, that plays each part (``bpm``,
+``hcor``, ``vcor``, ``quad``, ``sext``) and ``instruments`` the channel each
+instrument is read, stepped or fired on (``tune``, ``rf``,
+``injection_request``, ``injection_busy``, and the optional
+``bunch_clean_enable``, ``beam_current`` and ``rf_status``). Each kind needs
+its own members and step keys, and the build stops
 when the file allows a kind without them, names a member its model does
 not wire, or names a ``tune`` reading of one plane that no single reading of
 the other plane pairs with:
@@ -471,8 +472,8 @@ and an armed reading, under the signals named in
 :ref:`architecture-facility-schema`, and no other device of the model carries
 a turn-by-turn record.
 
-Each group role names a
-group of its own; only ``hcor`` and ``vcor`` may name one group. The tools
+A group plays one role; only ``hcor`` and ``vcor`` may name the same group. A
+role naming several groups is one pyAML array named after the role. The tools
 that run these measurements are in :doc:`measure-with-pyaml`.
 
 Scenarios

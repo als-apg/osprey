@@ -383,7 +383,9 @@ async def test_started_groups_leave_out_the_roots_own_group(tmp_path):
             pids = _read_pids(factory.pid_files[0], 2)
             grandchild = pids[0]
 
-            groups = process_tree.started_groups(root)
+            process = client._transport._process
+            groups = process_tree.started_groups(root, lambda: process.returncode is None)
+            assert groups is not None
 
             assert [g.pgid for g in groups] == [grandchild]
             assert groups[0].label == "magnet_scan.py"
@@ -400,7 +402,9 @@ async def test_started_groups_leave_out_the_roots_own_group(tmp_path):
         child = session.pid
         assert child is not None
 
-        pgids = {g.pgid for g in process_tree.started_groups(child)}
+        groups = process_tree.started_groups(child, lambda: session.is_alive)
+        assert groups is not None
+        pgids = {g.pgid for g in groups}
 
         assert pgids == {pty_pids[0]}
         assert os.getpgid(child) not in pgids
@@ -434,9 +438,12 @@ def test_end_processes_skips_a_reused_pid(monkeypatch):
             live.pid, live.ppid, live.pgid, live.started + 1.0, live.command, live.state
         )
         signalled: list[int] = []
-        monkeypatch.setattr(process_tree.os, "kill", lambda pid, sig: signalled.append(pid))
-
-        ended, survivors = process_tree.end_processes([reused])
+        # Scoped, not test-wide: ``os`` is the one module object, so a patch
+        # left in place would also swallow the ``proc.kill()`` below and leave
+        # ``proc.wait()`` sitting out the child's whole sleep.
+        with monkeypatch.context() as patch:
+            patch.setattr(process_tree.os, "kill", lambda pid, sig: signalled.append(pid))
+            ended, survivors = process_tree.end_processes([reused])
 
         assert signalled == []
         assert ended == [] and survivors == []
@@ -452,6 +459,72 @@ def test_no_ps_finds_no_server_group_members(monkeypatch):
     monkeypatch.setattr(process_tree.subprocess, "run", no_ps)
 
     assert process_tree.server_group_members(os.getpid()) == []
+
+
+def _count_reads(monkeypatch, answers: list[dict | None]) -> list[None]:
+    """Answer each process-table read with the next of *answers*; return the log of reads."""
+    reads: list[None] = []
+
+    def read():
+        reads.append(None)
+        return answers[len(reads) - 1]
+
+    monkeypatch.setattr(process_tree, "snapshot", read)
+    monkeypatch.setattr(process_tree, "_POLL_S", 0.0)
+    return reads
+
+
+def test_read_while_alive_returns_the_first_read_that_succeeds(monkeypatch):
+    rows = {1: process_tree.ProcessRow(1, 0, 1, 0.0, "init", "S")}
+    reads = _count_reads(monkeypatch, [None, rows, rows])
+
+    assert process_tree.read_while_alive(lambda: True) is rows
+    assert len(reads) == 2
+
+
+def test_read_while_alive_stops_retrying_once_the_root_has_exited(monkeypatch):
+    reads = _count_reads(monkeypatch, [None] * process_tree.TREE_READ_ATTEMPTS)
+
+    assert process_tree.read_while_alive(lambda: not reads) is None
+    assert len(reads) == 1
+
+
+def test_started_groups_is_unknown_when_no_read_succeeds_while_the_root_lives(monkeypatch):
+    reads = _count_reads(monkeypatch, [None] * (process_tree.TREE_READ_ATTEMPTS + 1))
+
+    assert process_tree.started_groups(os.getpid(), lambda: True) is None
+    assert len(reads) == process_tree.TREE_READ_ATTEMPTS
+
+
+def test_started_groups_is_empty_when_the_root_exits_before_a_read(monkeypatch):
+    reads = _count_reads(monkeypatch, [None] * process_tree.TREE_READ_ATTEMPTS)
+
+    assert process_tree.started_groups(os.getpid(), lambda: not reads) == []
+    assert len(reads) == 1
+
+
+def test_read_while_alive_gives_up_after_the_attempt_bound(monkeypatch):
+    reads = _count_reads(monkeypatch, [None] * (process_tree.TREE_READ_ATTEMPTS + 1))
+
+    assert process_tree.read_while_alive(lambda: True) is None
+    assert len(reads) == process_tree.TREE_READ_ATTEMPTS
+
+
+def test_a_tree_read_from_a_given_table_takes_no_read_of_its_own(monkeypatch):
+    own = _own_row()
+    rows = {
+        own.pid: own,
+        7001: process_tree.ProcessRow(7001, own.pid, 7001, 5.0, "python scan.py", "S"),
+        7002: process_tree.ProcessRow(7002, own.pid, own.pgid, 6.0, "python helper.py", "S"),
+    }
+    reads = _count_reads(monkeypatch, [])
+
+    groups = process_tree.tree_groups(own.pid, rows)
+    members = process_tree.server_group_members(own.pid, rows)
+
+    assert [group.pgid for group in groups] == [7001]
+    assert [row.pid for row in members] == [7002]
+    assert reads == []
 
 
 def test_describe_processes_escapes_labels():

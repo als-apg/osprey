@@ -495,12 +495,24 @@ async def _export_qmd_mirror(ariel_config: dict) -> None:
     :func:`~osprey.services.ariel_search.cli_operations.run_qmd_resync` makes
     this a no-op there.
 
+    An entry vocabulary that is switched on but unusable leaves the mirror
+    unwritten rather than failing the seed: the entries are in the logbook, and
+    the sync service writes the mirror once the vocabulary is fixed.
+
     Args:
         ariel_config: ARIEL config section with its DSN already resolved.
     """
     from osprey.services.ariel_search.cli_operations import run_qmd_resync
+    from osprey.services.ariel_search.exceptions import ModuleConfigError
 
-    await run_qmd_resync(ariel_config, rebuild=True)
+    try:
+        await run_qmd_resync(ariel_config, rebuild=True)
+    except ModuleConfigError as exc:
+        logger.warning(
+            f"Logbook seeded, but the qmd mirror was not written: {exc}. "
+            f"Fix {exc.key} in config.yml; the sync service writes the mirror "
+            "once the vocabulary loads."
+        )
 
 
 def demo_narrative_scenarios(

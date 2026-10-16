@@ -1,7 +1,8 @@
 description: 'Recurring cavity-1 thermal excursions from a partly blocked cooling manifold: three in the
   week before the investigation, each a body-temperature rise, a reflected-power spike and a forward-power
-  trip from thermal detuning; the last is the beam dump four days ago. Nothing after the manifold repair
-  two days ago, when cavity 1 settles at 26.5 degC. Cavity 2 shows one minor excursion for contrast.'
+  trip from thermal detuning; the last trips at 03:15 four days ago and dumps the stored beam, which stays
+  at zero until the 04:30 refill. The two earlier excursions do not lose the beam. Nothing after the manifold
+  repair two days ago, when cavity 1 settles at 26.5 degC. Cavity 2 shows one minor excursion for contrast.'
 overrides:
   SR:RF:CAVITY:01:TEMPERATURE:RB: 26.5
 archiver:
@@ -174,6 +175,18 @@ archiver:
       time: '16:27:30'
     amplitude: -80.0
     width: 1900
+- channel: SR:DIAG:DCCT:01:CURRENT:RB
+  events:
+  - shape: step
+    at_when:
+      days_ago: 4
+      time: '03:15:00'
+    to: 0.0
+  - shape: step
+    at_when:
+      days_ago: 4
+      time: '04:30:00'
+    to: 500.0
 logbook:
 - entry_id: DEMO-026
   when:

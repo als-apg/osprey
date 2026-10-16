@@ -8,7 +8,6 @@ must fall back to installing before loading.
 import duckdb
 import pytest
 
-from osprey.services.channel_finder.databases import duckdb_fts
 from osprey.services.channel_finder.databases.duckdb_fts import ensure_fts
 
 
@@ -37,15 +36,6 @@ def test_missing_extension_installs_then_loads():
     assert con.executed == ["LOAD fts", "INSTALL fts", "LOAD fts"]
 
 
-def test_missing_extension_prefers_bundled_file(tmp_path, monkeypatch):
-    bundled = tmp_path / "fts.duckdb_extension"
-    bundled.write_bytes(b"")
-    monkeypatch.setattr(duckdb_fts, "_BUNDLED_FTS", bundled)
-    con = FakeConnection(fail_first_load=True)
-    ensure_fts(con)
-    assert con.executed == ["LOAD fts", f"INSTALL '{bundled.resolve()}'", "LOAD fts"]
-
-
 def test_missing_extension_applies_proxy_env(monkeypatch):
     monkeypatch.setenv("http_proxy", "http://proxy.example:3128")
     con = FakeConnection(fail_first_load=True)
@@ -54,11 +44,20 @@ def test_missing_extension_applies_proxy_env(monkeypatch):
     assert con.executed[-2:] == ["INSTALL fts", "LOAD fts"]
 
 
-def test_install_failure_propagates():
+def test_a_failed_download_names_network_access_and_the_proxy_variables(monkeypatch):
+    monkeypatch.delenv("http_proxy", raising=False)
+    monkeypatch.delenv("HTTP_PROXY", raising=False)
+
     class AlwaysFailing(FakeConnection):
         def execute(self, sql: str):
             self.executed.append(sql)
             raise duckdb.IOException("no network")
 
-    with pytest.raises(duckdb.Error):
+    with pytest.raises(RuntimeError) as excinfo:
         ensure_fts(AlwaysFailing())
+
+    message = str(excinfo.value)
+    assert "network" in message
+    assert "http_proxy" in message
+    assert "HTTP_PROXY" in message
+    assert isinstance(excinfo.value.__cause__, duckdb.Error)

@@ -190,9 +190,10 @@ def bump_test(view: SimulatorView, scenario: str = SCENARIO) -> BumpTest:
     if rad_per_unit == 0:
         raise ValueError(f"{corrector.address} has a calibration with no slope")
     address = corrector.address
-    rows, matrix = response_matrix(
-        deck, wiring, settings, [address], {address: STEP_RAD / rad_per_unit}
-    )
+    result = response_matrix(deck, wiring, settings, [address], {address: STEP_RAD / rad_per_unit})
+    if result.unsolved:
+        raise ValueError(f"{address} has no solve: {result.unsolved[address]}")
+    rows, matrix = result.rows, result.matrix
 
     rng = np.random.default_rng(BUMP_NOISE_SEED)
     slopes = []

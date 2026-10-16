@@ -113,6 +113,7 @@ class TextEmbeddingMigration(BaseMigration):
                     entry_id        TEXT NOT NULL REFERENCES enhanced_entries(entry_id) ON DELETE CASCADE,
                     embedding       vector({dimension}),
                     created_at      TIMESTAMPTZ DEFAULT NOW(),
+                    input_key       TEXT NULL,
                     UNIQUE(entry_id)
                 )
                 """

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Built-in tool inventory of each Claude Code CLI build OSPREY pins.
+"""Built-in tool inventory of the Claude Code CLI build OSPREY pins.
 
 The inventory of a build is the list of built-in tools it names in its
 ``system/init`` stream-json message when started under a clean, offline,
 deny-free environment: a fresh ``HOME`` and config directory, a dummy API key,
 a base URL nothing listens on, no settings but the (empty) project's, and
-``CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1``. MCP names are dropped: the
-probe loads no MCP server.
+``CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`` — plus the environment OSPREY
+gives every Claude Code process it starts (``TASK_TOOLS_ENV``), so the list is
+the one an OSPREY agent is offered on any model, task-list tools included.
+MCP names are dropped: the probe loads no MCP server.
 
 That list is the *offline core*, recorded as ``tools``. With remote
 configuration reachable a build also lists flag-gated tools (``Monitor``
@@ -16,16 +18,15 @@ that is too small only ever rejects a real tool name, loudly; it can never
 accept a name the build lacks, because every recorded name was listed by the
 build under the probe that recorded it.
 
-OSPREY pins two builds: the npm build (``_DEFAULT_CLAUDE_CLI_VERSION``),
-which the containers install, and the build bundled inside the Agent SDK,
-which every SDK path runs. Each is recorded as
+OSPREY pins one build (``_DEFAULT_CLAUDE_CLI_VERSION``): the containers
+install it, and the terminal and every SDK path execute it. It is recorded as
 ``tests/fixtures/cli_tool_inventory/<version>.json``.
 
 Modes:
-    --write   probe each pinned build, write its file, delete every other file
-    --check   probe each pinned build and fail when a pinned version has no
-              file, a file names the wrong version, or a recorded name is no
-              longer listed by the build under the same probe
+    --write   probe the pinned build, write its file, delete every other file
+    --check   probe the pinned build and fail when it has no file, the file
+              names the wrong version, or a recorded name is no longer listed
+              by the build under the same probe
 """
 
 from __future__ import annotations
@@ -40,10 +41,13 @@ import threading
 from collections.abc import Iterable
 from pathlib import Path
 
+from osprey.agent_runner.clean_env import TASK_TOOLS_ENV
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INVENTORY_DIR = REPO_ROOT / "tests" / "fixtures" / "cli_tool_inventory"
 
 PROBE_ENV = {
+    **TASK_TOOLS_ENV,
     "ANTHROPIC_API_KEY": "inventory-probe",
     # Nothing listens on the discard port, so no request ever leaves the host.
     "ANTHROPIC_BASE_URL": "http://127.0.0.1:9",
@@ -62,7 +66,7 @@ _NPM_PACKAGE = "@anthropic-ai/claude-code"
 
 
 class InventoryError(RuntimeError):
-    """A pinned build could not be located, installed or probed."""
+    """The pinned build could not be installed or probed."""
 
 
 def init_tools(lines: Iterable[str]) -> list[str]:
@@ -179,16 +183,11 @@ def _npm_build(version: str, prefix: Path) -> Path:
 
 
 def pinned_builds(npm_prefix: Path) -> dict[str, Path]:
-    """Return ``{version: binary}`` for the SDK-bundled and the npm-pinned build."""
-    from osprey.agent_runner.launcher import bundled_cli_path, bundled_cli_version
+    """Return ``{version: binary}`` for the one build OSPREY pins."""
     from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
 
-    sdk_path = bundled_cli_path()
-    sdk_version = bundled_cli_version()
-    if sdk_path is None or sdk_version is None:
-        raise InventoryError("the Agent SDK's bundled CLI was not found; run `uv sync`")
-    npm_version = _DEFAULT_CLAUDE_CLI_VERSION
-    return {sdk_version: sdk_path, npm_version: _npm_build(npm_version, npm_prefix)}
+    version = _DEFAULT_CLAUDE_CLI_VERSION
+    return {version: _npm_build(version, npm_prefix)}
 
 
 def _write(builds: dict[str, Path]) -> int:
@@ -236,7 +235,7 @@ def _check(builds: dict[str, Path]) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--write", action="store_true", help="record each pinned build")
+    mode.add_argument("--write", action="store_true", help="record the pinned build")
     mode.add_argument("--check", action="store_true", help="re-prove the recorded files")
     args = parser.parse_args(argv)
     with tempfile.TemporaryDirectory(prefix="cli-inventory-npm-") as npm_prefix:

@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from osprey.services.ariel_search.vocabulary.model import normalize
+from osprey.services.ariel_search.vocabulary.model import match_tokens, token_key
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
@@ -176,8 +176,8 @@ def coverage_terms(
 ) -> list[tuple[str, tuple[str, ...]]]:
     """Split plain query text into the words a partial match reports on.
 
-    Each word is normalized like vocabulary matching normalizes it and has
-    surrounding punctuation dropped. A word inside a span the vocabulary
+    Each word is a vocabulary match token (lowercased, split on whitespace and
+    ``-``) with every surrounding punctuation character dropped. A word inside a span the vocabulary
     expanded also carries that span's alternatives, so it counts as present
     when any of them is.
 
@@ -188,7 +188,7 @@ def coverage_terms(
     Returns:
         ``(word, (word, *alternatives))`` per distinct word, in query order.
     """
-    tokens = normalize(search_text).split()
+    tokens = [token.norm for token in match_tokens(search_text)]
     span_alternatives: dict[int, tuple[str, ...]] = {}
     cursor = 0
     for group in expansion.groups if expansion is not None else ():
@@ -244,16 +244,19 @@ def build_expanded_tsquery(
     the unexpanded `build_tsquery` path, since ``websearch_to_tsquery`` syntax
     cannot express the grouped alternation the expansion needs.
 
-    Span location: `expansion.groups` are produced over normalized text, so this
-    function normalizes `parsed.search_text` the same way and walks the token
-    list left to right, locating each group's `original` at or after the previous
-    match. Unmatched runs and concept spans are therefore bound as *normalized*
-    text; phrases are bound exactly as the user quoted them. Normalization only
-    lowercases, turns ``-`` into a space and collapses whitespace, all of which
-    ``plainto_tsquery`` does anyway, so it cannot change what matches.
+    Span location: `expansion.groups` spell their `original` as space-joined
+    match-token norms, so this function tokenizes `parsed.search_text` with the
+    same :func:`~osprey.services.ariel_search.vocabulary.model.match_tokens` and
+    walks the norms left to right, locating each group's `original` at or after
+    the previous match. Unmatched runs and concept spans are therefore bound as
+    space-joined norms; phrases are bound exactly as the user quoted them. A norm
+    is its token lowercased with edge punctuation (``, . : ; ! ? ( ) [ ] " '``)
+    stripped, split on whitespace and ``-``; ``plainto_tsquery`` lowercases, splits
+    there and discards that punctuation anyway, so it cannot change what matches.
 
     Phrase attribution (deliberate simplification): a group is attributed to a
-    phrase only when the group's `original` equals the normalized phrase in full.
+    phrase only when the group's `original` equals the phrase's space-joined
+    match-token norms in full.
     A group matching *inside* a longer phrase leaves that phrase unexpanded — a
     phrase is an exact-sequence requirement, and folding an alternative into part
     of it would change what the phrase means.
@@ -262,7 +265,7 @@ def build_expanded_tsquery(
         parsed: The parsed keyword query whose `search_text` and `phrases`
             drive the decomposition.
         expansion: The resolved expansion, whose `groups` are in query order,
-            non-overlapping, and spelled as in normalized text.
+            non-overlapping, and spelled as space-joined match-token norms.
 
     Returns:
         ``(sql, params)`` where `sql` is the ``&&``-joined tsquery expression and
@@ -274,7 +277,7 @@ def build_expanded_tsquery(
     legs: list[str] = []
     params: list[str] = []
 
-    tokens = normalize(parsed.search_text).split()
+    tokens = [token.norm for token in match_tokens(parsed.search_text)]
     unlocated: list[ExpansionGroup] = []
     cursor = 0
 
@@ -325,7 +328,7 @@ def _locate_span(tokens: list[str], span_tokens: list[str], start: int) -> int |
     """Find a contiguous token sequence at or after `start`.
 
     Args:
-        tokens: The normalized token list being walked.
+        tokens: The match-token norms being walked.
         span_tokens: The tokens of the span to locate.
         start: Index to start searching from (never look back — groups are in
             text order and non-overlapping).
@@ -354,9 +357,9 @@ def _pop_phrase_group(unlocated: list[ExpansionGroup], phrase: str) -> Expansion
         The matching group, removed from `unlocated`, or None when the phrase
         expanded to nothing (or only in part — see `build_expanded_tsquery`).
     """
-    normalized_phrase = normalize(phrase)
+    phrase_norms = token_key(match_tokens(phrase))
     for group in unlocated:
-        if group.original == normalized_phrase:
+        if group.original == phrase_norms:
             unlocated.remove(group)
             return group
     return None

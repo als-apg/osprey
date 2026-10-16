@@ -730,12 +730,13 @@ describe('started commands in the other view', () => {
    * are still running: the list, then the refusal close.
    * @param {string} [sessionId]
    */
-  function refuseForStartedCommands(sessionId = 'shared-key') {
+  function refuseForStartedCommands(sessionId = 'shared-key', { unread = false } = {}) {
     receive({
       type: 'handoff_refused',
       error: 'handoff_started_commands',
       session_id: sessionId,
-      commands: [MAGNET],
+      commands: unread ? [] : [MAGNET],
+      unread,
     });
     refuse(WS_CLOSE_STARTED_COMMANDS, 'handoff_started_commands');
   }
@@ -762,6 +763,21 @@ describe('started commands in the other view', () => {
     );
     expect(document.querySelector('.terminal-handoff')).toBeNull();
     expect(document.activeElement).toBe(dialogButton('.posture-modal-cancel'));
+  });
+
+  test('a refusal that could not read the list asks about it unchecked', () => {
+    localStorage.setItem(STORAGE_KEY, 'shared-key');
+    terminal.initTerminal('terminal-container');
+    openSocket();
+    receive({ type: 'handoff_pending', busy: false });
+    refuseForStartedCommands('shared-key', { unread: true });
+
+    expect(document.querySelector('.posture-modal-title')?.textContent).toBe(
+      'Could not check what the agent started.',
+    );
+    dialogButton('.posture-modal-confirm').click();
+
+    expect(/** @type {FakeWebSocket} */ (FakeWebSocket.last).url).toContain('end_started=1');
   });
 
   test('"Stop both" reconnects with end_started, keeping the interrupt', () => {

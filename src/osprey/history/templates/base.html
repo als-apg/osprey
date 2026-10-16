@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>{% block title %}History{% endblock %} · OSPREY</title>
+<script src="{{ root }}/design-system/js/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/static/fonts/fonts.css">
+<link rel="stylesheet" href="{{ root }}/design-system/css/tokens.css">
+<link rel="stylesheet" href="{{ root }}/design-system/css/base.css">
+<link rel="stylesheet" href="{{ root }}/static/history.css">
+</head>
+<body>
+<header class="history-header">
+  <h1><a href="{{ viewer.href('/') if viewer else root ~ '/' }}">History</a></h1>
+{% if viewer %}
+  <div class="viewing-as">
+    viewing as <strong class="person">{{ viewer.person }}</strong>
+    <span class="scope scope-{{ viewer.scope }}">{{ viewer.scope }}</span>
+{% if viewer.choices | length > 1 %}
+    <nav class="switcher" aria-label="view as">
+{% for key, person in viewer.choices %}
+{% if key == viewer.entry %}
+      <span class="choice current" aria-current="true">{{ person }}</span>
+{% else %}
+      <a class="choice" href="{{ viewer.switch_href(key) }}">{{ person }}</a>
+{% endif %}
+{% endfor %}
+    </nav>
+{% endif %}
+  </div>
+{% endif %}
+</header>
+<main>
+{% block main %}{% endblock %}
+</main>
+</body>
+</html>

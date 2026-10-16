@@ -104,15 +104,16 @@ BLUESKY_WEB_URL = f"http://localhost:{BLUESKY_WEB_PORT}"
 
 VA_CA_PORT = _orm_stack.VA_CA_PORT
 
-# ariel-postgres (5432) and OpenObserve (5080) are deployed unconditionally by
-# the control-assistant preset with no profile knob to drop them, and a
-# locally-running tutorial deploy routinely holds both. A bound-port collision
-# aborts `osprey up` before the containers this proof needs ever start, so both
+# ariel-postgres, the telemetry gateway and the telemetry store are deployed
+# unconditionally by the control-assistant preset, and a locally-running
+# tutorial deploy routinely holds their ports. A bound-port collision aborts
+# `osprey up` before the containers this proof needs ever start, so all three
 # move to high, unassigned ports. Stated in this module's own `extra_config`
 # rather than added to _orm_stack: only this module needs them moved, and
 # _orm_stack's shape is shared with the render gate.
 POSTGRES_PORT = 25434
-OPENOBSERVE_PORT = 25083
+TELEMETRY_GATEWAY_PORT = 24321
+TELEMETRY_STORE_PORT = 28126
 
 # The fixture builds/deploys under this project name; every compose template
 # renders its container_name and locally-built image as ``<project>-<service>``,
@@ -160,11 +161,6 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
         timeout=timeout,
         env={**os.environ, "CLAUDECODE": ""},
     )
-
-
-def _bounds(limits: dict[str, Any], address: str) -> tuple[float, float]:
-    entry = limits[address]
-    return float(entry["min_value"]), float(entry["max_value"])
 
 
 def _minted_token(repo: Path) -> str:
@@ -301,7 +297,7 @@ def _build_minimal_plan_args(
     schema: dict[str, Any],
     correctors: dict[str, tuple[str, str]],
     bpms: dict[str, str],
-    limits: dict[str, Any],
+    repo: Path,
 ) -> dict[str, Any] | None:
     """Build a minimal, valid ``plan_args`` for ``schema`` (a plan's JSON
     Schema from ``GET /plans``) using the derived corrector/BPM device names.
@@ -309,6 +305,9 @@ def _build_minimal_plan_args(
     Returns ``None`` when ``schema``'s shape isn't one this helper recognizes
     -- the caller then tries the next discovered candidate rather than
     guessing at an unfamiliar plan's parameters.
+
+    A grid_scan axis is sized from the band the render's view states for the
+    corrector's setpoint, so the sweep stays inside it on any facility.
     """
     props = schema.get("properties", {})
     corrector_names = list(correctors.keys())
@@ -332,7 +331,12 @@ def _build_minimal_plan_args(
             return None
         axis_name = corrector_names[0]
         sp_address, _rb_address = correctors[axis_name]
-        lo, hi = _bounds(limits, sp_address)
+        band = _orm_stack.repo_view(repo).channel(sp_address).value_range
+        assert band is not None, (
+            f"grid_scan axis {sp_address} has no band in the view: its limits record "
+            "states no min_value and max_value to size the sweep from"
+        )
+        lo, hi = float(band[0]), float(band[1])
         start = lo + 0.25 * (hi - lo)
         stop = lo + 0.75 * (hi - lo)
         return {
@@ -346,7 +350,7 @@ def _build_minimal_plan_args(
 
 
 def _discover_writes_plan(
-    correctors: dict[str, tuple[str, str]], bpms: dict[str, str], limits: dict[str, Any]
+    correctors: dict[str, tuple[str, str]], bpms: dict[str, str], repo: Path
 ) -> tuple[str, dict[str, Any]]:
     """Discover a validated, writes-capable plan via the sidecar's read-proxy
     and build minimal ``plan_args`` for it.
@@ -376,7 +380,7 @@ def _discover_writes_plan(
         src_status, source = _sidecar_get(f"/plans/{name}/source")
         if src_status != 200 or not isinstance(source, dict) or source.get("validated") is not True:
             continue
-        args = _build_minimal_plan_args(plan["schema"], correctors, bpms, limits)
+        args = _build_minimal_plan_args(plan["schema"], correctors, bpms, repo)
         if args is not None:
             return name, args
 
@@ -434,7 +438,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         extra_config={
             "config": {
                 "services.postgresql.port_host": POSTGRES_PORT,
-                "services.openobserve.port": OPENOBSERVE_PORT,
+                "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
+                "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             }
         },
     )
@@ -459,11 +464,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"osprey build failed (rc={build.returncode}):\n"
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
-    correctors = _orm_stack.select_correctors(repo, count=1)
-    bpms = _orm_stack.select_bpms(repo, count=2)
-    # The limits are a separate question from which channels exist: this lane
-    # goes on to build plan args INSIDE a device's limits record.
-    limits = _orm_stack.channel_limits(repo)
+    _setpoint, _readback, model = _orm_stack.bounded_corrector(repo)
+    correctors = _orm_stack.select_correctors(repo, count=1, model=model)
+    bpms = _orm_stack.select_bpms(repo, count=2, model=model)
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.
@@ -506,7 +509,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         except AssertionError as exc:
             pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
 
-        plan_name, plan_args = _discover_writes_plan(correctors, bpms, limits)
+        plan_name, plan_args = _discover_writes_plan(correctors, bpms, repo)
 
         yield DeployedStack(
             repo=repo,

@@ -51,25 +51,12 @@ from tests.e2e.sdk_helpers import (
 # ---------------------------------------------------------------------------
 
 
-def _bundled_claude_path() -> Path | None:
-    """Return the SDK's bundled ``claude`` binary, or None if absent.
-
-    The Claude Agent SDK ships a vendored CLI at
-    ``claude_agent_sdk/_bundled/claude`` and the SDK's own transport falls
-    back to it when no system ``claude`` is on PATH. We mirror that lookup
-    here so this file's subprocess-based tests work on CI runners that
-    have the SDK installed but not the standalone CLI.
-    """
-    try:
-        import claude_agent_sdk
-    except ImportError:
-        return None
-    candidate = Path(claude_agent_sdk.__file__).parent / "_bundled" / "claude"
-    return candidate if candidate.is_file() else None
-
-
 def _resolve_claude_binary() -> str | None:
-    """Locate a runnable ``claude`` binary — system PATH first, then bundled."""
+    """Locate a runnable ``claude`` on PATH, or ``None``.
+
+    An installed ``claude`` is the only one there is: OSPREY points every agent
+    run at it, and the CI lanes that run these tests install the pinned version.
+    """
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
     try:
         result = subprocess.run(
@@ -79,16 +66,13 @@ def _resolve_claude_binary() -> str | None:
             timeout=10,
             env=env,
         )
-        if result.returncode == 0:
-            return "claude"
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    bundled = _bundled_claude_path()
-    return str(bundled) if bundled is not None else None
+        return None
+    return "claude" if result.returncode == 0 else None
 
 
 def is_claude_code_available() -> bool:
-    """Check if a ``claude`` binary is reachable (PATH or SDK-bundled)."""
+    """Check if a ``claude`` binary is reachable on PATH."""
     return _resolve_claude_binary() is not None
 
 
@@ -181,7 +165,7 @@ def run_claude(
     diagnostics instead of crashing with an unhandled ``TimeoutExpired``.
 
     Injects the deployment's resolved provider env block (``ANTHROPIC_BASE_URL``,
-    ``ANTHROPIC_DEFAULT_*_MODEL``, auth token) so the bundled Claude CLI
+    ``ANTHROPIC_DEFAULT_*_MODEL``, auth token) so the Claude CLI
     routes to the provider the deployment was built with. Without this, the
     CLI would inherit whatever ambient ``ANTHROPIC_BASE_URL`` the developer
     has set (e.g. CBORG, which 403s off LBLnet).
@@ -192,7 +176,7 @@ def run_claude(
     for key, value in cli_mcp_ready_env().items():
         env.setdefault(key, value)
     binary = _resolve_claude_binary()
-    assert binary is not None, "no claude binary reachable — neither system PATH nor SDK-bundled"
+    assert binary is not None, "no claude binary on PATH"
     cmd = [
         binary,
         "--print",

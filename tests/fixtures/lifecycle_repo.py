@@ -164,8 +164,9 @@ provider: anthropic
 # knowledge graph this deployment runs (`services.graphdb`), the same store
 # the facility-knowledge-graph agent reads, so channels, devices and their
 # addresses have one source. `osprey set channel_finder_mode=...` also
-# accepts hierarchical, in_context or middle_layer, each reading a channel
-# database file from data/ instead; every persona inherits the mode.
+# accepts hierarchical, in_context or middle_layer, each reading the
+# channel-finder view the build writes under data/channel_finder/ instead;
+# every persona inherits the mode.
 channel_finder_mode: graph
 
 # ── What the agent can do ────────────────────────────────────────────────────
@@ -690,6 +691,9 @@ config:
   # Links from the agent's answers to each entry's page in your logbook: one
   # URL with an `{entry_id}` placeholder. Unset, the agent shows plain IDs.
   # ariel.entry_url_template: "https://logbook.example.org/entry/{entry_id}"
+  # The ARIEL tab inside the web terminal offers Browse and New Entry; the
+  # agent searches the logbook. true adds the Search view there and opens on it.
+  # ariel.embedded_search: false
   # osprey:panel-port ariel
   # The ARIEL tab's own web server. It launches when `ariel` is in
   # `web_panels:` above, on this deployment's ARIEL slot; OSPREY_ARIEL_PORT or
@@ -741,6 +745,10 @@ config:
   ariel.vocabulary.canonical_to_shorthand: false
   # `kind: synonym` concepts ignore both switches: every member reaches every
   # other member --- phrasings of one event have no noisy direction to gate.
+  # Entry-side expansion: embed each entry with the vocabulary's canonical
+  # phrases inserted beside the forms it wrote. Off ships entries as written;
+  # turning it on needs `osprey ariel reembed --force` so existing rows match.
+  ariel.vocabulary.expand_entries: false
   # No `ariel.vocabulary.expand_modes`: unset, every enabled search module
   # expands. Set `[keyword, semantic]` to drop `hybrid` alone if the reranked
   # ordering degrades under expansion.
@@ -916,21 +924,22 @@ config:
   # claude_code.agents.logbook-search.enabled: false
 
   # ── Telemetry ──────────────────────────────────────────────────────────────
-  # The agent emits OTLP logs, metrics and traces to the OpenObserve store this
-  # deployment runs (`services.openobserve.*` below). On by default: the
+  # The agent emits OTLP logs, metrics and traces to the telemetry gateway this
+  # deployment runs, which stamps each record with its sender and writes it to
+  # the telemetry store (`services.telemetry_store.*` below). On by default: the
   # harness already records every prompt and API body to disk, so this adds no
   # exposure, only a queryable local store you own.
   claude_code.telemetry.enabled: true
-  # openobserve | generic
-  claude_code.telemetry.backend: openobserve
-  # http/protobuf | grpc. grpc needs an explicit `claude_code.telemetry.endpoint`
-  # and is refused against the auto-derived openobserve endpoint (HTTP only).
+  # gateway | generic
+  claude_code.telemetry.backend: gateway
+  # http/protobuf | http/json. The gateway receives HTTP only; grpc is for
+  # backend generic, with an explicit `claude_code.telemetry.endpoint`.
   claude_code.telemetry.protocol: http/protobuf
   # Signals to export, all three unless listed. Drop traces for a collector
   # that takes no traces; built-in tool output rides traces and goes with them.
   # claude_code.telemetry.signals: [metrics, logs]
-  # No endpoint key: with backend openobserve it is derived per network
-  # context (the host's OpenObserve slot, or the store's own listen port
+  # No endpoint key: with backend gateway it is derived per network
+  # context (the gateway's published port on the host, or its own listen port
   # inside the deploy network), so the in-container dispatch worker does not
   # emit to its own loopback.
   # For a collector this deployment does not run, name it and the variable
@@ -938,17 +947,11 @@ config:
   # claude_code.telemetry.backend: generic
   # claude_code.telemetry.endpoint: https://otel-collector.example.org:4318
   # claude_code.telemetry.auth.token_env: OTLP_COLLECTOR_TOKEN
-  # The store's INGEST account: `osprey up` creates a service account named by
-  # ZO_INGEST_USER_EMAIL and writes the token it issues to this repo's .env as
-  # ZO_INGEST_SA_TOKEN. No default for the token on purpose: a literal default
-  # would be a published credential.
-  claude_code.telemetry.openobserve.user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
-  claude_code.telemetry.openobserve.password: ${ZO_INGEST_SA_TOKEN}
-  # OpenObserve organisation the records land in.
-  claude_code.telemetry.openobserve.org: default
-  # Content gates, all on. The store captures full transcripts behind the
-  # ZO_ROOT_USER_PASSWORD `osprey up` writes into .env; anyone with that
-  # password and a route to the host can read everything. Set any gate to
+  # No credential key either: every sender logs in to the gateway with a
+  # login `osprey build` mints into a file of its own, outside the .env chain.
+  # Content gates, all on. The store captures full transcripts; a named
+  # reader, and anyone holding the store's admin credential on this host, can
+  # read everything. Set any gate to
   # false to keep that category out of the emitted telemetry.
   claude_code.telemetry.log_user_prompts: true
   claude_code.telemetry.log_assistant_responses: true
@@ -984,14 +987,19 @@ config:
   # container and the agent's ARIEL DSN, which is derived from this block.
   services.postgresql.database_name: ariel
   services.postgresql.username: ariel
-  # OpenObserve, the local telemetry store the agent emits to (see
-  # `claude_code.telemetry.*` above). `osprey up` mints a strong
-  # ZO_ROOT_USER_PASSWORD into .env. Compose directory, under build/.
-  services.openobserve.path: ./services/openobserve
-  # Growth bound: drop telemetry older than N days (min 3). A named volume has
-  # no size cap, so age is the size knob; `osprey health` warns as the backing
-  # disk fills.
-  services.openobserve.retention_days: 14
+  # The telemetry store and the gateway the agent emits to (see
+  # `claude_code.telemetry.*` above). Compose directories, under build/.
+  services.telemetry_store.path: ./services/telemetry_store
+  services.telemetry_gateway.path: ./services/telemetry_gateway
+  # Growth bound: the store drops rows older than N days. A named volume has
+  # no size cap, so age is the size knob.
+  services.telemetry_store.retention_days: 14
+  # Who may query the store with SQL: the deployment admin on the roster below.
+  # `osprey up` mints each reader's key into `.env.telemetry-reader.<name>`
+  # (0600) and prints the file and the query page, never the key. Delete the
+  # file and rerun `osprey up` to rotate it; drop the entry to withdraw it.
+  services.telemetry_store.readers:
+    - name: carol
   # qmd, the semantic-search sidecar. It indexes the facility-knowledge bundle
   # and the ARIEL markdown mirror that `ariel.enhancement_modules.qmd_export`
   # writes, and answers ranked KNOWLEDGE search and the `hybrid` logbook mode
@@ -1047,7 +1055,8 @@ config:
   # together with their `services.<name>.*` keys above: remove both or neither.
   deployed_services:
     - postgresql
-    - openobserve
+    - telemetry_store
+    - telemetry_gateway
     - qmd
     - graphdb
   # Host interface the services publish on. 127.0.0.1 keeps every port
@@ -2261,7 +2270,6 @@ OSPREY_AUTH_PW_CAROL=carol
 # BLUESKY_STANDIN_LAUNCH_TOKEN=  # bluesky_standin — arms the plan-launch endpoint of the Bluesky lane serving the live stand-in soft IOC (only on a deployment with `bluesky.second_lane`)
 # OSPREY_TERMINAL_SECRET=  # bluesky_web, trajectory — the operator login secret for the web gates of the bluesky-web panel and the trajectory service
 # TRAJECTORY_LAUNCH_TOKEN=  # trajectory — admits the trajectory service's agent door (the terminal's panel proxy presents it)
-# ZO_ROOT_USER_PASSWORD=  # openobserve — OpenObserve root/ingest credential
 # ARIEL_DB_PASSWORD=  # postgresql — ARIEL Postgres password (also fills the agent's derived DSN)
 # ARIEL_DB_READONLY_PASSWORD=  # postgresql — password of the SELECT-only Postgres role the agent's SQL tool queries through
 # MONGO_ROOT_PASSWORD=  # mongodb — archiver store root password (the seeder, recorder and agent all authenticate with it)
@@ -2742,7 +2750,8 @@ compose_project() {
 
 # The runtime `osprey up` uses: CONTAINER_RUNTIME, then container_runtime in
 # build/config.yml, then docker before podman — the first whose compose
-# and daemon both answer.
+# and daemon both answer. A `docker` that is podman's Docker-CLI emulation
+# (podman-docker) is passed over, as `osprey up` passes over it.
 container_runtime() {
   local pinned="${CONTAINER_RUNTIME:-}" runtime
   if [ -z "$pinned" ] && [ -f "$REPO_ROOT/build/config.yml" ]; then
@@ -2754,6 +2763,11 @@ container_runtime() {
     podman) printf podman; return ;;
   esac
   for runtime in docker podman; do
+    if [ "$runtime" = docker ] && command -v docker >/dev/null 2>&1 \\
+      && docker --version 2>&1 \\
+        | grep -qi -e '^podman version' -e 'emulate docker cli using podman'; then
+      continue
+    fi
     if command -v "$runtime" >/dev/null 2>&1 \\
       && "$runtime" compose version >/dev/null 2>&1 && "$runtime" ps >/dev/null 2>&1; then
       printf '%s' "$runtime"
@@ -2850,7 +2864,8 @@ fi
 if wants services; then
   printf '\\n%s── Services ──%s\\n\\n' "$BOLD" "$RESET"
   probe_tcp  'virtual-accelerator: Channel Access on 5064'  localhost 5064
-  probe_http 'openobserve: telemetry store on 10050'        http://localhost:10050/healthz
+  probe_tcp  'telemetry-gateway: OTLP receiver on 10051'    localhost 10051
+  probe_http 'telemetry-store: query interface on 10804'    http://localhost:10804/ping
 fi
 
 # ── Web tier ─────────────────────────────────────────────────────────────────

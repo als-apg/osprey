@@ -461,3 +461,85 @@ class TestInfraErrors:
             result = runner.invoke(query, ["--repo", str(deployment), "hello"])
         assert result.exit_code == EXIT_USAGE
         assert "Built-in providers" in result.output
+
+
+# ---------------------------------------------------------------------------
+# The Claude Code the run executes
+# ---------------------------------------------------------------------------
+
+
+class TestPinnedClaudeCodeNotInstalled:
+    """A project whose pinned Claude Code is not installed is refused up front."""
+
+    @pytest.fixture
+    def pinned(self, lifecycle_repo: Path) -> Path:
+        build = stub_build(lifecycle_repo, config="claude_code:\n  cli_version: '2.1.146'\n")
+        (build / ".mcp.json").write_text('{"mcpServers": {}}')
+        return lifecycle_repo
+
+    @pytest.mark.parametrize("found", [None, "2.1.999"], ids=["no-claude", "another-version"])
+    @pytest.mark.usefixtures("real_agent_cli")
+    def test_the_refusal_is_one_message_and_nothing_is_started(
+        self, runner: CliRunner, pinned: Path, monkeypatch: pytest.MonkeyPatch, found: str | None
+    ) -> None:
+        from osprey.agent_runner import launcher
+
+        monkeypatch.setattr(
+            "shutil.which", lambda *_a, **_k: "/usr/local/bin/claude" if found else None
+        )
+        monkeypatch.setattr(launcher, "_probe_cli_version", lambda _exe: found)
+        run = AsyncMock()
+
+        with patch("osprey.cli.query_cmd.run_query", new=run):
+            result = runner.invoke(query, ["--repo", str(pinned), "hello"])
+
+        assert result.exit_code == EXIT_USAGE
+        assert "The query could not run" in result.output
+        assert "pins Claude Code 2.1.146" in result.output
+        assert (
+            "no `claude` was found on PATH" if found is None else "reports 2.1.999"
+        ) in result.output
+        assert "npm install -g @anthropic-ai/claude-code@2.1.146" in result.output
+        assert "change claude_code.cli_version" in result.output
+        assert "Traceback" not in result.output
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        run.assert_not_called()
+
+    @pytest.mark.usefixtures("real_agent_cli")
+    def test_a_pin_that_is_not_an_exact_version_is_a_configuration_error(
+        self, runner: CliRunner, lifecycle_repo: Path
+    ) -> None:
+        build = stub_build(lifecycle_repo, config="claude_code:\n  cli_version: 'latest'\n")
+        (build / ".mcp.json").write_text('{"mcpServers": {}}')
+        run = AsyncMock()
+
+        with patch("osprey.cli.query_cmd.run_query", new=run):
+            result = runner.invoke(query, ["--repo", str(lifecycle_repo), "hello"])
+
+        assert result.exit_code == EXIT_USAGE
+        assert "Could not load the project configuration" in result.output
+        assert "exact version" in result.output
+        assert "Traceback" not in result.output
+        run.assert_not_called()
+
+    def test_the_refusal_comes_before_the_repo_env_file_is_read(
+        self, runner: CliRunner, pinned: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from osprey.agent_runner import launcher
+        from osprey.agent_runner.errors import AgentCliUnavailableError
+
+        def refuse(_dir):
+            raise AgentCliUnavailableError("the pinned version is not installed")
+
+        monkeypatch.setattr(launcher, "project_agent_cli_path", refuse)
+        overlaid: list[Path] = []
+        monkeypatch.setattr("osprey.cli.query_cmd._overlay_repo_env", overlaid.append)
+        run = AsyncMock()
+
+        with patch("osprey.cli.query_cmd.run_query", new=run):
+            result = runner.invoke(query, ["--repo", str(pinned), "hello"])
+
+        assert result.exit_code == EXIT_USAGE
+        assert "the pinned version is not installed" in result.output
+        assert overlaid == []
+        run.assert_not_called()

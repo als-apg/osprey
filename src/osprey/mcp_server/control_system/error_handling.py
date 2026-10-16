@@ -10,10 +10,15 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import NoReturn
 
 from fastmcp.exceptions import ToolError
 
-from osprey.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from osprey.errors import (
+    ChannelLimitsViolationError,
+    ChannelNotFoundError,
+    ChannelWriteBlockedError,
+)
 from osprey.mcp_server.errors import make_error
 from osprey_connectors.ipc.pool import DEFAULT_PING_TIMEOUT_S
 from osprey_connectors.ipc.proxy import ChildUnresponsiveError
@@ -62,12 +67,39 @@ def describe_active_target() -> dict[str, str] | None:
         return None
 
 
+#: What an answer for an address outside the facility tells the agent first.
+NOT_READ_OR_WRITTEN = "Nothing was read from or written to this address."
+
+#: Where the agent finds a real address instead.
+LOOK_IT_UP = (
+    "Look the channel up among the facility's channels (the channel finder, where this "
+    "deployment has one) instead of guessing an address."
+)
+
+
 def _target_clause(identity: dict[str, str] | None) -> str:
     """The human half: `` (active target: LIVE MACHINE at 127.0.0.1:5064)``."""
     if not identity:
         return ""
     where = f" at {identity['endpoint']}" if identity.get("endpoint") else ""
     return f" (active target: {identity['label']}{where})"
+
+
+def _not_a_channel(tool_name: str, address: str, connector_name: str) -> NoReturn:
+    """Answer an address that is not a channel of the facility as ``not_found``.
+
+    The one rendering for both triggers: a read that raised
+    :class:`ChannelNotFoundError` and a write refused with its reason. Nothing
+    was denied, so the answer names no refuser.
+    """
+    identity = describe_active_target() if connector_name == "control_system" else None
+    make_error(
+        "not_found",
+        f"Unknown channel during {tool_name}{_target_clause(identity)}: "
+        f"{ChannelNotFoundError(address)}",
+        [NOT_READ_OR_WRITTEN, LOOK_IT_UP],
+        details={"channel": address, **({"active_target": identity} if identity else {})},
+    )
 
 
 async def invalidate_active_connector(connector_name: str) -> None:
@@ -149,8 +181,8 @@ async def connector_error_handler(
             # ... tool logic ...
             return CallToolResult(...)
 
-    On known errors (Connection / Timeout / limits violation / unhandled
-    exception), ``make_error()`` raises a ``fastmcp.ToolError`` carrying the
+    On known errors (Connection / Timeout / unknown channel / limits
+    violation / write refusal / unhandled exception), ``make_error()`` raises a ``fastmcp.ToolError`` carrying the
     structured envelope. fastmcp converts that into a wire-level
     ``CallToolResult(isError=True)``.
 
@@ -202,6 +234,8 @@ async def connector_error_handler(
             ["Check network connectivity.", "Try a smaller request."],
             details={"active_target": identity} if identity else None,
         )
+    except ChannelNotFoundError as exc:
+        _not_a_channel(tool_name, exc.channel_address, connector_name)
     except ChannelLimitsViolationError as exc:
         violation = {
             "channel": exc.channel_address,
@@ -235,6 +269,8 @@ async def connector_error_handler(
             details=violation,
         )
     except ChannelWriteBlockedError as exc:
+        if exc.reason == ChannelNotFoundError.reason:
+            _not_a_channel(tool_name, exc.channel_address, connector_name)
         # Both branches describe a write that put no value on the channel, but
         # they must not name the same refuser. A control-system denial reaches
         # here only after OSPREY sent the write and the control system said no;

@@ -155,19 +155,6 @@ services:
       # anything against a project root.
       CONFIG_FILE: /app/golden-project/build/config.yml
       TZ: UTC
-      # OpenObserve telemetry (opt-in): on the host namespace this container's
-      # loopback IS the host's, so the store is reachable at the port it
-      # publishes there — the compose service DNS name resolves to nothing from
-      # here. Declaring the host explicitly is what settles it: the emitter's
-      # own fallback sees a container and would reach for the service name.
-      # Inert unless claude_code.telemetry is enabled with backend: openobserve.
-      #
-      # The variable carries a HOST only. The port half needs no declaration
-      # here: from the host's loopback the store answers on the port it
-      # PUBLISHES, and the emitter reads that from `services.openobserve.port`
-      # in the config this worker already mounts — so moving the store moves
-      # the exporter with it.
-      OSPREY_OTEL_OPENOBSERVE_HOST: localhost
 
     # Bind-mount sources are relative to the pinned compose project directory,
     # which is the deployment REPO ROOT — hence the build/services/ prefix on
@@ -393,19 +380,6 @@ services:
       # anything against a project root.
       CONFIG_FILE: /app/golden-project/build/config.yml
       TZ: UTC
-      # OpenObserve telemetry (opt-in): on the host namespace this container's
-      # loopback IS the host's, so the store is reachable at the port it
-      # publishes there — the compose service DNS name resolves to nothing from
-      # here. Declaring the host explicitly is what settles it: the emitter's
-      # own fallback sees a container and would reach for the service name.
-      # Inert unless claude_code.telemetry is enabled with backend: openobserve.
-      #
-      # The variable carries a HOST only. The port half needs no declaration
-      # here: from the host's loopback the store answers on the port it
-      # PUBLISHES, and the emitter reads that from `services.openobserve.port`
-      # in the config this worker already mounts — so moving the store moves
-      # the exporter with it.
-      OSPREY_OTEL_OPENOBSERVE_HOST: localhost
 
     # Bind-mount sources are relative to the pinned compose project directory,
     # which is the deployment REPO ROOT — hence the build/services/ prefix on
@@ -495,5 +469,6 @@ volumes:
   dispatch_workspace_1:
 
   dispatch_workspace_2:
+
 
 

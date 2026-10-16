@@ -2,7 +2,7 @@
 
 Pins the three defects behind the dispatch-allowlist-parity fix and proves
 the fix end-to-end against a real deployment repo, a real dispatch worker
-subprocess, and the bundled Claude CLI:
+subprocess, and the pinned Claude CLI:
 
 * **Repro A (settings-allow bypass):** the probe tool is in the provisioned
   ``settings.json`` ``permissions.allow``; per SDK semantics such calls never

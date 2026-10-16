@@ -25,8 +25,8 @@ subprocess harness below is lifted from it, but now exercises the SHIPPED
 trigger definitions and runs in the advisory ``e2e-tests`` job.
 
 Gating: we gate on ``HAS_SDK`` (not a system ``claude --version`` check) — the
-Claude Agent SDK ships a bundled ``claude`` binary, and the worker subprocess
-resolves it through the SDK, so a PATH check would spuriously skip on CI.
+worker subprocess refuses to start without the installed pinned ``claude``, and
+a runner that lacks it must fail this test loudly, not skip it.
 """
 
 from __future__ import annotations

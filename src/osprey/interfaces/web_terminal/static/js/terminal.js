@@ -625,6 +625,7 @@ function askBeforeEndingStartedCommands(refusal, attempt) {
     // keeps it, so a flip goes back to the Simple view, and a switch to
     // another key re-attaches the terminal this card was on.
     onCancel: () => (key === loadStoredSessionId() ? pickUiMode('simple') : void startExpert()),
+    unread: refusal?.unread === true,
   });
 }
 

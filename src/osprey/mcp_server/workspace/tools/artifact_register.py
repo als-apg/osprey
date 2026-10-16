@@ -355,6 +355,13 @@ async def artifact_get(artifact_id: str) -> str:
             "file_path": str(file_path) if file_path else None,
             "gallery_url": url,
         }
+        # Project the one provenance shape that can reconnect a gallery image
+        # to ARIEL. Do not return arbitrary metadata: artifacts may carry
+        # implementation details unrelated to a user's question.
+        metadata = entry.metadata if isinstance(entry.metadata, dict) else {}
+        logbook_picture = metadata.get("logbook_picture")
+        if isinstance(logbook_picture, dict):
+            result["logbook_picture"] = logbook_picture
         return json.dumps(result, default=str)
 
     except ToolError:

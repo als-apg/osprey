@@ -32,6 +32,7 @@ from tests.e2e import sdk_helpers
 from tests.e2e.provider import (
     E2E_MODEL,
     E2E_PROVIDER_ENV,
+    FORCE_MODEL_ENV,
     FORCE_PROVIDER_ENV,
     MODEL_FREE_MARKER,
     REFUSAL_LISTED_TESTS,
@@ -65,14 +66,16 @@ _REPO_ROOT = _TESTS_ROOT.parent
 
 @pytest.fixture(autouse=True)
 def _no_ambient_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Start every case from a shell that names no provider.
+    """Start every case from a shell that names no provider and forces no model.
 
-    A developer running the fast lane with either variable exported would
-    otherwise see cases pass or fail on their environment rather than on what
-    each case sets.
+    A developer running the fast lane with any of these variables exported —
+    or a CI workflow that forces one model onto every e2e lane and hands the
+    unit lane the same environment — would otherwise see cases pass or fail on
+    their environment rather than on what each case sets.
     """
     monkeypatch.delenv(E2E_PROVIDER_ENV, raising=False)
     monkeypatch.delenv(FORCE_PROVIDER_ENV, raising=False)
+    monkeypatch.delenv(FORCE_MODEL_ENV, raising=False)
 
 
 # ---------------------------------------------------------------------------
@@ -107,12 +110,27 @@ def test_an_empty_override_is_unset_for_both_readers(monkeypatch: pytest.MonkeyP
 # ---------------------------------------------------------------------------
 
 
-def test_build_model_keeps_what_the_call_site_pinned() -> None:
+def test_build_model_keeps_what_the_call_site_pinned(monkeypatch) -> None:
+    monkeypatch.delenv(FORCE_MODEL_ENV, raising=False)
     assert build_model("claude-opus-5") == "claude-opus-5"
 
 
-def test_a_call_site_that_names_no_model_builds_with_haiku() -> None:
-    assert build_model(None) == "claude-haiku-4-5-20251001"
+def test_a_call_site_that_names_no_model_builds_with_haiku(monkeypatch) -> None:
+    monkeypatch.delenv(FORCE_MODEL_ENV, raising=False)
+    assert build_model(None) == "claude-haiku-5-5"
+
+
+@pytest.mark.parametrize("pinned", [None, "claude-opus-5"])
+def test_a_forced_model_replaces_the_build_model(monkeypatch, pinned) -> None:
+    """A subagent runs the model its definition was built with, so a run forced
+    onto one model has to build with it."""
+    monkeypatch.setenv(FORCE_MODEL_ENV, " forced-model-x ")
+    assert build_model(pinned) == "forced-model-x"
+
+
+def test_an_empty_forced_model_is_unset(monkeypatch) -> None:
+    monkeypatch.setenv(FORCE_MODEL_ENV, "  ")
+    assert build_model("claude-opus-5") == "claude-opus-5"
 
 
 def test_the_provider_ci_names_serves_the_lane_model() -> None:
@@ -400,17 +418,11 @@ def _run_pytest(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-_TELEMETRY = "tests/e2e/test_openobserve_telemetry.py"
-_LIVE_TELEMETRY = f"{_TELEMETRY}::test_live_agent_metric_lands"
-_SYNTHETIC_TELEMETRY = (
-    "test_synthetic_otlp_roundtrip_via_computed_header",
-    "test_bad_credentials_are_rejected",
-    "test_the_deploy_provisions_a_distinct_ingest_identity",
-    "test_synthetic_otlp_roundtrip_via_the_ingest_identity",
-    "test_synthetic_trace_roundtrip_via_the_ingest_identity",
-    "test_a_wrong_token_for_the_ingest_account_is_rejected",
-    "test_the_rendered_config_names_the_ingest_identity",
-)
+#: A module whose every test drives a model, and one whose every test is
+#: ``model_free``. Selected together they are the mixed run the refusal has to
+#: split: name the first, leave the second alone.
+_MODEL_DRIVEN = "tests/e2e/test_judge.py"
+_MODEL_FREE = "tests/e2e/test_sdk_helpers.py"
 _DISTRIBUTION = pytest.mark.parametrize("dist", [(), ("-n", "2")], ids=["single", "xdist"])
 
 
@@ -424,17 +436,20 @@ def test_a_model_free_module_is_not_refused(dist: tuple[str, ...]) -> None:
 
 @_DISTRIBUTION
 def test_a_selected_model_driven_test_is_refused_by_name(dist: tuple[str, ...]) -> None:
-    result = _run_pytest(_TELEMETRY, "--setup-plan", *dist)
+    result = _run_pytest(_MODEL_DRIVEN, _MODEL_FREE, "--setup-plan", *dist)
     output = result.stdout + result.stderr
     assert result.returncode == pytest.ExitCode.USAGE_ERROR, output
-    assert _LIVE_TELEMETRY in output
+    assert f"{_MODEL_DRIVEN}::" in output
     assert f"-m {MODEL_FREE_MARKER}" in output
     assert "INTERNALERROR" not in output
-    assert not any(name in output for name in _SYNTHETIC_TELEMETRY), output
+    assert f"{_MODEL_FREE}::" not in output, output
 
 
-def test_deselecting_the_model_driven_test_lifts_the_refusal() -> None:
-    result = _run_pytest(_TELEMETRY, "--deselect", _LIVE_TELEMETRY, "--setup-plan", "-n", "2")
+def test_selecting_by_the_marker_lifts_the_refusal() -> None:
+    """The remedy the refusal prints is the one that works."""
+    result = _run_pytest(
+        _MODEL_DRIVEN, _MODEL_FREE, "-m", MODEL_FREE_MARKER, "--setup-plan", "-n", "2"
+    )
     assert result.returncode == 0, result.stdout + result.stderr
 
 

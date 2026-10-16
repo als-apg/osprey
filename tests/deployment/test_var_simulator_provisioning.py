@@ -10,6 +10,10 @@ from __future__ import annotations
 
 import os
 import stat
+import subprocess
+import sys
+import sysconfig
+import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -22,6 +26,10 @@ from osprey.deployment.compose_generator import (
     simulated_target_configured,
 )
 from osprey_connectors.simulation.composite import Composite
+from tests._container_support import docker_cli_unavailable_reason
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PURELIB = Path(sysconfig.get_paths()["purelib"])
 
 
 def _assert_shared(path: Path) -> None:
@@ -90,6 +98,101 @@ def _append(log_dir: Path, instance: str) -> None:
     Composite._log(writer, "M", {"event": "noticed"})  # type: ignore[arg-type]
 
 
+def _container_venue(platform: str, in_ci: bool, docker_unavailable: str | None) -> tuple[str, str]:
+    """Whether the two-uid case runs here, skips, or fails, and why.
+
+    The case proves a group-permission property only a second uid can observe.
+    On a Linux CI runner a missing engine is the lane being wrong about itself,
+    so it fails instead of skipping.
+    """
+    if platform != "linux":
+        return ("skip", "the writers run this host's Linux venv inside a Linux container")
+    if docker_unavailable and in_ci:
+        return ("fail", f"a Linux CI runner must run the two-uid case: {docker_unavailable}")
+    if docker_unavailable:
+        return ("skip", docker_unavailable)
+    return ("run", "")
+
+
+@pytest.mark.parametrize(
+    ("platform", "in_ci", "docker_unavailable", "verdict"),
+    [
+        ("darwin", True, None, "skip"),
+        ("linux", True, "docker CLI not on PATH", "fail"),
+        ("linux", False, "docker CLI not on PATH", "skip"),
+        ("linux", True, None, "run"),
+    ],
+)
+def test_the_two_uid_case_runs_skips_or_fails_by_venue(
+    platform: str, in_ci: bool, docker_unavailable: str | None, verdict: str
+) -> None:
+    assert _container_venue(platform, in_ci, docker_unavailable)[0] == verdict
+
+
+#: Run inside the container: the composite's own writer, under the container
+#: umask, with the host venv's site-packages (and its .pth entries) on the path.
+WRITER = textwrap.dedent(
+    """
+    import os
+    import site
+    import sys
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    os.umask(0o022)
+    site.addsitedir(sys.argv[1])
+
+    from osprey_connectors.simulation.composite import Composite
+
+    writer = SimpleNamespace(
+        _instance=sys.argv[2], _log_dir=Path("/simulator-log"), _log_line=Composite._log_line
+    )
+    Composite._log(writer, "M", {"event": "noticed"})
+    """
+)
+
+
+def _append_in_container(
+    log_dir: Path, uid: int, gid: int, instance: str
+) -> subprocess.CompletedProcess[str]:
+    """Append one record from a container running as ``uid:gid``.
+
+    The repository and the host venv's site-packages are mounted read-only at
+    their host paths, so the editable installs' path entries stay valid; the
+    image's CPython minor matches the venv's, which compiled wheels require.
+    """
+    image = f"python:{sys.version_info.major}.{sys.version_info.minor}-slim"
+    return subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--user",
+            f"{uid}:{gid}",
+            "-e",
+            "PYTHONDONTWRITEBYTECODE=1",
+            "-v",
+            f"{log_dir}:/simulator-log",
+            "-v",
+            f"{REPO_ROOT}:{REPO_ROOT}:ro",
+            "-v",
+            f"{PURELIB}:{PURELIB}:ro",
+            image,
+            "python",
+            "-c",
+            WRITER,
+            str(PURELIB),
+            instance,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+
+
 def test_two_writers_append_to_one_log_under_the_container_umask(tmp_path: Path) -> None:
     ensure_simulator_log_dirs(tmp_path)
     log_dir = tmp_path / "var" / "simulator"
@@ -106,27 +209,32 @@ def test_two_writers_append_to_one_log_under_the_container_umask(tmp_path: Path)
     assert len(log.read_text(encoding="utf-8").splitlines()) == 2
 
 
-@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() != 0, reason="needs root")
-def test_two_uids_in_one_group_append_to_one_log(tmp_path: Path) -> None:
-    """Two uids sharing the directory's group both append, and both lines survive."""
-    ensure_simulator_log_dirs(tmp_path)
-    log_dir = tmp_path / "var" / "simulator"
-    os.chmod(tmp_path, 0o755)
-    os.chmod(tmp_path / "var", 0o755)
-    gid = log_dir.stat().st_gid
-    for uid, instance in ((60001, "virtual_accelerator"), (60002, "inprocess")):
-        pid = os.fork()
-        if pid == 0:
-            try:
-                os.setgroups([gid])
-                os.setgid(gid)
-                os.setuid(uid)
-                os.umask(0o022)
-                _append(log_dir, instance)
-            finally:
-                os._exit(0)
-        os.waitpid(pid, 0)
+@pytest.mark.xdist_group("docker")
+def test_two_uids_in_one_group_append_to_one_log_from_two_containers(tmp_path: Path) -> None:
+    """Two containers under different uids, sharing only the directory's group,
+    both append to one model log through the composite's own writer."""
+    platform = sys.platform
+    unavailable = docker_cli_unavailable_reason() if platform == "linux" else None
+    verdict, reason = _container_venue(platform, bool(os.environ.get("CI")), unavailable)
+    if verdict == "skip":
+        pytest.skip(reason)
+    if verdict == "fail":
+        pytest.fail(reason)
 
-    lines = (log_dir / "M.log").read_text(encoding="utf-8").splitlines()
-    assert [line for line in lines if "virtual_accelerator" in line]
-    assert [line for line in lines if "inprocess" in line]
+    gid = ensure_simulator_log_dirs(tmp_path)
+    assert gid is not None
+    log_dir = tmp_path / "var" / "simulator"
+    for uid, instance in ((60001, "virtual_accelerator"), (60002, "inprocess")):
+        result = _append_in_container(log_dir, uid, gid, instance)
+        assert result.returncode == 0, result.stderr
+        assert "cannot append" not in result.stderr + result.stdout
+
+    log = log_dir / "M.log"
+    info = log.stat()
+    assert info.st_uid == 60001
+    assert stat.S_IMODE(info.st_mode) == 0o664
+    assert info.st_gid == gid
+    lines = log.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2, lines
+    assert len([line for line in lines if "virtual_accelerator" in line]) == 1, lines
+    assert len([line for line in lines if "inprocess" in line]) == 1, lines

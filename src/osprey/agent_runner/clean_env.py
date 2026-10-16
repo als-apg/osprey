@@ -28,27 +28,28 @@ lands on, and the two cases are genuinely different:
   this way — the web-terminal operator session and the dispatch worker, which
   passes :func:`build_clean_env` straight into ``ClaudeAgentOptions.env``.
 
-What compensates on the SDK paths differs by consumer, and only one of them is
-covered. In the web server it is :func:`osprey.interfaces.web_auth.close_env_carriers`,
-called from every interface app's construction, that removes the operator
-secret and the panel token from ``os.environ`` — that removal, not this strip,
-is what truly closes those two names there. It has to be construction-time and
+What compensates on the SDK paths is that each serving process takes its
+credentials out of ``os.environ`` before it spawns anything. In the web server
+that is :func:`osprey.interfaces.web_auth.close_env_carriers`, called from
+every interface app's construction, which removes the operator secret, the
+panel token and both dispatcher-side tokens — that removal, not this strip, is
+what truly closes those names there. It has to be construction-time and
 unconditional rather than a one-off pop inside ``_populate``: a launcher
-re-publishes the operator secret on purpose so a ``--reload`` worker or
-``--detach`` child inherits it, and on the direct-serve path (plain
-``osprey web``, and the per-user container's ``CMD``) that "child" is the same,
-already-populated process, where ``_populate`` never runs a second time. In the
-dispatch worker nothing removes anything — the worker container holds the
-event-dispatcher and dispatch-worker tokens in its own ``os.environ`` for the
-lifetime of the process — so on that path the deny step provides no containment
-whatsoever, and the honest reading is that it is inert rather than
-defence-in-depth.
+re-publishes the operator secret and the dispatcher bearer on purpose so a
+``--reload`` worker or ``--detach`` child inherits them, and on the direct-serve
+path (plain ``osprey web``, and the per-user container's ``CMD``) that "child"
+is the same, already-populated process, where ``_populate`` never runs a second
+time. In the dispatch worker it is
+:func:`osprey.mcp_server.dispatch_worker.credentials.worker_credentials`, run
+by the entry point before the server binds, which pops the worker's own bearer
+and the dispatcher's into memory. Both holders also close that memory to other
+processes of their uid (:func:`osprey.utils.sensitive_env.guard_process_memory`).
 
-The dispatcher-side tokens and the ``*_LAUNCH_TOKEN`` family cannot be removed
-the way the operator secret is: the web server must keep them in its own
-``os.environ`` for upstream proxy injection into the services it fronts. The
-safety authority for a write-armed endpoint therefore remains that endpoint's
-own in-tool re-checks, never this dict.
+The ``*_LAUNCH_TOKEN`` family is the exception: the web server keeps it in its
+own ``os.environ`` for upstream proxy injection into the sidecar it fronts, so
+on the SDK paths this strip does not remove it. The safety authority for a
+write-armed endpoint therefore remains that endpoint's own in-tool re-checks,
+never this dict.
 
 **The panel token is deliberately put back on the web-terminal child paths.**
 It is the weak, panel-tier-only credential
@@ -85,7 +86,9 @@ launches a queue.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
 
 from osprey.build.claude_code_telemetry import TELEMETRY_ENV_VARS
 from osprey.utils.sensitive_env import strip_sensitive
@@ -101,6 +104,18 @@ _STRIP_PREFIXES = ("CLAUDECODE", "CLAUDE_CODE_")
 _TELEMETRY_SWITCHES: frozenset[str] = frozenset(
     k for k in TELEMETRY_ENV_VARS if k.startswith(_STRIP_PREFIXES)
 )
+
+
+#: Set in the environment of every Claude Code process OSPREY starts. The CLI
+#: offers its task-list tools (``TaskCreate``, ``TaskGet``, ``TaskList``,
+#: ``TaskUpdate``) by default only to the models it recognises by name, so a
+#: newer model or a gateway's own model name is offered none of them without
+#: this switch. With it the terminal, the chat and a dispatched job list the
+#: same tools on every model and every provider. The two seams that apply it
+#: are :func:`build_base_child_env`, under every child whose environment OSPREY
+#: composes, and :func:`osprey.agent_runner.primitives.build_agent_options`,
+#: over every environment an SDK run is handed.
+TASK_TOOLS_ENV: Mapping[str, str] = MappingProxyType({"CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"})
 
 
 def strip_claude_code_env(env: dict[str, str]) -> dict[str, str]:
@@ -132,7 +147,7 @@ def build_base_child_env() -> dict[str, str]:
 
     The interactive PTY path (:func:`pty_manager.build_pty_env`), the SDK
     operator subprocess (:func:`build_clean_env`), and the dispatch worker all
-    need the same three preparation steps, in the same order, before each
+    need the same preparation steps, in the same order, before each
     overlays its own path-specific keys:
 
     1. Strip Claude Code internal session variables via
@@ -146,15 +161,17 @@ def build_base_child_env() -> dict[str, str]:
        it genuinely closes those names on the real child-process paths, but on
        the SDK overlay path an absent key is inherited from ``os.environ``
        anyway, which makes it defence-in-depth there rather than a boundary.
-    3. Resolve the auth-token conflict: when token-based auth is configured
+    3. Turn the CLI's task-list tools on (:data:`TASK_TOOLS_ENV`), so every
+       child lists them whatever model it runs.
+    4. Resolve the auth-token conflict: when token-based auth is configured
        (a token-auth proxy provider), drop a stale ``ANTHROPIC_API_KEY`` that
        Claude Code would otherwise auto-load from the project ``.env`` and warn
        about.
-    4. Augment ``PATH`` with user-local bin dirs (e.g. ``~/.local/bin``) so child
+    5. Augment ``PATH`` with user-local bin dirs (e.g. ``~/.local/bin``) so child
        processes resolve their dependencies even from a non-login context
        (lifecycle hooks, ``nohup``, etc.).
 
-    Centralising all four here — not just the strip step — is what keeps the
+    Centralising all five here — not just the strip step — is what keeps the
     launch paths from drifting apart, the reason this helper exists.
 
     Returns:
@@ -162,6 +179,8 @@ def build_base_child_env() -> dict[str, str]:
         caller's own ``os.environ`` is never mutated.
     """
     env = strip_sensitive(strip_claude_code_env(dict(os.environ)))
+    # After the strip, which removes whatever value the parent carried.
+    env.update(TASK_TOOLS_ENV)
 
     if env.get("ANTHROPIC_AUTH_TOKEN"):
         env.pop("ANTHROPIC_API_KEY", None)

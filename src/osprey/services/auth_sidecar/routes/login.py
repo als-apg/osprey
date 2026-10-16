@@ -632,7 +632,7 @@ async def login_page(
             status_code=400, detail="that is not a username", headers=_NO_STORE_HEADERS
         )
 
-    target = safe_return_to(_only(return_to), username)
+    target = safe_return_to(_only(return_to), username, history_origin=settings.history_origin)
 
     if settings.method == "oidc":
         # The cross-method hand-off. Roster membership and identity mapping are
@@ -865,7 +865,9 @@ async def login_submit(
                 "shared-card login submitted an impossible opener of %d characters", len(opener)
             )
 
-    target = safe_return_to(_only(_form_values(form, FIELD_NEXT)), shown)
+    target = safe_return_to(
+        _only(_form_values(form, FIELD_NEXT)), shown, history_origin=settings.history_origin
+    )
     # A missing, repeated or non-string password is simply not a password: it
     # takes the ordinary refusal path rather than a distinguishable one, and
     # `check_password` answers a mismatch for an empty string without deriving a key.

@@ -24,7 +24,7 @@ from lume.model import LUMEModel
 from lume.variables import ScalarVariable, Variable
 
 from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey_connectors.control_system.va_in_process_connector import not_in_facility
+from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.archive import archived_channels, build
 from osprey_connectors.simulation.composite import Composite
@@ -263,15 +263,14 @@ async def test_a_channel_the_archive_leaves_out_is_refused_as_having_no_history(
 
 
 @pytest.mark.asyncio
-async def test_an_address_the_view_does_not_hold_is_refused_as_not_in_the_facility(
+async def test_an_address_the_view_does_not_hold_is_refused_as_not_a_channel(
     archiver: MockArchiverConnector,
 ) -> None:
-    with pytest.raises(ValueError) as refused:
+    with pytest.raises(ChannelNotFoundError) as refused:
         await archiver.get_data(["NOT:A:CHANNEL"], *_window())
 
-    assert str(refused.value) == not_in_facility("NOT:A:CHANNEL")
-    assert str(refused.value) == "NOT:A:CHANNEL is not in build/facility.json"
-    with pytest.raises(ValueError, match="is not in build/facility.json"):
+    assert refused.value.channel_address == "NOT:A:CHANNEL"
+    with pytest.raises(ChannelNotFoundError):
         await archiver.get_metadata("NOT:A:CHANNEL")
 
 

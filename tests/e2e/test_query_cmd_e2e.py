@@ -2,9 +2,9 @@
 
 Exercises the *shipped* command path end-to-end.
 
-Template: ``hello_world`` — the minimal preset with one mock ``controls``
-server and an ``example`` channel.  It is self-contained (no ARIEL Postgres,
-no real EPICS hardware) and resolves exit 0 in this environment.  The
+Template: ``hello_world`` — the minimal preset with one ``controls`` server
+serving the hello-world facility's channels.  It is self-contained (no ARIEL
+Postgres, no real EPICS hardware) and resolves exit 0 in this environment.  The
 ``control_assistant`` preset was considered but skipped: it declares additional
 MCP servers (channel-finder, ARIEL) that require running infrastructure absent
 here.
@@ -21,9 +21,9 @@ the command — the output buffer is empty even though exit_code=0.  The plain
 subprocess path (same mechanism ``init_project`` uses) avoids this issue and
 is more accurately "end-to-end" for the JSON assertion.
 
-Note on stdout mixing: the SDK logs "Using bundled Claude Code CLI: ..." to
-stdout (via Rich) before the JSON payload.  We extract the JSON by finding the
-first ``{`` in stdout rather than parsing the full output string.
+Note on stdout mixing: log lines (via Rich) can reach stdout before the JSON
+payload.  We extract the JSON by finding the first ``{`` in stdout rather than
+parsing the full output string.
 
 Mechanism-based verdict
 -----------------------
@@ -43,6 +43,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.query_cmd import query
+from tests.e2e.hello_world_channels import READ_CHANNEL
 from tests.e2e.sdk_helpers import HAS_SDK, init_project, is_claude_code_available
 
 pytestmark = [
@@ -83,8 +84,8 @@ def test_query_cmd_json_mcp_connected(tmp_path: Path) -> None:
     CliRunner + asyncio.run() + sys.exit() does not flush output into the
     BytesIO buffer reliably for the ``--json`` code path.
 
-    The SDK logs "Using bundled Claude Code CLI: ..." to stdout (via Rich)
-    before emitting the JSON payload.  JSON is extracted by finding the first
+    Log lines (via Rich) can reach stdout before the JSON payload.  JSON is
+    extracted by finding the first
     ``{`` in stdout rather than parsing the full output string.
 
     Asserts ``mcp_servers.controls == "connected"`` — the mechanism contract
@@ -100,7 +101,7 @@ def test_query_cmd_json_mcp_connected(tmp_path: Path) -> None:
             "--repo",
             str(repo),
             "--json",
-            "Read the current value of the example channel and report it.",
+            f"Read the current value of {READ_CHANNEL} and report it.",
         ],
         capture_output=True,
         text=True,

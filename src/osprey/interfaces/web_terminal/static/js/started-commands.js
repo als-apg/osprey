@@ -3,7 +3,9 @@
  *
  * The one question both views ask before ending an agent that started
  * commands still running: ending the agent ends them too, so the operator
- * agrees to that or keeps both running. The wording is DOM-free
+ * agrees to that or keeps both running. When the server could not read what
+ * the agent started, it asks the same question about what it could not see.
+ * The wording is DOM-free
  * (`startedCommandsQuestion`) so it can be asserted without a dialog on
  * screen; `askAboutStartedCommands` raises it through the shared confirm.
  */
@@ -38,12 +40,24 @@ function nameable(commands) {
 
 /**
  * The title, body and confirm label of the question.
+ *
+ * `unread` is the refusal's word that the server could not read what the
+ * agent started: anything it did is unknown, so the question says so instead
+ * of listing commands.
  * @param {StartedCommandJson[]} commands
+ * @param {{unread?: boolean}} [options]
  * @returns {{title: string,
  *            body: (import('./control-target-facts.js').ConfirmRun)[][],
  *            confirmLabel: string}}
  */
-export function startedCommandsQuestion(commands) {
+export function startedCommandsQuestion(commands, { unread = false } = {}) {
+  if (unread) {
+    return {
+      title: 'Could not check what the agent started.',
+      body: [['Anything it started that is still running ends with it.']],
+      confirmLabel: 'Stop all',
+    };
+  }
   if (commands.length === 0) {
     // A refusal whose list did not arrive still asks.
     return {
@@ -87,11 +101,12 @@ export function startedCommandsQuestion(commands) {
  *
  * Cancel has focus. The confirm button runs `onStop`; every other way out —
  * Cancel, Escape, another dialog replacing this one — runs `onCancel`. Exactly
- * one of the two runs, once.
+ * one of the two runs, once. `unread` asks about what could not be read, as
+ * in {@link startedCommandsQuestion}.
  * @param {StartedCommandJson[]} commands
- * @param {{onStop: () => void, onCancel: () => void}} handlers
+ * @param {{onStop: () => void, onCancel: () => void, unread?: boolean}} handlers
  */
-export function askAboutStartedCommands(commands, { onStop, onCancel }) {
+export function askAboutStartedCommands(commands, { onStop, onCancel, unread = false }) {
   let agreed = false;
   /** @param {KeyboardEvent} event */
   const onKey = (event) => {
@@ -101,7 +116,7 @@ export function askAboutStartedCommands(commands, { onStop, onCancel }) {
     }
   };
   showConfirm({
-    ...startedCommandsQuestion(commands),
+    ...startedCommandsQuestion(commands, { unread }),
     live: null,
     focus: 'cancel',
     onConfirm: ({ done }) => {

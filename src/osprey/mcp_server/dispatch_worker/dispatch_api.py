@@ -36,8 +36,10 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator
 
+from osprey.agent_runner import launcher
 from osprey.agent_runner.artifact_resolve import (
     deployed_config_path,
+    deployed_render_dir,
     deployed_repo_root,
     describe_run_artifacts,
     describe_run_input_artifacts,
@@ -46,6 +48,7 @@ from osprey.agent_runner.artifact_resolve import (
     load_run_record,
     resolve_single_run_artifact,
 )
+from osprey.agent_runner.errors import AgentCliUnavailableError
 from osprey.agent_runner.tool_names import DISPATCH_DENIED_TOOLS
 from osprey.mcp_server.dispatch_worker import (
     counters,
@@ -54,6 +57,7 @@ from osprey.mcp_server.dispatch_worker import (
     run_stats,
     sdk_runner,
 )
+from osprey.mcp_server.dispatch_worker.credentials import WORKER_TOKEN_ENV, worker_credentials
 from osprey.mcp_server.dispatch_worker.input_files_policy import (
     InputFilesError,
     sanitize_filename,
@@ -162,6 +166,10 @@ def _load_persisted_runs() -> None:
         logger.info("Loaded %d persisted runs from %s", loaded, log_dir)
 
 
+#: How every refusal to start opens, whatever its cause.
+_REFUSING_TO_START = "Refusing to start the dispatch worker."
+
+
 def _inject_provider_env_once() -> None:
     """Inject OSPREY provider env vars (auth, base URL, Claude Code alias models) into os.environ.
 
@@ -245,9 +253,33 @@ def _inject_provider_env_once() -> None:
     policy_conflicts = detect_managed_policy_conflicts(launch_env)
     if policy_conflicts:
         raise RuntimeError(
-            "Refusing to start the dispatch worker.\n"
-            + format_managed_policy_conflicts(policy_conflicts)
+            f"{_REFUSING_TO_START}\n" + format_managed_policy_conflicts(policy_conflicts)
         )
+
+
+def _settle_agent_cli() -> str:
+    """Settle and name the Claude Code this worker's runs execute.
+
+    The path is the one every run's SDK options carry, resolved here once for
+    the life of the process from the render the runs execute in. A worker
+    whose project pins a version that is not installed could only refuse every
+    job, so it refuses to start instead, with the operator's message.
+
+    Raises:
+        AgentCliUnavailableError: When no installed ``claude`` reports the
+            pinned version, or its version cannot be read.
+        ValueError: When the pin is not one exact version.
+    """
+    try:
+        path = launcher.project_agent_cli_path(deployed_render_dir())
+    except AgentCliUnavailableError as exc:
+        raise AgentCliUnavailableError(f"{_REFUSING_TO_START}\n{exc}") from None
+    except ValueError as exc:
+        raise ValueError(f"{_REFUSING_TO_START}\n{exc}") from None
+    logger.info(
+        "Claude Code CLI: %s (%s)", path, launcher.cli_version_of(path) or "version unknown"
+    )
+    return path
 
 
 @asynccontextmanager
@@ -262,6 +294,9 @@ async def _lifespan(_app: FastAPI):
     proxy (for non-native providers) still have to be established at process
     startup, since they depend on the mounted ``config.yml`` and environment.
     """
+    # First, so a worker that could run no job starts nothing else. Off the
+    # event loop, because the version probe spawns the CLI.
+    await asyncio.to_thread(_settle_agent_cli)
     _inject_provider_env_once()
     # Route every _stamp's per-class increment into the process-lifetime counters
     # before any run can fail, so no early failure goes uncounted.
@@ -407,11 +442,11 @@ def _start_retention_sweep() -> asyncio.Task | None:
 
 
 def _verify_token(credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme)) -> None:
-    expected = os.environ.get("DISPATCH_WORKER_TOKEN", "")
+    expected = worker_credentials().worker_token
     if not expected:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="DISPATCH_WORKER_TOKEN is not configured",
+            detail=f"{WORKER_TOKEN_ENV} is not configured",
         )
     # Constant-time comparison to avoid leaking the token via timing, matching
     # the dispatcher's _check_auth / WebhookSource._handle — over bytes, so a

@@ -53,16 +53,17 @@ waveform channel, its ``value_type`` and ``shape``.
 from __future__ import annotations
 
 import copy
+import shutil
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import TEXTURE
+from osprey.facility import DEFAULT_ROLE, TEXTURE
 from osprey.facility.build import FacilityDocument
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
-from osprey_connectors.simulation import STILL_SCENARIO
+from osprey_connectors.simulation import STILL_ALL, STILL_SCENARIO
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
@@ -77,6 +78,7 @@ from osprey_connectors.simulation.view import (
     SERVED_MODELS_SCHEMA,
     VARIABLES_FILE,
     VARIABLES_SCHEMA,
+    SimulatorView,
 )
 
 __all__ = [
@@ -96,6 +98,7 @@ __all__ = [
     "served_deck_path",
     "simulator_wiring",
     "status_address",
+    "withdraw_scenarios",
     "write_simulator_view",
 ]
 
@@ -123,7 +126,7 @@ _SCENARIO_BLOCKS = (
 _BUILT_IN_STILL = {
     "name": STILL_SCENARIO,
     "description": "Every reading serves without drift, couplings or noise.",
-    "still": "all",
+    "still": STILL_ALL,
 }
 
 #: The keys a wiring entry may carry, in emission order: the wiring record's
@@ -373,7 +376,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
     channels: list[dict[str, Any]] = []
     for record in sorted(doc.get("channels", []), key=lambda channel: str(channel["id"])):
         address = str(record["id"])
-        role = record.get("role", "readback")
+        role = record.get("role", DEFAULT_ROLE)
         entry = limits.get(address)
         if entry is not None:
             writable = bool(entry["writable"])
@@ -515,3 +518,38 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
         target.write_bytes((inputs.facility_dir / model["deck"]).read_bytes())
         written.append(target)
     return sorted(written)
+
+
+def withdraw_scenarios(root: Path, names: Iterable[str]) -> None:
+    """Withdraw scenarios from the simulator view written into ``root``.
+
+    ``scenarios.json`` lists the named scenarios no more and their
+    ``scenarios/<name>/`` copies are gone; every other scenario and every
+    other view file is left as written.
+
+    Args:
+        root: The view's directory, ``<render>/data/simulator``.
+        names: The scenarios to withdraw.
+
+    Raises:
+        KeyError: the view lists no scenario of one of ``names``; nothing is
+            withdrawn.
+    """
+    withdrawn = set(names)
+    listed = SimulatorView.open(root).scenarios()
+    missing = withdrawn - {str(scenario["name"]) for scenario in listed}
+    if missing:
+        raise KeyError(f"the simulator view lists no scenario {sorted(missing)}")
+    kept = [_thawed(scenario) for scenario in listed if str(scenario["name"]) not in withdrawn]
+    (root / SCENARIOS_FILE).write_bytes(view_bytes({"schema": SCENARIOS_SCHEMA, "scenarios": kept}))
+    for name in withdrawn:
+        shutil.rmtree(root / SCENARIOS_DIR / name, ignore_errors=True)
+
+
+def _thawed(value: Any) -> Any:
+    """A JSON value of a read-only view document, as plain dicts and lists."""
+    if isinstance(value, Mapping):
+        return {key: _thawed(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thawed(item) for item in value]
+    return value

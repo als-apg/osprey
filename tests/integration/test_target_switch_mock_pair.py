@@ -73,7 +73,7 @@ from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.control_system.va_connector import fill_gateway_ports
-from osprey_connectors.errors import ChannelLimitsViolationError
+from osprey_connectors.errors import ChannelLimitsViolationError, ChannelNotFoundError
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.ipc import frames
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
@@ -812,5 +812,5 @@ class TestTheSimulatorInProcessIsTheBaseline:
         back = await read_through_the_tool(SHARED_CHANNEL)
         assert value_read(back, SHARED_CHANNEL) == pytest.approx(IN_PROCESS_SEED)
         connector = await deployment.context.control_system()
-        with pytest.raises(ConnectionError):
+        with pytest.raises(ChannelNotFoundError):
             await connector.read_channel(LIVE_PROBE, timeout=CALL_TIMEOUT_S)

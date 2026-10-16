@@ -1,0 +1,1 @@
+Headless agent runs (`osprey audit`, the benchmark runner, the e2e suite) start the Claude Code CLI with `TZ` set to the project's facility timezone, so the agent's calendar matches the deployment's data; a project with no `system.timezone` runs on UTC, as its containers do.

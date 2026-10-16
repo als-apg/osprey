@@ -5,9 +5,12 @@ and ``trajectory_rm.index.json`` beside its configuration. The first is a plain
 dict of pyAML's orbit-response-matrix data type: the matrix its engine solves,
 hardware reading per hardware setpoint, a row per turn-by-turn reading and a
 column per corrector, each named by its channel address, with the plane of
-every row and column and no RF response. The second holds the lattice index of
-every row and of every column. Equal sources give equal bytes. An engine that
-states no ``response_matrix()``, or refuses the response, stops the build.
+every row and column and no RF response. A corrector whose step has no solve
+keeps its column as a column of zeros. The second holds the lattice index of
+every row and of every column, and each unsolved corrector with the engine's
+text. Equal sources give equal bytes. An engine that states no
+``response_matrix()``, refuses the response, or solves no corrector, stops the
+build.
 """
 
 from __future__ import annotations
@@ -56,6 +59,9 @@ ROWS = {
 }
 COLUMNS = {"SR": ["SCOR:H:SP", "SCOR:V:SP"], "LINE": ["LCOR:H:SP", "LCOR:V:SP"]}
 MODELS = ("SR", "LINE")
+
+#: The sidecar's lists of lattice indices.
+INDEX_LISTS = ("bpm_index", "hcor_index", "vcor_index")
 
 
 def _with_series(tree: dict[str, Any], name: str, element: str) -> dict[str, Any]:
@@ -187,8 +193,9 @@ def test_the_index_lengths_match_the_rows_and_the_columns(
     view: tuple[Path, list[Path]], name: str
 ) -> None:
     matrix, index = _files(view[0], name)
-    assert list(index) == ["bpm_index", "hcor_index", "vcor_index"]
-    assert all(type(entry) is int for entries in index.values() for entry in entries)
+    assert list(index) == ["bpm_index", "hcor_index", "vcor_index", "unsolved"]
+    assert index["unsolved"] == {}
+    assert all(type(entry) is int for key in INDEX_LISTS for entry in index[key])
     assert len(index["bpm_index"]) == len(matrix["matrix"]) == len(matrix["observable_names"])
     columns = len(index["hcor_index"]) + len(index["vcor_index"])
     assert columns == len(matrix["variable_names"])
@@ -226,10 +233,14 @@ def test_the_matrix_is_the_engines_first_turn_response_at_the_stated_kick_step(
     else:
         # The particle launched at M1 meets SR's one monitor before its one corrector.
         assert not written.any()
+    assert answer.unsolved == {}
+    assert answer.index is not None
+    horizontal, vertical = COLUMNS[name]
     assert index == {
-        "bpm_index": answer.bpm_index,
-        "hcor_index": answer.hcor_index,
-        "vcor_index": answer.vcor_index,
+        "bpm_index": [answer.index[row] for row in answer.rows],
+        "hcor_index": [answer.index[horizontal]],
+        "vcor_index": [answer.index[vertical]],
+        "unsolved": {},
     }
 
 
@@ -412,11 +423,10 @@ def _answer(**changed: Any) -> Any:
         "rows": list(ROWS["LINE"]),
         "columns": list(COLUMNS["LINE"]),
         "matrix": np.eye(2),
-        "bpm_index": [6, 6],
-        "hcor_index": [4],
-        "vcor_index": [4],
+        "unsolved": {},
+        "index": dict.fromkeys(ROWS["LINE"], 6) | dict.fromkeys(COLUMNS["LINE"], 4),
     }
-    return engine.TrajectoryResponse(**(answer | changed))
+    return engine.ResponseMatrix(**(answer | changed))
 
 
 @pytest.mark.parametrize(
@@ -424,36 +434,50 @@ def _answer(**changed: Any) -> Any:
     [
         ({"matrix": np.array([[1.0, float("nan")], [0.0, 1.0]])}, "a value that is not finite"),
         ({"matrix": np.eye(3)}, "a matrix that is not 2 rows by 2 columns"),
-        ({"bpm_index": [6]}, "1 row indices for 2 rows"),
-        ({"vcor_index": []}, "1 column indices for 2 columns"),
         (
-            {"hcor_index": [4, 4], "vcor_index": []},
-            "2 horizontal column indices for 1 horizontal correctors",
+            {"index": {"LINE:BPM:TBT:X": 6, **dict.fromkeys(COLUMNS["LINE"], 4)}},
+            "no index for LINE:BPM:TBT:Y",
         ),
+        ({"index": dict.fromkeys(ROWS["LINE"], 6) | {"LCOR:H:SP": 4}}, "no index for LCOR:V:SP"),
+        ({"index": None}, "no index for LINE:BPM:TBT:X, LINE:BPM:TBT:Y, LCOR:H:SP, LCOR:V:SP"),
         (
             {"columns": ["LCOR:V:SP", "LCOR:H:SP"]},
-            "columns LCOR:V:SP, LCOR:H:SP, which are not the correctors asked for "
-            "(LCOR:H:SP, LCOR:V:SP)",
+            "columns LCOR:V:SP, LCOR:H:SP and unsolved none, which are not the correctors "
+            "asked for (LCOR:H:SP, LCOR:V:SP)",
         ),
         (
             {"columns": ["LCOR:H:SP"]},
-            "columns LCOR:H:SP, which are not the correctors asked for (LCOR:H:SP, LCOR:V:SP)",
+            "columns LCOR:H:SP and unsolved none, which are not the correctors asked for "
+            "(LCOR:H:SP, LCOR:V:SP)",
+        ),
+        (
+            {"matrix": np.eye(2)[:, :1], "columns": ["LCOR:H:SP"], "unsolved": {"OTHER:SP": "x"}},
+            "columns LCOR:H:SP and unsolved OTHER:SP, which are not the correctors asked for "
+            "(LCOR:H:SP, LCOR:V:SP)",
         ),
         ({"matrix": [["high", 0.0], [0.0, 1.0]]}, "a value or an index that is no number"),
-        ({"bpm_index": [6, None]}, "a value or an index that is no number"),
         (
-            {"rows": ["LINE:BPM:TBT:X", "LINE:BPM:TBT:SUM"]},
+            {"index": dict.fromkeys(ROWS["LINE"], None) | dict.fromkeys(COLUMNS["LINE"], 4)},
+            "a value or an index that is no number",
+        ),
+        (
+            {
+                "rows": ["LINE:BPM:TBT:X", "LINE:BPM:TBT:SUM"],
+                "index": dict.fromkeys(["LINE:BPM:TBT:X", "LINE:BPM:TBT:SUM"], 6)
+                | dict.fromkeys(COLUMNS["LINE"], 4),
+            },
             "row LINE:BPM:TBT:SUM, which the model wires in no transverse plane",
         ),
     ],
     ids=[
         "not finite",
         "matrix shape",
-        "row indices",
-        "column indices",
-        "column planes",
+        "row index",
+        "column index",
+        "no index",
         "columns reordered",
         "column dropped",
+        "unsolved not asked",
         "value no number",
         "index no number",
         "row without a plane",
@@ -471,6 +495,51 @@ def test_an_answer_that_is_no_response_stops_the_build(
     )
 
 
+def test_an_unsolved_corrector_keeps_a_zero_column_and_is_named_in_the_sidecar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The file keeps every corrector of the groups; the sidecar says which one has no solve."""
+    lost = "particle lost at LBPM (while stepping LCOR:V:SP)"
+    solve = engine.response_matrix
+
+    def response_matrix(
+        deck: Any, wiring: Any, settings: Any, correctors: Any, *rest: Any, **kwargs: Any
+    ) -> Any:
+        if correctors != COLUMNS["LINE"]:
+            return solve(deck, wiring, settings, correctors, *rest, **kwargs)
+        return _answer(
+            matrix=np.array([[2.0], [3.0]]), columns=["LCOR:H:SP"], unsolved={"LCOR:V:SP": lost}
+        )
+
+    monkeypatch.setattr(engine, "response_matrix", response_matrix)
+    directory, _ = write_view(tmp_path, trajectory_tree())
+    matrix, index = _files(directory, "LINE")
+    assert matrix["variable_names"] == COLUMNS["LINE"]
+    assert matrix["matrix"] == [[2.0, 0.0], [3.0, 0.0]]
+    assert index == {
+        "bpm_index": [6, 6],
+        "hcor_index": [4],
+        "vcor_index": [4],
+        "unsolved": {"LCOR:V:SP": lost},
+    }
+
+
+def test_an_answer_with_no_corrector_solved_stops_the_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    unsolved = {"LCOR:H:SP": "lost (while stepping LCOR:H:SP)", "LCOR:V:SP": "lost too"}
+    monkeypatch.setattr(
+        engine,
+        "response_matrix",
+        lambda *args, **kwargs: _answer(matrix=np.empty((2, 0)), columns=[], unsolved=unsolved),
+    )
+    assert _stop_line(tmp_path, trajectory_tree(), ["LINE"]) == (
+        "facility: engine-invalid: model LINE — engine pyat solves no corrector of model "
+        "LINE's response_matrix(kind='trajectory'): lost (while stepping LCOR:H:SP); lost too; "
+        "fix: give the model a deck, wiring and settings its first turn solves on"
+    )
+
+
 def test_an_answer_of_another_shape_is_no_refusal_of_the_model(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -480,9 +549,9 @@ def test_an_answer_of_another_shape_is_no_refusal_of_the_model(
     )
     assert _stop_line(tmp_path, trajectory_tree(), ["LINE"]) == (
         "facility: engine-invalid: model LINE — engine pyat answers "
-        "response_matrix(kind='trajectory') for model LINE with an answer that is not its six "
-        "parts; fix: make response_matrix() answer a finite matrix with a plane and an index "
-        "for every row and column"
+        "response_matrix(kind='trajectory') for model LINE with an answer that is not a "
+        "response matrix; fix: make response_matrix() answer a finite matrix with a plane and "
+        "an index for every row and column"
     )
 
 

@@ -314,6 +314,8 @@ Capabilities API
 
 The web interface discovers its search modes and tunable parameters dynamically at startup by calling ``GET /api/capabilities``.
 
+The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether the panel embedded in the web terminal offers its Search view and opens on it. A page that cannot read it treats it as false, so embedded it opens on Browse; the standalone page offers Search either way.
+
 **The "add a module, get a UI knob for free" pattern:** When you register a custom search module with ``get_parameter_descriptors()``, its parameters automatically appear in the web interface's advanced options panel. The ``ParameterDescriptor`` dataclass supports types ``int``, ``float``, ``bool``, ``text``, ``date``, ``select``, and ``dynamic_select`` (which fetches options from an API endpoint). Parameters are grouped by ``section`` for visual organization.
 
 .. admonition:: Security & Resilience

@@ -1,0 +1,14 @@
+{#- Rendered into build/services/telemetry_store/osprey-defaults.xml and
+    mounted as /etc/clickhouse-server/users.d/osprey-defaults.xml: the
+    low-memory query defaults every session starts from. -#}
+<clickhouse>
+    <profiles>
+        <default>
+            <max_threads>1</max_threads>
+            <max_block_size>8192</max_block_size>
+            <max_download_threads>1</max_download_threads>
+            <input_format_parallel_parsing>0</input_format_parallel_parsing>
+            <output_format_parallel_formatting>0</output_format_parallel_formatting>
+        </default>
+    </profiles>
+</clickhouse>

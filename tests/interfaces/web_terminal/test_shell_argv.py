@@ -33,7 +33,7 @@ def _shell_command_for(project, monkeypatch, shell) -> list[str]:
         "_load_web_config",
         lambda *_a, **_k: {"shell": shell, "watch_dir": str(project / "_agent_data")},
     )
-    monkeypatch.setattr(web_app, "_log_claude_cli_versions", lambda *_a, **_k: None)
+    monkeypatch.setattr(web_app, "_settle_agent_cli", lambda *_a, **_k: None)
 
     app = web_app.create_app(
         config_path=str(project / "config.yml"),

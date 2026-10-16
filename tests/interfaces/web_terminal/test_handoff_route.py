@@ -385,6 +385,26 @@ def _terminal_with_a_started_command(app: FastAPI) -> RecordingPty:
     return pool_pty(app, pty)
 
 
+def test_a_terminal_whose_started_commands_cannot_be_read_is_asked_about(tmp_path):
+    """No look at the process table succeeded: the 409 says so instead of ending them unseen."""
+    app = make_app(tmp_path, hook=False)
+    pty = RecordingPty()
+    pty.started = None
+    pool_pty(app, pty)
+
+    resp = post(app, interrupt=True)
+
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["error"] == "handoff_started_commands"
+    assert detail["commands"] == []
+    assert detail["unread"] is True
+    assert pty.writes == []
+    assert pty.terminates == 0
+    assert app.state.operator_registry.spawns == []
+    assert_released(app)
+
+
 def test_a_started_commands_refusal_carries_the_commands(tmp_path):
     """Stopping the terminal agent would end its commands: the 409 names them."""
     app = make_app(tmp_path, hook=False)

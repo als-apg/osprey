@@ -66,6 +66,7 @@ IMAGE_ID = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0"
 #: decoration.
 DOCKER_VERSION = "Docker version 27.3.1, build ce12230"
 COMPOSE_VERSION = "Docker Compose version v2.30.3"
+BUILDX_VERSION = "github.com/docker/buildx v0.17.1 257815a"
 
 #: Plain-runtime seams the stub answers. Two-word entries are the namespaced
 #: subcommands (``docker image inspect``); the first word alone would not say
@@ -73,6 +74,7 @@ COMPOSE_VERSION = "Docker Compose version v2.30.3"
 HANDLED_PLAIN = frozenset(
     {
         "build",
+        "buildx version",
         "container inspect",
         "container rm",
         "container stop",
@@ -472,6 +474,11 @@ def _handle_plain(seam: str, args: list[str], remainder: list[str]) -> bool:
         # as a runtime that is installed but broken, which is the one answer
         # neither the harness nor the code under test knows what to do with.
         print(DOCKER_VERSION, file=out)
+        return True
+    if seam == "buildx version":
+        # Exit 0 is the whole answer the deploy path reads: this Docker has
+        # BuildKit, so the image build is not refused before it starts.
+        print(BUILDX_VERSION, file=out)
         return True
     if seam == "info":
         print("Client:\n Version:    27.3.1\n\nServer:\n Server Version: 27.3.1", file=out)

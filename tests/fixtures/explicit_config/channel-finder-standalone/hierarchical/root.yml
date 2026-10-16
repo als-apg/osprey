@@ -3,11 +3,16 @@ agent_data:
 api:
   providers:
   - als-apg
+  - amsc-i2
   - anthropic
+  - argo
   - cborg
+  - ds4
   - google
+  - llama-cpp
   - ollama
   - openai
+  - stanford
 approval:
   default_policy: always
   enabled: true
@@ -21,11 +26,11 @@ channel_finder:
   pipelines:
     hierarchical:
       database:
-        path: data/channel_databases/hierarchical.json
-        type: hierarchical
+        path: data/channel_finder/hierarchical.json
       feedback:
         enabled: true
         store_path: var/agent_data/feedback/hierarchical_feedback.json
+  query_max_rows: 500
 claude_code:
   provider: anthropic
   servers:
@@ -43,8 +48,6 @@ container_runtime: docker
 deployed_services: []
 execution:
   execution_method: subprocess
-facility:
-  name: Example Research Facility
 file_paths:
   api_calls_dir: api_calls
   registry_exports_dir: registry_exports
@@ -54,16 +57,17 @@ project_name: osprey-freeze
 scaffold:
   user_owned:
   - rules/facility
+simulation:
+  models: null
+  tick_s: 1.0
 system:
   timezone: UTC
 web:
   config_panel:
     enabled: true
+  control_target_picker: false
   default_panel: channel-finder
-  docs_url: https://als-apg.github.io/osprey
   feedback:
-    email: alice@example.com
-    github_repo: als-apg/osprey
     max_store_bytes: 268435456
   panels:
     channel-finder:

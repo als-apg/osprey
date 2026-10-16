@@ -6,14 +6,16 @@ Two categories share this module, split by cost class:
   (5s). Row ``claude_cli_version``; warns on a missing, timed-out or
   unparseable CLI, informational ``ok`` otherwise.
 * ``claude_cli_pinned`` (on_demand, always registered): verifies a
-  ``claude_code.cli_version`` pin by running
-  ``npx -y @anthropic-ai/claude-code@<version> --version`` (60s first-run
-  download budget). Row ``claude_cli_pinned``; emits a single ``skip`` row
-  when no pin is configured, ``error`` on npx failure and ``warning`` on a
-  version mismatch.
+  ``claude_code.cli_version`` pin by asking the launcher for the executable a
+  headless run would be pointed at, so the row proves the path runs take and
+  downloads nothing. Row ``claude_cli_pinned``; emits a single ``skip`` row
+  when no pin is configured, ``ok`` naming the executable when an installed
+  ``claude`` reports the pin, and ``error`` carrying the launcher's refusal
+  otherwise — a pin that is not an exact version included.
 
-Both categories run their subprocesses via ``asyncio.create_subprocess_exec``
-so the runner bounds them without blocking its event loop.
+Neither category blocks the runner's event loop: the poll check runs its
+subprocess via ``asyncio.create_subprocess_exec``, the pinned check hands the
+launcher's blocking probe to a worker thread.
 """
 
 from __future__ import annotations
@@ -28,7 +30,6 @@ _CATEGORY_CLI = "claude_cli"
 _CATEGORY_PINNED = "claude_cli_pinned"
 
 _POLL_TIMEOUT_S = 5.0
-_PINNED_TIMEOUT_S = 60.0
 
 
 async def _run_version_command(argv: list[str], timeout_s: float) -> tuple[int | None, str, str]:
@@ -151,86 +152,48 @@ def claude_cli_pinned(
         An async no-argument callable producing the category's rows.
     """
     cc_config = (config or {}).get("claude_code", {}) or {}
-    pinned = cc_config.get("cli_version")
 
     async def _run() -> list[CheckResult]:
-        return await _check_claude_cli_pinned(pinned)
+        return await _check_claude_cli_pinned(cc_config)
 
     return _run
 
 
-async def _check_claude_cli_pinned(pinned: str | None) -> list[CheckResult]:
-    """Verify a pinned Claude Code CLI version via ``npx``."""
-    from osprey.agent_runner.launcher import parse_claude_version
+async def _check_claude_cli_pinned(cc_config: dict[str, Any]) -> list[CheckResult]:
+    """Verify that the pinned Claude Code is the one a headless run would execute."""
+    from osprey.agent_runner import launcher
+    from osprey.agent_runner.errors import AgentCliUnavailableError
 
-    if not pinned:
-        return [
-            CheckResult(
-                name="claude_cli_pinned",
-                category=_CATEGORY_PINNED,
-                status=Status.SKIP,
-                message="no cli_version pin configured",
-            )
-        ]
-
-    argv = ["npx", "-y", f"@anthropic-ai/claude-code@{pinned}", "--version"]
     try:
-        returncode, stdout, stderr = await _run_version_command(argv, _PINNED_TIMEOUT_S)
-    except FileNotFoundError:
-        return [
-            CheckResult(
-                name="claude_cli_pinned",
-                category=_CATEGORY_PINNED,
-                status=Status.ERROR,
-                message="npx not found in PATH",
-                details=(
-                    "Install the nodejs and npm packages (npx ships with npm) "
-                    "to use claude_code.cli_version pinning."
-                ),
-            )
-        ]
-    except TimeoutError:
-        return [
-            CheckResult(
-                name="claude_cli_pinned",
-                category=_CATEGORY_PINNED,
-                status=Status.ERROR,
-                message=f"npx timed out fetching @anthropic-ai/claude-code@{pinned} (60s)",
-                details="Check network connectivity to the npm registry.",
-            )
-        ]
+        pinned = launcher.pinned_cli_version(cc_config)
+    except ValueError as exc:
+        return [_pinned_row(Status.ERROR, str(exc))]
+    if pinned is None:
+        return [_pinned_row(Status.SKIP, "no cli_version pin configured")]
 
-    if returncode != 0:
+    try:
+        # A fresh answer on every run of the check, not the one a serving
+        # process settled at its start. The probe blocks, so off the loop.
+        path = await asyncio.to_thread(launcher.agent_cli_path, cc_config)
+    except AgentCliUnavailableError as exc:
         return [
-            CheckResult(
-                name="claude_cli_pinned",
-                category=_CATEGORY_PINNED,
-                status=Status.ERROR,
-                message=f"npx failed for @anthropic-ai/claude-code@{pinned}",
-                details=stderr.strip() or "no stderr output",
+            _pinned_row(
+                Status.ERROR,
+                f"Pinned Claude Code CLI {pinned} is not available to headless runs",
+                details=str(exc),
             )
         ]
+    return [_pinned_row(Status.OK, f"Pinned Claude Code CLI {pinned} ({path})")]
 
-    detected = parse_claude_version(stdout)
-    if detected == pinned:
-        return [
-            CheckResult(
-                name="claude_cli_pinned",
-                category=_CATEGORY_PINNED,
-                status=Status.OK,
-                message=f"Pinned Claude Code CLI {pinned}",
-            )
-        ]
-    shown = detected or "unknown"
-    return [
-        CheckResult(
-            name="claude_cli_pinned",
-            category=_CATEGORY_PINNED,
-            status=Status.WARNING,
-            message=f"Pinned {pinned} but npx reported {shown}",
-            details=f"raw --version output: {stdout.strip()!r}",
-        )
-    ]
+
+def _pinned_row(status: Status, message: str, *, details: str = "") -> CheckResult:
+    return CheckResult(
+        name="claude_cli_pinned",
+        category=_CATEGORY_PINNED,
+        status=status,
+        message=message,
+        details=details,
+    )
 
 
 __all__ = ["claude_cli", "claude_cli_pinned"]

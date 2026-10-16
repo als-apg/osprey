@@ -1,0 +1,67 @@
+# The telemetry gateway: an OpenTelemetry Collector between every sender and
+# the telemetry store. A sender posts OTLP/HTTP with its own send-only login;
+# the gateway checks it against the senders' htpasswd file, stamps the login's
+# name on what it received (whatever the sender claimed), and inserts it with
+# the store's insert-only `ingest` account. It also reads the audit ledger
+# under var/audit/ and feeds it to the store the same way.
+#
+# Its Collector configuration is rendered by osprey.deployment.telemetry_gateway
+# into config.yaml beside this file.
+
+services:
+  telemetry_gateway:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.162.0
+    # container_name is a HOST-GLOBAL docker identifier: namespace it
+    # per-project so two OSPREY projects can run a gateway on one host.
+    container_name: golden-project-telemetry-gateway
+    command: ["--config=/etc/otelcol/config.yaml", "--feature-gates=stanza.synchronousLogEmitter"]
+    # Container root with every capability dropped except DAC_READ_SEARCH: the
+    # one identity that reads the operator's 0600 htpasswd file and the 0640
+    # ledger files under rootful docker and rootless podman alike, and nothing
+    # more. It writes only to its state volume, which root owns.
+    user: "0:0"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    cap_add: ["DAC_READ_SEARCH"]
+    read_only: true
+    # 256 MiB + 8 × the largest request body + 2 × 100 × the longest ledger
+    # line × R, where R = 0 is the number of ledger receivers:
+    # room for a worst-case catch-up, not the working set.
+    # `services.telemetry_gateway.memory` overrides it; a lint refuses a value
+    # below the formula.
+    mem_limit: 436207616
+    # A ledger file that is a symlink to an endless device spins one reader;
+    # one core is the most it can take.
+    cpus: 1
+    # Time for the file readers to finish their batches and checkpoint.
+    stop_grace_period: 30s
+    labels:
+      # Recreates the container when the ingest account or a sender login
+      # changes: the htpasswd file is read once, at start.
+      osprey.telemetry.cred.digest: "${OSPREY_TELEMETRY_DIGEST_TELEMETRY_GATEWAY:-}"
+    restart: unless-stopped
+    # The store's insert-only account, from its own file at the repo root,
+    # which `osprey build` creates before this file is rendered.
+    env_file:
+      - .env.telemetry-ingest
+    environment:
+      TZ: UTC
+    ports:
+      - "127.0.0.1:10051:4318"
+      - "127.0.0.1:10052:8888"
+    # Bind-mount sources are relative to the pinned compose project directory,
+    # which is the deployment REPO ROOT. Everything but the state volume is
+    # read-only: the gateway never writes the ledger it reads.
+    volumes:
+      - ./build/services/telemetry_gateway/config.yaml:/etc/otelcol/config.yaml:ro
+      - ./.env.telemetry-senders.htpasswd:/etc/otelcol/senders.htpasswd:ro
+      - ./var/audit:/audit:ro
+      - gateway-state:/var/lib/otelcol
+    networks:
+      - osprey-network
+
+volumes:
+  gateway-state:
+
+networks:
+  osprey-network:

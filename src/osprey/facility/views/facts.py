@@ -51,7 +51,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import TEXTURE
+from osprey.facility import DEFAULT_ROLE, TEXTURE
 from osprey.facility.views import ViewInputs, view_bytes
 
 __all__ = [
@@ -79,9 +79,6 @@ SLOTS_KIND = "trajectory"
 
 #: The class a classless device is counted under.
 NO_CLASS = "-"
-
-#: The role a channel that states none has.
-DEFAULT_ROLE = "readback"
 
 #: The page's template, relative to the packaged templates directory.
 FACTS_TEMPLATE = "claude_code/_facility_facts.md.j2"
@@ -418,30 +415,26 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
     recorded = facts.get("measurement_models") or {}
     if not recorded:
         return {}
-    import yaml
-
     from osprey.facility import FACILITY_FILE
     from osprey.facility.views.pyaml import KIND_STEPPED, RF_PLANT_TYPE, view_names
+    from osprey_connectors import yaml_loader
     from pyaml_cs_osprey.catalog import parse_reference
 
     doc = json.loads((render_root / FACILITY_FILE).read_text(encoding="utf-8"))
     models = {str(model["name"]): model for model in doc.get("models", [])}
-    # The configuration is the view's own safe YAML; libyaml, where PyYAML
-    # carries it, reads the same document several times faster.
-    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
     block: dict[str, dict[str, Any]] = {}
     for model, record in sorted(recorded.items()):
-        configuration = yaml.load(
-            (render_root / record["path"]).read_text(encoding="utf-8"), Loader=loader
+        configuration = yaml_loader.safe_load(
+            (render_root / record["path"]).read_text(encoding="utf-8")
         )
         arrays = {str(a["name"]): list(a["elements"]) for a in configuration.get("arrays") or []}
         devices = {str(d["name"]): d for d in configuration.get("devices") or []}
         measurement = models[str(model)].get("measurement") or {}
         names = view_names(doc, str(model))
         array_of = {
-            str(role): names.array_name(str(role), str(group))
-            for role, group in (measurement.get("groups") or {}).items()
-            if names.array_name(str(role), str(group)) in arrays
+            str(role): names.array_name(str(role))
+            for role in measurement.get("groups") or {}
+            if names.array_name(str(role)) in arrays
         }
         rf: list[str] = []
         plant = None

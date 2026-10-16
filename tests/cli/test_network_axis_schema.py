@@ -84,10 +84,10 @@ def test_dispatch_network_defaults_to_bridge() -> None:
 
 def test_service_network_mode_applies_the_default() -> None:
     """``network_mode()`` is the single place the per-service default is spelled."""
-    assert ServiceDef(template="osprey.openobserve").network_mode() == "bridge"
-    assert ServiceDef(template="osprey.openobserve", config={}).network_mode() == "bridge"
+    assert ServiceDef(template="osprey.postgresql").network_mode() == "bridge"
+    assert ServiceDef(template="osprey.postgresql", config={}).network_mode() == "bridge"
     assert (
-        ServiceDef(template="osprey.openobserve", config={"network": "host"}).network_mode()
+        ServiceDef(template="osprey.postgresql", config={"network": "host"}).network_mode()
         == "host"
     )
 
@@ -335,7 +335,7 @@ def test_both_halves_are_reported_separately(tmp_path: Path) -> None:
 
 def test_boolean_service_name_is_reported_not_crashed(tmp_path: Path) -> None:
     """A bare `on:` service name arrives as a bool key and must not crash the scan."""
-    raw = yaml.safe_load("name: netaxis\nservices:\n  on:\n    template: osprey.openobserve\n")
+    raw = yaml.safe_load("name: netaxis\nservices:\n  on:\n    template: osprey.postgresql\n")
     assert True in raw["services"]
     messages = _errors(_parse_profile(raw), tmp_path)
     assert any(

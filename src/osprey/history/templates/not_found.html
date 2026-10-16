@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Not found{% endblock %}
+{% block main %}
+<p class="notice">no session {{ session }} in what you may see</p>
+<nav class="paging"><a class="back" href="{{ viewer.href('/') }}">sessions</a></nav>
+{% endblock %}

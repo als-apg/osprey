@@ -359,8 +359,8 @@ Authoring Triggers
 
    **Tool denylist (defence in depth).** The worker enforces a server-side tool
    denylist regardless of what a trigger requests: ``WebFetch``, ``WebSearch``,
-   every plugin's and claude.ai connector's MCP tools, all shell tools (``Bash``, ``TaskOutput``,
-   ``TaskStop``, ``Monitor``), the tools that fire or schedule jobs
+   every plugin's and claude.ai connector's MCP tools, all shell tools
+   (``Bash``, ``TaskStop``, ``Monitor``), the tools that fire or schedule jobs
    (``Workflow``, ``CronCreate``, ``ScheduleWakeup``, and the dispatcher's own
    ``manual_fire``), ``SendMessage`` and ``EnterWorktree``. This sits on top of
    the per-trigger allowlist, so a trigger can never widen its way to a shell,
@@ -575,7 +575,9 @@ profile's ``.env`` and rebuild:
 - ``EVENT_DISPATCHER_TOKEN`` — guards **inbound** webhook and write endpoints,
   and the MCP transport at ``/mcp`` that ``manual_fire`` arrives on. Send it as
   ``Authorization: Bearer <token>``.
-- ``DISPATCH_WORKER_TOKEN`` — guards the **dispatcher → worker** calls.
+- ``DISPATCH_WORKER_TOKEN`` — guards the **dispatcher → worker** calls. The
+  worker takes it out of its environment into memory when it starts, so the
+  runs it launches do not inherit it.
 
 Anything that drives the pipeline from outside holds both. A :doc:`chat bridge
 <chat-bridges/index>`, for instance, fires its trigger at the dispatcher with

@@ -1417,3 +1417,232 @@ class TestSchedulerPollOnceEntryFailures:
         mock_repository.fail_ingestion_run.assert_not_awaited()
         assert "Failed to process entry" in caplog.text
         assert "entry rejected" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Entry expander -- resolved once, before any command touches the database
+# ---------------------------------------------------------------------------
+
+_VOCABULARY_LINE_PREFIX = "Vocabulary: OK (6 concepts, entries expanded, key e1:"
+
+
+def _expanding(cfg: dict[str, Any], path: Any) -> dict[str, Any]:
+    """*cfg* with entry expansion switched on against the vocabulary at *path*."""
+    cfg["vocabulary"] = {"enabled": True, "path": str(path), "expand_entries": True}
+    return cfg
+
+
+def _vocabulary_lines(messages: list[str]) -> list[str]:
+    return [line for line in messages if line.startswith("Vocabulary:")]
+
+
+class TestResolveEntryExpander:
+    def test_resolve_with_expansion_off_is_silent(self):
+        messages: list[str] = []
+
+        assert ops._resolve_entry_expander(ops._ariel_config(dict(_DB)), messages.append) is None
+        assert messages == []
+
+    def test_resolve_with_vocabulary_disabled_is_silent(self, unit_vocabulary_file):
+        cfg = _expanding(dict(_DB), unit_vocabulary_file)
+        cfg["vocabulary"]["enabled"] = False
+        messages: list[str] = []
+
+        assert ops._resolve_entry_expander(ops._ariel_config(cfg), messages.append) is None
+        assert messages == []
+
+    def test_resolve_active_expander_prints_the_vocabulary_line(self, unit_vocabulary_file):
+        config = ops._ariel_config(_expanding(dict(_DB), unit_vocabulary_file))
+        messages: list[str] = []
+
+        expander = ops._resolve_entry_expander(config, messages.append)
+
+        assert expander is not None
+        assert messages == [f"Vocabulary: OK (6 concepts, entries expanded, key {expander.key})"]
+        assert messages[0].startswith(_VOCABULARY_LINE_PREFIX)
+        assert len(expander.key) == len("e1:") + 16
+
+    def test_resolve_without_progress_returns_the_expander(self, unit_vocabulary_file):
+        config = ops._ariel_config(_expanding(dict(_DB), unit_vocabulary_file))
+
+        assert ops._resolve_entry_expander(config, None) is not None
+
+    def test_resolve_unusable_vocabulary_raises_module_config_error(self, tmp_path):
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        config = ops._ariel_config(_expanding(dict(_DB), tmp_path / "missing.yml"))
+        messages: list[str] = []
+
+        with pytest.raises(ModuleConfigError) as raised:
+            ops._resolve_entry_expander(config, messages.append)
+
+        assert raised.value.key == "ariel.vocabulary.path"
+        assert "missing.yml" in str(raised.value)
+        assert messages == []
+
+
+class TestCommandsRefuseAnUnusableVocabulary:
+    """Every storing command refuses before it migrates, polls or writes."""
+
+    async def test_run_sync_refuses_before_migrations(self, monkeypatch, fake_pool, tmp_path):
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        pools = _patch_pool(monkeypatch, fake_pool)
+        migrations = _patch_migrations(monkeypatch, applied=[])
+        schedulers = _patch_scheduler(monkeypatch)
+        _forbid_service(monkeypatch)
+        cfg = _expanding(_config(source_url=_SOURCE), tmp_path / "missing.yml")
+        messages: list[str] = []
+
+        with pytest.raises(ModuleConfigError):
+            await ops.run_sync(cfg, progress=messages.append)
+
+        assert (pools, migrations, schedulers) == ([], [], [])
+        assert "Running migrations..." not in messages
+
+    async def test_run_watch_refuses_before_the_scheduler(self, monkeypatch, tmp_path):
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        schedulers = _patch_scheduler(monkeypatch)
+        _forbid_service(monkeypatch)
+        cfg = _expanding(_config(source_url=_SOURCE), tmp_path / "missing.yml")
+
+        with pytest.raises(ModuleConfigError):
+            await ops.run_watch(
+                cfg, source=None, adapter=None, once=True, interval=None, dry_run=False
+            )
+
+        assert schedulers == []
+
+    async def test_run_ingest_refuses_before_the_adapter(self, monkeypatch, tmp_path):
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        _patch_adapter(monkeypatch, AssertionError("adapter should not be built"))
+        _forbid_service(monkeypatch)
+        cfg = _expanding(dict(_DB), tmp_path / "missing.yml")
+
+        with pytest.raises(ModuleConfigError):
+            await ops.run_ingest(
+                cfg,
+                source=_SOURCE,
+                adapter="generic_json",
+                since=None,
+                limit=None,
+                dry_run=False,
+            )
+
+    async def test_run_quickstart_refuses_before_the_database(
+        self, monkeypatch, fake_pool, tmp_path
+    ):
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        pools = _patch_pool(monkeypatch, fake_pool)
+        migrations = _patch_migrations(monkeypatch, applied=[])
+        _forbid_service(monkeypatch)
+        cfg = _expanding(dict(_DB), tmp_path / "missing.yml")
+
+        with pytest.raises(ModuleConfigError):
+            await ops.run_quickstart(cfg, source=_SOURCE)
+
+        assert (pools, migrations) == ([], [])
+
+    async def test_run_enhance_refuses_before_the_service(self, monkeypatch, tmp_path):
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        _patch_enhancers(monkeypatch, [_Enhancer("text_embedding")])
+        _forbid_service(monkeypatch)
+        cfg = _expanding(dict(_DB), tmp_path / "missing.yml")
+
+        with pytest.raises(ModuleConfigError):
+            await ops.run_enhance(cfg, module=None, force=False, limit=5)
+
+    async def test_run_sync_watch_refuses_instead_of_watching_anyway(self, monkeypatch):
+        """A configuration no retry can fix is not the 'source unreachable' case."""
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        async def _sync(*_args, **_kwargs):
+            raise ModuleConfigError("vocabulary file not found", key="ariel.vocabulary.path")
+
+        async def _watch(*_args, **_kwargs):
+            raise AssertionError("the watch must not start on an unusable vocabulary")
+
+        monkeypatch.setattr(ops, "run_sync", _sync)
+        monkeypatch.setattr(ops, "run_watch", _watch)
+
+        with pytest.raises(ModuleConfigError):
+            await ops.run_sync_watch(_config(source_url=_SOURCE))
+
+
+class TestCommandsPrintTheVocabularyLine:
+    async def test_run_sync_vocabulary_line_comes_first_and_one_parse_is_shared(
+        self, monkeypatch, mock_repository, fake_pool, unit_vocabulary_file
+    ):
+        _patch_pool(monkeypatch, fake_pool)
+        migrations = _patch_migrations(monkeypatch, applied=[])
+        schedulers = _patch_scheduler(monkeypatch, _poll_result())
+        services = _patch_service(monkeypatch, _StubService(mock_repository))
+        _patch_enhancers(monkeypatch, [])
+        cfg = _expanding(_config(source_url=_SOURCE), unit_vocabulary_file)
+        messages: list[str] = []
+
+        await ops.run_sync(cfg, progress=messages.append)
+
+        assert messages[0].startswith(_VOCABULARY_LINE_PREFIX)
+        assert messages[1] == "Running migrations..."
+        assert len(_vocabulary_lines(messages)) == 1
+        # Migrations, the scheduler and the service all see the one parse,
+        # which carries the full-first-ingest override...
+        config = migrations[0][1]
+        assert schedulers[0].config is config
+        assert services[0] is config
+        assert config.ingestion.watch.require_initial_ingest is False
+        # ...made on a copy: the caller's dict is untouched.
+        assert "watch" not in cfg["ingestion"]
+
+    async def test_run_sync_with_expansion_off_prints_no_vocabulary_line(
+        self, monkeypatch, mock_repository, fake_pool
+    ):
+        _patch_pool(monkeypatch, fake_pool)
+        _patch_migrations(monkeypatch, applied=[])
+        _patch_scheduler(monkeypatch, _poll_result())
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        _patch_enhancers(monkeypatch, [])
+        messages: list[str] = []
+
+        await ops.run_sync(_config(source_url=_SOURCE), progress=messages.append)
+
+        assert messages[0] == "Running migrations..."
+        assert _vocabulary_lines(messages) == []
+
+    async def test_run_watch_once_prints_the_vocabulary_line_once(
+        self, monkeypatch, mock_repository, unit_vocabulary_file
+    ):
+        _patch_scheduler(monkeypatch, _poll_result())
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        cfg = _expanding(_config(source_url=_SOURCE), unit_vocabulary_file)
+        messages: list[str] = []
+
+        await ops.run_watch(
+            cfg,
+            source=None,
+            adapter=None,
+            once=True,
+            interval=None,
+            dry_run=False,
+            progress=messages.append,
+        )
+
+        lines = _vocabulary_lines(messages)
+        assert len(lines) == 1
+        assert lines[0].startswith(_VOCABULARY_LINE_PREFIX)
+
+    async def test_run_enhance_prints_the_vocabulary_line(self, monkeypatch, unit_vocabulary_file):
+        _patch_enhancers(monkeypatch, [])
+        _forbid_service(monkeypatch)
+        cfg = _expanding(dict(_DB), unit_vocabulary_file)
+        messages: list[str] = []
+
+        await ops.run_enhance(cfg, module=None, force=False, limit=5, progress=messages.append)
+
+        assert messages[0].startswith(_VOCABULARY_LINE_PREFIX)
+        assert messages[1:] == ["No enhancement modules enabled or selected"]

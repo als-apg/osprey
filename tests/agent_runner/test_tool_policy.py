@@ -198,18 +198,18 @@ class TestPretooluseHookPassthrough:
 
         # Assert — the Task-prefixed background-command tools never pass through
         assert not PASSTHROUGH_TOOLS & (DISPATCH_DENIED_TOOLS | set(DELEGATION_TOOLS))
-        assert {"TaskOutput", "TaskStop"}.isdisjoint(PASSTHROUGH_TOOLS)
+        assert "TaskStop" not in PASSTHROUGH_TOOLS
 
     async def test_hook_floor_beats_passthrough_under_the_server_denylist(self):
         # Arrange — built the way a real dispatch run is wired
         from osprey.agent_runner import tool_names
 
         hook = make_pretooluse_hook(
-            ["TaskOutput"], SURFACES, sorted(tool_names.DISPATCH_DENIED_TOOLS)
+            ["TaskStop"], SURFACES, sorted(tool_names.DISPATCH_DENIED_TOOLS)
         )
 
         # Act
-        floored = await hook(_main_input("TaskOutput"), "t1", None)
+        floored = await hook(_main_input("TaskStop"), "t1", None)
         passed = await hook(_main_input("TaskCreate"), "t2", None)
 
         # Assert

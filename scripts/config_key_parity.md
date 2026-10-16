@@ -82,12 +82,12 @@ holds this table and the marks to one set of keys.
 | `system.timezone` | `UTC` everywhere | pinned for reproducibility |
 | `approval.enabled` | `true` everywhere | |
 | `approval.default_policy` | `always` everywhere | fail-closed for hook-wired tools not listed |
-| `claude_code.telemetry.enabled` | diverges | `false` in `channel-finder-standalone`, `true` in the other three; that preset deploys no OpenObserve, so telemetry has nowhere local to land. Presence is required because it is a posture-floor key |
+| `claude_code.telemetry.enabled` | diverges | `false` in `channel-finder-standalone`, `true` in the other three; that preset deploys no telemetry store, so telemetry has nowhere local to land. Presence is required because it is a posture-floor key |
 | `hooks.debug` | diverges | `false` in `hello-world`, `true` in the other three. Also a posture-floor key, which is what moved it from a per-template divergence to a parity requirement: every preset must state it either way |
 | `artifact_server.host` | `127.0.0.1` everywhere | |
 | `artifact_server.auto_launch` | `true` everywhere | |
 | `execution.execution_method` | `subprocess` everywhere | |
-| `deployed_services` | diverges | `[]` (`channel-finder-standalone`), `[openobserve]` (`hello-world`), `[postgresql, openobserve, qmd, graphdb]` (`ariel-standalone`, `control-assistant`). Presence is universal, the value is capability-scoped. A guard must check presence only |
+| `deployed_services` | diverges | `[]` (`channel-finder-standalone`), `[telemetry_store, telemetry_gateway]` (`hello-world`), `[postgresql, telemetry_store, telemetry_gateway, qmd, graphdb]` (`ariel-standalone`, `control-assistant`). Presence is universal, the value is capability-scoped. A guard must check presence only |
 
 Their parent blocks — `approval`, `artifact_server`, `claude_code`,
 `claude_code.servers`, `claude_code.telemetry`, `execution`, `hooks`, `system` —
@@ -116,7 +116,7 @@ agreement among the presets that state the key.
 | keys | reason |
 |---|---|
 | `services.<name>.*` sizes, intervals, images, paths | capacity or per-deployment layout; host ports come from the layout fill and no preset states them |
-| `claude_code.telemetry.{protocol,backend,openobserve.*}` | wiring to the bundled store: correct when it matches the provisioner, which agreement among presets cannot show |
+| `claude_code.telemetry.{protocol,backend,endpoint}` | wiring to the bundled store: correct when it matches the provisioner, which agreement among presets cannot show |
 | `web.feedback.max_store_bytes` | capacity |
 | `ariel.*` tuning | per-deployment, and `ariel.vocabulary.enabled` already diverges |
 | `control_system.*` | `type` and `writes_enabled` already diverge |

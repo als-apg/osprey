@@ -284,7 +284,7 @@ class ChannelWriteResult:
     value_written: Any  # Value that was sent
     outcome: WriteOutcome  # The one verdict, set by the connector
     # "WRITES_DISABLED" | "LIMITS" | "VALIDATION_ERROR" | "CONTROL_SYSTEM_REFUSED"
-    # when refused, else None
+    # | "CHANNEL_NOT_FOUND" when refused, else None
     refusal_reason: str | None = None
     error_message: str | None = None  # Set iff refused, failed or unconfirmed
     observed_value: Any = None  # What the confirming re-read returned
@@ -1163,6 +1163,8 @@ class ControlSystemConnector(ABC):
             ConnectionError: If channel cannot be reached
             TimeoutError: If operation times out
             ValueError: If channel address is invalid
+            ChannelNotFoundError: The address is not a channel of the facility
+                (a connector that holds the facility's address set)
         """
         pass
 

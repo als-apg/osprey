@@ -1031,10 +1031,9 @@ class TestControlPlaneKeysSurviveComposeInterpolation:
         """The audit, as a test rather than a note.
 
         Every other secret this deploy path mints draws from an alphabet that
-        cannot emit ``$``: ``token_urlsafe`` (``[A-Za-z0-9_-]``), ``token_hex``
-        (``[0-9a-f]``), and OpenObserve's recipe, whose own docstring already
-        excludes ``$`` deliberately. The manager's Z85 keys were the single
-        exception. This keeps that negative result from going stale the next
+        cannot emit ``$``: ``token_urlsafe`` (``[A-Za-z0-9_-]``) or ``token_hex``
+        (``[0-9a-f]``). The manager's Z85 keys are the single exception. This
+        keeps that negative result from going stale the next
         time a secret is added with a hand-rolled alphabet.
         """
         from osprey.deployment.service_tokens import _VAR_GENERATORS, _default_token

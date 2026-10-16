@@ -312,14 +312,15 @@ class TemplateManager:
             ctx["facility_permissions"] = cc_config.get("permissions", {})
             # Model provider resolution for init-time rendering
             from osprey.agent_runner.provider_env import ClaudeCodeModelResolver
-            from osprey.build.claude_code_telemetry import openobserve_published_port
+            from osprey.build.claude_code_telemetry import build_gateway_url
 
             api_providers = rendered_config.get("api", {}).get("providers", {})
             try:
                 model_spec = ClaudeCodeModelResolver.resolve(
                     cc_config,
                     api_providers,
-                    openobserve_port=openobserve_published_port(rendered_config),
+                    defer_unresolved_telemetry_creds=True,
+                    gateway_url=build_gateway_url(rendered_config),
                 )
             except ValueError:
                 model_spec = None

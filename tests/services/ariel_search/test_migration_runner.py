@@ -802,3 +802,150 @@ class TestImageEmbeddingTarget:
             image_embedding_target({"model": "m", "dimensions": dims})
         assert exc.value.key == "ariel.enhancement_modules.image_embedding.dimensions"
         assert "dimensions" in str(exc.value)
+
+
+class TestEmbeddingInputKeyMigration:
+    """``embedding_input_key``: an always-run migration that heals per table."""
+
+    #: Unique to the table enumeration; registered before the generic keys,
+    #: since the first matching ``rows_for`` pattern wins.
+    TABLES = r"LIKE 'text\_embeddings"
+    TRACKING_TABLE = "WHERE table_name = 'ariel_migrations'"
+    TRACKING_ROW = "FROM ariel_migrations WHERE name"
+
+    @pytest.fixture(autouse=True)
+    def _no_delay(self, monkeypatch):
+        async def _sleep(_delay):
+            return None
+
+        monkeypatch.setattr(migrations_module.asyncio, "sleep", _sleep)
+
+    @staticmethod
+    def _migration():
+        from osprey.services.ariel_search.database.embedding_input_key_migration import (
+            EmbeddingInputKeyMigration,
+        )
+
+        return EmbeddingInputKeyMigration()
+
+    def _conn(self, tables: list[str], *, row: bool = True, **extra):
+        from tests.services.ariel_search.conftest import _FakeConnection
+
+        rows_for = {
+            self.TABLES: [(t,) for t in tables],
+            **extra,
+            self.TRACKING_TABLE: [(True,)],
+            self.TRACKING_ROW: [(row,)],
+        }
+        return _FakeConnection(rows_for=rows_for)
+
+    def test_input_key_registry_row_is_always_run_after_qmd_resync(self) -> None:
+        names = [row[0] for row in migrations_module.KNOWN_MIGRATIONS]
+        (row,) = [r for r in migrations_module.KNOWN_MIGRATIONS if r[0] == "embedding_input_key"]
+        assert row == (
+            "embedding_input_key",
+            "osprey.services.ariel_search.database.embedding_input_key_migration",
+            "EmbeddingInputKeyMigration",
+            None,
+        )
+        assert names.index("embedding_input_key") == names.index("qmd_resync_index") + 1
+        assert "embedding_input_key" not in migrations_module.MIGRATION_ARGS
+
+    def test_input_key_properties(self) -> None:
+        migration = self._migration()
+        assert migration.name == "embedding_input_key"
+        assert migration.depends_on == ["core_schema"]
+
+    async def test_input_key_enumeration_probes_the_current_schema(self) -> None:
+        conn = self._conn([])
+
+        await self._migration().up(conn)
+
+        (query,) = [" ".join(s.split()) for s in conn.sql]
+        assert "FROM information_schema.tables t" in query
+        assert "t.table_schema = current_schema()" in query
+        assert r"t.table_name LIKE 'text\_embeddings\_%'" in query
+        assert "AND NOT EXISTS (" in query
+        assert "c.column_name = 'input_key'" in query
+
+    async def test_input_key_zero_tables_is_applied(self) -> None:
+        assert await self._migration().is_applied(self._conn([])) is True
+
+    async def test_input_key_missing_tracking_row_is_not_applied(self) -> None:
+        assert await self._migration().is_applied(self._conn([], row=False)) is False
+
+    async def test_input_key_table_lacking_column_is_not_applied(self) -> None:
+        conn = self._conn(["text_embeddings_old"])
+
+        assert await self._migration().is_applied(conn) is False
+
+    async def test_input_key_up_with_zero_tables_is_a_noop(self) -> None:
+        conn = self._conn([])
+
+        await self._migration().up(conn)
+
+        assert not any("ALTER TABLE" in s or "LOCK TABLE" in s for s in map(str, conn.sql))
+
+    async def test_input_key_up_alters_only_the_listed_table(self) -> None:
+        conn = self._conn(["text_embeddings_old"])
+
+        await self._migration().up(conn)
+
+        _enumerate, lock, alter = conn.sql
+        assert lock.as_string(None) == (  # type: ignore[attr-defined]
+            'LOCK TABLE "text_embeddings_old" IN ACCESS EXCLUSIVE MODE NOWAIT'
+        )
+        assert alter == (
+            'ALTER TABLE "text_embeddings_old" ADD COLUMN IF NOT EXISTS input_key TEXT'
+        )
+
+    async def test_input_key_busy_table_raises_busy(self) -> None:
+        conn = self._conn(
+            ["text_embeddings_old"],
+            **{"LOCK TABLE": errors.LockNotAvailable("could not obtain lock")},
+        )
+
+        with pytest.raises(MigrationBusyError):
+            await self._migration().up(conn)
+
+        assert not any("ALTER TABLE" in str(s) for s in conn.sql)
+
+    async def test_input_key_rollback_holds_the_lock_across_the_drop(self) -> None:
+        """down() opens its own transaction: the runner calls it outside one."""
+        conn = self._conn(["text_embeddings_a"])
+        events: list[str] = []
+        conn.transactions = events
+        execute = conn.execute
+
+        async def _execute(sql, params=None):
+            events.append(str(sql))
+            return await execute(sql, params)
+
+        conn.execute = _execute  # type: ignore[method-assign]
+
+        await self._migration().down(conn)
+
+        lock = next(i for i, e in enumerate(events) if "LOCK TABLE" in e)
+        drop = events.index('ALTER TABLE "text_embeddings_a" DROP COLUMN IF EXISTS input_key')
+        assert events[0] == "BEGIN"
+        assert events[-1] == "COMMIT"
+        assert lock < drop < len(events) - 1
+        # The outer transaction stays open from the lock through the drop.
+        depth = 0
+        for event in events[: drop + 1]:
+            depth += {"BEGIN": 1, "COMMIT": -1, "ROLLBACK": -1}.get(event, 0)
+        assert depth == 1
+        enumeration = " ".join(events[1].split())
+        assert "AND EXISTS (" in enumeration and "NOT EXISTS" not in enumeration
+
+    async def test_input_key_busy_rollback_rolls_back(self) -> None:
+        conn = self._conn(
+            ["text_embeddings_a"],
+            **{"LOCK TABLE": errors.LockNotAvailable("could not obtain lock")},
+        )
+
+        with pytest.raises(MigrationBusyError):
+            await self._migration().down(conn)
+
+        assert conn.transactions[-1] == "ROLLBACK"
+        assert not any("DROP COLUMN" in str(s) for s in conn.sql)

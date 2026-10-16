@@ -35,6 +35,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("osprey.infrastructure.server_launcher")
 
+#: How long a launched server that missed the launch window's three probes is
+#: still watched for its first /health answer, and how often it is asked. Its
+#: own thread does the asking, so neither number holds up the caller.
+_LATE_HEALTH_WINDOW_S = 30.0
+_LATE_HEALTH_POLL_S = 1.0
+
 #: Every wait the launcher makes goes through this name, and a test that counts
 #: those waits replaces it here. ``time.sleep`` itself is shared by every thread
 #: in the process, so a stand-in put there also counts other threads' sleeps.
@@ -594,6 +600,7 @@ class ServerLauncher:
 
         t = threading.Thread(target=_run, daemon=True, name=self._name.lower().replace(" ", "-"))
         t.start()
+        launched_at = time.monotonic()
         logger.info("%s launched at http://%s:%s", self._name, host, port)
 
         # Brief health-check to verify *our* server came up. Liveness is checked
@@ -611,16 +618,55 @@ class ServerLauncher:
                 self._launched = True
                 return
 
-        # Thread still alive but /health never answered — mark launched to avoid
-        # busy-retry loops; the crash handler in _run() resets _launched if the
-        # thread later dies.
-        logger.warning(
-            "%s health check failed after launch — server may not be reachable at %s:%s",
+        # Thread still alive but /health has not answered yet — mark launched to
+        # avoid busy-retry loops; the crash handler in _run() resets _launched if
+        # the thread later dies. On a loaded host a server that is merely slow
+        # misses this window, so the verdict is left to a watcher that keeps
+        # asking for a while and logs whichever answer comes.
+        logger.info(
+            "%s not answering at %s:%s yet; still checking for up to %.0fs",
             self._name,
             host,
             port,
+            _LATE_HEALTH_WINDOW_S,
         )
         self._launched = True
+        threading.Thread(
+            target=self._await_late_health,
+            args=(t, host, port, launched_at),
+            daemon=True,
+            name=f"{self._name.lower().replace(' ', '-')}-health",
+        ).start()
+
+    def _await_late_health(
+        self, server: threading.Thread, host: str, port: int, launched_at: float
+    ) -> None:
+        """Keep asking a launched server's /health past the launch window, and say what came.
+
+        A first answer is logged as the health check passing, with how long it
+        took; a server thread that exits, or a window that ends with no answer,
+        is the warning the launch window used to give on its own.
+        """
+        started = time.monotonic()
+        while time.monotonic() - started < _LATE_HEALTH_WINDOW_S:
+            time.sleep(_LATE_HEALTH_POLL_S)
+            if not server.is_alive():
+                logger.warning("%s thread exited before health check passed", self._name)
+                return
+            if self._is_running(host, port):
+                logger.info(
+                    "%s health check passed (%.0fs after launch)",
+                    self._name,
+                    time.monotonic() - launched_at,
+                )
+                return
+        logger.warning(
+            "%s health check failed within %.0fs of launch — server may not be reachable at %s:%s",
+            self._name,
+            _LATE_HEALTH_WINDOW_S,
+            host,
+            port,
+        )
 
     def ensure_running(self) -> None:
         """Ensure the server is running; launch if needed.

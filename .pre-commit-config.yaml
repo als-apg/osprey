@@ -28,11 +28,15 @@ repos:
         # The BuildKit captures are byte-exact for the same reason: a vertex
         # line whose payload is empty ends in the space that separated them,
         # and trimming it rewrites the thing the fixture exists to preserve.
+        # The clickhouseexporter insert templates are verbatim copies of the
+        # upstream release they are named for, whose last line need not end
+        # in a newline; a byte normalized here is a byte upstream never shipped.
         exclude: |
           (?x)^(
             .*\.min\.(js|css)|
             tests/deployment/web_terminals/golden/.*|
             tests/deployment/fixtures/.*\.log|
+            tests/deployment/telemetry_store/fixtures/clickhouseexporter-[^/]+/.*\.sql|
             tests/templates/render_defaults/.*|
             tests/templates/render_axis_shapes/.*
           )$
@@ -43,6 +47,7 @@ repos:
             .*\.min\.(js|css)|
             tests/deployment/web_terminals/golden/.*|
             tests/deployment/fixtures/.*\.log|
+            tests/deployment/telemetry_store/fixtures/clickhouseexporter-[^/]+/.*\.sql|
             tests/templates/render_defaults/.*|
             tests/templates/render_axis_shapes/.*
           )$

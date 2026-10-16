@@ -8,7 +8,7 @@ service is deployed**. When ``archive`` is not in the project's
   unreadable or holds no pass, when the newest pass is older than twice
   ``services.archive.interval_seconds``, or when it recorded errors (the message
   names the first source); else ``ok`` with the pass's age;
-* ``archive_telemetry_day`` — only when ``openobserve`` is deployed too:
+* ``archive_telemetry_day`` — only when ``telemetry_store`` is deployed too:
   ``warning`` when no telemetry day was exported or the newest is older than the
   day before yesterday (UTC); else ``ok`` naming the day.
 
@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.deployment.compose_generator import ARCHIVE_DEFAULT_INTERVAL_SECONDS
+from osprey.deployment.telemetry_config import STORE_SERVICE
 from osprey.health.models import CheckResult, Status
 from osprey.services.archive.manifest import load_state
 from osprey.utils.workspace import ARCHIVE_DIR_RELPATH
@@ -99,7 +100,7 @@ def _rows(
     current: datetime,
 ) -> list[CheckResult]:
     rows = [last_pass]
-    if "openobserve" in deployed:
+    if STORE_SERVICE in deployed:
         rows.append(_telemetry_row(telemetry_days or set(), current))
     return rows
 

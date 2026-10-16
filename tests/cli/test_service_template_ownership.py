@@ -22,7 +22,6 @@ from osprey.agent_runner.build_artifacts.ownership import update_config_add_user
 
 _SERVICE_ARTIFACTS = [
     "services/postgresql",
-    "services/openobserve",
     "services/event_dispatcher",
     "services/dispatch_worker",
     "services/bluesky",
@@ -111,7 +110,7 @@ class TestBuildRefreshHonorsClaims:
     def test_claim_of_one_service_does_not_shield_another(self, tmp_path: Path) -> None:
         from osprey.cli.build_cmd import _copy_service_templates
 
-        project_path = self._project(tmp_path, user_owned=["services/openobserve"])
+        project_path = self._project(tmp_path, user_owned=["services/mongodb"])
         edited = project_path / "services" / "postgresql" / "docker-compose.yml.j2"
         edited.parent.mkdir(parents=True)
         edited.write_text("# locally edited\n", encoding="utf-8")
@@ -152,7 +151,7 @@ class TestProfileServiceTemplateResolution:
     """_inject_profile_services resolves ``osprey.<name>`` to the bundled template.
 
     A profile may declare a service whose template is the framework's own
-    (``template: osprey.openobserve``) rather than a directory shipped in the
+    (``template: osprey.mongodb``) rather than a directory shipped in the
     profile — the same form ``_copy_service_templates`` and
     ``BuildProfile.validate`` already accept.
     """
@@ -174,15 +173,15 @@ class TestProfileServiceTemplateResolution:
         count = _inject_profile_services(
             profile_dir,
             project_path,
-            {"openobserve": ServiceDef(template="osprey.openobserve")},
+            {"mongodb": ServiceDef(template="osprey.mongodb")},
         )
 
         assert count == 1
-        compose = project_path / "services" / "openobserve" / "docker-compose.yml.j2"
+        compose = project_path / "services" / "mongodb" / "docker-compose.yml.j2"
         assert compose.is_file(), "bundled template was not copied into the project"
         config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
-        assert config["services"]["openobserve"]["path"] == "./services/openobserve"
-        assert "openobserve" in config["deployed_services"]
+        assert config["services"]["mongodb"]["path"] == "./services/mongodb"
+        assert "mongodb" in config["deployed_services"]
 
     def test_profile_relative_template_still_resolves(self, tmp_path: Path) -> None:
         from osprey.cli.build_injectors import _inject_profile_services
@@ -235,10 +234,10 @@ class TestProfileServiceTemplateResolution:
         project_path = tmp_path / "project"
         project_path.mkdir()
         (project_path / "config.yml").write_text(
-            yaml.dump({"scaffold": {"user_owned": ["services/openobserve"]}}),
+            yaml.dump({"scaffold": {"user_owned": ["services/mongodb"]}}),
             encoding="utf-8",
         )
-        claimed = project_path / "services" / "openobserve" / "docker-compose.yml.j2"
+        claimed = project_path / "services" / "mongodb" / "docker-compose.yml.j2"
         claimed.parent.mkdir(parents=True)
         claimed.write_text("# locally edited\n", encoding="utf-8")
         profile_dir = tmp_path / "profile"
@@ -247,15 +246,15 @@ class TestProfileServiceTemplateResolution:
         count = _inject_profile_services(
             profile_dir,
             project_path,
-            {"openobserve": ServiceDef(template="osprey.openobserve")},
+            {"mongodb": ServiceDef(template="osprey.mongodb")},
         )
 
         # Template untouched; config registration still happens.
         assert count == 1
         assert claimed.read_text(encoding="utf-8") == "# locally edited\n"
         config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
-        assert "openobserve" in config["services"]
-        assert "openobserve" in config["deployed_services"]
+        assert "mongodb" in config["services"]
+        assert "mongodb" in config["deployed_services"]
 
 
 class TestScaffoldCliDirectoryArtifacts:
@@ -349,7 +348,7 @@ class TestScaffoldCliDirectoryArtifacts:
     def test_claim_of_a_catalog_only_service_refuses(self, tmp_path: Path):
         """Claim moves what exists; it does not materialize a packaged template.
 
-        ``services/openobserve`` is a real catalog artifact with a packaged
+        ``services/mongodb`` is a real catalog artifact with a packaged
         template, so a claim that materialized it would copy it into the
         project and mark it owned. That affordance is deliberately absent:
         under the profile model an artifact the project does not have is
@@ -360,14 +359,12 @@ class TestScaffoldCliDirectoryArtifacts:
 
         project_path, profile_path = self._project(tmp_path)
 
-        result = CliRunner().invoke(
-            claim, ["services/openobserve", "--repo", str(project_path.parent)]
-        )
+        result = CliRunner().invoke(claim, ["services/mongodb", "--repo", str(project_path.parent)])
 
         assert result.exit_code != 0
         assert "Nothing to claim" in result.output
-        assert not (project_path / "services" / "openobserve").exists()
-        assert not (profile_path / "services" / "openobserve").exists()
+        assert not (project_path / "services" / "mongodb").exists()
+        assert not (profile_path / "services" / "mongodb").exists()
 
     def test_diff_reports_local_edits_per_file(self, tmp_path: Path):
         from osprey.cli.scaffold_cmd import diff

@@ -19,7 +19,6 @@ import pytest
 at = pytest.importorskip("at")
 
 import numpy as np  # noqa: E402
-from lume_pyat.exceptions import OrbitSolveError  # noqa: E402
 
 from osprey.facility.errors import FacilityBuildError  # noqa: E402
 from osprey.simulation.engines import pyat as engine  # noqa: E402
@@ -173,6 +172,14 @@ def _index(lattice: Any, name: str) -> int:
     return int(lattice.get_uint32_index(name)[0])
 
 
+def _row_index(response: Any) -> list[int]:
+    return [response.index[row] for row in response.rows]
+
+
+def _column_index(response: Any) -> list[int]:
+    return [response.index[column] for column in response.columns]
+
+
 def _first_turn(deck: Path, element: str, plane: int, kick: float) -> np.ndarray:
     """The turn pyAT itself tracks from the marker: every x, then every y, in metres."""
     lattice = _rotated(deck)
@@ -192,26 +199,20 @@ class TestRowsAndColumns:
         assert response.rows == [series(cell, axis) for axis in "xy" for cell in ROTATED_CELLS]
         assert response.matrix.shape == (2 * N_CELLS, 1)
 
-    def test_the_answer_unpacks_in_its_stated_order(self, deck):
+    def test_the_answer_is_the_response_matrix_carrying_an_index(self, deck):
         response = _response(deck, [hcor(1), vcor(1)])
 
-        rows, columns, matrix, bpm_index, hcor_index, vcor_index = response
-
-        assert rows is response.rows and columns is response.columns
-        assert matrix is response.matrix
-        assert (bpm_index, hcor_index, vcor_index) == (
-            response.bpm_index,
-            response.hcor_index,
-            response.vcor_index,
-        )
+        assert isinstance(response, engine.ResponseMatrix)
+        assert response.unsolved == {}
+        assert response.index is not None
+        assert list(response.index) == [*response.rows, *response.columns]
 
     def test_every_row_carries_its_index_in_the_rotated_lattice(self, deck):
         response = _response(deck, [hcor(1)])
         rotated = _rotated(deck)
 
         block = [_index(rotated, f"BPM_{cell:02d}") for cell in ROTATED_CELLS]
-        assert response.bpm_index == block + block
-        assert len(response.bpm_index) == len(response.rows)
+        assert _row_index(response) == block + block
         assert block == sorted(block)
         assert rotated[0].FamName == MARKER
 
@@ -221,9 +222,13 @@ class TestRowsAndColumns:
         rotated = _rotated(deck)
 
         assert response.columns == [hcor(5), hcor(1), vcor(2), vcor(7)]
-        assert response.hcor_index == [_index(rotated, "HCOR_05"), _index(rotated, "HCOR_01")]
-        assert response.vcor_index == [_index(rotated, "VCOR_02"), _index(rotated, "VCOR_07")]
-        assert len(response.hcor_index) + len(response.vcor_index) == response.matrix.shape[1]
+        assert _column_index(response) == [
+            _index(rotated, "HCOR_05"),
+            _index(rotated, "HCOR_01"),
+            _index(rotated, "VCOR_02"),
+            _index(rotated, "VCOR_07"),
+        ]
+        assert response.matrix.shape[1] == len(response.columns)
 
     def test_no_corrector_is_left_out(self, deck):
         named = [*(hcor(cell) for cell in CELLS), *(vcor(cell) for cell in CELLS)]
@@ -240,14 +245,14 @@ class TestRowsAndColumns:
         response = _response(deck, [hcor(1)], wiring=records)
 
         assert dropped not in response.rows
-        assert len(response.rows) == len(response.bpm_index) == 2 * N_CELLS - 1
+        assert len(response.rows) == len(_row_index(response)) == 2 * N_CELLS - 1
 
     def test_a_model_wiring_no_series_record_has_no_row(self, deck):
         records = [record for record in wiring() if "series" not in record["engine"]]
 
         response = _response(deck, [hcor(1)], wiring=records)
 
-        assert response.rows == [] and response.bpm_index == []
+        assert response.rows == [] and _row_index(response) == []
         assert response.matrix.shape == (0, 1)
 
 
@@ -328,15 +333,27 @@ class TestRefusals:
         with pytest.raises(ValueError, match=vcor(2)):
             engine.response_matrix(deck, wiring(), SETTINGS, [vcor(2)], {}, kind="trajectory")
 
-    def test_a_step_that_loses_the_particle_names_the_corrector(self, tmp_path):
+    def test_a_step_that_loses_the_particle_is_an_unsolved_corrector(self, tmp_path):
+        """Only the corrector whose kick loses the particle has no column; it keeps its index."""
         tight = _save(tmp_path / "tight.json", _elements(aperture=5.0e-3))
 
-        with pytest.raises(OrbitSolveError) as raised:
-            _response(tight, [vcor(4), hcor(4)], step=0.2 * KICK_GAIN)
+        named = [vcor(4), hcor(4)]
+        response = engine.response_matrix(
+            tight,
+            wiring(),
+            SETTINGS,
+            named,
+            {vcor(4): STEP, hcor(4): 0.2 * KICK_GAIN},
+            kind="trajectory",
+        )
 
-        text = str(raised.value)
+        assert list(response.unsolved) == [hcor(4)]
+        text = response.unsolved[hcor(4)]
         assert text.startswith("lost at element")
         assert text.endswith(f"(while stepping {hcor(4)})")
+        assert response.columns == [vcor(4)]
+        assert response.matrix.shape == (len(response.rows), 1)
+        assert response.index is not None and hcor(4) in response.index
 
 
 LINE_CELLS = (1, 2, 3)
@@ -422,10 +439,9 @@ class TestLine:
         lattice = at.load_lattice(str(line))
         block = [_index(lattice, f"BPM_{cell}") for cell in LINE_CELLS]
         assert response.rows == [f"L:BPM_{cell}:TBT:{axis}" for axis in "XY" for cell in LINE_CELLS]
-        assert response.bpm_index == block + block
+        assert _row_index(response) == block + block
         assert response.columns == ["L:HCOR_1:SP", "L:VCOR_2:SP"]
-        assert response.hcor_index == [_index(lattice, "HCOR_1")]
-        assert response.vcor_index == [_index(lattice, "VCOR_2")]
+        assert _column_index(response) == [_index(lattice, "HCOR_1"), _index(lattice, "VCOR_2")]
 
     def test_a_line_column_is_the_tracked_central_difference(self, line):
         named = ["L:HCOR_1:SP", "L:VCOR_2:SP"]

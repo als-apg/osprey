@@ -215,7 +215,11 @@ def _render_templates(context: dict, rel_paths: Iterable[str]) -> dict[str, str]
     """
     from jinja2 import Environment, FileSystemLoader
 
-    environment = Environment(loader=FileSystemLoader(str(_templates_root())), autoescape=False)
+    environment = Environment(
+        loader=FileSystemLoader(str(_templates_root())),
+        autoescape=False,
+        keep_trailing_newline=True,
+    )
     return {_golden_name(rel): environment.get_template(rel).render(**context) for rel in rel_paths}
 
 

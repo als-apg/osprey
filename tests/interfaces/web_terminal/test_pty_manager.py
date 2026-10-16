@@ -8,6 +8,7 @@ import os
 import shutil
 import signal
 import struct
+import subprocess
 import sys
 import termios
 import time
@@ -27,6 +28,7 @@ from tests.interfaces.web_terminal._pty_child import (
     wait_for_exit,
     wait_for_pids,
     wait_for_report,
+    wait_gone,
 )
 
 needs_ps = pytest.mark.skipif(
@@ -234,6 +236,64 @@ class TestPtySession:
             session.terminate()
             kill_quietly(pids)
 
+    @needs_ps
+    def test_terminate_ends_what_the_child_started_when_the_first_process_table_read_fails(
+        self, tmp_path, monkeypatch
+    ):
+        pid_file = tmp_path / "pids"
+        script = sleeper_script(tmp_path, "magnet_scan.py", ignore=(signal.SIGHUP,))
+        session = PtySession(
+            [sys.executable, "-c", detaching_child_script(pid_file, scripts=[script])]
+        )
+        session.start()
+        pids: list[int] = []
+        try:
+            pids = wait_for_pids(session, pid_file, 2)
+            real = process_tree.snapshot
+            reads: list[None] = []
+
+            def spy():
+                reads.append(None)
+                return real() if len(reads) > 1 else None
+
+            monkeypatch.setattr(process_tree, "snapshot", spy)
+            session.terminate()
+            assert pid_gone(pids[0]), "the command the child started is still running"
+        finally:
+            monkeypatch.undo()
+            session.terminate()
+            kill_quietly(pids)
+
+    @needs_ps
+    def test_terminate_warns_when_the_process_table_never_reads(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        pid_file = tmp_path / "pids"
+        script = sleeper_script(tmp_path, "magnet_scan.py", ignore=(signal.SIGHUP,))
+        session = PtySession(
+            [sys.executable, "-c", detaching_child_script(pid_file, scripts=[script])]
+        )
+        session.start()
+        pids: list[int] = []
+        try:
+            pids = wait_for_pids(session, pid_file, 2)
+            child = session.pid
+            monkeypatch.setattr(process_tree, "snapshot", lambda: None)
+            with caplog.at_level(logging.WARNING):
+                session.terminate()
+            assert not session.is_alive
+            warnings = [
+                record.getMessage()
+                for record in caplog.records
+                if record.levelno == logging.WARNING and "process table" in record.getMessage()
+            ]
+            assert len(warnings) == 1, warnings
+            assert f"PTY child {child} " in warnings[0]
+        finally:
+            monkeypatch.undo()
+            session.terminate()
+            kill_quietly(pids)
+
     def test_terminate_of_a_dead_child_looks_for_nothing(self, monkeypatch):
         session = PtySession(["/bin/sh", "-c", "exit 0"])
         session.start()
@@ -263,6 +323,7 @@ class TestPtySession:
 
             commands = session.started_commands()
 
+            assert commands is not None
             assert [c.label for c in commands] == ["magnet_scan.py"]
             assert commands[0].pgid == grandchild
             assert helper not in {pid for c in commands for pid, _ in c.members}
@@ -330,6 +391,28 @@ class TestPtyChildWaits:
             assert wait_for_report(report, 1, session) == ["x"]
         finally:
             session.terminate()
+
+    async def test_wait_gone_returns_once_every_pid_has_exited(self):
+        procs = [subprocess.Popen([sys.executable, "-c", "pass"]) for _ in range(2)]
+        try:
+            # Unreaped on purpose: an exited process nobody has waited for counts as gone.
+            await wait_gone([proc.pid for proc in procs], within=CHILD_HANG_CEILING)
+        finally:
+            for proc in procs:
+                proc.kill()
+                proc.wait()
+
+    @needs_ps
+    async def test_wait_gone_fails_naming_the_pid_still_running(self):
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+        try:
+            with pytest.raises(
+                AssertionError, match=rf"pid {proc.pid} \(ps state '\S+'\) is still"
+            ):
+                await wait_gone([proc.pid], within=0.1)
+        finally:
+            proc.kill()
+            proc.wait()
 
     def test_hang_ceiling_sits_below_the_per_test_timeout(self):
         assert CHILD_HANG_CEILING < 300

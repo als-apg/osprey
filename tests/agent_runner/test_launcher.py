@@ -60,16 +60,9 @@ class TestBuildClaudeLaunchArgv:
             "--mcp-config=.mcp.json",
         ]
 
-    def test_pinned_strips_whitespace(self):
-        assert build_claude_launch_argv({"cli_version": "  2.1.146  "}) == [
-            "npx",
-            "-y",
-            "@anthropic-ai/claude-code@2.1.146",
-            "--setting-sources",
-            "project",
-            "--strict-mcp-config",
-            "--mcp-config=.mcp.json",
-        ]
+    def test_a_pin_with_surrounding_whitespace_is_refused_not_trimmed(self):
+        with pytest.raises(ValueError, match="exact version"):
+            build_claude_launch_argv({"cli_version": "  2.1.146  "})
 
     def test_setting_sources_always_emitted(self):
         """Both the pinned and unpinned prefixes end with the isolation flag."""
@@ -84,15 +77,15 @@ class TestBuildClaudeLaunchArgv:
         assert argv == ["claude", "--setting-sources", "project", *_MCP]
 
     def test_empty_string_pin_raises(self):
-        with pytest.raises(ValueError, match="non-empty"):
+        with pytest.raises(ValueError, match="exact version"):
             build_claude_launch_argv({"cli_version": ""})
 
     def test_whitespace_only_pin_raises(self):
-        with pytest.raises(ValueError, match="non-empty"):
+        with pytest.raises(ValueError, match="exact version"):
             build_claude_launch_argv({"cli_version": "   "})
 
     def test_non_string_pin_raises(self):
-        with pytest.raises(ValueError, match="non-empty"):
+        with pytest.raises(ValueError, match="exact version"):
             build_claude_launch_argv({"cli_version": 2.1})
 
     def test_no_pin_flag_skips_pin_validation(self):

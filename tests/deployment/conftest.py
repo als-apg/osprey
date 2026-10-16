@@ -96,6 +96,25 @@ def compose_provider_is_docker_v2(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def docker_host_has_buildkit(monkeypatch):
+    """Answer "can this Docker build the service images?" without asking the host.
+
+    A start that builds asks through ``container_lifecycle.buildkit_missing``,
+    which runs ``docker buildx version``. The reasons the fixture above gives
+    apply unchanged: a faked ``subprocess.run`` would hand the probe an answer
+    meant for a compose invocation, and the real one would make the suite pass
+    or fail on whether the machine running it has the plugin.
+
+    Stubbed at the name the lifecycle module binds, so the check itself stays
+    real for ``test_buildkit_preflight.py``, which calls it through
+    ``runtime_helper`` and re-patches this name where it tests the wiring.
+    """
+    from osprey.deployment import container_lifecycle
+
+    monkeypatch.setattr(container_lifecycle, "buildkit_missing", lambda runtime, env: None)
+
+
+@pytest.fixture(autouse=True)
 def no_prebuilt_switch_in_the_environment(monkeypatch):
     """Isolate every test from a prebuilt-images switch exported in the shell.
 

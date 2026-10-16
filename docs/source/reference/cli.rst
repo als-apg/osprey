@@ -44,6 +44,7 @@ names another one explicitly.
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey archive            # Copy the agent record into var/archive
+   osprey history            # Serve the history page (the history service's entry)
    osprey artifacts          # Artifact gallery
    osprey web                # Launch web terminal
    osprey theme-lab          # Design and preview a theme in the browser
@@ -783,22 +784,44 @@ and then every ``--interval`` seconds.
 ``--interval SECONDS`` -- Seconds between passes under ``--watch``, at least 60
 (environment: ``OSPREY_ARCHIVE_INTERVAL_SECONDS``, default ``86400``).
 
-``--openobserve-url URL`` -- Telemetry store to export completed days of logs
-and traces from; unset, none is exported (environment:
-``OSPREY_ARCHIVE_OPENOBSERVE_URL``). The store is read as the ingest service
-account, ``ZO_INGEST_USER_EMAIL`` and ``ZO_INGEST_SA_TOKEN`` from the
-environment.
+``--store-url URL`` -- HTTP address of the telemetry store to export completed
+days from; unset, none is exported (environment: ``OSPREY_ARCHIVE_STORE_URL``).
+Every store table is exported per arrival day and the store's query log per
+event day, each as one Parquet file under
+``<day>/telemetry/<exported-day>/<table>.parquet`` with a manifest line naming
+its table, day, row count and sha256. The store is read as the ``archive``
+account, with ``OSPREY_TELEMETRY_ARCHIVE_PASSWORD`` from the environment.
 
-``--openobserve-org NAME`` -- Telemetry store organization (environment:
-``OSPREY_ARCHIVE_OPENOBSERVE_ORG``, default ``default``).
-
-``--openobserve-backfill-days N`` -- Most completed days a pass exports
-(environment: ``OSPREY_ARCHIVE_OPENOBSERVE_BACKFILL_DAYS``, default ``14``).
+``--store-backfill-days N`` -- Most completed days a pass exports
+(environment: ``OSPREY_ARCHIVE_STORE_BACKFILL_DAYS``, default ``14``).
 
 Exit codes of ``--once``: ``0`` the pass completed with no errors, ``1`` it
 completed with recorded errors, ``2`` it could not run (the destination is
 missing or unwritable). ``--watch`` exits ``2`` after five passes in a row that
 could not run.
+
+osprey history
+==============
+
+Serve the history page: the across-users view of the agent record, which the
+deployment renders as the ``history`` service when it runs the telemetry store
+and its web terminals sign people in (``auth.method`` of ``password`` or
+``oidc``). Browsers reach it under ``/history/`` on the readers' origin only;
+the command is the service's entry and is not run by hand.
+
+.. code-block:: bash
+
+   osprey history [--host HOST] [--port PORT]
+
+``--host HOST`` -- Interface to listen on (default ``127.0.0.1``; the service
+listens on every interface of its container).
+
+``--port PORT`` -- Port to serve on (default ``8000``).
+
+The page reads the store at ``OSPREY_HISTORY_STORE_URL`` as the ``history``
+account, with ``OSPREY_TELEMETRY_HISTORY_PASSWORD`` from the environment, and
+runs every query as the viewer's own store view user. It admits only requests
+that carry the gate secret nginx presents (``OSPREY_TERMINAL_SECRET_HISTORY``).
 
 osprey chat
 ===========
@@ -981,6 +1004,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    modulo the deck's length, and both ``osprey build`` and this command print
    one ``facility: place-wrapped: device <id> — …; fix: …`` warning per device
    on stderr; the exit code is unchanged.
+   A knowledge page under ``data/facility/knowledge`` whose ``device_id`` is no
+   device id of the facility file prints one
+   ``facility: link-dangling: page <path> — …; fix: …`` warning, in
+   ``osprey build`` and in this command; the exit code is unchanged.
    The check converts a monitor reading to position with one slope, taken at
    the centred beam; that is exact for a straight-line (gain and offset)
    calibration, and a table-calibrated monitor is left out of the check and
@@ -1074,10 +1101,12 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    states a role other than ``setpoint``, ``readback`` or ``none``, has no
    address or repeats one, states ``s`` or ``model`` with no device, or
    states an ``s`` that is not a finite number, a row with more cells than
-   the header, two rows stating different ``s`` or ``model`` for one device, a
-   ``model`` for a device no row states ``s`` for, and an unknown or repeated
-   column each print one ``facility: source-invalid:`` line; the import
-   writes nothing and exits 1.
+   the header, two rows stating different ``s`` or ``model`` for one device,
+   and an unknown or repeated column each print one ``facility:
+   source-invalid:`` line; the import writes nothing and exits 1. A ``model``
+   for a device no row states ``s`` for is ignored with one ``import list:``
+   warning on stderr naming the file, row, device and model; the rest of the
+   device's rows are imported.
 
 .. _cli-osprey-sim:
 
@@ -1146,6 +1175,10 @@ Manage the ARIEL logbook search service.
 
 ``osprey ariel status [--json]``
    Show the database connection, embedding tables and enhancement counts.
+   Includes the vocabulary line (with the ``e1:…`` vocabulary key when entries
+   are expanded) and, per text-embedding table, one line for each group of
+   vectors built with other settings than the running ones, ending with the
+   ``reembed`` command that rebuilds them.
 
 ``osprey ariel migrate``
    Create or update the database tables the enabled modules need.
@@ -1173,7 +1206,8 @@ Manage the ARIEL logbook search service.
    the web interface, attachment uploads, and entries written through the
    logbook write service. ``--rebuild`` wipes the mirror and re-exports
    everything, which is what to run after ``purge``.
-   ``ingest`` and ``watch`` already do this pass on their own.
+   ``ingest`` and ``watch`` already do this pass on their own. Prints the
+   vocabulary key it used as its last row (``Expansion key``).
 
 ``osprey ariel models``
    List the embedding models and their tables.
@@ -1189,7 +1223,17 @@ Manage the ARIEL logbook search service.
    and lists every error when the file is broken; warnings never fail it.
 
 ``osprey ariel reembed --model NAME --dimension N [--batch-size N] [--dry-run] [--force]``
-   Re-embed entries with a different model.
+   Re-embed entries with a different model, or with the current vocabulary
+   settings after ``status`` reports stale vectors (``--force``). ``--dry-run``
+   prints the plan, including ``Running key: r1`` or ``Running key:
+   r1:e1:<hex>`` --- the key each new vector will record. ``reembed`` refuses
+   to start when ``ariel.vocabulary.expand_entries`` is on but the vocabulary
+   does not load; that refusal names the loader error and the remedy ``fix
+   ariel.vocabulary.path or set ariel.vocabulary.expand_entries: false``.
+   ``sync``, ``ingest``, ``watch``, ``enhance``, ``quickstart`` and
+   ``qmd-resync`` refuse the same way. Without ``--dry-run`` it also refuses
+   when the table predates the key column (``schema behind code: run osprey
+   ariel migrate``).
 
 ``osprey ariel web [--port N] [--host ADDR] [--reload]``
    Launch the web interface on the host and port ``ariel.web`` names (default

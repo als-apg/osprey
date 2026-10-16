@@ -295,6 +295,14 @@ class TestDrop:
         assert (err.kind, err.record_kind) == ("fix-referenced", "group")
         assert "measurement/lattice.yaml (groups)" in err.detail
 
+    def test_drop_of_a_group_inside_a_role_list_is_fix_referenced(self, tmp_path: Path) -> None:
+        fix = {"op": "drop", "kind": "group", "id": "SR/QUAD", "why": "x"}
+        measurement = {"kinds": ["orm"], "groups": {"quad": ["SR/OTHER", "SR/QUAD"]}}
+        result = _build(tmp_path, _fixes(fix), **{"measurement__lattice.yaml": measurement})
+        err = _one(result.errors)
+        assert (err.kind, err.record_kind) == ("fix-referenced", "group")
+        assert "measurement/lattice.yaml (groups)" in err.detail
+
 
 class TestFixStops:
     def test_fix_of_a_missing_record_is_fix_missing(self, tmp_path: Path) -> None:

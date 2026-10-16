@@ -1379,3 +1379,61 @@ class TestBehindTheProxyWithoutAnIdentity:
 
         mock_logger.info.assert_called_once()
         mock_logger.debug.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# A server slower than the launch window is watched, not written off
+# ---------------------------------------------------------------------------
+
+
+class TestLateHealthIsWatchedNotWrittenOff:
+    """The launch window is three quick probes; a loaded host's server can miss it.
+
+    Missing it is not a verdict. A watcher keeps asking for a while on its own
+    thread and logs whichever answer comes: the first success, or the failure
+    once the server's thread dies or the window ends with no answer.
+    """
+
+    @staticmethod
+    def _watch(launcher, *, alive, answers, window=0.5):
+        server = MagicMock()
+        server.is_alive.side_effect = alive
+        with (
+            patch("osprey.infrastructure.server_launcher._LATE_HEALTH_WINDOW_S", window),
+            patch("osprey.infrastructure.server_launcher._LATE_HEALTH_POLL_S", 0.01),
+            patch.object(launcher, "_is_running", side_effect=answers),
+            patch("osprey.infrastructure.server_launcher.logger.warning") as mock_warn,
+            patch("osprey.infrastructure.server_launcher.logger.info") as mock_info,
+        ):
+            launcher._await_late_health(server, "127.0.0.1", 4321, time.monotonic())
+        return mock_warn, mock_info
+
+    def test_a_late_first_answer_is_logged_as_the_check_passing(self):
+        warn, info = self._watch(_make_launcher(), alive=lambda: True, answers=[False, False, True])
+        warn.assert_not_called()
+        assert "health check passed" in _rendered(info)
+
+    def test_no_answer_within_the_window_is_the_warning(self):
+        warn, _ = self._watch(_make_launcher(), alive=lambda: True, answers=lambda *a: False)
+        assert "health check failed" in _rendered(warn)
+
+    def test_a_server_thread_that_dies_is_the_warning(self):
+        warn, _ = self._watch(_make_launcher(), alive=[True, False], answers=lambda *a: False)
+        assert "thread exited before health check passed" in _rendered(warn)
+
+    @pytest.mark.real_server_launch
+    def test_the_launch_window_no_longer_calls_a_slow_server_failed(self):
+        launcher = _make_launcher()
+        with (
+            patch("osprey.infrastructure.server_launcher.threading.Thread") as thread_cls,
+            patch("osprey.infrastructure.server_launcher._sleep"),
+            patch.object(launcher, "_is_running", return_value=False),
+            patch("osprey.infrastructure.server_launcher.logger.warning") as mock_warn,
+        ):
+            thread_cls.return_value.is_alive.return_value = True
+            launcher._launch_in_thread("127.0.0.1", 4321)
+
+        mock_warn.assert_not_called()
+        assert launcher._launched is True
+        targets = [c.kwargs.get("target") for c in thread_cls.call_args_list]
+        assert launcher._await_late_health in targets

@@ -57,7 +57,7 @@
     "directory": "channel-finder-standalone/graph",
     "mode": "graph",
     "preset": "channel-finder-standalone",
-    "reason": "Usage: python -m osprey init [OPTIONS] [DIRECTORY] Try 'python -m osprey init --help' for help. Error: Cannot materialize 'channel-finder-standalone': Build profile validation failed:   - channel_finder_mode: graph needs a services.graphdb block and this build renders none (app_template: channel_finder_standalone). Build on an app template that deploys a graph store, or name one the facility already runs with `config: services.graphdb.uri: bolt://host:7687` plus GRAPHDB_PASSWORD in the project .env.",
+    "reason": "Usage: python -m osprey init [OPTIONS] [DIRECTORY] Try 'python -m osprey init --help' for help. Error: Cannot materialize 'channel-finder-standalone': Build profile validation failed:   - channel_finder_mode: graph needs a services.graphdb block and this build renders none (no services.graphdb keys under `config:`). Spell the store this profile deploys under `config: services.graphdb.*`, or name one the facility already runs with `config: services.graphdb.uri: bolt://host:7687` plus GRAPHDB_PASSWORD in the project .env.",
     "stage": "init",
     "status": "refused"
   }

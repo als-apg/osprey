@@ -1,0 +1,1 @@
+`services.telemetry_store.readers` names the people who may query the telemetry store with SQL, each with a read-only account scoped by `tables` and `days_back` and bound by `services.telemetry_store.limits`; `osprey up` writes each key to `.env.telemetry-reader.<name>` and prints the file and the query page, never the key.

@@ -1371,11 +1371,16 @@ class TestServerLauncherRetry:
         # After crash, _launched should be reset to False
         assert launcher._launched is False
 
-    def test_server_launcher_health_check_warning(self, caplog):
-        """Health-check failure after launch produces a warning log."""
+    def test_server_launcher_health_check_warning(self, caplog, monkeypatch):
+        """A server that never answers /health is warned about once the late-health window ends."""
         import logging
+        import time
 
+        from osprey.infrastructure import server_launcher
         from osprey.infrastructure.server_launcher import ServerLauncher
+
+        monkeypatch.setattr(server_launcher, "_LATE_HEALTH_WINDOW_S", 0.5)
+        monkeypatch.setattr(server_launcher, "_LATE_HEALTH_POLL_S", 0.05)
 
         def noop_app_factory(**kwargs):
             # Return something but don't actually start a server
@@ -1389,10 +1394,16 @@ class TestServerLauncherRetry:
             pass_workspace=False,
         )
 
+        def warned() -> bool:
+            return any("health check failed" in r.getMessage().lower() for r in caplog.records)
+
         with caplog.at_level(logging.WARNING, logger="osprey.infrastructure.server_launcher"):
             launcher.ensure_running()
+            deadline = time.monotonic() + 15.0
+            while not warned() and time.monotonic() < deadline:
+                time.sleep(0.05)
 
-        assert any("health check failed" in r.message.lower() for r in caplog.records)
+        assert warned()
 
 
 class TestArtifactStoreConcurrency:

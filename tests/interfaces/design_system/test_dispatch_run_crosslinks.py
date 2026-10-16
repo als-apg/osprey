@@ -1,30 +1,20 @@
-"""Browser suite: a run detail links to its trigger and to its own telemetry.
+"""Browser suite: a run detail links to its trigger and to its session's history.
 
 The run detail screen is the end of a drill-in (activity lane -> run), and
-without cross-links it is a dead end: the operator can see *that* a run failed
-but has to walk back out and hunt to see what configured it, or leave the
-dashboard entirely to read what the agent actually did.
+without a cross-link it is a dead end: the operator can see *that* a run failed
+but has to walk back out and hunt to see what configured it.
 
-Two links close that. Both are *conditional*, and the conditions are the whole
-risk. Each depends on data the dashboard does not control:
+The link is *conditional*: ``trigger_name`` is reverse-mapped from the
+dispatcher's in-memory pool, so it is absent for runs that outlived a dispatcher
+restart, and the trigger it names may since have been deleted from
+``triggers.yml``. A link rendered when its destination is not there promises a
+place to go and lands on "no longer registered", so these tests drive the real
+rendered dashboard in a browser and assert on the *rendered* link for each row
+of that degradation table.
 
-  * ``trigger_name`` is reverse-mapped from the dispatcher's in-memory pool, so
-    it is absent for runs that outlived a dispatcher restart, and the trigger it
-    names may since have been deleted from ``triggers.yml``;
-  * the telemetry link needs a deployed store (a deploy-time config value) *and*
-    the run's forced session id (supplied by the worker).
-
-A link rendered when its destination is not there is worse than no link: it
-promises a place to go and lands on "no longer registered", or on a telemetry
-page showing every record in the window rather than this run's. So these tests
-drive the real rendered dashboard in a browser and assert on the *rendered*
-links for each row of that degradation table, rather than on markup the
-renderer might never reach.
-
-The telemetry href gets its own assertion because its failure mode is silent:
-the store's logs UI drops a query it cannot parse and renders a perfectly normal
-page scoped to the whole time window instead. Nothing errors -- the link just
-quietly stops meaning "this run", which no smoke test would catch.
+The history link needs the history page (a deploy-time ``OSPREY_HISTORY_URL``,
+set only when the deployment serves the page) and a session id the link can
+carry; without either the run offers no link.
 
 Placement rationale: matches ``test_dispatch_dashboard_modes.py`` and
 ``test_visual.py``, which already stand the dispatch dashboard up from this
@@ -38,9 +28,7 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
-import base64
 import pathlib
-import urllib.parse
 from typing import TYPE_CHECKING
 
 import pytest
@@ -67,15 +55,6 @@ DESIGN_SYSTEM_STATIC_DIR = (
     / "design_system"
     / "static"
 )
-
-#: Browser-facing telemetry base the dashboard is configured with. The port is
-#: deliberately not the deployed default, so an assertion on a URL built from it
-#: cannot pass against a hardcoded fallback.
-TELEMETRY_BASE = "http://localhost:5099"
-
-#: Telemetry store organization the dashboard is configured with. Deliberately
-#: not ``default``, so an assertion on it cannot pass against a hardcoded org.
-TELEMETRY_ORG = "ops-records"
 
 SESSION_ID = "3f8a1c02-0000-4000-8000-abcdefabcdef"
 RUN_ID = "run-with-everything"
@@ -156,7 +135,11 @@ STATE = {
 }
 
 
-def _create_dispatch_dashboard_app(telemetry_url: str, telemetry_org: str) -> FastAPI:
+#: The history page's URL as the dispatcher is handed it: the readers' origin.
+HISTORY_URL = "https://readers.example.org:10002/history/"
+
+
+def _create_dispatch_dashboard_app(history_url: str = "") -> FastAPI:
     """Serve the real ``render_dashboard_html()`` output beside the real design system."""
     from osprey.dispatch.dashboard import render_dashboard_html
 
@@ -171,8 +154,7 @@ def _create_dispatch_dashboard_app(telemetry_url: str, telemetry_org: str) -> Fa
             render_dashboard_html(
                 facility_name="Test Facility",
                 channel_strip_prefix="SR:",
-                telemetry_url=telemetry_url,
-                telemetry_org=telemetry_org,
+                history_url=history_url,
             )
         )
 
@@ -181,22 +163,15 @@ def _create_dispatch_dashboard_app(telemetry_url: str, telemetry_org: str) -> Fa
 
 @pytest.fixture
 def dashboard_url() -> Iterator[str]:
-    """A dashboard configured WITH a telemetry store."""
-    with _run_app_server(_create_dispatch_dashboard_app(TELEMETRY_BASE, TELEMETRY_ORG)) as base_url:
+    """The dashboard as the dispatcher serves it."""
+    with _run_app_server(_create_dispatch_dashboard_app()) as base_url:
         yield base_url
 
 
 @pytest.fixture
-def dashboard_url_no_telemetry() -> Iterator[str]:
-    """A dashboard deployed without a telemetry store (the env var is unset)."""
-    with _run_app_server(_create_dispatch_dashboard_app("", "")) as base_url:
-        yield base_url
-
-
-@pytest.fixture
-def dashboard_url_no_org() -> Iterator[str]:
-    """A dashboard given a telemetry store URL but no organization."""
-    with _run_app_server(_create_dispatch_dashboard_app(TELEMETRY_BASE, "")) as base_url:
+def dashboard_url_with_history() -> Iterator[str]:
+    """The dashboard of a deployment that serves the history page."""
+    with _run_app_server(_create_dispatch_dashboard_app(HISTORY_URL)) as base_url:
         yield base_url
 
 
@@ -234,17 +209,8 @@ def _action_labels(page: Page) -> list[str]:
     )
 
 
-def _telemetry_href(page: Page) -> str | None:
-    return page.evaluate(
-        """() => {
-            const a = document.querySelector('#run-detail .detail-actions a[href]');
-            return a ? a.href : null;
-        }"""
-    )
-
-
-def test_run_detail_offers_both_cross_links(chromium_browser: Browser, dashboard_url: str) -> None:
-    """With a live trigger and a session id, the run links to both."""
+def test_run_detail_links_to_its_trigger(chromium_browser: Browser, dashboard_url: str) -> None:
+    """With a live trigger, the run links to it, and to nothing outside the app."""
     page = chromium_browser.new_page(viewport=VIEWPORT)
     _open_run(page, dashboard_url, RUN_ID)
 
@@ -252,8 +218,8 @@ def test_run_detail_offers_both_cross_links(chromium_browser: Browser, dashboard
     assert any("View trigger" in label for label in labels), (
         f"the run detail should link to the trigger that started it, got {labels!r}"
     )
-    assert any("Logs" in label for label in labels), (
-        f"the run detail should link to its own telemetry, got {labels!r}"
+    assert not any("Logs" in label for label in labels), (
+        f"the run detail links to no telemetry store, got {labels!r}"
     )
     page.close()
 
@@ -291,177 +257,6 @@ def test_trigger_link_absent_when_the_trigger_was_deleted(
     page.close()
 
 
-def test_telemetry_link_absent_without_a_session_id(
-    chromium_browser: Browser, dashboard_url: str
-) -> None:
-    """No session id means no way to scope the query -- so no link."""
-    page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_run(page, dashboard_url, "run-no-session")
-
-    assert _telemetry_href(page) is None, (
-        "a run with no session id must not offer a telemetry link -- "
-        "the query would return every record in the window, not this run's"
-    )
-    page.close()
-
-
-def test_telemetry_link_absent_when_no_store_is_deployed(
-    chromium_browser: Browser, dashboard_url_no_telemetry: str
-) -> None:
-    """An unset telemetry URL is the deploy-time "no store" signal."""
-    page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_run(page, dashboard_url_no_telemetry, RUN_ID)
-
-    assert _telemetry_href(page) is None, (
-        "with no telemetry store deployed the dashboard must not offer a link to one"
-    )
-    # The trigger link is independent and must still be there, so this test
-    # cannot pass by the actions row having failed to render at all.
-    labels = _action_labels(page)
-    assert any("View trigger" in label for label in labels), (
-        f"the trigger link must not depend on telemetry config, got {labels!r}"
-    )
-    page.close()
-
-
-def test_telemetry_link_absent_without_an_org(
-    chromium_browser: Browser, dashboard_url_no_org: str
-) -> None:
-    """A store URL without an organization is not enough to build a link."""
-    page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_run(page, dashboard_url_no_org, RUN_ID)
-
-    assert _telemetry_href(page) is None, (
-        "with no telemetry org configured the dashboard must not offer a link"
-    )
-    labels = _action_labels(page)
-    assert any("View trigger" in label for label in labels), (
-        f"the trigger link must not depend on telemetry config, got {labels!r}"
-    )
-    page.close()
-
-
-def test_telemetry_link_actually_selects_this_run(
-    chromium_browser: Browser, dashboard_url: str
-) -> None:
-    """The href must carry a query scoped to THIS run's session.
-
-    The failure this guards is silent rather than loud: the logs UI drops a
-    query parameter it cannot parse and renders a normal-looking page covering
-    the whole time window. So the assertion decodes the query the way the store
-    does -- base64 with '=' padding rewritten to '.' -- and checks the session id
-    is really in it, rather than checking the link merely exists.
-    """
-    page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_run(page, dashboard_url, RUN_ID)
-
-    href = _telemetry_href(page)
-    assert href is not None, "expected a telemetry link for a run with a session id"
-    assert href.startswith(TELEMETRY_BASE), (
-        f"the link must point at the configured store, got {href!r}"
-    )
-
-    params = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
-    assert params.get("org_identifier") == [TELEMETRY_ORG], (
-        f"the link must open the configured org, got {params.get('org_identifier')!r}"
-    )
-    assert params.get("sql_mode") == ["true"], (
-        f"the query is only applied in SQL mode, got {params.get('sql_mode')!r}"
-    )
-
-    encoded = params["query"][0]
-    decoded = base64.b64decode(encoded.replace(".", "=")).decode()
-    assert SESSION_ID in decoded, (
-        f"the query must select this run's session, decoded to {decoded!r}"
-    )
-
-    # Pin the encoding exactly, not just that it decodes -- b64decode accepts
-    # several spellings of the same payload, so a decode-only check would wave
-    # through a format drift.
-    expected_sql = f"SELECT * FROM \"default\" WHERE session_id = '{SESSION_ID}'"
-    expected_query = base64.b64encode(expected_sql.encode()).decode().replace("=", ".")
-    assert encoded == expected_query, (
-        f"query encoding drifted from the store's own format: {encoded!r}"
-    )
-
-    # The window must bracket the run itself, or the correct query returns
-    # nothing.
-    started_us = 1785744790 * 1_000_000
-    assert int(params["from"][0]) <= started_us, "search window starts after the run did"
-    assert int(params["to"][0]) >= started_us + int(18.4 * 1_000_000), (
-        "search window ends before the run did"
-    )
-    page.close()
-
-
-def test_telemetry_query_rewrites_base64_padding(
-    chromium_browser: Browser, dashboard_url: str
-) -> None:
-    """Padded queries must spell their padding '.', the way the store's UI does.
-
-    Uses a session id chosen so the encoding actually pads (see
-    ``PADDED_SESSION_ID``) -- with a standard UUID this assertion would be
-    vacuously true, since that payload never pads and '=' could never appear
-    whether or not the rewrite exists.
-    """
-    page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_run(page, dashboard_url, PADDED_RUN_ID)
-
-    href = _telemetry_href(page)
-    assert href is not None, "expected a telemetry link for the padded-session run"
-    encoded = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)["query"][0]
-
-    # Guard the guard: if this payload stopped padding, the test below would
-    # silently stop testing anything.
-    unpadded_would_pad = (
-        base64.b64encode(
-            f"SELECT * FROM \"default\" WHERE session_id = '{PADDED_SESSION_ID}'".encode()
-        )
-        .decode()
-        .endswith("=")
-    )
-    assert unpadded_would_pad, (
-        "PADDED_SESSION_ID no longer produces a padded encoding -- pick another, "
-        "or this test proves nothing"
-    )
-
-    assert "=" not in encoded, f"base64 padding must be rewritten to '.', got {encoded!r}"
-    assert encoded.endswith("."), f"expected the rewritten padding character, got {encoded!r}"
-    assert (
-        base64.b64decode(encoded.replace(".", "="))
-        .decode()
-        .endswith(f"session_id = '{PADDED_SESSION_ID}'")
-    )
-    page.close()
-
-
-def test_telemetry_link_opens_outside_the_embedded_panel(
-    chromium_browser: Browser, dashboard_url: str
-) -> None:
-    """The store is another application, and this dashboard is embedded in an iframe.
-
-    Navigating in place would strand the operator inside the terminal's panel
-    with no way back, so the link must open a new context -- and carry
-    ``noopener``, since the target is not this app.
-    """
-    page = chromium_browser.new_page(viewport=VIEWPORT)
-    _open_run(page, dashboard_url, RUN_ID)
-
-    attrs = page.evaluate(
-        """() => {
-            const a = document.querySelector('#run-detail .detail-actions a[href]');
-            return { target: a.getAttribute('target'), rel: a.getAttribute('rel') };
-        }"""
-    )
-    assert attrs["target"] == "_blank", (
-        f"the telemetry link must open outside the embedded panel, got {attrs!r}"
-    )
-    assert "noopener" in (attrs["rel"] or ""), (
-        f"a link out of the app must carry noopener, got {attrs!r}"
-    )
-    page.close()
-
-
 def test_view_trigger_navigates_to_that_trigger(
     chromium_browser: Browser, dashboard_url: str
 ) -> None:
@@ -482,4 +277,57 @@ def test_view_trigger_navigates_to_that_trigger(
     # And the screen really painted that trigger, not just the router state.
     title = page.locator("#view-trigger .detail-title").inner_text()
     assert title == TRIGGER_NAME, f"trigger detail shows {title!r}"
+    page.close()
+
+
+def _history_link(page: Page) -> dict | None:
+    """The run detail's history link: its href, target, rel and label, or None."""
+    return page.evaluate(
+        """() => {
+             const a = Array.from(document.querySelectorAll('#run-detail .detail-actions a'))
+               .find(e => e.textContent.includes('history'));
+             return a ? { href: a.getAttribute('href'), target: a.target, rel: a.rel,
+                          label: a.textContent.trim() } : null;
+           }"""
+    )
+
+
+def test_the_run_links_to_its_session_on_the_history_page(
+    chromium_browser: Browser, dashboard_url_with_history: str
+) -> None:
+    """With the page deployed, the run opens its session there, in a new tab."""
+    page = chromium_browser.new_page(viewport=VIEWPORT)
+    _open_run(page, dashboard_url_with_history, RUN_ID)
+
+    link = _history_link(page)
+    assert link == {
+        "href": f"{HISTORY_URL}session/{SESSION_ID}",
+        "target": "_blank",
+        "rel": "noopener noreferrer",
+        "label": "history (history: all and readers)",
+    }, link
+    page.close()
+
+
+def test_no_history_link_without_the_history_page(
+    chromium_browser: Browser, dashboard_url: str
+) -> None:
+    """An unset OSPREY_HISTORY_URL is the deploy-time "no page" signal."""
+    page = chromium_browser.new_page(viewport=VIEWPORT)
+    _open_run(page, dashboard_url, RUN_ID)
+
+    assert _history_link(page) is None
+    labels = _action_labels(page)
+    assert any("View trigger" in label for label in labels), labels
+    page.close()
+
+
+def test_no_history_link_without_a_session_id(
+    chromium_browser: Browser, dashboard_url_with_history: str
+) -> None:
+    """A run with no session id has nothing to open on the history page."""
+    page = chromium_browser.new_page(viewport=VIEWPORT)
+    _open_run(page, dashboard_url_with_history, "run-no-session")
+
+    assert _history_link(page) is None
     page.close()

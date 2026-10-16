@@ -109,11 +109,11 @@ async def test_full_mode_emits_available_and_per_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch(monkeypatch, version_proc=_FakeProc(b"Docker version 27.0.0"))
-    config = {"deployed_services": ["openobserve", "web"]}
+    config = {"deployed_services": ["telemetry_store", "web"]}
     results = await containers(config, probe=_echo_probe())()
 
     names = [r.name for r in results]
-    assert names == ["docker_available", "container_openobserve", "container_web"]
+    assert names == ["docker_available", "container_telemetry_store", "container_web"]
     assert results[0].status is Status.OK
     assert "Docker version 27.0.0" in results[0].message
     assert all(r.category == "containers" for r in results)
@@ -123,10 +123,14 @@ async def test_full_mode_emits_available_and_per_service(
 async def test_probe_receives_expected_spec(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch(monkeypatch, version_proc=_FakeProc(b"Docker version 27.0.0"))
     captured: list[dict] = []
-    await containers({"deployed_services": ["openobserve"]}, probe=_echo_probe(captured))()
+    await containers({"deployed_services": ["telemetry_store"]}, probe=_echo_probe(captured))()
 
     assert captured == [
-        {"container": "openobserve", "name": "container_openobserve", "category": "containers"}
+        {
+            "container": "telemetry_store",
+            "name": "container_telemetry_store",
+            "category": "containers",
+        }
     ]
 
 

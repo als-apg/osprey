@@ -4,6 +4,7 @@ Manages the lifecycle of containerized service deployments using
 Docker or Podman compose.
 """
 
+import contextlib
 import hashlib
 import ipaddress
 import json
@@ -27,6 +28,7 @@ from osprey.cli import output
 from osprey.cli.phase_reporter import current_reporter
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
+from osprey.deployment import telemetry_config
 from osprey.deployment.build_progress import BuildModel, with_plain_build_progress
 from osprey.deployment.compose_generator import (
     COMPOSE_ENV_FILENAME,
@@ -44,6 +46,7 @@ from osprey.deployment.compose_generator import (
     resolve_repo_root,
     resolve_site_image_axes,
 )
+from osprey.deployment.compose_watch import watched_compose_up
 from osprey.deployment.deploy_summary import log_endpoint_summary
 from osprey.deployment.errors import (
     ArchiverClientMissingError,
@@ -67,6 +70,7 @@ from osprey.deployment.runtime_helper import (
     PODMAN_COMPOSE_PROVIDER_REMEDY,
     ComposeProvider,
     UnsupportedComposeProviderError,
+    buildkit_missing,
     detect_compose_provider,
     get_runtime_command,
     podman_compose_provider_advisory,
@@ -78,16 +82,16 @@ from osprey.deployment.service_tokens import (
     _VAR_GENERATORS,  # noqa: F401  (re-exported for tests)
     _VAR_VALIDATORS,  # noqa: F401  (re-exported for tests)
     _effective_value,
-    _generate_openobserve_password,  # noqa: F401  (re-exported for tests)
     _generate_token,
     _is_forbidden_value,
     _raise_forbidden_var,
     _raise_invalid_var,
-    _validate_openobserve_password,  # noqa: F401  (re-exported for tests)
     _validate_var,
 )
 from osprey.deployment.staleness import BUILD_DIRNAME, warn_if_project_stale
 from osprey.deployment.subprocess_capture import run_captured
+from osprey.deployment.telemetry_store.stage import compose_executor
+from osprey.deployment.telemetry_store.stage import stage_store as stage_telemetry_store
 from osprey.deployment.web_terminals.env_production import migrate_users_env
 from osprey.deployment.web_terminals.lifecycle import remove_orphan_terminals
 from osprey.deployment.web_terminals.provision import (
@@ -128,32 +132,18 @@ logger = get_logger("deployment.lifecycle")
 # ``deployed_services``, so the membership guard in ``_ensure_service_tokens``
 # would skip it and the key would never mint.
 #
-# openobserve is included for a DIFFERENT reason than the others. Its compose
-# template *does* carry an insecure ``${ZO_ROOT_USER_PASSWORD:-Complexpass#123}``
-# default, so a deploy does not fail without a real secret — left alone it
-# silently comes up on a shared, publicly-known password. Because that store
-# captures full agent conversation transcripts (every telemetry content gate
-# defaults ON), minting a per-deploy ``ZO_ROOT_USER_PASSWORD`` replaces the
-# shared default with a strong secret that BOTH the container and the agent's
-# telemetry resolver read from the same ``.env`` value (single source of truth).
-# The agent's config references ``${ZO_ROOT_USER_PASSWORD:-Complexpass#123}``, so
-# it stays launchable before the first deploy and picks up the minted value on
-# its next launch. The email is a username, not a secret (it has a sensible
-# non-secret default), so only the password is minted. See
-# ``_generate_openobserve_password`` for why a plain token recipe won't do.
-#
-# postgresql follows the openobserve rationale: its compose template carries an
-# insecure ``${ARIEL_DB_PASSWORD:-ariel}`` default, so left alone the ARIEL
-# store comes up on a shared, publicly-known password. Minting a per-deploy
+# postgresql is included for a DIFFERENT reason than the others. Its compose
+# template *does* carry an insecure ``${ARIEL_DB_PASSWORD:-ariel}`` default, so
+# a deploy does not fail without a real secret — left alone the ARIEL store
+# silently comes up on a shared, publicly-known password. Minting a per-deploy
 # ``ARIEL_DB_PASSWORD`` replaces it with a strong secret that the container
 # (POSTGRES_PASSWORD) and the agent's DSN (derived from the ``services.postgresql``
 # block by ``resolve_ariel_dsn``, which substitutes the same
 # ``${ARIEL_DB_PASSWORD:-ariel}``) read from the same ``.env`` value. An explicit
 # ``ariel.database.uri`` still wins when a project sets one.
 # NOTE: Postgres only reads POSTGRES_PASSWORD when *initializing* a fresh data
-# volume — a pre-existing volume keeps its original password (same
-# stale-volume caveat as openobserve; recreate the volume to adopt the minted
-# value).
+# volume — a pre-existing volume keeps its original password (recreate the
+# volume to adopt the minted value).
 #
 # mongodb is the archiver store, and follows the same shape one step further:
 # its compose template carries an insecure ``${MONGO_ROOT_PASSWORD:-osprey}``
@@ -169,7 +159,7 @@ logger = get_logger("deployment.lifecycle")
 # NOTE: mongod, like postgres, reads its root credentials only when
 # initializing a fresh data volume — the same stale-volume caveat applies.
 #
-# graphdb is the Neo4j knowledge-graph store, and follows the openobserve
+# graphdb is the Neo4j knowledge-graph store, and follows the postgresql
 # rationale with one wrinkle the other three do not have: its compose template
 # passes credentials as the COMPOSITE ``NEO4J_AUTH: "neo4j/${GRAPHDB_PASSWORD:-…}"``,
 # so the minted value is only the password half. Left alone the store comes up
@@ -210,7 +200,6 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     # account as the owner of a write. A deployment with only this service
     # still needs both.
     "trajectory": ("TRAJECTORY_LAUNCH_TOKEN", "OSPREY_TERMINAL_SECRET"),
-    "openobserve": ("ZO_ROOT_USER_PASSWORD",),
     # Two identities on one store: the owner ingestion writes with, and the
     # SELECT-only role the agent's raw-SQL path connects as. Both are read by
     # Postgres only while it initializes a fresh volume, and both fill the
@@ -218,49 +207,6 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "postgresql": ("ARIEL_DB_PASSWORD", "ARIEL_DB_READONLY_PASSWORD"),
     "mongodb": ("MONGO_ROOT_PASSWORD",),
     "graphdb": ("GRAPHDB_PASSWORD",),
-}
-
-# Non-secret settings written into ``.env`` for a deployed service, as
-# ``service -> ((var, default), ...)``. Keyed by ``deployed_services`` membership
-# exactly like ``_SERVICE_TOKEN_VARS``, and never overwriting a value that is
-# already there — but a DIFFERENT concern, which is why it is a different map.
-#
-# ``_SERVICE_TOKEN_VARS`` declares machine-generated secrets, and every name it
-# reaches is minted through ``_VAR_GENERATORS`` under that module's CSPRNG bar.
-# A constant is not a secret and has no recipe, so registering one there would
-# mean writing a generator that returns a fixed string — a value the bar has no
-# meaning for, sitting in the map an operator reads to learn what osprey
-# considers secret.
-#
-# The reason to write a default down at all is discoverability. Both halves of
-# the OpenObserve login are needed to reach the store, and the email previously
-# existed only as a ``:-`` fallback inline in the compose template and the
-# rendered config.yml. An operator looking for their credentials found a
-# password in ``.env``, no email anywhere, and nothing naming the file that
-# would have told them. Writing the default makes ``.env`` the whole answer,
-# and — because it is the same value the ``:-`` fallback resolves to — records
-# the login rather than changing it.
-_SERVICE_DEFAULT_VARS: dict[str, tuple[tuple[str, str], ...]] = {
-    "openobserve": (
-        # Must stay equal to the ``${ZO_ROOT_USER_EMAIL:-…}`` fallback in
-        # ``osprey/templates/services/openobserve/docker-compose.yml.j2``; the
-        # mint tests parse the template and pin the two together.
-        ("ZO_ROOT_USER_EMAIL", "root@example.com"),
-        # The telemetry INGEST account: the identity the agent authenticates as
-        # when it ships telemetry, so root's credentials never travel into a
-        # rendered ``config.yml`` or a web-terminal environment. An account
-        # name, not a secret — written down for exactly the discoverability
-        # reason the root email is, and never overwritten when an operator
-        # names their own.
-        #
-        # Unlike the root email this one has NO ``:-`` fallback in the
-        # openobserve compose template, and must not grow one. The store reads
-        # ``ZO_ROOT_USER_*`` to initialize itself and knows nothing about this
-        # account until the post-start provisioner creates it through the API;
-        # the fallback that matters belongs to the *agent's* telemetry config,
-        # which is where a reader of ``config.yml`` looks for it.
-        ("ZO_INGEST_USER_EMAIL", "ingest@example.com"),
-    ),
 }
 
 # Vars checked against their _VAR_VALIDATORS constraint when present, but
@@ -365,12 +311,6 @@ class VolumeInitializedStore(NamedTuple):
 #: ``_preflight_stale_store_volumes`` is the only thing standing between that
 #: operator and a login that will not work for reasons nothing has named.
 _VOLUME_INITIALIZED_VARS: dict[str, VolumeInitializedStore] = {
-    "ZO_ROOT_USER_PASSWORD": VolumeInitializedStore(
-        service="openobserve",
-        volume="openobserve_data",
-        container="-openobserve",
-        cred_env="ZO_ROOT_USER_PASSWORD",
-    ),
     "ARIEL_DB_PASSWORD": VolumeInitializedStore(
         service="postgresql",
         volume="ariel_postgres_data",
@@ -421,73 +361,6 @@ _VOLUME_INITIALIZED_VARS: dict[str, VolumeInitializedStore] = {
     ),
 }
 
-
-class StoreIssuedCredential(NamedTuple):
-    """Where one credential this deploy does NOT choose comes from.
-
-    Two names, both of which a provisioner needs and neither of which any other
-    registry in this module records:
-
-    * ``service`` — the ``deployed_services`` key whose store issues the
-      credential, and the name shown to the operator;
-    * ``identity_var`` — the ``.env`` variable naming the *account* the secret
-      belongs to. A store-issued secret is meaningless without the identity it
-      was issued for: both halves are presented together on every request, and
-      a provisioner asking the store for "the token" has to say whose.
-    """
-
-    service: str
-    identity_var: str
-
-
-#: Secrets the STORE issues and this deploy only records — the inverse of every
-#: other credential registry in this module, and the reason it is a registry of
-#: its own rather than an entry in one of them.
-#:
-#: ``_SERVICE_TOKEN_VARS`` + ``_VAR_GENERATORS`` say "osprey chooses this value
-#: before the stack starts". ``_VOLUME_INITIALIZED_VARS`` says "osprey chose it,
-#: and a surviving volume may not have adopted it". Neither sentence is true
-#: here: OpenObserve mints a service account's token itself (a 16-character
-#: alphanumeric string, read back with ``GET /api/{org}/service_accounts/{email}``
-#: once the container is live), so the value simply does not exist at the moment
-#: every other credential in this file is written.
-#:
-#: What each of the three obvious registrations would actually do, since a
-#: reader's instinct is that one of them must fit:
-#:
-#: * ``_VAR_GENERATORS`` would FABRICATE a token the store never issued. The
-#:   ``.env`` would look perfectly healthy and every telemetry request would
-#:   401 — the failure this registry exists to make impossible.
-#: * ``_VAR_VALIDATORS`` grades osprey's own recipes. ``_validate_openobserve_password``
-#:   (8–128 characters, four character classes) rejects a legitimate
-#:   16-character alphanumeric server token outright, so registering it would
-#:   refuse every working deploy; and a value the store chose is not osprey's
-#:   to grade in the first place.
-#: * ``_VOLUME_INITIALIZED_VARS`` misfires twice, either half of it fatally.
-#:   Its harvest reads the credential out of the store container's *environment*
-#:   (``cred_env``), and a service-account token was never in any container's
-#:   environment — it lives inside the volume's own database — so
-#:   ``_harvest_original_credential`` would answer ``None`` forever and
-#:   ``--reuse-stores`` would report an adoptable store as unrecoverable. Worse,
-#:   ``_volume_initialized_vars_that_would_be_minted`` predicts a mint for every
-#:   registered var carrying no non-empty value, and ``deploy_restart`` hands
-#:   that prediction to ``_preflight_stale_store_volumes`` as ``minted`` — so a
-#:   restart with a surviving ``openobserve`` volume and a not-yet-harvested
-#:   token would abort as stale, over a credential that is absent exactly as
-#:   designed.
-#:
-#: What the registration IS for: this name reaches ``.env`` from a deploy-time
-#: writer, just later in the run than the others, and that is precisely what
-#: ``_deploy_written_env_vars`` has to know. Being in the census makes a
-#: ``env.pinned`` declaration on it refuse (``_preflight_pinned_writers`` — the
-#: deploy writes it, so no chain can own it), and stops the required-env probe
-#: from telling an operator to supply a value only the store can produce.
-_STORE_ISSUED_VARS: dict[str, StoreIssuedCredential] = {
-    "ZO_INGEST_SA_TOKEN": StoreIssuedCredential(
-        service="openobserve",
-        identity_var="ZO_INGEST_USER_EMAIL",
-    ),
-}
 
 # Service key of the Bluesky plan lane every project has had since the bridge
 # shipped, and the keys the OPT-IN second lane can take. A lane is named for
@@ -957,54 +830,6 @@ def _ensure_service_tokens(
             minted_volume_initialized |= {
                 name for name in generated if name in _VOLUME_INITIALIZED_VARS
             }
-
-    # Write the non-secret service settings (_SERVICE_DEFAULT_VARS) for every
-    # deployed service that declares one. Its OWN block, outside `if
-    # required_vars:` and outside `if generated:`, and that placement is the
-    # whole upgrade path: the mint is idempotent, so a project deployed before
-    # this existed has a `.env` carrying a password and no email, generates
-    # nothing on its next deploy, and would never receive the line if this rode
-    # along with the minted block. Exactly the deployments that need it are the
-    # ones with nothing left to mint.
-    #
-    # Presence is read the same way the mint reads it — process env over `.env`,
-    # non-empty — so an operator's value is never overwritten and a re-run
-    # appends nothing. Reported separately from the token ledger, and the VALUE
-    # is shown: these are account names, not secrets, and an operator who cannot
-    # see what was written is back where they started.
-    defaults: dict[str, str] = {}
-    existing_defaults = parse_dotenv_file(env_path) if env_path.is_file() else {}
-    for svc_name, var_defaults in _SERVICE_DEFAULT_VARS.items():
-        if svc_name not in services:
-            continue
-        for var, default in var_defaults:
-            if _effective_value(var, existing_defaults).strip():
-                continue  # keep the operator's value
-            defaults[var] = default
-
-    if defaults:
-        _append_env_block(
-            env_path,
-            "Service account names (osprey up) — not secrets",
-            defaults,
-        )
-        # Same repair the mint makes, for the same reason: the deploy loaded
-        # this `.env` over the process environment before we got here, so a name
-        # the file spelled EMPTY left an empty copy in `os.environ` that
-        # outranks the `--env-file` line for compose's interpolation. Without
-        # this the container receives the blank while `.env` shows the default —
-        # written down and not delivered. Names absent from the environment stay
-        # absent and reach the containers through `--env-file` as usual.
-        for var, value in defaults.items():
-            if var in os.environ:
-                os.environ[var] = value
-        _report_fact(
-            f"wrote {len(defaults)} service account name(s) → .env",
-            wrote=(
-                ".env",
-                ", ".join(f"{var}={value}" for var, value in defaults.items()),
-            ),
-        )
 
     # Validate the effective value of every required var — whichever of
     # process env, an existing .env, or a value just minted above the caller
@@ -1990,9 +1815,7 @@ def _assert_env_interpolation_safe(var: str, value: str) -> None:
     what the mint happened to draw.
 
     Every OTHER secret this module mints already avoids the problem by
-    construction (``token_urlsafe``/``token_hex`` alphabets, and OpenObserve's
-    recipe explicitly excludes ``$`` for exactly this family of reasons), so
-    this guard exists for values whose alphabet is not ours to choose: an
+    construction (``token_urlsafe``/``token_hex`` alphabets), so this guard exists for values whose alphabet is not ours to choose: an
     operator-supplied key, or a public half derived from one. Freshly minted
     pairs are re-drawn instead of refused — see `_derive_qserver_keypair`.
 
@@ -2086,9 +1909,11 @@ def _resolve_claude_cli_version(config: dict) -> str:
     single source of that fallback (``osprey.cli.templates.scaffolding``), so the
     build-time CLI pin never drifts from the value the Dockerfile documents.
     """
-    version = config.get("claude_code", {}).get("cli_version")
+    from osprey.agent_runner.launcher import pinned_cli_version
+
+    version = pinned_cli_version(config.get("claude_code") or {})
     if version:
-        return str(version)
+        return version
     # Lazy import: keep the CLI-templates package off the deploy import path
     # unless the fallback is actually needed.
     from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
@@ -2516,6 +2341,20 @@ def _resolve_prebuilt_images(config: dict) -> bool:
 _PROJECT_IMAGE_SERVICES = ("dispatch_worker", "ariel_sync", "archive", "trajectory")
 
 
+def _deployed_project_image_services(config: dict) -> list[str]:
+    """Every service this deployment renders on the project image's compose line.
+
+    The :data:`_PROJECT_IMAGE_SERVICES` it deploys by name, plus the history
+    page, which is never a ``deployed_services`` entry: it is rendered exactly
+    when :func:`~osprey.deployment.telemetry_config.history_page_deployed` holds.
+    """
+    deployed = {str(s) for s in (config.get("deployed_services") or [])}
+    services = [service for service in _PROJECT_IMAGE_SERVICES if service in deployed]
+    if telemetry_config.history_page_deployed(config):
+        services.append(telemetry_config.HISTORY_SERVICE)
+    return services
+
+
 def _service_image_target(config: dict, env: dict, service: str) -> str:
     """The image ``service`` will actually run.
 
@@ -2554,7 +2393,7 @@ def _project_image_build_target(config: dict, env: dict) -> str | None:
     build will happen at all without running it. Three ways it does not: this
     host says its images are prebuilt (:func:`_resolve_prebuilt_images`), this
     deployment deploys none of the services that run the project image
-    (:data:`_PROJECT_IMAGE_SERVICES`), or every one it deploys names another
+    (:func:`_deployed_project_image_services`), or every one it deploys names another
     image (:func:`_service_image_target`).
 
     The prebuilt switch is asked first and outranks the rest, because it is a
@@ -2579,10 +2418,9 @@ def _project_image_build_target(config: dict, env: dict) -> str | None:
     if _resolve_prebuilt_images(config):
         return None
     project_image = str(resolve_image_defaults(config)["worker"])
-    services = {str(s) for s in (config.get("deployed_services") or [])}
     if any(
-        service in services and _service_image_target(config, env, service) == project_image
-        for service in _PROJECT_IMAGE_SERVICES
+        _service_image_target(config, env, service) == project_image
+        for service in _deployed_project_image_services(config)
     ):
         return project_image
     return None
@@ -2747,8 +2585,8 @@ def _build_project_image(
         if _resolve_prebuilt_images(config):
             project_tag = resolve_image_defaults(config)["worker"]
             if any(
-                service in services and _service_image_target(config, env, service) == project_tag
-                for service in _PROJECT_IMAGE_SERVICES
+                _service_image_target(config, env, service) == project_tag
+                for service in _deployed_project_image_services(config)
             ):
                 _report_group("images")
                 _report_step("skipped image build (prebuilt images)")
@@ -3569,26 +3407,19 @@ def _deploy_written_env_vars() -> set[str]:
     must not depend on which services happen to be enabled today — otherwise
     the contradiction stays invisible until the deploy that first turns one on.
 
-    Five writers, all of them appending to (or rewriting) the local file on the
+    Three writers, all of them appending to (or rewriting) the local file on the
     ordinary start path:
 
     * :data:`_SERVICE_TOKEN_VARS` — the minted secrets;
-    * :data:`_SERVICE_DEFAULT_VARS` — the non-secret settings written down for
-      discoverability;
     * the RE manager's control-socket keypair
       (:func:`_ensure_bluesky_control_plane_keys`);
     * the credentials ``--reuse-stores`` restores from surviving data volumes
       (:func:`_adopt_original_credentials`, over
-      :data:`_VOLUME_INITIALIZED_VARS`);
-    * the secrets a live store issues and the deploy harvests back into ``.env``
-      (:data:`_STORE_ISSUED_VARS`). Later in the run than the rest — the value
-      does not exist until the container is up — but written by this command all
-      the same, which is the only thing this census asks.
+      :data:`_VOLUME_INITIALIZED_VARS`).
 
     :return: The names, as one set.
     """
     written = {var for names in _SERVICE_TOKEN_VARS.values() for var in names}
-    written |= {var for pairs in _SERVICE_DEFAULT_VARS.values() for var, _default in pairs}
     # Every lane's control-plane pair, not only lane 1's: the census is a
     # census of names this command can write, and a two-lane deploy writes two
     # pairs. Enumerated from the lane keys rather than from this deploy's
@@ -3596,7 +3427,6 @@ def _deploy_written_env_vars() -> set[str]:
     for _lane_key in (_BLUESKY_LANE_ONE, *_BLUESKY_SECOND_LANE_KEYS):
         written |= set(_qserver_zmq_key_vars(_lane_key))
     written |= set(_VOLUME_INITIALIZED_VARS)
-    written |= set(_STORE_ISSUED_VARS)
     return written
 
 
@@ -3633,8 +3463,8 @@ def _preflight_pinned_writers(repo_root: Path | str) -> list[str]:
         "Pinned variable is machine-minted: env.pinned declares %s, which the deploy "
         "writes into %s itself.\n"
         "  A pin says the chain under this root is the variable's only source, and these "
-        "names are provisioned by `osprey up` — the service token mint, the service "
-        "defaults, the bluesky provisioners, or the credential `--reuse-stores` restores "
+        "names are provisioned by `osprey up` — the service token mint, the bluesky "
+        "provisioners, or the credential `--reuse-stores` restores "
         "from a surviving data volume. The declaration cannot hold against a writer in "
         "the same command.\n"
         "  %s",
@@ -3900,8 +3730,7 @@ def _preflight_env_shadowing(
     pointed at it explicitly (see :func:`_env_file_args`). But the env file is
     not the last word on document interpolation, and *which* word it is depends
     on the provider (see below). Either way a stale export means the stack can
-    start on a value its volumes were never initialized with — an openobserve
-    that will not accept the password in the chain, a database whose data
+    start on a value its volumes were never initialized with — a database whose data
     directory answers to the chain's value while the container is handed
     another one.
 
@@ -4391,6 +4220,41 @@ def _preflight_bluesky_network_backend(config: dict) -> None:
     )
 
 
+def _preflight_buildkit(config: dict) -> None:
+    """Refuse a docker image build this host cannot parse, before anything is built.
+
+    See :func:`~osprey.deployment.runtime_helper.buildkit_missing` for what is
+    asked and why podman is exempt. A refusal rather than an advisory: unlike
+    the provider pairing below, a Docker without BuildKit fails every build of
+    every service image, so there is no host on which carrying on helps.
+
+    A host that runs prebuilt images builds nothing, so it is never asked.
+
+    Total on a host with no usable runtime, like its sibling below:
+    ``verify_runtime_is_running`` owns that refusal.
+
+    The environment is the one the build itself runs with -- the process
+    environment with the shell values the entry-time ``.env`` load replaced put
+    back -- so a ``DOCKER_BUILDKIT`` the build would see is the one read here.
+
+    :param config: Raw deploy config, for the runtime and the prebuilt switch.
+    :raises RuntimeError: Docker would build these images with the legacy builder.
+    """
+    if _resolve_prebuilt_images(config):
+        return
+
+    try:
+        runtime = get_runtime_command(config)[0]
+    except RuntimeError:
+        return
+
+    from osprey.utils.config import dotenv_shell_overrides
+
+    refusal = buildkit_missing(runtime, {**os.environ, **dotenv_shell_overrides()})
+    if refusal is not None:
+        raise RuntimeError(refusal)
+
+
 def _preflight_podman_compose_provider(config: dict, provider: ComposeProvider) -> None:
     """Name the podman + Docker-Compose-v2 registry break before anything is built.
 
@@ -4601,54 +4465,6 @@ def _preflight_host_ports(config, compose_files):
         f"host port preflight failed: {len(conflicts)} "
         f"conflict{'' if len(conflicts) == 1 else 's'} (see report above)"
     )
-
-
-def _preflight_store_address(config, compose_files):
-    """Abort the start if the compose file publishes the telemetry store off its configured port.
-
-    A start renders nothing, so a hand-edit to one of the two files in ``build/``
-    (the config or the store's compose file) is started as written. The config
-    is the side every client reads: the agent's exporter, ``osprey health`` and
-    the ingest-account provisioner all dial ``services.openobserve.port``, so a
-    store published anywhere else would be started where none of them looks.
-    This runs before any container is touched, and it opens no compose file for
-    a project that does not deploy the store.
-
-    :param config: Loaded configuration dictionary
-    :type config: dict
-    :param compose_files: Rendered compose file paths for this start
-    :type compose_files: list[str]
-    :raises RuntimeError: If the store's port cannot be read, or the compose
-        file publishes the store on a different host port
-    """
-    from osprey.build.claude_code_telemetry import OPENOBSERVE_PORT_REMEDY
-    from osprey.deployment import openobserve_provision
-
-    if not openobserve_provision.store_deployed(config):
-        return
-    try:
-        mismatch = openobserve_provision.store_publish_mismatch(
-            config, parse_host_port_bindings(compose_files)
-        )
-    except ValueError as exc:
-        output.fail(
-            "The telemetry store's host port cannot be read",
-            str(exc),
-            OPENOBSERVE_PORT_REMEDY,
-        )
-        raise RuntimeError("telemetry store port preflight failed (see report above)") from exc
-    if mismatch is None:
-        return
-    output.fail(
-        f"The telemetry store is published on port {mismatch.published}, "
-        f"but its clients dial {mismatch.configured}",
-        f"{mismatch.compose_file} publishes it on {mismatch.published}; "
-        f"services.openobserve.port in the rendered config resolves to {mismatch.configured}, "
-        "which is where the ingest account is provisioned, osprey health probes, "
-        "and every agent exports.",
-        "Run `osprey build` to render both from services.openobserve.port.",
-    )
-    raise RuntimeError("telemetry store port preflight failed (see report above)")
 
 
 # ---------------------------------------------------------------------------
@@ -5092,7 +4908,10 @@ def _stage_archiver_store(
     _report_group("archiver")
     up_cmd = base_cmd + ["up", "-d", _ARCHIVER_STORE_SERVICE]
     logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
-    run_captured(up_cmd, env=run_env, spool_name="archiver-store-up", repo_root=project_dir)
+    with watched_compose_up(up_cmd, config=config, env=run_env) as bounds:
+        run_captured(
+            up_cmd, env=run_env, spool_name="archiver-store-up", repo_root=project_dir, **bounds
+        )
     _report_step("archiver store started")
 
     # Assembled while the store boots, and before the health budget starts: this
@@ -5342,7 +5161,10 @@ def _stage_ariel_store(
     _report_group("ariel")
     up_cmd = base_cmd + ["up", "-d", _ARIEL_STORE_SERVICE]
     logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
-    run_captured(up_cmd, env=run_env, spool_name="ariel-store-up", repo_root=project_dir)
+    with watched_compose_up(up_cmd, config=config, env=run_env) as bounds:
+        run_captured(
+            up_cmd, env=run_env, spool_name="ariel-store-up", repo_root=project_dir, **bounds
+        )
     _report_step("ARIEL store started")
 
     ariel_config = _ariel_store_config(config, project_dir)
@@ -5667,6 +5489,133 @@ def _bake_graph_prompt_snapshot(session, project_dir: Path) -> None:
         _report_step(f"graph schema baked into {prompt_snapshot.describe_patched(patched)}")
 
 
+def _guard_ledger_feed(config, project_dir: Path) -> list:
+    """Quarantine non-regular ledger paths and list the directories nobody reads.
+
+    Each ``*.jsonl`` under an identity directory that is not a regular file — a
+    FIFO or a symlink — is renamed ``<name>.refused-<UTC ts>`` (a FIFO is first
+    opened for writing and closed, which frees a gateway blocked opening it),
+    and its path is printed. Every ``var/audit`` directory the built gateway
+    configuration has no receiver for is listed as not fed until the next
+    build.
+
+    :param config: Raw deploy config.
+    :param project_dir: Root of the built project.
+    :returns: The paths moved aside (empty when nothing was).
+    :raises RuntimeError: When a non-regular path cannot be renamed.
+    """
+    if not telemetry_config.gateway_deployed(config):
+        return []
+    from osprey.deployment.telemetry_gateway import (
+        COLLECTOR_CONFIG_FILE,
+        quarantine_hostile_ledgers,
+    )
+    from osprey.health.core.telemetry_gateway import unfed_directories
+    from osprey.utils.workspace import AUDIT_DIR_RELPATH
+
+    audit_root = project_dir / AUDIT_DIR_RELPATH
+    if not audit_root.is_dir():
+        return []
+    quarantined = quarantine_hostile_ledgers(audit_root)
+    for moved in quarantined:
+        _warn_fact(
+            f"Moved aside a ledger path that is not a regular file: {moved.path}",
+            f"Kept as {moved.moved_to.name}; the gateway reads regular files only.",
+        )
+    built = (
+        project_dir
+        / "build"
+        / "services"
+        / telemetry_config.GATEWAY_SERVICE
+        / COLLECTOR_CONFIG_FILE
+    )
+    try:
+        collector = yaml.safe_load(built.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return quarantined
+    if not isinstance(collector, dict):
+        return quarantined
+    unfed = unfed_directories(audit_root, collector)
+    if unfed:
+        _report_fact(f"Audit directories not fed until the next build: {', '.join(unfed)}")
+    return quarantined
+
+
+def _recreate_ledger_gateway(config, compose_files, env, project_dir, *, provider=None) -> None:
+    """Remove the running gateway so the ``up`` that follows starts a fresh one.
+
+    Renaming a FIFO or an endless file does not close the descriptor a running
+    reader already holds on it: that reader stays blocked, keeps the moved path
+    open and ignores the shutdown signal, so every later stop of the gateway
+    runs to its timeout. Only a new process lets go of it. The stop here may
+    itself run to the timeout (that is the stuck reader); the reader offsets
+    live in the gateway's storage volume, so the new gateway resumes every
+    regular ledger where the old one left it.
+
+    :param config: Raw deploy config.
+    :param compose_files: Rendered compose file paths for this deploy.
+    :param env: The environment the deploy hands compose.
+    :param project_dir: Root of the built project.
+    :param provider: The compose provider this deploy resolved. ``None`` is the
+        docker shape.
+    """
+    run_env = runtime_env(config, {**env, **compose_provider_env(provider, project_dir)})
+    base_cmd = compose_base_cmd(
+        get_runtime_command(config),
+        compose_files,
+        project_dir,
+        _env_file_args(project_dir, provider),
+        provider,
+    )
+    for verb, spool in (
+        (["stop", telemetry_config.GATEWAY_SERVICE], "telemetry-gateway-stop"),
+        (["rm", "-f", telemetry_config.GATEWAY_SERVICE], "telemetry-gateway-rm"),
+    ):
+        cmd = base_cmd + verb
+        logger.debug(f"Running command:\n    {' '.join(cmd)}")
+        run_captured(cmd, env=run_env, spool_name=spool, repo_root=project_dir, check=False)
+    _report_step("telemetry gateway removed, so the start below runs a fresh one")
+
+
+def _stage_telemetry_store(config, compose_files, env, project_dir, *, provider=None) -> None:
+    """Start the telemetry store alone and bring its schema and accounts up to date.
+
+    Unlike the graph store's staging, a failure here stops ``osprey up``: the
+    accounts script carries every withdrawal, so a store left short of it may
+    still let a withdrawn reader read. The error names the statement or the
+    table that stopped it (see :mod:`osprey.deployment.telemetry_store.stage`).
+
+    :param config: Raw deploy config.
+    :param compose_files: Rendered compose file paths for this deploy.
+    :param env: The environment the deploy hands compose.
+    :param project_dir: Root of the built project (holds the credential files).
+    :param provider: The compose provider this deploy resolved. ``None`` is the
+        docker shape.
+    """
+    if not telemetry_config.store_deployed(config):
+        return
+
+    run_env = runtime_env(config, {**env, **compose_provider_env(provider, project_dir)})
+    base_cmd = compose_base_cmd(
+        get_runtime_command(config),
+        compose_files,
+        project_dir,
+        _env_file_args(project_dir, provider),
+        provider,
+    )
+
+    _report_group("telemetry store")
+    up_cmd = base_cmd + ["up", "-d", telemetry_config.STORE_SERVICE]
+    logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
+    with watched_compose_up(up_cmd, config=config, env=run_env) as bounds:
+        run_captured(
+            up_cmd, env=run_env, spool_name="telemetry-store-up", repo_root=project_dir, **bounds
+        )
+    _report_step("telemetry store started")
+    stage_telemetry_store(config, project_dir, compose_executor(base_cmd, run_env))
+    _report_step("telemetry store schema and accounts applied")
+
+
 def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=None) -> None:
     """Start the graph store, bootstrap it, and seed it whenever its marker differs.
 
@@ -5710,7 +5659,10 @@ def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=No
     _report_group("graphdb")
     up_cmd = base_cmd + ["up", "-d", GRAPHDB_SERVICE_NAME]
     logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
-    run_captured(up_cmd, env=run_env, spool_name="graphdb-store-up", repo_root=project_dir)
+    with watched_compose_up(up_cmd, config=config, env=run_env) as bounds:
+        run_captured(
+            up_cmd, env=run_env, spool_name="graphdb-store-up", repo_root=project_dir, **bounds
+        )
     _report_step("graph store started")
 
     try:
@@ -5725,58 +5677,6 @@ def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=No
             f"Cause: {exc}"
         )
         return
-
-
-def _stage_openobserve_identity(config, compose_files, env, project_dir, *, provider=None) -> None:
-    """Start the telemetry store, then provision the account that writes to it.
-
-    Staged like ARIEL's store and the archiver's, and for a reason neither of
-    them has: the ingest credential is issued by the STORE, so it cannot be
-    written before the store is running. Doing it here rather than after the
-    bring-up is what makes it work on both start shapes at once, because an
-    attached ``osprey up`` replaces this process with compose and never comes
-    back to run anything afterwards.
-
-    The store is brought up on its own first, exactly as ``up`` will leave it:
-    the same compose project, the same env chain, so the ``up`` below reconciles
-    a container that is already correct rather than recreating it.
-
-    :param config: Raw deploy config.
-    :param compose_files: Rendered compose file paths for this deploy.
-    :param env: The environment the deploy hands compose. A harvested token is
-        mirrored into it when it already carries the name (see
-        ``openobserve_provision._mirror_into_environment``).
-    :param project_dir: Root of the built project (holds ``.env``).
-    :param provider: The compose provider this deploy resolved, so the staging
-        invocation is shaped like the ``up`` that follows it.
-    """
-    from osprey.deployment import openobserve_provision
-
-    if not openobserve_provision.store_deployed(config):
-        return
-
-    run_env = runtime_env(config, {**env, **compose_provider_env(provider, project_dir)})
-    base_cmd = compose_base_cmd(
-        get_runtime_command(config),
-        compose_files,
-        project_dir,
-        _env_file_args(project_dir, provider),
-        provider,
-    )
-
-    _report_group("openobserve")
-    up_cmd = base_cmd + ["up", "-d", openobserve_provision.SERVICE]
-    logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
-    run_captured(up_cmd, env=run_env, spool_name="openobserve-store-up", repo_root=project_dir)
-    _report_step("telemetry store started")
-
-    outcome = openobserve_provision.provision_ingest_identity(
-        config, Path(project_dir) / COMPOSE_ENV_FILENAME, env=env
-    )
-    if outcome.action == "verified":
-        _report_step("ingest identity verified")
-    elif outcome.wrote_token:
-        _report_step("ingest identity provisioned")
 
 
 def deploy_up(
@@ -5961,6 +5861,64 @@ def single_image_build_reporter(image_tag: str) -> BuildProgressReporter:
     return BuildProgressReporter(image_tag, step_prefix=None)
 
 
+def _invoking_account() -> str | None:
+    """The name of the account running this command, or ``None`` if it has none.
+
+    A uid with no passwd entry — an arbitrary ``--user`` in a container — has
+    no name to compare, and that is an answer rather than an error.
+    """
+    import getpass
+
+    try:
+        return getpass.getuser()
+    except (KeyError, OSError):
+        return None
+
+
+def _ensure_telemetry_credentials(config: dict, repo_root: Path | str) -> None:
+    """Provision the telemetry store's credential files, and say what changed.
+
+    Everything said is a file name. A reader's key is minted here and nowhere
+    else, and is never printed: the line names the file it is in and the page
+    the reader opens, and the operator hands the key over out of band. A
+    reader that left the config has its file set aside under a dated name in
+    the same start that drops its account, so adding the name back later mints
+    a new key rather than reviving the one that was handed out.
+
+    A no-op for a deployment without the store.
+
+    Args:
+        config: Raw deploy config.
+        repo_root: The deployment repo, where the files live.
+
+    Raises:
+        RuntimeError: If a sender's name cannot be a login name.
+    """
+    from osprey.deployment.deploy_summary import reader_page_url
+    from osprey.deployment.telemetry_credentials import (
+        ensure_telemetry_credentials,
+        reader_file,
+    )
+
+    try:
+        report = ensure_telemetry_credentials(repo_root, config, reader_keys=True)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+    for name, set_aside in report.withdrawn:
+        _report_fact(f"reader {name}: withdrawn, key file set aside → {set_aside}")
+    for name in report.reader_keys:
+        _report_fact(f"reader {name}: key minted → {reader_file(name)}")
+        with contextlib.suppress(ValueError):
+            if (page := reader_page_url(config, name)) is not None:
+                _report_fact(f"reader {name}: signs in at {page}")
+    reader_files = {reader_file(name) for name in report.reader_keys}
+    service_files = [name for name in report.minted if name not in reader_files]
+    if service_files:
+        _report_fact(f"telemetry credential files created: {', '.join(service_files)}")
+    if report.purged:
+        _report_fact(f"telemetry credential files removed: {', '.join(report.purged)}")
+
+
 def _collect_unmet_preconditions(
     config: dict,
     repo_root: Path | str,
@@ -6000,6 +5958,8 @@ def _collect_unmet_preconditions(
             has been built or started.
     """
     from osprey.deployment.errors import UnmetPreconditionsError
+    from osprey.deployment.telemetry_credentials import credential_file_problems
+    from osprey.deployment.telemetry_lint import host_identity_advisories, preflight_problems
     from osprey.deployment.web_terminals.provision import web_terminal_preflight_report
 
     findings: list[tuple[str, str]] = []
@@ -6023,6 +5983,17 @@ def _collect_unmet_preconditions(
     # the chain as it stands AFTER every mint above, so a token the deploy just
     # provisioned is not reported as missing -- see _required_env_problems.
     findings.extend(_required_env_problems(repo_root, env))
+    # The telemetry store's two start-blocking rules, asked of the config alone:
+    # reader names that would share one set of sign-on settings, and query
+    # limits that do not fit the store's memory limit.
+    findings.extend(preflight_problems(config))
+    # And of the files the step above provisioned: one it could not create, or
+    # one somebody else wrote with a mode that lets other accounts read it.
+    findings.extend(credential_file_problems(repo_root, config))
+    # Said, not refused over: sessions started from this account are recorded
+    # under the account that built the deployment.
+    for advisory in host_identity_advisories(config, _invoking_account()):
+        _warn_fact(advisory)
     if (pin := _unreleased_pin_problem(config, env, dev_mode)) is not None:
         findings.append(pin)
 
@@ -6214,9 +6185,6 @@ def _start_stack(
     # roster's per-index ports are covered too, so a port a foreign process
     # holds is named here rather than inside the new container's panel logs.
     _preflight_host_ports(config, compose_files)
-    # Refuse a build/ whose compose file and config name different store ports,
-    # ahead of every container-touching command, so the refusal leaves the host untouched.
-    _preflight_store_address(config, compose_files)
 
     # Refuse a pin the deploy itself would write over. Ahead of the override
     # refusal below because it is a statement about the profile alone: a
@@ -6284,6 +6252,12 @@ def _start_stack(
     if web_terminals_enabled:
         migrate_users_env(repo_root)
 
+    # The telemetry store's credential files: every account's that the build
+    # minted, again — a file deleted since is a credential being rotated — and
+    # the readers' keys, which only a start mints. A provisioning step of its
+    # own, above the reporting pass below, which only reads them.
+    _ensure_telemetry_credentials(config, repo_root)
+
     # Refuse a chain that is not the one this project was rendered against:
     # membership is fixed at build time, so a file added or removed since then
     # changes nothing about what the stack reads. Ahead of the advisory below
@@ -6310,6 +6284,10 @@ def _start_stack(
     # of the refusals that read only this deployment's own files. Still well above
     # the image build, which is the only thing it is trying to get ahead of.
     _preflight_podman_compose_provider(config, provider)
+
+    # Asks the host too, so it sits below the own-file refusals for the same
+    # reason; above every build, which is what it exists to get ahead of.
+    _preflight_buildkit(config)
 
     # Advisory, and last of the .env preflights so it reads the files every
     # provisioner above has finished writing: the shell and the env chain can
@@ -6449,13 +6427,18 @@ def _start_stack(
     # built before the bake ships the placeholder prompt.
     _build_project_image(config, dev_mode, env, build_context)
 
-    # And the telemetry store, for a third reason: its ingest credential is one
-    # the STORE issues, so the only moment it can be harvested is with the store
-    # running. Here rather than after the bring-up below because the attached
-    # `up` never returns (it replaces this process with compose), so anything
-    # that must happen on both start shapes has to happen before the branch.
-    # No-op unless this project deploys the store itself.
-    _stage_openobserve_identity(config, compose_files, env, Path(repo_root), provider=provider)
+    # And the telemetry store: its schema and its accounts must be in place
+    # before the gateway inserts and before any reader or page queries it.
+    # Before the branch because the attached `up` never returns. Fatal: a
+    # store short of its accounts could leave a withdrawn reader able to read.
+    _stage_telemetry_store(config, compose_files, env, Path(repo_root), provider=provider)
+    # And the gateway's ledger directories, before compose recreates it: a
+    # planted FIFO or symlink is moved out of the readers' glob, and a
+    # directory no receiver reads is named. Fatal only when a path cannot be
+    # moved aside. A gateway already reading a moved path keeps it open, so it
+    # is replaced by the start below.
+    if _guard_ledger_feed(config, Path(repo_root)):
+        _recreate_ledger_gateway(config, compose_files, env, Path(repo_root), provider=provider)
 
     # Stage the site CA into every service context compose may build, once and
     # ahead of the branch: both paths below can build those images, and the
@@ -6501,7 +6484,7 @@ def _start_stack(
         run_env = runtime_env(config, {**env, **compose_provider_env(provider, repo_root)})
 
         base_cmd = compose_base_cmd(
-            with_plain_progress(get_runtime_command(config)),
+            with_plain_progress(get_runtime_command(config), provider=provider),
             compose_files,
             repo_root,
             _env_file_args(repo_root, provider),
@@ -6601,7 +6584,10 @@ def _start_stack(
 
         logger.debug(f"Running command:\n    {' '.join(cmd)}")
         if detached:
-            run_captured(cmd, env=run_env, spool_name="compose-up", repo_root=repo_root)
+            with watched_compose_up(cmd, config=config, env=run_env) as bounds:
+                run_captured(
+                    cmd, env=run_env, spool_name="compose-up", repo_root=repo_root, **bounds
+                )
             _report_step("containers started")
             log_endpoint_summary(config, compose_files)
         else:
@@ -7424,7 +7410,7 @@ def down_deployment(repo_root: Path | str) -> None:
     provider = _compose_provider(config)
 
     cmd = compose_base_cmd(
-        with_plain_progress(get_runtime_command(config)),
+        with_plain_progress(get_runtime_command(config), provider=provider),
         compose_files,
         repo_root,
         _env_file_args(repo_root, provider),
@@ -7584,7 +7570,7 @@ def deploy_down(config_path, dev_mode=False):
             logger.debug(f"  - {f}")
 
     cmd = compose_base_cmd(
-        with_plain_progress(get_runtime_command(config)),
+        with_plain_progress(get_runtime_command(config), provider=provider),
         compose_files,
         repo_root,
         _env_file_args(repo_root, provider),
@@ -7664,7 +7650,7 @@ def deploy_restart(config_path, detached=False, expose_network=False):
     repo_root = resolve_repo_root(config, config_path)
     provider = _compose_provider(config)
     cmd = compose_base_cmd(
-        with_plain_progress(get_runtime_command(config)),
+        with_plain_progress(get_runtime_command(config), provider=provider),
         compose_files,
         repo_root,
         _env_file_args(repo_root, provider),
@@ -7676,21 +7662,6 @@ def deploy_restart(config_path, detached=False, expose_network=False):
     subprocess.run(
         cmd, env=runtime_env(config, {**os.environ, **compose_provider_env(provider, repo_root)})
     )
-
-    # After the restart, not before: the ingest credential is issued by a store
-    # that has to be answering to issue it, and `compose restart` takes it down
-    # and brings it back. The provisioner waits for readiness itself, so this
-    # covers the case a restart exists to repair here too, which is a data
-    # volume that was replaced under a `.env` still holding the old token.
-    #
-    # What a restart CANNOT do is deliver a newly harvested token to the
-    # containers: `compose restart` reuses each container's existing definition,
-    # so a value written now reaches them at the next `osprey up`. Provisioning
-    # anyway is what makes the store and the `.env` agree in the meantime, which
-    # is the half a later start cannot reconstruct.
-    from osprey.deployment import openobserve_provision
-
-    openobserve_provision.provision_ingest_identity(config, repo_root / COMPOSE_ENV_FILENAME)
 
     # If detached mode requested, detach after restart
     if detached:

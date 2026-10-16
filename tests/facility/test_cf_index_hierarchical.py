@@ -420,6 +420,52 @@ def test_a_tree_key_beginning_with_an_underscore_stops_with_view_unsupported(
     assert "a key beginning with `_` is a meta key of the hierarchical index" in message
 
 
+def _shared_leaf_key(device: str | None) -> dict[str, Any]:
+    """Three channels whose second-pass leaf keys meet: one address is another's signal."""
+    on = {"device": device} if device else {"place": "M"}
+    return {
+        "places": [{"id": "M"}],
+        "devices": [{"id": device}] if device else [],
+        "channels": [
+            {"id": "current_setpoint", "on": on, "signal": "current_readback"},
+            {"id": "current_readback", "on": on},
+            {"id": "M:X", "on": on, "signal": "current_setpoint"},
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    ("device", "line"),
+    [
+        (
+            "M/Q1",
+            "facility: view-unsupported: device M/Q1 — its channels `M:X` and "
+            "`current_setpoint` take the one leaf key `current_setpoint` of the hierarchical "
+            "index; ",
+        ),
+        (
+            None,
+            "facility: view-unsupported: channel current_setpoint — it and channel `M:X` take "
+            "the one leaf key `current_setpoint` under no device of the hierarchical index; ",
+        ),
+    ],
+    ids=["device", "no-device"],
+)
+def test_two_channels_on_one_leaf_key_stop_with_view_unsupported(
+    device: str | None, line: str
+) -> None:
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.facility.views.channel_finder import hierarchical_document
+
+    with pytest.raises(FacilityBuildError) as caught:
+        hierarchical_document(_shared_leaf_key(device))
+
+    assert caught.value.format_message() == (
+        f"{line}fix: give one of them a signal or address that differs, "
+        "or select another channel_finder_mode"
+    )
+
+
 # --- the predicate and the registry ------------------------------------------------
 
 

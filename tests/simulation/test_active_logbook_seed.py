@@ -582,3 +582,51 @@ def test_a_plot_spec_is_drawn_against_its_entrys_own_timestamp(tmp_path, monkeyp
     # The drawn file was scratch for the seed only; nothing is left behind.
     assert not drawn_path.exists()
     assert not list((project / "data").rglob("orbit_rms.png"))
+
+
+def _refusing_qmd_mirror(monkeypatch) -> list[str]:
+    """Make the mirror pass refuse an unusable vocabulary; return the warnings logged."""
+    import osprey.services.ariel_search.cli_operations as ops
+    import osprey.simulation.apply as apply_mod
+    from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+    async def _refuse(config_dict, rebuild=False, page_size=None, progress=None):  # noqa: ARG001 - stands in for run_qmd_resync
+        raise ModuleConfigError(
+            "vocabulary file not found: /nowhere/vocabulary.yml", key="ariel.vocabulary.path"
+        )
+
+    warnings: list[str] = []
+
+    class _Recorder:
+        def warning(self, message, *args, **kwargs):
+            warnings.append(message % args if args else message)
+
+    monkeypatch.setattr(ops, "run_qmd_resync", _refuse)
+    monkeypatch.setattr(apply_mod, "logger", _Recorder())
+    return warnings
+
+
+def test_an_unusable_vocabulary_leaves_the_qmd_mirror_to_the_sync_service(tmp_path, monkeypatch):
+    """The seed succeeds; the mirror waits, and the warning names the remedy."""
+    config, project = _narrative_project(tmp_path)
+    seen = _stub_ariel(monkeypatch, existing=0)
+    warnings = _refusing_qmd_mirror(monkeypatch)
+
+    seeded = seed_active_logbook(config, project, config["ariel"])
+
+    assert seeded == len(seen["seeded"]) > 0
+    assert len(warnings) == 1
+    assert "vocabulary file not found" in warnings[0]
+    assert "ariel.vocabulary.path" in warnings[0]
+    assert "sync service" in warnings[0]
+
+
+def test_export_qmd_mirror_returns_normally_on_an_unusable_vocabulary(monkeypatch):
+    import asyncio
+
+    from osprey.simulation.apply import _export_qmd_mirror
+
+    warnings = _refusing_qmd_mirror(monkeypatch)
+
+    assert asyncio.run(_export_qmd_mirror(dict(ARIEL_CONFIG))) is None
+    assert len(warnings) == 1

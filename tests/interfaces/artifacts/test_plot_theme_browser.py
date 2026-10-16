@@ -99,11 +99,14 @@ def _launch(tmp_path, monkeypatch, *, web_theme: str | None = None) -> Iterator[
     """Serve the gallery with one dark-baked ``plot_html`` artifact seeded.
 
     Yields ``(base_url, file_path)`` where ``file_path`` is the artifact's
-    ``/files/...`` route. ``OSPREY_OFFLINE=1`` pins the injected Plotly bundle
-    to the vendored copy so the page is self-contained.
+    ``/files/...`` route. ``OSPREY_OFFLINE=0`` serves the injected Plotly
+    bundle from the CDN, the product default. The vendor directories hold only
+    what ``osprey vendor fetch`` writes, so offline mode would point the page at
+    a bundle that a checkout does not carry. The offline injection path is
+    pinned in ``test_app_endpoints.py``.
     """
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("OSPREY_OFFLINE", "1")
+    monkeypatch.setenv("OSPREY_OFFLINE", "0")
     if web_theme is None:
         monkeypatch.delenv("OSPREY_WEB_THEME", raising=False)
     else:

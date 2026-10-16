@@ -530,7 +530,7 @@ class TestWatchWiring:
         async def _create(_config: Any):
             return _Service()
 
-        async def _resync(config_dict: dict, progress: Any = None):  # noqa: ARG001 - the resync_qmd_mirror_best_effort signature
+        async def _resync(config_dict: dict, progress: Any = None, *, config: Any = None):  # noqa: ARG001 - the resync_qmd_mirror_best_effort signature
             order.append("resync")
             return None
 
@@ -558,9 +558,9 @@ class TestQmdResyncCommand:
     def test_help_names_every_bypassing_mutation_path(self) -> None:
         """The docstring is the operator's map of what this command covers."""
         help_text = ariel_group.commands["qmd-resync"].help or ""
-        assert "interfaces/ariel/api/routes.py:395" in help_text
-        assert "interfaces/ariel/api/routes.py:533" in help_text
-        assert "services/ariel_search/service.py:431 and :439" in help_text
+        assert "creating a local entry in the ARIEL web interface" in help_text
+        assert "re-upserting an entry when an attachment is uploaded" in help_text
+        assert "entry_create upserts from the logbook write service" in help_text
 
     def test_runs_the_pass_and_reports_counts(self, monkeypatch) -> None:
         seen: list[dict] = []
@@ -681,3 +681,336 @@ class TestPipelinePreStep:
 
         assert result.exit_code == 0, result.output
         assert _observed == ["resync", "watch"]
+
+
+# ---------------------------------------------------------------------------
+# Entry expander -- resolved before a rebuild wipes anything
+# ---------------------------------------------------------------------------
+
+
+def _expanding(cfg: dict, vocabulary: Path) -> dict:
+    """*cfg* with entry expansion switched on against *vocabulary*."""
+    return {
+        **cfg,
+        "vocabulary": {"enabled": True, "path": str(vocabulary), "expand_entries": True},
+    }
+
+
+class TestEntryExpanderResolution:
+    @pytest.mark.asyncio
+    async def test_rebuild_refuses_an_unusable_vocabulary_and_leaves_the_qmd_mirror(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        mirror = tmp_path / "mirror"
+        _patch_pool(
+            monkeypatch,
+            _FakePool(rows_for={"FROM enhanced_entries": [_row("42", _EARLIER)]}),
+        )
+        await ops.run_qmd_resync(_config(mirror))
+        kept = _mirrored(mirror, "42")
+        watermark = mirror / ops.QMD_WATERMARK_NAME
+        assert kept.exists() and watermark.exists()
+
+        pools = _patch_pool(monkeypatch, _FakePool(rows_for={"FROM enhanced_entries": []}))
+        with pytest.raises(ModuleConfigError):
+            await ops.run_qmd_resync(
+                _expanding(_config(mirror), tmp_path / "missing.yml"), rebuild=True
+            )
+
+        assert kept.exists()
+        assert watermark.exists()
+        assert pools == []
+
+    @pytest.mark.asyncio
+    async def test_disabled_qmd_mirror_skips_the_entry_expander(self, tmp_path) -> None:
+        """No mirror to write, so an unusable vocabulary is not this pass's concern."""
+        cfg = _expanding(_config(tmp_path, enabled=False), tmp_path / "missing.yml")
+
+        assert await ops.run_qmd_resync(cfg, rebuild=True) is None
+
+    @pytest.mark.asyncio
+    async def test_qmd_mirror_resync_prints_the_vocabulary_line(
+        self, monkeypatch, tmp_path, unit_vocabulary_file
+    ) -> None:
+        _patch_pool(monkeypatch, _FakePool(rows_for={"FROM enhanced_entries": []}))
+        messages: list[str] = []
+
+        await ops.run_qmd_resync(
+            _expanding(_config(tmp_path / "mirror"), unit_vocabulary_file),
+            progress=messages.append,
+        )
+
+        assert messages[0].startswith("Vocabulary: OK (6 concepts, entries expanded, key e1:")
+
+    @pytest.mark.asyncio
+    async def test_best_effort_qmd_mirror_resync_reraises_module_config_error(
+        self, monkeypatch
+    ) -> None:
+        """A broken vocabulary stops ingestion too; only mirror trouble is soft."""
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        async def _refuse(*args: Any, **kwargs: Any):
+            raise ModuleConfigError("vocabulary file not found", key="ariel.vocabulary.path")
+
+        monkeypatch.setattr(ops, "run_qmd_resync", _refuse)
+
+        with pytest.raises(ModuleConfigError):
+            await ops.resync_qmd_mirror_best_effort({})
+
+
+# ---------------------------------------------------------------------------
+# Watermark keyed by the entry expander
+# ---------------------------------------------------------------------------
+
+
+_EXPANDABLE_TEXT = "ts the bpm i/o after the rf trip"
+
+
+def _expansion_key(cfg: dict) -> str:
+    """The expander key *cfg* resolves to; expansion must be on."""
+    expander = ops._ariel_config(cfg).entry_expander()
+    assert expander is not None
+    return expander.key
+
+
+def _marker(mirror: Path, **fields: Any) -> None:
+    """Write a watermark marker with *fields* over a current, unkeyed payload."""
+    import json
+
+    payload: dict[str, Any] = {
+        "format_version": ops.QMD_WATERMARK_FORMAT_VERSION,
+        "renderer_version": ops.QMD_RENDERER_VERSION,
+        "updated_at": _EARLIER.isoformat(),
+        **fields,
+    }
+    mirror.mkdir(parents=True, exist_ok=True)
+    (mirror / ops.QMD_WATERMARK_NAME).write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+
+class TestExpansionKeyedWatermark:
+    """A marker is current only for the expander that rendered the mirror."""
+
+    def test_renderer_version_is_bumped_and_format_version_is_not(self) -> None:
+        assert ops.QMD_RENDERER_VERSION == 2
+        assert ops.QMD_WATERMARK_FORMAT_VERSION == 1
+
+    def test_keyed_marker_round_trips_only_under_its_key(self, tmp_path) -> None:
+        ops._write_qmd_watermark(tmp_path, _EARLIER, expansion_key="e1:abc")
+
+        assert ops._read_qmd_watermark(tmp_path, expansion_key="e1:abc") == _EARLIER
+        assert ops._read_qmd_watermark(tmp_path, expansion_key="e1:def") is None
+        assert ops._read_qmd_watermark(tmp_path) is None
+
+    def test_keyless_marker_omits_the_field(self, tmp_path) -> None:
+        import json
+
+        ops._write_qmd_watermark(tmp_path, _EARLIER)
+
+        payload = json.loads((tmp_path / ops.QMD_WATERMARK_NAME).read_text(encoding="utf-8"))
+        assert "expansion_key" not in payload
+        assert ops._read_qmd_watermark(tmp_path, expansion_key="e1:abc") is None
+
+    @pytest.mark.asyncio
+    async def test_version_one_marker_forces_a_full_scan(self, monkeypatch, tmp_path) -> None:
+        """Mirrors rendered before expansion existed are re-rendered once."""
+        _marker(tmp_path, renderer_version=1)
+        pool = _FakePool(rows_for={"FROM enhanced_entries": []})
+        _patch_pool(monkeypatch, pool)
+
+        await ops.run_qmd_resync(_config(tmp_path))
+
+        assert "WHERE" not in pool.calls[0][0]
+
+    @pytest.mark.asyncio
+    async def test_legacy_marker_forces_a_full_scan_with_expansion_on(
+        self, monkeypatch, tmp_path, unit_vocabulary_file
+    ) -> None:
+        mirror = tmp_path / "mirror"
+        mirror.mkdir()
+        (mirror / ops.QMD_WATERMARK_NAME).write_text(f"{_EARLIER.isoformat()}\n", "utf-8")
+        pool = _FakePool(rows_for={"FROM enhanced_entries": []})
+        _patch_pool(monkeypatch, pool)
+
+        await ops.run_qmd_resync(_expanding(_config(mirror), unit_vocabulary_file))
+
+        assert "WHERE" not in pool.calls[0][0]
+
+    @pytest.mark.asyncio
+    async def test_differently_keyed_marker_forces_a_full_scan(
+        self, monkeypatch, tmp_path, unit_vocabulary_file
+    ) -> None:
+        """An edited vocabulary changes the key, so every file is re-rendered."""
+        mirror = tmp_path / "mirror"
+        _marker(mirror, expansion_key="e1:0000000000000000")
+        pool = _FakePool(rows_for={"FROM enhanced_entries": []})
+        _patch_pool(monkeypatch, pool)
+
+        await ops.run_qmd_resync(_expanding(_config(mirror), unit_vocabulary_file))
+
+        assert "WHERE" not in pool.calls[0][0]
+
+    @pytest.mark.asyncio
+    async def test_keyed_marker_forces_a_full_scan_once_expansion_is_off(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Switching expansion off must strip the expansions already mirrored."""
+        _marker(tmp_path, expansion_key="e1:0000000000000000")
+        pool = _FakePool(rows_for={"FROM enhanced_entries": []})
+        _patch_pool(monkeypatch, pool)
+
+        await ops.run_qmd_resync(_config(tmp_path))
+
+        assert "WHERE" not in pool.calls[0][0]
+
+    @pytest.mark.asyncio
+    async def test_keyless_marker_forces_a_full_scan_once_expansion_is_on(
+        self, monkeypatch, tmp_path, unit_vocabulary_file
+    ) -> None:
+        mirror = tmp_path / "mirror"
+        _marker(mirror)
+        pool = _FakePool(rows_for={"FROM enhanced_entries": []})
+        _patch_pool(monkeypatch, pool)
+
+        await ops.run_qmd_resync(_expanding(_config(mirror), unit_vocabulary_file))
+
+        assert "WHERE" not in pool.calls[0][0]
+
+    @pytest.mark.asyncio
+    async def test_keyless_marker_bounds_the_scan_with_expansion_off(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        _marker(tmp_path)
+        pool = _FakePool(rows_for={"FROM enhanced_entries": []})
+        _patch_pool(monkeypatch, pool)
+
+        await ops.run_qmd_resync(_config(tmp_path))
+
+        assert "updated_at >= %s" in " ".join(pool.calls[0][0].split())
+
+    @pytest.mark.asyncio
+    async def test_matching_keyed_marker_bounds_the_scan(
+        self, monkeypatch, tmp_path, unit_vocabulary_file
+    ) -> None:
+        mirror = tmp_path / "mirror"
+        cfg = _expanding(_config(mirror), unit_vocabulary_file)
+        _marker(mirror, expansion_key=_expansion_key(cfg))
+        pool = _FakePool(rows_for={"FROM enhanced_entries": []})
+        _patch_pool(monkeypatch, pool)
+
+        await ops.run_qmd_resync(cfg)
+
+        assert "updated_at >= %s" in " ".join(pool.calls[0][0].split())
+
+    @pytest.mark.asyncio
+    async def test_result_and_marker_carry_the_expansion_key(
+        self, monkeypatch, tmp_path, unit_vocabulary_file
+    ) -> None:
+        mirror = tmp_path / "mirror"
+        cfg = _expanding(_config(mirror), unit_vocabulary_file)
+        key = _expansion_key(cfg)
+        _patch_pool(
+            monkeypatch, _FakePool(rows_for={"FROM enhanced_entries": [_row("42", _LATER)]})
+        )
+
+        result = await ops.run_qmd_resync(cfg)
+
+        assert result is not None
+        assert result.expansion_key == key
+        assert key.startswith("e1:")
+        assert ops._read_qmd_watermark(mirror, expansion_key=key) == _LATER
+
+    @pytest.mark.asyncio
+    async def test_result_carries_no_key_with_expansion_off(self, monkeypatch, tmp_path) -> None:
+        _patch_pool(
+            monkeypatch, _FakePool(rows_for={"FROM enhanced_entries": [_row("42", _LATER)]})
+        )
+
+        result = await ops.run_qmd_resync(_config(tmp_path))
+
+        assert result is not None
+        assert result.expansion_key is None
+
+
+class TestOneRenderAcrossWritePaths:
+    """Pipeline, inline write, and resync render one row to the same bytes."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("expanding", [False, True], ids=["off", "on"])
+    async def test_three_paths_write_identical_files(
+        self, monkeypatch, tmp_path, unit_vocabulary_file, expanding
+    ) -> None:
+        from osprey.services.ariel_search.enhancement.qmd_export.exporter import (
+            QmdExportModule,
+            mirror_entry_best_effort,
+        )
+
+        row = _row("42", _LATER, raw_text=_EXPANDABLE_TEXT)
+
+        def _cfg(mirror: Path) -> dict:
+            cfg = _config(mirror)
+            return _expanding(cfg, unit_vocabulary_file) if expanding else cfg
+
+        pipeline_mirror = tmp_path / "pipeline"
+        config = ops._ariel_config(_cfg(pipeline_mirror))
+        module = QmdExportModule()
+        module.configure(config.get_enhancement_module_config("qmd_export") or {})
+        module.bind(config)
+        await module.enhance(dict(row), None)
+
+        inline_mirror = tmp_path / "inline"
+        assert mirror_entry_best_effort(ops._ariel_config(_cfg(inline_mirror)), dict(row))
+
+        resync_mirror = tmp_path / "resync"
+        _patch_pool(monkeypatch, _FakePool(rows_for={"FROM enhanced_entries": [row]}))
+        result = await ops.run_qmd_resync(_cfg(resync_mirror))
+        assert result is not None and result.written == 1
+
+        rendered = {
+            path: _mirrored(mirror, "42").read_bytes()
+            for path, mirror in [
+                ("pipeline", pipeline_mirror),
+                ("inline", inline_mirror),
+                ("resync", resync_mirror),
+            ]
+        }
+        assert rendered["pipeline"] == rendered["inline"] == rendered["resync"]
+        assert (b"beam position monitor" in rendered["resync"]) is expanding
+
+
+class TestQmdResyncCommandExpansionKey:
+    """The summary names the expander the mirror was rendered with."""
+
+    @staticmethod
+    def _invoke(monkeypatch, expansion_key: str | None, failed: int = 0) -> str:
+        async def _fake(config_dict, rebuild=False, page_size=0, progress=None, **kwargs):  # noqa: ARG001 - the run_qmd_resync signature
+            return ops.QmdResyncResult(
+                scanned=3,
+                written=2,
+                unchanged=1,
+                failed=failed,
+                removed=0,
+                rebuild=rebuild,
+                mirror_path="/srv/mirror",
+                watermark=_LATER,
+                expansion_key=expansion_key,
+            )
+
+        monkeypatch.setattr(ops, "run_qmd_resync", _fake)
+        monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda key, default=None: _DB)
+        result = CliRunner().invoke(ariel_group, ["qmd-resync"])
+        assert result.exit_code == 0, result.output
+        return result.output
+
+    def test_prints_the_key_as_the_last_row(self, monkeypatch) -> None:
+        output = self._invoke(monkeypatch, "e1:0123456789abcdef", failed=1)
+
+        assert re.search(r"Expansion key\s+e1:0123456789abcdef", output), output
+        assert output.index("Failed") < output.index("Expansion key")
+        assert output.rstrip().endswith("e1:0123456789abcdef")
+
+    def test_prints_none_with_expansion_off(self, monkeypatch) -> None:
+        output = self._invoke(monkeypatch, None)
+
+        assert re.search(r"Expansion key\s+none", output), output

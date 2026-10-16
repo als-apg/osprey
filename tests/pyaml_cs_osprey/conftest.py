@@ -16,7 +16,11 @@ from osprey.errors import (
     ChannelReadFailedError,
     ChannelWriteFailedError,
 )
-from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
+from osprey.runtime import (
+    ENV_CONTROL_TARGET,
+    ENV_CONTROL_TARGET_GENERATION,
+    ControlTargetChangedError,
+)
 from osprey.runtime.guarded_run import lock
 from osprey_connectors.control_system.base import (
     ChannelMetadata,
@@ -50,6 +54,10 @@ class FakeRuntime:
     read / write), adding an address to ``fail`` (its writes are unconfirmed) or to
     ``refuse`` (its writes are refused as a ``MAX_STEP`` violation when the predicate
     on the value holds). With ``batch_only``, a single-channel read or write fails the test.
+
+    Every write reports the phases the real runtime reports for it (see
+    :func:`_report_phases`), since ``osprey.runtime.record_writes`` hears only
+    what the runtime reports.
     """
 
     def __init__(
@@ -95,27 +103,30 @@ class FakeRuntime:
             raise AssertionError("a device list never writes one channel at a time")
         self.calls.append("write_channel")
         self.writes.append((channel_address, value, kwargs))
-        if self.write_error is not None:
-            raise self.write_error
+        error: BaseException | None = self.write_error
         refused = self.refuse.get(channel_address)
-        if refused is not None and refused(value):
-            raise ChannelLimitsViolationError(
+        if error is None and refused is not None and refused(value):
+            error = ChannelLimitsViolationError(
                 channel_address,
                 value,
                 "MAX_STEP",
                 "step too large",
                 current_value=self.values[channel_address],
             )
-        if channel_address in self.fail:
-            raise ChannelWriteFailedError(channel_address, "UNCONFIRMED", "readback did not follow")
-        self.values[channel_address] = value
+        if error is None and channel_address in self.fail:
+            error = ChannelWriteFailedError(
+                channel_address, "UNCONFIRMED", "readback did not follow"
+            )
+        _report_phases(
+            [channel_address], error, lambda: self.values.update({channel_address: value})
+        )
 
     def write_channels(self, channel_values: dict[str, Any], **kwargs: Any) -> None:
         self.calls.append("write_channels")
         self.batch_writes.append((dict(channel_values), kwargs))
-        if self.write_error is not None:
-            raise self.write_error
-        self.values.update(channel_values)
+        _report_phases(
+            list(channel_values), self.write_error, lambda: self.values.update(channel_values)
+        )
 
     def channel_limits(self, address: str) -> ChannelLimitsConfig | None:
         return self.limits.get(address)
@@ -141,6 +152,31 @@ class FakeRuntime:
         for name in names:
             monkeypatch.setattr(osprey.runtime, name, getattr(self, name))
         return self
+
+
+def _report_phases(
+    addresses: Sequence[str], error: BaseException | None, store: Callable[[], None]
+) -> None:
+    """Report a write's phases as ``osprey.runtime`` does, storing the values when it lands.
+
+    The target pin and the limits net refuse before the ``attempt``
+    (``ControlTargetChangedError``, ``ChannelLimitsViolationError``): nothing is
+    reported. Past them each address reports ``attempt``; a stored value, or one
+    that went out unconfirmed (``ChannelWriteFailedError``), then reports
+    ``sent``, and any other error (a refusal, a transport failure) reports
+    nothing more. ``error`` is raised after the phases are reported.
+    """
+    if isinstance(error, ControlTargetChangedError | ChannelLimitsViolationError):
+        raise error
+    for address in addresses:
+        osprey.runtime._notify_write(address, "attempt")
+    if error is None:
+        store()
+    if error is None or isinstance(error, ChannelWriteFailedError):
+        for address in addresses:
+            osprey.runtime._notify_write(address, "sent")
+    if error is not None:
+        raise error
 
 
 class DictConnector(ControlSystemConnector):

@@ -61,9 +61,9 @@ PLAIN = """\
 services:
   postgresql:
     path: ./services/postgresql
-  openobserve:
-    path: ./services/openobserve
-    port: 5080          # Host port
+  telemetry_store:
+    path: ./services/telemetry_store
+    port: 10804         # Host port
 
 # Services to deploy with `osprey up`
 deployed_services:
@@ -255,9 +255,9 @@ class TestWithoutComment:
             "services:\n"
             "  postgresql:\n"
             "    path: ./services/postgresql\n"
-            "  openobserve:\n"
-            "    path: ./services/openobserve\n"
-            "    port: 5080          # Host port\n"
+            "  telemetry_store:\n"
+            "    path: ./services/telemetry_store\n"
+            "    port: 10804         # Host port\n"
             "  virtual_accelerator:\n"
             "    port: 5064\n"
             "\n"

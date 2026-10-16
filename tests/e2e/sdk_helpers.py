@@ -25,6 +25,7 @@ import inspect
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable
@@ -34,7 +35,9 @@ from typing import Any
 
 import yaml
 
+from osprey.facility.views.simulator import withdraw_scenarios
 from osprey.port_layout import BLOCK_SIZE
+from osprey_connectors.simulation.view import SimulatorView
 from tests import ci_diagnostics
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import build_model, build_provider
@@ -89,6 +92,7 @@ from osprey.agent_runner import (
 from osprey.agent_runner import (
     combined_text as combined_text,  # re-exported for other e2e test modules
 )
+from osprey.agent_runner.launcher import project_agent_cli_path
 from osprey.agent_runner.primitives import (
     MCP_READY_TIMEOUT_S,
     _ingest_tool_result,
@@ -633,8 +637,8 @@ def activate_scenarios(repo: Path, *names: str, now=None):
 # view lists every scenario with its blocks in ``data/simulator/scenarios.json``
 # and copies its attached files under ``data/simulator/scenarios/<name>/``. Left alone, the cheapest route to a correct
 # answer is to search the tree and read the answer key, which produces a right
-# answer by a route that proves nothing about the capability under test. The
-# disallowed-tools list below closes the search route.
+# answer by a route that proves nothing about the capability under test. The two
+# helpers below close that route from both ends.
 # ---------------------------------------------------------------------------
 
 # Generic filesystem-search tools, forbidden at the SDK level for the duration
@@ -649,9 +653,97 @@ def activate_scenarios(repo: Path, *names: str, now=None):
 #
 # ``Read`` is deliberately NOT in this list: ``data-visualizer`` and
 # ``pyat-specialist`` declare it for agent-data artifacts, and disallowing
-# a tool strips it from subagents too. This list is what stops the agent from
-# finding anything worth reading in the first place.
+# a tool strips it from subagents too. Concealing the answer key (below) is what
+# makes a bare ``Read`` harmless; this list is what stops the agent from finding
+# anything worth reading in the first place.
 SCENARIO_INTEGRITY_DISALLOWED_TOOLS = ["Bash", "Glob", "Grep"]
+
+
+def conceal_scenario_ground_truth(repo: Path, *scenarios: str) -> None:
+    """Delete the named scenarios' definitions from the deployment repo.
+
+    Takes the REPO ROOT and scrubs every copy of a scenario's answer key: the
+    facility's ``<name>.yaml`` and ``<name>/`` under ``<repo>/data/facility/
+    scenarios`` and the render's ``build/data/facility/scenarios``, the
+    simulator view's ``build/data/simulator/scenarios/<name>/`` files, and the
+    scenario's entry in the view's ``scenarios.json``. Leaving any would leave
+    the answer key one ``Read`` away.
+
+    Call AFTER every setup step that consumes the scenario (``activate_scenarios``
+    for logbook seeding, ``osprey up`` for a stack whose containers carry their
+    own copy of the view) and BEFORE the agent session starts. Also drops the
+    names from the live ``var/agent_data/simulation/active_scenarios`` state
+    file (the location :func:`activate_scenario` writes), since the name itself
+    is a hint.
+
+    ONLY valid for a scenario whose runtime effect is already materialized
+    somewhere the host's render is not, such as a running container's own view.
+    A mock-connector scenario reads the host's view on every tick, so deleting
+    it would delete the symptom. Those suites rely on
+    :data:`SCENARIO_INTEGRITY_DISALLOWED_TOOLS` alone.
+
+    Raises:
+        KeyError: a named scenario is not listed in the view (template drift —
+            the caller believes it concealed something it did not); nothing is
+            concealed.
+        AssertionError: a concealed name is still readable from the agent's tree.
+    """
+    facility_dirs = (
+        Path(repo) / "data" / "facility" / "scenarios",
+        render_dir(repo) / "data" / "facility" / "scenarios",
+    )
+    view = SimulatorView.of_render(render_dir(repo))
+    withdraw_scenarios(view.path, scenarios)
+    for name in scenarios:
+        for directory in facility_dirs:
+            (directory / f"{name}.yaml").unlink(missing_ok=True)
+            shutil.rmtree(directory / name, ignore_errors=True)
+
+    # The live state file activate_scenario writes. It must EXIST: a silent
+    # skip would leave the names agent-readable after a state-file relocation
+    # while this helper reported success.
+    state_dir = agent_data_dir(repo) / "simulation"
+    live_state = state_dir / "active_scenarios"
+    assert live_state.is_file(), (
+        f"no active-scenarios state file at {live_state} — the state-file "
+        "location moved; update this helper or the answer key stays "
+        "readable by the agent"
+    )
+    kept = [
+        line
+        for line in live_state.read_text(encoding="utf-8").splitlines()
+        if line.strip() not in scenarios
+    ]
+    live_state.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8")
+
+    # Self-check: prove the concealment rather than assume it. The state dir is
+    # included because Read is deliberately allowed for agent-data artifacts.
+    still_listed = {str(entry["name"]) for entry in SimulatorView.open(view.path).scenarios()}
+    assert not still_listed & set(scenarios), f"the simulator view still lists {still_listed}"
+    trees = [tree for tree in (*facility_dirs, view.path, state_dir) if tree.is_dir()]
+    for name in scenarios:
+        leaked = [
+            p
+            for tree in trees
+            for p in tree.rglob("*")
+            if p.is_file() and name in p.read_text(encoding="utf-8", errors="ignore")
+        ]
+        assert not leaked, f"scenario {name!r} still readable from the agent's tree: {leaked}"
+
+
+# A one-shot SDK session ends with its turn and nothing re-invokes it. A tool
+# that ends the turn expecting a later wake-up, or that schedules work for a
+# session that will not exist, strands the run with its work half done: the
+# agent is told it will be called back and never is. These are the scheduling
+# names of the headless deny floor (``READ_ONLY_DENIED_BUILTINS``), so the
+# pinned CLI lists every one of them; both runners below add them under
+# whatever a caller disallows.
+ONE_SHOT_DISALLOWED_TOOLS = ["ScheduleWakeup", "CronCreate", "Workflow"]
+
+
+def _with_one_shot_floor(disallowed_tools: list[str] | None) -> list[str]:
+    """The caller's ``disallowed_tools`` with :data:`ONE_SHOT_DISALLOWED_TOOLS` under it."""
+    return list(dict.fromkeys([*ONE_SHOT_DISALLOWED_TOOLS, *(disallowed_tools or [])]))
 
 
 def promote_ask_to_allow(repo: Path, *tools: str) -> None:
@@ -890,6 +982,22 @@ def _harvest_subagent_traces(
                         matched.is_error = bool(block.get("is_error"))
 
 
+def assert_agent_ran(result: SDKWorkflowResult) -> None:
+    """Fail when the agent session ended in error before its first tool call.
+
+    A deny test passes when nothing forbidden succeeded, and a session that
+    never ran (no credentials — ``Not logged in`` — or an unreachable
+    upstream) meets that without the gate being reached. Such a session ends
+    ``is_error`` with no tool calls. A session that hits its turn cap ends
+    ``is_error`` too but has tool calls, and a model that refuses in text alone
+    ends without error; both did run, so neither fails here.
+    """
+    assert result.result is not None, "No ResultMessage received from SDK"
+    assert result.tool_traces or not result.result.is_error, (
+        f"The agent never ran: {result.result.result}"
+    )
+
+
 def e2e_budget_scale() -> float:
     """Per-query budget multiplier for the model under test.
 
@@ -972,13 +1080,14 @@ async def run_sdk_query(
     options = ClaudeAgentOptions(
         model=model if model is not None else resolve_default_model(render),
         cwd=str(render),
+        cli_path=project_agent_cli_path(render),
         permission_mode="bypassPermissions",
         max_turns=max_turns,
         max_budget_usd=e2e_budget_cap(max_budget_usd),
         env=sdk_env(render),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
-        disallowed_tools=disallowed_tools or [],
+        disallowed_tools=_with_one_shot_floor(disallowed_tools),
         resume=resume,
     )
 
@@ -1202,6 +1311,7 @@ async def run_sdk_query_with_hooks(
     options = ClaudeAgentOptions(
         model=model if model is not None else resolve_default_model(render),
         cwd=str(render),
+        cli_path=project_agent_cli_path(render),
         permission_mode="default",
         max_turns=max_turns,
         max_budget_usd=e2e_budget_cap(max_budget_usd),
@@ -1209,7 +1319,7 @@ async def run_sdk_query_with_hooks(
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
         can_use_tool=_can_use_tool,
-        disallowed_tools=disallowed_tools or [],
+        disallowed_tools=_with_one_shot_floor(disallowed_tools),
     )
 
     workflow = HookObservedResult()
@@ -1332,6 +1442,25 @@ def hook_attachments(result: SDKWorkflowResult, render: Path) -> list[dict[str, 
 # ---------------------------------------------------------------------------
 
 
+#: How much of one tool result the LLM judge reads. A ``get_run_figure`` or
+#: ``get_run_data`` payload carries its measured values thousands of characters
+#: in (past the run id, columns and axis labels), so a short preview hands the
+#: judge a response whose numbers it cannot check.
+JUDGE_RESULT_CHARS = 8000
+
+
+def judge_result_preview(text: str) -> str:
+    """One tool result as the LLM judge reads it: on one line, cut at
+    :data:`JUDGE_RESULT_CHARS`.
+
+    Whitespace is collapsed so that a result is one line of the execution
+    trace; the judge's excerpt keeps the first and last 50 trace lines, and a
+    multi-line result would otherwise push other tool calls out of it.
+    """
+    flat = " ".join(text.split())
+    return flat[:JUDGE_RESULT_CHARS] + ("…" if len(flat) > JUDGE_RESULT_CHARS else "")
+
+
 #: Sub-directory of ``OSPREY_CI_DIAG_DIR`` that transcripts are written to.
 #: Separate from the records :mod:`tests.ci_diagnostics` keeps in the same
 #: directory, so a per-worker event log and a per-test transcript can never
@@ -1345,13 +1474,12 @@ def _transcript_payload(
     """The serialisable form of one agent run — deliberately UNTRUNCATED.
 
     Truncation is the whole reason this exists. ``_to_workflow_result``
-    previews every tool result at 300 characters before the judge ever sees
-    it, and a ``get_run_data`` payload spends its first 300 characters on
-    ``run_uid`` and ``columns``, so not one measured value survives into the
-    judge's view. When the judge then reports that a response's numbers
-    "cannot be verified from the execution trace", nothing anywhere records
-    what the tools actually returned, and the verdict text is left as the only
-    account of a response nobody can re-read.
+    previews every tool result (:func:`judge_result_preview`) before the judge
+    ever sees it, so a result longer than the preview is never seen whole.
+    When the judge then reports that a response's numbers "cannot be verified
+    from the execution trace", nothing anywhere records what the tools
+    actually returned, and the verdict text is left as the only account of a
+    response nobody can re-read.
 
     ``mcp_server_status`` is included because it is the infra-vs-model
     discriminator: a tool the agent never called means one thing if the
@@ -1422,6 +1550,12 @@ def dump_agent_transcript(
         # Test ids carry ``[]`` from parametrisation and ``/`` from paths.
         safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in name) or "transcript"
         target = target_dir / f"{safe}.json"
+        # A name dumped before in this run gets a numbered file: a rerun must
+        # not erase the attempt it is retrying, which is the one worth reading.
+        attempt = 2
+        while target.exists():
+            target = target_dir / f"{safe}.{attempt}.json"
+            attempt += 1
         target.write_text(
             json.dumps(_transcript_payload(name, result, render), indent=2, default=str),
             encoding="utf-8",

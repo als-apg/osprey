@@ -41,16 +41,26 @@ import os
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote
 
 from osprey.utils.config import to_facility_iso
+
+if TYPE_CHECKING:
+    from osprey.services.ariel_search.vocabulary.entry import EntryExpander
 
 # Maximum size of one rendered document, including the truncation marker.
 BODY_CAP_BYTES = 256 * 1024
 
 # Appended in place of the content dropped when a document exceeds the cap.
 TRUNCATION_MARKER = "\n\n[truncated]\n"
+
+# How far before the cap a truncation may back up to end on whitespace.
+CAP_WORD_BACKOFF_BYTES = 256
+
+# Whitespace bytes a capped document may end on. All ASCII, so a match never
+# falls inside a multi-byte UTF-8 sequence.
+_CAP_WHITESPACE = (b" ", b"\t", b"\n", b"\r")
 
 # Markdown suffix every mirrored file carries.
 MARKDOWN_SUFFIX = ".md"
@@ -176,17 +186,23 @@ def entry_id_from_path(path: Path | str, mirror_root: Path | str | None = None) 
     return decode_entry_id(candidate.name[: -len(MARKDOWN_SUFFIX)])
 
 
-def render_entry(entry: Mapping[str, Any]) -> str:
+def render_entry(entry: Mapping[str, Any], *, expander: EntryExpander | None = None) -> str:
     """Render one ``enhanced_entries`` row to markdown.
 
     Author, timestamp, source system and scalar ``metadata`` values are emitted
     as body prose because qmd does not index frontmatter. The output is a pure
-    function of the row: rendering the same row twice yields identical bytes.
+    function of the row and the expander: rendering the same row twice yields
+    identical bytes.
 
     Args:
         entry: An ``enhanced_entries`` row, typically an
             :class:`~osprey.services.ariel_search.models.EnhancedLogbookEntry`.
             Missing fields degrade to ``unknown`` rather than raising.
+        expander: Facility vocabulary expander applied to the entry text only,
+            after it is sanitized and stripped, so a control character that
+            ``sanitize_text`` removes can never separate an acronym from the
+            next word. Summary, keywords and captions are never expanded.
+            ``None`` renders the text unchanged.
 
     Returns:
         The markdown document, always ending in a newline and never exceeding
@@ -196,6 +212,8 @@ def render_entry(entry: Mapping[str, Any]) -> str:
     author = sanitize_text(entry.get("author")).strip()
     source = sanitize_text(entry.get("source_system")).strip()
     raw_text = sanitize_text(entry.get("raw_text")).strip()
+    if expander is not None and raw_text:
+        raw_text = expander(raw_text)
     summary = sanitize_text(entry.get("summary")).strip()
     keywords = _render_keywords(entry.get("keywords"))
     captions = _render_captions(entry.get("attachment_text"))
@@ -252,7 +270,12 @@ def mirror_path(mirror_root: Path | str, entry: Mapping[str, Any]) -> Path:
     return resolved
 
 
-def write_entry(mirror_root: Path | str, entry: Mapping[str, Any]) -> bool:
+def write_entry(
+    mirror_root: Path | str,
+    entry: Mapping[str, Any],
+    *,
+    expander: EntryExpander | None = None,
+) -> bool:
     """Write an entry's markdown file, skipping writes that change nothing.
 
     The rendered bytes are compared against the file already on disk. When they
@@ -265,6 +288,7 @@ def write_entry(mirror_root: Path | str, entry: Mapping[str, Any]) -> bool:
         mirror_root: Root directory of the markdown mirror. Parent directories
             are created on demand, but only when a write actually happens.
         entry: An ``enhanced_entries`` row to mirror.
+        expander: Passed through to :func:`render_entry`.
 
     Returns:
         ``True`` if the file was created or updated, ``False`` if the on-disk
@@ -277,7 +301,7 @@ def write_entry(mirror_root: Path | str, entry: Mapping[str, Any]) -> bool:
         OSError: If the file cannot be written.
     """
     path = mirror_path(mirror_root, entry)
-    data = render_entry(entry).encode("utf-8")
+    data = render_entry(entry, expander=expander).encode("utf-8")
 
     if _matches_on_disk(path, data):
         return False
@@ -427,6 +451,13 @@ def _sentence(text: str) -> str:
 def _apply_cap(document: str) -> str:
     """Truncate an oversized document and mark the truncation.
 
+    The cut backs up to the last whitespace within
+    :data:`CAP_WORD_BACKOFF_BYTES` of the budget, so a capped document ends on
+    a whole word. With no whitespace that close, the cut falls at the budget
+    itself, so a space-free body still keeps a prefix. A multi-word vocabulary
+    insertion straddling the cut may lose its tail words; the words it keeps
+    are whole.
+
     Args:
         document: The fully rendered markdown document.
 
@@ -440,5 +471,10 @@ def _apply_cap(document: str) -> str:
         return document
 
     budget = BODY_CAP_BYTES - len(TRUNCATION_MARKER.encode("utf-8"))
-    # errors="ignore" drops a multi-byte character split by the cut.
-    return encoded[:budget].decode("utf-8", errors="ignore") + TRUNCATION_MARKER
+    window_start = max(budget - CAP_WORD_BACKOFF_BYTES, 0)
+    # The byte at ``budget`` is searched too: whitespace there means the
+    # budget cut already ends on a whole word.
+    boundary = max(encoded.rfind(ws, window_start, budget + 1) for ws in _CAP_WHITESPACE)
+    cut = boundary if boundary > 0 else budget
+    # errors="ignore" drops a multi-byte character split by a byte cut.
+    return encoded[:cut].decode("utf-8", errors="ignore") + TRUNCATION_MARKER

@@ -263,7 +263,7 @@ class MeasureLabels:
     Attributes:
         bpms: BPM name to ``{device, x, y}``, each plane's readback address.
         magnets: Magnet name to ``{address, device}``.
-        arrays: Array name to its group id.
+        arrays: Array name to the group ids of its role.
         rf: The RF plant's name and ``{address, device}``, or ``None``.
         tune: The tune monitor's name and ``{x, y}`` readback addresses, or
             ``None``.
@@ -273,7 +273,7 @@ class MeasureLabels:
 
     bpms: Mapping[str, Mapping[str, str | None]] = field(default_factory=dict)
     magnets: Mapping[str, Mapping[str, str | None]] = field(default_factory=dict)
-    arrays: Mapping[str, str] = field(default_factory=dict)
+    arrays: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     rf: tuple[str, Mapping[str, str | None]] | None = None
     tune: tuple[str, Mapping[str, str | None]] | None = None
     devices: Mapping[str, str | None] = field(default_factory=dict)
@@ -319,7 +319,7 @@ def measure_labels(render_root: Path, model: str, config_path: Path) -> MeasureL
         name: {"address": address, "device": device_of.get(address)}
         for name, address in sorted(_inverse(names.magnets).items())
     }
-    arrays = {name: group for (_role, group), name in sorted(names.arrays.items())}
+    arrays = {name: names.groups[role] for role, name in names.arrays.items()}
     rf = None
     if names.rf is not None:
         rf = (RF_PLANT_NAME, {"address": names.rf, "device": device_of.get(names.rf)})
@@ -356,7 +356,7 @@ def _column(labels: MeasureLabels, name: str) -> dict[str, Any]:
     if magnet is not None:
         return {"name": name, "address": magnet["address"], "device": magnet["device"]}
     if name in labels.arrays:
-        return {"name": name, "group": labels.arrays[name]}
+        return {"name": name, "groups": list(labels.arrays[name])}
     if labels.rf is not None and name == labels.rf[0]:
         return {"name": name, **labels.rf[1]}
     return {"name": name, "address": None, "device": None}
@@ -368,9 +368,10 @@ def label_result(result: Mapping[str, Any], labels: MeasureLabels) -> dict[str, 
     A row is ``{name, plane, address, device}``: a BPM's readback in that plane
     and its device, a tune row's readback, or no address for a chromaticity
     row. A column is ``{name, address, device}`` for a magnet or the RF plant,
-    ``{name, group}`` for a group stepped as one knob. ``deltas`` and
-    ``remainder`` are keyed and listed by the same address, or group id, where
-    one exists. Each ``moved`` entry is ``{address, device, before}``.
+    ``{name, groups}`` for a role's array stepped as one knob, ``groups`` the
+    group ids the role names. ``deltas`` and ``remainder`` are keyed and listed
+    by the same address where one exists, else by the array name. Each
+    ``moved`` entry is ``{address, device, before}``.
 
     Args:
         result: A result :func:`parse_measure_result` returned.
@@ -399,6 +400,6 @@ def label_result(result: Mapping[str, Any], labels: MeasureLabels) -> dict[str, 
 
 
 def _key(labels: MeasureLabels, name: str) -> str:
-    """The address or group id a variable name stands for, else the name."""
+    """The address a variable name stands for, else the name."""
     column = _column(labels, name)
-    return str(column.get("address") or column.get("group") or name)
+    return str(column.get("address") or name)

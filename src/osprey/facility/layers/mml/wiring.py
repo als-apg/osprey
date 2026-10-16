@@ -106,6 +106,7 @@ from osprey.facility.layers.mml.mapping import (
     TuneBlock,
     WiringFamily,
     exported_number,
+    exported_word,
 )
 from osprey.simulation.engines.calibration import Calibration, Linear, Table, evaluate, shifted
 
@@ -732,7 +733,7 @@ def _energy_scaling(kind: str, field_block: Any) -> str:
     """Whether a record's physics value moves with the beam rigidity."""
     if kind not in _RIGID_KINDS or not isinstance(field_block, Map):
         return ENERGY_SCALINGS[0]
-    word = _word(field_block.get("energy_scaling"))
+    word = exported_word(field_block.get("energy_scaling"))
     return word if word in ENERGY_SCALINGS else ENERGY_SCALINGS[0]
 
 
@@ -844,7 +845,7 @@ def _first_address(field_view: FieldView | None, device: int) -> str | None:
         return None
     for key in field_view.keys:
         slots = field_view.slots(key)
-        address = _word(slots[device]) if device < len(slots) else ""
+        address = exported_word(slots[device]) if device < len(slots) else ""
         if address:
             return address
     return None
@@ -876,7 +877,7 @@ def _nominal_gap(block: Map[str, Any], field: str, devices: int) -> str | None:
     nominal = nominals.get(field) if isinstance(nominals, Map) else None
     if not isinstance(nominal, Map):
         return f"states no hardware nominal: {field} states none"
-    if _word(nominal.get("units")).lower() == PHYSICS_UNITS:
+    if exported_word(nominal.get("units")).lower() == PHYSICS_UNITS:
         return "states no hardware nominal: its nominal is in physics units"
     values = nominal.get("values")
     rows = list(values) if isinstance(values, (list, tuple)) else [values] * max(devices, 1)
@@ -894,7 +895,7 @@ def _nominal_for(
     nominal = nominals.get(field) if isinstance(nominals, Map) else None
     if not isinstance(nominal, Map):
         return None
-    if _word(nominal.get("units")).lower() == PHYSICS_UNITS:
+    if exported_word(nominal.get("units")).lower() == PHYSICS_UNITS:
         return None
     return exported_number(
         _per_device_entry(nominal.get("values"), device, devices, f"{where} {field} nominal")
@@ -929,11 +930,6 @@ def _sampled_row(value: Any, device: int, devices: int, what: str) -> Any:
     return _per_device_entry(value, device, devices, what)
 
 
-def _word(value: Any) -> str:
-    """A non-blank string stripped, else ``""``."""
-    return value.strip() if isinstance(value, str) and value.strip() else ""
-
-
 # -- curves -------------------------------------------------------------------
 
 
@@ -944,7 +940,7 @@ def _curve_for_device(
     spec = field_block.get(key) if isinstance(field_block, Map) else None
     if not isinstance(spec, Map):
         return None
-    kind = _word(spec.get("kind"))
+    kind = exported_word(spec.get("kind"))
     if kind == "linear":
         gain = exported_number(
             _per_device_entry(spec.get("gain"), device, devices, f"{where} {key} gain")

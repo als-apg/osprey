@@ -1445,7 +1445,9 @@ class TestBuildCLI:
         from osprey.cli.main import cli
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["build", "test-proj", "/nonexistent/profile.yml"])
+        result = runner.invoke(
+            cli, ["build", "test-proj", "/nonexistent/profile.yml", "--skip-deps"]
+        )
         assert result.exit_code != 0
 
 
@@ -2672,7 +2674,7 @@ class TestCopyServiceTemplates:
             yaml_rt.dump(config, fh)
 
     def test_declared_but_not_deployed_service_is_bundled(self, tmp_path: Path) -> None:
-        """openobserve declared under `services:` but absent from
+        """telemetry_store declared under `services:` but absent from
         deployed_services is still copied into the project's services/ tree,
         while a deployed service (postgresql) still bundles (no regression)."""
         from osprey.cli.build_cmd import _copy_service_templates
@@ -2682,11 +2684,11 @@ class TestCopyServiceTemplates:
         self._write_config(
             project_path,
             {
-                # postgresql is deployed; openobserve is only declared (opt-in).
+                # postgresql is deployed; telemetry_store is only declared (opt-in).
                 "deployed_services": ["postgresql"],
                 "services": {
                     "postgresql": {"path": "./services/postgresql"},
-                    "openobserve": {"path": "./services/openobserve"},
+                    "telemetry_store": {"path": "./services/telemetry_store"},
                 },
             },
         )
@@ -2696,7 +2698,7 @@ class TestCopyServiceTemplates:
         # Deployed service still bundles (regression guard).
         assert (project_path / "services" / "postgresql" / "docker-compose.yml.j2").exists()
         # Declared-but-not-deployed add-on is bundled too.
-        assert (project_path / "services" / "openobserve" / "docker-compose.yml.j2").exists()
+        assert (project_path / "services" / "telemetry_store" / "docker-compose.yml.j2").exists()
         assert count == 2
 
     def test_declared_only_service_bundles_without_deployed_services(self, tmp_path: Path) -> None:
@@ -2711,13 +2713,13 @@ class TestCopyServiceTemplates:
             project_path,
             {
                 "deployed_services": [],
-                "services": {"openobserve": {"path": "./services/openobserve"}},
+                "services": {"telemetry_store": {"path": "./services/telemetry_store"}},
             },
         )
 
         count = _copy_service_templates(project_path)
 
-        assert (project_path / "services" / "openobserve" / "docker-compose.yml.j2").exists()
+        assert (project_path / "services" / "telemetry_store" / "docker-compose.yml.j2").exists()
         assert count == 1
 
     def test_declared_service_without_package_template_skipped_silently(

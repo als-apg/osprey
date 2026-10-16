@@ -38,10 +38,12 @@ the panel token are taken out of ``os.environ`` and kept only in
 by ``close_env_carriers`` at app construction (which is what covers the
 direct-serve ``osprey web``, where a launcher deliberately re-published the
 secret for a child that turned out to be this same process). The
-event-dispatcher token, the dispatch-worker token and the ``*_LAUNCH_TOKEN``
-family deliberately stay in the web server's ``os.environ``, because the server
-must inject them upstream into the services it fronts; for those, the strip on
-the spawn paths is defence-in-depth for subprocess children and nothing more. That split is encoded below as explicit expected behavior
+event-dispatcher token goes the same way, into the holder the proxy reads it
+from, and the dispatch-worker token is dropped outright. The ``*_LAUNCH_TOKEN``
+family deliberately stays in the web server's ``os.environ``, because the
+server injects it upstream into the sidecar it fronts from there; for those,
+the strip on the spawn paths is defence-in-depth for subprocess children and
+nothing more. That split is encoded below as explicit expected behavior
 (:data:`_POPPED_IN_WEB_SERVER` / :data:`_RETAINED_FOR_PROXY_UPSTREAM`), so an
 edit that changes which side a name falls on trips a test instead of silently
 widening or narrowing what the server keeps.
@@ -71,20 +73,27 @@ _NEGATIVE_CONTROLS = ("PATH", "OSPREY_WEB_PORT")
 _WEB_PORT_VALUE = "8080"
 
 #: Names the web server's own ``os.environ`` must NOT still hold once credentials
-#: have been populated — ``web_auth._populate`` pops both.
-_POPPED_IN_WEB_SERVER = frozenset({"OSPREY_TERMINAL_SECRET", "OSPREY_PANEL_TOKEN"})
+#: have been populated — ``web_auth._populate`` pops every one of them. The
+#: operator secret, the panel token and the event-dispatcher bearer move into
+#: the holder, which is where the proxy reads the bearer it injects on the
+#: EVENTS panel hop; the dispatch-worker bearer is dropped outright, because the
+#: web server never presents it to anything.
+_POPPED_IN_WEB_SERVER = frozenset(
+    {
+        "OSPREY_TERMINAL_SECRET",
+        "OSPREY_PANEL_TOKEN",
+        "EVENT_DISPATCHER_TOKEN",
+        "DISPATCH_WORKER_TOKEN",
+    }
+)
 
-#: Names the web server's own ``os.environ`` deliberately KEEPS. The server
-#: injects these upstream into the services it proxies, so popping them would
-#: break the proxy; the spawn-path strip is defence-in-depth for subprocess
-#: children, not a boundary in the serving process itself.
-#:
-#: ``DISPATCH_WORKER_TOKEN`` is on this side for the same reason its peer
-#: ``EVENT_DISPATCHER_TOKEN`` is: it authenticates the dispatcher to a worker's
-#: ``/dispatch`` API, the dispatch worker verifies incoming calls against its own
-#: ``os.environ`` copy, and every compose template that sets one sets the other.
-#: Nothing pops it anywhere.
-_RETAINED_FOR_PROXY_UPSTREAM = frozenset({"EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"})
+#: Exact names the web server's own ``os.environ`` deliberately KEEPS. Empty:
+#: every exact credential is held in memory. What the serving process still
+#: keeps in ``os.environ`` is the ``*_LAUNCH_TOKEN`` family (the suffix list),
+#: which the proxy injects upstream into the sidecar it fronts; for those the
+#: spawn-path strip is defence-in-depth for subprocess children, not a boundary
+#: in the serving process itself.
+_RETAINED_FOR_PROXY_UPSTREAM: frozenset[str] = frozenset()
 
 
 def _probe_env() -> dict[str, str]:
@@ -552,12 +561,13 @@ async def test_serving_process_keeps_proxy_upstream_credentials(sensitive_parent
     """The proxy-upstream credentials deliberately REMAIN in ``os.environ``.
 
     Stating the other half of the split explicitly is the point: the web server
-    injects the event-dispatcher token and the ``*_LAUNCH_TOKEN`` family
-    upstream into the services it fronts, so popping them would break the proxy.
-    For those names the spawn-path strip is defence-in-depth for subprocess
-    children and nothing more — the safety authority stays the target
-    endpoint's own in-tool re-checks. A change that starts popping them should
-    fail here and be argued for, not land unnoticed.
+    injects the ``*_LAUNCH_TOKEN`` family upstream into the sidecar it fronts
+    straight from ``os.environ``, so popping those would break the proxy. For
+    them the spawn-path strip is defence-in-depth for subprocess children and
+    nothing more — the safety authority stays the target endpoint's own in-tool
+    re-checks. A change that starts popping them should fail here and be argued
+    for, not land unnoticed; a change that moves one into the holder, as the
+    dispatcher bearer was, moves its name to :data:`_POPPED_IN_WEB_SERVER`.
     """
     await _drive_one_request_through_auth_middleware()
 

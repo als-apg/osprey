@@ -100,7 +100,9 @@ Hierarchical Pipeline
 Navigates a tree level by level, with LLM-guided selection at each level. The
 tree the build generates has the facility's place levels, then ``class``,
 ``device``, and a leaf per channel keyed by its signal; the leaf holds the
-address.
+address. Two channels of one device that the tree would key alike, because one
+channel's address is another's signal, stop the build with
+``view-unsupported``.
 
 The database declares the levels the pipeline navigates --- see
 :doc:`/reference/contracts/channel-finder` for the schema.
@@ -138,7 +140,8 @@ signal some member lacks or has twice, or that has no signal, is keyed by its
 address. A channel belongs to every Family that holds its device. A channel
 listed under several Fields of one Family is found under each of them. A
 facility description with no group and no classed device stops the build with
-``view-unsupported``.
+``view-unsupported``, as does a channel whose address is the signal another
+channel's Field in the same Family is keyed by.
 A facility that runs a Middle Layer
 already has that structure: ``osprey facility import mml``
 (:doc:`/how-to/import-mml-export`) brings it into the facility description.

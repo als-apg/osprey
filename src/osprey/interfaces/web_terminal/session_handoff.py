@@ -278,12 +278,14 @@ class HandoffRefused(Exception):
         return HandoffSuperseded(key)
 
     @classmethod
-    def started_commands(cls, key: str, commands: Sequence[ProcessGroup]) -> HandoffStartedCommands:
+    def started_commands(
+        cls, key: str, commands: Sequence[ProcessGroup], *, unread: bool = False
+    ) -> HandoffStartedCommands:
         """409 — the agent the hand-off would end started commands still running.
 
         See :class:`HandoffStartedCommands`.
         """
-        return HandoffStartedCommands(key, commands)
+        return HandoffStartedCommands(key, commands, unread=unread)
 
 
 class HandoffNeedsInterrupt(HandoffRefused):
@@ -347,17 +349,23 @@ class HandoffStartedCommands(HandoffRefused):
     Ending the agent ends them too, so the hand-off does not proceed until the
     request carries the operator's agreement (``end_started``). The commands
     are in :attr:`commands` and, for the client, in :attr:`extra`.
+
+    :attr:`unread` is set, with no commands, when the process table could not
+    be read while the agent was alive: what it started is unknown, so the
+    operator is asked the same question rather than having commands nobody
+    saw ended without one.
     """
 
-    def __init__(self, key: str, commands: Sequence[ProcessGroup]) -> None:
-        super().__init__(
-            409,
-            ERROR_HANDOFF_STARTED_COMMANDS,
-            f"session {key!r}: the agent this hand-off would end started commands "
-            "that are still running",
+    def __init__(self, key: str, commands: Sequence[ProcessGroup], *, unread: bool = False) -> None:
+        reason = (
+            "could not check what the agent this hand-off would end started"
+            if unread
+            else "the agent this hand-off would end started commands that are still running"
         )
+        super().__init__(409, ERROR_HANDOFF_STARTED_COMMANDS, f"session {key!r}: {reason}")
         self.commands = list(commands)
-        self.extra = {"commands": [c.to_json() for c in commands]}
+        self.unread = unread
+        self.extra = {"commands": [c.to_json() for c in commands], "unread": unread}
 
     @property
     def ws_close_code(self) -> int | None:
@@ -1323,7 +1331,7 @@ async def _wait_for_pty_idle(app: Any, state: HandoffState, plan: AcquirePlan) -
 async def _check_started(
     state: HandoffState,
     plan: AcquirePlan,
-    started: Callable[[], Sequence[ProcessGroup]],
+    started: Callable[[], Sequence[ProcessGroup] | None],
 ) -> None:
     """Refuse a hand-off that would end commands the outgoing agent started.
 
@@ -1331,17 +1339,29 @@ async def _check_started(
     carry the operator's agreement (``plan.end_started``) looks. *started*
     runs ``ps``, so it runs in a worker thread. The look runs right before
     the door would act, so it is never stale; a command started between the
-    question and the consent is ended with the rest.
+    question and the consent is ended with the rest. When *started* could not
+    read the process table (``None``), what the agent started is unknown, and
+    the operator is asked the same question rather than told nothing runs.
 
     Raises:
-        HandoffStartedCommands: Commands the agent started are still running.
+        HandoffStartedCommands: Commands the agent started are still running,
+            or what it started could not be checked (``unread``).
     """
     if plan.end_started or not plan.teardown:
         return
-    running = list(await asyncio.to_thread(started))
+    found = await asyncio.to_thread(started)
     _raise_if_superseded(state, plan)
+    assert plan.outgoing is not None
+    if found is None:
+        logger.warning(
+            "Session %s: could not read the process table while the %s agent was alive; "
+            "asking before the hand-off ends what it started",
+            plan.key,
+            plan.outgoing.surface,
+        )
+        raise HandoffRefused.started_commands(plan.key, [], unread=True)
+    running = list(found)
     if running:
-        assert plan.outgoing is not None
         logger.info(
             "Session %s: the %s agent has %d started command(s) running; asking before "
             "the hand-off ends them",

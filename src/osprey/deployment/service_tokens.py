@@ -12,7 +12,6 @@ generation/validation logic testable in isolation from the provisioning flow.
 
 import os
 import secrets
-import string
 from collections.abc import Callable
 from urllib.parse import unquote, urlsplit
 
@@ -22,101 +21,16 @@ def _default_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-# Characters excluded from the OpenObserve password alphabet because a human
-# reads this one off a screen: ``l``/``I``/``1`` and ``O``/``0`` are the pairs
-# people transcribe wrongly, and a rejected OpenObserve login says nothing about
-# which character was misread.
-_AMBIGUOUS_CHARS = "lI1O0"
-
-#: Length of a minted ``ZO_ROOT_USER_PASSWORD``. See
-#: :func:`_generate_openobserve_password` for why this one credential is short.
-_OPENOBSERVE_PASSWORD_LENGTH = 12
-
-
-def _generate_openobserve_password() -> str:
-    """Mint a ``ZO_ROOT_USER_PASSWORD`` that satisfies OpenObserve's policy.
-
-    OpenObserve refuses to start unless the root password is 8–128 characters
-    with at least one lowercase letter, one uppercase letter, one digit, and
-    one special (non-alphanumeric) character — otherwise the container
-    crash-loops at startup. ``_default_token``'s ``token_urlsafe`` draws from
-    ``[A-Za-z0-9_-]``, which carries no character a strict policy counts as
-    "special", so that recipe crash-loops the container non-deterministically:
-    the same class of failure as ``BLUESKY_TILED_API_KEY``'s Tiled-alphabet
-    constraint (see ``_VAR_GENERATORS`` below).
-
-    Build a value that guarantees all four required classes instead, drawing
-    every character from ``secrets`` (never ``random``), then shuffling so the
-    class positions are not fixed. The special is drawn from ``@%*^`` —
-    punctuation every reasonable policy counts as "special", and each of which
-    is safe both in a ``.env`` value (unlike ``#``, ``$``, quotes, backslash,
-    ``=`` or a space, which break dotenv parsing) and in the base64 Basic-auth
-    header the resolver computes from it.
-
-    **Why this recipe is deliberately short.** It is the one minted credential
-    with a human in the loop: every other secret in ``_VAR_GENERATORS`` travels
-    machine-to-machine, but this one is read off a terminal and typed into a
-    browser login form, often on a projector during a demo. At 12 characters
-    from an alphabet with the easily-misread characters removed it carries ~65
-    bits — under the module's 256-bit default bar, and that is the point, not
-    an oversight. That bar is sized for secrets an attacker can attack offline;
-    the only attack this one faces is online guessing against an HTTP login
-    form, where 65 bits of CSPRNG entropy is many orders of magnitude out of
-    reach. A character count is the wrong instrument here in any case — it
-    would reject this value while admitting a longer, guessable one an operator
-    typed. What actually disqualifies a password is being absent or being
-    public, and both are refused on their own terms: the empty-value check in
-    ``_ensure_service_tokens`` under exposure, and ``_VAR_FORBIDDEN_VALUES``
-    for the template's published default.
-    """
-    lower = "".join(c for c in string.ascii_lowercase if c not in _AMBIGUOUS_CHARS)
-    upper = "".join(c for c in string.ascii_uppercase if c not in _AMBIGUOUS_CHARS)
-    digits = "".join(c for c in string.digits if c not in _AMBIGUOUS_CHARS)
-    specials = "@%*^"
-
-    # One guaranteed member of each required class, then fill to length from the
-    # union so the class counts are not themselves a fixed pattern.
-    chars = [
-        secrets.choice(lower),
-        secrets.choice(upper),
-        secrets.choice(digits),
-        secrets.choice(specials),
-    ]
-    pool = lower + upper + digits + specials
-    chars += [secrets.choice(pool) for _ in range(_OPENOBSERVE_PASSWORD_LENGTH - len(chars))]
-    secrets.SystemRandom().shuffle(chars)
-    return "".join(chars)
-
-
 # Per-variable overrides of the default recipe. A var absent here gets
 # ``_default_token``.
 #
 # CSPRNG bar: every recipe registered here MUST draw from ``secrets`` (never
-# ``random``, a hashed timestamp, or any other non-cryptographic source). That
-# half is absolute and has no exceptions.
+# ``random``, a hashed timestamp, or any other non-cryptographic source).
 #
-# Entropy bar: a recipe SHOULD yield at least 256 bits — the same bar
-# ``_default_token``'s ``token_urlsafe(32)`` meets. Ordinarily a registered
-# recipe exists to change the *alphabet* for a downstream consumer's parsing
-# rules (see BLUESKY_TILED_API_KEY below), never to weaken the randomness.
-#
-# ONE exception is allowed, and only on this ground: a credential a HUMAN types
-# into a login form may trade entropy for legibility, because a password nobody
-# can transcribe is a password that gets pasted into a chat window or replaced
-# with something worse. A recipe claiming the exception must say so in its
-# docstring and must still draw every character from ``secrets``: legibility
-# buys a shorter value, never a weaker source. ZO_ROOT_USER_PASSWORD is the only
-# var that qualifies today: the Tiled key, both dispatch tokens, and the
-# Postgres/Mongo passwords are read by processes, never by people.
-#
-# A DELIBERATE ABSENCE, recorded because the omission looks like an oversight:
-# ``ZO_INGEST_SA_TOKEN`` — the OpenObserve telemetry ingest identity's secret —
-# has no recipe here and must never be given one. That value is issued by the
-# STORE (a 16-character alphanumeric token, read back from the live container
-# once it is up), not chosen by osprey. A recipe registered here would fabricate
-# a token the store never issued: the ``.env`` would look healthy and every
-# telemetry request would 401. See ``_STORE_ISSUED_VARS`` in
-# ``container_lifecycle`` for where such a var IS registered, and why.
+# Entropy bar: a recipe MUST yield at least 256 bits — the same bar
+# ``_default_token``'s ``token_urlsafe(32)`` meets. A registered recipe exists
+# to change the *alphabet* for a downstream consumer's parsing rules (see
+# BLUESKY_TILED_API_KEY below), never to weaken the randomness.
 #
 # BLUESKY_TILED_API_KEY: Tiled validates its ``--api-key`` during server startup
 # and raises ``ValueError("The API key must only contain alphanumeric
@@ -131,9 +45,6 @@ def _generate_openobserve_password() -> str:
 # entropy silently.
 _VAR_GENERATORS: dict[str, Callable[[], str]] = {
     "BLUESKY_TILED_API_KEY": lambda: secrets.token_hex(32),
-    # OpenObserve rejects a root password that misses any of its four required
-    # character classes and crash-loops — see _generate_openobserve_password.
-    "ZO_ROOT_USER_PASSWORD": _generate_openobserve_password,
     # The ARIEL Postgres password is substituted into the DSN URI that
     # ``resolve_ariel_dsn`` derives from ``services.postgresql``
     # (``postgresql://ariel:${ARIEL_DB_PASSWORD:-ariel}@…``) as well as the
@@ -248,7 +159,7 @@ def _validate_graphdb_password(value: str) -> bool:
       store comes up and the operator's own credentials then do not work.
     * **The length floor.** Neo4j rejects an initial password under
       ``_GRAPHDB_PASSWORD_MIN_LENGTH`` characters and crash-loops at container
-      start, in the ``BLUESKY_TILED_API_KEY``/``ZO_ROOT_USER_PASSWORD`` shape:
+      start, in the ``BLUESKY_TILED_API_KEY`` shape:
       an opaque restart loop that says nothing about ``.env``.
 
     The ``/`` check is stated here even though
@@ -265,36 +176,6 @@ def _validate_graphdb_password(value: str) -> bool:
     if "/" in value:
         return False
     return _validate_uri_safe_password(value)
-
-
-def _validate_openobserve_password(value: str) -> bool:
-    """True if ``value`` satisfies OpenObserve's root-password policy.
-
-    OpenObserve refuses to start unless ``ZO_ROOT_USER_PASSWORD`` is 8–128
-    characters with at least one lowercase letter, one uppercase letter, one
-    digit, and one special (non-alphanumeric) character — a non-conforming
-    value crash-loops the container at startup with an OpenObserve-internal
-    error. Rejecting it here turns that opaque crash-loop into a clear
-    deploy-time failure for an *operator-supplied* password (a minted one
-    already conforms — see ``_generate_openobserve_password``), mirroring the
-    ``BLUESKY_TILED_API_KEY``/Tiled-alphabet check.
-
-    **Scoped to the ROOT password, and to nothing else OpenObserve holds.** This
-    is a policy the store enforces on a value osprey mints, so it grades an
-    osprey-generated secret. It must not be pointed at ``ZO_INGEST_SA_TOKEN``:
-    that token is issued by the store as 16 alphanumeric characters, which
-    carries no special character and so fails this check outright — the deploy
-    would refuse the very credential the store just handed it. Validate what
-    osprey generates; record what the store issues.
-    """
-    if not 8 <= len(value) <= 128:
-        return False
-    return (
-        any(c.islower() for c in value)
-        and any(c.isupper() for c in value)
-        and any(c.isdigit() for c in value)
-        and any(not c.isalnum() for c in value)
-    )
 
 
 # Per-variable validators applied to the *effective* value of a required var
@@ -320,9 +201,6 @@ _VAR_VALIDATORS: dict[str, Callable[[str], bool]] = {
     # time instead of crash-looping the Tiled container.
     "BLUESKY_TILED_API_KEY": str.isalnum,
     "ARIEL_DSN": _validate_ariel_dsn,
-    # OpenObserve crash-loops on a root password that misses any required
-    # character class; validate an operator-supplied value at deploy time.
-    "ZO_ROOT_USER_PASSWORD": _validate_openobserve_password,
     # The value lands unescaped inside the ariel DSN's password slot, so an
     # operator-supplied value containing a URI-reserved character would
     # silently reshape the DSN (see _validate_ariel_dsn) — reject it at the
@@ -350,11 +228,6 @@ _VAR_VALIDATOR_DESCRIPTIONS: dict[str, str] = {
     "ARIEL_DSN": (
         "must parse as a URI whose password contains no unescaped reserved "
         "character (@ : / ? #); percent-encode the password"
-    ),
-    "ZO_ROOT_USER_PASSWORD": (
-        "must be 8–128 characters with at least one lowercase letter, one "
-        "uppercase letter, one digit, and one special character — OpenObserve "
-        "rejects any weaker root password at startup"
     ),
     "ARIEL_DB_PASSWORD": (
         "must be non-empty with no whitespace and no URI-reserved character "
@@ -386,12 +259,12 @@ _VAR_VALIDATOR_DESCRIPTIONS: dict[str, str] = {
 # ``_is_forbidden_value`` returns False for it.
 #
 # A separate map rather than another validator, because it answers a different
-# question. The openobserve compose template's fallback satisfies
-# ``_validate_openobserve_password`` completely — it carries all four required
-# character classes — so no *format* rule can ever catch it. What disqualifies
+# question. The graphdb compose template's fallback satisfies
+# ``_validate_graphdb_password`` completely — it is long enough and carries no
+# reserved character — so no *format* rule can ever catch it. What disqualifies
 # it is that it is published: it ships in the template every rendered project
-# carries, which makes it a shared password rather than a secret, guarding a
-# store that holds full agent conversation transcripts.
+# carries, which makes it a shared password rather than a secret, guarding the
+# facility knowledge graph the agent answers from.
 #
 # Deliberately narrow, and there is no build-time twin of this check. On a fresh
 # repo the template default is what the ``${VAR:-default}`` form resolves to
@@ -401,9 +274,6 @@ _VAR_VALIDATOR_DESCRIPTIONS: dict[str, str] = {
 # either something just minted or something an operator supplied, so a match
 # means the operator pinned the published default as their actual password.
 _VAR_FORBIDDEN_VALUES: dict[str, frozenset[str]] = {
-    # The ``${ZO_ROOT_USER_PASSWORD:-…}`` fallback in
-    # ``osprey/templates/services/openobserve/docker-compose.yml.j2``.
-    "ZO_ROOT_USER_PASSWORD": frozenset({"Complexpass#123"}),
     # The password half of the ``NEO4J_AUTH: "neo4j/${GRAPHDB_PASSWORD:-…}"``
     # fallback in ``osprey/templates/services/graphdb/docker-compose.yml.j2``.
     # Registered as the BARE password, not the composite, because that is what
@@ -423,13 +293,6 @@ _VAR_FORBIDDEN_VALUES: dict[str, frozenset[str]] = {
 # public. A var with a forbidden value but no entry here falls back to a generic
 # description.
 _VAR_FORBIDDEN_DESCRIPTIONS: dict[str, str] = {
-    "ZO_ROOT_USER_PASSWORD": (
-        "must not be the default published in the openobserve compose template — "
-        "that value ships in every rendered project, so it is a shared password "
-        "rather than a secret, and this store holds full agent conversation "
-        "transcripts; remove the line from .env (and unset any shell export of the "
-        "same name) so the next run mints a per-deploy value"
-    ),
     "GRAPHDB_PASSWORD": (
         "must not be the default published in the graphdb compose template — "
         "that value ships in every rendered project, so it is a shared password "
@@ -466,9 +329,8 @@ def _validate_var(var: str, value: str) -> bool:
     unconditional, because it is a property of how compose loads the file rather
     than of what any one service accepts. The registered validators that
     reason about character safety — ``_validate_ariel_dsn`` and
-    ``_validate_uri_safe_password``, which reject the URI-reserved ``@:/?#``, and
-    ``_validate_openobserve_password``, whose "at least one special character"
-    requirement a ``$`` actively *satisfied* — all admitted ``$`` on their own.
+    ``_validate_uri_safe_password``, which reject the URI-reserved ``@:/?#`` —
+    admit ``$`` on their own.
     Layering it here fixes all of them and every var added later in one place.
     """
     if "$" in value:
@@ -484,7 +346,7 @@ def _is_forbidden_value(var: str, value: str) -> bool:
 
     Kept out of :func:`_validate_var` on purpose. That function answers "is this
     value *well-formed* for its consumer?", and every value registered in
-    ``_VAR_FORBIDDEN_VALUES`` is — the published openobserve default would start
+    ``_VAR_FORBIDDEN_VALUES`` is — the published graphdb default would start
     the container quite happily. This asks a second question, "is this value
     *anyone's* secret?", which only the deploy boundary is in a position to ask.
     """

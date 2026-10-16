@@ -142,13 +142,13 @@ def test_checker_names_the_yaml_resolver_for_a_boolean_entry() -> None:
 
 def test_service_env_names_applies_the_default() -> None:
     """``env_names()`` is the single place the empty case is spelled."""
-    assert ServiceDef(template="osprey.openobserve").env_names() == []
-    assert ServiceDef(template="osprey.openobserve", config={}).env_names() == []
+    assert ServiceDef(template="osprey.postgresql").env_names() == []
+    assert ServiceDef(template="osprey.postgresql", config={}).env_names() == []
 
 
 def test_service_env_names_keeps_the_authored_order() -> None:
     """Order is the author's — it is what the rendered block shows."""
-    svc = ServiceDef(template="osprey.openobserve", config={"env": ["B_VAR", "A_VAR"]})
+    svc = ServiceDef(template="osprey.postgresql", config={"env": ["B_VAR", "A_VAR"]})
     assert svc.env_names() == ["B_VAR", "A_VAR"]
 
 
@@ -399,7 +399,7 @@ def test_env_failures_accumulate_with_the_network_axis_and_unrelated_ones(
 
 def test_a_malformed_service_key_is_reported_once_for_all_axes(tmp_path: Path) -> None:
     """Two axes walk the services mapping; a bool key is still one message."""
-    raw = yaml.safe_load("name: envaxis\nservices:\n  on:\n    template: osprey.openobserve\n")
+    raw = yaml.safe_load("name: envaxis\nservices:\n  on:\n    template: osprey.postgresql\n")
     assert True in raw["services"]
     messages = _errors(_parse_profile(raw), tmp_path)
     assert len([m for m in messages if m.startswith("services keys must be strings")]) == 1

@@ -47,11 +47,19 @@ from typing import Any
 
 import yaml
 
-from osprey.facility import TEXTURE
+from osprey.facility import DEFAULT_ROLE, TEXTURE
 from osprey.facility.errors import FacilityBuildError, quoted_slots
 from osprey.facility.pairing import derive_pairs
 from osprey.facility.provenance import build_provenance
-from osprey.facility.sources import AUTHORED, COMPUTED_SLOTS, Sources
+from osprey.facility.sources import (
+    AUTHORED,
+    COMPUTED_SLOTS,
+    KIND_CLASS,
+    RECORD_FILES,
+    SET_VALUED_SLOTS,
+    Sources,
+    group_families,
+)
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, DEFAULT_VALUE_TYPE
 
 __all__ = [
@@ -67,19 +75,18 @@ FIXES_FILE = "fixes.yaml"
 #: The header fixes.yaml carries.
 FIXES_HEADER = "osprey.facility.fixes/1"
 
-#: The slots whose lists are sets: compared and emitted sorted by string form.
+#: The slots whose lists are sets, per record kind: the rows of ``SET_VALUED_SLOTS``
+#: a layer may state for that kind.
 SET_VALUED: dict[str, frozenset[str]] = {
-    "place": frozenset({"names"}),
-    "device": frozenset({"names"}),
-    "channel": frozenset({"names", "tags", "former_addresses", "endpoint_of"}),
-    "group": frozenset({"names", "members"}),
+    kind: frozenset(slot for cls, slot in SET_VALUED_SLOTS if cls == KIND_CLASS[kind])
+    - COMPUTED_SLOTS[kind]
+    for kind in RECORD_FILES.values()
 }
 
 _OPS = ("set", "add", "drop")
 _KINDS = ("place", "device", "channel", "wiring", "group", "model")
 _FIX_KEYS = frozenset({"op", "kind", "id", "fields", "record", "why", "was"})
 
-_ROLE = "readback"
 _SLICE_WEIGHT = 1
 
 #: The file whose name the list of each kind emits under.
@@ -190,11 +197,21 @@ def _show(value: Any) -> str:
     return text.strip().removesuffix("...").strip()
 
 
+def _group_list(value: Any) -> Any:
+    """A group role's ids as a sorted list; a value neither text nor a list stays for S3."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return sorted(value, key=str)
+    return value
+
+
 def _normalize(kind: str, name: str, value: Any) -> tuple[Any, frozenset[int]]:
     """A value in the form it is compared and emitted in.
 
-    Set-valued lists are sorted by string form, a measurement's ``kinds`` too,
-    and each slice without a ``weight`` gets the constant default.
+    Set-valued lists are sorted by string form, a measurement's ``kinds`` and
+    each of its group roles too (a role naming one group becomes a list of
+    one), and each slice without a ``weight`` gets the constant default.
 
     Returns:
         The value and the positions of the slices whose weight was filled.
@@ -206,6 +223,9 @@ def _normalize(kind: str, name: str, value: Any) -> tuple[Any, frozenset[int]]:
         kinds = value.get("kinds")
         if isinstance(kinds, list):
             value["kinds"] = sorted(kinds, key=str)
+        groups = value.get("groups")
+        if isinstance(groups, dict):
+            value["groups"] = {role: _group_list(named) for role, named in groups.items()}
         return value, frozenset()
     if kind == "wiring" and name == "slices" and isinstance(value, list):
         filled = set()
@@ -632,7 +652,7 @@ class _Combiner:
             for model, measurement in sorted(self.sources.measurement.items()):
                 groups = measurement.get("groups")
                 if ("model", model) in self.records and isinstance(groups, dict):
-                    if rid in groups.values():
+                    if any(rid in group_families(value) for value in groups.values()):
                         yield f"measurement/{model}.yaml (groups)"
 
     def _on_referrers(self, kind: str, rid: str) -> Iterator[str]:
@@ -748,7 +768,7 @@ class _Combiner:
 def _channel_defaults(fields: dict[str, Any], defaults: set[str]) -> None:
     """Fill a channel's schema defaults, each recorded as a default."""
     if "role" not in fields:
-        fields["role"] = _ROLE
+        fields["role"] = DEFAULT_ROLE
         defaults.add("role")
     if "value_type" not in fields:
         fields["value_type"] = DEFAULT_VALUE_TYPE

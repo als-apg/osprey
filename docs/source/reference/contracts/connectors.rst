@@ -53,6 +53,29 @@ handle -- the machine did answer.
 occupy a slot. ``0`` keeps everything -- remembering that an unattended
 polling loop will then grow the gallery without bound.
 
+Addresses Outside the Facility
+------------------------------
+
+A connector that holds the facility's whole address set -- the simulator
+served in process, and the mock archiver -- knows when an address is not one
+of its channels, and says so:
+
+- A read of such an address raises ``ChannelNotFoundError``, whose message is
+  ``<address> is not a channel of this facility``.
+- A write to such an address is not raised: it comes back with outcome
+  ``refused`` and ``refusal_reason`` ``CHANNEL_NOT_FOUND``, so the outcomes of
+  the other writes in the same batch are kept.
+
+The controls tools report both as error type ``not_found``, naming the address
+under ``details.channel``. A read that names several channels still succeeds
+for the ones that answered and lists the unknown address under
+``channels_failed``; a batch write reports the unknown address as its
+``refused`` row beside the rows that were written.
+
+A Channel Access connector cannot tell an unknown name from an unreachable one
+-- a search that finds nothing times out -- so it reports a connection error
+for both.
+
 Write Confirmation
 ------------------
 
@@ -81,8 +104,9 @@ Every write ends in exactly one of six outcomes:
      - What it means
    * - ``refused``
      - Nothing was written. A gate stopped the write before it left OSPREY --
-       write posture, a limit, a channel marked not writable -- and
-       ``refusal_reason`` names which one.
+       write posture, a limit, a channel marked not writable, an address that
+       is not a channel of the facility -- and ``refusal_reason`` names which
+       one.
    * - ``failed``
      - The value was sent and the control system did not take it.
    * - ``confirmed``

@@ -4,9 +4,11 @@ Every day directory of the archive holds one ``MANIFEST.jsonl``, appended to and
 never rewritten. Three line kinds:
 
 - ``file`` — one copied file: ``source``, ``path`` (relative to the archive
-  root), ``size``, ``sha256``, ``source_mtime_ns``, ``archived_at``;
+  root), ``size``, ``sha256``, ``source_mtime_ns``, ``archived_at``; a file
+  exported from the telemetry store also carries its ``table``, ``day`` and
+  ``rows``;
 - ``telemetry_day`` — one exported day of the telemetry store: ``day`` and the
-  ``rows`` written per ``<type>/<stream>``;
+  ``rows`` written per table;
 - ``pass`` — the last line of every pass: ``started_at``, ``completed_at``,
   ``files``, ``bytes``, ``errors``, ``skipped``, ``telemetry_days``.
 

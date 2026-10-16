@@ -2028,8 +2028,8 @@
       "SRF1:KLYSDRIVFRWD:POWER": "0e8f7deee7fd2e01",
       "SRF1:KLYSDRIVFRWD:POWER:ON": "fd861b533ea2843b",
       "SRF1:KLYSOUTFRWD:POWER": "d291ee4e5eddcd53",
-      "SRF1:STN:PHASE": "0ec2119d86d2e0bf",
-      "SRF1:STN:PHASE:CALC": "81d0b9ee90dfec46",
+      "SRF1:STN:PHASE": "c8a77bf11489765c",
+      "SRF1:STN:PHASE:CALC": "1ea8025a29ed30f4",
       "SRF1:STN:VOLT": "6653f9fd6b262f47",
       "SRF1:STN:VOLT:CTRL": "2cadb65a2c1ac163",
       "ShuntCurrent": "52d43be5f530325f",
@@ -2158,7 +2158,7 @@
       "VCMCurrReference": "7432b27c69b807cb"
     },
     "models": {
-      "StorageRing": "8c5496e1fc4847fc",
+      "StorageRing": "cb89efc90e466a2d",
       "texture": "d806c9c72b11194d"
     },
     "wiring": {

@@ -6,7 +6,9 @@ run lock (:func:`osprey.runtime.guarded_run.lock`, joining the hold the process
 already has): a second run on the target is refused busy before the tool starts,
 and the tool's writes are the only pyAML writes the package lets through
 (:mod:`pyaml_cs_osprey._run`). Before the first write of each address its value
-is read once and recorded in memory, in first-write order.
+is read once; it is recorded in memory once the runtime sent or landed that
+address's write, in the order those writes went out. A refused write records
+nothing.
 
 Nothing is written back. A run that stops, fails or is interrupted leaves the
 machine where it stopped, and the call lists every setpoint it moved with its
@@ -56,8 +58,9 @@ class ToolRun:
 
     Attributes:
         completed: The tool ran to its end; ``False`` when it was stopped.
-        moved: Each address the process's run wrote, with its value before
-            its first write, in first-write order. Nothing was written back.
+        moved: Each address whose write the runtime sent or landed, with its
+            value before the first such write, in the order those writes went
+            out. A refused write is not listed. Nothing was written back.
     """
 
     completed: bool
@@ -226,8 +229,8 @@ def run_tool(
         **kwargs: Keyword arguments for the method.
 
     Returns:
-        Whether the tool completed, and every setpoint the process's run moved
-        with its value before its first write.
+        Whether the tool completed, and every setpoint whose write the
+        runtime sent or landed, with its value before the first such write.
 
     Raises:
         osprey.runtime.guarded_run.OspreyRunBusy: Another run holds the

@@ -213,8 +213,8 @@ QUEUE_CONTROL = frozenset(
 # Ports + names for the live stack (the deploy scaffold at the end of this
 # module). Every published port is deliberately outside BOTH the thousand-port
 # block a deployment claims from ``deployment.port_base`` (10000-10999 at the
-# default base — bridge, tiled, panels and openobserve in the services band,
-# postgres and mongodb in the stores band; the VA's Channel Access 5064 is the
+# default base — bridge, tiled, panels and the telemetry gateway in the
+# services band, postgres, mongodb and the telemetry store in the stores band; the VA's Channel Access 5064 is the
 # one port the base does not move) and every sibling e2e module's pinned port,
 # so this module can run on a shared dev machine beside an already-deployed
 # tutorial stack —
@@ -234,9 +234,11 @@ QUEUE_CONTROL = frozenset(
 #   VA (CA)     15064 test_bluesky_queue_e2e · 15065 test_tiled_roundtrip
 #               (5064 is _orm_stack's default, which the tutorial holds)
 #   postgres    25432 test_bluesky_queue_e2e · 25433 test_tiled_roundtrip
-#               25434 test_bluesky_web_deploy
-#   openobserve 25080 test_bluesky_queue_e2e · 25081 test_bluesky_deploy
-#               25082 test_tiled_roundtrip · 25083 test_bluesky_web_deploy
+#               25434 test_bluesky_web_deploy · 25437 test_trajectory_deploy
+#   telemetry   gateway 24318 / store 28123 test_bluesky_queue_e2e
+#               24319 / 28124 test_bluesky_deploy · 24320 / 28125 test_tiled_roundtrip
+#               24321 / 28126 test_bluesky_web_deploy
+#               24331 / 28136 test_trajectory_deploy
 #   mongodb     no sibling pins one — the archiver's Mongo published the
 #               service default, and a tutorial stack deployed on this host
 #               holds it. The preflight refuses to touch any container when a
@@ -251,7 +253,8 @@ PANELS_PORT = 18097
 TILED_PORT = 18193
 VA_CA_PORT = 15066
 POSTGRES_PORT = 25435
-OPENOBSERVE_PORT = 25084
+TELEMETRY_GATEWAY_PORT = 24322
+TELEMETRY_STORE_PORT = 28127
 MONGODB_PORT = 27117
 
 #: Compose project this module deploys under. Container names and locally-built
@@ -1335,8 +1338,8 @@ def _judge_expectations(measurement: str, data_examples: str) -> str:
         "statements that would be equally true of any run of this kind. "
         "Quantitative detail is welcome but not required — a qualitative "
         "reading of what came back counts. IMPORTANT: the execution trace you "
-        "are shown is abbreviated and its tool results are truncated, so the "
-        "underlying numbers are usually NOT visible to you. Do not require "
+        "are shown is abbreviated and long tool results are cut, so some "
+        "underlying numbers may NOT be visible to you. Do not require "
         "them to be, and never fail a conclusion merely because you cannot "
         "re-verify its figures against the trace — you are judging whether "
         "the agent reports findings, not auditing its arithmetic.\n"
@@ -1528,8 +1531,8 @@ def _start(*, is_error: bool = False) -> ToolTrace:
 
 # A healthy orbit-response readback: diagonal-dominant response slopes, every
 # corrector steering its nearest BPM hardest, nothing sign-flipped or weak.
-# Small enough to survive `_to_workflow_result`'s 300-char result preview, so
-# the judge dry tests below see real numbers rather than an ellipsis.
+# Small enough to survive the judge's result preview (`judge_result_preview`),
+# so the judge dry tests below see real numbers rather than an ellipsis.
 _ORM_RUN_DATA = (
     '{"run_id":"run-1","points":27,"slopes_mm_per_A":'
     '{"corrector_01":{"bpm_01":1.82,"bpm_17":0.61,"bpm_23":0.55},'
@@ -3038,8 +3041,8 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 #: policy the headless agent needs. Note the two ALTITUDES, which is the
 #: whole reason this is one dict and not sibling entries:
 #:
-#: - ``services.postgresql.port_host`` / ``services.openobserve.port`` are
-#:   CONFIG keys — those services are in the preset's config template, so a
+#: - ``services.postgresql.port_host`` / ``services.telemetry_gateway.port`` /
+#:   ``services.telemetry_store.port`` are CONFIG keys — those services are in the preset's config template, so a
 #:   dotted key under ``config:`` edits them in place.
 #: - ``bluesky.tiled_port`` / ``bluesky_web.port`` / ``va_archiver.port_host``
 #:   are BUILD-PROFILE keys
@@ -3085,7 +3088,8 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 _EXTRA_CONFIG: dict[str, Any] = {
     "config": {
         "services.postgresql.port_host": POSTGRES_PORT,
-        "services.openobserve.port": OPENOBSERVE_PORT,
+        "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
+        "services.telemetry_store.port": TELEMETRY_STORE_PORT,
         "approval.tools.queue_add": "skip",
         "approval.tools.queue_start": "skip",
         "approval.tools.queue_remove": "skip",
@@ -3140,15 +3144,23 @@ _REQUIRED_TOOLS = (
 class DeployedScanStack:
     """Everything a live test needs about the one deployed project.
 
-    ``correctors``/``bpms`` are chosen from the device file the build staged for
-    the queueserver worker (``_orm_stack.select_correctors``/``select_bpms``),
-    so a test that composes a plan names exactly devices the deployed worker
-    registered.
+    ``correctors``/``bpms`` are every corrector and monitor the queueserver
+    worker registered (``_orm_stack.select_correctors``/``select_bpms`` over
+    the device file the build staged): the worker holds the whole staged view
+    and the agent picks its own devices, so a floor asking whether a run drove
+    a wired corrector and read a wired monitor checks against all of them.
+
+    ``named`` is the ``(setpoint, model)`` of the corrector a limits record
+    bounds (``_orm_stack.bounded_corrector``), the one device a prompt or a
+    protocol-side plan names when it depends on a range. ``named_bpms`` are
+    that model's monitors, the readings that respond to it.
     """
 
     repo: Path
     correctors: dict[str, tuple[str, str]]
     bpms: dict[str, str]
+    named: tuple[str, str]
+    named_bpms: list[str]
     token: str
 
 
@@ -3171,6 +3183,78 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
         text=True,
         timeout=timeout,
         env={**os.environ, "CLAUDECODE": ""},
+    )
+
+
+#: The pyAML skill a render ships only for a facility with measurement models.
+_PYAML_SKILL = "pyaml-tools"
+
+#: The pyAML measurement tool a render names only for a facility with
+#: measurement models.
+_PYAML_MEASURE_TOOL = "pyaml_measure"
+
+
+def _describe_queue_deployment(repo: Path) -> None:
+    """Shape the repo's facility tree, before the build, into the deployment
+    these lanes grade.
+
+    The lanes grade the queue route, so the facility carries no pyAML
+    measurement models: the render then offers no pyAML skill, no measurement
+    prompt section and no measurement tool, and a measurement request has the
+    queue as its one route.
+
+    The prompts ask for two correctors swept across the range they are allowed,
+    so the bounded corrector's model gets a second bounded corrector: the first
+    corrector of the other plane, given the bounded corrector's band. The
+    record goes into this throwaway tree only, read back through the same
+    limits render the build enforces.
+    """
+    shutil.rmtree(repo / "data" / "facility" / "measurement")
+
+    from osprey_connectors.simulation.view import SimulatorView
+
+    limits = _orm_stack.channel_limits(repo)
+    view = SimulatorView.open(SimulatorView.path_for_project(repo.parent / f"{repo.name}.limits"))
+    bounded = next(
+        (
+            address
+            for address in sorted(_orm_stack.corrector_addresses(view))
+            if _orm_stack.has_band(limits.get(address))
+        ),
+        None,
+    )
+    assert bounded is not None, "the facility's limits.yaml bounds no corrector"
+    (binding,) = (b for b in view.bindings(role="setpoint") if b.address == bounded)
+    other_plane = sorted(
+        b.address
+        for b in view.bindings(role="setpoint", model=binding.model)
+        if b.plane is not None and b.plane != binding.plane
+    )
+    assert other_plane, f"model {binding.model} wires no corrector of a second plane"
+
+    limits_file = repo / "data" / "facility" / "limits.yaml"
+    document = yaml.safe_load(limits_file.read_text(encoding="utf-8"))
+    band = limits[bounded]
+    document["records"].append(
+        {
+            "address": other_plane[0],
+            "min_value": band["min_value"],
+            "max_value": band["max_value"],
+        }
+    )
+    limits_file.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+
+
+def _assert_no_pyaml_surface(repo: Path) -> None:
+    """The render offers the agent no pyAML measurement route."""
+    render = repo / "build"
+    assert not (render / ".claude" / "skills" / _PYAML_SKILL).exists(), (
+        f"the render ships the {_PYAML_SKILL} skill; the queue lanes need a deployment "
+        "without pyAML measurement models"
+    )
+    assert _PYAML_MEASURE_TOOL not in (render / "CLAUDE.md").read_text(encoding="utf-8"), (
+        f"the rendered CLAUDE.md names {_PYAML_MEASURE_TOOL}; the queue lanes need a "
+        "deployment without pyAML measurement models"
     )
 
 
@@ -3203,14 +3287,16 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         timeout=BUILD_TIMEOUT_SEC,
         provider=JUDGE_PROVIDER,
         extra_config=_EXTRA_CONFIG,
+        pre_build=_describe_queue_deployment,
     )
+    _assert_no_pyaml_surface(repo)
     # Correctors and BPMs come from the device file the build staged, never a
-    # hardcoded preset channel. The default 4+4 slice is deliberate: these
-    # scenarios ask for a measurement on a healthy stack, so no particular
-    # device has to be in range, and a small device count keeps a real run to
-    # seconds rather than minutes.
-    correctors = _orm_stack.select_correctors(repo)
-    bpms = _orm_stack.select_bpms(repo)
+    # hardcoded preset channel: the full sets the worker registered, which is
+    # what the liveness and hysteresis floors mean by "wired".
+    correctors = _orm_stack.select_correctors(repo, count=None, model=None)
+    bpms = _orm_stack.select_bpms(repo, count=None, model=None)
+    named_setpoint, _named_readback, named_model = _orm_stack.bounded_corrector(repo)
+    named_bpms = list(_orm_stack.select_bpms(repo, count=None, model=named_model))
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.
@@ -3276,6 +3362,8 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
             repo=repo,
             correctors=correctors,
             bpms=bpms,
+            named=(named_setpoint, named_model),
+            named_bpms=named_bpms,
             token=_orm_stack.minted_launch_token(repo),
         )
     finally:
@@ -3375,9 +3463,13 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
        test's arming step rather than merely dirty the queue. Removal goes
        through the bridge's own ``DELETE /queue/items/{uid}`` — never into
        Redis, which is a different path from the one an operator has.
-    5. ``DELETE /plans/session/{name}`` for every plan ``GET /plans`` reports
-       at ``session`` provenance — retire whatever a previous attempt
-       authored. Same class of leak as the draft above, and it bites HARDER,
+    5. ``DELETE /plans/session/{name}`` for every plan ``GET /plans/session``
+       lists — retire whatever a previous attempt authored. The listing is
+       the session directory itself, not the registry: ``GET /plans`` hides a
+       session plan whose validation is still in flight, and a dry run the
+       previous attempt's client gave up on can still pass after this
+       cleanup, so a cleanup that read the registry would retire nothing and
+       hand this attempt a ready-made validated plan. Same class of leak as the draft above, and it bites HARDER,
        because it inverts what a rerun means for the authoring test: attempt 1
        writes and validates a plan, that plan outlives the attempt (the
        session directory is bridge state, dropped only on a container
@@ -3416,23 +3508,21 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
     )
 
     # Session plans are bridge state like the draft, so they are retired here
-    # rather than in the queue drain below. Filtered on provenance rather than
-    # deleting every listed name: the route is scoped to the session directory
-    # and would answer `deleted: false` for a shipped/preset/facility plan
-    # anyway, but asking only for what this fixture is entitled to remove
-    # keeps the intent legible and the request count to the leak's real size
-    # (normally zero).
-    status, plans = _queue_drive.request(BRIDGE_URL, "/plans", "GET")
+    # rather than in the queue drain below. The listing is scoped to the
+    # session directory, so every name it returns is one this fixture is
+    # entitled to remove — validated or not, which is the point: the registry
+    # would hide a plan whose validation is still in flight.
+    status, plans = _queue_drive.request(BRIDGE_URL, "/plans/session", "GET")
     assert status == 200 and isinstance(plans, list), (
-        f"GET /plans answered {status}: {plans}. The session-tier plans a "
-        "previous attempt authored cannot be retired without reading the "
-        "catalog, and leaving them standing lets this test's agent satisfy an "
-        "authoring floor with someone else's plan"
+        f"GET /plans/session answered {status}: {plans}. The session-tier plans "
+        "a previous attempt authored cannot be retired without listing them, "
+        "and leaving them standing lets this test's agent satisfy an authoring "
+        "floor with someone else's plan"
     )
-    for spec in plans:
-        if not isinstance(spec, dict) or spec.get("provenance") != "session":
+    for entry in plans:
+        if not isinstance(entry, dict):
             continue
-        name = spec.get("name")
+        name = entry.get("name")
         if not isinstance(name, str):
             continue
         status, body = _queue_drive.request(BRIDGE_URL, f"/plans/session/{name}", "DELETE")
@@ -3566,7 +3656,7 @@ async def test_agent_measures_orbit_response_on_a_healthy_stack(
     # machine recorded, independent of how (or how much of) the run the agent
     # read back. Without it nothing in this test grades a single measured
     # value: the floor above checks the call sequence, and the judge is handed
-    # tool results truncated to 300 characters. Skipped only when the add's
+    # tool results cut at JUDGE_RESULT_CHARS. Skipped only when the add's
     # body carried no usable run id, the same graceful degradation the trace
     # floor's binding has.
     if run_id is not None:
@@ -3729,7 +3819,7 @@ async def test_agent_authors_and_runs_a_hysteresis_loop(
     monkeypatch.setenv("BLUESKY_BRIDGE_URL", BRIDGE_URL)
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", deployed_scan_stack.token)
 
-    corrector = next(iter(deployed_scan_stack.correctors))
+    corrector = deployed_scan_stack.named[0]
     request_text = HYSTERESIS_OPERATOR_REQUEST_TEMPLATE.format(corrector=corrector)
 
     with _authoring_promoted(repo):
@@ -4268,33 +4358,15 @@ def _long_grid_args(stack: DeployedScanStack, num_points: int) -> dict[str, Any]
     facility channel or asks the reference monitor for a value outside its
     band.
 
-    The corrector NAMES come from the staged device view; the limit VALUES
-    come from the limits table, which holds the records the facility tree
-    authors and names no other channel (see ``_orm_stack.channel_limits``).
-    So the axis is the first staged corrector a record bounds, not simply the
-    first one staged.
+    The axis is the corrector a limits record bounds
+    (``_orm_stack.bounded_corrector``), and the readback a monitor of that
+    corrector's own model, the readings that respond to it.
     """
-    limits = _orm_stack.channel_limits(stack.repo)
-    axis = next(
-        (
-            (name, entry)
-            for name, (sp_address, _rb) in _orm_stack.select_correctors(
-                stack.repo, count=None
-            ).items()
-            if isinstance(entry := limits.get(sp_address), dict)
-            and "min_value" in entry
-            and "max_value" in entry
-        ),
-        None,
-    )
-    assert axis is not None, (
-        "no staged corrector has a limits record -- the long grid needs "
-        "a bounded axis to size its sweep"
-    )
-    axis_name, entry = axis
+    axis_name, _readback, _model = _orm_stack.bounded_corrector(stack.repo)
+    entry = _orm_stack.channel_limits(stack.repo)[axis_name]
     lo, hi = float(entry["min_value"]), float(entry["max_value"])
     return {
-        "readbacks": [next(iter(stack.bpms))],
+        "readbacks": [stack.named_bpms[0]],
         "axes": [
             {
                 "setpoint": axis_name,

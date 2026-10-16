@@ -23,10 +23,10 @@ logger = logging.getLogger("osprey.cli.templates")
 # resolves to at build time. Bump deliberately, alongside the dispatch-worker
 # pin.
 #
-# The value is npm's `stable` dist-tag for @anthropic-ai/claude-code, never
-# `latest` or `next`; read the channel with
-# `npm view @anthropic-ai/claude-code dist-tags`.
-_DEFAULT_CLAUDE_CLI_VERSION = "2.1.267"
+# The value is one exact build of @anthropic-ai/claude-code, the same one on
+# every host and in every image; it is never read from an npm dist-tag, which
+# moves under it.
+_DEFAULT_CLAUDE_CLI_VERSION = "2.1.300"
 
 CONFIG_TEMPLATE = "config.yml.j2"
 """The project-file template that renders ``config.yml``."""
@@ -40,10 +40,15 @@ def _default_cli_version(ctx: dict) -> None:
     ``ctx["claude_code_cli_version"]`` (flat) or ``ctx["claude_code"]["cli_version"]``
     (nested, mirroring config.yml's shape); absent either, fall back to the
     framework's last verified pin."""
-    if "claude_code_cli_version" not in ctx:
-        ctx["claude_code_cli_version"] = (
-            ctx.get("claude_code", {}).get("cli_version") or _DEFAULT_CLAUDE_CLI_VERSION
-        )
+    from osprey.agent_runner.launcher import pinned_cli_version, validate_cli_version
+
+    # The value becomes the image's ``npm install`` target, so it passes the
+    # one check of the pin whichever key carried it.
+    if "claude_code_cli_version" in ctx:
+        version: str | None = validate_cli_version(ctx["claude_code_cli_version"])
+    else:
+        version = pinned_cli_version(ctx.get("claude_code") or {})
+    ctx["claude_code_cli_version"] = version or _DEFAULT_CLAUDE_CLI_VERSION
 
 
 def project_template_for(template_root: Path, template_file: str) -> str | None:
@@ -187,7 +192,6 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
     "TRAJECTORY_LAUNCH_TOKEN": (
         "admits the trajectory service's agent door (the terminal's panel proxy presents it)"
     ),
-    "ZO_ROOT_USER_PASSWORD": "OpenObserve root/ingest credential",
     "ARIEL_DB_PASSWORD": "ARIEL Postgres password (also fills the agent's derived DSN)",
     "ARIEL_DB_READONLY_PASSWORD": (
         "password of the SELECT-only Postgres role the agent's SQL tool queries through"

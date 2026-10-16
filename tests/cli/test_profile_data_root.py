@@ -15,7 +15,6 @@ replacement, not a layer, and the tree is content rather than templates:
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 
 import pytest
@@ -121,10 +120,7 @@ class TestFullReplacement:
         profile_dir = tmp_path / "profile"
         profile_path = _write_profile(profile_dir)
 
-        # Drop a distinctive bundle artifact from the profile's copy: if the
-        # bundle tree were layered under (or merged into) the profile tree, it
-        # would reappear in the rendered project.
-        shutil.rmtree(profile_dir / "data" / "channel_databases" / "examples")
+        # A profile-only file proves the profile tree is the source.
         (profile_dir / "data" / "facility_marker.txt").write_text("profile tree\n")
 
         project_dir = _build(profile_path)
@@ -139,9 +135,6 @@ class TestFullReplacement:
         assert limits == limits_document(
             build_facility(facility_dir, project_name=project_dir.name)
         ), "the limits database is not the view of the profile tree's limits.yaml"
-        assert not (project_dir / "data" / "channel_databases" / "examples").exists(), (
-            "bundle channel_databases/examples/ leaked into a full-replacement build"
-        )
 
     @pytest.mark.parametrize("bundle_data_at_top", [True, False])
     def test_both_bundle_derivation_branches_are_bypassed(
@@ -271,6 +264,7 @@ class TestBuildPipelineOrderingHolds:
         # The profile's flat DB carries different content, so a passing
         # assertion can only mean the mirror landed last.
         profile_flat = profile_dir / "data" / "channel_databases" / "in_context.json"
+        profile_flat.parent.mkdir(parents=True, exist_ok=True)
         profile_flat.write_text('{"channels": {"PROFILE:FLAT": {}}}\n')
         (profile_dir / "data" / "facility_marker.txt").write_text("profile tree\n")
 

@@ -336,7 +336,7 @@ def test_seam_auth_none_or_absent_emits_no_auth_surface_even_with_tls_on() -> No
 
     # Assert
     assert "listen 443 ssl;" in nginx_conf
-    for absent in ("auth_request", "_osprey_auth", "location /auth/", "error_page"):
+    for absent in ("auth_request", "_osprey_auth", "location /auth/", "error_page 401"):
         assert absent not in nginx_conf
 
     # Arrange — explicit auth.method: "none" (not merely absent)
@@ -347,7 +347,7 @@ def test_seam_auth_none_or_absent_emits_no_auth_surface_even_with_tls_on() -> No
     nginx_conf_explicit_none = _render_nginx(config_explicit_none)
 
     # Assert
-    for absent in ("auth_request", "_osprey_auth", "location /auth/", "error_page"):
+    for absent in ("auth_request", "_osprey_auth", "location /auth/", "error_page 401"):
         assert absent not in nginx_conf_explicit_none
 
 

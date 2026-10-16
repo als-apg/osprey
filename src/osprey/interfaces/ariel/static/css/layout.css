@@ -107,8 +107,8 @@
 }
 
 /* Embedded in web terminal: the host tile header bar IS this panel's header —
- * it carries the panel name, the hub's theming, and (via app.js) the Browse /
- * New Entry nav contributed into it. The panel's own header would be a second
+ * it carries the panel name, the hub's theming, and (via app.js) the Search /
+ * Browse / New Entry nav contributed into it. The panel's own header would be a second
  * bar, so it goes away wholesale. The display menu needs no rule here: the
  * component injects its own body.embedded hide rule. */
 body.embedded .header { display: none; }

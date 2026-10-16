@@ -1073,9 +1073,11 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
                 (
                     "telemetry: the observability backend's credentials are missing or "
                     "unresolved, so the provider could not be resolved",
-                    "Set claude_code.telemetry.openobserve.user and .password — or the "
-                    f"environment variables they reference — in {repo_root / '.env'}, "
-                    "then rerun. The provider configuration itself is not the problem.",
+                    "Run `osprey build` to write each sender's gateway login "
+                    "(.env.telemetry-sender.<identity>), or set the variable "
+                    "claude_code.telemetry.auth.token_env names in "
+                    f"{repo_root / '.env'}, then rerun. The provider configuration "
+                    "itself is not the problem.",
                 )
             )
         except Exception as exc:
@@ -1358,7 +1360,7 @@ def logs_command(repo_root, *, service=None, follow=False, tail=None):
         _env_file_args(repo_root, provider) if (repo_root / COMPOSE_ENV_FILENAME).exists() else []
     )
     cmd = compose_base_cmd(
-        with_plain_progress(get_runtime_command(config)),
+        with_plain_progress(get_runtime_command(config), provider=provider),
         compose_files,
         repo_root,
         env_file_args,

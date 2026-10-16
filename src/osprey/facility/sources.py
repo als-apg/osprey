@@ -37,15 +37,19 @@ import yaml
 
 from osprey.facility import PN_LOCAL
 from osprey.facility.errors import FacilityBuildError
+from osprey_connectors import yaml_loader
 
 __all__ = [
     "AUTHORED",
     "COMPUTED_SLOTS",
+    "KIND_CLASS",
     "LAYER_OWN_FILES",
     "RECORD_FILES",
+    "SET_VALUED_SLOTS",
     "LoadResult",
     "SourceRecord",
     "Sources",
+    "group_families",
     "load_sources",
     "slot_names",
 ]
@@ -75,8 +79,29 @@ COMPUTED_SLOTS: dict[str, frozenset[str]] = {
     "wiring": frozenset({"direction", "unit", "default", "value_range", "provenance"}),
 }
 
+#: The multivalued slots that are sets: compared and written sorted by string form.
+SET_VALUED_SLOTS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("Place", "names"),
+        ("Device", "names"),
+        ("Channel", "names"),
+        ("Channel", "tags"),
+        ("Channel", "former_addresses"),
+        ("Channel", "endpoint_of"),
+        ("Group", "names"),
+        ("Group", "members"),
+        ("Device", "groups"),
+        ("Measurement", "kinds"),
+        ("MeasurementGroups", "bpm"),
+        ("MeasurementGroups", "hcor"),
+        ("MeasurementGroups", "vcor"),
+        ("MeasurementGroups", "quad"),
+        ("MeasurementGroups", "sext"),
+    }
+)
+
 #: The schema class each record kind is shaped by.
-_KIND_CLASS: dict[str, str] = {
+KIND_CLASS: dict[str, str] = {
     "place": "Place",
     "device": "Device",
     "channel": "Channel",
@@ -120,16 +145,50 @@ _Loader.add_implicit_resolver(
 )
 
 
+_LOADERS: dict[type, type[Any]] = {yaml.SafeLoader: _Loader}
+
+
+def _loader_on(base: type) -> type[Any]:
+    """``_Loader``'s bool rule on the scanner of *base*: the one resolver table, shared."""
+    loader = _LOADERS.get(base)
+    if loader is None:
+        loader = type("_ScannedLoader", (base,), {"__doc__": _Loader.__doc__})
+        loader.yaml_implicit_resolvers = _Loader.yaml_implicit_resolvers
+        _LOADERS[base] = loader
+    return loader
+
+
 def read_yaml(text: str) -> Any:
     """Parse one source file's text.
+
+    The text is scanned on libyaml when it is installed; a text that does not
+    parse is refused in the words of PyYAML's own parser, which quotes the line.
 
     Args:
         text: The file's contents.
 
     Returns:
         The parsed document; ``None`` for an empty file.
+
+    Raises:
+        yaml.YAMLError: On a text that does not parse.
     """
+    loader = _loader_on(yaml_loader.safe_loader())
+    try:
+        return yaml.load(text, Loader=loader)
+    except yaml.YAMLError:
+        if loader is _Loader:
+            raise
     return yaml.load(text, Loader=_Loader)
+
+
+def group_families(value: Any) -> tuple[str, ...]:
+    """The group ids a measurement-file group role names: each item of a list, else the value itself."""
+    if value is None:
+        return ()
+    if isinstance(value, list):
+        return tuple(str(item) for item in value)
+    return (str(value),)
 
 
 @cache
@@ -375,7 +434,7 @@ class _Reader:
         rid = self._record_id(row, "id", rel, index)
         if rid is None:
             return
-        self._check_keys(row, _KIND_CLASS[kind], COMPUTED_SLOTS[kind], kind, rid, rel)
+        self._check_keys(row, KIND_CLASS[kind], COMPUTED_SLOTS[kind], kind, rid, rel)
         if kind == "channel":
             on = row.get("on")
             if isinstance(on, dict) and "device" in on and "place" in on:

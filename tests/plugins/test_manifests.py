@@ -779,20 +779,22 @@ def test_git_ignore_shape() -> None:
             shutil.rmtree(installed_dir, ignore_errors=True)
 
 
+@pytest.mark.usefixtures("real_agent_cli")
 def test_validate_strict(tmp_path: Path) -> None:
-    """The bundled Claude CLI validates the marketplace manifest in strict mode.
+    """The pinned Claude CLI validates the marketplace manifest in strict mode.
 
     This covers the plugin manifest transitively: the validator resolves every
-    plugin source. It never skips — a missing CLI is a real failure, because the
-    binary ships with the SDK this project depends on.
+    plugin source. It runs the installed ``claude`` a headless run is pointed
+    at and never skips — a missing CLI is a real failure.
     """
-    try:
-        import claude_agent_sdk
-    except ImportError as exc:  # pragma: no cover - dependency is declared
-        pytest.fail(f"claude_agent_sdk is not importable, so the bundled CLI is unreachable: {exc}")
+    from osprey.agent_runner.errors import AgentCliUnavailableError
+    from osprey.agent_runner.launcher import agent_cli_path
+    from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
 
-    binary = Path(claude_agent_sdk.__file__).parent / "_bundled" / "claude"
-    assert binary.is_file(), f"bundled Claude CLI not found at {binary}"
+    try:
+        binary = agent_cli_path({"cli_version": _DEFAULT_CLAUDE_CLI_VERSION})
+    except AgentCliUnavailableError as exc:
+        pytest.fail(f"this check needs the pinned Claude Code and must not skip:\n{exc}")
 
     result = subprocess.run(
         [str(binary), "plugin", "validate", "--strict", _CLAUDE_MARKETPLACE],

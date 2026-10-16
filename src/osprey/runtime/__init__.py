@@ -68,6 +68,7 @@ Control Target:
 
 import asyncio
 import atexit
+import contextlib
 import dataclasses
 import json
 import os
@@ -85,7 +86,7 @@ from osprey.utils.logger import get_logger
 from osprey_connectors.control_system.base import values_match
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterator, Sequence
     from pathlib import Path
 
     from osprey.connectors.control_system.base import ControlSystemConnector
@@ -103,6 +104,7 @@ __all__ = [
     "read_channels",
     "write_channels",
     "channel_limits",
+    "record_writes",
     "values_match",
     "cleanup_runtime",
     "ControlTargetChangedError",
@@ -188,6 +190,9 @@ _connector_lock = asyncio.Lock()
 _pool_routing = False
 #: The pool an opted-in process draws its connector from, built on first need.
 _connector_pool: Any | None = None
+#: Bound on a connector-host child starting and answering its init frame, read
+#: when the pool is built; ``None`` keeps the pool's own default.
+_pool_start_timeout_s: float | None = None
 #: The launch pin the pooled connector above was taken under. A child selects
 #: its gateway on the posture it was spawned with, so a moved pin respawns it.
 _connector_launch_pin: str | None = None
@@ -203,7 +208,8 @@ _cell_marker: "Path | None" = None
 #: no wrapper — so every other process validates at the connector alone.
 _limits_validator: "LimitsValidator | None" = None
 #: Callables told about every write this process makes, as ``fn(address, phase)``.
-#: Registered only through :func:`_register_write_observer`.
+#: Registered only through :func:`_register_write_observer` and removed through
+#: :func:`_unregister_write_observer`.
 _write_observers: "list[Callable[[str, str], None]]" = []
 
 
@@ -297,7 +303,12 @@ async def _pooled_connector_locked(target: str | None) -> Any:
         from osprey_connectors.ipc.pool import ConnectorHostPool
         from osprey_connectors.workspace import resolve_config_path
 
-        _connector_pool = ConnectorHostPool(section, config_file=str(resolve_config_path()))
+        options: dict[str, Any] = (
+            {} if _pool_start_timeout_s is None else {"start_timeout_s": _pool_start_timeout_s}
+        )
+        _connector_pool = ConnectorHostPool(
+            section, config_file=str(resolve_config_path()), **options
+        )
     key = target if target is not None else baseline_target(section)
     logger.debug("Taking the connector for target %s from the connector-host pool", key)
     return await _connector_pool.connector(key)
@@ -601,6 +612,51 @@ def _register_write_observer(fn: "Callable[[str, str], None]") -> None:
     """
     if fn not in _write_observers:
         _write_observers.append(fn)
+
+
+def _unregister_write_observer(fn: "Callable[[str, str], None]") -> None:
+    """Stop telling ``fn`` about writes; a callable not registered is a no-op."""
+    with contextlib.suppress(ValueError):
+        _write_observers.remove(fn)
+
+
+@contextlib.contextmanager
+def record_writes() -> "Iterator[list[tuple[str, str]]]":
+    """Record the writes this process makes while the block is open.
+
+    Yields a list that grows by one ``(address, phase)`` record each time a
+    write made through :func:`write_channel` or :func:`write_channels`, on any
+    thread, reaches a phase:
+
+    * ``"attempt"``: the target pin and the limits net passed; the connector
+      call comes next.
+    * ``"landed"``: the value reached the control system and a re-read
+      verified it.
+    * ``"sent"``: the value reached the control system, unverified.
+
+    A write refused before the connector call records nothing. A write that
+    reached no control system (the connector refused it, or the transport
+    failed) records its ``attempt`` and no second phase. A multi-channel write
+    reports every channel's ``attempt`` before the connector call. When the
+    connector returns its results, every channel's outcome is reported before
+    the write raises for any of them. When the connector itself raises partway
+    (a limits violation, a transport error), no outcome is reported: an
+    ``attempt`` with no later phase then means the outcome is unknown, and the
+    value may have gone out.
+
+    Each block records into its own list, so nested and concurrent blocks
+    never share records, and nothing is recorded once the block has closed.
+    """
+    records: list[tuple[str, str]] = []
+
+    def record(address: str, phase: str) -> None:
+        records.append((address, phase))
+
+    _register_write_observer(record)
+    try:
+        yield records
+    finally:
+        _unregister_write_observer(record)
 
 
 def _notify_write(address: str, phase: str) -> None:

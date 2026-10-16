@@ -250,8 +250,10 @@ First-turn response
 ===================
 
 For every model carrying the kind, the pyAML view build writes two files to
-``data/pyaml/<model>/``. A refusal by the engine, or an engine with no
-``response_matrix()``, stops the build.
+``data/pyaml/<model>/``. A refusal by the engine, an answer in which no
+corrector solves, or an engine with no ``response_matrix()``, stops the build.
+A corrector whose step loses the launched particle has no solve: it keeps its
+column, as a column of zeros, and the index file names it.
 
 .. list-table:: First-turn response files
    :header-rows: 1
@@ -269,7 +271,8 @@ For every model carrying the kind, the pyAML view build writes two files to
    * - ``trajectory_rm.index.json``
      - The lattice index of every row and column: ``bpm_index`` (one entry per
        row), ``hcor_index`` then ``vcor_index`` (together one entry per
-       column).
+       column); and ``unsolved``, each corrector whose step has no solve
+       mapped to the engine's text.
 
 Each corrector steps by the measurement file's ``corrector_delta`` (radians),
 converted to its hardware unit through its wiring calibration. An entry is a
@@ -281,7 +284,9 @@ are written to nine significant digits and every one is finite.
 
 ``model_response_matrix`` with ``kind`` ``trajectory`` answers the same
 content as JSON for the correctors it is asked for, and writes nothing
-(:ref:`executor-measurement-tools`).
+(:ref:`executor-measurement-tools`). There, as for every kind, an unsolved
+corrector has no column and is listed under ``unsolved``, and the call is
+refused only when no corrector solves.
 
 Model-wide scenario faults
 ==========================

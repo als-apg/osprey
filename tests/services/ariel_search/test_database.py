@@ -567,6 +567,124 @@ class TestRepositoryInitialization:
         assert repo.pool is pool
 
 
+class TestHasInputKeyColumn:
+    """``ARIELRepository.has_input_key_column`` probes one table's columns."""
+
+    @staticmethod
+    def _repo(pool):
+        from osprey.services.ariel_search.database.repository import ARIELRepository
+
+        config = ARIELConfig(database=DatabaseConfig(uri="postgresql://localhost/test"))
+        return ARIELRepository(pool, config)
+
+    async def test_has_input_key_column_true_when_the_column_exists(
+        self, fake_pool_factory
+    ) -> None:
+        pool = fake_pool_factory(rows_for={"information_schema.columns": [(1,)]})
+
+        assert await self._repo(pool).has_input_key_column("text_embeddings_nomic") is True
+
+    async def test_has_input_key_column_false_when_the_column_is_absent(
+        self, fake_pool_factory
+    ) -> None:
+        pool = fake_pool_factory(rows_for={"information_schema.columns": []})
+
+        assert await self._repo(pool).has_input_key_column("text_embeddings_nomic") is False
+
+    async def test_has_input_key_column_queries_the_current_schema_by_table(
+        self, fake_pool_factory
+    ) -> None:
+        pool = fake_pool_factory(rows_for={"information_schema.columns": [(1,)]})
+
+        await self._repo(pool).has_input_key_column("text_embeddings_nomic")
+
+        calls = pool.recorder.matching("information_schema.columns")
+        assert len(calls) == 1
+        sql, params = calls[0]
+        assert "current_schema()" in sql
+        assert "column_name = 'input_key'" in " ".join(sql.split())
+        assert list(params) == ["text_embeddings_nomic"]
+
+    async def test_has_input_key_column_probes_every_call_without_caching(
+        self, fake_pool_factory
+    ) -> None:
+        pool = fake_pool_factory(rows_for={"information_schema.columns": [(1,)]})
+        repo = self._repo(pool)
+
+        await repo.has_input_key_column("text_embeddings_a")
+        await repo.has_input_key_column("text_embeddings_a")
+
+        assert len(pool.recorder.matching("information_schema.columns")) == 2
+
+    async def test_has_input_key_column_leaves_schema_facts_alone(self, fake_pool_factory) -> None:
+        pool = fake_pool_factory(rows_for={"information_schema.columns": [(1,)]})
+        repo = self._repo(pool)
+
+        await repo.has_input_key_column("text_embeddings_nomic")
+
+        assert repo._schema_facts is None
+        assert repo._schema_probed_at is None
+
+    async def test_has_input_key_column_wraps_database_errors(self, fake_pool_factory) -> None:
+        from osprey.services.ariel_search.exceptions import DatabaseQueryError
+
+        pool = fake_pool_factory(error=RuntimeError("connection refused"))
+
+        with pytest.raises(DatabaseQueryError, match="input_key"):
+            await self._repo(pool).has_input_key_column("text_embeddings_nomic")
+
+
+class TestGetEmbeddingBuildCounts:
+    """``ARIELRepository.get_embedding_build_counts`` counts rows per input key."""
+
+    @staticmethod
+    def _repo(pool):
+        from osprey.services.ariel_search.database.repository import ARIELRepository
+
+        config = ARIELConfig(database=DatabaseConfig(uri="postgresql://localhost/test"))
+        return ARIELRepository(pool, config)
+
+    async def test_build_counts_none_without_the_input_key_column(self, fake_pool_factory) -> None:
+        pool = fake_pool_factory(rows_for={"information_schema.columns": []})
+
+        counts = await self._repo(pool).get_embedding_build_counts("text_embeddings_nomic")
+
+        assert counts is None
+        assert pool.recorder.matching("GROUP BY") == []
+
+    async def test_build_counts_one_entry_per_key_with_null_folded_into_r1(
+        self, fake_pool_factory
+    ) -> None:
+        pool = fake_pool_factory(
+            rows_for={
+                "information_schema.columns": [(1,)],
+                "GROUP BY": [("r1", 3), ("e1:abc", 2), ("e1:def", 1)],
+            }
+        )
+
+        counts = await self._repo(pool).get_embedding_build_counts("text_embeddings_nomic")
+
+        assert counts == {"r1": 3, "e1:abc": 2, "e1:def": 1}
+        calls = pool.recorder.matching("GROUP BY")
+        assert len(calls) == 1
+        sql = " ".join(calls[0][0].split())
+        assert "COALESCE(input_key, 'r1')" in sql
+        assert "FROM text_embeddings_nomic" in sql
+
+    async def test_build_counts_empty_table_yields_empty_dict(self, fake_pool_factory) -> None:
+        pool = fake_pool_factory(rows_for={"information_schema.columns": [(1,)], "GROUP BY": []})
+
+        assert await self._repo(pool).get_embedding_build_counts("text_embeddings_nomic") == {}
+
+    async def test_build_counts_wraps_database_errors(self, fake_pool_factory) -> None:
+        from osprey.services.ariel_search.exceptions import DatabaseQueryError
+
+        pool = fake_pool_factory(error=RuntimeError("connection refused"))
+
+        with pytest.raises(DatabaseQueryError):
+            await self._repo(pool).get_embedding_build_counts("text_embeddings_nomic")
+
+
 class TestEmbeddingTableInfo:
     """Tests for EmbeddingTableInfo dataclass."""
 
@@ -843,6 +961,7 @@ class TestGetEnabledMigrations:
             "attachment_text_upstream_fold",
             "raw_text_fts_index_v2",
             "attachment_files_copy_state",
+            "embedding_input_key",
             "als_logbook_plain_text",
         ]
 
@@ -1292,6 +1411,22 @@ class TestTextEmbeddingMigrationDDL:
 
         table = sql_index(ddl_conn, "CREATE TABLE IF NOT EXISTS text_embeddings_nomic_embed_text")
         assert "embedding vector(768)" in " ".join(ddl_conn.sql[table].split())
+
+    async def test_up_creates_the_input_key_column_last(self, ddl_conn) -> None:
+        """A freshly created table carries input_key, so it never needs the ALTER.
+
+        The column is nullable and is the last column, after created_at and
+        before the UNIQUE constraint.
+        """
+        ddl_conn.recorder.rows_for = {"pg_available_extensions": [(True,)]}
+
+        await TextEmbeddingMigration(models=[("model-a", 512)]).up(ddl_conn)
+
+        table = sql_index(ddl_conn, "CREATE TABLE IF NOT EXISTS text_embeddings_model_a")
+        ddl = " ".join(ddl_conn.sql[table].split())
+        assert "input_key TEXT NULL" in ddl
+        assert ddl.index("created_at TIMESTAMPTZ DEFAULT NOW()") < ddl.index("input_key TEXT NULL")
+        assert ddl.index("input_key TEXT NULL") < ddl.index("UNIQUE(entry_id)")
 
     async def test_down_drops_one_table_per_model(self, ddl_conn) -> None:
         """Rollback drops the per-model tables but leaves the shared extension."""

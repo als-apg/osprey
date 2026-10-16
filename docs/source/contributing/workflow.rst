@@ -42,7 +42,9 @@ Making Changes
 
 **2. Make changes** -- follow the code standards below, add tests, update docs.
 
-**3. Test locally** using the three-tier system:
+**3. Test locally.** ``scripts/gate.sh`` is the one local spelling of the merge gate. Run
+``./scripts/gate.sh full`` before you open a PR, and ``./scripts/gate.sh fast <test paths>``
+over the tests you touched while you work. The helper scripts serve the loops around it:
 
 .. code-block:: bash
 
@@ -103,6 +105,10 @@ protection on ``main`` enforces:
 
 Linear history is not enforced: a PR may land as a merge commit or a rebase,
 and both appear in ``main``'s history.
+
+However a branch catches up with ``main``, its conflicts are resolved by
+principle 8 of the :ref:`design principles <contributing-design-principles>`:
+*where two lines of work meet, design from the end product*.
 
 If a required check turns out to be wrong, fix it forward — there is no
 escape hatch.

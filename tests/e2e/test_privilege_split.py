@@ -114,9 +114,10 @@ from osprey.deployment.web_terminals.seeding import seed_user_containers
 from osprey.deployment.wheel_build import _copy_local_framework_for_override
 from osprey.port_layout import default_port
 from osprey.utils.workspace import container_image_context
-from tests._container_support import docker_cli_unavailable_reason
+from tests._container_support import docker_cli_unavailable_reason_once
+from tests.e2e._telemetry_sender import sender_env_file_args
 
-_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
 #: The port the project image serves on INSIDE the container: the ``web`` slot
@@ -390,11 +391,30 @@ def admin_image(preset_repo: Path, admin_project: str):
         _docker("rmi", "-f", tag, timeout=120)
 
 
-def _run_web(tag: str, *extra: str) -> str:
-    """Start a container on the image's own CMD, port published on loopback."""
+@pytest.fixture(scope="module")
+def sender_args(preset_repo: Path, rendered_config: dict) -> list[str]:
+    """The env-file arguments that hand ``osprey web`` its telemetry sender login."""
+    return sender_env_file_args(preset_repo, rendered_config)
+
+
+def _run_web(tag: str, sender_args: list[str], *extra: str) -> str:
+    """Start a container on the image's own CMD, port published on loopback.
+
+    *sender_args* hand the server its sender login the way a deployment does:
+    the image's pre-flight refuses a gateway-telemetry launch without one.
+    """
     name = f"{TAG_PREFIX}-{uuid.uuid4().hex[:8]}"
     run = _docker(
-        "run", "-d", "--name", name, "-p", f"127.0.0.1:0:{_WEB_SLOT}", *extra, tag, timeout=120
+        "run",
+        "-d",
+        "--name",
+        name,
+        "-p",
+        f"127.0.0.1:0:{_WEB_SLOT}",
+        *sender_args,
+        *extra,
+        tag,
+        timeout=120,
     )
     assert run.returncode == 0, f"docker run failed: {run.stderr}"
     return name
@@ -404,7 +424,7 @@ def _run_web(tag: str, *extra: str) -> str:
 
 
 @pytest.fixture(scope="class")
-def ro_container(ro_image):
+def ro_container(ro_image, sender_args):
     """The base image, running its real CMD (``osprey web``), healthy.
 
     The real CMD and not ``sleep infinity``: the uid assertion below is about
@@ -417,7 +437,7 @@ def ro_container(ro_image):
     and the second one's health wait is where that shows up.
     """
     tag, project = ro_image
-    cid = _run_web(tag)
+    cid = _run_web(tag, sender_args)
     try:
         _wait_for_health(f"http://127.0.0.1:{_host_port(cid)}", cid)
         yield SimpleNamespace(cid=cid, project=project, root=f"/app/{project}")
@@ -480,7 +500,7 @@ class TestReadOnlyRenderZone:
 
 
 @pytest.fixture(scope="module")
-def admin_state(admin_image):
+def admin_state(admin_image, sender_args):
     """Drive the admin tier's whole config-write lifecycle once, and snapshot it.
 
     One container, one restart, four assertions — because the restart is the
@@ -500,6 +520,7 @@ def admin_state(admin_image):
 
     cid = _run_web(
         tag,
+        sender_args,
         "-v",
         f"{volume}:{CLAUDE_CONFIG_DIR}",
         "-e",

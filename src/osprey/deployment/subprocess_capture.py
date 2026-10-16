@@ -28,14 +28,16 @@ is the safe default, and the spool path is reported on failure either way.
 
 from __future__ import annotations
 
+import os
 import re
+import signal
 import subprocess
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from osprey.cli.phase_reporter import current_reporter, is_verbose
-from osprey.deployment.errors import CapturedProcessError
+from osprey.deployment.errors import CapturedProcessError, CapturedProcessTimeout
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.capture")
@@ -51,6 +53,14 @@ SPOOL_RETENTION = 20
 #: file. With stdin at EOF it answers its own "Recreate?" prompt No.
 _VOLUME_MISMATCH_MARKER = "exists but doesn't match configuration"
 _QUOTED = re.compile(r'"([^"]+)"')
+
+#: How long a stopped child's process group gets to exit on SIGTERM before it
+#: is killed outright.
+_STOP_GRACE_S = 10.0
+
+#: Called while a bounded run is still going: the seconds it has run, and the
+#: spool its output is going to (``None`` under ``--verbose``).
+Watch = Callable[[float, Path | None], None]
 
 
 class CapturedProcess(subprocess.CompletedProcess[bytes]):
@@ -167,6 +177,9 @@ def run_captured(
     repo_root: Path | str | None = None,
     check: bool = True,
     on_line: Callable[[str], None] | None = None,
+    timeout: float | None = None,
+    watch: Watch | None = None,
+    watch_interval: float = 30.0,
 ) -> CapturedProcess:
     """Run ``cmd``, spooling its merged output to ``<repo>/var/logs/``.
 
@@ -190,6 +203,15 @@ def run_captured(
         about the run's outcome. Ignored under ``--verbose``, where the child's
         own lines are already on the terminal and derived progress would only
         duplicate them.
+    :param timeout: Seconds the child may run. Past it the child is stopped and
+        :class:`CapturedProcessTimeout` is raised, whatever ``check`` says: a
+        run that never finished has no exit status to judge. ``None`` waits for
+        as long as the child runs.
+    :param watch: Called every ``watch_interval`` seconds while the child is
+        still running, with the seconds it has run and its spool path. Cosmetic
+        by contract, like ``on_line``: an exception it raises is logged at debug
+        and changes nothing about the run.
+    :param watch_interval: Seconds between ``watch`` calls.
     :returns: A :class:`CapturedProcess`, whose ``spool_path`` is the file this
         run's output went to, or ``None`` in verbose mode.
         ``stdout``/``stderr`` are ``None`` — the output is in that file (or on
@@ -201,7 +223,29 @@ def run_captured(
 
     Under ``--verbose`` the child inherits this process's stdio: same argv, no
     redirection at all, so long-running builds stream live.
+
+    A bounded run (``timeout`` or ``watch`` given) starts the child in a process
+    group of its own, so that stopping it stops everything it started: ``podman
+    compose`` hands the work to a separate provider process, and stopping only
+    the first would leave the second running. The same group keeps Ctrl-C from
+    reaching the child directly, so an interrupt stops the group here before it
+    propagates.
     """
+    if timeout is not None or watch is not None:
+        if on_line is not None:
+            raise TypeError("run_captured: on_line cannot be combined with timeout or watch")
+        return _run_bounded(
+            cmd,
+            env=env,
+            cwd=cwd,
+            spool_name=spool_name,
+            repo_root=repo_root,
+            check=check,
+            timeout=timeout,
+            watch=watch,
+            watch_interval=watch_interval,
+        )
+
     if is_verbose():
         # Spool-less in both senses: no file was written, and the result says so
         # explicitly, so a caller can read ``spool_path`` unconditionally.
@@ -283,6 +327,157 @@ def _run_teeing(
     return subprocess.CompletedProcess(list(cmd), returncode)
 
 
+def _run_bounded(
+    cmd: Sequence[str],
+    *,
+    env: Mapping[str, str] | None,
+    cwd: Path | str | None,
+    spool_name: str,
+    repo_root: Path | str | None,
+    check: bool,
+    timeout: float | None,
+    watch: Watch | None,
+    watch_interval: float,
+) -> CapturedProcess:
+    """:func:`run_captured` for a run with a time limit or a watch on it.
+
+    A ``Popen`` rather than ``subprocess.run``, because stopping the run has to
+    reach the child's whole process group and only ``Popen`` hands back the pid
+    that names it. Waited on in slices, with the watch called between them.
+    """
+    if is_verbose():
+        # In this process's own group: the child shares the terminal and may ask
+        # it a question, and a child in a background group that reads the
+        # terminal is stopped by the kernel, which would be a hang of its own.
+        process = subprocess.Popen(cmd, env=env, cwd=cwd)
+        returncode = _wait_bounded(
+            process, cmd, None, timeout, watch, watch_interval, own_group=False
+        )
+        if check and returncode != 0:
+            raise CapturedProcessError(cmd, returncode)
+        return CapturedProcess(cmd, returncode)
+
+    spool_dir = Path(repo_root or Path.cwd()) / SPOOL_DIR
+    spool_dir.mkdir(parents=True, exist_ok=True)
+    _prune_spools(spool_dir)
+    spool_path = _spool_path(spool_dir, spool_name)
+
+    logger.debug("Capturing %s output to %s", spool_name, spool_path)
+    with open(spool_path, "wb") as spool:
+        current_reporter().note_spool(spool_path)
+        process = subprocess.Popen(
+            cmd,
+            env=env,
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=spool,
+            stderr=subprocess.STDOUT,
+            process_group=0,
+        )
+        returncode = _wait_bounded(
+            process, cmd, spool_path, timeout, watch, watch_interval, own_group=True
+        )
+
+    _warn_on_kept_volumes(spool_path)
+
+    if check and returncode != 0:
+        raise CapturedProcessError(cmd, returncode, spool_path)
+    return CapturedProcess(cmd, returncode, spool_path=spool_path)
+
+
+def _wait_bounded(
+    process: subprocess.Popen,
+    cmd: Sequence[str],
+    spool_path: Path | None,
+    timeout: float | None,
+    watch: Watch | None,
+    watch_interval: float,
+    *,
+    own_group: bool,
+) -> int:
+    """Wait for ``process``, calling ``watch`` between slices; stop it past ``timeout``.
+
+    Anything that leaves this early — the time limit, Ctrl-C, an error — stops
+    the child first (its whole process group when it has one of its own), so no
+    part of it outlives the run that started it.
+    """
+    start = time.monotonic()
+    next_watch = start + watch_interval
+    try:
+        while True:
+            now = time.monotonic()
+            slice_s = next_watch - now if watch is not None else None
+            if timeout is not None:
+                remaining = start + timeout - now
+                slice_s = remaining if slice_s is None else min(slice_s, remaining)
+            try:
+                return process.wait(timeout=None if slice_s is None else max(slice_s, 0.0))
+            except subprocess.TimeoutExpired:
+                pass
+            now = time.monotonic()
+            if timeout is not None and now - start >= timeout:
+                raise CapturedProcessTimeout(cmd, timeout, spool_path)
+            if watch is not None and now >= next_watch:
+                next_watch += watch_interval
+                try:
+                    watch(now - start, spool_path)
+                except Exception as exc:
+                    logger.debug("watch callback failed: %s", exc)
+    except BaseException:
+        _stop(process, own_group=own_group)
+        raise
+
+
+def _stop(process: subprocess.Popen, *, own_group: bool) -> None:
+    """Stop ``process`` — and its process group, if it leads one: SIGTERM, then SIGKILL.
+
+    The whole group is waited out, not just its leader: the leader of a
+    ``podman compose`` is the dispatcher, and the provider it started can take
+    longer to go. Only ever called on a run that is being abandoned; a child
+    that exits on its own leaves its group alone.
+    """
+
+    def alive() -> bool:
+        """Anything left to stop, after a tenth of a second's wait for it to go."""
+        if process.poll() is None:
+            try:
+                process.wait(timeout=0.1)  # reaps the leader, so a dead one stops counting
+            except subprocess.TimeoutExpired:
+                return True
+        elif own_group:
+            time.sleep(0.1)
+        return own_group and _group_alive(process.pid)
+
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            if own_group:
+                os.killpg(process.pid, sig)
+            elif process.poll() is None:
+                process.send_signal(sig)
+        except (ProcessLookupError, PermissionError):
+            return
+        deadline = time.monotonic() + _STOP_GRACE_S
+        try:
+            while alive():
+                if time.monotonic() >= deadline:
+                    break
+            else:
+                return
+        except KeyboardInterrupt:
+            # A second Ctrl-C during the grace period asks for it to be cut
+            # short, not for the group to be left running.
+            continue
+
+
+def _group_alive(pgid: int) -> bool:
+    """Whether any process is left in process group ``pgid``."""
+    try:
+        os.killpg(pgid, 0)
+    except (ProcessLookupError, PermissionError):
+        return False
+    return True
+
+
 def diagnose_captured_failure(exc: BaseException) -> str | None:
     """Translate a captured child's failure into a remedy, or ``None``.
 
@@ -341,6 +536,12 @@ def captured_failure_detail(
         unhealthy_containers_in,
     )
 
+    # A stopped run's caller looked at the stall while it was still there to see;
+    # that account is the detail, and the spool of a run that never ended holds
+    # no "unhealthy" verdict to read.
+    found: str | None = getattr(exc, "detail", None)
+    if found:
+        return found
     spool_path = getattr(exc, "spool_path", None)
     if spool_path is None:
         return None

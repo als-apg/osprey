@@ -1650,11 +1650,8 @@ class TestPerTargetPostureClamp:
 
 @pytest.fixture
 def full_record(monkeypatch):
-    """Turn the full ``tool_call`` surface on, and keep its OTLP copy local."""
-    sent: list[dict] = []
+    """Turn the full ``tool_call`` surface on."""
     monkeypatch.setattr(am.tool_call, "settings", lambda: (True, 4096))
-    monkeypatch.setattr(am.otlp, "emit", sent.append)
-    return sent
 
 
 def _full(project) -> list[dict]:
@@ -1668,8 +1665,9 @@ class TestToolCallRecord:
         assert _full(project) == []
         assert _records(project)[-1]["decision"] == DECISION_ALLOWED
 
+    @pytest.mark.usefixtures("full_record")
     async def test_every_allowed_call_is_recorded_with_arguments_and_result(
-        self, project, full_record, monkeypatch
+        self, project, monkeypatch
     ):
         monkeypatch.setenv("OSPREY_TELEMETRY_SESSION_ID", "conv-9")
         context = _context("channel_write", _TOOL_USE_META)
@@ -1693,7 +1691,6 @@ class TestToolCallRecord:
         assert record["error"] is None
         assert record["is_error"] is False
         assert record["duration_ms"] >= 0
-        assert full_record == [record]
 
     @pytest.mark.usefixtures("full_record")
     async def test_a_read_is_recorded_too(self, project):
@@ -1776,7 +1773,6 @@ class TestToolCallRecord:
         off = _records(project)[-1]
 
         monkeypatch.setattr(am.tool_call, "settings", lambda: (True, 4096))
-        monkeypatch.setattr(am.otlp, "emit", lambda _record: None)
         await _call(am.AuditMiddleware(), "channel_read", meta=_TOOL_USE_META)
         on = _records(project)[-1]
 

@@ -86,16 +86,17 @@ def test_runtime_env_never_mutates_the_base_env() -> None:
 
 
 # ---------------------------------------------------------------------------
-# with_plain_progress -- `--progress plain` for docker only.
+# with_plain_progress -- `--progress plain` only where Docker Compose v2 parses
+# it behind the docker CLI.
 #
 # Compose's default `auto` progress picks its TTY renderer on an interactive
 # terminal, which redraws frames with cursor-up and no erase-to-end-of-line.
 # Long project/service names wrap, the renderer's line arithmetic goes wrong,
 # and frames paint over each other into unreadable garbage. `plain` is
-# append-only and cannot garble. Docker only: `--progress` is a docker compose
-# v2 flag, and a podman deploy may resolve `podman compose` to a provider that
-# rejects it -- a hard failure in exchange for cosmetics is a bad trade, and
-# non-interactive runs (CI, systemd) already default to plain anyway.
+# append-only and cannot garble. `--progress` is a Docker Compose v2 flag, and
+# a `podman compose` (or podman's `docker` emulation) may hand it to
+# podman-compose, which rejects it -- a hard failure in exchange for cosmetics
+# is a bad trade, so the gate reads the PROVIDER, not only the binary name.
 #
 # It takes a RESOLVED argv rather than a config on purpose: every deploy call
 # site reaches its runtime through the `get_runtime_command` name bound in its
@@ -104,9 +105,12 @@ def test_runtime_env_never_mutates_the_base_env() -> None:
 # live runtime detection inside unit tests.
 # ---------------------------------------------------------------------------
 
+_DOCKER_V2 = runtime_helper.ComposeProvider.DOCKER_V2
+_PODMAN_COMPOSE = runtime_helper.ComposeProvider.PODMAN_COMPOSE
 
-def test_with_plain_progress_forces_plain_progress_on_docker() -> None:
-    assert runtime_helper.with_plain_progress(["docker", "compose"]) == [
+
+def test_with_plain_progress_forces_plain_progress_on_docker_compose_v2() -> None:
+    assert runtime_helper.with_plain_progress(["docker", "compose"], provider=_DOCKER_V2) == [
         "docker",
         "compose",
         "--progress",
@@ -115,22 +119,45 @@ def test_with_plain_progress_forces_plain_progress_on_docker() -> None:
 
 
 def test_with_plain_progress_leaves_podman_untouched() -> None:
-    assert runtime_helper.with_plain_progress(["podman", "compose"]) == ["podman", "compose"]
+    for provider in (_DOCKER_V2, _PODMAN_COMPOSE):
+        assert runtime_helper.with_plain_progress(["podman", "compose"], provider=provider) == [
+            "podman",
+            "compose",
+        ]
+
+
+def test_with_plain_progress_never_hands_the_flag_to_podman_compose() -> None:
+    """A `docker` argv served by podman-compose (podman's emulation) gets no flag."""
+    assert runtime_helper.with_plain_progress(["docker", "compose"], provider=_PODMAN_COMPOSE) == [
+        "docker",
+        "compose",
+    ]
+
+
+def test_with_plain_progress_adds_nothing_for_an_unprobed_provider() -> None:
+    assert runtime_helper.with_plain_progress(["docker", "compose"], provider=None) == [
+        "docker",
+        "compose",
+    ]
 
 
 def test_with_plain_progress_tolerates_an_empty_argv() -> None:
     """Never index [0] blind -- a runtime stub may hand back an empty list."""
-    assert runtime_helper.with_plain_progress([]) == []
+    assert runtime_helper.with_plain_progress([], provider=_DOCKER_V2) == []
 
 
 def test_with_plain_progress_does_not_resolve_a_runtime_itself(monkeypatch) -> None:
-    """The seam guard: it must never call get_runtime_command on its own."""
+    """The seam guard: it must never call get_runtime_command or probe on its own."""
 
     def _boom(*args, **kwargs):
         raise AssertionError("with_plain_progress must not resolve the runtime")
 
     monkeypatch.setattr(runtime_helper, "get_runtime_command", _boom)
-    assert runtime_helper.with_plain_progress(["docker", "compose"])[:2] == ["docker", "compose"]
+    monkeypatch.setattr(runtime_helper, "detect_compose_provider", _boom)
+    assert runtime_helper.with_plain_progress(["docker", "compose"], provider=_DOCKER_V2)[:2] == [
+        "docker",
+        "compose",
+    ]
 
 
 def test_runtime_env_layers_onto_base_env_without_mutating_it() -> None:

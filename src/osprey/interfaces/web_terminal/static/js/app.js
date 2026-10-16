@@ -463,6 +463,14 @@ export function initIframePasteBridge() {
         && e.data.url.startsWith('/') && !e.data.url.startsWith('//')) {
       navigateAndActivatePanel(e.data.panel, e.data.url);
     }
+    // ARIEL's "Use in Workspace" control asks only to activate the already
+    // registered artifact gallery in THIS browser. Unlike the legacy navigate
+    // message it carries no URL; bind it to the live ARIEL iframe identity so
+    // another same-origin panel cannot activate arbitrary destinations.
+    if (e.data && e.data.type === 'osprey:activate' && e.data.panel === 'artifacts'
+        && panelIdForMessageSource(e.source) === 'ariel') {
+      navigateAndActivatePanel('artifacts', '');
+    }
   });
 
   // Drop zone: accept dragged artifacts onto the terminal container
@@ -481,6 +489,21 @@ export function initIframePasteBridge() {
       }
     });
   }
+}
+
+/**
+ * Identify a live embedded panel by its window object, never by a value the
+ * sender supplied in postMessage data.
+ * @param {MessageEventSource | null} source
+ * @returns {string|null}
+ */
+function panelIdForMessageSource(source) {
+  if (!source) return null;
+  for (const el of document.querySelectorAll('iframe.panel-iframe')) {
+    const iframe = /** @type {HTMLIFrameElement} */ (el);
+    if (iframe.contentWindow === source && iframe.dataset.panelId) return iframe.dataset.panelId;
+  }
+  return null;
 }
 
 /* ---- Keyboard Shortcuts ---- */

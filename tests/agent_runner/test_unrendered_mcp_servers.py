@@ -1,7 +1,7 @@
 """The real agent CLI loads no MCP server the build did not render.
 
-Each probe starts the Claude Code binary the Agent SDK bundles and reads the
-``system/init`` line, which lists the loaded MCP servers and the tools the agent
+Each probe starts the pinned Claude Code build — the installed ``claude`` a
+headless run is pointed at — and reads the ``system/init`` line, which lists the loaded MCP servers and the tools the agent
 may call. That line arrives before any model request, so the probes need no key,
 no network and no container: the base URL points at a closed port.
 
@@ -28,16 +28,19 @@ from pathlib import Path
 
 import pytest
 
+from osprey.agent_runner.errors import AgentCliUnavailableError
 from osprey.agent_runner.launcher import (
+    agent_cli_path,
     build_claude_launch_argv,
     build_session_argv,
-    bundled_cli_path,
 )
 from osprey.agent_runner.primitives import build_agent_options
 from osprey.agent_runner.tool_names import DENY_DEFAULTS
 from osprey.agent_runner.write_tools import read_only_disallowed_tools
+from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
 
-pytestmark = pytest.mark.slow
+#: Every probe runs the real pinned build, found by the real lookup.
+pytestmark = [pytest.mark.slow, pytest.mark.usefixtures("real_agent_cli")]
 
 #: Upper bound on one probe server's startup, and on the CLI's wait for every server
 #: before its init line. Past either bound the CLI lists a server ``failed`` or
@@ -93,13 +96,13 @@ def _init_from(payload: dict) -> Init:
 
 @pytest.fixture
 def cli() -> str:
-    path = bundled_cli_path()
-    if path is None:
+    try:
+        return agent_cli_path({"cli_version": _DEFAULT_CLAUDE_CLI_VERSION})
+    except AgentCliUnavailableError as exc:
         pytest.fail(
-            "the Agent SDK's bundled Claude Code binary is missing; these probes need it "
-            "and must not skip, because a skipped probe proves nothing"
+            "these probes need the pinned Claude Code and must not skip, because a "
+            f"skipped probe proves nothing:\n{exc}"
         )
-    return str(path)
 
 
 @pytest.fixture
@@ -121,6 +124,10 @@ def project(tmp_path: Path, ping_script: Path) -> Path:
     (root / ".claude").mkdir(parents=True)
     servers = {name: _stdio(ping_script, name) for name in sorted(_RENDERED)}
     (root / ".mcp.json").write_text(json.dumps({"mcpServers": servers}), encoding="utf-8")
+    # The pin an SDK run of this project resolves its executable from.
+    (root / "config.yml").write_text(
+        f"claude_code:\n  cli_version: '{_DEFAULT_CLAUDE_CLI_VERSION}'\n", encoding="utf-8"
+    )
     return root
 
 

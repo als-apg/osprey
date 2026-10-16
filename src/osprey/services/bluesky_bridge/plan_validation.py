@@ -585,6 +585,22 @@ try:
 
     RE.subscribe(_capture_declared_points, "start")
 
+    # Which devices the plan drove (every `set` message the RunEngine handled)
+    # and which devices any event stream recorded (each descriptor's
+    # `object_keys`, keyed by device name). The parent compares the two.
+    _moved = set()
+    _recorded = set()
+
+    def _capture_moves(msg):
+        if msg.command == "set" and msg.obj is not None:
+            _moved.add(getattr(msg.obj, "name", None) or repr(msg.obj))
+
+    def _capture_recorded(name, doc):
+        _recorded.update((doc.get("object_keys") or {{}}).keys())
+
+    RE.msg_hook = _capture_moves
+    RE.subscribe(_capture_recorded, "descriptor")
+
     failure = {{}}
 
     def _drive():
@@ -602,6 +618,7 @@ try:
         raise failure["exc"]
 
     result["declared_points"] = _declared_points
+    result["moved_unrecorded"] = sorted(_moved - _recorded)
     result["success"] = True
 except Exception as exc:
     result["error"] = f"{{type(exc).__name__}}: {{exc}}"
@@ -677,6 +694,33 @@ def _point_count_reasons(payload: dict[str, Any], *, plan_name: str) -> list[str
     return []
 
 
+def _unrecorded_move_reasons(payload: dict[str, Any], *, plan_name: str) -> list[str]:
+    """Reject a plan that drives a channel no event of its run records.
+
+    Each reading a run takes is only interpretable next to the value of what
+    was moved to produce it: the run's analysis, its default figure and every
+    reader afterwards look for the driven channel's column beside the read
+    ones. A plan that moves a device and records only the other channels
+    leaves data with no independent variable — the run completes, and nothing
+    downstream can say which reading belongs to which setting.
+
+    Judged on what the dry run did, not on the declared roles: a channel is
+    "moved" when the plan sent it a ``set``, and "recorded" when any event
+    stream's descriptor lists it. A plan that opened no run at all records
+    nothing by construction; that is the point-count gate's rejection, which
+    names the root cause, so this one stays silent there.
+    """
+    unrecorded = payload.get("moved_unrecorded") or []
+    if not unrecorded or not payload.get("declared_points"):
+        return []
+    return [
+        f"Dry-run gate: plan {plan_name!r} moves {', '.join(map(repr, unrecorded))} "
+        "but no event of its run records it; read every moved device in the same "
+        "trigger_and_read as the channels it reads, so each point carries the "
+        "value it was taken at."
+    ]
+
+
 async def _dry_run(
     body: str,
     *,
@@ -697,10 +741,11 @@ async def _dry_run(
     docstring for why deleting would be worse) on top of that. Authoring-QUALITY gate only — "does it actually run" — not
     a containment boundary (see module docstring).
 
-    A body that runs clean is then held to what its own ``PLAN_METADATA``
-    claims: a plan declaring that it moves channels must leave a declared
-    point count behind on the run(s) it opened (`_point_count_reasons`). A
-    read-only plan is not asked for one.
+    A body that runs clean must record every channel it moved
+    (`_unrecorded_move_reasons`), and is then held to what its own
+    ``PLAN_METADATA`` claims: a plan declaring that it moves channels must
+    leave a declared point count behind on the run(s) it opened
+    (`_point_count_reasons`). A read-only plan is not asked for one.
     """
     with tempfile.TemporaryDirectory(prefix="osprey_plan_dry_run_") as tmp:
         tmp_path = Path(tmp)
@@ -760,9 +805,10 @@ async def _dry_run(
 
         if not payload.get("success"):
             return [f"Dry-run failed: {payload.get('error', 'unknown error')}"]
+        reasons = _unrecorded_move_reasons(payload, plan_name=plan_name)
         if _declares_writes(body):
-            return _point_count_reasons(payload, plan_name=plan_name)
-        return []
+            reasons += _point_count_reasons(payload, plan_name=plan_name)
+        return reasons
 
 
 # ---------------------------------------------------------------------------

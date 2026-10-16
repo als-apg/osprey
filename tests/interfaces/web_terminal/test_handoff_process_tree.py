@@ -21,6 +21,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.pty_manager import PtySession
 from osprey.interfaces.web_terminal.session_handoff import (
     ERROR_HANDOFF_STARTED_COMMANDS,
@@ -43,6 +44,7 @@ from tests.interfaces.web_terminal._pty_child import (
     pid_gone,
     sleeper_script,
     wait_for_pids,
+    wait_gone,
 )
 
 pytestmark = [
@@ -111,7 +113,7 @@ async def test_stop_both_ends_the_agent_and_its_commands(tmp_path):
 
         assert input_file.read_bytes() == b"\x1b"
         assert not session.is_alive
-        assert all(pid_gone(pid) for pid in pids)
+        await wait_gone(pids)
         assert KEY in chats(app).sessions
         assert registry(app).get_session(KEY) is None
         assert_released(app)
@@ -152,10 +154,107 @@ async def test_with_nothing_started_the_stop_goes_straight_through(tmp_path):
         await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
 
         assert not session.is_alive
-        assert pid_gone(pids[0])
+        await wait_gone([pids[0]])
         assert KEY in chats(app).sessions
         assert_released(app)
     finally:
+        registry(app).cleanup_all()
+        kill_quietly(pids)
+
+
+def _fail_reads(monkeypatch, failures: int | None) -> list[bool]:
+    """Make the first *failures* process-table reads fail, or every read when None.
+
+    Returns the log of reads: each entry says whether that read reached the real ``ps``.
+    """
+    real = process_tree.snapshot
+    reads: list[bool] = []
+
+    def flaky():
+        reads.append(failures is not None and len(reads) >= failures)
+        return real() if reads[-1] else None
+
+    monkeypatch.setattr(process_tree, "snapshot", flaky)
+    return reads
+
+
+async def test_a_failed_process_table_read_is_looked_at_again_before_the_door_acts(
+    tmp_path, monkeypatch
+):
+    app = make_app(hook=False)
+    session, pid_file, input_file = _pool_terminal(app, tmp_path, ("magnet_scan.py",))
+    pids: list[int] = []
+    try:
+        pids = wait_for_pids(session, pid_file, 2)
+        reads = _fail_reads(monkeypatch, 1)
+
+        with pytest.raises(HandoffRefused) as refused:
+            await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
+
+        assert reads[0] is False
+        assert refused.value.error == ERROR_HANDOFF_STARTED_COMMANDS
+        assert [c["label"] for c in refused.value.extra["commands"]] == ["magnet_scan.py"]
+        assert refused.value.extra["unread"] is False
+        assert session.is_alive
+        assert input_file.read_bytes() == b""
+        assert not pid_gone(pids[0], within=0.0)
+    finally:
+        monkeypatch.undo()
+        registry(app).cleanup_all()
+        kill_quietly(pids)
+
+
+async def test_a_process_table_that_never_reads_asks_instead_of_ending_unseen_commands(
+    tmp_path, monkeypatch
+):
+    app = make_app(hook=False)
+    session, pid_file, input_file = _pool_terminal(app, tmp_path, ("magnet_scan.py",))
+    pids: list[int] = []
+    try:
+        pids = wait_for_pids(session, pid_file, 2)
+        _fail_reads(monkeypatch, None)
+
+        with pytest.raises(HandoffRefused) as refused:
+            await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
+
+        assert refused.value.error == ERROR_HANDOFF_STARTED_COMMANDS
+        assert refused.value.extra == {"commands": [], "unread": True}
+        assert registry(app).get_session(KEY) is session
+        assert session.is_alive
+        assert input_file.read_bytes() == b""
+        assert not pid_gone(pids[0], within=0.0)
+        assert KEY not in chats(app).sessions
+        assert_released(app)
+    finally:
+        monkeypatch.undo()
+        registry(app).cleanup_all()
+        kill_quietly(pids)
+
+
+async def test_agreeing_to_end_unseen_commands_goes_through_without_a_look(tmp_path, monkeypatch):
+    app = make_app(hook=False)
+    session, pid_file, input_file = _pool_terminal(app, tmp_path, ("magnet_scan.py",))
+    pids: list[int] = []
+    try:
+        pids = wait_for_pids(session, pid_file, 2)
+        _fail_reads(monkeypatch, None)
+
+        await acquire(
+            app,
+            KEY,
+            "simple",
+            object(),
+            interrupt=True,
+            spawn=chat_spawner(app),
+            end_started=True,
+        )
+
+        assert input_file.read_bytes() == b"\x1b"
+        assert not session.is_alive
+        assert KEY in chats(app).sessions
+        assert_released(app)
+    finally:
+        monkeypatch.undo()
         registry(app).cleanup_all()
         kill_quietly(pids)
 

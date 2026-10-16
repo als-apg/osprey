@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Session {{ session }}{% endblock %}
+{% macro body(row, length_key, text_key) -%}
+<pre class="body">{{ row[text_key] }}</pre>
+{%- if (row[length_key] | int) > preview_chars %}
+<span class="cut">cut at {{ preview_chars }} of {{ row[length_key] }} characters</span>
+{%- endif %}
+{%- endmacro %}
+{% block main %}
+<h2>Session <code>{{ session }}</code></h2>
+{% if not_in_tables %}
+<p class="notice not-in-tables">Transcripts are read from <code>{{ not_in_tables }}</code>, which is not in your tables.</p>
+{% endif %}
+{% for t in transcripts %}
+<section class="transcript">
+  <h3>{{ t.user }}{% if t.terminal %} <span class="terminal">terminal {{ t.terminal }}</span>{% endif %}</h3>
+{% for table in t.missing %}
+  <p class="notice not-in-tables"><code>{{ table }}</code> is not in your tables; its part of this transcript is not shown.</p>
+{% endfor %}
+{% for refusal in t.refusals %}
+  <p class="notice refused">The store refused part of this transcript: {{ refusal }}</p>
+{% endfor %}
+  <ol class="entries">
+{% for e in t.entries %}
+{% set r = e.row %}
+{% if e.kind == 'event' %}
+    <li class="entry event {{ r.Event }}">
+      <span class="ts">{{ r.Timestamp }}</span> <span class="kind">{{ 'prompt' if r.Event == 'user_prompt' else 'response' }}</span>
+{% if r.captured in (true, 1, '1', 'true') %}
+      {{ body(r, 'content_length', 'content') }}
+{% if (r.content_length | int) > preview_chars %}
+      <a class="load-full" href="{{ viewer.href('/full/log', user=r.User, session=r.SessionId, ts=r.Timestamp, body_hash=r.body_hash) }}">load full</a>
+{% endif %}
+{% else %}
+      <span class="not-captured">not captured (gate off)</span>
+{% endif %}
+    </li>
+{% elif e.kind == 'tool_call' %}
+    <li class="entry tool-call">
+      <span class="ts">{{ r.started_at }}</span> <span class="kind">{{ r.Surface }}</span>
+{% if r.decision %}<span class="decision">{{ r.decision }}</span>{% endif %}
+{% if r.arguments_ref %}<span class="ref">arguments stored outside the record: <code>{{ r.arguments_ref }}</code></span>{% endif %}
+{% if r.result_ref %}<span class="ref">result stored outside the record: <code>{{ r.result_ref }}</code></span>{% endif %}
+      {{ body(r, 'body_length', 'body') }}
+{% if (r.body_length | int) > preview_chars %}
+      <a class="load-full" href="{{ viewer.href('/full/ledger', user=r.User, tool_use_id=r.ToolUseId, surface=r.Surface, session=session) }}">load full</a>
+{% endif %}
+{% for a in e.approvals %}
+      <div class="approval"><span class="ts">{{ a.Timestamp }}</span> approval: <span class="decision">{{ a.decision }}</span></div>
+{% endfor %}
+    </li>
+{% elif e.kind == 'approval' %}
+    <li class="entry approval">
+      <span class="ts">{{ r.Timestamp }}</span> <span class="kind">approval</span> <span class="decision">{{ r.decision }}</span>
+      {{ body(r, 'body_length', 'body') }}
+    </li>
+{% elif e.kind == 'preflight' %}
+    <li class="entry preflight{% if not e.matched %} unmatched{% endif %}">
+      <span class="ts">{{ r.Timestamp }}</span> <span class="kind">preflight</span> <span class="who">{{ r.User }}</span>
+{% if r.decision %}<span class="decision">{{ r.decision }}</span>{% endif %}
+{% if not e.matched %}<span class="unmatched-label">no matching queue submit within 60 s</span>{% endif %}
+      {{ body(r, 'body_length', 'body') }}
+    </li>
+{% endif %}
+{% endfor %}
+  </ol>
+{% if t.agents %}
+  <h4>Agents</h4>
+  <table class="agents">
+    <thead><tr><th>Trace</th><th>First span</th><th>From</th><th>To</th><th>Spans</th></tr></thead>
+    <tbody>
+{% for a in t.agents %}
+      <tr><td><code>{{ a.TraceId }}</code></td><td>{{ a.first_span }}</td><td>{{ a.first_ts }}</td><td>{{ a.last_ts }}</td><td>{{ a.spans }}</td></tr>
+{% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+{% if t.next_href %}
+  <nav class="paging"><a class="next" href="{{ t.next_href }}">more</a></nav>
+{% endif %}
+</section>
+{% endfor %}
+{% endblock %}

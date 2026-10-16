@@ -2,9 +2,11 @@
 
 The trajectory MCP server reaches the service only through its own terminal's
 panel proxy (``/panel/trajectory/api/...``). The terminal is the one process
-that holds the service's launch token: its lifespan takes the token out of
-``os.environ`` -- the SDK hands an agent child ``{**os.environ, **options.env}``,
-so anything left there reaches the agent -- and publishes it as the
+that holds the service's launch token: the app takes the token out of
+``os.environ`` while it is assembled, before its web credentials are settled
+and its memory guarded -- the SDK hands an agent child ``{**os.environ,
+**options.env}``, so anything left there reaches the agent -- and its lifespan
+publishes it as the
 ``trajectory`` panel's own credential, which the proxy injects on the same gate
 as the operator secret. Whatever the caller sent in those headers stops here.
 """
@@ -21,6 +23,7 @@ from osprey.interfaces.web_auth import get_web_credentials
 from osprey.interfaces.web_terminal.app import (
     TRAJECTORY_LAUNCH_TOKEN_ENV,
     TRAJECTORY_PANEL_ID,
+    hold_trajectory_launch_token,
     publish_trajectory_launch_token,
 )
 from osprey.interfaces.web_terminal.operator_session import build_operator_child_env
@@ -69,6 +72,26 @@ def _capture_request(app) -> dict[str, str]:
 
 class TestLifespanTakesTheToken:
     """The token leaves ``os.environ`` at boot and lives only on the panel map."""
+
+    def test_the_token_leaves_the_environment_before_the_memory_guard(
+        self, workspace_dir, monkeypatch
+    ):
+        """Every credential is out of ``os.environ`` when the process memory is guarded."""
+        from osprey.interfaces import web_auth
+
+        seen: list[bool] = []
+        monkeypatch.setenv(TRAJECTORY_LAUNCH_TOKEN_ENV, LAUNCH_TOKEN)
+        monkeypatch.setattr(
+            web_auth,
+            "guard_process_memory",
+            lambda: seen.append(TRAJECTORY_LAUNCH_TOKEN_ENV in os.environ) or True,
+        )
+
+        for app, _client in panel_app(workspace_dir, [_declared()]):
+            assert app.state.panel_auth_headers[TRAJECTORY_PANEL_ID] == {
+                LAUNCH_TOKEN_HEADER: LAUNCH_TOKEN
+            }
+        assert seen == [False]
 
     def test_declared_panel_publishes_the_token(self, workspace_dir, monkeypatch):
         monkeypatch.setenv(TRAJECTORY_LAUNCH_TOKEN_ENV, LAUNCH_TOKEN)
@@ -131,6 +154,7 @@ class TestLifespanTakesTheToken:
             state = _State()
 
         monkeypatch.setenv(TRAJECTORY_LAUNCH_TOKEN_ENV, LAUNCH_TOKEN)
+        hold_trajectory_launch_token(_App())
         publish_trajectory_launch_token(_App())
         assert _App.state.panel_auth_headers == {}
         assert TRAJECTORY_LAUNCH_TOKEN_ENV not in os.environ

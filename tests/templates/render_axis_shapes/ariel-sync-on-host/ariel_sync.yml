@@ -120,3 +120,4 @@ services:
       # build-time snapshot.
       - ./build/services/ariel_sync/config.yml:/app/golden-project/build/config.yml:ro
     network_mode: host
+

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["FACILITY_FILE", "PN_LOCAL", "TEXTURE", "fold_code"]
+__all__ = ["DEFAULT_ROLE", "FACILITY_FILE", "PN_LOCAL", "TEXTURE", "fold_code"]
 
 PN_LOCAL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
@@ -17,6 +17,9 @@ FACILITY_FILE = "facility.json"
 
 #: The built-in model that holds every channel no other model wires.
 TEXTURE = "texture"
+
+#: The role of a channel record that states none, as the schema's ``role`` slot defines it.
+DEFAULT_ROLE = "readback"
 
 _OUTSIDE_PN_LOCAL = re.compile(r"[^A-Za-z0-9_]")
 
