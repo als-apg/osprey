@@ -7,8 +7,9 @@ included: ``ca_sg_array_put`` writes the channel as ``ca_array_put`` does, only
 deferred until the group is flushed.
 
 ``install`` is called directly with the ``ctypes`` rows alone, so the only
-process-wide object it patches is the ``ctypes`` loader class — restored after
-each test together with the import-hook finder it registers.
+process-wide objects it patches are the shared-library loaders and the loader
+class's symbol lookup — restored after each test together with the import-hook
+finder it registers.
 """
 
 import ctypes
@@ -18,31 +19,21 @@ from types import ModuleType
 import pytest
 
 from osprey.runtime import raw_put_block
+from tests.runtime._patch_restore import patch_restore
 
 _REFUSAL = "refused by the handle test"
 
-_LOADER_ROWS = (("ctypes.CDLL", ("__init__", "__getitem__")),)
+_LOADER_ROWS = (
+    ("ctypes", ("_dlopen",)),
+    ("_ctypes", ("dlopen", "LoadLibrary")),
+    ("ctypes.CDLL", ("__getitem__",)),
+)
 
 
 @pytest.fixture(autouse=True)
 def _restore_ctypes():
-    saved = []
-    for _dotted, attrs in _LOADER_ROWS:
-        target = ctypes.CDLL
-        for attr in attrs:
-            if attr in vars(target):
-                saved.append((target, attr, vars(target)[attr], True))
-            elif hasattr(target, attr):
-                saved.append((target, attr, None, False))
-    yield
-    for target, attr, value, own in saved:
-        if own:
-            setattr(target, attr, value)
-        elif attr in vars(target):
-            delattr(target, attr)
-    sys.meta_path[:] = [
-        f for f in sys.meta_path if not getattr(f, raw_put_block._GUARD_ATTR, False)
-    ]
+    with patch_restore(ctypes.CDLL):
+        yield
 
 
 def _install_fake_pyepics_loader(monkeypatch):

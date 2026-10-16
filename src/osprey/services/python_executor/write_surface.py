@@ -219,6 +219,11 @@ _FRAMEWORK_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("bluesky.run_engine.RunEngine", ("__call__",)),
 )
 
+#: Shared-library loaders outside ``ctypes`` that the ``no_client`` block and
+#: a readonly run gate, as deferred ``(dotted target, attributes)`` rows:
+#: patched when their module is imported.
+_CLIENT_LOADER_ROWS: tuple[tuple[str, tuple[str, ...]], ...] = (("cffi.api.FFI", ("dlopen",)),)
+
 #: Routes out of Python. A readonly run has no legitimate use for these:
 #: ``import subprocess`` is already refused in every mode by the static import
 #: check, so anything reaching the process-spawning surface at runtime got
@@ -289,14 +294,19 @@ _ESCAPE_ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     # --- Loading a shared library sidesteps every Python-level guard above:
     # ``ctypes.CDLL("libca")`` reaches Channel Access without importing a
-    # single client package. The class is gated, not its module attribute, so
-    # ``cdll.LoadLibrary``, ``cdll.libca``, ``cdll._dlltype``, ``PyDLL`` and
-    # ``type(handle)`` all load through the same ``__init__``. It is gated
-    # rather than refused outright: pyepics, which a readonly run reads through
-    # via ``osprey.runtime``, loads ``libca`` this way, so its own load is
-    # permitted. Every other load refuses. ``__getitem__`` refuses the put
-    # symbols on every handle, the ones loaded before the gate included.
-    ("ctypes.CDLL", ("__init__", "__getitem__")),
+    # single client package. Every ``ctypes`` spelling — ``CDLL``, ``PyDLL``,
+    # ``cdll.LoadLibrary``, ``cdll.libca``, a class bound before the guard —
+    # loads through the module-global ``ctypes._dlopen``, which is
+    # ``_ctypes.dlopen``; cffi's ``FFI.dlopen`` loads beside it. The loaders are
+    # gated rather than refused outright: pyepics, which a readonly run reads
+    # through via ``osprey.runtime``, loads ``libca`` through ``ctypes``, so its
+    # own load is permitted. Every other load refuses. ``CDLL.__getitem__``
+    # refuses the put symbols on every handle, pyepics' and the ones loaded
+    # before the gate included.
+    ("ctypes", ("_dlopen",)),
+    ("_ctypes", ("dlopen", "LoadLibrary")),
+    ("ctypes.CDLL", ("__getitem__",)),
+    *_CLIENT_LOADER_ROWS,
 )
 
 #: Every entry point a readonly run refuses. The canonical machine-readable
@@ -335,11 +345,6 @@ _CLIENT_LIBRARY_NAMES: tuple[str, ...] = (
 #: C symbols only a Channel Access client library exports. A library that
 #: loads under another name is refused when it exports any of them.
 _CLIENT_LIBRARY_SYMBOLS: tuple[str, ...] = ("ca_context_create", "ca_array_put")
-
-#: Shared-library loaders outside ``ctypes`` that the ``no_client`` block
-#: gates, as deferred ``(dotted target, attributes)`` rows: patched when their
-#: module is imported.
-_CLIENT_LOADER_ROWS: tuple[tuple[str, tuple[str, ...]], ...] = (("cffi.api.FFI", ("dlopen",)),)
 
 #: Client entry points a run with writes armed refuses: a write reaches the
 #: machine through the connector, which checks and records it, so a raw client

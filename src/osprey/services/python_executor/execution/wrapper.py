@@ -1043,8 +1043,9 @@ if not _execution_dir.exists():
         ``osprey`` cannot be imported — no guard name leaks into the user code,
         and this process never imports ``osprey.runtime``, whose package import
         registers an exit handler. The tables are emitted as literals read from
-        this module's globals at emission time; the framework rows are the
-        deferred half, patched when the script imports their module.
+        this module's globals at emission time; the framework rows and cffi's
+        loader row are the deferred half, patched when the script imports their
+        module, so the install itself imports neither.
 
         The connector side of the same contract lives in
         ``osprey_connectors.control_system.base`` (refuses ``write_channel``
@@ -1053,7 +1054,7 @@ if not _execution_dir.exists():
         """
         if self.execution_mode != "readonly":
             return ""
-        deferred = _FRAMEWORK_WRITE_TARGETS
+        deferred = _FRAMEWORK_WRITE_TARGETS + _CLIENT_LOADER_ROWS
         eager = tuple(row for row in _READONLY_WRITE_TARGETS if row not in deferred)
         return _embedded_raw_put_block(
             (
