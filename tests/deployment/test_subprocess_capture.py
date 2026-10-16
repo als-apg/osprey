@@ -22,6 +22,7 @@ from osprey.deployment.subprocess_capture import (
     _mismatched_volumes,
     run_captured,
 )
+from tests._container_support import wait_until_ready
 
 
 @pytest.fixture(autouse=True)
@@ -531,6 +532,11 @@ def _alive(pid: int) -> bool:
     return True
 
 
+def _assert_gone(pid: int) -> None:
+    """Probe for :func:`wait_until_ready`: raise while ``pid`` is still in the process table."""
+    assert not _alive(pid), "the grandchild outlived the stopped run"
+
+
 def _spawner(pid_file: Path) -> list[str]:
     """Argv for a child that starts a long-lived grandchild and records its pid.
 
@@ -583,7 +589,14 @@ class TestBoundedRun:
         assert excinfo.value.returncode is None
         assert "started" in excinfo.value.spool_path.read_text()
         grandchild = int(pid_file.read_text())
-        assert not _alive(grandchild), "the grandchild outlived the stopped run"
+        # The runner waits for the group's live members; a killed orphan stays a zombie that
+        # os.kill(pid, 0) still finds until launchd reaps it, so this waits for the reap.
+        wait_until_ready(
+            lambda: _assert_gone(grandchild),
+            "the stopped run's grandchild",
+            timeout=5.0,
+            interval=0.05,
+        )
 
     def test_an_interrupt_stops_the_group_and_propagates(self, tmp_path):
         pid_file = tmp_path / "grandchild.pid"
@@ -600,7 +613,12 @@ class TestBoundedRun:
                 watch=watch,
                 watch_interval=0.2,
             )
-        assert not _alive(int(pid_file.read_text()))
+        wait_until_ready(
+            lambda: _assert_gone(int(pid_file.read_text())),
+            "the interrupted run's grandchild",
+            timeout=5.0,
+            interval=0.05,
+        )
 
     def test_the_watch_sees_the_time_run_and_the_spool(self, tmp_path):
         seen: list[tuple[float, Path | None]] = []
