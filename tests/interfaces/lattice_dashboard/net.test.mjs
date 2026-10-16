@@ -107,10 +107,10 @@ describe('handleSSEEvent dispatch table', () => {
     expect(handlers.onFigureError).toHaveBeenCalledWith('lma', 'solver diverged');
   });
 
-  test("'figure_error' with no error message falls back to 'Unknown error'", () => {
+  test("'figure_error' with no error message passes null", () => {
     const handlers = makeHandlers();
     handleSSEEvent({ type: 'figure_error', name: 'lma' }, handlers);
-    expect(handlers.onFigureError).toHaveBeenCalledWith('lma', 'Unknown error');
+    expect(handlers.onFigureError).toHaveBeenCalledWith('lma', null);
   });
 
   test("'settings_updated' routes to onSettingsUpdated only when settings is present", () => {

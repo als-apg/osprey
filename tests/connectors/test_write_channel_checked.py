@@ -137,8 +137,8 @@ class TestRefusals:
         assert excinfo.value.channel_address == "TEST:PV"
 
     @pytest.mark.asyncio
-    async def test_refusal_without_a_reason_falls_back_to_writes_disabled(self):
-        """A refusal that names no policy still raises under a reason code."""
+    async def test_refusal_without_a_reason_names_none(self):
+        """A refusal that names no policy raises with no reason, not a guessed one."""
         connector = _FakeConnector(
             result=_result(outcome=WriteOutcome.REFUSED, error_message="refused")
         )
@@ -146,7 +146,7 @@ class TestRefusals:
         with pytest.raises(ChannelWriteBlockedError) as excinfo:
             await connector.write_channel_checked("TEST:PV", 42.0)
 
-        assert excinfo.value.reason == "WRITES_DISABLED"
+        assert excinfo.value.reason is None
 
     @pytest.mark.asyncio
     async def test_limits_violation_normalized_to_blocked(self):

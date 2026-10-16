@@ -9,6 +9,7 @@ reads — never merely that a round trip "didn't raise".
 
 import pytest
 
+import osprey_connectors.ipc
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelNotFoundError,
@@ -283,3 +284,7 @@ def test_incomplete_frame_body_still_yields_an_exception(body):
     rebuilt = exceptions.decode_exception(body)
 
     assert isinstance(rebuilt, ConnectionError)
+
+
+def test_the_package_re_exports_every_field_list():
+    assert set(exceptions.__all__) <= set(osprey_connectors.ipc.__all__)

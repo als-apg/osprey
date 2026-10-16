@@ -58,11 +58,20 @@ OPERATOR_PROMPT = (
 
 _BPM_NAME = re.compile(r"\bBPM\s*0*(\d+)\b", re.IGNORECASE)
 
+#: Two monitors joined as a range ("BPM01 to BPM06", "BPM01–BPM06"): a span of
+#: the section, not a mention of either end.
+_BPM_RANGE = re.compile(
+    r"\bBPM\s*0*\d+\b\s*(?:to|through|thru|\.\.|[-\u2013\u2014])\s*(?:[\w-]+/)*BPM\s*0*\d+\b",
+    re.IGNORECASE,
+)
+
 
 def named_in_order(text: str) -> list[str]:
-    """The monitors *text* names, in the order of each one's first mention.
+    """The monitors *text* lists, in the order of each one's first mention.
 
-    ``BPM 1``, ``bpm01`` and ``SR/BPM01`` all name ``BPM01``.
+    ``BPM 1``, ``bpm01`` and ``SR/BPM01`` all name ``BPM01``. A range such as
+    ``BPM01 to BPM06`` names neither end, so a lead-in range never decides the
+    order of the listing that follows it.
 
     Args:
         text: The agent's prose.
@@ -71,7 +80,7 @@ def named_in_order(text: str) -> list[str]:
         Each monitor's canonical name, once, in first-mention order.
     """
     seen: list[str] = []
-    for match in _BPM_NAME.finditer(text):
+    for match in _BPM_NAME.finditer(_BPM_RANGE.sub(" ", text)):
         name = f"BPM{int(match.group(1)):02d}"
         if name not in seen:
             seen.append(name)
@@ -103,19 +112,19 @@ async def test_the_agent_names_the_sector_bpms_by_position(
     result = await run_sdk_query(graph_project, OPERATOR_PROMPT, max_turns=14, max_budget_usd=1.5)
     prose = "\n".join(result.text_blocks).strip()
     logger.info("tools called: %s", result.tool_names)
-    logger.info("prose:\n%s", prose)
 
     graph_calls = [
         t for t in result.tool_traces if t.name.startswith("mcp__graph__") and not t.is_error
     ]
     assert graph_calls, (
         f"the agent answered without a successful graph call. Tools called: {result.tool_names}"
+        f"\nprose:\n{prose}"
     )
 
     named = [name for name in named_in_order(prose) if name in _expected()]
     assert named == _expected(), (
         f"the answer names {named_in_order(prose)}; the section holds {_expected()} "
-        "in that order by position"
+        f"in that order by position\nprose:\n{prose}"
     )
 
 
@@ -139,6 +148,22 @@ _FLOOR_CASES: list[tuple[str, str, list[str]]] = [
         "out_of_order",
         "BPM02, BPM01, BPM03",
         ["BPM02", "BPM01", "BPM03"],
+    ),
+    (
+        "range_lead_in_then_listing",
+        "BPM01 to BPM06 sit in SECT1: BPM01 at 4.8 m, BPM02 at 6.287 m, BPM03 at 8.8 m, "
+        "BPM04 at 11.177 m, BPM05 at 13.69 m, BPM06 at 14.499 m",
+        ["BPM01", "BPM02", "BPM03", "BPM04", "BPM05", "BPM06"],
+    ),
+    (
+        "range_lead_in_then_listing_out_of_order",
+        "BPM01\u2013BPM06: BPM02, BPM01, BPM03, BPM04, BPM05, BPM06",
+        ["BPM02", "BPM01", "BPM03", "BPM04", "BPM05", "BPM06"],
+    ),
+    (
+        "range_only",
+        "SECT1 under SR/ holds SR/BPM01 through SR/BPM06.",
+        [],
     ),
 ]
 

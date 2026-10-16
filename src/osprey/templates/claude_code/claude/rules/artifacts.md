@@ -76,9 +76,12 @@ and can be viewed with rendered HTML formatting.
 
 ## Directing User Attention
 
-After creating an artifact, call `artifact_focus(artifact_id)` to select it in
-the gallery so the user sees it immediately. The gallery will scroll to the
-artifact and show its preview.
+Focusing is done by the main session, the one that answers the user: once an
+artifact it created or one a subagent handed back holds the answer, it calls
+`artifact_focus(artifact_id)` to select it in the gallery so the user sees it
+immediately. The gallery scrolls to the artifact and shows its preview. A
+subagent does not focus: it files its answer and hands back the id (see
+"Subagent Hand-Backs").
 
 The user's current gallery selection is automatically included in your context
 via the `UserPromptSubmit` hook (reads `focus_state.txt`). Use this to
@@ -106,5 +109,5 @@ render as monospaced plain text without typesetting.
 - Add descriptions for context (what analysis produced this, what it shows)
 - Use `save_artifact()` in Python for computed outputs (plots, tables)
 - Use `artifact_register` for screenshots, written summaries, and files already on disk
-- Use `artifact_focus` to direct the user's attention to a specific artifact
+- In the main session, use `artifact_focus` to direct the user's attention to a specific artifact
 - Use `NotebookEdit` to refine notebook cells before sharing

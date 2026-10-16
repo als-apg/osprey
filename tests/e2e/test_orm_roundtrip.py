@@ -85,7 +85,7 @@ from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix
 from osprey_connectors.simulation.state import STILL_SCENARIO, read_active_state
 from osprey_connectors.workspace import rendered_config_path, resolve_simulation_state_dir
-from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
 
@@ -191,7 +191,7 @@ def _assert_selected_readings_still(
     repo: Path, correctors: dict[str, tuple[str, str]], bpms: dict[str, str]
 ) -> None:
     """Fail before deploying if a reading this test compares moves under the `still` scenario."""
-    view = _orm_stack.repo_view(repo)
+    view = _facility_select.repo_view(repo)
     assert STILL_SCENARIO in {str(scenario["name"]) for scenario in view.scenarios()}, (
         f"the staged view lists no {STILL_SCENARIO!r} scenario: rebuild the render"
     )
@@ -207,10 +207,15 @@ def _assert_selected_readings_still(
     )
 
 
+def _deployment_state_dir(repo: Path) -> Path:
+    """The directory holding the deployed stack's active-scenario file."""
+    config = yaml.safe_load(rendered_config_path(repo).read_text(encoding="utf-8")) or {}
+    return resolve_simulation_state_dir(config, repo)
+
+
 def _assert_deployment_starts_still(repo: Path) -> None:
     """Fail when the deployed stack's active set does not name the `still` scenario."""
-    config = yaml.safe_load(rendered_config_path(repo).read_text(encoding="utf-8")) or {}
-    names, _anchor = read_active_state(resolve_simulation_state_dir(config, repo))
+    names, _anchor = read_active_state(_deployment_state_dir(repo))
     assert STILL_SCENARIO in names, (
         f"the deployment's active scenarios are {names}, not the {STILL_SCENARIO!r} start set"
     )
@@ -250,7 +255,7 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
         # landing on a real deployment's default 10000 block.
         port_base=21200,
     )
-    _setpoint, _readback, model = _orm_stack.bounded_corrector(repo)
+    _setpoint, _readback, model = _facility_select.bounded_corrector(repo)
     correctors = _orm_stack.select_correctors(repo, CORRECTOR_COUNT, model=model)
     bpms = _orm_stack.select_bpms(repo, model=model)
     _assert_selected_readings_still(repo, correctors, bpms)
@@ -328,23 +333,17 @@ def _oracle_model(repo: Path) -> Any:
     Built here in-process over the deployment repo's OWN simulator view -- the
     same deck, wiring and seeds the container mounts -- so the oracle and the
     stack agree about which elements exist and what each address does to them,
-    while the two arrive at a response matrix by entirely separate paths.
-
-    It reads the deployment's own state directory, so it serves the active
-    scenarios the stack serves (``still`` among them, see
-    ``_assert_deployment_starts_still``): a composite without one serves
-    ``nominal`` alone, whose monitor noise would put a random slope into every
-    fitted entry. The composite only reads that directory, and with no model
-    log it writes nothing outside this process.
+    while the two arrive at a response matrix by entirely separate paths. The
+    oracle reads the deployment's own active-scenario file, so it serves the
+    same scenario set the container serves. It only reads that file and keeps
+    no model log, so it writes nothing outside this process. It is built after
+    `osprey up`, which writes that file.
     """
     from osprey_connectors.simulation.composite import Composite
     from osprey_connectors.simulation.view import SimulatorView
 
-    config = yaml.safe_load(rendered_config_path(repo).read_text(encoding="utf-8")) or {}
     return Composite(
-        SimulatorView.of_project(repo),
-        state_dir=resolve_simulation_state_dir(config, repo),
-        model_log=False,
+        SimulatorView.of_project(repo), state_dir=_deployment_state_dir(repo), model_log=False
     )
 
 

@@ -769,6 +769,22 @@ def test_a_missing_login_names_the_login_variable(login):
     assert TELEMETRY_LOGIN_ENV in str(caught.value)
 
 
+def test_a_missing_login_names_the_host_and_the_container_remedy():
+    """A host launch is fixed by `osprey build`; a container by its env file.
+
+    The refusal is what an operator running the image by hand reads, so it
+    names the sender file a container is handed and how ``docker run`` hands
+    it, and names files and variables only.
+    """
+    with pytest.raises(ObservabilityCredentialError) as caught:
+        _gw_env(telemetry_login=None)
+    message = str(caught.value)
+    assert message.startswith(f"{TELEMETRY_LOGIN_ENV} is unset or blank")
+    assert "`osprey build`" in message
+    assert ".env.telemetry-sender.<identity>" in message
+    assert "--env-file" in message
+
+
 @pytest.mark.parametrize(
     "login",
     ["no-colon", ":hunter2x", "identity:", "alice:pa,ss", "alice:pa\nss"],

@@ -11,25 +11,18 @@ xdist disabled by name.
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
 import pytest
 
-from tests._nested_pytest import run_nested_pytest
+from tests._nested_pytest import outer_run_free_env, run_nested_pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-#: Keys of the outer run that must not reach an inner pytest: its worker id,
-#: its diagnostics directory, any options it was started with, and whether it
-#: loads installed plugins, which each case below decides for itself.
-_OUTER_RUN_KEYS = (
-    "PYTEST_XDIST_",
-    "PYTEST_ADDOPTS",
-    "OSPREY_CI_DIAG_DIR",
-    "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
-)
+#: Whether the inner run loads installed plugins, which each case below decides
+#: for itself, so the outer run's choice must not reach it either.
+_PLUGIN_AUTOLOAD_KEY = "PYTEST_DISABLE_PLUGIN_AUTOLOAD"
 
 
 @pytest.mark.parametrize(
@@ -42,7 +35,7 @@ _OUTER_RUN_KEYS = (
 def test_the_shared_conftest_collects_without_xdist(
     plugin_env: dict[str, str], plugin_args: tuple[str, ...]
 ) -> None:
-    env = {k: v for k, v in os.environ.items() if not k.startswith(_OUTER_RUN_KEYS)}
+    env = outer_run_free_env(also_drop=(_PLUGIN_AUTOLOAD_KEY,))
     env.update(plugin_env)
     result = run_nested_pytest(
         [

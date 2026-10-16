@@ -109,6 +109,13 @@ def test_other_blocked_writes_are_refused(reason: str, message: str | None, expe
     assert expected in str(mapped)
 
 
+def test_a_refusal_without_a_reason_is_refused_with_its_message() -> None:
+    original = ChannelWriteBlockedError(ADDR, None, message="refused by the gateway")
+    mapped = map_write_error(original)
+    assert isinstance(mapped, OspreyWriteRefused)
+    assert mapped.reason == "refused by the gateway"
+
+
 def test_control_target_changed_is_refused() -> None:
     original = ControlTargetChangedError("control target moved to 'production' (generation 4)")
     mapped = map_write_error(original, address=ADDR)

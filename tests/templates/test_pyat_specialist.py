@@ -6,14 +6,17 @@ other than ``texture``, whose facility-file record names a deck, ``path`` being
 the file the simulator view writes for it. The agent's registry entry is
 conditioned on that list, so a render serving none of them renders no agent
 file and a CLAUDE.md that never names the agent. On a render that serves one,
-the agent loads each such deck by that path and reads channel wiring from
-``data/simulator/variables.json``.
+the agent loads each such deck by that path and reads channel wiring from the
+simulator view's variables file. Every path the agent file names is relative to
+the deployment repo root, the directory ``mcp__python__execute`` runs its child
+in.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import NamedTuple
 
@@ -55,8 +58,8 @@ def test_served_decks_are_the_served_physics_models_with_a_deck(tmp_path: Path) 
     (tmp_path / FACILITY_FILE).write_text(json.dumps(facility), encoding="utf-8")
 
     assert config_derived_context({}, tmp_path)["served_decks"] == [
-        {"model": "AR", "path": "data/simulator/decks/AR.mat"},
-        {"model": "SR", "path": "data/simulator/decks/SR.json"},
+        {"model": "AR", "path": "build/data/simulator/decks/AR.mat"},
+        {"model": "SR", "path": "build/data/simulator/decks/SR.json"},
     ]
 
 
@@ -82,8 +85,8 @@ def test_the_agent_loads_a_mat_deck_by_the_file_the_view_writes(tmp_path: Path) 
         .render(**context)
     )
 
-    assert "- `SR`: `data/simulator/decks/SR.mat`" in text
-    assert 'at.load_lattice("data/simulator/decks/SR.mat")' in text
+    assert "- `SR`: `build/data/simulator/decks/SR.mat`" in text
+    assert 'at.load_lattice("build/data/simulator/decks/SR.mat")' in text
     assert ".json" not in text.split("## The Models You Load")[1].split("## Import Surface")[0]
 
 
@@ -93,11 +96,39 @@ def test_the_demo_agent_loads_the_served_deck_and_reads_the_variables_file(
     text = (built_control_assistant.build_dir / AGENT).read_text(encoding="utf-8")
 
     assert "`SR`" in text
-    assert "data/simulator/decks/SR.json" in text
+    assert "build/data/simulator/decks/SR.json" in text
     assert "at.load_lattice(" in text
-    assert "data/simulator/variables.json" in text
+    assert "build/data/simulator/variables.json" in text
     assert "va_bindings.json" not in text
     assert "osprey.simulation" not in text
+
+
+#: A file path the agent file names in backticks or a quoted string literal.
+_SIMULATOR_PATH = re.compile(r"[`\"]([^`\"\s]*data/simulator/[^`\"\s]+)[`\"]")
+
+
+def test_every_simulator_path_the_agent_names_resolves_in_the_executor_frame(
+    built_control_assistant: BuiltProject, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each deck and the variables file exist where ``execute`` resolves them.
+
+    The executor runs the child with the deployment repo root as its working
+    directory, so a relative path in the prompt is only right when it names a
+    file under that root.
+    """
+    from osprey.mcp_server.python_executor.executor import _resolve_project_root
+    from osprey_connectors.simulation.view import VARIABLES_FILE
+
+    text = (built_control_assistant.build_dir / AGENT).read_text(encoding="utf-8")
+    paths = sorted(set(_SIMULATOR_PATH.findall(text)))
+    assert any(path.endswith(f"/{VARIABLES_FILE}") for path in paths), paths
+    assert any("/decks/" in path for path in paths), paths
+
+    monkeypatch.chdir(built_control_assistant.repo)
+    root = _resolve_project_root()
+    assert root.resolve() == built_control_assistant.repo.resolve()
+    missing = [path for path in paths if not (root / path).exists()]
+    assert missing == [], f"the agent file names {missing}, which do not exist under {root}"
 
 
 class _TextureOnlyRender(NamedTuple):

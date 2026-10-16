@@ -120,9 +120,12 @@ def _write_reason(exc: BaseException) -> str:
             else _banner_violation(text)
         )
         detail = violation or _first_line(text)
+        reason = exc.reason
         if not detail:
-            return exc.reason
-        return detail if exc.reason in detail else f"{exc.reason}: {detail}"
+            return reason or type(exc).__name__
+        if reason is None or reason in detail:
+            return detail
+        return f"{reason}: {detail}"
     return _first_line(str(exc)) or type(exc).__name__
 
 

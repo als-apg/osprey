@@ -26,7 +26,7 @@ FROM
     SELECT
         Timestamp AS at,
         'event' AS source,
-        cityHash64(Body) AS row_hash,
+        cityHash64(Body, toJSONString(LogAttributes)) AS row_hash,
         User AS user,
         toString(Event) AS kind,
         '' AS tool_use_id,

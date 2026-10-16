@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from typing import NoReturn
 
 from fastmcp.exceptions import ToolError
@@ -39,6 +40,64 @@ def make_error(
     if details is not None:
         envelope["details"] = details
     raise ToolError(json.dumps(envelope))
+
+
+#: The key under which a tool names what it was asked for and did not answer:
+#: a map from each such item to the source's own text, or ``None`` when the
+#: source gave none. A result always carries it (``{}`` when everything
+#: answered); a ``nothing_answered`` refusal carries it under ``details``.
+MISSING_KEY = "missing"
+
+#: The error word for a request whose every item was tried and none answered.
+NOTHING_ANSWERED = "nothing_answered"
+
+
+def refuse_nothing_answered(
+    tool: str,
+    noun: str,
+    missing: Mapping[str, str | None],
+    details: dict | None = None,
+) -> NoReturn:
+    """Raise the ``nothing_answered`` envelope for a request nothing answered.
+
+    Args:
+        tool: The tool name the message opens with.
+        noun: What the request asked for, in the plural (``"channels"``).
+        missing: Each item asked for, mapped to the source's own text or ``None``.
+        details: Further structured facts; ``missing`` is merged into them.
+    """
+    make_error(
+        NOTHING_ANSWERED,
+        f"{tool}: none of the {len(missing)} requested {noun} answered",
+        [f"Name each entry of details.{MISSING_KEY} and its text to the operator."],
+        details={**(details or {}), MISSING_KEY: dict(missing)},
+    )
+
+
+class NothingAnsweredError(Exception):
+    """A tool asked for several things answered none of them.
+
+    Raised inside a tool body that an error handler renders. ``cause`` is the
+    one error every item failed with, when they all failed alike, so the
+    handler can answer with that error's own envelope; it is ``None`` when the
+    items failed for different reasons or for none the handler renders typed.
+    ``missing`` maps each item to the source's own text, and the handler merges
+    it into the envelope's ``details``. ``errors`` holds every item's error, so
+    the handler can run the recovery each class of failure calls for even when
+    no one cause names the envelope.
+    """
+
+    def __init__(
+        self,
+        cause: BaseException | None,
+        *,
+        missing: Mapping[str, str | None] | None = None,
+        errors: Sequence[BaseException] = (),
+    ):
+        self.cause = cause
+        self.missing = dict(missing) if missing is not None else None
+        self.errors = tuple(errors)
+        super().__init__(str(cause) if cause is not None else "nothing answered")
 
 
 def extract_error_envelope(result: CallToolResult) -> dict | None:

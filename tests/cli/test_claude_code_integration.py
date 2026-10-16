@@ -1479,6 +1479,24 @@ class TestGeneralizedRulesContent:
         assert "archiver service status" in content
         assert "direct hardware library" in content
 
+    def test_error_handling_md_states_the_partial_answer_rule(self, tmp_path):
+        """The rendered rule tells the agent what a ``missing`` map asks of it."""
+        manager = TemplateManager()
+        project_dir = _create_project(
+            manager,
+            project_name="gen-partial",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+            data_root=bundle_data_root("control_assistant"),
+        )
+
+        content = (project_dir / ".claude" / "rules" / "error-handling.md").read_text()
+        assert "| **Unanswered** |" in content
+        assert "## Partial Answers" in content
+        assert "details.missing" in content
+        assert "Never read a missing entry as zero, empty or done." in content
+
 
 class TestFacilityPermissions:
     """Test facility-configurable permissions in settings.json (GP-026)."""

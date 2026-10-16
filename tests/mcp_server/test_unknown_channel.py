@@ -94,7 +94,13 @@ async def test_a_read_of_an_unknown_address_is_not_found():
             f"(simulation)): {UNKNOWN} is not a channel of this facility"
         ),
         "suggestions": SUGGESTIONS,
-        "details": {"channel": UNKNOWN, "active_target": ACTIVE_TARGET},
+        "details": {
+            "channel": UNKNOWN,
+            "active_target": ACTIVE_TARGET,
+            "missing": {
+                UNKNOWN: f"ChannelNotFoundError: {UNKNOWN} is not a channel of this facility"
+            },
+        },
     }
 
 
@@ -102,7 +108,7 @@ async def test_a_read_of_an_unknown_address_is_not_found():
 async def test_a_mixed_read_lists_the_unknown_address_with_its_type():
     data = extract_response_dict(await _read(["A:RB", UNKNOWN]))
 
-    assert data["summary"]["channels_failed"] == {
+    assert data["summary"]["missing"] == {
         UNKNOWN: f"ChannelNotFoundError: {UNKNOWN} is not a channel of this facility"
     }
     assert "A:RB" in data["summary"]["readings"]

@@ -755,7 +755,7 @@ def _get_entries_by_ids():
 
 
 async def test_entries_by_ids_batch_retrieval(tmp_path, monkeypatch):
-    """Batch retrieval returns found entries (may be fewer than requested)."""
+    """Batch retrieval returns the found entries and names each id it did not find."""
     _setup_registry(tmp_path, monkeypatch)
 
     entries = [
@@ -775,10 +775,28 @@ async def test_entries_by_ids_batch_retrieval(tmp_path, monkeypatch):
         result = await fn(entry_ids=["e1", "e2", "e3"])
 
     data = extract_response_dict(result)
-    assert data["requested"] == 3
-    assert data["found"] == 2
+    assert data["missing"] == {"e2": None}
     assert len(data["entries"]) == 2
     assert data["entries"][0]["entry_id"] == "e1"
+
+
+async def test_entries_by_ids_nothing_found_is_nothing_answered(tmp_path, monkeypatch):
+    """No requested id exists: the call is refused with every id in the map."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
+    mock_service.repository.get_entries_by_ids.return_value = []
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_entries_by_ids()
+        with assert_raises_error(error_type="nothing_answered") as _exc_ctx:
+            await fn(entry_ids=["e1", "e2", "e1"])
+
+    assert _exc_ctx["envelope"]["details"] == {"missing": {"e1": None, "e2": None}}
 
 
 async def test_entries_by_ids_empty_list():
@@ -976,7 +994,7 @@ async def test_entries_by_ids_reads_the_attachment_rows_once(tmp_path, monkeypat
 
     data = await _run_entries_by_ids(mock_service, ["e0", "e1", "e2"])
 
-    assert data["found"] == 3
+    assert data["missing"] == {}
     mock_service.repository.get_attachment_rows.assert_awaited_once_with(["e0", "e1", "e2"])
 
 
@@ -1006,7 +1024,7 @@ async def test_entries_by_ids_with_a_failing_reader_keeps_its_entries(tmp_path, 
     )
 
     assert data == expected
-    assert data["found"] == 1
+    assert data["missing"] == {}
 
 
 async def test_entries_by_ids_bounds_summaries_by_listing_attachments(tmp_path, monkeypatch):
