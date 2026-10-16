@@ -442,7 +442,9 @@ def _magnet_model(
     pyAML's strength is the integrated field over the rigidity. The deck holds
     ``curve(hardware) * weight`` on each slice, so the magnet's integrated
     strength is ``curve(hardware) * scale`` with ``scale`` the sum of the slice
-    weights times their lengths for a multipole and of the weights for a kick:
+    weights times their lengths for a multipole and of the weights for a kick
+    or for a magnet whose every slice is zero-length, which pyAML reads at
+    unit length:
     a linear curve becomes a ``linear_model`` of factor ``gain * scale * brho``,
     a table an ``inline_curve`` of ``(hardware, value * scale * brho)`` rows
     extended one knot span past each end and past the address's limits band.
@@ -462,9 +464,10 @@ def _magnet_model(
     lengths = [deck.lengths.get(element, 0.0) for element, _ in pieces]
     if 0.0 in lengths and any(lengths):
         return None
-    kick = magnet.role in ("hcor", "vcor")
+    unit = magnet.role in ("hcor", "vcor") or not any(lengths)
     scale = sum(
-        weight * (1.0 if kick else deck.lengths.get(element, 0.0)) for element, weight in pieces
+        weight * (1.0 if unit else length)
+        for (_, weight), length in zip(pieces, lengths, strict=True)
     )
     if scale == 0.0:
         return None
@@ -675,13 +678,20 @@ def _design_optics(deck: _Deck) -> _Optics | None:
 
 
 def _slice_average(magnet: _Magnet, deck: _Deck, optics: _Optics, quantity: Any) -> float | None:
-    """``sum(q_i * w_i * L_i) / sum(w_i * L_i)`` over the magnet's slices."""
+    """``sum(q_i * w_i * L_i) / sum(w_i * L_i)`` over the magnet's slices.
+
+    A magnet whose every slice is zero-length weighs each slice at unit length,
+    as its pyAML magnet model scales it.
+    """
+    pieces = _slice_elements(magnet.entry)
+    lengths = [deck.lengths.get(element, 0.0) for element, _ in pieces]
+    unit = not any(lengths)
     weighted = total = 0.0
-    for element, weight in _slice_elements(magnet.entry):
+    for (element, weight), length in zip(pieces, lengths, strict=True):
         position = optics.positions.get(element)
         if position is None:
             return None
-        share = weight * deck.lengths.get(element, 0.0)
+        share = weight * (1.0 if unit else length)
         weighted += float(quantity(position)) * share
         total += share
     return None if total == 0.0 else weighted / total
@@ -729,8 +739,8 @@ def _tuning_matrix(
 
     A tune column is ``(+beta_x, -beta_y) / 4pi``, a chromaticity column
     ``(+beta_x * eta_x, -beta_y * eta_x) / 2pi``, each averaged over the
-    magnet's slices by weight times length: the response per unit of the
-    integrated strength pyAML steps.
+    magnet's slices by weight times length (unit length when every slice is
+    zero-length): the response per unit of the integrated strength pyAML steps.
     """
     beta = optics.beta
     eta = optics.dispersion[:, 0]
