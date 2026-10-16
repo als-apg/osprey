@@ -1286,12 +1286,12 @@ class TestProtocolAwareSafetyRules:
         assert "osprey.runtime" in content
         assert "EPICS" not in content
 
-    def test_opcua_renders_opcua_content(self, tmp_path):
-        """OPC-UA config produces OPC-UA-specific safety rules."""
+    def test_the_simulator_in_process_renders_generic_content(self, tmp_path):
+        """The simulator in process speaks no wire, so it gets the generic rules."""
         manager = TemplateManager()
         project_dir = _create_project(
             manager,
-            project_name="safety-opcua",
+            project_name="safety-in-process",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
@@ -1299,39 +1299,7 @@ class TestProtocolAwareSafetyRules:
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        config.setdefault("control_system", {})["type"] = "opcua"
-        (project_dir / "config.yml").write_text(yaml.dump(config))
-
-        from osprey.cli.templates import claude_code
-
-        ctx = claude_code.build_claude_code_context(
-            manager.template_root, manager.jinja_env, project_dir, config
-        )
-        claude_code.create_claude_code_integration(
-            manager.template_root, manager.jinja_env, project_dir, ctx
-        )
-
-        content = (project_dir / ".claude" / "rules" / "control-system-safety.md").read_text()
-        assert "OPC-UA" in content
-        assert "opcua" in content
-        assert "set_value" in content
-        assert "osprey.runtime" in content
-        assert "EPICS" not in content
-
-    def test_mock_renders_generic_content(self, tmp_path):
-        """Mock/default config produces generic safety rules."""
-        manager = TemplateManager()
-        project_dir = _create_project(
-            manager,
-            project_name="safety-mock",
-            output_dir=tmp_path,
-            data_bundle="control_assistant",
-            context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
-        )
-
-        config = yaml.safe_load((project_dir / "config.yml").read_text())
-        # Default is mock — no explicit type needed, but verify
+        # The rendered config serves the simulator in process; no type is set here.
         from osprey.cli.templates import claude_code
 
         ctx = claude_code.build_claude_code_context(
@@ -1354,7 +1322,7 @@ class TestProtocolAwareSafetyRules:
         manager = TemplateManager()
         from osprey.cli.templates import claude_code
 
-        for protocol in ["epics", "doocs", "tango", "opcua", "labview", "virtual_accelerator"]:
+        for protocol in ["epics", "doocs", "tango", "virtual_accelerator", "live_standin"]:
             project_dir = _create_project(
                 manager,
                 project_name=f"safety-{protocol}",
@@ -1381,11 +1349,11 @@ class TestProtocolAwareSafetyRules:
             assert content.strip(), f"{protocol}: rendered empty"
 
 
-class TestControlSystemTypeContext:
-    """Test that build_claude_code_context includes control_system_type."""
+class TestControlSystemTransportContext:
+    """build_claude_code_context carries the connector's wire, never its type word."""
 
-    def test_control_system_type_from_config(self, tmp_path):
-        """control_system_type is read from config."""
+    def test_control_system_transport_from_config(self, tmp_path):
+        """control_system_transport is derived from the configured type."""
         manager = TemplateManager()
         project_dir = _create_project(
             manager,
@@ -1404,10 +1372,11 @@ class TestControlSystemTypeContext:
         ctx = claude_code.build_claude_code_context(
             manager.template_root, manager.jinja_env, project_dir, config
         )
-        assert ctx["control_system_type"] == "tango"
+        assert ctx["control_system_transport"] == "tango"
+        assert "control_system_type" not in ctx
 
-    def test_control_system_type_defaults_to_the_simulator_in_process(self, tmp_path):
-        """control_system_type defaults to the simulator, in process, when not in config."""
+    def test_control_system_transport_defaults_to_the_simulator_in_process(self, tmp_path):
+        """With no control_system section the wire is the simulator's, in process."""
         manager = TemplateManager()
         project_dir = _create_project(
             manager,
@@ -1426,8 +1395,8 @@ class TestControlSystemTypeContext:
         ctx = claude_code.build_claude_code_context(
             manager.template_root, manager.jinja_env, project_dir, config
         )
-        assert ctx["control_system_type"] == "virtual_accelerator"
         assert ctx["control_system_transport"] == "in_process"
+        assert "control_system_type" not in ctx
 
 
 class TestGeneralizedRulesContent:
@@ -1743,7 +1712,7 @@ class TestRenderContextDoesNotFork:
             tmp_path,
         )
         assert derived["control_system_write_tools"] == ["mcp__facility__set_current"]
-        assert derived["control_system_type"] == "epics"
+        assert derived["control_system_transport"] == "ca"
 
 
 class TestConfigDerivedKeysPrecedeServerResolution:
@@ -1771,8 +1740,8 @@ class TestConfigDerivedKeysPrecedeServerResolution:
         servers["ctx-probe"] = ServerDefinition(
             name="ctx-probe",
             module="osprey.mcp_server.health",
-            # Always truthy out of config_derived_context: it defaults to the simulator.
-            condition="control_system_type",
+            # Truthy for every built-in connector: each one speaks a named wire.
+            condition="control_system_transport",
             env={},
         )
         return servers
@@ -1798,7 +1767,7 @@ class TestConfigDerivedKeysPrecedeServerResolution:
             manager.template_root, manager.jinja_env, project_dir, config
         )
 
-        assert ctx["control_system_type"], (
+        assert ctx["control_system_transport"], (
             "the condition key must be truthy for this to mean anything"
         )
         assert "ctx-probe" in ctx["enabled_servers"]
@@ -1827,7 +1796,7 @@ class TestConfigDerivedKeysPrecedeServerResolution:
             data_root=bundle_data_root("control_assistant"),
         )
 
-        assert captured["control_system_type"]
+        assert captured["control_system_transport"]
         assert "ctx-probe" in captured["enabled_servers"]
 
 
