@@ -12,9 +12,8 @@ simulator), one array per measurement group, one tool per measurement kind and,
 for a periodic model, the tune and chromaticity response matrices of its design
 optics. The lattice is the deck with each corrector the view drives carrying its
 kick as the dipole polynomials pyAML reads, so a corrector step in pyAML's design
-mode moves the orbit the served deck's kick moves; a zero-length corrector takes
-a micrometre from the drift beside it, else from the nearest thick element,
-whose integrated field strengths are kept. An engine that cannot carry the
+mode moves the orbit the served deck's kick moves; a zero-length corrector stays
+a zero-length thin multipole carrying its kick. An engine that cannot carry the
 kicks as polynomials (no `polynomial_kicks()`) stops the build of a periodic
 model whose view drives correctors (`engine-invalid`). Magnets are named after
 their setpoint addresses, BPMs and arrays after their device and group ids; one
