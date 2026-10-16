@@ -158,7 +158,11 @@ them when you read, with ``LIMIT 1 BY`` on the natural key:
    * - ``audit_ledger``
      - ``User``, ``Surface``, ``ToolUseId``, ``Timestamp``, ``cityHash64(Body)``
    * - ``otel_logs``
-     - ``User``, ``SessionId``, ``Timestamp``, ``cityHash64(Body)``
+     - ``User``, ``SessionId``, ``Timestamp``, ``cityHash64(Body, toJSONString(LogAttributes))``
+
+An ``otel_logs`` key hashes the attributes as well as ``Body``, because
+``Body`` names the event kind, not the record: two events of one kind in the
+same millisecond differ only in their attributes.
 
 The queries the history page and :doc:`reconstruct-session` run use the same
 keys.
