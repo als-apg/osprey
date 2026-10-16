@@ -290,6 +290,10 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Stack]:
             print(f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}")
         _remove_project_containers()
         remove_project_volumes(PROJECT_NAME)
+        # `osprey up --build` chains a full build, whose venv every later
+        # re-render carries forward; nothing reads it once the module's stacks
+        # are down.
+        shutil.rmtree(repo / "build" / ".venv", ignore_errors=True)
 
 
 def _wait_ready(stack: Stack, timeout: float = 120.0) -> None:
