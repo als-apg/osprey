@@ -206,10 +206,15 @@ def _assert_selected_readings_still(
     )
 
 
+def _deployment_state_dir(repo: Path) -> Path:
+    """The directory holding the deployed stack's active-scenario file."""
+    config = yaml.safe_load(rendered_config_path(repo).read_text(encoding="utf-8")) or {}
+    return resolve_simulation_state_dir(config, repo)
+
+
 def _assert_deployment_starts_still(repo: Path) -> None:
     """Fail when the deployed stack's active set does not name the `still` scenario."""
-    config = yaml.safe_load(rendered_config_path(repo).read_text(encoding="utf-8")) or {}
-    names, _anchor = read_active_state(resolve_simulation_state_dir(config, repo))
+    names, _anchor = read_active_state(_deployment_state_dir(repo))
     assert STILL_SCENARIO in names, (
         f"the deployment's active scenarios are {names}, not the {STILL_SCENARIO!r} start set"
     )
