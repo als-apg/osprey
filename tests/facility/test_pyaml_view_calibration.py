@@ -11,6 +11,8 @@ magnet, is in no array, and is named in a note on stderr.
 
 from __future__ import annotations
 
+import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +20,7 @@ import numpy as np
 import pytest
 import yaml
 
-from osprey.facility.views.pyaml import CONFIGURATION_FILE
+from osprey.facility.views.pyaml import CONFIGURATION_FILE, TRM_FILE
 from tests.facility._pyaml_trees import (
     _sr_deck,
     measured_tree,
@@ -180,3 +182,71 @@ def test_a_magnet_split_across_thin_and_thick_elements_is_left_out_with_a_note(
     for array in configuration["arrays"]:
         assert "SCOR:H:SP" not in array["elements"]
     assert Accelerator.load(str(tmp_path / "render/data/pyaml/SR" / CONFIGURATION_FILE))
+
+
+def _thin_qd_tree() -> dict[str, Any]:
+    """The measured tree with QD a zero-length thin multipole between two drifts."""
+
+    def elements(at: Any) -> list[Any]:
+        found = _sr_deck().elements(at)
+        (index,) = [i for i, element in enumerate(found) if element.FamName == "QD"]
+        thin = at.ThinMultipole("QD", [0.0, 0.0], [0.0, -0.5])
+        return [
+            *found[:index],
+            at.Drift("DQ", 0.25),
+            thin,
+            at.Drift("DQ", 0.25),
+            *found[index + 1 :],
+        ]
+
+    tree = measured_tree()
+    tree["decks/sr.json"] = Deck(elements)
+    return tree
+
+
+def test_a_thin_quadrupole_steps_the_tune_the_deck_s_strength_change_does(
+    tmp_path: Path,
+) -> None:
+    """A magnet whose every slice is zero-length is scaled at unit length, as pyAML reads it."""
+    import at
+    from pyaml.accelerator import Accelerator
+
+    tree = _thin_qd_tree()
+    configuration = _configuration(tmp_path, tree, "SR")
+    (device,) = [device for device in configuration["devices"] if device["name"] == "QD:SP"]
+    assert device["model"]["calibration_factor"] == pytest.approx(0.01 * BRHO)
+
+    step = 1.0e-3
+    design = Accelerator.load(str(tmp_path / "render/data/pyaml/SR" / CONFIGURATION_FILE)).design
+    magnet = design.magnet.get("QD:SP")
+    held = magnet.strength.get()
+    assert held == pytest.approx(-0.5)
+    before = design.get_lattice().get_tune()
+    magnet.strength.set(held + step)
+    after = design.get_lattice().get_tune()
+
+    deck = at.load_lattice(str(tmp_path / "data" / "facility" / "decks" / "sr.json"))
+    (quad,) = [element for element in deck if element.FamName == "QD"]
+    expected_before = deck.get_tune()
+    quad.PolynomB[1] += step
+    expected = deck.get_tune() - expected_before
+    assert np.max(np.abs(expected)) > 1.0e-5
+    assert after - before == pytest.approx(expected, rel=1.0e-4)
+
+
+def test_a_quad_group_holding_a_thin_quadrupole_keeps_its_tune_response(
+    tmp_path: Path,
+) -> None:
+    """A zero-length slice weighs in at unit length, so the thin quadrupole's column is its beta."""
+    import at
+
+    directory, written = write_view(tmp_path, _thin_qd_tree())
+    assert directory / "SR" / TRM_FILE in written
+    trm = json.loads((directory / "SR" / TRM_FILE).read_text())
+    assert trm["variable_names"] == ["QD:SP", "QF:SP"]
+
+    lattice = at.load_lattice(str(directory / "SR" / "lattice.json")).disable_6d(copy=True)
+    _, beta, *_ = at.avlinopt(lattice, refpts=np.arange(len(lattice)))
+    (qd,) = [i for i, element in enumerate(lattice) if element.FamName == "QD"]
+    matrix = np.asarray(trm["matrix"]) * 4 * math.pi
+    assert matrix[:, 0] == pytest.approx((beta[qd, 0], -beta[qd, 1]), rel=1e-8)
