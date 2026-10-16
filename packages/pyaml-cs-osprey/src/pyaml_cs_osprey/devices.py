@@ -37,7 +37,7 @@ from pyaml.control.deviceaccesslist import DeviceAccessList
 import osprey.runtime
 from osprey.errors import ChannelWriteBlockedError, ChannelWriteFailedError
 from pyaml_cs_osprey import _run
-from pyaml_cs_osprey.device import OspreyDevice, indexed_element, unknown_unit
+from pyaml_cs_osprey.device import OspreyDevice, indexed_element, settle, unknown_unit
 from pyaml_cs_osprey.errors import (
     OspreyReadFailed,
     OspreyWriteFailed,
@@ -157,6 +157,35 @@ class OspreyDeviceList(DeviceAccessList):
                 sent the others. The message names the failing address and every
                 other address of the batch as sent.
         """
+        self._write(self._batch(value), confirm=confirm)
+
+    def set_and_wait(self, value: Any) -> None:
+        """Write the setpoints, confirm each channel holds its value, and wait for readbacks.
+
+        The write is ``set(value, confirm=True)``. Each member whose facility record
+        states a ``tolerance`` then has its readback polled, all of them in one read
+        per poll, until each is within its tolerance of the value written
+        (:func:`~pyaml_cs_osprey.device.settle`).
+
+        Raises:
+            OspreyWriteFailed: The write was not confirmed, or a readback was not
+                within its tolerance after
+                :data:`~pyaml_cs_osprey.device.SETTLE_TIMEOUT_S`, naming the first
+                such member; every written member stays recorded as moved.
+            OspreyReadFailed: A prior setpoint or a readback could not be read.
+        """
+        batch = self._batch(value)
+        self._write(batch, confirm=True)
+        settle(batch)
+
+    def _batch(self, value: Any) -> dict[str, float]:
+        """One native setpoint per distinct address, in list order.
+
+        Raises:
+            PyAMLException: A member's reference is indexed, so read-only.
+            ValueError: ``value`` does not hold one entry per device, or one
+                address is given two different values.
+        """
         self._require_writable()
         values = np.asarray(value, dtype=float).ravel()
         if values.size != len(self._items):
@@ -170,6 +199,10 @@ class OspreyDeviceList(DeviceAccessList):
                     f"address {address} given two setpoints: {batch[address]} and {setpoint}"
                 )
             batch[address] = setpoint
+        return batch
+
+    def _write(self, batch: dict[str, float], *, confirm: bool | None) -> None:
+        """Write ``batch`` as one runtime call inside the process's run."""
 
         def map_error(exc: Exception) -> OspreyWriteRefused | OspreyWriteFailed:
             if isinstance(exc, ChannelWriteFailedError) or (
@@ -187,10 +220,6 @@ class OspreyDeviceList(DeviceAccessList):
             map_read=map_read_error,
             confirm=confirm,
         )
-
-    def set_and_wait(self, value: Any) -> None:
-        """Write the setpoints and confirm each channel holds its value."""
-        self.set(value, confirm=True)
 
     # --- metadata --------------------------------------------------------------
 
