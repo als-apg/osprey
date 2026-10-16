@@ -447,7 +447,10 @@ def _magnet_model(
     a table an ``inline_curve`` of ``(hardware, value * scale * brho)`` rows
     extended one knot span past each end and past the address's limits band.
     A curve pyAML cannot represent (one per slice, a zero gain or scale, a table
-    that is not strictly monotone) has no model.
+    that is not strictly monotone) has no model. Nor has a magnet whose slices
+    mix zero-length and thick elements: pyAML writes one polynomial into every
+    slice, which a zero-length slice reads as integrated and a thick one per
+    metre.
     """
     from osprey.simulation.engines.calibration import Linear, Table, curve_from_record
 
@@ -455,6 +458,9 @@ def _magnet_model(
     calibration = entry.get("calibration") or {}
     pieces = _slice_elements(entry)
     if any((piece.get("curve") is not None) for piece in entry.get("slices") or []):
+        return None
+    lengths = [deck.lengths.get(element, 0.0) for element, _ in pieces]
+    if 0.0 in lengths and any(lengths):
         return None
     kick = magnet.role in ("hcor", "vcor")
     scale = sum(

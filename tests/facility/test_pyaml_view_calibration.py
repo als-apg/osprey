@@ -19,7 +19,14 @@ import pytest
 import yaml
 
 from osprey.facility.views.pyaml import CONFIGURATION_FILE
-from tests.facility._pyaml_trees import measured_tree, write_view
+from tests.facility._pyaml_trees import (
+    _sr_deck,
+    measured_tree,
+    with_correctors,
+    with_rf,
+    write_view,
+)
+from tests.facility._synthetic_trees import Deck
 
 pytest.importorskip("pyaml")
 
@@ -142,4 +149,34 @@ def test_a_curve_per_slice_leaves_the_setpoint_out_with_a_note(
     assert "view pyaml: SR leaves out 1 setpoint pyAML has no magnet model for: QF:SP" in (
         capsys.readouterr().err
     )
+    assert Accelerator.load(str(tmp_path / "render/data/pyaml/SR" / CONFIGURATION_FILE))
+
+
+def test_a_magnet_split_across_thin_and_thick_elements_is_left_out_with_a_note(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """pyAML writes one polynomial into every slice, which a thin and a thick slice read apart."""
+    from pyaml.accelerator import Accelerator
+
+    def elements(at: Any) -> list[Any]:
+        found = _sr_deck().elements(at)
+        (after,) = [i + 1 for i, element in enumerate(found) if element.FamName == "SCOR"]
+        thick = at.Corrector("SCORT", 0.1, [0.0, 0.0])
+        return [*found[:after], thick, *found[after:]]
+
+    tree = with_correctors(with_rf(measured_tree()))
+    tree["measurement/SR.yaml"] |= {"kinds": ["orm"], "corrector_delta": 1.0e-5}
+    tree["decks/sr.json"] = Deck(elements)
+    entry = _wiring(tree, "SR", "SCOR:H:SP")
+    del entry["element"]
+    entry["slices"] = [{"element": "SCOR"}, {"element": "SCORT"}]
+
+    configuration = _configuration(tmp_path, tree, "SR")
+
+    assert "view pyaml: SR leaves out 1 setpoint pyAML has no magnet model for: SCOR:H:SP" in (
+        capsys.readouterr().err
+    )
+    assert "SCOR:H:SP" not in [device["name"] for device in configuration["devices"]]
+    for array in configuration["arrays"]:
+        assert "SCOR:H:SP" not in array["elements"]
     assert Accelerator.load(str(tmp_path / "render/data/pyaml/SR" / CONFIGURATION_FILE))
