@@ -64,6 +64,12 @@ def test_store_publishes_on_loopback_only(scenario: str) -> None:
     assert store["mem_limit"] == 2 * 1024**3
 
 
+def test_store_takes_the_runtime_descriptor_ceiling() -> None:
+    """No fixed open-file limit: a rootless runtime cannot grant one above its own."""
+    compose = yaml.safe_load(_render("defaults")["docker-compose.yml"])
+    assert "ulimits" not in compose["services"]["telemetry_store"]
+
+
 def test_server_config_pins() -> None:
     rendered = _render("defaults")
     config = rendered["osprey.xml"]
