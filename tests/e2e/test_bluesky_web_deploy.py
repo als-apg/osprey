@@ -163,11 +163,6 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
     )
 
 
-def _bounds(limits: dict[str, Any], address: str) -> tuple[float, float]:
-    entry = limits[address]
-    return float(entry["min_value"]), float(entry["max_value"])
-
-
 def _minted_token(repo: Path) -> str:
     from osprey.utils.dotenv import parse_dotenv_file
 
@@ -302,7 +297,7 @@ def _build_minimal_plan_args(
     schema: dict[str, Any],
     correctors: dict[str, tuple[str, str]],
     bpms: dict[str, str],
-    limits: dict[str, Any],
+    repo: Path,
 ) -> dict[str, Any] | None:
     """Build a minimal, valid ``plan_args`` for ``schema`` (a plan's JSON
     Schema from ``GET /plans``) using the derived corrector/BPM device names.
@@ -310,6 +305,9 @@ def _build_minimal_plan_args(
     Returns ``None`` when ``schema``'s shape isn't one this helper recognizes
     -- the caller then tries the next discovered candidate rather than
     guessing at an unfamiliar plan's parameters.
+
+    A grid_scan axis is sized from the band the render's view states for the
+    corrector's setpoint, so the sweep stays inside it on any facility.
     """
     props = schema.get("properties", {})
     corrector_names = list(correctors.keys())
@@ -333,7 +331,12 @@ def _build_minimal_plan_args(
             return None
         axis_name = corrector_names[0]
         sp_address, _rb_address = correctors[axis_name]
-        lo, hi = _bounds(limits, sp_address)
+        band = _facility_select.repo_view(repo).channel(sp_address).value_range
+        assert band is not None, (
+            f"grid_scan axis {sp_address} has no band in the view: its limits record "
+            "states no min_value and max_value to size the sweep from"
+        )
+        lo, hi = float(band[0]), float(band[1])
         start = lo + 0.25 * (hi - lo)
         stop = lo + 0.75 * (hi - lo)
         return {
@@ -347,7 +350,7 @@ def _build_minimal_plan_args(
 
 
 def _discover_writes_plan(
-    correctors: dict[str, tuple[str, str]], bpms: dict[str, str], limits: dict[str, Any]
+    correctors: dict[str, tuple[str, str]], bpms: dict[str, str], repo: Path
 ) -> tuple[str, dict[str, Any]]:
     """Discover a validated, writes-capable plan via the sidecar's read-proxy
     and build minimal ``plan_args`` for it.
@@ -377,7 +380,7 @@ def _discover_writes_plan(
         src_status, source = _sidecar_get(f"/plans/{name}/source")
         if src_status != 200 or not isinstance(source, dict) or source.get("validated") is not True:
             continue
-        args = _build_minimal_plan_args(plan["schema"], correctors, bpms, limits)
+        args = _build_minimal_plan_args(plan["schema"], correctors, bpms, repo)
         if args is not None:
             return name, args
 
@@ -464,9 +467,6 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     _setpoint, _readback, model = _facility_select.bounded_corrector(repo)
     correctors = _orm_stack.select_correctors(repo, count=1, model=model)
     bpms = _orm_stack.select_bpms(repo, count=2, model=model)
-    # The limits are a separate question from which channels exist: this lane
-    # goes on to build plan args INSIDE a device's limits record.
-    limits = _orm_stack.channel_limits(repo)
 
     # The repo root's `.env` — the deployment's whole secret store, and the file
     # `osprey up` refuses to start without.
@@ -509,7 +509,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         except AssertionError as exc:
             pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
 
-        plan_name, plan_args = _discover_writes_plan(correctors, bpms, limits)
+        plan_name, plan_args = _discover_writes_plan(correctors, bpms, repo)
 
         yield DeployedStack(
             repo=repo,
