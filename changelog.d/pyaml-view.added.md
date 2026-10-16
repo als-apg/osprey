@@ -1,8 +1,9 @@
-pyAML (`accelerator-middle-layer` 0.3.1) ships with OSPREY as the `pyaml-cs-osprey`
+pyAML (`accelerator-middle-layer-apg` 0.3.1.post1, upstream 0.3.1 with its
+zero-length magnet fix) ships with OSPREY as the `pyaml-cs-osprey`
 control-system backend: every pyAML read and write goes through the OSPREY
 connector, so channel limits, write posture, control-target pinning and audit
-apply to it. A pyAML write runs only inside a pyaml_measure run (a run_tool call);
-anywhere else it is refused and nothing is written.
+apply to it. A pyAML write runs only inside a pyaml_measure run (a run_tool
+call); anywhere else it is refused and nothing is written.
 
 `osprey build` writes a pyAML view for every served model that names a deck and
 has a `measurement/<model>.yaml`: `data/pyaml/<model>/configuration.yaml`, with
