@@ -214,7 +214,8 @@ Exits 0 only if all of that holds; tears the container down either way.
 Building the image needs BuildKit (`docker buildx`): the `Containerfile`'s
 `FROM --platform=linux/amd64` is honoured by BuildKit only, and a legacy
 builder pulls the host's own architecture and stops at the `Containerfile`'s
-architecture guard.
+architecture guard; with docker as the runtime, the script checks for it before
+staging the context and says how to enable it.
 
 Worth knowing if you extend it: **a quiescent BPM read proves connectivity,
 not physics.** The demo deck's closed orbit with no corrector excited is

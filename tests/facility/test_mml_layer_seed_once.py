@@ -33,6 +33,7 @@ from osprey.facility.layers.mml.importer import (
 )
 from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
 from osprey.facility.layers.mml.seed import HEADER, READOUT_FILE, TUNING, band
+from osprey.facility.sources import group_families
 from osprey.facility.validate import known_classes, run_stages
 from tests.facility._mml_built import (
     BUILT,
@@ -488,13 +489,7 @@ def test_a_measurement_file_carries_the_step_and_settle_keys(imported: _Imported
 def test_a_periodic_model_measures_orbit_response_and_dispersion(synthetic: Path) -> None:
     document = _load(synthetic / "measurement" / "SR.yaml")
     assert document["kinds"] == ["orm", "dispersion"]
-    assert document["groups"] == {
-        "bpm": "BPMx",
-        "hcor": "HC",
-        "vcor": "VC",
-        "quad": "QF",
-        "sext": "SF",
-    }
+    assert document["groups"] == {"bpm": "BPMx", "hcor": "HC", "vcor": "VC"}
     assert document["instruments"] == {"rf": "QK:RF:1:CUR:SP"}
 
 
@@ -503,7 +498,8 @@ def test_every_group_and_instrument_of_a_measurement_file_exists(imported: _Impo
     channels = set(imported.roles)
     for path in sorted((imported.facility / "measurement").glob("*.yaml")):
         document = _load(path)
-        assert set(document["groups"].values()) <= groups, path.name
+        named = {group for value in document["groups"].values() for group in group_families(value)}
+        assert named <= groups, path.name
         assert set(document.get("instruments", {}).values()) <= channels, path.name
 
 
@@ -513,25 +509,63 @@ def test_a_single_pass_model_measures_orbit_response_at_most(
     facility = imports("nsls2").facility
     document = _load(facility / "measurement" / "LTB.yaml")
     assert document["kinds"] == ["orm"]
-    assert document["groups"] == {"bpm": "BPM", "hcor": "HCM", "vcor": "VCM", "quad": "Q"}
+    assert document["groups"] == {"bpm": "BPM", "hcor": "HCM", "vcor": "VCM"}
     assert "instruments" not in document
 
 
 def test_the_spear3_measurement_reads_the_tune_on_its_wired_readback(spear3: Path) -> None:
     document = _load(spear3 / "measurement" / "StorageRing.yaml")
     assert document["instruments"]["tune"] == "MeasTune"
-    assert document["groups"]["quad"] == "QF"
-    assert document["kinds"] == ["orm", "dispersion", "trm"]
+    assert document["groups"]["quad"] == ["QD", "QF"]
+    assert document["groups"]["sext"] == ["SD", "SF"]
+    assert document["kinds"] == ["orm", "dispersion", "trm", "crm", "chromaticity_monitor"]
 
 
-def test_the_import_names_the_families_a_group_role_was_not_seeded_from(
+def test_the_seeded_kinds_are_every_kind_the_file_names_the_members_of(
+    imported: _Imported,
+) -> None:
+    from osprey.facility.views.pyaml import KIND_MEMBERS, SINGLE_PASS_KINDS
+
+    periodic = {
+        model["name"]: (model.get("settings") or {}).get(model["engine"], {}).get("solve")
+        != "single_pass"
+        for model in _load(imported.facility / LAYER_DIR / "models.yaml")
+    }
+    for path in sorted((imported.facility / "measurement").glob("*.yaml")):
+        document = _load(path)
+        named = set(document["groups"]) | set(document.get("instruments", {}))
+        assert document["kinds"] == [
+            kind
+            for kind, members in KIND_MEMBERS.items()
+            if set(members) <= named and (periodic[path.stem] or kind in SINGLE_PASS_KINDS)
+        ], path.name
+
+
+def _measurement_lines(imports: Callable[[str], _Imported], tree: str) -> list[str]:
+    return [line for line in imports(tree).printed.splitlines() if line.startswith("measurement ")]
+
+
+def test_the_import_names_the_wired_families_a_tagged_role_leaves_out(
     imports: Callable[[str], _Imported],
 ) -> None:
-    lines = [line for line in imports("spear3").printed.splitlines() if "seeded from" in line]
-    assert lines == [
-        "measurement StorageRing: quad seeded from QF; also wired: QD, QFC, QDX, QFX, QDY, "
-        "QFY, QDZ, QFZ, Q9S",
-        "measurement StorageRing: sext seeded from SF; also wired: SD, SFM, SDM",
+    assert _measurement_lines(imports, "spear3") == [
+        "measurement StorageRing: quad lists QD, QF; also wired: QFC, QDX, QFX, QDY, QFY, "
+        "QDZ, QFZ, Q9S",
+        "measurement StorageRing: sext lists SD, SF; also wired: SFM, SDM",
+    ]
+    assert _measurement_lines(imports, "nsls2") == [
+        "measurement LTB: quad not seeded: the export tags no Tune Corrector; wired: Q",
+        "measurement StorageRing: quad lists QH1, QH2, QH3, QL1, QL2, QL3; also wired: QM1, QM2",
+        "measurement StorageRing: sext lists SM2; also wired: SH1, SL2",
+    ]
+
+
+def test_the_import_names_a_role_the_export_tags_no_corrector_for(
+    imports: Callable[[str], _Imported],
+) -> None:
+    assert _measurement_lines(imports, "synthetic") == [
+        "measurement SR: quad not seeded: the export tags no Tune Corrector; wired: QF, QD",
+        "measurement SR: sext not seeded: the export tags no Chromaticity Corrector; wired: SF",
     ]
 
 

@@ -50,7 +50,7 @@ def _rows(config: dict, repo: Path) -> dict:
 
 
 def test_silent_when_not_deployed(tmp_path):
-    assert archive(_config("openobserve"), cwd=tmp_path, now=lambda: NOW)() == []
+    assert archive(_config("telemetry_store"), cwd=tmp_path, now=lambda: NOW)() == []
 
 
 def test_a_missing_archive_warns(tmp_path):
@@ -114,7 +114,7 @@ def test_the_telemetry_row_warns_when_no_day_was_exported(tmp_path):
     root = _archive_root(tmp_path)
     _write(root, "2026-09-24", _pass("2026-09-24T11:30:00Z"))
 
-    row = _rows(_config("archive", "openobserve"), tmp_path)["archive_telemetry_day"]
+    row = _rows(_config("archive", "telemetry_store"), tmp_path)["archive_telemetry_day"]
 
     assert row.status is Status.WARNING
 
@@ -128,7 +128,7 @@ def test_the_telemetry_row_warns_when_the_newest_day_is_old(tmp_path):
         _pass("2026-09-24T11:30:00Z"),
     )
 
-    row = _rows(_config("archive", "openobserve"), tmp_path)["archive_telemetry_day"]
+    row = _rows(_config("archive", "telemetry_store"), tmp_path)["archive_telemetry_day"]
 
     assert row.status is Status.WARNING
     assert "2026-09-21" in row.message
@@ -143,7 +143,7 @@ def test_the_telemetry_row_is_ok_for_the_day_before_yesterday(tmp_path):
         _pass("2026-09-24T11:30:00Z"),
     )
 
-    row = _rows(_config("archive", "openobserve"), tmp_path)["archive_telemetry_day"]
+    row = _rows(_config("archive", "telemetry_store"), tmp_path)["archive_telemetry_day"]
 
     assert row.status is Status.OK
     assert row.value == "2026-09-22"

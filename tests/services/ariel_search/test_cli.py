@@ -1028,6 +1028,18 @@ concepts:
 """
 
 
+# One interior-break form and one outer-edge form: legal, two warnings, no errors.
+_PUNCTUATED = """
+concepts:
+  - canonical: vertical orbit
+    kind: shorthand
+    forms: ["vert. orbit", "Vert-Orbit"]
+  - canonical: beam position monitor
+    kind: acronym
+    forms: ["BPM", "(BPM)"]
+"""
+
+
 def _flat(text: str) -> str:
     """Collapse rich's wrapping and indentation so phrases can be asserted on."""
     return " ".join(text.split())
@@ -1092,6 +1104,51 @@ class TestVocabCheckCommand:
         assert "troubleshoot" in warning
         assert "timing system" in warning
         assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
+
+    @pytest.mark.usefixtures("no_config")
+    def test_vocab_check_prints_edge_and_interior_warnings(self, runner, tmp_path):
+        path = self._write(tmp_path, _PUNCTUATED)
+
+        result = runner.invoke(ariel_group, ["vocab-check", str(path)])
+
+        assert result.exit_code == 0
+        warning = _flat(result.stderr)
+        assert (
+            'form "(BPM)" (concept "beam position monitor") is matched as "bpm" '
+            "— edge punctuation (, . : ; ! ? ( ) [ ] \" ') is ignored in queries and entries"
+        ) in warning
+        assert (
+            'form "vert. orbit" (concept "vertical orbit"): its interior punctuation is '
+            "required — only text that breaks the same way matches"
+        ) in warning
+        assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
+
+    @pytest.mark.usefixtures("no_config")
+    def test_vocab_check_canonical_empty_after_stripping(self, runner, tmp_path):
+        path = self._write(
+            tmp_path, "concepts:\n  - canonical: '...'\n    kind: shorthand\n    forms: ['x']\n"
+        )
+
+        result = runner.invoke(ariel_group, ["vocab-check", str(path)])
+
+        assert result.exit_code == 1
+        assert "concepts[0] ('...'): 'canonical' must be a non-empty string" in _flat(result.stderr)
+
+    @pytest.mark.usefixtures("no_config")
+    def test_vocab_check_canonicals_colliding_after_stripping(self, runner, tmp_path):
+        path = self._write(
+            tmp_path,
+            "concepts:\n  - canonical: vert orbit\n    kind: shorthand\n    forms: ['vo']\n"
+            "  - canonical: 'vert. orbit'\n    kind: shorthand\n    forms: ['v.o']\n",
+        )
+
+        result = runner.invoke(ariel_group, ["vocab-check", str(path)])
+
+        assert result.exit_code == 1
+        assert (
+            "concepts[1] ('vert. orbit'): duplicate canonical 'vert orbit' after "
+            "normalization — already defined by concepts[0]"
+        ) in _flat(result.stderr)
 
     @pytest.mark.usefixtures("no_config")
     def test_clean_file_reports_the_concept_count(self, runner, tmp_path):
@@ -1426,3 +1483,508 @@ class TestEnhanceRefreshStale:
         assert result.exit_code == 0, result.output
         assert seen["module"] == "image_caption"
         assert seen["refresh_stale"] is True
+
+
+class TestModuleConfigRefusal:
+    """A ModuleConfigError ends every ARIEL command with one failure line and exit 1."""
+
+    VOCAB_REMEDY = "fix ariel.vocabulary.path or set ariel.vocabulary.expand_entries: false"
+
+    @pytest.fixture
+    def runner(self, monkeypatch):
+        """A CLI runner with an ARIEL config in place."""
+        mock_config = {
+            "database": {"uri": "postgresql://localhost/test"},
+            "ingestion": {"adapter": "als_logbook", "source_url": "https://example.com/log"},
+        }
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: mock_config if key == "ariel" else default,
+        )
+        return CliRunner()
+
+    @staticmethod
+    def _vocab_error():
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        return ModuleConfigError(
+            "vocabulary file /nowhere/vocab.yml does not exist",
+            key="ariel.vocabulary.path",
+        )
+
+    @staticmethod
+    def _raising(error):
+        async def fake(*args, **kwargs):
+            raise error
+
+        return fake
+
+    @staticmethod
+    def _assert_refused(result, *expected):
+        assert result.exit_code == 1, result.output
+        assert isinstance(result.exception, SystemExit)
+        assert "Traceback" not in result.output
+        flat = " ".join(result.stderr.split())
+        for text in expected:
+            assert text in flat, result.stderr
+
+    @pytest.fixture
+    def quiet_pre_step(self, monkeypatch):
+        """Make the qmd pre-step a no-op so the command body is reached."""
+        from osprey.services.ariel_search import cli_operations
+
+        async def noop(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(cli_operations, "resync_qmd_mirror_best_effort", noop)
+
+    def test_remedy_for_maps_the_two_known_keys(self):
+        from osprey.cli.ariel import _remedy_for
+
+        assert _remedy_for("ariel.vocabulary.path") == self.VOCAB_REMEDY
+        assert _remedy_for("osprey ariel migrate") == "osprey ariel migrate"
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "ariel.enhancement_modules.text_embedding.provider",
+            "ariel.vocabulary",
+            "",
+        ],
+    )
+    def test_remedy_for_any_other_key_is_none(self, key):
+        from osprey.cli.ariel import _remedy_for
+
+        assert _remedy_for(key) is None
+
+    def test_reembed_refusal_on_missing_column_prints_the_migrate_remedy(self, runner, monkeypatch):
+        from osprey.services.ariel_search import cli_operations
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        error = ModuleConfigError(
+            "schema behind code: run osprey ariel migrate", key="osprey ariel migrate"
+        )
+        monkeypatch.setattr(cli_operations, "run_reembed", self._raising(error))
+
+        result = runner.invoke(
+            ariel_group, ["reembed", "--model", "x", "--dimension", "4", "--force"]
+        )
+
+        self._assert_refused(result, "schema behind code", "→ osprey ariel migrate")
+
+    def test_reembed_refusal_on_a_broken_vocabulary_prints_the_vocabulary_remedy(
+        self, runner, monkeypatch
+    ):
+        from osprey.services.ariel_search import cli_operations
+
+        monkeypatch.setattr(cli_operations, "run_reembed", self._raising(self._vocab_error()))
+
+        result = runner.invoke(
+            ariel_group, ["reembed", "--model", "x", "--dimension", "4", "--force"]
+        )
+
+        self._assert_refused(result, "ariel.vocabulary.path", self.VOCAB_REMEDY)
+
+    def test_sync_refusal_on_a_broken_vocabulary_prints_the_vocabulary_remedy(
+        self, runner, monkeypatch
+    ):
+        from osprey.services.ariel_search import cli_operations
+
+        monkeypatch.setattr(cli_operations, "run_sync", self._raising(self._vocab_error()))
+
+        result = runner.invoke(ariel_group, ["sync"])
+
+        self._assert_refused(result, "vocab.yml does not exist", self.VOCAB_REMEDY)
+
+    @pytest.mark.parametrize(
+        "argv",
+        [["ingest", "--source", "/tmp/never-read.json"], ["watch", "--once"]],
+        ids=["ingest", "watch"],
+    )
+    def test_pre_step_refusal_on_a_broken_vocabulary_prints_the_vocabulary_remedy(
+        self, runner, monkeypatch, argv
+    ):
+        """The real pre-step lets the refusal through; the command never starts."""
+        from osprey.services.ariel_search import cli_operations
+
+        monkeypatch.setattr(
+            cli_operations, "resync_qmd_mirror_best_effort", self._raising(self._vocab_error())
+        )
+        reached: list[str] = []
+
+        async def must_not_run(*args, **kwargs):
+            reached.append("run")
+
+        monkeypatch.setattr(cli_operations, "run_ingest", must_not_run)
+        monkeypatch.setattr(cli_operations, "run_watch", must_not_run)
+
+        result = runner.invoke(ariel_group, argv)
+
+        self._assert_refused(result, "vocab.yml does not exist", self.VOCAB_REMEDY)
+        assert reached == []
+
+    @pytest.mark.parametrize(
+        ("argv", "op"),
+        [
+            (["ingest", "--source", "/tmp/never-read.json"], "run_ingest"),
+            (["watch", "--once"], "run_watch"),
+        ],
+        ids=["ingest", "watch"],
+    )
+    @pytest.mark.usefixtures("quiet_pre_step")
+    def test_command_body_refusal_prints_the_vocabulary_remedy(self, runner, monkeypatch, argv, op):
+        from osprey.services.ariel_search import cli_operations
+
+        monkeypatch.setattr(cli_operations, op, self._raising(self._vocab_error()))
+
+        result = runner.invoke(ariel_group, argv)
+
+        self._assert_refused(result, "vocab.yml does not exist", self.VOCAB_REMEDY)
+
+    def test_qmd_resync_refusal_on_a_broken_vocabulary_prints_the_vocabulary_remedy(
+        self, runner, monkeypatch
+    ):
+        from osprey.services.ariel_search import cli_operations
+
+        monkeypatch.setattr(cli_operations, "run_qmd_resync", self._raising(self._vocab_error()))
+
+        result = runner.invoke(ariel_group, ["qmd-resync"])
+
+        self._assert_refused(result, "vocab.yml does not exist", self.VOCAB_REMEDY)
+        assert "mirror_path" not in result.stderr
+
+    def test_quickstart_refusal_on_a_broken_vocabulary_prints_the_vocabulary_remedy(
+        self, runner, monkeypatch
+    ):
+        from osprey.services.ariel_search import cli_operations
+
+        monkeypatch.setattr(cli_operations, "run_quickstart", self._raising(self._vocab_error()))
+
+        result = runner.invoke(ariel_group, ["quickstart"])
+
+        self._assert_refused(result, "vocab.yml does not exist", self.VOCAB_REMEDY)
+
+    def test_enhance_refusal_on_a_provider_key_prints_no_remedy(self, runner, monkeypatch):
+        from osprey.services.ariel_search import cli_operations
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        error = ModuleConfigError(
+            "provider 'nope' is not configured",
+            key="ariel.enhancement_modules.text_embedding.provider",
+        )
+        monkeypatch.setattr(cli_operations, "run_enhance", self._raising(error))
+
+        result = runner.invoke(ariel_group, ["enhance"])
+
+        self._assert_refused(result, "provider 'nope' is not configured")
+        assert "→" not in result.stderr
+
+
+class TestStatusEmbeddingBuilds:
+    """``osprey ariel status`` reports how the text embeddings were built."""
+
+    _REEMBED = (
+        "To rebuild them with the current settings, run "
+        "osprey ariel reembed --model nomic-embed-text --dimension 768 --force."
+    )
+
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    @pytest.fixture(autouse=True)
+    def _config(self, monkeypatch):
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
+        )
+
+    @staticmethod
+    def _table(
+        verdict_unavailable=None,
+        stale=None,
+        built_with=None,
+        name="nomic-embed-text",
+        dimension=768,
+    ):
+        return {
+            "table": f"text_embeddings_{name.replace('-', '_')}",
+            "entries": sum((built_with or {}).values()),
+            "dimension": None,
+            "active": True,
+            "built_with": built_with,
+            "stale": stale,
+            "verdict_unavailable": verdict_unavailable,
+            "model": {"name": name, "dimension": dimension},
+        }
+
+    def _status(self, monkeypatch, tables, attachments=None, vocabulary=None):
+        result = {
+            "status": "healthy",
+            "message": "ok",
+            "vocabulary": vocabulary or {"status": "disabled", "concepts": 0, "errors": []},
+            "database": {"uri": "localhost/ariel", "connected": True},
+            "entries": 3,
+            "last_ingestion": None,
+            "embedding_tables": tables,
+            "image_embedding_tables": [],
+            "enhancement_modules": {},
+            "orphaned_enhancement_modules": {},
+            "attachments": attachments,
+            "captions": None,
+        }
+
+        async def fake_get_status(config_dict, *, config_dir=None):  # noqa: ARG001 - the get_status signature
+            return result
+
+        monkeypatch.setattr(
+            "osprey.services.ariel_search.cli_operations.get_status", fake_get_status
+        )
+
+    def test_embedding_builds_one_stale_cause_prints_the_line_and_the_command(
+        self, runner, monkeypatch
+    ):
+        self._status(
+            monkeypatch,
+            [self._table(stale={"unexpanded": 12}, built_with={"r1": 12})],
+        )
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        text = _flat(result.stdout)
+        assert (
+            "text_embedding nomic-embed-text: 12 entries embedded without entry expansion. "
+            + self._REEMBED
+        ) in text
+        assert "text_embedding" not in result.stderr
+
+    def test_embedding_builds_one_line_per_cause_and_the_command_once_per_table(
+        self, runner, monkeypatch
+    ):
+        self._status(
+            monkeypatch,
+            [
+                self._table(
+                    stale={"vocabulary": 4, "input_rule": 2},
+                    built_with={"r1": 2, "r2:e1:aaaa": 4, "r2:e1:bbbb": 9},
+                ),
+                self._table(
+                    stale={"expanded": 3},
+                    built_with={"r2:e1:aaaa": 3},
+                    name="other-model",
+                    dimension=384,
+                ),
+            ],
+        )
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        text = _flat(result.stdout)
+        assert (
+            "text_embedding nomic-embed-text: 2 entries embedded with a different input rule."
+            in text
+        )
+        assert (
+            "text_embedding nomic-embed-text: 4 entries embedded with a different vocabulary."
+            in text
+        )
+        # Causes print in classification order, the first ahead of the second.
+        assert text.index("different input rule") < text.index("different vocabulary")
+        assert text.count("--model nomic-embed-text --dimension 768 --force") == 1
+        assert (
+            "text_embedding other-model: 3 entries embedded with entry expansion. To rebuild "
+            "them with the current settings, run osprey ariel reembed --model other-model "
+            "--dimension 384 --force."
+        ) in text
+
+    def test_embedding_builds_nothing_stale_prints_nothing(self, runner, monkeypatch):
+        self._status(monkeypatch, [self._table(stale={}, built_with={"r1": 5})])
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        assert "entries embedded" not in result.output
+        assert "reembed" not in result.output
+
+    def test_embedding_builds_unloadable_vocabulary_names_vocab_check(self, runner, monkeypatch):
+        self._status(
+            monkeypatch,
+            [
+                self._table(
+                    verdict_unavailable="vocabulary",
+                    built_with={"r1": 3, "r2:e1:aaaa": 4},
+                )
+            ],
+        )
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        assert (
+            "text_embedding nomic-embed-text: cannot check how 7 entries were embedded: "
+            "the vocabulary does not load. Run: osprey ariel vocab-check"
+        ) in _flat(result.stdout)
+        assert "reembed" not in result.output
+
+    def test_embedding_builds_vocabulary_disabled_prints_causes_without_the_command(
+        self, runner, monkeypatch
+    ):
+        self._status(
+            monkeypatch,
+            [
+                self._table(
+                    verdict_unavailable="vocabulary_disabled",
+                    stale={"expanded": 6},
+                    built_with={"r1": 1, "r1:e1:aaaa": 6},
+                )
+            ],
+        )
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        text = _flat(result.stdout)
+        assert "text_embedding nomic-embed-text: 6 entries embedded with entry expansion." in text
+        assert "reembed" not in result.output
+
+    @pytest.mark.parametrize("reason", ["unconfigured", "disabled"])
+    def test_embedding_builds_without_a_verdict_print_nothing(self, runner, monkeypatch, reason):
+        self._status(monkeypatch, [self._table(verdict_unavailable=reason)])
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        assert "text_embedding nomic-embed-text:" not in result.output
+        assert "schema behind code" not in result.output
+
+    def test_embedding_builds_schema_behind_prints_the_migrate_note(self, runner, monkeypatch):
+        self._status(monkeypatch, [self._table(verdict_unavailable="schema")])
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        assert _flat(result.stdout).count("schema behind code: run osprey ariel migrate") == 1
+
+    def test_embedding_builds_schema_note_prints_once_when_both_are_behind(
+        self, runner, monkeypatch
+    ):
+        self._status(
+            monkeypatch,
+            [
+                self._table(verdict_unavailable="schema"),
+                self._table(verdict_unavailable="schema", name="other-model", dimension=384),
+            ],
+            attachments={
+                "render": "ok",
+                "bytes": 0,
+                "pending": None,
+                "skipped": None,
+            },
+        )
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        assert _flat(result.stdout).count("schema behind code: run osprey ariel migrate") == 1
+
+
+class TestStatusReportVocabularyExpansion:
+    """The vocabulary line of ``osprey ariel status`` reports entry expansion."""
+
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    @pytest.fixture(autouse=True)
+    def _config(self, monkeypatch):
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
+        )
+
+    def _vocabulary(self, monkeypatch, vocabulary):
+        async def fake_get_status(config_dict, *, config_dir=None):  # noqa: ARG001 - the get_status signature
+            return {"status": "error", "message": "boom", "vocabulary": vocabulary}
+
+        monkeypatch.setattr(
+            "osprey.services.ariel_search.cli_operations.get_status", fake_get_status
+        )
+
+    def test_report_vocabulary_active_expansion_names_its_key(self, runner, monkeypatch):
+        self._vocabulary(
+            monkeypatch,
+            {
+                "status": "ok",
+                "concepts": 20,
+                "errors": [],
+                "entry_expansion": {
+                    "configured": True,
+                    "active": True,
+                    "key": "e1:ab12cd34ef56ab78",
+                },
+            },
+        )
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        assert "Vocabulary: OK (20 concepts, entries expanded, key e1:ab12cd34ef56ab78)" in _flat(
+            result.stdout
+        )
+
+    def test_report_vocabulary_inactive_expansion_keeps_the_plain_line(self, runner, monkeypatch):
+        self._vocabulary(
+            monkeypatch,
+            {
+                "status": "ok",
+                "concepts": 20,
+                "errors": [],
+                "entry_expansion": {"configured": False, "active": False, "key": None},
+            },
+        )
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        assert "Vocabulary: OK (20 concepts)" in _flat(result.stdout)
+        assert "entries expanded" not in result.output
+
+    def test_report_vocabulary_disabled_with_the_key_on_warns_on_stderr(self, runner, monkeypatch):
+        self._vocabulary(
+            monkeypatch,
+            {
+                "status": "disabled",
+                "concepts": 0,
+                "errors": [],
+                "entry_expansion": {"configured": True, "active": False, "key": None},
+            },
+        )
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        assert "Vocabulary: disabled" in _flat(result.stdout)
+        assert "has no effect" not in result.stdout
+        assert (
+            "ariel.vocabulary.expand_entries is on and has no effect while "
+            "ariel.vocabulary.enabled is false"
+        ) in _flat(result.stderr)
+
+    def test_report_vocabulary_disabled_with_the_key_off_does_not_warn(self, runner, monkeypatch):
+        self._vocabulary(
+            monkeypatch,
+            {
+                "status": "disabled",
+                "concepts": 0,
+                "errors": [],
+                "entry_expansion": {"configured": False, "active": False, "key": None},
+            },
+        )
+
+        result = runner.invoke(ariel_group, ["status"])
+
+        assert result.exit_code == 0
+        assert "Vocabulary: disabled" in _flat(result.stdout)
+        assert "expand_entries" not in result.output

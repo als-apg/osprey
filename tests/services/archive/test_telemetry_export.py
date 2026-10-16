@@ -1,68 +1,93 @@
-"""Completed days of the telemetry store are exported once, per type and stream."""
+"""Completed days of the telemetry store are exported once, per table, as Parquet."""
 
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
-from datetime import UTC, datetime
+import re
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import httpx
 import pytest
 
+from osprey.deployment.telemetry_store import ddl
 from osprey.services.archive import run as archive_run
 from osprey.services.archive.manifest import MANIFEST_NAME, load_state
 from osprey.services.archive.run import run_pass
 from osprey.services.archive.telemetry_export import (
-    PAGE_SIZE,
+    EXPORT_TABLES,
+    QUERY_LOG,
     TelemetryExporter,
     pending_days,
+    render_count_sql,
+    render_export_sql,
 )
 
-ENV = {"ZO_INGEST_USER_EMAIL": "ingest@osprey.local", "ZO_INGEST_SA_TOKEN": "tok"}
-# 2026-09-24 02:00Z: 2026-09-23 is complete and past the one-hour grace.
+ENV = {"OSPREY_TELEMETRY_ARCHIVE_PASSWORD": "archive-secret"}
+# 2026-09-24 02:00Z: 2026-09-23 is complete and past the grace.
 NOW = datetime(2026, 9, 24, 2, 0, 0, tzinfo=UTC)
+DAY = date(2026, 9, 23)
+
+_FROM = re.compile(r"FROM `(?P<db>[^`]+)`\.`(?P<table>[^`]+)`")
+
+
+def _parquet(table: str, rows: int) -> bytes:
+    return b"PAR1" + f"{table}:{rows}".encode() + b"\x00" * 64 + b"PAR1"
 
 
 class FakeStore:
-    """An in-memory telemetry store answering the two endpoints the export reads."""
+    """An in-memory store answering counts and Parquet exports over HTTP."""
 
-    def __init__(self, streams: dict[str, dict[str, int]], fail_stream: str | None = None):
-        # type -> stream -> hits per hour
-        self.streams = streams
-        self.fail_stream = fail_stream
-        self.searches: list[dict] = []
+    def __init__(
+        self,
+        rows: dict[str, int] | None = None,
+        *,
+        fail_table: str | None = None,
+        busy: int = 0,
+        torn_table: str | None = None,
+    ):
+        self.rows = rows or {}
+        self.fail_table = fail_table
+        self.busy = busy
+        self.torn_table = torn_table
+        self.queries: list[str] = []
         self.auth: set[str] = set()
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.auth.add(request.headers.get("Authorization", ""))
-        kind = request.url.params["type"]
-        if request.method == "GET" and request.url.path == "/api/default/streams":
-            names = sorted(self.streams.get(kind, {}))
-            return httpx.Response(200, json={"list": [{"name": n} for n in names]})
-        if request.method == "POST" and request.url.path == "/api/default/_search":
-            query = json.loads(request.content)["query"]
-            self.searches.append({"type": kind, **query})
-            stream = query["sql"].split('"')[1]
-            if stream == self.fail_stream:
-                return httpx.Response(500, json={"error": "boom"})
-            per_hour = self.streams[kind][stream]
-            remaining = max(per_hour - query["from"], 0)
-            count = min(remaining, query["size"])
-            hits = [
-                {"stream": stream, "start": query["start_time"], "n": query["from"] + i}
-                for i in range(count)
-            ]
-            return httpx.Response(200, json={"hits": hits, "total": count})
-        return httpx.Response(404)
+        sql = request.content.decode()
+        self.queries.append(sql)
+        if self.busy:
+            self.busy -= 1
+            return httpx.Response(
+                503,
+                headers={"X-ClickHouse-Exception-Code": "202"},
+                text="Code: 202. DB::Exception: Too many simultaneous queries. (TOO_MANY_SIMULTANEOUS_QUERIES)",
+            )
+        match = _FROM.search(sql)
+        assert match, sql
+        table = "query_log" if match["db"] == "system" else match["table"]
+        if table == self.fail_table:
+            return httpx.Response(500, text="Code: 60. DB::Exception: boom")
+        count = self.rows.get(table, 0)
+        if "count()" in sql:
+            return httpx.Response(200, text=f"{count}\n")
+        body = _parquet(table, count)
+        if table == self.torn_table:
+            body = body[:-3]
+        return httpx.Response(200, content=body)
 
 
 def _exporter(store: FakeStore, **kwargs) -> TelemetryExporter:
+    sleeps = kwargs.pop("sleeps", [])
     return TelemetryExporter(
-        url="http://openobserve:5080",
+        url="http://telemetry_store:8123",
         environ=kwargs.pop("environ", ENV),
         transport=httpx.MockTransport(store.handler),
+        sleep=sleeps.append,
         **kwargs,
     )
 
@@ -82,53 +107,87 @@ def _lines(dest: Path, day: str = "2026-09-24") -> list[dict]:
     return [json.loads(line) for line in text.splitlines()]
 
 
-def test_a_completed_day_exports_logs_and_traces_per_stream(trees):
+# ── The rendered SQL ─────────────────────────────────────────────────────────
+
+
+def test_query_log_is_read_by_event_date():
+    export = render_export_sql(QUERY_LOG, DAY)
+    count = render_count_sql(QUERY_LOG, DAY)
+
+    assert export == (
+        "SELECT * FROM `system`.`query_log` WHERE event_date = '2026-09-23' FORMAT Parquet"
+    )
+    assert "WHERE event_date = '2026-09-23'" in count
+    assert "InsertedAt" not in export + count
+
+
+@pytest.mark.parametrize("table", [t.name for t in ddl.TABLES])
+def test_every_store_table_is_read_by_arrival_day(table):
+    export = render_export_sql(table, DAY)
+    count = render_count_sql(table, DAY)
+
+    assert export == (
+        f"SELECT * FROM `telemetry`.`{table}` "
+        "WHERE toDate(InsertedAt, 'UTC') = '2026-09-23' FORMAT Parquet"
+    )
+    assert "WHERE toDate(InsertedAt, 'UTC') = '2026-09-23'" in count
+    assert count.startswith("SELECT count() FROM")
+    assert "event_date" not in export + count
+
+
+def test_every_table_and_the_query_log_are_exported():
+    assert set(EXPORT_TABLES) == {t.name for t in ddl.TABLES} | {QUERY_LOG}
+
+
+def test_an_unknown_table_is_refused():
+    with pytest.raises(ValueError):
+        render_export_sql("system.users", DAY)
+
+
+# ── A pass ───────────────────────────────────────────────────────────────────
+
+
+def test_a_completed_day_exports_one_parquet_per_table_with_a_manifest_line_each(trees):
     sources, dest = trees
-    store = FakeStore({"logs": {"default": 1, "claude_code": 2}, "traces": {"default": 1}})
+    store = FakeStore({"otel_logs": 48, "audit_ledger": 7, "query_log": 3})
 
     result = run_pass(sources, dest, now=NOW, telemetry=_exporter(store, backfill_days=1))
 
     assert result.telemetry_days == ["2026-09-23"]
     assert result.errors == []
-    base = dest / "2026-09-24/openobserve/2026-09-23"
-    assert len((base / "logs/default.jsonl").read_text().splitlines()) == 24
-    assert len((base / "logs/claude_code.jsonl").read_text().splitlines()) == 48
-    assert len((base / "traces/default.jsonl").read_text().splitlines()) == 24
-    day_line = next(r for r in _lines(dest) if r["kind"] == "telemetry_day")
-    assert day_line["rows"] == {
-        "logs/claude_code": 48,
-        "logs/default": 24,
-        "traces/default": 24,
-    }
-    assert {s["type"] for s in store.searches} == {"logs", "traces"}
+    base = dest / "2026-09-24/telemetry/2026-09-23"
+    assert sorted(p.name for p in base.iterdir()) == sorted(f"{t}.parquet" for t in EXPORT_TABLES)
+    assert (base / "otel_logs.parquet").read_bytes() == _parquet("otel_logs", 48)
+
+    lines = _lines(dest)
+    files = [r for r in lines if r["kind"] == "file"]
+    assert [r["table"] for r in files] == list(EXPORT_TABLES)
+    for record in files:
+        content = (dest / record["path"]).read_bytes()
+        assert record["day"] == "2026-09-23"
+        assert record["sha256"] == hashlib.sha256(content).hexdigest()
+        assert record["size"] == len(content)
+        assert record["rows"] == store.rows.get(record["table"], 0)
+        assert record["source"] == f"telemetry/2026-09-23/{record['table']}.parquet"
+
+    day_lines = [r for r in lines if r["kind"] == "telemetry_day"]
+    assert len(day_lines) == 1
+    assert day_lines[0]["rows"] == {t: store.rows.get(t, 0) for t in EXPORT_TABLES}
+    # The day line comes after every file line of the day.
+    assert lines.index(day_lines[0]) > max(lines.index(r) for r in files)
 
 
-def test_pages_until_a_short_page(trees):
-    sources, dest = trees
-    store = FakeStore({"logs": {"default": PAGE_SIZE + 5}})
-
-    run_pass(sources, dest, now=NOW, telemetry=_exporter(store, backfill_days=1))
-
-    first_hour = [s for s in store.searches if s["start_time"] == store.searches[0]["start_time"]]
-    assert [s["from"] for s in first_hour] == [0, PAGE_SIZE]
-    assert all(s["size"] == PAGE_SIZE for s in store.searches)
-    exported = dest / "2026-09-24/openobserve/2026-09-23/logs/default.jsonl"
-    assert len(exported.read_text().splitlines()) == 24 * (PAGE_SIZE + 5)
-
-
-def test_the_open_day_is_not_exported():
-    just_before_grace = datetime(2026, 9, 24, 0, 59, 0, tzinfo=UTC)
-
-    assert pending_days(just_before_grace, set(), 1) == [datetime(2026, 9, 22).date()]
-    assert pending_days(NOW, set(), 1) == [datetime(2026, 9, 23).date()]
+def test_grace_waits_ten_minutes_past_midnight():
+    assert pending_days(datetime(2026, 9, 24, 0, 9, tzinfo=UTC), set(), 1) == [date(2026, 9, 22)]
+    assert pending_days(datetime(2026, 9, 24, 0, 10, tzinfo=UTC), set(), 1) == [DAY]
 
 
 def test_an_exported_day_is_never_exported_again(trees):
     sources, dest = trees
-    store = FakeStore({"logs": {"default": 1}})
+    store = FakeStore()
 
     run_pass(sources, dest, now=NOW, telemetry=_exporter(store, backfill_days=1))
-    searches = len(store.searches)
+    queries = len(store.queries)
     second = run_pass(
         sources,
         dest,
@@ -137,28 +196,79 @@ def test_an_exported_day_is_never_exported_again(trees):
     )
 
     assert second.telemetry_days == []
-    assert len(store.searches) == searches
+    assert len(store.queries) == queries
     assert load_state(dest).telemetry_days == {"2026-09-23"}
 
 
-def test_a_failed_stream_leaves_the_day_unrecorded(trees):
+def test_a_failed_table_leaves_the_day_unrecorded(trees):
     sources, dest = trees
-    store = FakeStore({"logs": {"default": 1, "broken": 1}}, fail_stream="broken")
+    store = FakeStore(fail_table="otel_traces")
 
     result = run_pass(sources, dest, now=NOW, telemetry=_exporter(store, backfill_days=1))
 
     assert result.telemetry_days == []
-    assert [e["source"] for e in result.errors] == ["openobserve/2026-09-23"]
+    assert [e["source"] for e in result.errors] == ["telemetry/2026-09-23"]
+    assert "Code: 60." in result.errors[0]["error"]
     assert load_state(dest).telemetry_days == set()
-    assert not (dest / "2026-09-24/openobserve").exists()
+    assert not (dest / "2026-09-24/telemetry").exists()
     assert list((dest / ".incoming").iterdir()) == []
+
+
+def test_a_torn_parquet_body_leaves_the_day_unrecorded(trees):
+    sources, dest = trees
+    store = FakeStore({"otel_logs": 5}, torn_table="otel_logs")
+
+    result = run_pass(sources, dest, now=NOW, telemetry=_exporter(store, backfill_days=1))
+
+    assert result.telemetry_days == []
+    assert "not a whole Parquet file" in result.errors[0]["error"]
+    assert list((dest / ".incoming").iterdir()) == []
+
+
+def test_a_busy_store_is_retried_with_backoff(trees):
+    sources, dest = trees
+    store = FakeStore({"otel_logs": 1}, busy=2)
+    sleeps: list[float] = []
+
+    result = run_pass(
+        sources, dest, now=NOW, telemetry=_exporter(store, backfill_days=1, sleeps=sleeps)
+    )
+
+    assert result.telemetry_days == ["2026-09-23"]
+    assert result.errors == []
+    assert sleeps == [0.5, 1.0]
+
+
+def test_a_store_that_stays_busy_fails_the_day(trees):
+    sources, dest = trees
+    store = FakeStore(busy=100)
+    sleeps: list[float] = []
+
+    result = run_pass(
+        sources, dest, now=NOW, telemetry=_exporter(store, backfill_days=1, sleeps=sleeps)
+    )
+
+    assert result.telemetry_days == []
+    assert "Code: 202." in result.errors[0]["error"]
+    assert sleeps == [0.5, 1.0, 2.0, 4.0, 8.0]
+    assert load_state(dest).telemetry_days == set()
+
+
+def test_any_other_error_is_not_retried(trees):
+    sources, dest = trees
+    store = FakeStore(fail_table="otel_logs")
+    sleeps: list[float] = []
+
+    run_pass(sources, dest, now=NOW, telemetry=_exporter(store, backfill_days=1, sleeps=sleeps))
+
+    assert sleeps == []
 
 
 def test_a_day_that_cannot_be_placed_is_recorded_as_an_error_and_left_unrecorded(
     trees, monkeypatch
 ):
     sources, dest = trees
-    store = FakeStore({"logs": {"default": 1, "other": 1}})
+    store = FakeStore()
 
     def _full_disk(*_args):
         raise OSError(28, "No space left on device")
@@ -168,29 +278,28 @@ def test_a_day_that_cannot_be_placed_is_recorded_as_an_error_and_left_unrecorded
     result = run_pass(sources, dest, now=NOW, telemetry=_exporter(store, backfill_days=1))
 
     assert result.telemetry_days == []
-    assert [e["source"] for e in result.errors] == ["openobserve/2026-09-23"]
+    assert [e["source"] for e in result.errors] == ["telemetry/2026-09-23"]
     assert load_state(dest).telemetry_days == set()
     assert list((dest / ".incoming").iterdir()) == []
 
 
 def test_backfill_stops_at_the_limit(trees):
     sources, dest = trees
-    store = FakeStore({"logs": {"default": 0}})
 
-    result = run_pass(sources, dest, now=NOW, telemetry=_exporter(store, backfill_days=3))
+    result = run_pass(sources, dest, now=NOW, telemetry=_exporter(FakeStore(), backfill_days=3))
 
     assert result.telemetry_days == ["2026-09-21", "2026-09-22", "2026-09-23"]
 
 
-def test_credentials_come_from_the_environment_only(trees):
+def test_the_archive_account_reads_with_its_password_from_the_environment_only(trees):
     sources, dest = trees
-    store = FakeStore({"logs": {"default": 0}})
+    store = FakeStore()
 
     run_pass(sources, dest, now=NOW, telemetry=_exporter(store, backfill_days=1))
-    expected = "Basic " + base64.b64encode(b"ingest@osprey.local:tok").decode()
+    expected = "Basic " + base64.b64encode(b"archive:archive-secret").decode()
     assert store.auth == {expected}
 
-    store_without = FakeStore({"logs": {"default": 0}})
+    store_without = FakeStore()
     result = run_pass(
         sources,
         dest,
@@ -198,6 +307,6 @@ def test_credentials_come_from_the_environment_only(trees):
         telemetry=_exporter(store_without, backfill_days=1, environ={}),
     )
 
-    assert store_without.searches == []
+    assert store_without.queries == []
     assert result.telemetry_days == []
-    assert "ZO_INGEST_SA_TOKEN" in result.errors[0]["error"]
+    assert "OSPREY_TELEMETRY_ARCHIVE_PASSWORD" in result.errors[0]["error"]

@@ -178,12 +178,12 @@ def test_multiple_service_entries_are_all_parsed() -> None:
         "name": "x",
         "services": {
             "postgresql": {"template": "services/postgresql"},
-            "openobserve": {"template": "services/openobserve", "config": {"port": 5080}},
+            "telemetry_store": {"template": "services/telemetry_store", "config": {"port": 18904}},
         },
     }
     profile = _parse_profile(raw)
-    assert sorted(profile.services) == ["openobserve", "postgresql"]
-    assert profile.services["openobserve"].config == {"port": 5080}
+    assert sorted(profile.services) == ["postgresql", "telemetry_store"]
+    assert profile.services["telemetry_store"].config == {"port": 18904}
 
 
 def test_no_services_block_parses_to_empty_dict() -> None:

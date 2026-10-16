@@ -12,23 +12,28 @@ record is still emitted, still reaches ``caplog``, and still reaches any other
 handler or sink on the root logger. Nothing is lost — it is only not painted.
 
 ``-v``/``--verbose`` lifts the gate and restores the full transcript. Levels are
-never remapped; the gate reads a record's level, plus one bit of CLI state —
-whether a lifecycle reporter currently owns the terminal, which is what tells a
-WARNING record it must arrive promoted (:func:`osprey.cli.output.warn_fact`)
-rather than as a raw transcript block through a phase column.
+never remapped; the gate reads a record's level, one mark a call site sets
+when it has already printed the warning (:func:`osprey.cli.output.warn_fact`),
+and one bit of CLI state — whether a lifecycle reporter currently owns the
+terminal, which is what tells a WARNING record it must arrive promoted rather
+than as a raw transcript block through a phase column.
 """
 
 import logging
 
 from rich.logging import RichHandler
 
-__all__ = ["gate_installed", "install_gate", "lift_gate"]
+__all__ = ["PRINTED", "gate_installed", "install_gate", "lift_gate"]
+
+#: The record attribute that marks a warning its call site has already printed
+#: in full; the gate keeps a record carrying it off the terminal.
+PRINTED = "osprey_printed"
 
 
 class _AltitudeGate(logging.Filter):
     """Drop INFO-and-below records at the handler; pass WARNING and above —
-    except while a lifecycle reporter owns the terminal, where WARNING is
-    dropped too and only ERROR and above still paint.
+    except a warning its call site already printed, and every WARNING while a
+    lifecycle reporter owns the terminal; ERROR and above always paint.
 
     The policy is deliberately level-based. Records emitted through
     :class:`~osprey.utils.logger.ComponentLogger` also carry an
@@ -46,6 +51,11 @@ class _AltitudeGate(logging.Filter):
     the emitted record, for ``caplog``, file sinks, and ``-v``. ERROR keeps
     painting unconditionally — a failure outranks the column's tidiness.
 
+    A record carrying :data:`PRINTED` has already reached the operator as a
+    promoted block, so painting it again would say the same thing twice. It is
+    dropped on every path, lifecycle or not, and stays in the emitted record for
+    ``caplog``, file sinks, and ``-v``.
+
     "A lifecycle reporter owns the terminal" is read off the installed reporter
     per record, through the same predicate ``lifecycle_reporter`` uses to
     decide ownership: the quiet ``NullReporter`` default means no lifecycle
@@ -57,6 +67,8 @@ class _AltitudeGate(logging.Filter):
         if record.levelno >= logging.ERROR:
             return True
         if record.levelno < logging.WARNING:
+            return False
+        if getattr(record, PRINTED, False):
             return False
         from osprey.cli.phase_reporter import NullReporter, current_reporter
 

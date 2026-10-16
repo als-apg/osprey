@@ -250,8 +250,14 @@ client at all, so they are refused in ``readonly`` runs too:
   ``check_output``, ``os.system``, ``os.popen``, and the ``os.exec*``,
   ``os.spawn*`` and ``posix_spawn`` families. This is what stops a
   shelled-out ``caput``.
-- Loading a shared library --- ``ctypes.CDLL`` and friends, which could
-  otherwise open ``libca`` directly.
+- Loading a shared library --- ``ctypes.CDLL`` and every class or loader
+  built on it, which could otherwise open ``libca`` directly.
+- Resolving a Channel Access put symbol (``ca_array_put``,
+  ``ca_array_put_callback``, ``ca_sg_array_put``) on any library handle,
+  including the ``libca`` handle ``epicscorelibs`` loaded before the run, which
+  aioca keeps reading through. Building a function pointer by hand from
+  ``ctypes`` internals stays open: it constructs an immutable C type the guard
+  cannot patch.
 
 ``os.fork`` is deliberately left working: forking alone cannot start a new
 program, and the ``exec`` half of every fork-and-exec is already refused.

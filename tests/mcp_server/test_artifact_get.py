@@ -89,6 +89,36 @@ class TestArtifactGet:
         assert result["timestamp"] == entry.timestamp
 
     @pytest.mark.asyncio
+    async def test_get_projects_logbook_picture_provenance(self, store, get_tool):
+        entry = store.save_file(
+            file_content=b"PNG data",
+            filename="beam.png",
+            artifact_type="image",
+            title="Beam",
+            description="Stored logbook picture",
+            mime_type="image/png",
+            tool_source="attachment_to_artifact",
+            metadata={
+                "logbook_picture": {
+                    "entry_id": "4549843",
+                    "attachment_id": "att-0123456789ab",
+                    "filename": "beam.png",
+                },
+                "internal_only": "not projected",
+            },
+        )
+
+        result = json.loads(await get_tool(artifact_id=entry.id))
+
+        assert result["logbook_picture"] == {
+            "entry_id": "4549843",
+            "attachment_id": "att-0123456789ab",
+            "filename": "beam.png",
+        }
+        assert "metadata" not in result
+        assert "internal_only" not in result
+
+    @pytest.mark.asyncio
     async def test_get_multiple_artifacts(self, store, get_tool):
         """Each artifact ID returns its own metadata."""
         e1 = _save_artifact(store, title="Plot A", filename="a.html")

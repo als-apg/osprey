@@ -1,12 +1,12 @@
-====================
-Install and Set Up
-====================
+=====================
+Guided Facility Setup
+=====================
 
-The ``/osprey:install`` skill is OSPREY's installer, run as a conversation with a
+The ``/osprey:setup`` skill is OSPREY's guided setup: a conversation with a
 coding agent you bring — Claude Code in the commands below. That agent is not the
-OSPREY agent: the installer builds the deployment the OSPREY agent later runs
-from. It installs OSPREY if it is missing, starts from what you already
-have, agrees each step with you, and ends on a deployment repository for your
+OSPREY agent: the setup builds the deployment the OSPREY agent later runs
+from. It starts from what you already have, installs OSPREY if it is missing,
+agrees each step with you, and ends on a deployment repository for your
 accelerator, beamline, or detector that validates and builds. You can stop and
 resume at any point.
 
@@ -14,14 +14,14 @@ resume at any point.
    :color: info
    :icon: list-unordered
 
-   * **A coding-agent CLI** — the installer runs inside a coding-agent session;
+   * **A coding-agent CLI** — the setup runs inside a coding-agent session;
      the commands here use Claude Code. Install it from
      `claude.ai/code <https://claude.ai/code>`_ and make sure
      ``claude --version`` works in your terminal.
-   * **uv** — the installer puts OSPREY on your ``PATH`` with ``uv tool install``.
+   * **uv** — the setup puts OSPREY on your ``PATH`` with ``uv tool install``.
      :doc:`installation` covers installing ``uv``; OSPREY itself can wait for the
      conversation.
-   * **A provider API key** — the installer is a live conversation with an AI
+   * **A provider API key** — the setup is a live conversation with an AI
      service, usually whichever one your lab provides.
    * **Recommended:** a container runtime (Docker or Podman) so that ``osprey up``
      works on the result, and a list of your channel names if you have one.
@@ -54,7 +54,7 @@ In the agent session, type:
 
 .. code-block:: text
 
-   /osprey:install
+   /osprey:setup
 
 What happens
 ============
@@ -63,7 +63,7 @@ What happens
    :class: only-light
    :figclass: only-light
    :width: 100%
-   :alt: The install flow: two opening questions, then DISCOVER, MAP, BUILD and CLOSE, each ending on a card you confirm, with the upstream scout running in the background.
+   :alt: The setup flow: two opening questions, then DISCOVER, MAP, BUILD and CLOSE, each ending on a card you confirm, with the upstream scout running in the background.
 
    Two questions, four phases, a card to confirm at the end of each. The
    upstream scout runs beside the conversation, not in it.
@@ -72,7 +72,7 @@ What happens
    :class: only-dark
    :figclass: only-dark
    :width: 100%
-   :alt: The install flow: two opening questions, then DISCOVER, MAP, BUILD and CLOSE, each ending on a card you confirm, with the upstream scout running in the background.
+   :alt: The setup flow: two opening questions, then DISCOVER, MAP, BUILD and CLOSE, each ending on a card you confirm, with the upstream scout running in the background.
 
    Two questions, four phases, a card to confirm at the end of each. The
    upstream scout runs beside the conversation, not in it.
@@ -80,7 +80,7 @@ What happens
 It opens with two questions: what already exists (an OSPREY deployment, a facility
 without one, or nothing yet), and whether OSPREY is installed on this machine. If it
 is not, you choose the latest release or the development version from ``main``, and
-the installer runs the install for you.
+the setup installs it for you.
 
 Then four phases, each ending on a card and one question: confirm, or say what should
 change. A confirmed card is written into ``INTERVIEW.md`` and is not reopened.
@@ -100,7 +100,7 @@ search is recommended on, with your logbook ingested. Documentation, an IOC data
 a channel list mean the knowledge bundle, the facility graph and the graph channel
 finder are recommended on, seeded from those sources when you say so. A MATLAB Middle
 Layer export is the one source that carries the channels and the graph at once: the
-installer reads it in with ``osprey facility import mml``, has you review what each
+setup reads it in with ``osprey facility import mml``, has you review what each
 device family means, and ``osprey build`` writes the channel database and the facility
 graph from that one review (:doc:`/how-to/import-mml-export`). An export that also
 carries its simulator model gives you a virtual accelerator besides: the same review
@@ -115,12 +115,12 @@ facility, a skeleton, or a reason; then a second agent argues against the setup;
 final validate and build.
 
 When the conversation hits something OSPREY cannot express for your facility, the
-installer offers to investigate it in the background while you continue. The result
+setup offers to investigate it in the background while you continue. The result
 comes back as a write-up with a verdict, mechanical or architectural, and a
 recommendation: fix it on a branch and build your deployment against that branch, or
 file an issue with the OSPREY team. Nothing is sent without you seeing it.
 
-To resume, open the repository and run ``/osprey:install`` again. It continues
+To resume, open the repository and run ``/osprey:setup`` again. It continues
 after the last confirmed card.
 
 Migrating an existing project is the same conversation. Answer "an OSPREY
@@ -140,7 +140,7 @@ Tips
 Build and run
 =============
 
-The installer leaves you inside a deployment repository:
+The setup leaves you inside a deployment repository:
 
 .. code-block:: bash
 

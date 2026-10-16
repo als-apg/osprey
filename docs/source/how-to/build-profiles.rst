@@ -116,26 +116,9 @@ simply means the profile contributes nothing of that kind.
 The facility tree
 -----------------
 
-``data/facility/`` holds every source of the facility file. A
-``control-assistant`` deployment starts with these authored files:
-
-.. code-block:: text
-
-   data/facility/
-     identity.yaml          the facility's code and display name
-     records/               places.yaml, devices.yaml, channels.yaml, groups.yaml
-     models.yaml            each simulated model, its engine and its wiring
-     decks/<model>.json     the deck a model runs
-     measurement/<model>.yaml  the measurement kinds a model offers
-     limits.yaml            the write limits, one record per channel
-     seeds.yaml             each simulated channel's nominal value and noise
-     scenarios/<name>.yaml  one simulation scenario each
-     knowledge/             the Markdown knowledge bundle
-
-An importer writes its own layer under ``imported/<layer>/``:
-``osprey facility import mml`` writes ``data/facility/imported/mml/``, beside
-the ``mapping.yaml`` you review there (see :doc:`/how-to/import-mml-export`).
-Edit the authored files; an import rewrites its own directory.
+``data/facility/`` holds every source of the facility file: the authored files
+and the ``imported/<layer>/`` directories the importers write.
+:doc:`describe-your-facility` walks the tree file by file.
 
 ``osprey build`` reads the tree and writes the facility file and its views into
 the render, never back into ``data/facility/``:

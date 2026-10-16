@@ -16,7 +16,8 @@ Signatures pinned:
 - ``rf-thermal``: the story its logbook tells -- three CAVITY01 excursions over
   32 degC in the week before the investigation entry, the last the trip four
   days back (34.2 degC, forward power off 03:15-04:30, reflected power over
-  80 kW), nothing after the repair (26.5 degC).
+  80 kW, the stored beam dumped at the trip and refilled at 04:30), nothing
+  after the repair (26.5 degC).
 - ``rf-thermal-live``: over 5-min windows at 1 s, temperature against reflected
   power wanders inside its band and against the tuner stays tight.
 """
@@ -41,6 +42,8 @@ from tests.facility.served_tree import in_process_config
 
 GAUGE = "SR:VAC:GAUGE:SR{:02d}:PRESSURE:RB"
 DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"
+#: The stored beam current the DCCT reads with the beam in, and refills to.
+NOMINAL_BEAM_MA = 500.0
 CAV = "SR:RF:CAVITY:{:02d}:{}"
 CAV_T = CAV.format(1, "TEMPERATURE:RB")
 CAV_REV = CAV.format(1, "POWER:REV")
@@ -232,6 +235,27 @@ class TestRfThermal:
             timedelta(minutes=1),
         )[CAV_REV]
         assert reflected.max() > 80.0
+
+    def test_the_trip_dumps_the_stored_beam_until_the_refill(self, scenario, read):
+        """A ring that loses its RF loses its beam: the DCCT is at zero from the
+        03:15 trip to the 04:30 refill, and stored on either side of it."""
+
+        def current(start: tuple[int, int], end: tuple[int, int]) -> np.ndarray:
+            return read(
+                [DCCT],
+                self._trip_day(scenario, *start),
+                self._trip_day(scenario, *end),
+                timedelta(minutes=1),
+            )[DCCT]
+
+        assert np.all(np.abs(current((2, 30), (3, 13)) - NOMINAL_BEAM_MA) < 5.0)
+        assert current((3, 17), (4, 28)).max() < 5.0
+        assert np.all(np.abs(current((4, 32), (5, 30)) - NOMINAL_BEAM_MA) < 5.0)
+
+    def test_the_night_before_the_trip_keeps_the_beam(self, scenario, read):
+        night = self._trip_day(scenario, 2, 30) - timedelta(days=1)
+        current = read([DCCT], night, night + timedelta(hours=3), timedelta(minutes=1))[DCCT]
+        assert np.all(np.abs(current - NOMINAL_BEAM_MA) < 5.0)
 
     def test_nothing_happens_after_the_repair(self, scenario, read):
         after = read(

@@ -161,3 +161,4 @@ services:
 
 volumes:
   nextcloud_bridge_data:
+

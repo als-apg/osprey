@@ -232,8 +232,8 @@ def _check_file_system(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
     except Exception:  # don't fail if we can't check registry
         pass
 
-    # Check disk space. Container volumes (incl. the OpenObserve telemetry
-    # store, which has no hard size cap) grow into this filesystem, so report
+    # Check disk space. Container volumes (incl. the telemetry store and the
+    # gateway's disk-backed export queues) grow into this filesystem, so report
     # the percentage used and warn as it fills — the honest "how full" signal.
     try:
         thresholds = _disk_thresholds(config)
@@ -253,7 +253,7 @@ def _check_file_system(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
                     _CATEGORY,
                     Status.WARNING,
                     f"Disk {pct_used:.0f}% full ({free_gb:.1f} GB free)",
-                    details="Container volumes (incl. the OpenObserve store) grow into this disk.",
+                    details="Container volumes (incl. the telemetry store) grow into this disk.",
                 )
             )
         else:

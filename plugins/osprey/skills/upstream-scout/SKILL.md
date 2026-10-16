@@ -5,7 +5,7 @@ description: >
   deployment, or already supported — and, when it is an OSPREY gap, judges whether the
   fix is mechanical or architectural and drafts the write-up to file or to build from.
   Use when someone says "OSPREY can't do X here", "is this an OSPREY gap", "file this
-  with the OSPREY team", "should this go upstream", or when `/osprey:install` launches
+  with the OSPREY team", "should this go upstream", or when `/osprey:setup` launches
   it in the background for a candidate the user agreed to investigate. Reads the
   installed framework, never recollections of it; writes no code itself.
 ---
@@ -30,16 +30,16 @@ One candidate, in the `INTERVIEW.md` entry format:
 ```
 
 plus the facility context (facility, control system, stated purpose) and the deployment
-repo path. When invoked directly rather than from `/osprey:install`, ask for those three
+repo path. When invoked directly rather than from `/osprey:setup`, ask for those three
 things first, in one question, and write the entry yourself.
 
 ## Running in the background
 
-`/osprey:install` launches this skill as a background agent and continues its run. In
+`/osprey:setup` launches this skill as a background agent and continues its run. In
 that mode: do steps 1 to 3, write the report under `upstream/`, touch nothing else in
-the deployment repo, and return the SCOUT panel lines (`/osprey:install`'s
+the deployment repo, and return the SCOUT panel lines (`/osprey:setup`'s
 `references/cards.md`) as the final message. **Do not ask the disposition question
-yourself** — the installer surfaces the panel at its next phase card, writes the
+yourself** — the setup surfaces the panel at its next phase card, writes the
 entry's status, and asks it there. Invoked directly, run all four steps.
 
 ## Step 1: Locate the framework
@@ -67,7 +67,7 @@ verbatim, `OSPREY_ROOT`, and the facility context.
 ### 2a — Fit check: is it already supported?
 
 ```
-You are checking whether OSPREY already supports a capability that an install run
+You are checking whether OSPREY already supports a capability that a setup run
 flagged as missing. Read, do not guess.
 
 Candidate: <entry>
@@ -152,13 +152,13 @@ Under 300 words. Evidence = paths and names, not adjectives.
 The **fit check overrides everything**: `SUPPORTED` means the gap was an unread
 option. Invoked directly: apply it to the deployment (`osprey set` / Edit, then
 `osprey validate`), set the entry to `status: already-supported (<key>)`, say what
-changed, and stop. In background mode: apply nothing and touch no file the installer
+changed, and stop. In background mode: apply nothing and touch no file the setup
 owns — return `ALREADY SUPPORTED: <key> — <how>` as the final message and let the
-installer apply it and set the status. No write-up either way.
+setup apply it and set the status. No write-up either way.
 
 Otherwise write the report to `upstream/<short-id>.md` in the deployment repo
 (`mkdir -p upstream`). Invoked directly, add `scouted: <YYYY-MM-DD>` under the entry's
-`status:` line; in background mode the installer writes that line when it surfaces
+`status:` line; in background mode the setup writes that line when it surfaces
 the panel, because `INTERVIEW.md` has one writer. The entry itself stays four short
 lines; the write-up never goes inline.
 
@@ -195,7 +195,7 @@ disposition — there is nothing to send. `UNCLEAR` → present the write-up and
 decide anyway; "we're not sure this is general" is still useful signal.
 
 In background mode, end here: return the SCOUT panel (format in
-`/osprey:install`'s `references/cards.md`) as the final message.
+`/osprey:setup`'s `references/cards.md`) as the final message.
 
 ## Step 4: Disposition — draft first, then ask
 
@@ -234,7 +234,7 @@ disposition never carries over — each is its own decision.
 
 ### GitHub
 
-Append a final line `_Filed from an OSPREY install run._` to the write-up file, then:
+Append a final line `_Filed from an OSPREY setup run._` to the write-up file, then:
 
 ```bash
 gh issue create -R als-apg/osprey --title "<title>" --label enhancement \

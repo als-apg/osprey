@@ -325,9 +325,7 @@ class TestDiskSpace:
         config = {"health": {"disk": {"min_free_gb": 100}}}
         row = _by_name(_run(config, tmp_path))["disk_space"]
         assert row.status is Status.WARNING
-        assert row.details == (
-            "Container volumes (incl. the OpenObserve store) grow into this disk."
-        )
+        assert row.details == ("Container volumes (incl. the telemetry store) grow into this disk.")
 
     def test_invalid_threshold_skips_without_sampling(self, monkeypatch, tmp_path: Path) -> None:
         def _must_not_sample(_path: Path) -> None:

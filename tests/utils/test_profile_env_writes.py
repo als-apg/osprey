@@ -46,13 +46,13 @@ class TestFreshFile:
     def test_creates_file_with_entries(self, tmp_path):
         env_path = tmp_path / ".env"
         result = append_profile_env(
-            env_path, {"ARIEL_DB_PASSWORD": "pw", "ZO_ROOT_USER_PASSWORD": "zo"}
+            env_path, {"ARIEL_DB_PASSWORD": "pw", "MONGO_ROOT_PASSWORD": "mongo"}
         )
-        assert result.added == ("ARIEL_DB_PASSWORD", "ZO_ROOT_USER_PASSWORD")
+        assert result.added == ("ARIEL_DB_PASSWORD", "MONGO_ROOT_PASSWORD")
         assert result.unchanged == () and result.conflicts == ()
         assert parse_dotenv_file(env_path) == {
             "ARIEL_DB_PASSWORD": "pw",
-            "ZO_ROOT_USER_PASSWORD": "zo",
+            "MONGO_ROOT_PASSWORD": "mongo",
         }
 
     def test_created_file_is_stamped_with_the_readme_header(self, tmp_path):

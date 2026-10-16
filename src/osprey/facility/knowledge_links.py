@@ -13,7 +13,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-__all__ = ["KNOWLEDGE_DIR", "LINK_KEY", "DanglingLink", "dangling_links"]
+from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
+from osprey.facility.validate import Validated, need
+
+__all__ = ["KNOWLEDGE_DIR", "LINK_KEY", "DanglingLink", "check_knowledge_links", "dangling_links"]
 
 #: Where the knowledge pages live, relative to ``data/facility/``.
 KNOWLEDGE_DIR = "knowledge"
@@ -73,3 +76,32 @@ def dangling_links(facility_dir: Path, doc: Mapping[str, Any]) -> list[DanglingL
             continue
         links.append(DanglingLink(path.relative_to(facility_dir).as_posix(), device_id))
     return sorted(links, key=lambda link: link.page)
+
+
+def check_knowledge_links(validated: Validated) -> list[FacilityBuildError]:
+    """Warn once per knowledge page linked to a device the facility file lacks.
+
+    The stage warns and never stops: each dangling page appends one
+    ``link-dangling`` warning to ``validated.warnings``, in page order.
+
+    Args:
+        validated: What the earlier stages produced.
+
+    Returns:
+        No stops, ever.
+
+    Raises:
+        RuntimeError: The stage ran before S2 produced the document.
+    """
+    document: dict[str, Any] = need(validated.document)
+    for link in dangling_links(validated.facility_dir, document):
+        validated.warnings.append(
+            FacilityBuildWarning(
+                kind="link-dangling",
+                record_kind="page",
+                record_id=link.page,
+                detail=f"links device {link.device_id}, which the facility file does not hold",
+                remedy=f"set {LINK_KEY} to a device id of the facility file, or remove the key",
+            )
+        )
+    return []

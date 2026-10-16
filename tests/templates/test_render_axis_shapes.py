@@ -41,11 +41,12 @@ host-mode service beside a network-joined consumer of it
 (``_dispatch_parity_errors`` in ``cli/build_cmd.py``, symmetric in both
 directions). A fixture mixing the two would be pinning a render no deploy can
 reach, so every scenario here declares one mode for the whole dispatch stack.
-The stores (``mongodb``, ``openobserve``) stay network-joined in every
-scenario because their templates carry no axis at all: they publish on the
-host, which is exactly why the host-mode worker is told to reach them at
-``localhost``. Telemetry is left off and ``services.openobserve.port`` at its
-default 5080, so no scenario trips the build's OTEL-endpoint check either.
+The worker's dial targets (``mongodb``, ``telemetry_gateway``) stay
+network-joined in every scenario because their templates carry no axis at
+all: they publish on the host, which is exactly why the host-mode worker is
+told to reach them where they publish on the host. Telemetry is left off and
+``services.telemetry_gateway.port`` at its slot in the default block, so no
+scenario trips the build's OTEL-endpoint check either.
 
 **Update discipline** — the defaults module's applies here verbatim, with this
 suite's own regeneration command, which takes the scenarios to regenerate::
@@ -253,7 +254,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario(
         name="pair-on-host",
         services=_pair_blocks(on_host=True),
-        deployed=("event_dispatcher", "dispatch_worker", "mongodb", "openobserve"),
+        deployed=("event_dispatcher", "dispatch_worker", "mongodb", "telemetry_gateway"),
         templates=("event_dispatcher", "dispatch_worker"),
     ),
     # A single service template flipped to host beside a same-mode pair. Every
@@ -456,7 +457,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario(
         name="archive-with-sources",
         services={"dispatch_worker": {"worker_count": 2}},
-        deployed=("archive", "dispatch_worker", "bluesky", "openobserve"),
+        deployed=("archive", "dispatch_worker", "bluesky", "telemetry_store"),
         templates=("archive",),
         overrides={"modules": {"web_terminals": {"enabled": True, "users": ["alice"]}}},
     ),
@@ -648,16 +649,19 @@ def test_pair_on_host_narrows_both_bind_addresses() -> None:
 
 
 def test_pair_on_host_reaches_both_stores_where_they_publish() -> None:
-    """The worker's store addresses follow the topology, not the config block.
+    """The worker's dial addresses follow the topology, not the config block.
 
-    ``openobserve`` and ``archiver-mongodb`` are compose DNS names that resolve
-    to nothing from the host namespace. Both stores publish on the host, so
-    from there they are reached at ``localhost`` — mongodb on its published
-    ``port_host``, never the 27017 inside its container.
+    ``telemetry_gateway`` and ``archiver-mongodb`` are compose DNS names that
+    resolve to nothing from the host namespace. Both publish on the host, so
+    from there they are reached where they publish — the gateway on the
+    loopback interface its default bind address names, mongodb at
+    ``localhost`` — on their published ports, never the 4318 or 27017 inside
+    their containers.
     """
     worker = _service_env("pair-on-host", "dispatch_worker", "dispatch-worker-1")
 
-    assert worker["OSPREY_OTEL_OPENOBSERVE_HOST"] == "localhost"
+    assert worker["OSPREY_OTEL_GATEWAY_HOST"] == "127.0.0.1"
+    assert worker["OSPREY_OTEL_GATEWAY_PORT"] == "10051"
     assert worker["OSPREY_ARCHIVER_MONGODB_HOST"] == "localhost"
     assert worker["OSPREY_ARCHIVER_MONGODB_PORT"] == "10801"
 
@@ -747,14 +751,20 @@ def test_every_shape_lists_the_chain_its_repo_carried(case: tuple[Scenario, str]
 
     ``env_file:`` naming a path that is not there fails ``compose up`` outright,
     so membership is fixed at render time from the files the repo actually had.
-    The bridges do not render a chain; only the worker does.
+    The bridges do not render a chain; only the worker does. Where the gateway
+    is deployed each worker also lists its own telemetry login file, which
+    ``osprey build`` writes for every sender — the login reaches the container
+    by its own ``env_file``, never by interpolation.
     """
     scenario, key = case
     if key != "dispatch_worker":
         return
     document = yaml.safe_load(_golden_text(scenario, key))
     for name, service in document["services"].items():
-        assert service["env_file"] == list(scenario.expected_chain), (
+        expected = list(scenario.expected_chain)
+        if "telemetry_gateway" in scenario.deployed:
+            expected.append(f".env.telemetry-sender.{name}")
+        assert service["env_file"] == expected, (
             f"{scenario.name}/{name} lists a chain its repo did not carry"
         )
 

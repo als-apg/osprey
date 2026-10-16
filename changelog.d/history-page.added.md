@@ -1,0 +1,1 @@
+Under web-terminal sign-on, the readers' origin (`modules.web_terminals.reader_port`) serves a history page at `/history/` that shows each person their own sessions, or every user's with `history: all` on their roster entry or role, or as a configured reader.

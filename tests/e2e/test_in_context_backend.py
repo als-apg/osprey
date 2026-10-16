@@ -82,12 +82,12 @@ _ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPI
 if _ALS_APG_KEY and _ALS_APG_BASE_URL:
     _PROVIDER = "als-apg"
     _PROVIDER_API_KEY = _ALS_APG_KEY
-    _SUBAGENT_MODEL = "claude-haiku-4-5-20251001"  # bare wire id; gateway rejects prefixed slugs
+    _SUBAGENT_MODEL = "claude-haiku-5-5"  # bare wire id; gateway rejects prefixed slugs
     # Written into the generated project's config, which is what the MCP
     # subprocess reads — it does not inherit this process's env.
     _PROVIDER_BASE_URL = _ALS_APG_BASE_URL
-    _BACKEND_MODEL = "als-apg/claude-haiku-4-5-20251001"
-    _EXPECTED_WIRE = "claude-haiku-4-5-20251001"
+    _BACKEND_MODEL = "als-apg/claude-haiku-5-5"
+    _EXPECTED_WIRE = "claude-haiku-5-5"
 elif _CBORG_KEY:
     _PROVIDER = "cborg"
     _PROVIDER_API_KEY = _CBORG_KEY
@@ -103,8 +103,8 @@ else:
     _PROVIDER_API_KEY = _ANTHROPIC_KEY
     _SUBAGENT_MODEL = "anthropic/claude-haiku-4-5"
     _PROVIDER_BASE_URL = None
-    _BACKEND_MODEL = "anthropic/claude-haiku-4-5-20251001"
-    _EXPECTED_WIRE = "claude-haiku-4-5-20251001"
+    _BACKEND_MODEL = "anthropic/claude-haiku-5-5"
+    _EXPECTED_WIRE = "claude-haiku-5-5"
 
 pytestmark = pytest.mark.requires_api
 

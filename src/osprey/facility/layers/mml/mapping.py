@@ -116,6 +116,7 @@ __all__ = [
     "DIRECTION_VALUES",
     "DeviceIdentity",
     "ENGINE_AXES",
+    "KICK",
     "ROWS_BEYOND_KIND",
     "SHARED_KIND",
     "UNBOUND_KIND",
@@ -146,6 +147,8 @@ __all__ = [
     "draft_text",
     "dump_mapping",
     "exported_number",
+    "exported_text",
+    "exported_word",
     "field_roles",
     "judgment_key",
     "load_or_draft",
@@ -153,6 +156,7 @@ __all__ = [
     "read_mapping",
     "require_decided",
     "undecided_slots",
+    "vocabulary_parents",
 ]
 
 #: The values a ``directions.*.direction`` slot may hold; ``None`` is undecided.
@@ -1004,7 +1008,7 @@ _ANSWER_DEVICES = (
 
 
 @functools.cache
-def _vocabulary() -> dict[str, str | None]:
+def vocabulary_parents() -> dict[str, str | None]:
     """The vocabulary's device classes, each mapped to its parent (the root to None).
 
     The returned mapping is shared and read-only.
@@ -1018,7 +1022,7 @@ def _vocabulary() -> dict[str, str | None]:
 
 
 def _vocabulary_classes() -> frozenset[str]:
-    return frozenset(_vocabulary())
+    return frozenset(vocabulary_parents())
 
 
 def undecided_slots(mapping: Mapping) -> list[tuple[str, str]]:
@@ -1187,7 +1191,7 @@ def _unknown_class(name: str) -> str:
 
 
 def _family_classes(mapping: Mapping) -> Iterator[Problem]:
-    vocabulary = _vocabulary()
+    vocabulary = vocabulary_parents()
     for raw, family in mapping.families.items():
         path = f"families.{raw}"
         if family.class_ is None:
@@ -1235,7 +1239,7 @@ def _family_devices(mapping: Mapping) -> Iterator[Problem]:
 
 
 def _declared_branches(mapping: Mapping) -> Iterator[Problem]:
-    vocabulary = _vocabulary()
+    vocabulary = vocabulary_parents()
     for name, branch in mapping.branches.items():
         path = f"branches.{name}"
         if name in vocabulary:
@@ -1677,6 +1681,9 @@ DERIVED = "derived"
 #: Provenance of a description carried over from the export as written.
 IMPORTED = "imported"
 
+#: The engine attribute of a corrector family.
+KICK = "KickAngle"
+
 #: What each lattice type token drives, in pyAT's words, keyed by the token
 #: folded to lower case. A token absent here -- the dipole string among them,
 #: unless the export marks the family as its energy knob or as a corrector --
@@ -1686,8 +1693,8 @@ ENGINE_BY_TYPE: dict[str, dict[str, Any]] = {
     **dict.fromkeys(("sext", "k2", "sextupole"), {"attribute": "PolynomB", "index": 2}),
     **dict.fromkeys(("octu", "k3"), {"attribute": "PolynomB", "index": 3}),
     **dict.fromkeys(("skewquad", "ks", "ks1", "skewq"), {"attribute": "PolynomA", "index": 1}),
-    **dict.fromkeys(("hcm", "hcor"), {"attribute": "KickAngle", "index": 0}),
-    **dict.fromkeys(("vcm", "vcor"), {"attribute": "KickAngle", "index": 1}),
+    **dict.fromkeys(("hcm", "hcor"), {"attribute": KICK, "index": 0}),
+    **dict.fromkeys(("vcm", "vcor"), {"attribute": KICK, "index": 1}),
     **dict.fromkeys(("rf", "rf cavity"), {"attribute": "Frequency"}),
     **dict.fromkeys(("x", "bpmx", "xturns"), {"axis": "x"}),
     **dict.fromkeys(("y", "bpmy", "yturns"), {"axis": "y"}),
@@ -1706,7 +1713,7 @@ _ENERGY_ENGINE: dict[str, Any] = {"attribute": "energy"}
 
 #: The engine block of a dipole string that corrects: a kick, whose plane the
 #: export never states, so it is left for the reviewer.
-_TRIM_ENGINE: dict[str, Any] = {"attribute": "KickAngle", "index": None}
+_TRIM_ENGINE: dict[str, Any] = {"attribute": KICK, "index": None}
 
 #: The fields a family is wired through, in preference order: a family that
 #: sets something is wired through what it sets, one that only reads through
@@ -1714,11 +1721,16 @@ _TRIM_ENGINE: dict[str, Any] = {"attribute": "KickAngle", "index": None}
 _WIRED_FIELDS = (SETPOINT_FIELD, MONITOR_FIELD)
 
 
-def _text(value: Any) -> str | None:
-    """Return stripped text when ``value`` is non-blank text, else ``None``."""
+def exported_text(value: Any) -> str | None:
+    """Non-blank exported text, stripped, or ``None``."""
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
+
+def exported_word(value: Any) -> str:
+    """Non-blank exported text, stripped, or ``""``."""
+    return exported_text(value) or ""
 
 
 def exported_number(value: Any) -> float | None:
@@ -1736,9 +1748,9 @@ def _plural(count: int, word: str) -> str:
 def _one_unit(value: Any) -> str | None:
     """The one unit ``HWUnits`` states, scalar or agreeing per device, else ``None``."""
     if isinstance(value, (list, tuple)):
-        distinct = {unit for item in value if (unit := _text(item)) is not None}
+        distinct = {unit for item in value if (unit := exported_text(item)) is not None}
         return distinct.pop() if len(distinct) == 1 else None
-    return _text(value)
+    return exported_text(value)
 
 
 def _system_order(ao: dict) -> list[str]:
@@ -1760,7 +1772,7 @@ def _draft_identity(ad: dict | None, systems: list[str]) -> dict | None:
     from osprey.facility import fold_code
 
     machine = next(
-        (found for raw in systems if (found := _text(_block(ad, raw).get("Machine")))), None
+        (found for raw in systems if (found := exported_text(_block(ad, raw).get("Machine")))), None
     )
     if machine is None:
         return None
@@ -1772,12 +1784,12 @@ def _draft_identity(ad: dict | None, systems: list[str]) -> dict | None:
 
 
 def _model_prose(raw: str, body: dict, ad_block: dict) -> tuple[str | None, str]:
-    native = _text(body.get("_description"))
+    native = exported_text(body.get("_description"))
     if native is not None:
         return native, IMPORTED
-    machine = _text(ad_block.get("Machine"))
-    sub = _text(ad_block.get("SubMachine"))
-    mode = _text(ad_block.get("OperationalMode"))
+    machine = exported_text(ad_block.get("Machine"))
+    sub = exported_text(ad_block.get("SubMachine"))
+    mode = exported_text(ad_block.get("OperationalMode"))
     if machine is None and sub is None and mode is None:
         return None, DERIVED
     prose = f"The {sub or raw} system"
@@ -1838,7 +1850,7 @@ def _draft_family(raw: str, views: list[Any], devices: Any = None) -> dict[str, 
             (
                 found
                 for view in views
-                if name in view.fields and (found := _text(view.fields[name].description))
+                if name in view.fields and (found := exported_text(view.fields[name].description))
             ),
             None,
         )
@@ -1854,7 +1866,7 @@ def _draft_family(raw: str, views: list[Any], devices: Any = None) -> dict[str, 
 _CURRENT_UNITS: frozenset[str] = frozenset({"a", "amp", "amps", "ampere", "amperes"})
 
 #: The engine attributes a magnet family drives.
-_MAGNET_ATTRIBUTES: frozenset[str] = frozenset({"PolynomB", "PolynomA", "KickAngle"})
+_MAGNET_ATTRIBUTES: frozenset[str] = frozenset({"PolynomB", "PolynomA", KICK})
 
 
 def _current_field(views: list[Any], name: str) -> bool:
@@ -1924,9 +1936,9 @@ def _draft_devices(
         devices with, all keyed by raw family.
     """
     from osprey.facility.layers.mml.identity import (
-        _lent_rows,
         axis_twins,
         device_ids,
+        lent_rows,
         stated_ids,
     )
 
@@ -1949,7 +1961,7 @@ def _draft_devices(
 
     def lends(other: str) -> bool:
         return all(
-            not _lent_rows(view, [d or "" for d in stated_ids(view, systems, models)])[1]
+            not lent_rows(view, [d or "" for d in stated_ids(view, systems, models)])[1]
             for view in carried[other]
         )
 
@@ -1992,14 +2004,14 @@ def _device_sets(views: Sequence[Any]) -> list[tuple[list[str], list[tuple[Any, 
         Each set's raw families in import order, with its evidence as
         ``(address, (view index, field, slot), (view index, field, slot))``.
     """
-    from osprey.facility.layers.mml.identity import _coordinate
+    from osprey.facility.layers.mml.identity import row_coordinate
 
     bound: dict[tuple[str, str], dict[int, list[tuple[str, int]]]] = {}
     for at, view in enumerate(views):
         for name, fld in view.fields.items():
             for key in fld.keys:
                 for slot, value in enumerate(fld.slots(key)[: view.n_devices]):
-                    address = _text(value)
+                    address = exported_text(value)
                     if address is not None:
                         found = bound.setdefault((view.system, address), {})
                         found.setdefault(at, []).append((name, slot))
@@ -2018,11 +2030,11 @@ def _device_sets(views: Sequence[Any]) -> list[tuple[list[str], list[tuple[Any, 
             if len(slots) == 1 and views[at].device_rows is not None
         ]
         for first, (at, (name, slot)) in enumerate(single):
-            row = _coordinate(views[at].device_rows[slot])
+            row = row_coordinate(views[at].device_rows[slot])
             for other, (other_name, other_slot) in single[first + 1 :]:
                 if views[other].raw_name == views[at].raw_name or row is None:
                     continue
-                if _coordinate(views[other].device_rows[other_slot]) != row:
+                if row_coordinate(views[other].device_rows[other_slot]) != row:
                     continue
                 evidence.append((address, (at, name, slot), (other, other_name, other_slot)))
                 parent[root(views[other].raw_name)] = root(views[at].raw_name)
@@ -2071,7 +2083,7 @@ def _one_identity(
     Returns:
         The other families of each set that stepped in, keyed by raw family.
     """
-    from osprey.facility.layers.mml.identity import _coordinate, _word
+    from osprey.facility.layers.mml.identity import id_token, row_coordinate
 
     shared: dict[str, list[str]] = {}
     for members, evidence in _device_sets(views):
@@ -2089,7 +2101,7 @@ def _one_identity(
             raw: [at for at, view in enumerate(views) if view.raw_name == raw] for raw in members
         }
         stated = {
-            at: [_coordinate(row) for row in views[at].device_rows or ()]
+            at: [row_coordinate(row) for row in views[at].device_rows or ()]
             for found in carried.values()
             for at in found
         }
@@ -2105,7 +2117,7 @@ def _one_identity(
         ):
             continue
 
-        stem = _word(largest)
+        stem = id_token(largest)
         for raw in members:
             if answers.get(raw) != "names" or not carried[raw]:
                 continue
@@ -2163,7 +2175,7 @@ def _draft_judgments(views: dict[str, list[Any]]) -> dict[str, dict[str, Any]]:
 def _lattice_type(view: Any) -> str | None:
     """The lattice type a family states, folded to lower case; ``None`` when it states none."""
     lattice = view.body.get("AT")
-    token = _text(lattice.get("ATType")) if isinstance(lattice, dict) else None
+    token = exported_text(lattice.get("ATType")) if isinstance(lattice, dict) else None
     return token.lower() if token is not None else None
 
 
@@ -2175,7 +2187,7 @@ def _bound_type(view: Any) -> str | None:
     indices = lattice.get("ATIndex")
     if indices is None or (isinstance(indices, (list, tuple)) and not indices):
         return None
-    token = _text(lattice.get("ATType"))
+    token = exported_text(lattice.get("ATType"))
     return token.lower() if token is not None else ""
 
 

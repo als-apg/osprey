@@ -88,6 +88,8 @@ async def _drive(base_url: str, key: str, model: str):
         tool,
     )
 
+    from osprey.agent_runner.launcher import agent_cli_path
+    from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
     from osprey.infrastructure.proxy.lifecycle import start_proxy, stop_proxy
 
     @tool("read_pv", "Read the current value of an EPICS process variable (PV).", {"name": str})
@@ -98,6 +100,7 @@ async def _drive(base_url: str, key: str, model: str):
     port = start_proxy(base_url, key)
     options = ClaudeAgentOptions(
         model=model,
+        cli_path=agent_cli_path({"cli_version": _DEFAULT_CLAUDE_CLI_VERSION}),
         permission_mode="bypassPermissions",
         max_turns=6,
         mcp_servers={"controls": server},

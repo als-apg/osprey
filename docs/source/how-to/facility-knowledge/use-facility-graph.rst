@@ -211,7 +211,7 @@ The store does not have to be one this deployment brings up. In the profile's
      services.graphdb.username: osprey
      # ... the rest of your services keys, unchanged
      # DEVIATION: graphdb is the facility's store, so deployed_services drops it
-     deployed_services: [postgresql, openobserve, qmd]   # no graphdb
+     deployed_services: [postgresql, telemetry_store, telemetry_gateway, qmd]   # no graphdb
 
 Leaving ``graphdb`` in ``deployed_services`` is the mistake to avoid: the build
 still stands up a local Neo4j that nobody then queries. ``deployed_services``

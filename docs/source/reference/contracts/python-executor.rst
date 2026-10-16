@@ -106,7 +106,8 @@ is refused without asking.
    * - ``by``
      - ``"magnet"``
      - ``trm`` and ``crm`` only. ``"magnet"`` steps one magnet per column;
-       ``"group"`` steps every magnet of the group once, from its present
+       ``"group"`` steps every magnet of the role's array (every group the
+       role names) once, from its present
        setting, by the same integrated strength. Group stepping is unipolar:
        an omitted modulation is ``"unipolar"`` and ``"bipolar"`` is refused.
 
@@ -174,15 +175,21 @@ converted to the corrector's hardware unit through its wiring calibration; a
 model whose measurement file states none is refused. Each entry is a readback
 change in its hardware unit per setpoint change in its own. The result carries
 ``rows`` and ``columns``, each named by address and device id, each column's
-``step`` and the ``matrix``.
+``step``, the ``matrix`` and ``unsolved``. A corrector whose step has no solve
+has no column; ``unsolved`` maps it to the engine's text. When no corrector
+solves, the call is refused as an ``execution_error`` with every unsolved text,
+and ``details.unsolved`` holds the same map as the result's ``unsolved``. When
+the engine refuses the request itself, the call is refused as a
+``validation_error`` with the engine's text.
 
 With ``kind`` ``"trajectory"`` the rows are the model's turn-by-turn ``x``
 series, then its ``y`` series, the columns are the horizontal correctors, then
 the vertical ones, and the result also carries ``kind``; each row and column
 also carries its ``plane`` (``H`` or ``V``) and ``index``, its element's
-position along the lattice from the injection marker. It is the content of
-the pyAML view's ``trajectory_rm.json`` and ``trajectory_rm.index.json`` for
-the correctors asked for (:doc:`trajectory-model`).
+position along the lattice from the injection marker. A corrector whose step
+loses the launched particle is unsolved. It is the content of the pyAML
+view's ``trajectory_rm.json`` and ``trajectory_rm.index.json`` for the
+correctors asked for (:doc:`trajectory-model`).
 
 Installation
 ============

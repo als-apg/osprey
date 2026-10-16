@@ -209,11 +209,12 @@ def safety_project_mixed_render(tmp_path_factory):
     target and ``osprey_approval`` deferring.
 
     The limits mode is pinned ``optional`` like the other safety renders.
-    Scenario 11 asserts that the refusal it gets back is ``osprey_writes_check``'s
-    — the one naming the live target. Under ``exclusive`` the limits hook
-    refuses the same unlisted channel in the same PreToolUse chain, and which
-    of two denies surfaces as the reason is not something the test controls;
-    the pin leaves the writes gate as the only hook with a say.
+    The per-target scripted test asserts that the refusal it gets back is
+    ``osprey_writes_check``'s — the one naming the live target. Under
+    ``exclusive`` the limits hook refuses the same unlisted channel in the same
+    PreToolUse chain, and which of two denies surfaces as the reason is not
+    something the test controls; the pin leaves the writes gate as the only
+    hook with a say.
     """
     tmp = tmp_path_factory.mktemp("safety-mixed-render")
     repo = init_project(tmp, "safety-mixed-render", provider="als-apg")

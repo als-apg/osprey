@@ -42,15 +42,20 @@ class EnginePlugin(Protocol):
     ``polynomial_kicks(deck, elements)``                    a deck copy carrying named kicks as dipole      the pyAML view stops ``engine-invalid``
                                                             polynomials; stand-in until pyAML reads a       when design correctors need it
                                                             dipole kick held in ``KickAngle``
-    ``response_matrix(deck, wiring, settings,               ``(rows, matrix)``, the orbit response of the   ``model_response_matrix`` ends without a
-    correctors, step, *, kind='orbit')``                    wired monitors; for ``kind='trajectory'`` row   result; the response check stops
-                                                            names, column names, matrix, ``bpm_index``,
-                                                            ``hcor_index`` and ``vcor_index``, the
-                                                            first-turn response of the wired turn series
+    ``response_matrix(deck, wiring, settings,               the response of the wired readings: ``rows``,   ``model_response_matrix`` ends without a
+    correctors, step, *, kind='orbit')``                    ``columns``, ``matrix`` and the ``unsolved``    result; the response check stops
+                                                            correctors with their texts; for
+                                                            ``kind='trajectory'`` the first-turn response
+                                                            of the wired turn series, with the lattice
+                                                            ``index`` of every row and corrector. The
+                                                            plug-in raising one of the refusal exceptions
+                                                            refuses the whole request with its text; a
+                                                            return with no column is refused with the
+                                                            ``unsolved`` map
     ``scenario_stops(deck, faults)``                        one ``(fault name, detail, remedy)`` per        a scenario is checked against the fault
                                                             thing a scenario's faults on the model ask      names alone
                                                             that the deck cannot give
-    ``CONDITIONS``                                        every text ``condition`` can answer, a closed   ``condition`` may answer any text
+    ``CONDITIONS``                                          every text ``condition`` can answer, a closed   ``condition`` may answer any text
                                                             list
     ``SOLVE_ERRORS``                                        the exceptions meaning "this request has no     every exception is a failure, never a
                                                             solve"; stand-in until lume-base states         refusal

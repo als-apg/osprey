@@ -1,12 +1,8 @@
-"""The ``ring`` word shrinks to nothing in the shipped code (lattice/deck instead),
-and the engine's own words stay inside the engine's zones.
+"""The ``ring`` word is gone from the shipped code (lattice/deck instead), and the
+engine's own words stay inside the engine's zones.
 
-The scan runs ``git grep`` over the tracked text files under ``SCAN_PATHS``.
-Every file it reports must sit in ``ALLOWLIST``, whose tag names the stage that
-clears the file: ``delete:<stage>`` when that stage deletes it, ``rename:<stage>``
-when the file stays and loses the word. An entry fails once its stage is at or
-before ``CURRENT_BATCH`` and the file still matches, and at any stage once the
-file no longer matches (a stale entry). A new file never joins the list.
+The scan runs ``git grep`` over the tracked text files under ``SCAN_PATHS``, and
+every file it reports is a failure: no file carries the word.
 
 A line quoting an outside format word for word carries ``QUOTE_MARKER`` and is
 not reported.
@@ -27,7 +23,6 @@ from pathlib import Path
 import pytest
 
 from tests._vocabulary import ENGINE_WORDS, RATCHET_WORD
-from tests.facility._batches import BATCHES, CURRENT_BATCH
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -56,18 +51,6 @@ EXCLUDED: tuple[str, ...] = (
 
 QUOTE_MARKER = "outside-format-quote"
 
-#: Paths that never carry the word; no allowlist entry may lie under them.
-CLEAN_PATHS: tuple[str, ...] = (
-    "src/osprey/facility/",
-    "src/osprey/simulation/engines/",
-    "packages/osprey-connectors/src/osprey_connectors/simulation/values.py",
-    "scripts/facility_schema/",
-)
-
-ALLOWLIST: dict[str, str] = {}
-
-_TAG = re.compile(r"(delete|rename):(?P<stage>[0-9a-z]+)")
-
 
 def scan(root: Path) -> set[str]:
     """Return the tracked files under ``root`` with an unmarked matching line."""
@@ -90,23 +73,9 @@ def scan(root: Path) -> set[str]:
     return hits
 
 
-def violations(
-    hits: set[str], allowlist: Mapping[str, str], current: int = CURRENT_BATCH
-) -> list[str]:
-    """Return one line per reported file or entry the ratchet refuses."""
-    problems = [
-        f"{path}: carries the word and has no allowlist entry" for path in hits - set(allowlist)
-    ]
-    for path, tag in allowlist.items():
-        match = _TAG.fullmatch(tag)
-        stage = match["stage"] if match else None
-        if stage not in BATCHES:
-            problems.append(f"{path}: tag {tag!r} names no stage")
-        elif path not in hits:
-            problems.append(f"{path}: no longer carries the word; drop its entry")
-        elif BATCHES.index(stage) <= current:
-            problems.append(f"{path}: tagged {tag}, still carries the word")
-    return sorted(problems)
+def violations(hits: set[str]) -> list[str]:
+    """Return one line per reported file, sorted."""
+    return [f"{path}: carries the word and has no allowlist entry" for path in sorted(hits)]
 
 
 # --- the pattern ------------------------------------------------------------------
@@ -122,33 +91,6 @@ def test_pattern_leaves_other_words(text: str) -> None:
 )
 def test_pattern_finds_the_word(text: str) -> None:
     assert re.search(PATTERN, text) is not None
-
-
-# --- the stage tuple and the allowlist ---------------------------------------------
-
-
-def test_current_batch_indexes_the_tuple() -> None:
-    assert isinstance(CURRENT_BATCH, int)
-    assert 0 <= CURRENT_BATCH < len(BATCHES)
-    assert len(set(BATCHES)) == len(BATCHES)
-
-
-def test_every_tag_names_a_stage() -> None:
-    bad = {path: tag for path, tag in ALLOWLIST.items() if not _TAG.fullmatch(tag)}
-    bad |= {
-        path: tag
-        for path, tag in ALLOWLIST.items()
-        if (match := _TAG.fullmatch(tag)) and match["stage"] not in BATCHES
-    }
-    assert bad == {}
-
-
-def test_allowlist_is_sorted() -> None:
-    assert list(ALLOWLIST) == sorted(ALLOWLIST)
-
-
-def test_no_entry_lies_under_a_clean_path() -> None:
-    assert [path for path in ALLOWLIST if path.startswith(CLEAN_PATHS)] == []
 
 
 # --- the scan ---------------------------------------------------------------------
@@ -213,31 +155,16 @@ def test_planted_word_under_facility_schema_is_flagged(tmp_path: Path) -> None:
     )
     hits = scan(root)
     assert hits == {"scripts/facility_schema/planted.py"}
-    assert violations(hits, {}) == [
+    assert violations(hits) == [
         "scripts/facility_schema/planted.py: carries the word and has no allowlist entry"
-    ]
-
-
-def test_ratchet_refuses_due_and_stale_entries() -> None:
-    hits = {"a.py", "b.py", "c.py"}
-    allowlist = {
-        "a.py": f"delete:{BATCHES[CURRENT_BATCH]}",
-        "b.py": f"rename:{BATCHES[-1]}",
-        "c.py": "delete:0z",
-        "gone.py": f"rename:{BATCHES[-1]}",
-    }
-    assert violations(hits, allowlist) == [
-        f"a.py: tagged delete:{BATCHES[CURRENT_BATCH]}, still carries the word",
-        "c.py: tag 'delete:0z' names no stage",
-        "gone.py: no longer carries the word; drop its entry",
     ]
 
 
 # --- the tree ---------------------------------------------------------------------
 
 
-def test_the_word_only_survives_where_the_allowlist_says() -> None:
-    assert violations(scan(REPO_ROOT), ALLOWLIST) == []
+def test_no_shipped_file_carries_the_word() -> None:
+    assert violations(scan(REPO_ROOT)) == []
 
 
 # --- the engine words -------------------------------------------------------------

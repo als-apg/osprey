@@ -3,7 +3,7 @@
 Web-terminal persona projects (the ``control-assistant-{readonly,readwrite,
 ariel}`` presets) render as *attached* projects and run as per-user containers
 with ``network_mode: host``. Inside such a container ``localhost`` IS the
-deployment host, and compose service DNS names (``openobserve``) resolve to
+deployment host, and compose service DNS names (``telemetry_gateway``) resolve to
 nothing. Every URL a persona container derives therefore has to target the
 loopback address and the HOST deployment's ports — and every host-side probe of
 a persona sidecar has to knock on the port the sidecar actually binds.
@@ -26,12 +26,9 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.build.claude_code_telemetry import (
-    OPENOBSERVE_PORT_ENV_VAR,
-    _resolve_telemetry_endpoint,
-    openobserve_published_port,
-)
+from osprey.build.claude_code_telemetry import _resolve_telemetry_endpoint
 from osprey.deployment.reach import project_attached_overrides, reach_dials, reach_errors
+from osprey.deployment.telemetry_config import gateway_port, runtime_gateway_url
 from osprey.deployment.web_terminals.personas import resolve_personas
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.health.core.ariel import ariel
@@ -96,27 +93,19 @@ def built_persona_stack(tmp_path_factory) -> Path:
 
 
 def test_host_networked_persona_telemetry_targets_loopback(built_persona_stack: Path) -> None:
-    """A host-networked persona container's derived OTLP endpoint must target
-    loopback at the HOST deployment's ``services.openobserve.port`` — inside
-    ``network_mode: host`` the compose DNS name ``openobserve`` resolves to
-    nothing, so an endpoint carrying it drops every metric and log silently.
+    """A host-networked persona container's OTLP endpoint must target loopback
+    at the HOST deployment's ``services.telemetry_gateway.port`` — inside
+    ``network_mode: host`` the compose DNS name ``telemetry_gateway`` resolves
+    to nothing, so an endpoint carrying it drops every metric and log silently.
 
-    Closest existing tests, and why they could not see this:
-
-    * ``tests/cli/test_telemetry_env.py::test_openobserve_default_endpoint_container_host``
-      pins ``in_container=True`` → ``http://openobserve:5080/...`` as the
-      CORRECT behaviour — true for a bridge-networked service, but the test
-      never joins the resolver to a compose service that declares
-      ``network_mode: host`` and exports no ``OSPREY_OTEL_OPENOBSERVE_HOST``.
-    * ``tests/deployment/web_terminals/test_render.py`` /
-      ``test_golden_render.py`` parse the rendered compose (and see
-      ``network_mode: host``) but never feed a per-user service's environment
-      into the telemetry resolver, so the endpoint the agent would actually
-      derive inside that container is asserted nowhere.
+    Joins the rendered per-user service's environment to the runtime resolver
+    (``telemetry_config.runtime_gateway_url``), exactly as the agent launcher
+    inside that container resolves it; neither the render tests nor the
+    resolver's unit tests cross that seam.
     """
     repo = built_persona_stack
     host_config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
-    host_openobserve_port = int(host_config["services"]["openobserve"]["port"])
+    host_gateway_port = gateway_port(host_config)
 
     compose = yaml.safe_load(render_web_terminals(host_config)["docker-compose.web.yml"])
     web_terminals = host_config["modules"]["web_terminals"]
@@ -137,48 +126,31 @@ def test_host_networked_persona_telemetry_targets_loopback(built_persona_stack: 
             (repo / catalog[persona]["project_path"] / "config.yml").read_text(encoding="utf-8")
         )
         telemetry = (persona_config.get("claude_code") or {}).get("telemetry") or {}
-        if not telemetry.get("enabled") or telemetry.get("backend") != "openobserve":
+        if not telemetry.get("enabled") or telemetry.get("backend") != "gateway":
             continue
 
         service = compose["services"][f"web-{entry['name']}"]
         if service.get("network_mode") != "host":
             continue
-        env = _service_env(service)
+        env = {k: _interpolate(v) for k, v in _service_env(service).items() if v is not None}
 
-        # Exactly what the agent launcher resolves inside this container:
-        # /.dockerenv exists in every persona container (in_container=True), the
-        # only host override is whatever this compose service exports, and the
-        # port is the service's declaration or else the port this persona's own
-        # config says the store publishes (resolve_openobserve_port's rule).
-        declared_port = env.get(OPENOBSERVE_PORT_ENV_VAR)
         endpoint = _resolve_telemetry_endpoint(
-            telemetry,
-            in_container=True,
-            openobserve_host=env.get("OSPREY_OTEL_OPENOBSERVE_HOST"),
-            openobserve_port=(
-                int(declared_port) if declared_port else openobserve_published_port(persona_config)
-            ),
+            telemetry, gateway_url=runtime_gateway_url(persona_config, env)
         )
         parsed = urlsplit(endpoint)
         checked += 1
-        if parsed.hostname not in _LOOPBACK_HOSTS or parsed.port != host_openobserve_port:
+        if parsed.hostname not in _LOOPBACK_HOSTS or parsed.port != host_gateway_port:
             wrong.append(f"web-{entry['name']} (persona {persona}): {endpoint}")
 
     assert checked, (
         "Precondition failed: the built control-assistant stack exposed no "
-        "host-networked persona with an enabled openobserve telemetry backend — "
+        "host-networked persona with an enabled gateway telemetry backend — "
         "the defect surface this test exists for was never reached."
     )
     assert not wrong, (
         "Host-networked persona containers derive an OTLP endpoint that is not "
-        f"loopback:{host_openobserve_port} (the host deployment's "
-        "services.openobserve.port): "
-        + "; ".join(wrong)
-        + ". The web-terminal compose overlay sets no OSPREY_OTEL_OPENOBSERVE_HOST "
-        "for per-user services (only the dispatch-worker compose does), so "
-        "in_container=True derives the compose DNS name 'openobserve' — which "
-        "resolves to nothing under network_mode: host, and every web-terminal "
-        "agent's telemetry is dropped silently."
+        f"loopback:{host_gateway_port} (the host deployment's "
+        "services.telemetry_gateway.port): " + "; ".join(wrong)
     )
 
 

@@ -66,25 +66,23 @@ class TestPostgresql:
         assert _dial("postgresql", config) == ("db.example", 6543)
 
 
-class TestOpenobserve:
+class TestTelemetryGateway:
     CONFIG = {
-        "claude_code": {"telemetry": {"enabled": True, "backend": "openobserve"}},
-        "services": {"openobserve": {"port": 15080}},
+        "claude_code": {"telemetry": {"enabled": True, "backend": "gateway"}},
+        "services": {"telemetry_gateway": {"port": 18151}},
     }
 
     def test_follows_the_published_port(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_OTEL_OPENOBSERVE_HOST", raising=False)
-        monkeypatch.delenv("OSPREY_OTEL_OPENOBSERVE_PORT", raising=False)
-        monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
-        host, port = _dial("openobserve", self.CONFIG)
-        assert port == 15080
+        monkeypatch.delenv("OSPREY_OTEL_GATEWAY_HOST", raising=False)
+        monkeypatch.delenv("OSPREY_OTEL_GATEWAY_PORT", raising=False)
+        assert _dial("telemetry_gateway", self.CONFIG) == ("127.0.0.1", 18151)
 
     def test_the_compose_authors_host_wins(self, monkeypatch):
-        """A host-networked persona container is told 127.0.0.1 by its compose
+        """A bridge-networked sender is told the service name by its compose
         block; the exporter, and so the knock, go there."""
-        monkeypatch.setenv("OSPREY_OTEL_OPENOBSERVE_HOST", "127.0.0.1")
-        monkeypatch.delenv("OSPREY_OTEL_OPENOBSERVE_PORT", raising=False)
-        assert _dial("openobserve", self.CONFIG) == ("127.0.0.1", 15080)
+        monkeypatch.setenv("OSPREY_OTEL_GATEWAY_HOST", "telemetry_gateway")
+        monkeypatch.delenv("OSPREY_OTEL_GATEWAY_PORT", raising=False)
+        assert _dial("telemetry_gateway", self.CONFIG) == ("telemetry_gateway", 4318)
 
     def test_an_explicit_endpoint_is_dialed_as_written(self):
         config = {
@@ -92,10 +90,11 @@ class TestOpenobserve:
                 "telemetry": {"enabled": True, "endpoint": "http://collector.example:4318"}
             }
         }
-        assert _dial("openobserve", config) == ("collector.example", 4318)
+        assert _dial("telemetry_gateway", config) == ("collector.example", 4318)
 
     def test_telemetry_off_is_nothing_to_dial(self):
-        assert _dial("openobserve", {"claude_code": {"telemetry": {"enabled": False}}}) is None
+        config = {"claude_code": {"telemetry": {"enabled": False}}}
+        assert _dial("telemetry_gateway", config) is None
 
 
 class TestBluesky:

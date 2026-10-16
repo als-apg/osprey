@@ -1,0 +1,1 @@
+The rf-thermal simulation scenario now dumps the stored beam from the CAVITY01 trip at 03:15 until the 04:30 refill, so the beam-current archive agrees with its logbook; it can no longer be active together with vacuum-burst, which also scripts the beam current.

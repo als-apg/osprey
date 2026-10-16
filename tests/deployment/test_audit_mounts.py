@@ -1030,3 +1030,25 @@ def test_a_refused_identity_creates_nothing_and_is_not_fatal(tmp_path, caplog):
     assert "Skipping audit directory provisioning" in caplog.text
     assert not (tmp_path / "escaped").exists()
     assert not (tmp_path / "repo").exists()
+
+
+# ---------------------------------------------------------------------------
+# The telemetry gateway: the one reader of the whole zone, read-only
+# ---------------------------------------------------------------------------
+
+
+def test_the_gateway_mounts_the_audit_root_read_only():
+    """The gateway feeds every identity's ledger to the store, so it is the one
+    service holding the audit root itself — and it never writes a record. The
+    bind is the whole zone, so ``_audit_mounts`` (which matches subdirectories)
+    does not see it; the volume list is parsed directly."""
+    service = _service_fragment("telemetry_gateway")["telemetry_gateway"]
+    audit = [
+        mount
+        for mount in service["volumes"]
+        if mount.split(":", 1)[0].removeprefix("./").rstrip("/") == AUDIT_DIR_RELPATH
+    ]
+    assert len(audit) == 1, service["volumes"]
+    source, target, mode = audit[0].split(":")
+    assert (source, target, mode) == (f"./{AUDIT_DIR_RELPATH}", "/audit", "ro")
+    assert _audit_mounts(service) == []

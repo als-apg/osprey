@@ -124,6 +124,22 @@ describe('startedCommandsQuestion', () => {
     expect(q.title).toBe('This also ends sleep.');
     expect(q.body[1]).toEqual([{ em: 'sleep 60' }]);
   });
+
+  test('a list the server could not read says so, and asks to stop all', () => {
+    const q = startedCommandsQuestion([], { unread: true });
+
+    expect(q).toEqual({
+      title: 'Could not check what the agent started.',
+      body: [['Anything it started that is still running ends with it.']],
+      confirmLabel: 'Stop all',
+    });
+  });
+
+  test('a read list asks about the commands it names', () => {
+    expect(startedCommandsQuestion([MAGNET], { unread: false })).toEqual(
+      startedCommandsQuestion([MAGNET])
+    );
+  });
 });
 
 describe('askAboutStartedCommands', () => {
@@ -131,6 +147,15 @@ describe('askAboutStartedCommands', () => {
     askAboutStartedCommands([MAGNET], { onStop: vi.fn(), onCancel: vi.fn() });
 
     expect(document.activeElement).toBe(button('.posture-modal-cancel'));
+  });
+
+  test('a list the server could not read is asked about as unchecked', () => {
+    askAboutStartedCommands([], { onStop: vi.fn(), onCancel: vi.fn(), unread: true });
+
+    expect(document.querySelector('.posture-modal-title')?.textContent).toBe(
+      'Could not check what the agent started.'
+    );
+    expect(button('.posture-modal-confirm').textContent).toBe('Stop all');
   });
 
   test('the confirm button runs onStop once and never onCancel', () => {

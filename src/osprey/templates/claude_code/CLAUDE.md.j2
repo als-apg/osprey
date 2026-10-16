@@ -44,6 +44,7 @@ do not attempt their work with your own tools.
   To show the operator a logbook entry, call `entry_open` yourself with its entry id and an attachment id: the id of that entry's picture whenever this conversation holds one (a picture you viewed, or one a subagent's reply listed next to the entry id), even when the operator only says "the entry"; null only when none came up.
 {%- if ariel_attachment_view %}
   To keep a logbook picture in the gallery, call `attachment_to_artifact` yourself; never redraw a logbook plot from its caption or description.
+  When the operator asks about a Workspace image, first call `artifact_get`. If its logbook_picture provenance names an entry and attachment id, delegate the question to a logbook agent with both ids and require it to call `attachment_view` for that exact attachment before answering. The artifact is a handoff and provenance record; do not infer the pixels from its filename, caption, or description.
 {%- endif %}
 {%- endif %}
 {% endif -%}

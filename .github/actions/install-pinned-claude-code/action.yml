@@ -1,0 +1,32 @@
+name: Install the pinned Claude Code CLI
+description: >-
+  Install the one Claude Code version OSPREY pins
+  (`_DEFAULT_CLAUDE_CLI_VERSION` in `src/osprey/cli/templates/scaffolding.py`)
+  globally, so `claude` on PATH is that version, and fail unless it reports
+  it. Every agent run OSPREY starts is pointed at an installed `claude` that
+  reports the pinned version and refuses to start otherwise; the copy bundled
+  inside the Agent SDK never runs. Requires a synced project venv, which the
+  caller sets up.
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: '22'
+
+    - name: Install and verify the pinned version
+      shell: bash
+      run: |
+        set -euo pipefail
+        pin="$(uv run python -c 'from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION as v; print(v)')"
+        npm install -g "@anthropic-ai/claude-code@$pin"
+        reported="$(claude --version)"
+        case "$reported" in
+          "$pin"|"$pin "*) echo "claude on PATH: $reported" ;;
+          *)
+            echo "::error::claude --version reported '$reported', expected $pin"
+            exit 1
+            ;;
+        esac

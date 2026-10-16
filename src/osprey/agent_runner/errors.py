@@ -42,3 +42,13 @@ class McpNotReadyError(RuntimeError):
         super().__init__(message)
         self.servers = servers
         self.missing = missing
+
+
+class AgentCliUnavailableError(RuntimeError):
+    """No Claude Code this run may execute is installed, so nothing was started.
+
+    A headless run executes an installed ``claude`` that reports the version
+    the project pins, and nothing else. ``str()`` is the whole message for the
+    operator: what the configuration asks for, what was found instead, and the
+    ways out. A surface shows it as it is, without a traceback.
+    """

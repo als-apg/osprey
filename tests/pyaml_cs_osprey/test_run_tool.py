@@ -2,8 +2,8 @@
 
 The call holds the target's run lock, joining the process's hold, so a second
 run is busy and a missing guarded-run directory stops it before the tool is
-called. Before the first write of each address its value is recorded; nothing
-is written back. A completed run, a stop, an exception and a Ctrl-C each report
+called. Before the first write of each address its value is read, and it is
+recorded once the runtime sent or landed that write; nothing is written back. A completed run, a stop, an exception and a Ctrl-C each report
 the setpoints the run moved with their values before the call: on the returned
 ``ToolRun`` or, on an escaping exception, as ``moved_setpoints``. A Ctrl-C stops
 every tool of the process's run that takes a callback, from any thread.
@@ -59,17 +59,97 @@ def machine(
     assert _run.moved() == {}, "no pyAML run outlives its call"
 
 
-def test_run_tool_imports_no_private_runtime_name() -> None:
-    """The wrapper reaches the runtime only through its public names."""
-    tree = ast.parse(Path(run_tool_mod.__file__).read_text(encoding="utf-8"))
-    private = [
-        f"{node.module}.{alias.name}"
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("osprey.runtime")
-        for alias in node.names
-        if alias.name.startswith("_")
-    ]
-    assert private == []
+def _is_private(name: str) -> bool:
+    return name.startswith("_") and not (name.startswith("__") and name.endswith("__"))
+
+
+def _dotted(node: ast.expr, aliases: dict[str, str]) -> str | None:
+    """The dotted name an attribute chain spells, with import aliases resolved."""
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return None
+    parts.append(aliases.get(node.id, node.id))
+    return ".".join(reversed(parts))
+
+
+def _private_runtime_names(source: str) -> list[str]:
+    """Every private ``osprey.runtime`` name ``source`` imports or reaches by attribute."""
+    tree = ast.parse(source)
+    aliases: dict[str, str] = {}
+    private: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.asname:
+                    aliases[alias.asname] = alias.name
+                if alias.name.startswith("osprey.runtime"):
+                    private += [alias.name] if any(map(_is_private, alias.name.split("."))) else []
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                full = f"{node.module}.{alias.name}"
+                aliases[alias.asname or alias.name] = full
+                if full.startswith("osprey.runtime") and any(map(_is_private, full.split("."))):
+                    private.append(full)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            dotted = _dotted(node, aliases)
+            if (
+                dotted is not None
+                and dotted.startswith("osprey.runtime.")
+                and _is_private(node.attr)
+            ):
+                private.append(dotted)
+    return private
+
+
+def test_the_pyaml_package_reaches_no_private_runtime_name() -> None:
+    """Every module of the package reaches the runtime only through its public names.
+
+    A private name is caught whether it is imported (``from osprey.runtime import
+    _x``, a private submodule) or reached by attribute (``osprey.runtime._x``,
+    ``osprey.runtime.<module>._x``, through any import alias).
+    """
+    import pyaml_cs_osprey
+
+    package = Path(pyaml_cs_osprey.__file__).parent
+    modules = sorted(package.rglob("*.py"))
+    assert Path(_run.__file__) in modules and Path(run_tool_mod.__file__) in modules
+    private = {
+        str(module.relative_to(package)): names
+        for module in modules
+        if (names := _private_runtime_names(module.read_text(encoding="utf-8")))
+    }
+    assert private == {}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from osprey.runtime import _register_write_observer",
+        "from osprey.runtime._run_state import STATE",
+        "import osprey.runtime._run_state",
+        "import osprey.runtime\nosprey.runtime._register_write_observer(print)",
+        "import osprey.runtime as rt\nrt._notify_write('A', 'sent')",
+        "import osprey.runtime\nosprey.runtime.guarded_run._READONLY_REASON",
+        "from osprey import runtime\nruntime._write_observers.clear()",
+    ],
+)
+def test_the_private_name_check_catches_every_spelling(source: str) -> None:
+    assert _private_runtime_names(source) != []
+
+
+def test_the_private_name_check_passes_public_names() -> None:
+    source = (
+        "import osprey.runtime\n"
+        "from osprey.runtime.guarded_run import lock\n"
+        "osprey.runtime.write_channels({})\n"
+        "osprey.runtime.record_writes()\n"
+        "osprey.runtime.guarded_run.lock\n"
+    )
+    assert _private_runtime_names(source) == []
 
 
 class TestRunLock:
@@ -576,7 +656,10 @@ _SIGINT_CHILD = textwrap.dedent(
         return [values[a] for a in addresses]
 
     def write_channel(address, value, **kwargs):
+        # The phases the real runtime reports for a write that went out.
+        osprey.runtime._notify_write(address, "attempt")
         values[address] = value
+        osprey.runtime._notify_write(address, "sent")
 
     osprey.runtime.read_channels = read_channels
     osprey.runtime.write_channel = write_channel

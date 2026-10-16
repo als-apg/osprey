@@ -110,6 +110,16 @@ const HANDOFF_REFUSALS = {
   sdk_unavailable: { message: 'Operator agent unavailable.', action: null },
 };
 
+/**
+ * The `handoff_started_commands` refusal when the server could not read what
+ * the agent started: the overlay states that, not a command it never saw.
+ * @type {{ message: string, action: 'interrupt' }}
+ */
+const HANDOFF_STARTED_UNREAD = {
+  message: 'Could not check what the agent started.',
+  action: 'interrupt',
+};
+
 // `chat_terminated` is deliberately absent above. This table is consulted
 // before the notice tables, and that slug's one useful answer is the notice
 // it already has: the prompt the operator just sent needs sending again. A
@@ -233,7 +243,8 @@ export function transportNotice(err) {
  * @returns {{ message: string, action: 'interrupt'|'retry'|null } | null}
  */
 function handoffRefusal(err) {
-  const slug = /** @type {{ slug?: unknown }} */ (err ?? {}).slug;
+  const { slug, unread } = /** @type {{ slug?: unknown, unread?: unknown }} */ (err ?? {});
+  if (slug === 'handoff_started_commands' && unread === true) return HANDOFF_STARTED_UNREAD;
   if (typeof slug === 'string' && slug in HANDOFF_REFUSALS) return HANDOFF_REFUSALS[slug];
   return null;
 }
@@ -643,6 +654,7 @@ export function initChat(containerId = 'operator-container') {
         askAboutStartedCommands(Array.isArray(refused.commands) ? refused.commands : [], {
           onStop: () => void runHandoff(cutRunningTurn, true),
           onCancel: cancelHandoff,
+          unread: refused.unread === true,
         });
       }
       return;

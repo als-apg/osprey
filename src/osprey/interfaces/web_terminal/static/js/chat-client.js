@@ -150,9 +150,12 @@ async function pump(reader, callbacks) {
  *
  * `commands` is the list a `handoff_started_commands` refusal carries: the
  * commands the outgoing agent started that ending it would also end. It is
- * present only when the body carried one.
+ * present only when the body carried one. `unread` is that refusal's word
+ * that the server could not read what the agent started; it is present only
+ * when the body carried it.
  * @typedef {Error & { status: number, slug: string,
- *   commands?: import('./started-commands.js').StartedCommandJson[] }} TransportError
+ *   commands?: import('./started-commands.js').StartedCommandJson[],
+ *   unread?: boolean }} TransportError
  */
 
 /**
@@ -167,10 +170,13 @@ async function transportError(res) {
   let slug = '';
   /** @type {import('./started-commands.js').StartedCommandJson[] | undefined} */
   let commands;
+  /** @type {boolean | undefined} */
+  let unread;
   try {
     const detail = (await res.json())?.detail;
     if (detail && typeof detail.error === 'string') slug = detail.error;
     if (detail && Array.isArray(detail.commands)) commands = detail.commands;
+    if (detail && typeof detail.unread === 'boolean') unread = detail.unread;
   } catch {
     /* no body, or not the JSON error shape — the status carries the failure */
   }
@@ -180,6 +186,7 @@ async function transportError(res) {
   err.status = res.status;
   err.slug = slug;
   if (commands) err.commands = commands;
+  if (unread !== undefined) err.unread = unread;
   return err;
 }
 
@@ -291,7 +298,8 @@ export async function interrupt(chatId) {
  * operator chose to cut a turn that was still running rather than wait for it.
  * `endStarted` says the operator agreed that ending the outgoing agent also
  * ends the commands it started; without it, a hand-off that would end them is
- * refused `handoff_started_commands` with the list in `err.commands`.
+ * refused `handoff_started_commands` with the list in `err.commands`, or with
+ * `err.unread` set when the server could not read what the agent started.
  *
  * The request is long-lived by design — a busy Expert turn can take minutes to
  * reach idle — so this adds no timeout of its own; *signal* is the only way to

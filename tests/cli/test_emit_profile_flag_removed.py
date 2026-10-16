@@ -98,7 +98,7 @@ def test_the_sweep_would_catch_a_regression(
 def test_cli_rejects_the_removed_flag(tmp_path: Path) -> None:
     """No silent alias: the option does not exist on ``osprey build``."""
     result = CliRunner().invoke(
-        build, [REMOVED_FLAG, str(tmp_path / "p"), "--preset", "hello-world"]
+        build, [REMOVED_FLAG, str(tmp_path / "p"), "--preset", "hello-world", "--skip-deps"]
     )
 
     assert result.exit_code == 2, result.output

@@ -33,6 +33,7 @@ from osprey.agent_runner import (
     ToolUseEvent,
     mcp_snapshot_summary,
 )
+from osprey.agent_runner.clean_env import build_clean_env as _REAL_BUILD_CLEAN_ENV
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.dispatch_worker import sdk_runner
 from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, NO_OWNER
@@ -417,6 +418,29 @@ async def test_subagent_delegation_runs_in_the_foreground(monkeypatch):
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
     assert captured["kw"]["env"]["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_a_dispatch_run_is_offered_the_task_list_tools(monkeypatch):
+    """The run's env turns the task-list tools on, whatever the worker inherited.
+
+    The dispatch allow-list passes the task-list tools through, and the CLI
+    offers them by default only to the models it recognises by name.
+    """
+    monkeypatch.setenv("CLAUDE_CODE_ENABLE_TODO_TOOLS", "0")
+    # The real environment builder, in place of this module's stub.
+    monkeypatch.setattr("osprey.agent_runner.clean_env.build_clean_env", _REAL_BUILD_CLEAN_ENV)
+    captured: dict = {}
+
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        captured["kw"] = kw
+        yield _text("ok")
+        yield _result(total_cost_usd=0.1, num_turns=1)
+
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
+    await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
+
+    assert captured["kw"]["env"]["CLAUDE_CODE_ENABLE_TODO_TOOLS"] == "1"
 
 
 @pytest.mark.asyncio
@@ -1103,3 +1127,37 @@ def test_the_worker_module_imports_without_the_agent_sdk():
         for alias in node.names
     ] + [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
     assert not [name for name in imported if name.split(".")[0] == "claude_agent_sdk"]
+
+
+@pytest.mark.asyncio
+async def test_a_run_whose_pinned_claude_code_is_not_installed_is_refused_with_the_message(
+    monkeypatch, caplog
+):
+    """The operator's message is the run's error; no traceback is logged for it."""
+    from osprey.agent_runner.errors import AgentCliUnavailableError
+
+    message = (
+        "This project pins Claude Code 2.1.146 (claude_code.cli_version), but no `claude` "
+        "was found on PATH. Either install that version:\n"
+        "  npm install -g @anthropic-ai/claude-code@2.1.146\n"
+        "or change claude_code.cli_version."
+    )
+
+    async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - matches the stream_query signature
+        raise AgentCliUnavailableError(message)
+        yield  # pragma: no cover - makes this an async generator
+
+    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
+
+    queue: asyncio.Queue = asyncio.Queue()
+    with caplog.at_level("ERROR", logger=sdk_runner.logger.name):
+        result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
+
+    assert result["status"] == "error"
+    assert result["failure_class"] == "infrastructure"
+    assert result["error"] == message
+    assert result["tool_calls"] == []
+    events = await _drain(queue)
+    assert any(e["type"] == "error" and "npm install -g" in e["message"] for e in events)
+    refusals = [r for r in caplog.records if "2.1.146" in r.getMessage()]
+    assert refusals and all(r.exc_info is None for r in refusals)

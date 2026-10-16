@@ -228,6 +228,10 @@ def test_a_file_swapped_for_another_between_the_check_and_the_open_is_not_read(
     target = folder / "artifacts" / "kept.json"
     target.write_bytes(b"{}")
     real_open = os.open
+    # The checked file stays open across the swap, so its inode cannot be
+    # freed and handed to the replacement: Linux file systems reuse a freed
+    # inode number at once, which would make the swap indistinguishable.
+    held = real_open(target, os.O_RDONLY)
 
     def swapping_open(path, flags, *args, **kwargs):
         if path == "kept.json":
@@ -239,5 +243,8 @@ def test_a_file_swapped_for_another_between_the_check_and_the_open_is_not_read(
 
     monkeypatch.setattr(os, "open", swapping_open)
 
-    with pytest.raises(CollectedFileRefused):
-        read_collected_file(target)
+    try:
+        with pytest.raises(CollectedFileRefused):
+            read_collected_file(target)
+    finally:
+        os.close(held)

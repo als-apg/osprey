@@ -473,6 +473,7 @@ async def get_capabilities(request: Request) -> dict:
         **_get_caps(service.config),
         "config_panel_enabled": panel_enabled,
         "facility_timezone": facility_timezone,
+        "embedded_search": service.config.embedded_search,
     }
     if errors:
         payload = {
@@ -1183,6 +1184,72 @@ async def get_attachment_rendition(request: Request, attachment_id: str) -> Resp
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+async def _picture_for_workspace_artifact(
+    service: ARIELSearchService, attachment_id: str
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Return the stored inputs for a Workspace picture artifact.
+
+    The browser route has the same viewable-only boundary as the rendition
+    route and MCP ``attachment_to_artifact``: it can only hand off bytes that
+    ARIEL already copied and prepared.  In particular, it never follows an
+    attachment's source URL.
+    """
+    from osprey.services.ariel_search.attachments.compose import caption_model_id
+    from osprey.services.ariel_search.attachments.formats import is_viewable
+    from osprey.services.ariel_search.attachments.summaries import (
+        build_attachment_summaries,
+        file_source_for,
+    )
+
+    row = await service.repository.get_rendition(attachment_id)
+    if not row or not is_viewable(row):
+        raise HTTPException(status_code=404, detail=_PICTURE_NOT_AVAILABLE)
+    entry = await service.repository.get_entry(row["entry_id"])
+    if not entry:
+        raise HTTPException(status_code=404, detail=_PICTURE_NOT_AVAILABLE)
+
+    metadata = {key: value for key, value in row.items() if key != "rendition_bytes"}
+    summaries = build_attachment_summaries(
+        entry,
+        [metadata],
+        None,
+        (),
+        file_source=file_source_for(service.config),
+        full_captions=True,
+        model_id=caption_model_id(service.config),
+    )
+    summary = next((item for item in summaries if item.get("attachment_id") == attachment_id), None)
+    if summary is None:
+        raise HTTPException(status_code=404, detail=_PICTURE_NOT_AVAILABLE)
+    return dict(row), dict(entry), summary
+
+
+@router.post("/attachments/{attachment_id}/artifact")
+async def attachment_to_workspace_artifact(request: Request, attachment_id: str) -> dict[str, Any]:
+    """Copy a stored viewable picture into the local Workspace gallery.
+
+    This is intentionally a local API action, not an agent command.  Its
+    response contains only gallery metadata; the caller is responsible for
+    moving its own browser to Workspace after a successful response.
+    """
+    from osprey.services.ariel_search.attachments.artifacts import (
+        save_viewable_picture_as_artifact,
+    )
+
+    service = _require_service(request)
+    _require_attachment_id(attachment_id)
+    try:
+        row, entry, summary = await _picture_for_workspace_artifact(service, attachment_id)
+        return save_viewable_picture_as_artifact(row, entry, summary)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("failed to copy attachment to Workspace artifact")
+        raise HTTPException(
+            status_code=500, detail="Could not copy picture to Workspace."
+        ) from None
 
 
 async def _store_and_link_attachments(

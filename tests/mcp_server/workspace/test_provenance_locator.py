@@ -38,24 +38,15 @@ def _clean_env(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
 
-def _enable_telemetry(monkeypatch, org="default", backend="openobserve"):
+def _enable_telemetry(monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
-    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", f"http://localhost:5080/api/{org}")
-    telemetry: dict = {"enabled": True}
-    if backend is not None:
-        telemetry["backend"] = backend
-    if org is not None:
-        telemetry[backend or "openobserve"] = {"org": org}
-    monkeypatch.setattr(
-        "osprey.utils.workspace.load_osprey_config",
-        lambda: {"claude_code": {"telemetry": telemetry}},
-    )
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
 
 
 @pytest.mark.asyncio
 async def test_env_hit_returns_forced_id(monkeypatch):
     """The OSPREY-forced id + telemetry on → full coordinates for that id."""
-    _enable_telemetry(monkeypatch, org="example")
+    _enable_telemetry(monkeypatch)
     monkeypatch.setenv("OSPREY_TELEMETRY_SESSION_ID", "sess-abc-123")
     monkeypatch.setenv("OSPREY_TELEMETRY_SESSION_START", "2026-07-15T00:00:00+00:00")
     monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "service.name=claude-code,host=x")
@@ -64,8 +55,6 @@ async def test_env_hit_returns_forced_id(monkeypatch):
 
     assert result["session_id"] == "sess-abc-123"
     assert result["service_name"] == "claude-code"
-    assert result["org"] == "example"
-    assert result["stream"] == "default"
     assert result["since"] == "2026-07-15T00:00:00+00:00"
     assert "note" not in result
     # emitted_at is stamped server-side and is a parseable ISO-8601 timestamp.
@@ -82,7 +71,6 @@ async def test_fallback_to_harness_id(monkeypatch):
 
     assert result["session_id"] == "harness-xyz"
     assert result["service_name"] == "claude-code"  # default, no resource attrs
-    assert result["org"] == "default"
 
 
 @pytest.mark.asyncio
@@ -134,92 +122,15 @@ async def test_since_optional(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_a_generic_backend_carries_no_org_or_stream(monkeypatch):
-    """Org and stream address OpenObserve records and nothing else.
+async def test_the_locator_carries_exactly_the_session_coordinates(monkeypatch):
+    """The store is found by session id, service name and time alone.
 
-    They were emitted unconditionally, the org re-parsed out of the OTLP
-    endpoint URL and the stream hard-coded, so a deployment on any other
-    backend handed a consumer two coordinates that name nothing in its store.
-    Omitted rather than nulled: a null still templates into a filed issue.
+    No store-specific addressing (an organization, a stream) is handed out: a
+    key that names nothing in the store would still template into a filed issue.
     """
-    _enable_telemetry(monkeypatch, org="example", backend="generic")
+    _enable_telemetry(monkeypatch)
     monkeypatch.setenv("OSPREY_TELEMETRY_SESSION_ID", "sess-abc-123")
 
     result = json.loads(await _fn()())
 
-    assert result["session_id"] == "sess-abc-123"
-    assert "org" not in result
-    assert "stream" not in result
-
-
-@pytest.mark.asyncio
-async def test_the_org_comes_from_config_not_from_the_endpoint_url(monkeypatch):
-    """One producer: the exporter's URL is built FROM the org, not the reverse."""
-    monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
-    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:5080/api/stale")
-    monkeypatch.setattr(
-        "osprey.utils.workspace.load_osprey_config",
-        lambda: {
-            "claude_code": {
-                "telemetry": {"backend": "openobserve", "openobserve": {"org": "example"}}
-            }
-        },
-    )
-    monkeypatch.setenv("OSPREY_TELEMETRY_SESSION_ID", "sess-abc-123")
-
-    result = json.loads(await _fn()())
-
-    assert result["org"] == "example"
-
-
-@pytest.mark.asyncio
-async def test_an_explicitly_empty_org_is_reported_as_written(monkeypatch):
-    """The default belongs to an absent key; an explicit ``org: ""`` is a value.
-
-    The provisioner resolves it that way because the exporter does, and the
-    locator has to agree with both: rewriting an empty org to ``default`` here
-    would point a maintainer at an organization the deployment never writes to.
-    """
-    monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
-    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:5080/api/")
-    monkeypatch.setattr(
-        "osprey.utils.workspace.load_osprey_config",
-        lambda: {
-            "claude_code": {"telemetry": {"backend": "openobserve", "openobserve": {"org": ""}}}
-        },
-    )
-    monkeypatch.setenv("OSPREY_TELEMETRY_SESSION_ID", "sess-abc-123")
-
-    result = json.loads(await _fn()())
-
-    assert result["org"] == ""
-
-
-@pytest.mark.asyncio
-async def test_an_absent_org_falls_back_to_the_default_organization(monkeypatch):
-    """No ``org`` key at all is the one case the default is for."""
-    monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
-    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:5080/api/default")
-    monkeypatch.setattr(
-        "osprey.utils.workspace.load_osprey_config",
-        lambda: {"claude_code": {"telemetry": {"backend": "openobserve"}}},
-    )
-    monkeypatch.setenv("OSPREY_TELEMETRY_SESSION_ID", "sess-abc-123")
-
-    result = json.loads(await _fn()())
-
-    assert result["org"] == "default"
-
-
-@pytest.mark.asyncio
-async def test_an_unreadable_config_omits_the_coordinates(monkeypatch):
-    """Degrade by saying less, never by guessing a coordinate."""
-    monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
-    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:5080/api/example")
-    monkeypatch.setattr("osprey.utils.workspace.load_osprey_config", lambda: {})
-    monkeypatch.setenv("OSPREY_TELEMETRY_SESSION_ID", "sess-abc-123")
-
-    result = json.loads(await _fn()())
-
-    assert result["session_id"] == "sess-abc-123"
-    assert "org" not in result
+    assert set(result) == {"session_id", "service_name", "since", "emitted_at"}

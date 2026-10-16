@@ -106,10 +106,11 @@ def _patch_embedding_provider(monkeypatch, provider):
     return asked
 
 
-def _reembed_repo(*, tables=(), entry_count=0, has_copy_state=False):
+def _reembed_repo(*, tables=(), entry_count=0, has_copy_state=False, has_input_key=True):
     """Repository mock with just what ``run_reembed`` awaits (schema-behind by default)."""
     repo = MagicMock()
     repo.get_embedding_tables = AsyncMock(return_value=list(tables))
+    repo.has_input_key_column = AsyncMock(return_value=has_input_key)
     repo.count_entries = AsyncMock(return_value=entry_count)
     repo.schema_facts = AsyncMock(return_value=SchemaFacts(False, has_copy_state))
     return repo
@@ -428,6 +429,108 @@ class TestRunReembed:
         assert fake_embedding_provider.calls[0]["texts"] == ["x" * 504]
 
 
+class TestRunReembedInputKey:
+    """Every vector reembed writes carries the build key of the input it was embedded from."""
+
+    async def test_dry_run_names_the_running_key(self, monkeypatch):
+        _forbid_service(monkeypatch)
+
+        messages: list[str] = []
+        result = await ops.run_reembed(
+            dict(_DB),
+            model=_MODEL,
+            dimension=4,
+            batch_size=10,
+            dry_run=True,
+            force=False,
+            progress=messages.append,
+        )
+
+        assert result.dry_run is True
+        assert "  Running key: r1" in messages
+        limit_line = next(i for i, m in enumerate(messages) if m.startswith("  Input limit:"))
+        assert messages[limit_line + 1] == "  Running key: r1"
+
+    async def test_a_table_without_the_key_column_is_refused_before_any_read(
+        self, monkeypatch, fake_pool, fake_embedding_provider
+    ):
+        from osprey.services.ariel_search.exceptions import ModuleConfigError
+
+        repo = _reembed_repo(tables=[_embedding_table(_TABLE)], entry_count=3, has_input_key=False)
+        _patch_service(monkeypatch, _StubService(repo, fake_pool))
+        _patch_embedding_provider(monkeypatch, fake_embedding_provider)
+
+        with pytest.raises(ModuleConfigError) as excinfo:
+            await ops.run_reembed(
+                dict(_DB),
+                model=_MODEL,
+                dimension=4,
+                batch_size=10,
+                dry_run=False,
+                force=True,
+                progress=None,
+            )
+
+        assert str(excinfo.value) == "schema behind code: run osprey ariel migrate"
+        assert excinfo.value.key == "osprey ariel migrate"
+        repo.has_input_key_column.assert_awaited_once_with(_TABLE)
+        # Nothing was read, written or altered: no SELECT entry_id, no INSERT, no DDL.
+        assert fake_pool.calls == []
+        assert fake_embedding_provider.calls == []
+
+    async def test_a_table_created_in_the_same_call_is_not_probed(
+        self, monkeypatch, fake_pool_factory, fake_embedding_provider
+    ):
+        pool = fake_pool_factory(
+            rows_for={
+                _PGVECTOR_PROBE: [(True,)],
+                _SELECT_ENTRIES: [("E1", "first text")],
+                f"SELECT 1 FROM {_TABLE}": [],
+            }
+        )
+        repo = _reembed_repo(tables=[], entry_count=1, has_input_key=False)
+        _patch_service(monkeypatch, _StubService(repo, pool))
+        _patch_embedding_provider(monkeypatch, fake_embedding_provider)
+
+        result = await ops.run_reembed(
+            dict(_DB),
+            model=_MODEL,
+            dimension=4,
+            batch_size=10,
+            dry_run=False,
+            force=False,
+            progress=None,
+        )
+
+        assert result.processed == 1
+        repo.has_input_key_column.assert_not_awaited()
+
+    async def test_force_rewrites_the_key_with_the_vector(
+        self, monkeypatch, fake_pool_factory, fake_embedding_provider
+    ):
+        pool = fake_pool_factory(rows_for={_SELECT_ENTRIES: [("E1", "one"), ("E2", "two")]})
+        repo = _reembed_repo(tables=[_embedding_table(_TABLE)], entry_count=2)
+        _patch_service(monkeypatch, _StubService(repo, pool))
+        _patch_embedding_provider(monkeypatch, fake_embedding_provider)
+
+        result = await ops.run_reembed(
+            dict(_DB),
+            model=_MODEL,
+            dimension=4,
+            batch_size=10,
+            dry_run=False,
+            force=True,
+            progress=None,
+        )
+
+        assert result.processed == 2
+        inserts = pool.matching(f"INSERT INTO {_TABLE} (entry_id, embedding, input_key)")
+        assert [params[2] for _, params in inserts] == ["r1", "r1"]
+        assert pool.matching(
+            "DO UPDATE SET embedding = EXCLUDED.embedding, input_key = EXCLUDED.input_key"
+        )
+
+
 class TestRunReembedAttachmentText:
     """On a store with copy state the picture text joins the input of entries that have it."""
 
@@ -662,14 +765,17 @@ class TestEmbedBatch:
             _TABLE,
             True,
             messages.append,
+            input_key="r1",
         )
 
         assert (processed, errors) == (2, 0)
-        inserts = fake_pool.matching(f"INSERT INTO {_TABLE} (entry_id, embedding)")
+        inserts = fake_pool.matching(f"INSERT INTO {_TABLE} (entry_id, embedding, input_key)")
         assert len(inserts) == 2
         assert [params[0] for _, params in inserts] == ["E1", "E2"]
+        assert [params[2] for _, params in inserts] == ["r1", "r1"]
         assert fake_pool.matching(
-            "ON CONFLICT (entry_id) DO UPDATE SET embedding = EXCLUDED.embedding"
+            "ON CONFLICT (entry_id) DO UPDATE SET embedding = EXCLUDED.embedding, "
+            "input_key = EXCLUDED.input_key"
         )
         assert messages == ["  Processed 2 entries in batch..."]
         assert fake_embedding_provider.calls[0]["base_url"] == "http://embed.invalid"

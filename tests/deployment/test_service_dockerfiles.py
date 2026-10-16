@@ -495,15 +495,15 @@ def test_event_dispatcher_has_no_third_party_node_apt_repo():
 
 
 def test_event_dispatcher_keeps_npm_in_the_final_image():
-    """npm is a runtime dependency, not a build-time convenience: the worker
-    launches the agent as ``npx -y @anthropic-ai/claude-code@<version>``
-    (agent_runner/launcher.py). The deps layer's own toolchain purge is asserted
-    elsewhere; what must not appear is a purge in *this* layer."""
+    """nodejs and npm stay in the final image, beside the Claude Code CLI npm
+    installs there and a headless run executes directly. The deps layer's own
+    toolchain purge is asserted elsewhere; what must not appear is a purge in
+    *this* layer."""
     text = _dockerfile("event_dispatcher")
     node = _run_instruction_source(text, "nodejs")
     assert "apt-get purge" not in node, "the node layer purges packages"
     assert "autoremove" not in node, "the node layer autoremoves packages"
-    assert "npm is a runtime dependency, not a build-time convenience" in text
+    assert "nodejs and npm stay in the final image" in text
 
 
 def test_virtual_accelerator_wheel_extra_placement():

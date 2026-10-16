@@ -881,7 +881,7 @@ async def test_run_query_passes_caller_options_through(project_dir: Path) -> Non
     assert options.system_prompt == "find channels"
     assert options.setting_sources == []
     assert options.stderr is _sink
-    assert options.env == caller_env
+    assert options.env == {**caller_env, "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"}
 
 
 @pytest.mark.asyncio

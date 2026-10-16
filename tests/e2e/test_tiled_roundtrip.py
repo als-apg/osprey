@@ -93,13 +93,14 @@ TILED_PORT = 18192
 # services.virtual_accelerator.port -- moving the deployed soft-IOC's port is a
 # one-place edit, and the connector follows it.
 VA_CA_PORT = 15065
-# ariel-postgres (5432) and OpenObserve (5080) are deployed unconditionally by
-# the control-assistant preset with no profile knob to drop them, and a
-# locally-running tutorial stack routinely holds both. A bound-port collision
-# aborts `osprey up` before the bridge/Tiled containers it creates alongside
-# them ever start, so both are moved to high, unassigned ports.
+# ariel-postgres, the telemetry gateway and the telemetry store are deployed
+# unconditionally by the control-assistant preset, and a locally-running
+# tutorial stack routinely holds their ports. A bound-port collision aborts
+# `osprey up` before the bridge/Tiled containers it creates alongside them ever
+# start, so all three are moved to high, unassigned ports.
 POSTGRES_PORT = 25433
-OPENOBSERVE_PORT = 25082
+TELEMETRY_GATEWAY_PORT = 24320
+TELEMETRY_STORE_PORT = 28125
 
 # The deployment repo's directory name IS the deployment's name; the compose
 # template renders each container_name AND the bridge's locally-built image as
@@ -215,7 +216,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         "services": {},
         "config": {
             "services.postgresql.port_host": POSTGRES_PORT,
-            "services.openobserve.port": OPENOBSERVE_PORT,
+            "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
+            "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             "modules.web_terminals.enabled": False,
         },
     }

@@ -68,10 +68,9 @@ from tests.e2e.test_preset_agentic import (
     _to_workflow_result,
 )
 
-# We only gate on HAS_SDK — the Claude Agent SDK ships a bundled ``claude``
-# binary inside its package, so a system-PATH ``claude --version`` check
-# (which is_claude_code_available() runs) would spuriously skip this test
-# on CI runners where the SDK is installed but no system ``claude`` is.
+# We only gate on HAS_SDK — the run executes the installed pinned ``claude``,
+# and a runner without it must fail this test loudly, not skip it the way a
+# ``claude --version`` gate (is_claude_code_available()) would.
 pytestmark = [
     pytest.mark.e2e,
     pytest.mark.agentic_benchmark,
@@ -125,7 +124,7 @@ async def test_sector7_vacuum_burst_flow(tmp_path: Path) -> None:
         "vacuum_burst_demo",
         template="control_assistant",
         provider="als-apg",
-        model="claude-opus-5-5",
+        model="claude-haiku-5-5",
     )
     # Switch the mock connectors' data substrate from the flat ``nominal``
     # default to the ``vacuum-burst`` scenario bundle — the SR07 pressure spike

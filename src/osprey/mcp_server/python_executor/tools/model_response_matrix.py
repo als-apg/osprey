@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 from osprey.mcp_server.errors import make_error
-from osprey.simulation.response import DEFAULT_KIND, INDEX_KEYS, RESULT_TAG
+from osprey.simulation.response import DEFAULT_KIND, RESULT_TAG
 
 logger = logging.getLogger("osprey.mcp_server.tools.model_response_matrix")
 
@@ -67,6 +67,9 @@ _EXECUTION_MODE = "readonly"
 
 #: The planes a corrector setpoint steers, in column order when none are named.
 _PLANES = ("x", "y")
+
+#: The keys of a child's result line for a solve.
+_SOLVED_KEYS = frozenset({"rows", "columns", "matrix", "unsolved"})
 
 #: The unit statement every result carries.
 _UNIT = "each entry is a readback change in its hardware unit per setpoint change in its own"
@@ -308,7 +311,11 @@ def _child_script(request: ModelRequest) -> str:
 
 
 def _result_line(stdout: str, kind: str = DEFAULT_KIND) -> dict[str, Any] | None:
-    """The child's last result line, or ``None`` when it printed none of ``kind``'s shape."""
+    """The child's last result line, or ``None`` when it printed none of ``kind``'s shape.
+
+    A line of a kind other than the default carries the ``index`` of every
+    row, column and unsolved corrector.
+    """
     prefix = RESULT_TAG + " "
     lines = [line[len(prefix) :] for line in stdout.splitlines() if line.startswith(prefix)]
     if not lines:
@@ -316,37 +323,30 @@ def _result_line(stdout: str, kind: str = DEFAULT_KIND) -> dict[str, Any] | None
     value = json.loads(lines[-1])
     if not isinstance(value, dict):
         return None
-    if "error" in value:
+    if "refused" in value:
         return value
-    if "rows" not in value or "matrix" not in value:
+    if not _SOLVED_KEYS <= value.keys():
         return None
-    if kind == DEFAULT_KIND:
-        return value
-    parts: list[list[Any]] = []
-    for key in ("rows", "columns", "matrix", *INDEX_KEYS):
-        part = value.get(key)
-        if not isinstance(part, list):
+    if kind != DEFAULT_KIND:
+        index = value.get("index")
+        named = [*value["rows"], *value["columns"], *value["unsolved"]]
+        if not isinstance(index, dict) or any(address not in index for address in named):
             return None
-        parts.append(part)
-    rows, columns, matrix, row_index, *column_index = parts
-    if len(row_index) != len(rows) or sum(map(len, column_index)) != len(columns):
-        return None
-    if len(matrix) != len(rows):
-        return None
     return value
 
 
 def _label(request: ModelRequest, line: Mapping[str, Any]) -> dict[str, Any]:
     """The result the agent reads: a line's rows and columns named by address and device.
 
-    A line of a kind other than the default names its own columns, and each
-    of its rows and columns also gets its plane word and its lattice index.
+    A line of a kind other than the default also gives each row and column
+    its plane word and its lattice index.
 
     Raises:
-        ValueError: The line's columns are not the correctors the request stepped.
+        ValueError: The line's columns and unsolved correctors are not the
+            correctors the request stepped.
     """
     view = request.view
-    if request.kind != DEFAULT_KIND and sorted(line["columns"]) != sorted(request.correctors):
+    if sorted([*line["columns"], *line["unsolved"]]) != sorted(request.correctors):
         raise ValueError("the columns solved are not the correctors asked for")
     labelled: dict[str, Any] = {
         "model": request.model,
@@ -359,25 +359,20 @@ def _label(request: ModelRequest, line: Mapping[str, Any]) -> dict[str, Any]:
                 "device": request.devices.get(address),
                 "step": request.steps[address],
             }
-            for address in (request.correctors if request.kind == DEFAULT_KIND else line["columns"])
+            for address in line["columns"]
         ],
         "matrix": line["matrix"],
+        "unsolved": line["unsolved"],
     }
     if request.kind == DEFAULT_KIND:
         return labelled
     from osprey.facility.views.pyaml import PLANE_WORDS
 
-    row_index, horizontal, vertical = (line[key] for key in INDEX_KEYS)
+    index = line["index"]
     planes = {binding.address: str(binding.plane) for binding in view.model(request.model).bindings}
-    for row, index in zip(labelled["rows"], row_index, strict=True):
-        row["plane"] = PLANE_WORDS.get(planes.get(row["address"], ""))
-        row["index"] = index
-    steered = [*(PLANE_WORDS["x"] for _ in horizontal), *(PLANE_WORDS["y"] for _ in vertical)]
-    for column, plane, index in zip(
-        labelled["columns"], steered, [*horizontal, *vertical], strict=True
-    ):
-        column["plane"] = plane
-        column["index"] = index
+    for entry in (*labelled["rows"], *labelled["columns"]):
+        entry["plane"] = PLANE_WORDS.get(planes.get(entry["address"], ""))
+        entry["index"] = index[entry["address"]]
     return {"kind": request.kind, **labelled}
 
 
@@ -405,11 +400,17 @@ async def model_response_matrix(
     Returns:
         JSON: ``model``, ``corrector_delta``, ``unit``, ``rows`` (``{address,
         device}`` per reading), ``columns`` (``{address, device, step}`` per
-        corrector, ``step`` in its hardware unit) and ``matrix`` (one list per
-        row). For ``trajectory`` the result also names its ``kind``, the
-        columns are the horizontal correctors then the vertical ones, and each
-        row and column also carries ``plane`` (``H`` or ``V``) and ``index``,
-        its element's position along the lattice from where the beam starts.
+        solved corrector, ``step`` in its hardware unit), ``matrix`` (one list
+        per row) and ``unsolved`` (each corrector whose step has no solve,
+        mapped to the engine's text). For ``trajectory`` the result also
+        names its ``kind``, the columns are the horizontal correctors then
+        the vertical ones, a corrector whose step loses the launched particle
+        is unsolved, and each row and column also carries ``plane`` (``H`` or
+        ``V``) and ``index``, its element's position along the lattice from
+        where the beam starts. When no corrector solves, the call is refused
+        with every unsolved text and ``details.unsolved`` holding the same
+        map; when the engine refuses the request, the call is refused with
+        the engine's text.
     """
     from osprey.mcp_server.python_executor import executor
     from osprey.mcp_server.python_executor.tools._pyaml_measure_args import TIMEOUT_KEY
@@ -437,7 +438,7 @@ async def model_response_matrix(
     labelled: dict[str, Any] | None = None
     try:
         line = _result_line(result.stdout or "", request.kind)
-        if line is not None and "error" not in line:
+        if line is not None and "refused" not in line:
             labelled = _label(request, line)
     except ValueError:
         line = None
@@ -448,12 +449,19 @@ async def model_response_matrix(
             ["Read stderr for the reason."],
             details={"model": request.model, "stderr": (result.stderr or "")[-2000:]},
         )
-    if "error" in line:
+    if "refused" in line:
+        make_error(
+            "validation_error",
+            f"the response of {request.model} was refused: {line['refused']}",
+            [],
+            details={"model": request.model},
+        )
+    if not line["columns"]:
         make_error(
             "execution_error",
-            f"the response of {request.model} has no solve: {line['error']}",
+            f"the response of {request.model} has no solve: {'; '.join(line['unsolved'].values())}",
             [f"Name other correctors, or check {STEP_KEY} in measurement/{request.model}.yaml."],
-            details={"model": request.model},
+            details={"model": request.model, "unsolved": line["unsolved"]},
         )
     return json.dumps(labelled)
 

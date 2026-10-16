@@ -80,6 +80,7 @@ an emitter never needs a ``try`` of its own.
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -329,8 +330,37 @@ def _encode(record: dict[str, Any]) -> bytes:
     Compact separators because the byte budget is the point, and the default
     ``ensure_ascii`` because a ledger of pure ASCII lines is readable by every
     consumer that will ever tail it.
+
+    A line is strict JSON: ``NaN`` and ``Infinity`` are not, and a reader that
+    refuses them would lose the whole record for one unreadable number. The
+    encoder refuses them first, and only the rare record that carries one pays
+    for the walk that spells it as a string (:func:`_finite`).
     """
-    return (json.dumps(record, separators=(",", ":")) + "\n").encode("utf-8", "replace")
+    try:
+        text = json.dumps(record, separators=(",", ":"), allow_nan=False)
+    except ValueError:
+        text = json.dumps(_finite(record), separators=(",", ":"), allow_nan=False)
+    return (text + "\n").encode("utf-8", "replace")
+
+
+def _finite(value: Any) -> Any:
+    """*value* with every non-finite float replaced by its name as a string.
+
+    ``"NaN"``, ``"Infinity"`` or ``"-Infinity"``, through dicts (keys
+    included), lists and tuples. Everything else is returned as it is, so the
+    encoder's own rules still decide what it accepts.
+    """
+    if isinstance(value, float):
+        if math.isnan(value):
+            return "NaN"
+        if math.isinf(value):
+            return "Infinity" if value > 0 else "-Infinity"
+        return value
+    if isinstance(value, dict):
+        return {_finite(key): _finite(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite(item) for item in value]
+    return value
 
 
 def _line_for(envelope: AuditEnvelope) -> bytes:

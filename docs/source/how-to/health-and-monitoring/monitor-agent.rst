@@ -5,8 +5,8 @@ Monitor Your OSPREY Agent
 =========================
 
 How to emit the OSPREY agent's operational telemetry — logs, metrics and traces — over
-OpenTelemetry (OTLP), and optionally view it in a self-hosted store deployed
-alongside your project.
+OpenTelemetry (OTLP), and optionally keep it in a store deployed alongside your
+project, together with the audit ledger.
 
 .. dropdown:: What You'll Learn
    :color: primary
@@ -15,12 +15,10 @@ alongside your project.
    - What telemetry the agent emits and how it is transported (OTLP)
    - **Phase 1:** enabling emit against any OTLP-compatible backend
      (backend-agnostic)
-   - **Phase 2:** the local OpenObserve add-on the presets deploy by default,
-     for an all-in-one, air-gapped store
+   - **Phase 2:** the telemetry store and gateway the presets deploy by
+     default, for an all-in-one, air-gapped record
+   - How each sender logs in, and how the endpoint follows where it runs
    - The full-content-capture posture and how to suppress content categories
-   - The store's two identities — the browser login and the telemetry ingest
-     account — and what each one can read
-   - Rotation, data-volume, and restart caveats
 
    **Prerequisites (Phase 2 only):** Docker (or Podman) installed locally.
 
@@ -30,22 +28,23 @@ Overview
 The OSPREY agent can emit its operational telemetry — structured event logs,
 runtime metrics and traces — over the OpenTelemetry Protocol (OTLP). Projects built from
 the bundled presets ship with telemetry **already enabled** and pointed at the
-local OpenObserve store; the mechanism itself only stays off when a config has
+local telemetry gateway; the mechanism itself only stays off when a config has
 no ``telemetry:`` block under ``claude_code:``. There are two ways to consume
 it:
 
 - **Phase 1 — any OTLP endpoint (backend-agnostic).** Point the agent at an
   OTLP collector or observability platform you already run. OSPREY only produces
   OTLP; it does not care what receives it.
-- **Phase 2 — the local OpenObserve add-on (the scaffolded default).** A
-  single-binary OpenObserve store deployed next to your project with
-  ``osprey up``; all telemetry stays on the same host. This is the
-  turn-key option when you have no existing observability stack.
+- **Phase 2 — the telemetry store and gateway (the scaffolded default).** Two
+  containers deployed next to your project with ``osprey up``: a database that
+  holds the record, and an OpenTelemetry Collector in front of it that admits
+  each sender by its own login and also reads the audit ledger files. All
+  telemetry stays on the same host.
 
 .. note::
 
-   Traces are exported to the same endpoint as logs and metrics. The exporter
-   appends ``/v1/traces`` to it, which is OpenObserve's traces route. For a
+   Traces are exported to the same endpoint as logs and metrics; the exporter
+   appends ``/v1/traces`` to it. The Phase 2 gateway takes all three. For a
    Phase 1 collector that takes no traces, leave them out with ``signals`` (see
    :ref:`monitor-agent-signals`).
 
@@ -62,7 +61,7 @@ pointed at an endpoint:
      telemetry:
        enabled: true
        endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}   # your OTLP collector
-       protocol: http/protobuf                    # default; or grpc
+       protocol: http/protobuf                    # default; or http/json, grpc
        auth:
          token_env: OTLP_COLLECTOR_TOKEN          # variable holding the bearer token
        resource_attributes:                       # attached to every record
@@ -80,22 +79,22 @@ Keys:
    * - ``enabled``
      - Master switch. ``false`` (the default) emits nothing.
    * - ``backend``
-     - Backend hint — ``generic`` for a plain OTLP endpoint, ``openobserve``
-       for the Phase 2 add-on.
+     - ``generic`` (the default when unset) for an endpoint you name, or
+       ``gateway`` for the Phase 2 telemetry gateway.
    * - ``endpoint``
      - OTLP base endpoint. Use the ``${VAR}`` form so the value comes from your
        ``.env`` rather than being committed to ``config.yml``.
    * - ``protocol``
-     - OTLP transport. Defaults to ``http/protobuf``. ``grpc`` requires an
-       explicit ``endpoint``: it is refused against the auto-derived
-       ``openobserve`` endpoint, which is HTTP-only.
+     - OTLP transport. Defaults to ``http/protobuf``. The gateway takes
+       ``http/protobuf`` and ``http/json``; ``grpc`` is for ``generic`` only.
    * - ``signals``
      - Which of ``metrics``, ``logs`` and ``traces`` to export. Defaults to all
        three; see :ref:`monitor-agent-signals`.
    * - ``auth.token_env``
      - The environment variable holding the collector's bearer token; the agent
        sends ``Authorization: Bearer <value>``. Holds the variable's name, never
-       the token.
+       the token. ``generic`` only: under ``gateway`` each sender logs in with
+       its own login.
    * - ``resource_attributes``
      - Attributes stamped onto every emitted record — useful for separating
        environments or agent instances in your backend.
@@ -114,9 +113,8 @@ That is all Phase 1 requires — the agent begins emitting on its next run.
 On a web-terminal deploy, every ``${VAR}`` in the ``telemetry`` block that has
 no ``:-default`` must be set in the project's ``.env``; ``osprey up`` refuses
 the deploy and names the key and the variable. None of these values is copied
-into ``.env.users``, the one file every web terminal shares — the only
-exception is the store account name ``ZO_INGEST_USER_EMAIL`` (Phase 2) — so a
-value the terminals need from this block does not reach them from there.
+into ``.env.users``, the one file every web terminal shares, so a value the
+terminals need from this block does not reach them from there.
 
 The web terminals receive the variable ``auth.token_env`` names from the
 deploy ``.env`` through their own compose environment, never ``.env.users``,
@@ -149,231 +147,164 @@ export nothing, set ``enabled: false``. Built-in tool output
 events, so a list without ``traces`` leaves it out of the store. The osprey
 tool-call record is written either way.
 
-Phase 2 — The local OpenObserve add-on
-======================================
 
-If you do not already run an observability stack, OSPREY ships an
-`OpenObserve <https://openobserve.ai/>`_ service: a single binary that ingests
-OTLP directly and serves a browser UI, with no external dependencies. Everything
-stays on the deploy host.
+Phase 2 — The telemetry store and gateway
+=========================================
 
-1. Check the service is enabled
--------------------------------
+If you do not already run an observability stack, OSPREY deploys one of its
+own: two services that keep the agent's telemetry and the audit ledger on the
+deploy host, queryable with SQL.
 
-Projects ship with the ``openobserve`` service already declared in
-``config.yml`` **and** listed under ``deployed_services`` — it deploys by
-default. If your project removed it, restore it:
+- ``telemetry_store`` — a ClickHouse database
+  (``clickhouse/clickhouse-server``) holding the database ``telemetry``.
+  ``osprey up`` creates its tables, its accounts and their limits. It publishes
+  its HTTP port on the host's loopback only.
+- ``telemetry_gateway`` — an OpenTelemetry Collector
+  (``opentelemetry-collector-contrib``). It receives OTLP over HTTP from the
+  agent, refuses any sender without a valid login, stamps every record with
+  the sender's name, and writes to the store with an account that can only
+  insert. It also reads every ledger file under ``var/audit/`` into the table
+  ``audit_ledger``.
+
+The tables are ``otel_logs``, ``otel_traces``, the five ``otel_metrics_*``
+tables (the Collector's own table names and columns, so its upstream
+documentation applies) and ``audit_ledger``. Every row carries the sender in
+``User``, and the session columns ``SessionId``, ``TerminalSession`` and
+``ToolUseId`` are the same on both sides, so the agent's own events and its
+ledger records join on them. For the ledger table, see
+:ref:`audit-trail-in-the-store`.
+
+1. Check the services are deployed
+----------------------------------
+
+Projects ship with both services declared in ``config.yml`` **and** listed
+under ``deployed_services``. If your project removed them, restore them:
 
 .. code-block:: yaml
 
    services:
-     openobserve:
-       path: ./services/openobserve
-       port: 10050         # host port for the UI + OTLP ingest (deployment.port_base + 50)
+     telemetry_store:
+       path: ./services/telemetry_store
+       retention_days: 14       # the store drops rows older than this
+       readers:
+         - name: operator       # who may query it with SQL
+     telemetry_gateway:
+       path: ./services/telemetry_gateway
 
    deployed_services:
-     - openobserve
+     - telemetry_store
+     - telemetry_gateway
 
-2. Know the store's two identities
-----------------------------------
+Both publish on fixed slots above ``deployment.port_base``: the store at + 804
+(``services.telemetry_store.port``) on loopback, the gateway at + 51
+(``services.telemetry_gateway.port``) on ``deployment.bind_address``. The store's
+container memory is ``services.telemetry_store.memory`` (default ``2g``).
 
-The store carries two separate identities, and they do different jobs:
+2. Build and deploy
+-------------------
+
+.. code-block:: bash
+
+   osprey build
+   osprey up
+
+There is nothing to set by hand. Every account has its secret in a file of its
+own at the repo root, mode 0600, outside the ``.env`` chain:
 
 .. list-table::
    :header-rows: 1
-   :widths: 16 40 44
+   :widths: 40 60
 
-   * - Identity
-     - ``.env`` variables
-     - What it is for
-   * - **Root**
-     - ``ZO_ROOT_USER_EMAIL``, ``ZO_ROOT_USER_PASSWORD``
-     - Initializes the store on its first start, and logs *you* into the
-       browser UI. It never leaves the deploy host: nothing on the wire
-       authenticates as root.
-   * - **Ingest**
-     - ``ZO_INGEST_USER_EMAIL``, ``ZO_INGEST_SA_TOKEN``
-     - The account the agent authenticates as when it ships telemetry. This is
-       the credential that travels — into the rendered ``config.yml``, and into
-       web-terminal environments.
+   * - File
+     - Whose
+   * - ``.env.telemetry-admin``
+     - The store's own administrator, ``osprey_admin``
+   * - ``.env.telemetry-ingest``
+     - The gateway's insert-only account
+   * - ``.env.telemetry-sender.<identity>``
+     - One sender's login: a roster user, a dispatch worker, or the host
+       identity (``deployment.host_identity``) for runs on the host
+   * - ``.env.telemetry-senders.htpasswd``
+     - What the gateway checks the logins against
+   * - ``.env.telemetry-archive``
+     - The archive's read-only account
+   * - ``.env.telemetry-history``, ``.env.telemetry-history-gate``
+     - The history page, where it is deployed
+   * - ``.env.telemetry-reader.<name>``
+     - One reader's key (:doc:`read-the-record`)
 
-You do not have to set either one. ``osprey up`` writes whatever is missing
-into the project's ``.env``, so the answer to "what do I log in with" is always
-that file:
+``osprey build`` writes every file but the reader keys, which ``osprey up``
+mints. Each file reaches exactly the container that acts as that account,
+and no other: a terminal holds its own login and nothing else. The web
+terminals, the dispatch workers and host runs each send under their own name.
+To rotate a secret, delete its file and run ``osprey build`` and ``osprey up``;
+the services that hold it are recreated. ``osprey reset`` keeps the files.
 
-.. code-block:: bash
+Verify both services with ``osprey health``: ``telemetry_store`` checks the
+store answers, and ``telemetry_gateway`` checks the gateway's export queues and
+refusal counters, and lists any audit directory it does not read yet.
 
-   grep ZO_ ~/my-project/.env
-
-**Root** is written before the store starts, because the store reads it to
-initialize itself. The minted password is short on purpose: you read it off a
-terminal and type it into a browser login form, so it is 12 characters drawn
-from an alphabet with the easily-misread characters (``l I 1 O 0``) removed.
-Every character still comes from a cryptographic random source, so it is short
-to type without being easy to guess. Set the pair yourself, in the project's
-``.env``, if you want specific values:
-
-.. code-block:: bash
-
-   # .env
-   ZO_ROOT_USER_EMAIL=you@example.com
-   ZO_ROOT_USER_PASSWORD=choose-a-strong-password
-
-**Ingest** cannot work that way, and this is the asymmetry worth remembering:
-its secret is issued by the *store*, not chosen by OSPREY, so it cannot exist
-before the store is running. The deploy creates the account and reads its token
-back — see step 3. Only the account *name* is written up front, and you may set
-it to an address of your choosing; the token half is never yours to write.
-
-.. warning::
-
-   **The ingest identity can read, shorten, and delete everything the store
-   holds.** It is a real OpenObserve service account, and its token can do
-   more than write telemetry:
-
-   - search every stream already in the store, which means the agent's full
-     conversation transcripts;
-   - list the store's users;
-   - change a stream's retention, so it can shorten how long the record is
-     kept;
-   - delete a stream outright.
-
-   It cannot create users. So the credential that writes the record can also
-   read it back, shorten it, or erase it. OpenObserve has no ingest-only role
-   in any edition, so this is as narrow as the shipped identity gets. The token
-   reaches every process that exports telemetry, headless dispatch runs
-   included. Guard it as closely as the telemetry itself. What it does buy you
-   is that the root password stays on the deploy host and never reaches a
-   config file, a container environment, or the network.
-
-.. important::
-
-   **Publishing this store beyond** ``localhost`` **exposes agent transcripts.**
-   It holds full agent conversation transcripts, and both identities can read
-   them. Reach it over an SSH tunnel, or put it behind TLS, rather than binding
-   it to every interface. The minted password is a per-deploy random value, so
-   it stays usable wherever the store is published — what exposure changes is
-   who can reach the login, not how strong the password is.
-
-3. Deploy it
-------------
-
-.. code-block:: bash
-
-   osprey up        # brings up openobserve alongside your other services
-
-``osprey up`` starts the store first, then provisions the ingest identity
-against it and saves the token the store issues into the project's ``.env``.
-There is nothing to set by hand. The run reports what it did under the
-``openobserve`` group:
-
-.. code-block:: text
-
-   telemetry store started
-   ingest identity verified        # the token already on file works
-   ingest identity provisioned     # the deploy had to create, harvest, or reissue one
-
-Only a run that *writes* says more, naming which of the three happened:
-
-.. code-block:: text
-
-   created the telemetry ingest account and saved its token → .env
-   read the telemetry ingest token back from the store → .env
-   the telemetry ingest token was refused, so a new one was issued → .env
-
-A verified token is silent — no extra lines means nothing needed changing.
-
-.. note::
-
-   On a deployment that has never been started, ``ZO_INGEST_SA_TOKEN`` is
-   simply absent from ``.env`` until this step runs. The deploy's preflight
-   checks **defer** that one variable rather than refusing to start, because it
-   is the one credential an operator cannot supply. For the same reason,
-   ``osprey build`` against a never-started deployment warns that
-   ``ZO_INGEST_SA_TOKEN`` is unresolved and leaves the telemetry auth header
-   out; that warning is expected, and the value is resolved again when the
-   agent starts.
-
-If the store is unreachable, or the store refuses the root credential, the
-deploy warns with a named remedy and carries on — telemetry is the only thing
-affected, and every other service in the deployment comes up as usual. The
-remedy is almost always to run ``osprey up`` again once the store is running.
-
-The UI is then available at ``http://localhost:10050`` — the layout's
-``openobserve`` slot, ``deployment.port_base`` + 50; ``services.openobserve.port``
-moves it. Log in with the **root** credentials. Verify the service is
-recognized with ``osprey health``.
-
-4. Point the agent at it
+3. Point the agent at it
 ------------------------
-
-Wire the ``telemetry:`` block to ``backend: openobserve`` and name the **ingest**
-identity in the ``openobserve:`` sub-block — never the root account. **Do not
-set** ``endpoint`` for this backend — omit it and the agent derives the OTLP
-ingest URL automatically per network context:
 
 .. code-block:: yaml
 
    claude_code:
      telemetry:
        enabled: true
-       backend: openobserve
-       # No `endpoint:` here — for the openobserve backend it is derived
-       # automatically (see the note below).
+       backend: gateway
        protocol: http/protobuf
-       openobserve:
-         user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
-         password: ${ZO_INGEST_SA_TOKEN}
-         org: default
 
 This is what the bundled presets already ship, so a project scaffolded from one
-needs no edit here. The token reference deliberately carries **no** ``:-``
-fallback: a default value would be a credential the store never issued, and
-telemetry would fail with a plausible-looking secret on file instead of an
-obviously missing one. The account name does carry a fallback, because it is a
-name rather than a secret.
+needs no edit here. The block names **no endpoint and no credential**: under
+``backend: gateway`` the endpoint follows where the sender runs, and the login
+comes from the sender's own file. Setting ``endpoint`` or ``auth.token_env``
+under this backend stops the build.
 
 .. raw:: html
    :file: ../../_diagrams/otel-endpoint-context.html
 
 .. important::
 
-   For ``backend: openobserve`` the OTLP endpoint is **auto-derived** and you
-   should not hardcode it. The derived form is ``http://<host>:<port>/api/<org>``,
-   with both halves chosen for the running context:
+   The gateway is reached under a different address depending on where the
+   sender runs:
 
-   - **On the host** (``osprey web`` / ``osprey query`` on your machine) the host
-     is ``localhost`` and the port is the one the store **publishes** —
-     ``services.openobserve.port``, so moving the store moves the exporter
-     with it.
+   - **On the host** (``osprey web`` / ``osprey chat`` on your machine), at the
+     address the gateway publishes: ``deployment.bind_address`` (loopback for a
+     wildcard bind) and ``services.telemetry_gateway.port``.
    - **Inside a host-networked container** (every web-terminal persona
-     container, a dispatch worker on the host network) the container's
-     loopback is the host's, so the address is the same published one. The
-     framework's compose files declare the host explicitly
-     (``OSPREY_OTEL_OPENOBSERVE_HOST=127.0.0.1`` or ``localhost``), because
-     the emitter's own container detection would otherwise pick the compose
-     DNS name, which resolves to nothing there.
+     container, a dispatch worker on the host network), at that same published
+     address. The container's compose file declares it as
+     ``OSPREY_OTEL_GATEWAY_HOST`` and ``OSPREY_OTEL_GATEWAY_PORT``.
    - **Inside a bridge-networked container** (the default containerized
-     dispatch worker) the store is reachable only by its compose service DNS
-     name, ``openobserve``, and on the port it **listens** on inside its own
-     container (5080) rather than the published one. The dispatch-worker
-     service declares both, ``OSPREY_OTEL_OPENOBSERVE_HOST=openobserve`` and
-     ``OSPREY_OTEL_OPENOBSERVE_PORT=5080``. That explicit declaration — rather
-     than sniffing the container runtime — is what makes emit work identically
-     under Docker and Podman.
+     dispatch worker), at the compose service name and the port the gateway
+     listens on inside its own container: ``OSPREY_OTEL_GATEWAY_HOST=telemetry_gateway``,
+     ``OSPREY_OTEL_GATEWAY_PORT=4318``.
 
-   If you run your own containerized emitter, set
-   ``OSPREY_OTEL_OPENOBSERVE_HOST`` to whatever host reaches OpenObserve from
-   inside that container — the compose service name on a bridge network
-   (with ``OSPREY_OTEL_OPENOBSERVE_PORT`` naming the listen port), or
-   ``localhost`` when the container uses host networking (``network_mode: host``),
-   where the compose DNS name would not resolve and the published port
-   applies. Leave both unset on a plain host run. Hardcoding ``endpoint:``
-   instead would point every context at the same address and silently drop
-   records from the ones it doesn't fit.
+   A process that carries neither variable is a host run. The pair is
+   declared, never sniffed, so emit works the same under Docker and Podman. If
+   you run your own containerized emitter, set both to whatever reaches the
+   gateway from inside that container, and give it a sender login.
 
-On its next run the agent emits to OpenObserve, and its logs, metrics and traces
-appear in the UI.
+On its next run the agent's logs, metrics and traces land in the store. To
+query them, see :doc:`read-the-record`.
+
+4. Know what the gateway reads
+------------------------------
+
+The gateway reads one ledger directory per identity, ``var/audit/<identity>/``,
+each with its own reader, so a broken file in one directory stalls only that
+identity's feed. The set of directories is fixed when ``osprey build`` renders
+the gateway: a directory that appears afterwards is **not fed until the next
+build**, and ``osprey health`` lists it under ``telemetry_gateway`` until then.
+A ``*.jsonl`` entry that is not a regular file — a FIFO, a symlink — is
+reported by the same check, and ``osprey up`` renames it to
+``<name>.refused-<time>`` (kept, out of the feed) before it starts the gateway;
+it refuses to start when it cannot.
+
+Each record is stamped from the login it arrived with (``User``); any
+``osprey.*`` attribute a sender sets itself is dropped. A record dated before
+the store's retention window or more than an hour ahead is dropped and counted.
 
 Content capture
 ===============
@@ -413,86 +344,26 @@ Their full arguments and results are in the osprey tool-call record
 If you route telemetry to a shared or off-host backend (Phase 1), review these
 gates and disable the categories you do not want to leave the machine.
 
-Upgrading an existing deployment
-================================
-
-Deployments made before the ingest account existed pointed their telemetry at
-the root credentials. Rebuilding the project moves ``config.yml`` onto the
-ingest account, and the next ``osprey up`` creates the account and saves its
-token — both automatic.
-
-One file may need a hand: ``.env.users``, the environment your web terminals
-run with. If OSPREY rendered it and you never edited it, the next
-``osprey up`` re-renders it from the project's ``.env`` and the variable
-arrives on its own. A file you have edited by hand is never rewritten — that is
-what keeps your edits intact — so on such a deployment the deploy prints an
-advisory naming ``ZO_INGEST_USER_EMAIL`` as missing from that file, and the
-fix is a write of your own: **append** the variable.
-
-.. code-block:: bash
-
-   # use the same value the project's .env has
-   grep '^ZO_INGEST_USER_EMAIL=' ~/my-project/.env >> ~/my-project/.env.users
-
-A later assignment wins in an environment file, so appending disturbs nothing
-already in it. ``osprey users env --output .env.users`` re-renders the file
-instead — that **replaces it whole**, so reach for it only if nothing in the
-file was added by hand.
-
-Until the variable is present, those terminals authenticate as whatever the
-reference falls back to inside the container, and the store rejects their
-records.
 
 Caveats
 =======
 
-- **One administrator.** The OpenObserve add-on provisions a single root
-  account from ``ZO_ROOT_USER_EMAIL`` / ``ZO_ROOT_USER_PASSWORD``. It is
-  intended for a single operator or a small trusted team on the deploy host,
-  not for multi-tenant access control.
-- **Rotating the ingest token is delete-and-recreate.** OpenObserve cannot
-  reissue a service account's token in place, so rotation means removing the
-  account and creating it again. You only do the first half: delete the ingest
-  account in the store's UI, and the next ``osprey up`` finds the token on file
-  no longer works, issues a new one, and writes it back to ``.env``. A dead
-  token in ``.env`` heals itself on the next start rather than needing repair.
-  Every start checks the token it has before touching anything, so a working
-  one is never rotated out from under something else that uses it.
-- **Recreating the data volume destroys the ingest identity.** The account
-  lives inside the ``openobserve_data`` volume; its token lives in ``.env``.
-  Remove that volume and you are left with a credential on file for an account
-  the store no longer has, and telemetry is refused. The next ``osprey up``
-  detects exactly this and provisions a fresh identity, so no manual repair is
-  needed. The same volume also holds the root password the store was first
-  initialized with — a volume kept from an earlier deploy beside a freshly
-  minted ``ZO_ROOT_USER_PASSWORD`` is reported with its own remedy.
-- **``osprey restart`` provisions, but cannot deliver.** A restart re-runs the
-  provisioning, so the store and ``.env`` agree afterwards, but a restarted
-  container keeps the definition it already had — a token written during a
-  restart reaches the containers at the next ``osprey up``.
-- **Data volume growth is bounded by retention, not a size cap.** Ingested
-  telemetry persists in a named container volume, which has no portable hard
-  size limit — so the store is bounded by *age*: ``services.openobserve.retention_days``
-  (default 14) sets ``ZO_COMPACT_DATA_RETENTION_DAYS`` in the container, dropping
-  telemetry older than N days (OpenObserve's floor is 3 days). Raise it for
-  longer history, but watch disk. Removing the volume still discards all history;
-  back it up if you need retention across redeploys.
-- **Health.** ``osprey health`` reports the store's ``/healthz`` readiness (a
-  running container is not necessarily ready), the effective retention (warning
-  if below OpenObserve's floor of 3 days), and the percentage-full of the disk
-  the volume grows into.
-- **Local by design.** The service binds to localhost by default. Do not expose
-  the store's published port (``services.openobserve.port``, 10050 by default)
-  beyond the host without putting authentication and transport security in
-  front of it.
-- **The dashboard's per-run telemetry link follows the deployment's origin.**
-  The event dispatcher's dashboard links each run to its own records only when
-  it can name a host a browser will resolve. On a loopback-bound store that host
-  is ``localhost``. On a store published to the network it is the host of
-  ``modules.web_terminals.external_origin`` (or ``deploy.fqdn`` when that is
-  unset). A store published to the network by a deployment that declares
-  neither gets no link at all, rather than one pointing at whichever machine the
-  operator's browser happens to be. The link opens the organization named by
-  ``claude_code.telemetry.openobserve.org``, the same one the agent exports to.
-  The link is rendered at deploy time, so changing either value takes effect at
-  the next ``osprey up``.
+- **Local by design.** The store publishes on the host's loopback only. People
+  query it through the readers' origin of the web tier, or over an SSH tunnel
+  to the deploy host (:doc:`read-the-record`); its accounts, not the network,
+  decide who reads what.
+- **Data volume growth is bounded by retention, not a size cap.** The store
+  keeps its tables in a named container volume, which has no portable size
+  limit, so it is bounded by *age*: ``services.telemetry_store.retention_days``
+  (default 14) drops rows older than that, including rows already stored when
+  the value is lowered. Raise it for longer history, but watch disk. The daily
+  archive keeps a copy beyond it (:doc:`agent-record`).
+- **The store is down, the record is not.** The gateway queues on disk and
+  retries while the store is unreachable; ``osprey health`` reports the store
+  as degraded, not the deployment as broken. Fix the store before restarting
+  the gateway when its export queue is over 80% full: a gateway stopped with a
+  full ledger queue can lose the batch it was holding.
+- **The dispatch dashboard links each run to the history page** where the page
+  is deployed. A dispatched job is recorded under its worker's name,
+  ``dispatch-worker-<i>``, so the link opens for people with ``history: all``
+  and for readers (:ref:`multi-user-history-page`).

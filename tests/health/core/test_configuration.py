@@ -24,7 +24,8 @@ _CANONICAL_NAMES = (
     "python_environment",
     "containers",
     "systemd_unit",
-    "openobserve",
+    "telemetry_store",
+    "telemetry_gateway",
     "providers",
     "claude_cli",
     "claude_cli_pinned",
@@ -70,7 +71,7 @@ class TestCoreRegistry:
     def test_canonical_names_present_without_import(self):
         assert set(CORE_CATEGORY_NAMES) == set(_CANONICAL_NAMES)
         assert set(CORE_CATEGORIES) == set(_CANONICAL_NAMES)
-        assert len(CORE_CATEGORIES) == 18
+        assert len(CORE_CATEGORIES) == 19
 
     def test_contains(self):
         assert "configuration" in CORE_CATEGORIES

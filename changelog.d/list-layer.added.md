@@ -2,4 +2,5 @@
 `data/facility/imported/list/`: a header row names `address` and any of `role`, `pair`, `device`,
 `place`, `unit`, `description`, `tags`, `s` and `model`, and a file without a header holds one
 address per line. A row's `s` and `model` are its device's position, which `osprey build` places
-by the span that contains it.
+by the span that contains it. A `model` stated for a device no row
+states `s` for is ignored with a warning naming the file, row, device and model.

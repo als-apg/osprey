@@ -13,22 +13,17 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-__all__ = ["DEFAULT_KIND", "INDEX_KEYS", "RESULT_TAG", "solve_and_print"]
+__all__ = ["DEFAULT_KIND", "RESULT_TAG", "solve_and_print"]
 
 #: The tag of the child's one result line.
 RESULT_TAG = "OSPREY_MODEL_RESPONSE_MATRIX"
 
 #: The response solved when a payload names no ``kind``: the engine is called
-#: without the word, and the line holds ``rows`` and ``matrix`` alone.
+#: without the word.
 DEFAULT_KIND = "orbit"
 
-#: The lattice-index lists a line of any other kind carries beside ``rows``,
-#: ``columns`` and ``matrix``: one entry per row, then one per column, the
-#: horizontal columns before the vertical ones.
-INDEX_KEYS = ("bpm_index", "hcor_index", "vcor_index")
-
-#: The significant digits a matrix entry of a line carrying indices is printed
-#: with, the precision the built response files hold.
+#: The significant digits a matrix entry of a line carrying an ``index`` is
+#: printed with, the precision the built response files hold.
 _DIGITS = 9
 
 
@@ -41,6 +36,11 @@ def _thaw(value: Any) -> Any:
     return value
 
 
+def _entry(value: Any, rounded: bool) -> float:
+    """A matrix entry as printed: at :data:`_DIGITS` significant digits when ``rounded``."""
+    return float(f"{float(value):.{_DIGITS}g}") if rounded else float(value)
+
+
 def _refusal(exc: Exception, engine: Any) -> bool:
     """Whether *exc* is *engine* saying the request has no solve, or a request the engine refuses."""
     from osprey.facility.errors import FacilityBuildError
@@ -51,11 +51,15 @@ def _refusal(exc: Exception, engine: Any) -> bool:
 def solve_and_print(payload: Mapping[str, Any]) -> None:
     """Solve one request and print its :data:`RESULT_TAG` line.
 
-    Prints ``{"rows", "matrix"}`` for a solve of :data:`DEFAULT_KIND`; for any
-    other kind ``{"rows", "columns", "matrix"}`` and the three
-    :data:`INDEX_KEYS`, the columns as the engine ordered them. Prints
-    ``{"error"}`` with the engine's own text when the engine refuses or a step
-    has no solve. Any other failure raises, and no result line is printed.
+    Prints ``{"refused"}`` with the engine's own text when the engine refuses
+    the request. Otherwise prints ``{"rows", "columns", "matrix",
+    "unsolved"}``: ``columns`` the solved correctors, possibly none,
+    ``matrix`` one column each, ``unsolved`` each corrector whose step has no
+    solve mapped to the engine's text; the tool decides that a line with no
+    column is a refusal. A response that carries an ``index`` adds it, each
+    row and corrector address mapped to its lattice index, and its entries
+    hold the built files' precision. Any other failure raises, and no result
+    line is printed.
 
     Args:
         payload: ``render_root``, ``model``, ``engine_module``, ``correctors``
@@ -73,7 +77,7 @@ def solve_and_print(payload: Mapping[str, Any]) -> None:
     kind = str(payload.get("kind") or DEFAULT_KIND)
     words = {} if kind == DEFAULT_KIND else {"kind": kind}
     try:
-        answer = engine.response_matrix(
+        result = engine.response_matrix(
             model.deck,
             [_thaw(binding.record) for binding in model.bindings],
             _thaw(model.settings),
@@ -84,22 +88,15 @@ def solve_and_print(payload: Mapping[str, Any]) -> None:
     except Exception as exc:
         if not _refusal(exc, engine):
             raise
-        print(RESULT_TAG, json.dumps({"error": str(exc)}), flush=True)
+        print(RESULT_TAG, json.dumps({"refused": str(exc)}), flush=True)
         return
-    line: dict[str, Any]
-    if kind == DEFAULT_KIND:
-        rows, matrix = answer
-        line = {
-            "rows": [str(row) for row in rows],
-            "matrix": [[float(value) for value in row] for row in matrix],
-        }
-    else:
-        rows, columns, matrix, *indices = answer
-        line = {
-            "rows": [str(row) for row in rows],
-            "columns": [str(column) for column in columns],
-            "matrix": [[float(f"{float(value):.{_DIGITS}g}") for value in row] for row in matrix],
-        }
-        for key, index in zip(INDEX_KEYS, indices, strict=True):
-            line[key] = [int(entry) for entry in index]
+    index = getattr(result, "index", None)
+    line: dict[str, Any] = {
+        "rows": [str(row) for row in result.rows],
+        "columns": [str(column) for column in result.columns],
+        "matrix": [[_entry(value, index is not None) for value in row] for row in result.matrix],
+        "unsolved": {str(address): str(text) for address, text in result.unsolved.items()},
+    }
+    if index is not None:
+        line["index"] = {str(address): int(place) for address, place in index.items()}
     print(RESULT_TAG, json.dumps(line), flush=True)

@@ -31,7 +31,7 @@ applyEmbedded();
 // Fallback when the dashboard is served without server-side config injection
 // (e.g. opened as a static file). dashboard.py replaces the comment above with
 // a `window.__OSPREY_CONFIG__ = {...};` literal at request time.
-window.__OSPREY_CONFIG__ = window.__OSPREY_CONFIG__ || { facility_name: "", channel_strip_prefix: "", telemetry_url: "", telemetry_org: "" };
+window.__OSPREY_CONFIG__ = window.__OSPREY_CONFIG__ || { facility_name: "", channel_strip_prefix: "", history_url: "" };
 </script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -478,7 +478,7 @@ input.text-input:focus { border-color: var(--color-accent-light); }
 }
 .btn.danger { color: var(--color-error); border-color: var(--error-tint-30); }
 .btn.danger:hover { background: var(--error-tint-08); border-color: var(--color-error); }
-/* A .btn may be an <a> when it leaves the app (see the run's telemetry link).
+/* A .btn may be an <a> when it leaves the app (see the run's history link).
    Scoped to anchors on purpose: <button> needs none of this, and widening the
    shared rule would restyle every existing button to fix one element. */
 a.btn {
@@ -883,64 +883,6 @@ function el(tag, props = {}, children = []) {
   return e;
 }
 function truncId(id) { return id ? id.slice(0, 8) : '—'; }
-
-// Telemetry stream the agent's records land in. The OTLP logs exporter writes to
-// the `default` stream, so the stream is a constant; the organization comes from
-// the injected config.
-const TELEMETRY_STREAM = 'default';
-// Session ids are UUIDs OSPREY generates. Anything else is refused rather than
-// interpolated into the SQL literal below — the value reaches the dashboard via
-// the worker, and a link is not worth a query-injection seam.
-const SESSION_ID_SAFE = /^[A-Za-z0-9._-]{1,128}$/;
-
-/**
- * Deep link to this run's own records in the telemetry store, or null when
- * there is nothing honest to link to.
- *
- * The store's logs UI takes its SQL through `query` as base64 with '=' padding
- * rewritten to '.', NOT as plain URL-encoded text. This matters: a plain query
- * is dropped SILENTLY, leaving a page that looks correct but shows every record
- * in the window instead of this run's. The shape below is what the UI itself
- * writes into its address bar, which is the only reliable statement of the
- * contract — the store's own /config advertises `sql_base64_enabled: false`,
- * which describes a different layer and misleads if read as the URL format.
- *
- * The join works because OSPREY forces a known session UUID onto the agent
- * session (dispatch_worker/sdk_runner.py) so the emitter tags records with it,
- * and the store flattens OTEL's `session.id` attribute to a `session_id` column.
- * The org is the one the exporter writes to, injected at deploy time beside the URL.
- */
-function telemetryUrlForRun(run) {
-  const base = (window.__OSPREY_CONFIG__ && window.__OSPREY_CONFIG__.telemetry_url) || '';
-  const org = (window.__OSPREY_CONFIG__ && window.__OSPREY_CONFIG__.telemetry_org) || '';
-  const sid = run && run.session_id;
-  if (!base || !org || !sid || !SESSION_ID_SAFE.test(sid)) return null;
-
-  // Bound the search to the run's own window (with padding for clock skew and
-  // for records the harness flushes after the run returns) so the query scans a
-  // slice rather than full retention. Falls back to a day when the run carries
-  // no timestamp, which is wide but still finite.
-  const PAD_SEC = 300;
-  const created = run.created_at;
-  const fromSec = created ? created - PAD_SEC : (Date.now() / 1000) - 86400;
-  const toSec = created ? created + (run.duration_sec || 0) + PAD_SEC : Date.now() / 1000;
-
-  const sql = 'SELECT * FROM "' + TELEMETRY_STREAM + "\" WHERE session_id = '" + sid + "'";
-  const params = new URLSearchParams({
-    stream_type: 'logs',
-    stream: TELEMETRY_STREAM,
-    from: String(Math.floor(fromSec * 1e6)),
-    to: String(Math.ceil(toSec * 1e6)),
-    refresh: '0',
-    sql_mode: 'true',
-    query: btoa(sql).replace(/=/g, '.'),
-    defined_schemas: 'user_defined_schema',
-    org_identifier: org,
-    quick_mode: 'false',
-    show_histogram: 'true',
-  });
-  return base.replace(/\/+$/, '') + '/web/logs?' + params.toString();
-}
 
 /** Compact but readable — "14 min ago". Expert surfaces. */
 function formatAge(sec) {
@@ -1747,6 +1689,24 @@ function runSignature(run) {
 }
 let paintedRunSig = null;
 
+/** A session id the history page link may carry as a path segment. */
+const SESSION_ID_SAFE = /^[A-Za-z0-9._-]{1,128}$/;
+
+/**
+ * The history page's transcript of this run's session, or null.
+ *
+ * The page lives on the readers' origin; the dispatcher is handed its URL at
+ * deploy time only when the deployment serves it. A run's records are stored
+ * under its worker, so the page shows them to `history: all` viewers and to
+ * readers, which is what the link's label says.
+ */
+function historyUrlForRun(run) {
+  const base = (window.__OSPREY_CONFIG__ && window.__OSPREY_CONFIG__.history_url) || '';
+  const sid = run && run.session_id;
+  if (!base || !sid || !SESSION_ID_SAFE.test(sid)) return null;
+  return base + 'session/' + encodeURIComponent(sid);
+}
+
 function renderRunDetail() {
   const host = $('#run-detail');
   const run = (state.runs || []).find(r => r.run_id === view.runId);
@@ -1796,13 +1756,10 @@ function renderRunDetail() {
   }
 
   // Cross-links out of the run. Each renders only when its destination is real,
-  // so a link never leads somewhere empty:
-  //   * the trigger must still be registered — `trigger_name` is reverse-mapped
-  //     from the dispatcher's in-memory pool, so it is absent for runs that
-  //     outlived a dispatcher restart, and the trigger itself may since have
-  //     been removed from triggers.yml;
-  //   * the telemetry link needs both a deployed store (config) and this run's
-  //     session id (worker).
+  // so a link never leads somewhere empty: the trigger must still be registered
+  // — `trigger_name` is reverse-mapped from the dispatcher's in-memory pool, so
+  // it is absent for runs that outlived a dispatcher restart, and the trigger
+  // itself may since have been removed from triggers.yml.
   const linkedTrigger = run.trigger_name
     && (state.triggers || []).some(t => t.name === run.trigger_name);
   if (linkedTrigger) {
@@ -1813,18 +1770,19 @@ function renderRunDetail() {
       onclick: () => navigate({ name: 'trigger', triggerName: run.trigger_name }),
     }));
   }
-  const telemetryUrl = telemetryUrlForRun(run);
-  if (telemetryUrl) {
+
+  const historyUrl = historyUrlForRun(run);
+  if (historyUrl) {
     // A real anchor, not a scripted button: middle-click and "open in new tab"
-    // should work, and the dashboard is embedded in an iframe in the web
-    // terminal — navigating in place would strand the operator inside it.
+    // work, and the dashboard is embedded in an iframe in the web terminal, so
+    // navigating in place would strand the operator inside it.
     actions.appendChild(el('a', {
       className: 'btn',
-      href: telemetryUrl,
+      href: historyUrl,
       target: '_blank',
       rel: 'noopener noreferrer',
-      textContent: '⎋ Logs',
-      title: "Open this run's telemetry records in the observability store.",
+      textContent: 'history (history: all and readers)',
+      title: "Open this run's session on the history page.",
     }));
   }
 

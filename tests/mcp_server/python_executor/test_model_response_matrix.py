@@ -298,15 +298,18 @@ class TestSolve:
         facility = json.loads((sr_render / "facility.json").read_text(encoding="utf-8"))
         (record,) = [model for model in facility["models"] if model["name"] == "SR"]
         steps = {column["address"]: column["step"] for column in result["columns"]}
-        rows, expected = engine.response_matrix(
+        expected = engine.response_matrix(
             sr_render / "data" / "simulator" / "decks" / "SR.json",
             simulator_wiring(facility, "SR"),
             record.get("settings"),
             [CORRECTOR_X, CORRECTOR_Y],
             steps,
         )
-        assert [row["address"] for row in result["rows"]] == rows
-        np.testing.assert_allclose(np.asarray(result["matrix"]), expected, rtol=1e-12, atol=0)
+        assert [row["address"] for row in result["rows"]] == expected.rows
+        np.testing.assert_allclose(
+            np.asarray(result["matrix"]), expected.matrix, rtol=1e-12, atol=0
+        )
+        assert result["unsolved"] == {}
 
     def test_rows_and_columns_name_their_address_and_device(self, sandbox, sr_render):
         sandbox["render"] = sr_render
@@ -353,7 +356,7 @@ class TestSolve:
 LINE_DELTA = 1.0e-5
 
 #: The keys of a labelled result of each kind, and of its rows and columns.
-RESULT_KEYS = {"model", "corrector_delta", "unit", "rows", "columns", "matrix"}
+RESULT_KEYS = {"model", "corrector_delta", "unit", "rows", "columns", "matrix", "unsolved"}
 ROW_KEYS = {"address", "device"}
 COLUMN_KEYS = {"address", "device", "step"}
 LOCATION_KEYS = {"plane", "index"}
@@ -394,8 +397,10 @@ class TestRoundTrip:
     def test_an_orbit_line_is_labelled_as_the_plug_in_solved_it(self, render):
         result = _round_trip(render, "orbit")
 
-        rows, expected = _line_solve(render, result)
+        answer = _line_solve(render, result)
+        rows, expected = answer.rows, answer.matrix
         assert set(result) == RESULT_KEYS
+        assert result["unsolved"] == {}
         assert [column["address"] for column in result["columns"]] == [LINE_KICK, LINE_KICK_Y]
         assert all(set(column) == COLUMN_KEYS for column in result["columns"])
         assert result["rows"] == [
@@ -411,7 +416,7 @@ class TestRoundTrip:
         line = tool._result_line(_printed(request))
 
         assert line is not None
-        assert set(line) == {"rows", "matrix"}
+        assert set(line) == {"rows", "columns", "matrix", "unsolved"}
         assert tool._label(request, line) == _round_trip(render, "orbit")
 
     def test_a_trajectory_line_is_labelled_as_the_plug_in_solved_it(self, render):
@@ -426,7 +431,9 @@ class TestRoundTrip:
             *(f"BPM_{cell}:TBT:Y" for cell in (1, 2, 3)),
         ]
         assert [row["plane"] for row in result["rows"]] == ["H"] * 3 + ["V"] * 3
-        assert [row["index"] for row in result["rows"]] == answer.bpm_index
+        assert [row["index"] for row in result["rows"]] == [
+            answer.index[row] for row in answer.rows
+        ]
         assert [row["device"] for row in result["rows"]] == [
             f"{LINE}/BPM_{cell}" for cell in (1, 2, 3)
         ] * 2
@@ -443,7 +450,7 @@ class TestRoundTrip:
                 [LINE_KICK, LINE_KICK_Y],
                 ["COR_1", "COR_2"],
                 ["H", "V"],
-                [*answer.hcor_index, *answer.vcor_index],
+                [answer.index[LINE_KICK], answer.index[LINE_KICK_Y]],
                 strict=True,
             )
         ]
@@ -471,7 +478,7 @@ class TestRoundTrip:
         after = {path: path.read_bytes() for path in sorted(render.rglob("*")) if path.is_file()}
         assert after == before
 
-    @pytest.mark.parametrize("missing", ["columns", "bpm_index", "hcor_index", "vcor_index"])
+    @pytest.mark.parametrize("missing", ["columns", "unsolved", "index"])
     def test_a_trajectory_line_missing_a_part_is_no_result(self, render, missing):
         request = tool.resolve_model_request(LINE, None, render_root=render, kind="trajectory")
         tag, text = _printed(request).strip().split(" ", 1)
@@ -484,7 +491,7 @@ class TestRoundTrip:
         request = tool.resolve_model_request(LINE, None, render_root=render, kind="trajectory")
         tag, text = _printed(request).strip().split(" ", 1)
         line = json.loads(text)
-        line["vcor_index"] = []
+        del line["index"][LINE_KICK_Y]
 
         assert tool._result_line(f"{tag} {json.dumps(line)}\n", "trajectory") is None
 
@@ -493,6 +500,7 @@ class TestRoundTrip:
         tag, text = _printed(request).strip().split(" ", 1)
         line = json.loads(text)
         line["columns"][0] = "ELSEWHERE:SP"
+        line["index"]["ELSEWHERE:SP"] = 0
 
         parsed = tool._result_line(f"{tag} {json.dumps(line)}\n", "trajectory")
 
@@ -500,7 +508,7 @@ class TestRoundTrip:
         with pytest.raises(ValueError, match="not the correctors asked for"):
             tool._label(request, parsed)
 
-    def test_a_refusal_of_the_plug_in_is_read_as_its_error(self, render):
+    def test_a_refusal_of_the_plug_in_is_read_as_its_refusal(self, render):
         request = tool.resolve_model_request(LINE, None, render_root=render, kind="trajectory")
         payload = {**tool._child_payload(request), "kind": "elsewhere"}
         printed = io.StringIO()
@@ -510,8 +518,8 @@ class TestRoundTrip:
 
         line = tool._result_line(printed.getvalue(), "trajectory")
         assert line is not None
-        assert set(line) == {"error"}
-        assert "'elsewhere'" in line["error"]
+        assert set(line) == {"refused"}
+        assert "'elsewhere'" in line["refused"]
 
 
 #: A plug-in whose solve raises an exception it declares as meaning "no solve".
@@ -529,7 +537,25 @@ REFUSING_ENGINE = textwrap.dedent(
     """
 )
 
-#: The same plug-in, declaring nothing.
+#: A plug-in that solves the first corrector asked and names the others unsolved.
+PARTIAL_ENGINE = textwrap.dedent(
+    """
+    from types import SimpleNamespace
+
+
+    def response_matrix(deck, wiring, settings, correctors, step):
+        return SimpleNamespace(
+            rows=["SR:DIAG:BPM:01:POSITION:X"],
+            columns=correctors[:1],
+            matrix=[[2.5]],
+            unsolved={
+                address: f"lost (while stepping {address})" for address in correctors[1:]
+            },
+        )
+    """
+)
+
+#: The same refusing plug-in, declaring nothing.
 UNDECLARED_ENGINE = textwrap.dedent(
     """
     class NoOptics(Exception):
@@ -540,6 +566,31 @@ UNDECLARED_ENGINE = textwrap.dedent(
         raise NoOptics("no optics for this deck")
     """
 )
+
+
+def _refuse_solves(monkeypatch: pytest.MonkeyPatch, calls: set[int]) -> None:
+    """Make the closed orbit solves numbered in ``calls`` raise; every other one solves."""
+    original = at.find_orbit6
+    count = {"value": 0}
+
+    def raiser(*args: Any, **kwargs: Any) -> Any:
+        count["value"] += 1
+        if count["value"] in calls:
+            raise at.AtError("no synchronous phase")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(at, "find_orbit6", raiser)
+
+
+def _child_line(request: Any) -> dict[str, Any]:
+    """The one result line the child prints for ``request``, solved in this process."""
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        solve_and_print(tool._child_payload(request))
+    tag, payload = printed.getvalue().strip().split(" ", 1)
+    assert tag == RESULT_TAG
+    line: dict[str, Any] = json.loads(payload)
+    return line
 
 
 class TestSolveErrors:
@@ -553,6 +604,15 @@ class TestSolveErrors:
         assert envelope["error_type"] == "execution_error"
         assert envelope["error_message"].startswith(f"the response of {LINE} has no solve: lost")
         assert envelope["error_message"].endswith(f"(while stepping {LINE_KICK})")
+        assert envelope["details"].keys() == {"model", "unsolved"}
+        assert envelope["details"]["model"] == LINE
+        assert list(envelope["details"]["unsolved"]) == [LINE_KICK]
+        text = envelope["details"]["unsolved"][LINE_KICK]
+        assert text.startswith("lost")
+        assert text.endswith(f"(while stepping {LINE_KICK})")
+        assert envelope["suggestions"] == [
+            f"Name other correctors, or check corrector_delta in measurement/{LINE}.yaml."
+        ]
 
     def test_a_destabilising_step_on_sr_names_the_corrector(self, sandbox, sr_render, tmp_path):
         render = _copy_render(sr_render, tmp_path / "sr")
@@ -566,7 +626,7 @@ class TestSolveErrors:
         assert message.startswith("the response of SR has no solve:")
         assert message.endswith(f"(while stepping {CORRECTOR_X})")
 
-    def test_a_plug_in_declaring_its_solve_error_gets_its_text_back(
+    def test_an_engine_refusing_the_request_is_refused_with_its_text(
         self, sandbox, tmp_path, monkeypatch
     ):
         sandbox["render"] = _line_render(tmp_path / "line", corrector_delta=1.0e-5)
@@ -577,10 +637,12 @@ class TestSolveErrors:
             _call(model=LINE)
 
         envelope = _envelope(raised)
-        assert envelope["error_type"] == "execution_error"
+        assert envelope["error_type"] == "validation_error"
         assert envelope["error_message"] == (
-            f"the response of {LINE} has no solve: no optics for this deck"
+            f"the response of {LINE} was refused: no optics for this deck"
         )
+        assert envelope["suggestions"] == []
+        assert envelope["details"] == {"model": LINE}
 
     def test_a_solve_error_the_plug_in_does_not_declare_ends_without_a_result(
         self, sandbox, tmp_path, monkeypatch
@@ -594,9 +656,16 @@ class TestSolveErrors:
 
         assert _envelope(raised)["error_message"] == (f"the solve of {LINE} ended without a result")
 
-    def test_a_result_line_without_a_matrix_ends_without_a_result(self, sr_render, monkeypatch):
+    @pytest.mark.parametrize(
+        "printed",
+        [{"rows": ["SR:BPM:01:X:RB"]}, {"error": "x"}],
+        ids=["without-a-matrix", "retired-error-key"],
+    )
+    def test_a_result_line_without_a_matrix_ends_without_a_result(
+        self, sr_render, monkeypatch, printed
+    ):
         async def solved(**_: Any) -> executor.ExecutionResult:
-            line = json.dumps({"rows": ["SR:BPM:01:X:RB"]})
+            line = json.dumps(printed)
             return executor.ExecutionResult(
                 success=True, stdout=f"{RESULT_TAG} {line}\n", stderr=""
             )
@@ -611,30 +680,46 @@ class TestSolveErrors:
         assert envelope["error_type"] == "execution_error"
         assert envelope["error_message"] == "the solve of SR ended without a result"
 
+    def test_a_partial_solve_returns_the_solved_columns_and_names_the_rest(
+        self, sandbox, sr_render, monkeypatch
+    ):
+        sandbox["render"] = sr_render
+        sandbox["seed"] = {"partial_engine.py": PARTIAL_ENGINE}
+        monkeypatch.setattr(tool, "_engine_module", lambda engine_name: "partial_engine")
+
+        result = _call(model="SR", correctors=[CORRECTOR_X, CORRECTOR_Y])
+
+        assert [column["address"] for column in result["columns"]] == [CORRECTOR_X]
+        assert result["matrix"] == [[2.5]]
+        assert result["unsolved"] == {CORRECTOR_Y: f"lost (while stepping {CORRECTOR_Y})"}
+
     def test_an_orbit_solver_that_raises_names_the_corrector(self, sr_render, monkeypatch):
-        original = at.find_orbit6
-        calls = {"count": 0}
-
-        def raiser(*args: Any, **kwargs: Any) -> Any:
-            calls["count"] += 1
-            if calls["count"] == 3:
-                raise at.AtError("no synchronous phase")
-            return original(*args, **kwargs)
-
-        monkeypatch.setattr(at, "find_orbit6", raiser)
+        _refuse_solves(monkeypatch, {3})
         request = tool.resolve_model_request(
             "SR", [CORRECTOR_X, CORRECTOR_Y], render_root=sr_render
         )
-        printed = io.StringIO()
 
-        with contextlib.redirect_stdout(printed):
-            solve_and_print(tool._child_payload(request))
+        line = _child_line(request)
 
-        tag, payload = printed.getvalue().strip().split(" ", 1)
-        assert tag == RESULT_TAG
-        error = json.loads(payload)["error"]
-        assert error.startswith("closed orbit solve raised AtError:")
-        assert error.endswith(f"(while stepping {CORRECTOR_Y})")
+        assert line["columns"] == [CORRECTOR_X]
+        assert len(line["matrix"][0]) == 1
+        assert list(line["unsolved"]) == [CORRECTOR_Y]
+        assert line["unsolved"][CORRECTOR_Y].startswith("closed orbit solve raised AtError:")
+        assert line["unsolved"][CORRECTOR_Y].endswith(f"(while stepping {CORRECTOR_Y})")
+
+    def test_no_solved_column_is_a_refusal_naming_every_corrector(self, sr_render, monkeypatch):
+        _refuse_solves(monkeypatch, {1, 3})
+        request = tool.resolve_model_request(
+            "SR", [CORRECTOR_X, CORRECTOR_Y], render_root=sr_render
+        )
+
+        line = _child_line(request)
+
+        assert line["columns"] == []
+        assert list(line["unsolved"]) == [CORRECTOR_X, CORRECTOR_Y]
+        for address, text in line["unsolved"].items():
+            assert text.startswith("closed orbit solve raised AtError:")
+            assert text.endswith(f"(while stepping {address})")
 
 
 class TestRefusals:

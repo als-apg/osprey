@@ -21,6 +21,9 @@ from osprey.imaging.formats import (
     image_table_not_done_sql,
     viewable_sql,
 )
+from osprey.services.ariel_search.database.embedding_input_key_migration import (
+    INPUT_KEY_COLUMN_SQL,
+)
 from osprey.services.ariel_search.database.search_fts import (
     ATTACHMENT_TEXT_DOCUMENT,
     FTS_CONFIG,
@@ -2355,6 +2358,61 @@ class ARIELRepository:
                 f"Failed to get embedding tables: {e}",
                 query="SELECT embedding tables",
             ) from e
+
+    async def has_input_key_column(self, table: str) -> bool:
+        """Report whether ``table`` in the current schema has an ``input_key`` column.
+
+        Probes the database on every call; the callers are one-shot commands.
+
+        Args:
+            table: Embedding table name, e.g. ``text_embeddings_nomic``.
+
+        Returns:
+            True when the column exists.
+
+        Raises:
+            DatabaseQueryError: If the probe fails.
+        """
+        try:
+            async with self.pool.connection() as conn:
+                result = await conn.execute(INPUT_KEY_COLUMN_SQL, [table])
+                row = await result.fetchone()
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to probe {table} for its input_key column: {e}",
+                query="SELECT input_key column",
+            ) from e
+        return row is not None
+
+    async def get_embedding_build_counts(self, table: str) -> dict[str, int] | None:
+        """Count the rows of ``table`` per embedding input key.
+
+        Rows with a NULL ``input_key`` count under ``r1``.
+
+        Args:
+            table: Embedding table name, e.g. ``text_embeddings_nomic``.
+
+        Returns:
+            ``{input_key: row_count}``, or None when ``table`` has no
+            ``input_key`` column.
+
+        Raises:
+            DatabaseQueryError: If the probe or the count fails.
+        """
+        if not await self.has_input_key_column(table):
+            return None
+        try:
+            async with self.pool.connection() as conn:
+                result = await conn.execute(
+                    f"SELECT COALESCE(input_key, 'r1'), COUNT(*) FROM {table} GROUP BY 1"
+                )
+                rows = await result.fetchall()
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to count {table} rows per input_key: {e}",
+                query=f"SELECT {table} GROUP BY input_key",
+            ) from e
+        return {str(key): int(count) for key, count in rows}
 
     async def get_image_embedding_tables(self) -> list[EmbeddingTableInfo]:
         """Discover every image-embedding table in the database.

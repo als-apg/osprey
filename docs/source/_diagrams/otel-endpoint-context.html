@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 336" role="img" aria-labelledby="otel-endpoint-title otel-endpoint-desc">
-  <title id="otel-endpoint-title">Where the OTLP endpoint points, by running context</title>
-  <desc id="otel-endpoint-desc">One OpenObserve store is reached under a different host name depending on where the emitter runs: localhost from a plain host run, the compose service name openobserve from a bridge-networked container, and localhost again from a host-networked container where the compose DNS name would not resolve. The port is the one the store publishes (services.openobserve.port); only a bridge-networked container reaches it on the image's fixed listen port, 5080.</desc>
+  <title id="otel-endpoint-title">Where a sender reaches the telemetry gateway, by running context</title>
+  <desc id="otel-endpoint-desc">One telemetry gateway is reached under a different address depending on where the sender runs: the address the gateway publishes from a plain host run, which carries no gateway variables; the same published address from a host-networked container, declared by OSPREY_OTEL_GATEWAY_HOST and OSPREY_OTEL_GATEWAY_PORT; and the compose service name telemetry_gateway on the collector's listen port, 4318, from a bridge-networked container. The published address is deployment.bind_address (loopback for a wildcard) and services.telemetry_gateway.port.</desc>
   <defs>
     <marker id="otel-endpoint-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -13,36 +13,36 @@
   <line class="e" x1="316" y1="252" x2="612" y2="184" marker-end="url(#otel-endpoint-arr)"/>
 
   <text class="te" x="16" y="26">WHERE THE EMITTER RUNS</text>
-  <text class="te" x="620" y="26">ONE STORE</text>
+  <text class="te" x="620" y="26">ONE GATEWAY</text>
 
   <rect class="nb" x="16" y="40" width="300" height="64" rx="6"/>
   <text class="tn" x="166" y="64" text-anchor="middle">the agent on your host</text>
   <text class="ts" x="166" y="81" text-anchor="middle">osprey web / osprey query</text>
-  <text class="ts" x="166" y="96" text-anchor="middle">host resolves to localhost</text>
+  <text class="ts" x="166" y="96" text-anchor="middle">dials the published address</text>
 
   <rect class="nb" x="16" y="130" width="300" height="64" rx="6"/>
   <text class="tn" x="166" y="154" text-anchor="middle">bridge-networked container</text>
   <text class="ts" x="166" y="171" text-anchor="middle">the containerized dispatch worker</text>
-  <text class="ts" x="166" y="186" text-anchor="middle">host must be openobserve, port must be 5080</text>
+  <text class="ts" x="166" y="186" text-anchor="middle">service name, listen port 4318</text>
 
   <rect class="nb" x="16" y="220" width="300" height="64" rx="6"/>
   <text class="tn" x="166" y="244" text-anchor="middle">host-networked container</text>
   <text class="ts" x="166" y="261" text-anchor="middle">network_mode: host</text>
-  <text class="ts" x="166" y="276" text-anchor="middle">host must be localhost</text>
+  <text class="ts" x="166" y="276" text-anchor="middle">the same published address</text>
 
   <rect class="mask" x="346" y="88" width="184" height="15"/>
-  <text class="ta" x="352" y="100">leave OSPREY_OTEL_OPENOBSERVE_HOST unset</text>
-  <rect class="mask" x="346" y="143" width="184" height="15"/>
-  <text class="ta" x="352" y="155">OSPREY_OTEL_OPENOBSERVE_HOST=openobserve</text>
-  <rect class="mask" x="346" y="220" width="180" height="15"/>
-  <text class="ta" x="352" y="232">OSPREY_OTEL_OPENOBSERVE_HOST=localhost</text>
+  <text class="ta" x="352" y="100">no OSPREY_OTEL_GATEWAY_* set</text>
+  <rect class="mask" x="346" y="143" width="216" height="15"/>
+  <text class="ta" x="352" y="155">OSPREY_OTEL_GATEWAY_HOST=telemetry_gateway</text>
+  <rect class="mask" x="346" y="220" width="216" height="15"/>
+  <text class="ta" x="352" y="232">OSPREY_OTEL_GATEWAY_HOST/_PORT = published</text>
 
   <rect class="nb-st" x="620" y="120" width="300" height="84" rx="6"/>
-  <text class="tn" x="770" y="148" text-anchor="middle">OpenObserve</text>
-  <text class="ts" x="770" y="167" text-anchor="middle">http://&lt;host&gt;:&lt;port&gt;/api/&lt;org&gt;</text>
-  <text class="ts" x="770" y="185" text-anchor="middle">one store, reached by three names</text>
+  <text class="tn" x="770" y="148" text-anchor="middle">telemetry gateway</text>
+  <text class="ts" x="770" y="167" text-anchor="middle">http://&lt;host&gt;:&lt;port&gt;, one login per sender</text>
+  <text class="ts" x="770" y="185" text-anchor="middle">one gateway, reached by two addresses</text>
 
-  <text class="ta ta-warn" x="480" y="308" text-anchor="middle">the port follows services.openobserve.port — only the bridge case uses the image's fixed 5080; do not hardcode endpoint:</text>
-  <text class="ta ta-warn" x="480" y="324" text-anchor="middle">hardcoding endpoint: points every context at one host and silently drops the records from the others</text>
+  <text class="ta ta-warn" x="480" y="308" text-anchor="middle">the published port follows services.telemetry_gateway.port — only the bridge case uses the fixed 4318</text>
+  <text class="ta ta-warn" x="480" y="324" text-anchor="middle">backend: gateway takes no endpoint: — the build refuses one, since no single address fits every context</text>
 </svg>
 </div>

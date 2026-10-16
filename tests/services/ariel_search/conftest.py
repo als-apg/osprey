@@ -1017,3 +1017,40 @@ def attachment_fetch(request, monkeypatch) -> Iterator[AttachmentFetchFake | Non
     yield fake
     if fake is not None:
         fake.verify()
+
+
+# ---------------------------------------------------------------------------
+# Vocabulary file for unit tests of the expansion code
+# ---------------------------------------------------------------------------
+
+#: The unit-test vocabulary: the integration fixture's three concepts plus an
+#: acronym, a shorthand and a shorthand whose form carries interior punctuation.
+UNIT_VOCABULARY = """
+concepts:
+  - canonical: troubleshoot
+    kind: shorthand
+    forms: [ts, t/s]
+  - canonical: beam position monitor
+    kind: acronym
+    forms: [bpm, bpms]
+  - canonical: input output
+    kind: shorthand
+    forms: [i/o]
+  - canonical: radio frequency
+    kind: acronym
+    forms: [rf]
+  - canonical: quadrupole
+    kind: shorthand
+    forms: [quad]
+  - canonical: vertical orbit
+    kind: shorthand
+    forms: [vert. orbit]
+"""
+
+
+@pytest.fixture
+def unit_vocabulary_file(tmp_path):
+    """The unit-test vocabulary written to ``vocabulary.yml``; returns its path."""
+    path = tmp_path / "vocabulary.yml"
+    path.write_text(UNIT_VOCABULARY, encoding="utf-8")
+    return path

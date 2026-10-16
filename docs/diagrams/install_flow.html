@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  Source of truth for the /osprey:install flow diagram committed to
+  Source of truth for the /osprey:setup flow diagram committed to
   docs/source/_static/screenshots/. Hand-authored SVG; edit here, then regenerate:
 
       cd docs && make screenshots-install_flow
@@ -15,7 +15,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OSPREY install flow — docs diagram source</title>
+<title>OSPREY setup flow — docs diagram source</title>
 <script>
   const t = new URLSearchParams(location.search).get("theme");
   if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
@@ -117,7 +117,7 @@
 
   <figure id="fig-install-flow">
     <svg viewBox="0 0 1280 684" role="img" aria-labelledby="install-flow-title install-flow-desc">
-    <title id="install-flow-title">The /osprey:install flow — two entry questions, four phases, one repository</title>
+    <title id="install-flow-title">The /osprey:setup flow — two entry questions, four phases, one repository</title>
     <desc id="install-flow-desc">Two opening questions set the starting point and the install mode. Four phases then run left to right — DISCOVER reads, MAP rules a verdict per element, BUILD assembles the deployment, CLOSE gates on the ledger — each handing the operator a card to confirm or modify, and ending in a deployment repository holding profile.yml and INTERVIEW.md. An upstream scout runs in the background from MAP onward and reports back at the next card.</desc>
     <defs>
       <marker id="arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">

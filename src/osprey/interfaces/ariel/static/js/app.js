@@ -50,25 +50,42 @@ function isEmbedded() {
 }
 
 /**
- * Default view when no hash is present. Search is standalone-only: when
- * embedded in the web terminal, logbook search goes through the agent, so
- * the panel opens on Browse instead.
- * @returns {string}
+ * Whether the embedded panel offers Search, from the deployment's
+ * `ariel.embedded_search` switch. Off unless the capabilities payload says
+ * otherwise: embedded, the agent searches the logbook. Standalone ignores it.
  */
-function defaultView() {
-  return isEmbedded() ? 'browse' : 'search';
+let embeddedSearch = false;
+
+/**
+ * Whether the Search view is offered in this page.
+ * @returns {boolean}
+ */
+function searchOffered() {
+  return !isEmbedded() || embeddedSearch;
 }
 
 /**
- * Views the tile bar's nav offers when embedded. Search and Status are
- * standalone-only (navigateTo redirects both to browse), so the bar carries
- * the two views an operator actually works in.
- * @type {{ id: string, label: string }[]}
+ * Default view when no hash is present: Search wherever it is offered,
+ * Browse otherwise.
+ * @returns {string}
  */
-const HEADER_VIEWS = [
-  { id: 'browse', label: 'Browse' },
-  { id: 'create', label: 'New Entry' },
-];
+function defaultView() {
+  return searchOffered() ? 'search' : 'browse';
+}
+
+/**
+ * Views the tile bar's nav offers when embedded. Status remains standalone
+ * because the terminal owns service health; Search is there only when the
+ * deployment turns it on.
+ * @returns {{ id: string, label: string }[]}
+ */
+function headerViews() {
+  return [
+    ...(searchOffered() ? [{ id: 'search', label: 'Search' }] : []),
+    { id: 'browse', label: 'Browse' },
+    { id: 'create', label: 'New Entry' },
+  ];
+}
 
 /**
  * Publish this panel's tile-bar contribution for the current view. The hub
@@ -80,7 +97,7 @@ function publishHeaderContribution() {
     {
       kind: 'nav',
       id: 'view',
-      items: HEADER_VIEWS.map(v => ({ id: v.id, label: v.label, active: v.id === currentView })),
+      items: headerViews().map(v => ({ id: v.id, label: v.label, active: v.id === currentView })),
     },
   ]);
 }
@@ -98,6 +115,7 @@ async function init() {
     } catch (e) {
       console.warn('Failed to fetch capabilities, using fallback:', e);
     }
+    embeddedSearch = capabilities?.embedded_search === true;
 
     // Before anything renders a time: entry times read in the facility zone.
     applyFacilityTimezone(capabilities);
@@ -246,11 +264,11 @@ function navigateTo(hash) {
   const { viewName: routeName, params } = parseHash(hash);
   const viewName = routeName === 'entry' ? 'browse' : routeName;
 
-  // Search and Status are standalone-only: embedded users search the logbook
-  // through the agent, and the hub's own ARIEL dot reports service health.
-  // Redirect stray hashes so neither view can activate (which also keeps the
-  // status auto-refresh interval — started only on that activation — off).
-  if (isEmbedded() && (viewName === 'search' || viewName === 'status')) {
+  // Status is standalone-only: the terminal's ARIEL dot reports service
+  // health. Search is embedded only where the deployment turns it on.
+  // Redirecting stray hashes keeps a view that is not offered from activating
+  // (and the status auto-refresh interval, started only there, off).
+  if (isEmbedded() && (viewName === 'status' || (viewName === 'search' && !searchOffered()))) {
     navigateTo('browse');
     return;
   }

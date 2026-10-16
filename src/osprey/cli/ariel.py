@@ -13,7 +13,7 @@ import json
 import sys
 from contextlib import nullcontext
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 import click
 
@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from osprey.services.ariel_search.cli_operations import BackfillResult
+    from osprey.services.ariel_search.exceptions import ModuleConfigError
 
 
 # ---------------------------------------------------------------------------
@@ -91,24 +92,40 @@ def _report_vocabulary(vocabulary: dict | None) -> None:
     if not vocabulary:
         return
     status = vocabulary.get("status")
+    expansion = vocabulary.get("entry_expansion") or {}
     if status == "ok":
-        output.report(f"Vocabulary: OK ({vocabulary.get('concepts', 0)} concepts)")
+        detail = f"{vocabulary.get('concepts', 0)} concepts"
+        if expansion.get("active"):
+            detail += f", entries expanded, key {expansion.get('key')}"
+        output.report(f"Vocabulary: OK ({detail})")
     elif status == "invalid":
         count = len(vocabulary.get("errors") or [])
         output.report(f"Vocabulary: INVALID ({count} errors). Run: osprey ariel vocab-check")
     else:
         output.report("Vocabulary: disabled")
+        if expansion.get("configured"):
+            output.warn(
+                "ariel.vocabulary.expand_entries is on and has no effect while "
+                "ariel.vocabulary.enabled is false"
+            )
 
 
-def _report_attachments(attachments: dict | None) -> None:
+_SCHEMA_BEHIND = "schema behind code: run osprey ariel migrate"
+
+
+def _report_attachments(attachments: dict | None) -> bool:
     """Print the attachments section of ``osprey ariel status``.
 
     Args:
         attachments: The ``attachments`` block of the status result, or None
             when the result carries none (nothing is printed then).
+
+    Returns:
+        Whether the ``schema behind code`` note was printed, so a later section
+        that finds the schema behind too does not print it a second time.
     """
     if not attachments:
-        return
+        return False
     from osprey.imaging.formats import skip_reason_text
 
     output.report("")
@@ -117,12 +134,13 @@ def _report_attachments(attachments: dict | None) -> None:
     size = attachments.get("bytes")
     output.note(f"stored bytes: {size if size is not None else 'unknown'}")
     if attachments.get("pending") is None or attachments.get("skipped") is None:
-        output.note("schema behind code: run osprey ariel migrate")
-        return
+        output.note(_SCHEMA_BEHIND)
+        return True
     output.note(f"pending: {attachments['pending']}")
     for code, count in sorted(attachments["skipped"].items()):
         if count:
             output.note(f"skipped {code}: {count}. Reason: {skip_reason_text(code)}.")
+    return False
 
 
 _CAPTION_KEY = "ariel.enhancement_modules.image_caption"
@@ -170,6 +188,57 @@ def _report_captions(captions: dict | None) -> None:
             f"image_caption: {unrecorded} captions record no prompt; --refresh-stale "
             "leaves them as they are."
         )
+
+
+def _report_stale_causes(name: str, stale: dict[str, int], command: str | None) -> None:
+    """Print one line per stale cause of one text-embedding table.
+
+    Args:
+        name: The configured model name of the table.
+        stale: Entry count per stale code, as ``classify_build_keys`` returns it.
+        command: The command that rebuilds the table, appended to the last
+            line so it prints once per table; None prints the causes alone.
+    """
+    from osprey.services.ariel_search.vocabulary.entry import CAUSE_PHRASES
+
+    causes = [(code, stale[code]) for code in CAUSE_PHRASES if stale.get(code)]
+    for index, (code, count) in enumerate(causes):
+        line = f"text_embedding {name}: {count} entries embedded {CAUSE_PHRASES[code]}."
+        if command is not None and index == len(causes) - 1:
+            line += f" To rebuild them with the current settings, run {command}."
+        output.report(line)
+
+
+def _report_embedding_builds(result: dict, schema_note_printed: bool) -> None:
+    """Print the text-embedding build lines of ``osprey ariel status`` that call for an action.
+
+    Args:
+        result: The status result; its ``embedding_tables`` elements carry the
+            build verdict of each table.
+        schema_note_printed: Whether an earlier section already printed the
+            ``schema behind code`` note, which this one then leaves out.
+    """
+    for table in result.get("embedding_tables") or []:
+        reason = table.get("verdict_unavailable")
+        model = table.get("model") or {}
+        name = str(model.get("name"))
+        if reason == "schema":
+            if not schema_note_printed:
+                output.note(_SCHEMA_BEHIND)
+                schema_note_printed = True
+        elif reason == "vocabulary":
+            total = sum((table.get("built_with") or {}).values())
+            output.report(
+                f"text_embedding {name}: cannot check how {total} entries were embedded: "
+                "the vocabulary does not load. Run: osprey ariel vocab-check"
+            )
+        elif reason is None:
+            command = (
+                f"osprey ariel reembed --model {name} --dimension {model.get('dimension')} --force"
+            )
+            _report_stale_causes(name, table.get("stale") or {}, command)
+        elif reason == "vocabulary_disabled":
+            _report_stale_causes(name, table.get("stale") or {}, None)
 
 
 #: How each local server is started, for the ``unreachable`` line of status.
@@ -372,21 +441,68 @@ def _handle_missing_tables(e: Exception) -> None:
         raise SystemExit(1) from None
 
 
+#: Remedy line printed under a :class:`ModuleConfigError`, keyed by the
+#: error's ``key``. A key without an entry has no single fix worth naming, and
+#: the failure line alone already names the offending setting.
+_MODULE_CONFIG_REMEDIES: dict[str, str] = {
+    "ariel.vocabulary.path": (
+        "fix ariel.vocabulary.path or set ariel.vocabulary.expand_entries: false"
+    ),
+    "osprey ariel migrate": "osprey ariel migrate",
+}
+
+
+def _remedy_for(key: str) -> str | None:
+    """Return the remedy line for a module-config refusal, or None when there is none.
+
+    Args:
+        key: The ``key`` of a :class:`ModuleConfigError` — a config key, or the
+            command that repairs the refusal.
+
+    Returns:
+        The remedy text, or None for a key with no mapped remedy.
+    """
+    return _MODULE_CONFIG_REMEDIES.get(key)
+
+
+def _fail_module_config(e: ModuleConfigError) -> NoReturn:
+    """Print a module-config refusal as one failure line and exit 1.
+
+    Args:
+        e: The refusal; its message is the failure line and its ``key`` picks
+            the remedy.
+
+    Raises:
+        SystemExit: Always, with code 1 and no chained traceback.
+    """
+    output.fail(str(e), None, _remedy_for(e.key))
+    raise SystemExit(1) from None
+
+
 def _qmd_resync_pre_step(config_dict: dict) -> None:
     """Bring the qmd markdown mirror up to date before ingesting.
 
     Entries written straight to Postgres never reach an enhancer, so without
     this pass their content would sit in the database unmirrored until the next
-    time something happened to touch them. Failures are reported and swallowed:
-    ingestion's job is the database, and a mirror that cannot be written is not
-    a reason to abandon it.
+    time something happened to touch them. Runtime failures are reported and
+    swallowed: ingestion's job is the database, and a mirror that cannot be
+    written is not a reason to abandon it. A module-config refusal is not
+    swallowed — the same configuration would refuse the ingest itself — so it
+    ends the command with exit 1.
 
     Args:
         config_dict: Raw ``ariel`` config section.
+
+    Raises:
+        SystemExit: On a module-config refusal.
     """
     from osprey.services.ariel_search.cli_operations import resync_qmd_mirror_best_effort
+    from osprey.services.ariel_search.exceptions import ModuleConfigError
 
-    asyncio.run(resync_qmd_mirror_best_effort(config_dict, progress=output.report))
+    try:
+        asyncio.run(resync_qmd_mirror_best_effort(config_dict, progress=output.report))
+    except ModuleConfigError as e:
+        _fail_module_config(e)
 
 
 # ---------------------------------------------------------------------------
@@ -472,8 +588,9 @@ def status_command(output_json: bool) -> None:
 
             _report_module_health(result.get("enhancement_modules"), config_dict)
 
-            _report_attachments(result.get("attachments"))
+            schema_note_printed = _report_attachments(result.get("attachments"))
             _report_captions(result.get("captions"))
+            _report_embedding_builds(result, schema_note_printed)
 
 
 @ariel_group.command("migrate")
@@ -539,7 +656,7 @@ def sync_command(limit: int | None, watch: bool) -> None:
         osprey ariel sync --watch        # Sync, then keep polling
     """
     from osprey.services.ariel_search.cli_operations import run_sync
-    from osprey.services.ariel_search.exceptions import DatabaseQueryError
+    from osprey.services.ariel_search.exceptions import DatabaseQueryError, ModuleConfigError
 
     config_dict = _load_ariel_config()
     try:
@@ -559,6 +676,8 @@ def sync_command(limit: int | None, watch: bool) -> None:
         )
         if result.migrations_applied:
             output.note(f"Migrations applied: {result.migrations_applied}")
+    except ModuleConfigError as e:
+        _fail_module_config(e)
     except DatabaseQueryError as e:
         _handle_missing_tables(e)
         raise
@@ -604,7 +723,7 @@ def ingest_command(
     file paths and HTTP/HTTPS URLs.
     """
     from osprey.services.ariel_search.cli_operations import run_ingest
-    from osprey.services.ariel_search.exceptions import DatabaseQueryError
+    from osprey.services.ariel_search.exceptions import DatabaseQueryError, ModuleConfigError
 
     config_dict = _load_ariel_config()
     _qmd_resync_pre_step(config_dict)
@@ -623,6 +742,8 @@ def ingest_command(
             _warn_unreadable(result.unreadable_count)
             if result.enhancer_names:
                 output.note(f"Enhancement complete: {result.enhanced_count} enhancements applied")
+    except ModuleConfigError as e:
+        _fail_module_config(e)
     except DatabaseQueryError as e:
         _handle_missing_tables(e)
         raise
@@ -811,7 +932,7 @@ def watch_command(
         osprey ariel watch -s https://api/logbook  # Override source URL
     """
     from osprey.services.ariel_search.cli_operations import run_watch
-    from osprey.services.ariel_search.exceptions import DatabaseQueryError
+    from osprey.services.ariel_search.exceptions import DatabaseQueryError, ModuleConfigError
 
     config_dict = _load_ariel_config()
     # Covers the single --once cycle; in daemon mode run_watch repeats this
@@ -833,6 +954,8 @@ def watch_command(
             )
             if result.since:
                 output.note(f"Since: {result.since.isoformat()}")
+    except ModuleConfigError as e:
+        _fail_module_config(e)
     except ValueError as e:
         output.fail(str(e))
         raise SystemExit(1) from None
@@ -882,6 +1005,7 @@ def enhance_command(
         _runs_in_catchup,
         run_enhance,
     )
+    from osprey.services.ariel_search.exceptions import ModuleConfigError
 
     if force and module and _runs_in_catchup(module):
         output.fail(FORCE_REFUSAL)
@@ -894,17 +1018,20 @@ def enhance_command(
         raise SystemExit(1)
 
     config_dict = _load_ariel_config()
-    asyncio.run(
-        run_enhance(
-            config_dict,
-            module,
-            force,
-            limit,
-            progress=output.report,
-            retry_failed=retry_failed,
-            refresh_stale=refresh_stale,
+    try:
+        asyncio.run(
+            run_enhance(
+                config_dict,
+                module,
+                force,
+                limit,
+                progress=output.report,
+                retry_failed=retry_failed,
+                refresh_stale=refresh_stale,
+            )
         )
-    )
+    except ModuleConfigError as e:
+        _fail_module_config(e)
 
 
 @ariel_group.command("models")
@@ -1009,13 +1136,17 @@ def reembed_command(
         osprey ariel reembed --model mxbai-embed-large --dimension 1024 --force
     """
     from osprey.services.ariel_search.cli_operations import run_reembed
+    from osprey.services.ariel_search.exceptions import ModuleConfigError
 
     config_dict = _load_ariel_config()
-    result = asyncio.run(
-        run_reembed(
-            config_dict, model, dimension, batch_size, dry_run, force, progress=output.report
+    try:
+        result = asyncio.run(
+            run_reembed(
+                config_dict, model, dimension, batch_size, dry_run, force, progress=output.report
+            )
         )
-    )
+    except ModuleConfigError as e:
+        _fail_module_config(e)
     if not result.dry_run:
         output.report("")
         output.section(
@@ -1048,12 +1179,15 @@ def quickstart_command(source: str | None) -> None:
         osprey ariel quickstart -s my_logbook.json # Use custom data
     """
     from osprey.services.ariel_search.cli_operations import run_quickstart
+    from osprey.services.ariel_search.exceptions import ModuleConfigError
 
     config_dict = _load_ariel_config()
     try:
         asyncio.run(
             run_quickstart(config_dict, source, progress=output.report, project_dir=_config_dir())
         )
+    except ModuleConfigError as e:
+        _fail_module_config(e)
     except Exception as e:
         _handle_db_error(e)
         raise
@@ -1167,11 +1301,8 @@ def qmd_resync_command(rebuild: bool) -> None:
 
     \b
       - creating a local entry in the ARIEL web interface
-        (interfaces/ariel/api/routes.py:395)
       - re-upserting an entry when an attachment is uploaded
-        (interfaces/ariel/api/routes.py:533)
       - entry_create upserts from the logbook write service
-        (services/ariel_search/service.py:431 and :439)
 
     This command finds every entry changed since the last run and re-exports
     it. Entries whose content is unchanged are left alone, so a run that finds
@@ -1188,10 +1319,13 @@ def qmd_resync_command(rebuild: bool) -> None:
         osprey ariel qmd-resync --rebuild    # Rebuild the mirror from scratch
     """
     from osprey.services.ariel_search.cli_operations import run_qmd_resync
+    from osprey.services.ariel_search.exceptions import ModuleConfigError
 
     config_dict = _load_ariel_config()
     try:
         result = asyncio.run(run_qmd_resync(config_dict, rebuild=rebuild, progress=output.report))
+    except ModuleConfigError as e:
+        _fail_module_config(e)
     except ValueError as e:
         output.fail(
             "the qmd markdown mirror has nowhere to write",
@@ -1220,6 +1354,7 @@ def qmd_resync_command(rebuild: bool) -> None:
     )
     if result.failed:
         rows.append(("Failed", result.failed))
+    rows.append(("Expansion key", result.expansion_key or "none"))
 
     output.report("")
     output.section(f"Mirror: {result.mirror_path}", rows)

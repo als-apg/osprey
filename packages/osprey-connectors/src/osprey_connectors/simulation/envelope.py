@@ -29,6 +29,7 @@ from typing import Any
 
 __all__ = [
     "MOTION_SIGMAS",
+    "STILL_ALL",
     "active_envelopes",
     "declares_motion",
     "motion_envelope",
@@ -40,7 +41,9 @@ MOTION_SIGMAS = 6.0
 
 _ABSOLUTE = "absolute"
 _RELATIVE = "relative"
-_STILL_ALL = "all"
+
+#: The ``still`` value that stills every reading of the scenario stating it.
+STILL_ALL = "all"
 
 
 def _number(value: Any) -> float | None:
@@ -162,7 +165,7 @@ def active_envelopes(
     for name in active:
         scenario = scenarios.get(name) or {}
         stilled = scenario.get("still")
-        if stilled == _STILL_ALL:
+        if stilled == STILL_ALL:
             still_all = True
         elif stilled and not isinstance(stilled, str):
             still.update(str(address) for address in stilled)

@@ -102,7 +102,7 @@ working_point = float((yield from bps.locate(device))["setpoint"])   # before th
 try:
     for step in steps:                               # steps are OFFSETS
         yield from bps.mv(device, working_point + step)
-        yield from bps.trigger_and_read(all_devices)
+        yield from bps.trigger_and_read([device, *readables])  # moved + read
 finally:
     yield from bps.mv(device, working_point)         # never a literal
 ```
@@ -110,6 +110,11 @@ finally:
 `bps.locate` answers `{setpoint, readback}`: where the device was told to go
 and where it is. The working point is the setpoint, because the restore is a
 setpoint write: it restores what was demanded, not a noisy sample.
+
+The read bundle holds the moved device **and** the channels it reads. A
+reading only means something next to the setting it was taken at, so a run
+that records only the read channels has no independent variable — the
+validator refuses it (see *The gates a plan must clear*).
 
 Read **before** the `try`, not inside it, so a device whose read fails is
 never entered and the `finally` can never run without a target. Your range
@@ -255,6 +260,13 @@ to all of them: no mock is built for it, so the dry run fails with a `KeyError`
 naming the devices that *were* built. If a plan cannot find its channels, the
 missing annotation is the first thing to check.
 
+**The channels a plan can name are the queue worker's devices**, which
+`list_devices` reads — not every address the channel finder knows. The dry run
+builds a mock for whatever `sample_args` name, so validation says nothing about
+whether those channels exist in the worker; the pre-enqueue check does, and it
+refuses a plan that names a device the worker never built. Choose the channels
+a plan moves and reads from `list_devices` before you validate with them.
+
 ---
 
 ## Stamp the run: `scan_metadata`
@@ -321,10 +333,11 @@ wrong.
 
 ---
 
-## The two gates a `writes: true` plan must clear
+## The gates a plan must clear
 
 A plan that declares `writes: true` promises two things about itself, and both
-are enforced rather than trusted. Neither gate fires for a read-only plan.
+are enforced rather than trusted. Neither gate fires for a read-only plan. A
+third gate holds every plan to what its dry run actually did.
 
 **1. It must declare at least one movable channel field.** Otherwise the plan
 is quarantined at load — it never reaches the catalog, and the log carries:
@@ -355,6 +368,20 @@ channel with nothing recording it leaves nothing to watch live and nothing to
 read afterwards. The gate reads the run, not your source, so a plan delegating
 to a stock bluesky plan passes it without calling `scan_metadata` — the stock
 plan already stamped a count.
+
+**3. It must record every channel it moves.** The dry run notes each device
+the plan sets and each device an event of its run records; a device that was
+moved but never recorded rejects the plan:
+
+```
+Dry-run gate: plan 'X' moves 'A' but no event of its run records it; read
+every moved device in the same trigger_and_read as the channels it reads, so
+each point carries the value it was taken at.
+```
+
+The fix is the read bundle, not the metadata: pass the moved device to
+`trigger_and_read` alongside the channels it reads. A plan that delegates to a
+stock bluesky plan passes without effort — stock plans record their motors.
 
 ---
 

@@ -1,0 +1,1 @@
+A request through the als-apg gateway no longer carries a temperature: its Claude 5 models (Haiku 5.5, Sonnet 5, Opus 5.5, Fable 5.1) refused every value but 1, which failed any completion that asked for 0.

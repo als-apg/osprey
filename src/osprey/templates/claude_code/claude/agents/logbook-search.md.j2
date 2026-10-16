@@ -45,10 +45,14 @@ Follow this approach to find the most relevant logbook entries:
 2. **Keyword search first**: `keyword_search(query=...)` — start with exact term
    matching. This is fast and precise for known terms, names, and specific events.
 
-   When a facility vocabulary is configured, `keyword_search` and `semantic_search`
-   expand shorthand and acronyms by default (`capabilities` reports
-   `vocabulary.expand_by_default`); pass `expand_query: true`/`false` to force or
-   suppress it, and check `expanded_terms` for what was applied. `keyword_search`
+   When a facility vocabulary is configured, `keyword_search` expands shorthand and
+   acronyms by default (`capabilities` reports `vocabulary.expand_by_default`), and
+   `semantic_search` and `hybrid_search` do too once the facility also expands its
+   entries; pass `expand_query: true`/`false` to force or suppress it where it
+   applies, and check `expanded_terms` for what was applied.
+   `expanded_terms` lists only what was added to your query; `semantic_search` and
+   `hybrid_search` can also match an entry through vocabulary terms added to the
+   entry text, and `expand_query: false` does not switch that off. `keyword_search`
    also accepts `*` globs (a glob needs 3+ literal characters, e.g. `BPM*`) and
    `/regex/` tokens for control-system names.
 

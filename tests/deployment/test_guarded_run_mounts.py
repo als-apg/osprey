@@ -157,12 +157,18 @@ def _container_repo_root(service: dict[str, Any]) -> PurePosixPath | None:
     return PurePosixPath(*path.parts[:-depth])
 
 
+#: Project-image services that name an audit directory (for the image
+#: entrypoint's group step) yet run no framework MCP server: the history page
+#: serves a web app and runs no agent tool.
+_NO_MCP_SERVER = frozenset({"history.yml:history"})
+
+
 def test_every_service_running_the_python_mcp_server_mounts_one_host_dir() -> None:
     services = _rendered_services()
     carriers = {
         key: root
         for key, service in services.items()
-        if (root := _container_repo_root(service)) is not None
+        if key not in _NO_MCP_SERVER and (root := _container_repo_root(service)) is not None
     }
 
     assert len({key.split(":", 1)[0] for key in carriers}) >= 2, carriers

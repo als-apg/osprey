@@ -12,7 +12,10 @@ listed by :func:`server_group_members` and ended one by one with
 The tree is read from ``ps``: macOS has no ``/proc`` and psutil is not a
 dependency, while ``ps`` is present on every host the server runs on. Without
 ``ps``, or when ``ps`` fails, nothing is found, so ``PtySession.terminate``
-reaches only the child's own group.
+reaches only the child's own group. One failed read is not a host without
+``ps``, and the tree can only be read while its root lives, so a reader that
+must not miss a tree reads through :func:`read_while_alive`, which retries
+while the root is alive, and says so when it still could not look.
 
 A group is the one a snapshot saw only while at least one of its snapshotted
 members, with the same pid, the same start time and the same group, is still
@@ -35,7 +38,7 @@ import signal
 import subprocess
 import time
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from osprey.utils.logger import get_logger
@@ -57,6 +60,8 @@ END_TERM_WAIT_S = 3.0
 END_KILL_WAIT_S = 2.0
 # Interval between snapshots while waiting for groups to end.
 _POLL_S = 0.05
+# How many times a tree that must not be missed is read before the reader gives up.
+TREE_READ_ATTEMPTS = 3
 # Longest label kept for a group.
 _LABEL_MAX = 40
 # Longest command line sent to the browser for a group.
@@ -111,6 +116,28 @@ def snapshot() -> dict[int, ProcessRow] | None:
             continue
         rows[pid] = ProcessRow(pid, ppid, pgid, started, parts[9], parts[3])
     return rows
+
+
+def read_while_alive(alive: Callable[[], bool]) -> dict[int, ProcessRow] | None:
+    """Return a :func:`snapshot` taken while the root of a tree is alive, retrying a failed read.
+
+    *alive* says whether the root still runs. A read is only worth taking while
+    it does, so each of the up to :data:`TREE_READ_ATTEMPTS` reads is preceded
+    by that question, and the first one that succeeds is returned.
+
+    Returns:
+        The process table, or ``None`` when it could not be read while the
+        root was alive: what the root started is then unknown, never empty.
+    """
+    for attempt in range(TREE_READ_ATTEMPTS):
+        if attempt:
+            time.sleep(_POLL_S)
+        if not alive():
+            return None
+        rows = snapshot()
+        if rows is not None:
+            return rows
+    return None
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -249,7 +276,7 @@ def _group(pgid: int, rows: Sequence[ProcessRow]) -> ProcessGroup:
     )
 
 
-def tree_groups(root: int) -> list[ProcessGroup]:
+def tree_groups(root: int, rows: dict[int, ProcessRow] | None = None) -> list[ProcessGroup]:
     """Return every process group a process descending from *root* belongs to.
 
     *root* is included. The server's own group and groups 0 and 1 are never
@@ -259,10 +286,13 @@ def tree_groups(root: int) -> list[ProcessGroup]:
     in whole seconds, so groups started within one second tie on time, and the
     pgid keeps their order the same from one look to the next.
 
-    Must run while *root* is alive: a process that put itself in a new session
-    keeps its parent link only until its parent exits.
+    *rows* defaults to a fresh :func:`snapshot`, and nothing is found when
+    that cannot be read. Either way the table must have been read while *root*
+    was alive: a process that put itself in a new session keeps its parent
+    link only until its parent exits.
     """
-    rows = snapshot()
+    if rows is None:
+        rows = snapshot()
     if rows is None or root not in rows:
         return []
     children: dict[int, list[int]] = {}
@@ -286,30 +316,41 @@ def tree_groups(root: int) -> list[ProcessGroup]:
     return sorted(groups, key=lambda g: (min(started for _, started in g.members), g.pgid))
 
 
-def started_groups(root: int) -> list[ProcessGroup]:
+def started_groups(root: int, alive: Callable[[], bool]) -> list[ProcessGroup] | None:
     """Return the process groups *root*'s descendants split off for their commands.
 
     That is :func:`tree_groups` without *root*'s own group: the groups an
-    agent runs its shell commands in. Blocking (it runs ``ps``), and like
-    :func:`tree_groups` it must run while *root* is alive.
+    agent runs its shell commands in. The table is read through
+    :func:`read_while_alive`, with *alive* saying whether *root* still runs,
+    so a failed read is retried. Blocking (it runs ``ps``).
+
+    Returns:
+        The groups, empty when *root* has exited or started nothing; or
+        ``None`` when the table could not be read while *root* was alive:
+        what it started is then unknown, never empty.
     """
     try:
         own = os.getpgid(root)
     except OSError:
         return []
-    return [group for group in tree_groups(root) if group.pgid != own]
+    rows = read_while_alive(alive)
+    if rows is None:
+        return None if alive() else []
+    return [group for group in tree_groups(root, rows) if group.pgid != own]
 
 
-def server_group_members(root: int) -> list[ProcessRow]:
+def server_group_members(root: int, rows: dict[int, ProcessRow] | None = None) -> list[ProcessRow]:
     """Return *root*'s descendants that are in the server's own process group.
 
     A process in the server's own group cannot be ended through its group,
     which :func:`tree_groups` never returns and :func:`end_groups` never
     signals, so these are ended one by one with :func:`end_processes`.
     *root* itself and the server are never listed. Ordered by start time, then pid.
-    Must run while *root* is alive, for the same reason as :func:`tree_groups`.
+    *rows* defaults to a fresh :func:`snapshot`; it must have been read while
+    *root* was alive, for the same reason as in :func:`tree_groups`.
     """
-    rows = snapshot()
+    if rows is None:
+        rows = snapshot()
     if rows is None or root not in rows:
         return []
     children: dict[int, list[int]] = {}

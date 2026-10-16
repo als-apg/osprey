@@ -3,7 +3,11 @@
 import pytest
 
 from osprey.connectors.control_system import WriteOutcome
-from osprey.errors import ChannelWriteBlockedError, ChannelWriteFailedError
+from osprey.errors import (
+    ChannelNotFoundError,
+    ChannelWriteBlockedError,
+    ChannelWriteFailedError,
+)
 
 
 class TestChannelWriteBlockedError:
@@ -32,12 +36,32 @@ class TestChannelWriteBlockedError:
             "VALIDATION_ERROR",
             "CONTROL_SYSTEM_REFUSED",
             "RAW_CLIENT_WRITE",
+            "CHANNEL_NOT_FOUND",
         )
 
     def test_unknown_reason_permitted(self):
         # Constructor does not validate against _VALID_REASONS (permissive by design).
         err = ChannelWriteBlockedError("chan", "SOMETHING_ELSE")
         assert err.reason == "SOMETHING_ELSE"
+
+
+class TestChannelNotFoundError:
+    def test_message_names_the_address(self):
+        err = ChannelNotFoundError("NO:SUCH:CHANNEL")
+        assert str(err) == "NO:SUCH:CHANNEL is not a channel of this facility"
+
+    def test_carries_the_address(self):
+        assert ChannelNotFoundError("NO:SUCH:CHANNEL").channel_address == "NO:SUCH:CHANNEL"
+
+    def test_reason(self):
+        assert ChannelNotFoundError.reason == "CHANNEL_NOT_FOUND"
+
+    def test_is_a_lookup_error(self):
+        assert isinstance(ChannelNotFoundError("X"), LookupError)
+
+    def test_a_bare_blocked_write_names_no_refuser(self):
+        err = ChannelWriteBlockedError("X", "CHANNEL_NOT_FOUND")
+        assert str(err) == "X is not a channel of this facility"
 
 
 class TestChannelWriteFailedError:

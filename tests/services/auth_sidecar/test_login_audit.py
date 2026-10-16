@@ -310,6 +310,16 @@ class TestASuccessfulLogin:
         record = _records(zone)[0]
         assert record["subject"] == "alice"
         assert record["actor"] == SIDECAR_IDENTITY
+
+    def test_the_record_says_whom_the_service_decided_for(self, zone: Path) -> None:
+        """Filed under the service, so the person is named in the one field a
+        reader of the leading columns finds: directly after ``session``."""
+        with _password_client() as client:
+            _login(client)
+        record = _records(zone)[0]
+        keys = list(record)
+        assert record["on_behalf_of"] == "alice"
+        assert keys.index("on_behalf_of") == keys.index("session") + 1
         assert _ledger(zone).parent.name == SIDECAR_IDENTITY
 
     def test_the_posture_is_the_apps_own_stamp(self, zone: Path) -> None:

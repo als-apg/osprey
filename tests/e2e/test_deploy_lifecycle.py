@@ -1103,12 +1103,16 @@ def _write_persona_project(root: Path, project_name: str, container_project_dir:
     config_text = f"project_name: {project_name}\n"
     dockerfile_text = (
         "FROM alpine:3.20\n"
-        "RUN adduser -D dispatch \\\n"
+        "RUN apk add --no-cache busybox-extras curl \\\n"
+        "    && adduser -D dispatch \\\n"
         "    && mkdir -p /data/claude-config \\\n"
         f"    && mkdir -p {container_project_dir}/var/agent_data \\\n"
         f"    && mkdir -p {container_project_dir}/.claude/skills \\\n"
-        f"    && chown -R dispatch:dispatch /data/claude-config {container_project_dir}\n"
-        'CMD ["tail", "-f", "/dev/null"]\n'
+        f"    && chown -R dispatch:dispatch /data/claude-config {container_project_dir} \\\n"
+        "    && mkdir -p /srv \\\n"
+        "    && echo ok > /srv/health\n"
+        'CMD ["sh", "-c", "exec httpd -f -p '
+        '\\"${OSPREY_TERMINAL_BIND_HOST:-127.0.0.1}:${OSPREY_TERMINAL_WEB_PORT}\\" -h /srv"]\n'
     )
     (root / "config.yml").write_text(config_text, encoding="utf-8")
     (root / "Dockerfile").write_text(dockerfile_text, encoding="utf-8")
@@ -2081,3 +2085,40 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
         # is exact names plus the project-scoped `compose down`).
         _runtime_cli("rm", "-f", QMD_CONTAINER)
         _teardown_all_project_resources()
+
+
+# ---------------------------------------------------------------------------
+# The telemetry gateway under this file's runtime
+# ---------------------------------------------------------------------------
+
+#: The port block the telemetry case publishes on, apart from every other
+#: scenario's ports in this file.
+TELEMETRY_PORT_BASE = 18000
+
+
+def test_deploy_lifecycle_telemetry_gateway_under_the_runtime(tmp_path: Path) -> None:
+    """The gateway reads its files, survives a forced recreate, and inserts by password alone.
+
+    Runs under ``OSPREY_E2E_RUNTIME`` like every case here, so the podman lane
+    decides the same three facts the docker lanes do (``tests/e2e/_telemetry_runtime.py``).
+    The deployment takes this file's project name, so the lane's exact-named
+    cleanup of ``<project>-telemetry-store``/``-gateway`` covers it.
+    """
+    from tests.e2e._telemetry_runtime import run_gateway_runtime_case
+
+    if shutil.which(RUNTIME) is None:
+        pytest.skip(f"{RUNTIME} not available")
+    if _runtime_cli("ps", timeout=10).returncode != 0:
+        pytest.skip(f"{RUNTIME} daemon not responding")
+
+    run_gateway_runtime_case(
+        runtime=RUNTIME,
+        project_name=PROJECT_NAME,
+        port_base=TELEMETRY_PORT_BASE,
+        workdir=tmp_path,
+        osprey_env={
+            "CLAUDECODE": "",
+            "CONTAINER_RUNTIME": RUNTIME,
+            "OSPREY_PIP_SPEC": "osprey-framework==0.0.0+e2e-stub",
+        },
+    )

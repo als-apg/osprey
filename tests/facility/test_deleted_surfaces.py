@@ -4,9 +4,8 @@ Each row names a module that survives and a name it no longer defines. The
 module is imported and asked for the name, so a symbol brought back under its
 old spelling fails here even where no text sweep reaches it. Some surfaces
 are checked by parsing, by path or by module lookup instead, because importing
-them would load a server library or they no longer exist. Once the old model
-code is gone, no name of the retired engine and serving stack remains in the
-shipped source.
+them would load a server library or they no longer exist. No name of the
+retired engine and serving stack remains in the shipped source.
 """
 
 from __future__ import annotations
@@ -18,8 +17,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
-from tests.facility._batches import BATCHES, CURRENT_BATCH
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -94,9 +91,6 @@ RETIRED_SOURCE_NAMES = (
     r"tier_dir|resolved_tier|TemplateChannelDatabase|_manifest_tier|ManifestPaths|"
     r"databases\.template|from \.template import|channel_databases/tiers"
 )
-
-#: The stage whose close removes the last shipped spelling of those names.
-RETIRED_SOURCE_STAGE = "7e"
 
 #: The shipped source the sweep reads; the key manifest records deleted keys
 #: by name, so it is left out.
@@ -182,10 +176,6 @@ def retired_source_hits(root: Path) -> list[str]:
     return [":".join(line.split(":", 2)[:2]) for line in result.stdout.splitlines()]
 
 
-@pytest.mark.skipif(
-    CURRENT_BATCH < BATCHES.index(RETIRED_SOURCE_STAGE),
-    reason="the old model code still ships until its deleting stage closes",
-)
 def test_no_retired_name_remains_in_the_shipped_source() -> None:
     assert retired_source_hits(REPO) == []
 

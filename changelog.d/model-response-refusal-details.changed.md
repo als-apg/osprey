@@ -1,0 +1,1 @@
+When no corrector solves, the refusal of `model_response_matrix` now carries the unsolved correctors as a map in `details.unsolved`, the same map a partial result returns as `unsolved`. An engine that refuses the request is now refused as a `validation_error` with the engine's own text and no corrector advice.

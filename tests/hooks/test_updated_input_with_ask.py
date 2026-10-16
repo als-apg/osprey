@@ -14,7 +14,7 @@ agent's original — is what reaches the tool on both approval paths:
   (wired by ``osprey.mcp_server.dispatch_worker.sdk_runner`` as its
   ``can_use_tool``), and of ``osprey.agent_runner.sdk_context.make_tool_allowlist``.
 
-Both paths were proven live against Claude Code CLI 2.1.267 (the scaffolding
+Both paths were proven live against Claude Code CLI 2.1.300 (the scaffolding
 default for ``claude_code.cli_version``) and claude-agent-sdk 0.2.136: a
 PreToolUse command hook answering ``"ask"`` with an added key in
 ``updatedInput`` reached ``mcp__python__execute`` with that key, after a prompt
@@ -54,7 +54,7 @@ GUARDED_TOOL = "mcp__python__execute"
 BINDING_KEYS = ("approved_target", "approved_view_sha256")
 
 #: The versions the live proof of both approval paths ran against.
-PROVEN_CLI_VERSION = "2.1.267"
+PROVEN_CLI_VERSION = "2.1.300"
 PROVEN_SDK_VERSION = "0.2.136"
 
 

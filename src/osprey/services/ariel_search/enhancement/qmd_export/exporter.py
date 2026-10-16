@@ -32,8 +32,10 @@ from osprey.utils.logger import get_logger
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
 
+    from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.migrations import BaseMigration
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
+    from osprey.services.ariel_search.vocabulary import EntryExpander
 
 logger = get_logger("ariel")
 
@@ -80,8 +82,9 @@ class QmdExportModule(BaseEnhancementModule):
     """
 
     def __init__(self) -> None:
-        """Initialize the module with no mirror configured."""
+        """Initialize the module with no mirror configured and no expander."""
         self._mirror_root: Path | None = None
+        self._expander: EntryExpander | None = None
 
     @property
     def name(self) -> str:
@@ -120,6 +123,20 @@ class QmdExportModule(BaseEnhancementModule):
             )
         self._mirror_root = resolve_mirror_path(raw)
 
+    def bind(self, config: ARIELConfig) -> None:
+        """Bind the entry expander every mirror write renders with.
+
+        Both :meth:`enhance` and :meth:`mirror_now` render through the bound
+        expander, so the pipeline and the inline write path produce identical
+        bytes for one row and config.
+
+        Args:
+            config: The parsed ARIEL configuration. Only
+                ``entry_expander_or_none`` is read: an unusable vocabulary
+                leaves the mirror unexpanded rather than failing the module.
+        """
+        self._expander = config.entry_expander_or_none()
+
     async def enhance(
         self,
         entry: EnhancedLogbookEntry,
@@ -152,7 +169,7 @@ class QmdExportModule(BaseEnhancementModule):
         if self._mirror_root is None:
             return
 
-        if write_entry(self._mirror_root, entry):
+        if write_entry(self._mirror_root, entry, expander=self._expander):
             self._touch_marker()
 
     def _touch_marker(self) -> None:
@@ -199,7 +216,7 @@ class QmdExportModule(BaseEnhancementModule):
         """
         if self._mirror_root is None:
             return False
-        if write_entry(self._mirror_root, entry):
+        if write_entry(self._mirror_root, entry, expander=self._expander):
             self._touch_marker()
             return True
         return False
@@ -269,9 +286,10 @@ def mirror_entry_best_effort(config: Any, entry: Mapping[str, Any]) -> bool:
 
     Args:
         config: The loaded ARIEL configuration (duck-typed: only
-            ``is_enhancement_module_enabled`` and
-            ``get_enhancement_module_config`` are read, avoiding an import
-            cycle with :mod:`osprey.services.ariel_search.config`).
+            ``is_enhancement_module_enabled``,
+            ``get_enhancement_module_config`` and ``entry_expander_or_none``
+            are read, by attribute access, avoiding an import cycle with
+            :mod:`osprey.services.ariel_search.config`).
         entry: The entry to mirror, as an ``enhanced_entries``-shaped mapping.
 
     Returns:
@@ -283,6 +301,7 @@ def mirror_entry_best_effort(config: Any, entry: Mapping[str, Any]) -> bool:
             return False
         module = QmdExportModule()
         module.configure(config.get_enhancement_module_config("qmd_export") or {})
+        module.bind(config)
         return module.mirror_now(entry)
     except Exception as e:  # see docstring: never fail the write path.
         logger.warning(

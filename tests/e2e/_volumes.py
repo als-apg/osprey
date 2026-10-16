@@ -23,8 +23,8 @@ stamp -- the ``com.docker.compose.project`` label, valued with the
 a time. Never a prune, never ``-a``/``--all``, never a name glob: any volume
 of any other compose project on the host is invisible to the listing. External
 (host-global) volumes a deployment merely mounts carry no project stamp and
-are equally invisible, so a suite that manages one (e.g. the OpenObserve data
-volume) still handles it explicitly.
+are equally invisible, so a suite that manages one still handles it
+explicitly.
 
 Do NOT call this around a mid-test ``down`` whose point is that data survives
 it -- ``test_deploy_writeback_e2e`` proves precisely that guarantee.

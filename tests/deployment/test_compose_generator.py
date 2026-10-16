@@ -2,8 +2,8 @@
 
 An "attached" project (built with ``deploy_services: false``, connecting to
 another project's already-deployed services stack) is what declares no
-deployed_services — the hello-world preset's own default build deploys one
-service (openobserve). Two failure modes have to stay fixed for the empty
+deployed_services — the hello-world preset's own default build deploys two
+services (telemetry_store, telemetry_gateway). Two failure modes have to stay fixed for the empty
 case:
 
 1. ``osprey build`` must still copy the root ``services/docker-compose.yml.j2``
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import errno
+import functools
 import json
 import logging
 import os
@@ -25,7 +26,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 from unittest import mock
 
 import pytest
@@ -42,7 +43,10 @@ from osprey.cli.build_cmd import _copy_service_templates
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment import container_lifecycle, host_ports
 from osprey.deployment.compose_generator import (
+    _dedupe_compose_files,
     _host_dial_address,
+    derived_compose_dirs,
+    find_existing_compose_files,
     guarded_run_relpath,
     prepare_compose_files,
     resolve_project_name,
@@ -1103,18 +1107,6 @@ def test_worker_template_sets_config_file() -> None:
     )
 
 
-# The worker runs on the compose bridge network, so the OpenObserve store is
-# reachable only by its service DNS name — never localhost. The compose declares
-# the host explicitly (rather than sniffing the runtime) so telemetry emit works
-# identically under docker and podman; the resolver reads it as an override.
-def test_worker_template_declares_openobserve_host() -> None:
-    rendered = _render_worker_template(env_present=True)
-    assert "OSPREY_OTEL_OPENOBSERVE_HOST: openobserve" in rendered, (
-        "dispatch worker must declare the in-network OpenObserve host so an "
-        "in-container agent targets the service DNS name, not its own loopback"
-    )
-
-
 # ---------------------------------------------------------------------------
 # Task 1.3: the worker container layout must match the PROJECT image
 #
@@ -1300,7 +1292,7 @@ def test_worker_without_the_axis_joins_the_compose_network() -> None:
     rendered = _render_worker_template(env_present=True)
 
     assert "\n    networks:\n      - osprey-network\n" in rendered
-    assert rendered.endswith("\nnetworks:\n  osprey-network:")
+    assert rendered.endswith("\nnetworks:\n  osprey-network:\n")
     assert "network_mode" not in rendered
     assert "DISPATCH_WORKER_BIND" not in rendered, (
         "on the compose bridge the worker must keep the code default (0.0.0.0), "
@@ -1429,17 +1421,22 @@ def test_worker_port_defaults_hold_when_the_axis_keys_are_absent() -> None:
 
 
 def test_worker_telemetry_host_follows_the_axis() -> None:
-    """The store is the compose service on the bridge, localhost on the host.
+    """The gateway is the compose service on the bridge, the dial address on the host.
 
-    Left unset the emitter's own fallback sees a container and reaches for the
-    service name, which under host resolves to nothing — so host mode has to
-    say localhost rather than simply omit the variable.
+    Under host the service name resolves to nothing, so host mode has to name
+    the interface the gateway publishes on rather than its service key.
     """
-    bridge = _render_worker_template(env_present=True)
-    host = _render_worker_template(env_present=True, dispatch_worker={"network": "host"})
+    bridge = _render_worker_template(env_present=True, deployed_services=["telemetry_gateway"])
+    host = _render_worker_template(
+        env_present=True,
+        deployed_services=["telemetry_gateway"],
+        dispatch_worker={"network": "host"},
+    )
 
-    assert _worker_service(bridge)["environment"]["OSPREY_OTEL_OPENOBSERVE_HOST"] == "openobserve"
-    assert _worker_service(host)["environment"]["OSPREY_OTEL_OPENOBSERVE_HOST"] == "localhost"
+    assert _worker_service(bridge)["environment"]["OSPREY_OTEL_GATEWAY_HOST"] == "telemetry_gateway"
+    host_value = _worker_service(host)["environment"]["OSPREY_OTEL_GATEWAY_HOST"]
+    assert host_value != "telemetry_gateway"
+    assert host_value in {"localhost", "127.0.0.1"}
 
 
 def test_worker_archiver_link_uses_the_published_port_on_the_host_namespace() -> None:
@@ -2002,6 +1999,11 @@ def test_bluesky_tiled_absent_when_disabled() -> None:
 
 _TILED_KEY = "k3y"
 
+#: How long a held start script is given to report its failed upgrade, the
+#: reason it is not serving. Far above what a loaded host needs to start the
+#: stub, so only a script that never reports it runs into it.
+_TILED_REASON_TIMEOUT_S = 30.0
+
 
 def _run_tiled_start(
     storage: Path, *, upgrade_rc: int = 0, hold_s: float | None = None
@@ -2014,6 +2016,8 @@ def _run_tiled_start(
     ``upgrade-database``. With *hold_s* set the script is expected NOT to exit:
     once its stderr carries the failed-upgrade line it is checked alive for
     *hold_s* more, then sent SIGTERM, and the completed process is ``None``.
+    The hold is timed from that line, not from the spawn, so how long the
+    stub takes to start never eats into it.
 
     Returns the recorded invocations, the completed process, and stderr.
     """
@@ -2045,35 +2049,36 @@ def _run_tiled_start(
         stderr = done.stderr
     else:
         proc = subprocess.Popen(["sh", "-c", script], env=env, stderr=subprocess.PIPE, text=True)
+        assert proc.stderr is not None
         lines: list[str] = []
         failed_line = threading.Event()
 
-        def _read_stderr() -> None:
-            assert proc.stderr is not None
-            for line in proc.stderr:
+        def _collect(stream: IO[str]) -> None:
+            for line in stream:
                 lines.append(line)
                 if "upgrade-database failed" in line:
                     failed_line.set()
 
-        reader = threading.Thread(target=_read_stderr, daemon=True)
+        reader = threading.Thread(target=_collect, args=(proc.stderr,), daemon=True)
         reader.start()
-        deadline = time.monotonic() + 30
-        while not failed_line.wait(timeout=0.05):
-            if proc.poll() is not None or time.monotonic() > deadline:
-                proc.kill()
-                proc.wait(timeout=5)
-                reader.join(timeout=5)
-                pytest.fail(
-                    "the start script never reported the failed upgrade "
-                    f"(exit {proc.returncode}); stderr: {''.join(lines)!r}"
-                )
         try:
-            proc.wait(timeout=hold_s)
-            pytest.fail(f"the start script exited ({proc.returncode}) instead of holding")
-        except subprocess.TimeoutExpired:
-            pass
-        proc.terminate()
-        proc.wait(timeout=5)
+            deadline = time.monotonic() + _TILED_REASON_TIMEOUT_S
+            while not failed_line.wait(timeout=0.05):
+                if proc.poll() is not None or time.monotonic() > deadline:
+                    pytest.fail(
+                        "the start script never reported the failed upgrade within "
+                        f"{_TILED_REASON_TIMEOUT_S:.0f} s (exit {proc.poll()}); "
+                        f"stderr: {''.join(lines)!r}"
+                    )
+            try:
+                proc.wait(timeout=hold_s)
+                pytest.fail(f"the start script exited ({proc.returncode}) instead of holding")
+            except subprocess.TimeoutExpired:
+                pass
+        finally:
+            if proc.poll() is None:
+                proc.terminate()
+            proc.wait(timeout=5)
         reader.join(timeout=5)
         stderr = "".join(lines)
         done = None
@@ -2274,6 +2279,36 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     )
 
 
+def test_orm_stack_names_a_bounded_corrector_and_its_models_monitors(tmp_path: Path) -> None:
+    """The plan-stack lanes size a sweep from a corrector a limits record
+    bounds and read it back on monitors the same model solves for.
+
+    ``bounded_corrector`` must name a staged corrector whose record carries
+    both ends of a band, and ``select_bpms(..., model=...)`` must yield only
+    monitor bindings of that corrector's model: a monitor of another model
+    cannot respond to the sweep.
+    """
+    from click.testing import CliRunner
+
+    from tests.e2e import _orm_stack
+
+    repo = _orm_stack.build_via_cli_runner(CliRunner(), tmp_path).parent
+
+    setpoint, readback, model = _orm_stack.bounded_corrector(repo)
+    entry = _orm_stack.channel_limits(repo)[setpoint]
+    assert float(entry["min_value"]) < float(entry["max_value"]), entry
+    assert _orm_stack.select_correctors(repo, count=None, model=model)[setpoint] == (
+        setpoint,
+        readback,
+    )
+
+    bpms = _orm_stack.select_bpms(repo, count=None, model=model)
+    assert bpms, f"model {model} serves no monitor the worker registered"
+    view = _orm_stack.repo_view(repo)
+    model_monitors = {binding.address for binding in view.bindings(role="monitor", model=model)}
+    assert set(bpms) <= model_monitors, sorted(set(bpms) - model_monitors)
+
+
 # ---------------------------------------------------------------------------
 # Container config staging: no host interpreter can reach the container
 #
@@ -2356,6 +2391,44 @@ def test_setup_build_dir_stages_a_config_naming_no_interpreter(
     assert sys.executable not in staged_text, (
         "the staging interpreter must not appear anywhere in the staged config"
     )
+
+
+def test_setup_build_dir_stages_the_bytes_pyyaml_writes_for_the_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The staged ``config.yml`` is byte for byte what PyYAML's own emitter writes for it.
+
+    The staging write goes through the libyaml-backed safe dumper; a real
+    generated project's flattened config, re-emitted by the pure-Python
+    ``yaml.dump`` with the same options, must give the same text.
+    """
+    from osprey.cli.templates.manager import TemplateManager
+    from osprey.deployment.compose_generator import setup_build_dir
+
+    project_dir = _create_project(
+        TemplateManager(),
+        project_name="staged-bytes",
+        output_dir=tmp_path,
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical"},
+    )
+    service_dir = project_dir / "services" / "worker"
+    service_dir.mkdir(parents=True)
+    (service_dir / "docker-compose.yml.j2").write_text("services:\n  worker:\n    image: test\n")
+    monkeypatch.chdir(project_dir)
+
+    setup_build_dir(
+        str(Path("services") / "worker" / "docker-compose.yml.j2"),
+        {"project_name": "staged-bytes", "build_dir": "./build"},
+        {"copy_src": False},
+    )
+
+    staged = (project_dir / "build" / "services" / "worker" / "config.yml").read_text()
+    flattened = yaml.safe_load(staged)
+    assert len(staged.splitlines()) > 100 and flattened.get("execution"), (
+        "the staged config must be the flattened project config, not the verbatim fallback"
+    )
+    assert staged == yaml.dump(flattened, default_flow_style=False, sort_keys=False)
 
 
 def test_setup_build_dir_stages_the_execution_block_verbatim(
@@ -2484,89 +2557,10 @@ def test_host_python_env_path_cannot_bake_host_interpreter_into_mcp_command() ->
         assert controls_server["command"] != host_python
 
 
-# ---------------------------------------------------------------------------
-# OpenObserve telemetry add-on: Docker-free compose render gate
-#
-# The opt-in ``openobserve`` service pulls a single public OTLP-native store so
-# the agent can emit telemetry to a local backend. It is a pure-image service
-# (no Dockerfile, no wheel, no src) — the closest analog is ``postgresql``.
-# These gates render the packaged template through the SAME deployed_services
-# gating path the CLI uses (``_copy_service_templates`` -> ``prepare_compose_files``,
-# mirroring ``test_prepare_compose_files_no_services_renders_root_only``), never
-# a container: they assert the compose text alone.
-#
-# Shared constants that must match the telemetry resolver stream: compose service
-# (and in-network DNS host) ``openobserve``, port ``5080``, root-cred env vars
-# ``ZO_ROOT_USER_EMAIL`` / ``ZO_ROOT_USER_PASSWORD``. These gates assert the
-# image *reference and override var*, never a specific tag; where a gate needs
-# the tag it reads it out of the template with ``_pinned_openobserve_tag``.
-# ---------------------------------------------------------------------------
-
-_OPENOBSERVE_IMAGE_REF = "public.ecr.aws/zinclabs/openobserve"
-
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_CI_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "ci.yml"
-_OPENOBSERVE_TEMPLATE = (
-    _REPO_ROOT
-    / "src"
-    / "osprey"
-    / "templates"
-    / "services"
-    / "openobserve"
-    / "docker-compose.yml.j2"
+_BLUESKY_TEMPLATE = (
+    _REPO_ROOT / "src" / "osprey" / "templates" / "services" / "bluesky" / "docker-compose.yml.j2"
 )
-
-
-def _pinned_openobserve_tag() -> str:
-    """Return the openobserve tag the compose template pins.
-
-    The image line follows the uniform env → config → default chain
-    (``${OSPREY_OPENOBSERVE_IMAGE:-{{ … | default('<ref>:<tag>') }}}``); the
-    pinned tag lives in the innermost Jinja ``default('…')``.
-    """
-    text = _OPENOBSERVE_TEMPLATE.read_text(encoding="utf-8")
-    match = re.search(
-        r"default\('" + re.escape(_OPENOBSERVE_IMAGE_REF) + r":([^')\s]+)'\)",
-        text,
-    )
-    assert match, "compose template no longer pins the openobserve image in the expected form"
-    return match.group(1)
-
-
-def test_ci_openobserve_pinned_to_ghcr_mirror() -> None:
-    """CI must pull openobserve from the ghcr mirror, pinned to the compose tag.
-
-    Two foot-guns in one assertion:
-
-    * If the override drifts back to ``public.ecr.aws`` the rate-limit flakiness
-      returns — ECR Public throttles anonymous pulls per source IP and
-      GitHub-hosted runners share egress IPs.
-    * The mirror is populated by hand (mirror-openobserve.yml) for one tag at a
-      time, so moving the compose template's pin without moving CI's leaves every
-      deploy lane pulling a tag that was never mirrored — a hard, confusing
-      failure far from the line that caused it.
-
-    Both remain latent until a runner happens to hit them, so guard statically.
-    """
-    pinned = _pinned_openobserve_tag()
-    overrides = re.findall(
-        r"OSPREY_OPENOBSERVE_IMAGE:\s*(\S+)", _CI_WORKFLOW.read_text(encoding="utf-8")
-    )
-    assert overrides, (
-        "CI no longer overrides OSPREY_OPENOBSERVE_IMAGE — deploy lanes fall back to ECR"
-    )
-    for ref in overrides:
-        assert ref.startswith("ghcr.io/"), (
-            f"CI pins {ref!r}, not the ghcr mirror. A non-ghcr ref (e.g. ECR Public) "
-            "reintroduces the anonymous-pull rate-limit flakiness."
-        )
-        assert ref.endswith(f":{pinned}"), (
-            f"CI pins {ref!r} but the compose template pins :{pinned}. Bump both "
-            "together, and run the mirror workflow for the new tag first."
-        )
-
-
-_BLUESKY_TEMPLATE = _OPENOBSERVE_TEMPLATE.parents[1] / "bluesky" / "docker-compose.yml.j2"
 _CONFIG_KEY_MANIFEST = _REPO_ROOT / "src" / "osprey" / "profiles" / "config_key_manifest.yml"
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
 
@@ -2607,14 +2601,13 @@ def test_tiled_server_tag_is_not_older_than_the_client_floor() -> None:
 @pytest.mark.parametrize(
     ("key", "template", "image_ref"),
     [
-        ("services.openobserve.image", _OPENOBSERVE_TEMPLATE, _OPENOBSERVE_IMAGE_REF),
         (
             "services.bluesky.tiled_image",
             _BLUESKY_TEMPLATE,
             "ghcr.io/bluesky/tiled",
         ),
     ],
-    ids=["openobserve", "tiled"],
+    ids=["tiled"],
 )
 def test_the_manifest_default_matches_the_compose_default(
     key: str, template: Path, image_ref: str
@@ -2634,145 +2627,6 @@ def test_the_manifest_default_matches_the_compose_default(
     )
 
 
-def _write_openobserve_config(
-    project_path: Path, deployed_services: list[str], retention_days: int | None = None
-) -> Path:
-    """Write a config.yml that declares ``services.openobserve`` and return its path.
-
-    Unlike the module's ``_write_config`` helper (which declares no services),
-    this always declares the ``openobserve`` service block — ``deployed_services``
-    controls only whether it is *launched*, exercising the opt-in gating.
-    """
-    config_path = project_path / "config.yml"
-    yaml_rt = YAML()
-    oo_service: dict = {"path": "./services/openobserve", "port": 5080}
-    if retention_days is not None:
-        oo_service["retention_days"] = retention_days
-    config: dict = {
-        "project_name": "oo-fixture",
-        "project_root": str(project_path),
-        "build_dir": str(project_path / "build"),
-        # Real configs always carry system.timezone; the compose template uses it
-        # bare (the postgresql/VA precedent has no default), so declare it here.
-        "system": {"timezone": "UTC"},
-        "services": {"openobserve": oo_service},
-        "deployed_services": deployed_services,
-    }
-    with open(config_path, "w") as fh:
-        yaml_rt.dump(config, fh)
-    return config_path
-
-
-def _render_project_compose(
-    config_path: Path, project_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> str:
-    """Copy service templates, render via ``prepare_compose_files``, return the text.
-
-    Runs the real CLI gating path from inside the project dir (SERVICES_DIR and
-    the service ``path`` both resolve relative to cwd), then joins every rendered
-    compose file so callers can assert on the aggregate text. The caller's
-    ``monkeypatch`` owns the cwd change, so it is undone at test teardown.
-    """
-    _copy_service_templates(project_path)
-
-    monkeypatch.chdir(project_path)
-    _, compose_files = prepare_compose_files(str(config_path))
-    return "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
-
-
-def test_openobserve_renders_when_deployed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """With ``openobserve`` in deployed_services the compose renders (exit 0) with
-    the expected image reference, port, named volume, and root-cred env vars.
-
-    The service name, port, and env var names are the shared constants the
-    telemetry resolver stream also depends on — a drift here silently breaks the
-    agent's OTLP push against the local store.
-    """
-    config_path = _write_openobserve_config(tmp_path, deployed_services=["openobserve"])
-    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
-
-    # The service block and its in-network DNS host name.
-    assert "\n  openobserve:\n" in rendered
-
-    # Image reference + overridable pin (assert the ref and the override var, not
-    # the specific to-confirm tag).
-    assert f"${{OSPREY_OPENOBSERVE_IMAGE:-{_OPENOBSERVE_IMAGE_REF}:" in rendered
-
-    # Exposed port 5080 (host:container).
-    assert ":5080:5080/tcp" in rendered
-
-    # container_name is namespaced per-project (project_name is "oo-fixture"), not
-    # the host-global "osprey-openobserve" — so two projects can run the store on
-    # one host without colliding. In-network reach is by the service key
-    # "openobserve", which is unaffected.
-    assert "container_name: oo-fixture-openobserve" in rendered
-    assert "osprey-openobserve" not in rendered
-
-
-def test_openobserve_retention_env_default_rendered(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Omitting retention_days renders the 14-day growth bound (the compose default)."""
-    config_path = _write_openobserve_config(tmp_path, deployed_services=["openobserve"])
-    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
-    assert 'ZO_COMPACT_DATA_RETENTION_DAYS: "14"' in rendered
-
-
-def test_openobserve_retention_env_custom_rendered(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A configured retention_days flows into ZO_COMPACT_DATA_RETENTION_DAYS."""
-    config_path = _write_openobserve_config(
-        tmp_path, deployed_services=["openobserve"], retention_days=30
-    )
-    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
-    assert 'ZO_COMPACT_DATA_RETENTION_DAYS: "30"' in rendered
-
-    # Named data volume for persistence (both the mount and the top-level decl).
-    assert "openobserve_data:/data" in rendered
-    assert "\nvolumes:\n  openobserve_data:\n" in rendered
-
-    # Root credentials sourced from compose env with overridable defaults, using
-    # the exact env var names the resolver expects.
-    assert "ZO_ROOT_USER_EMAIL: ${ZO_ROOT_USER_EMAIL:-" in rendered
-    assert "ZO_ROOT_USER_PASSWORD: ${ZO_ROOT_USER_PASSWORD:-" in rendered
-
-
-def test_openobserve_absent_when_not_deployed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """With ``openobserve`` declared but NOT in deployed_services it must not
-    render — the opt-in posture. Only the root compose is produced, with no
-    openobserve service, image, or volume anywhere in the output.
-    """
-    config_path = _write_openobserve_config(tmp_path, deployed_services=[])
-    rendered = _render_project_compose(config_path, tmp_path, monkeypatch)
-
-    assert "openobserve" not in rendered, (
-        f"openobserve must stay off when absent from deployed_services (opt-in):\n{rendered}"
-    )
-
-
-def test_openobserve_service_config_lookup_succeeds(tmp_path: Path) -> None:
-    """``osprey health`` accepts a service only when it resolves under both
-    ``services:`` and (for deployment) ``deployed_services:``. Health is out of
-    this module's scope, so this asserts the underlying seam it relies on:
-    ``find_service_config`` resolves the declared ``openobserve`` entry to its
-    packaged compose template path.
-    """
-    from osprey.deployment.compose_generator import find_service_config
-
-    config_path = _write_openobserve_config(tmp_path, deployed_services=["openobserve"])
-    yaml_rt = YAML()
-    with open(config_path) as fh:
-        config = yaml_rt.load(fh)
-
-    service_config, template_path = find_service_config(config, "openobserve")
-    assert service_config is not None, "openobserve must resolve as a declared service"
-    assert service_config.get("port") == 5080
-    assert template_path == "./services/openobserve/docker-compose.yml.j2"
-
-
 def test_find_service_config_resolves_flat_names_only() -> None:
     """Services resolve only by their flat short name under ``services:``. Dotted
     spellings (``osprey.<name>`` / ``applications.<app>.<name>``) are not a
@@ -2782,11 +2636,11 @@ def test_find_service_config_resolves_flat_names_only() -> None:
     """
     from osprey.deployment.compose_generator import find_service_config
 
-    config = {"services": {"openobserve": {"path": "./services/openobserve"}}}
+    config = {"services": {"postgresql": {"path": "./services/postgresql"}}}
 
-    assert find_service_config(config, "openobserve")[0] is not None
-    assert find_service_config(config, "osprey.openobserve") == (None, None)
-    assert find_service_config(config, "applications.app.openobserve") == (None, None)
+    assert find_service_config(config, "postgresql")[0] is not None
+    assert find_service_config(config, "osprey.postgresql") == (None, None)
+    assert find_service_config(config, "applications.app.postgresql") == (None, None)
 
 
 # ---------------------------------------------------------------------------
@@ -2875,8 +2729,7 @@ def test_postgres_image_follows_env_config_default_chain() -> None:
 
 def test_postgres_password_reads_minted_env_var() -> None:
     """POSTGRES_PASSWORD sources ARIEL_DB_PASSWORD from .env (minted by deploy
-    up), falling back to the legacy config key, then the dev default — the
-    same single-source convention as openobserve's ZO_ROOT_USER_PASSWORD."""
+    up), falling back to the legacy config key, then the dev default."""
     svc = yaml.safe_load(_render_postgres_template("proj-a"))["services"]["postgresql"]
     assert svc["environment"]["POSTGRES_PASSWORD"] == "${ARIEL_DB_PASSWORD:-ariel}"
 
@@ -3208,16 +3061,18 @@ def test_recorder_reads_config_yml_from_a_read_only_mount() -> None:
     take effect without a restart. CWD is the image WORKDIR, so without
     CONFIG_FILE every lookup errors "No config.yml found".
 
-    The mount is the REPO ROOT, deliberately unlike the bluesky bridge's staged
+    The mount is the RENDER, deliberately unlike the bluesky bridge's staged
     copy: a copy is rewritten only by ``osprey build``, so the poll would
     re-read a stale copy and the flip would silently need a rebuild. It is a
     directory rather than the single file because a single-file bind pins an
     inode at container start, and editors that save by rename leave a new one
-    behind — see the template's mount comment.
+    behind — see the template's mount comment. And it is ``./build``, never
+    the repo root, where the deployment's secret files live.
     """
     svc = _recorder_service(va_co_deployed=True)
     assert svc["environment"]["CONFIG_FILE"] == "/app/project/build/config.yml"
-    assert ".:/app/project:ro" in svc["volumes"]
+    assert "./build:/app/project/build:ro" in svc["volumes"]
+    assert not any(mount.split(":")[0] in (".", "./") for mount in svc["volumes"]), svc["volumes"]
     assert not any("archiver_recorder/config.yml" in mount for mount in svc["volumes"]), svc[
         "volumes"
     ]
@@ -3257,16 +3112,29 @@ def _packaged_compose_template(rel_path: str):
     ``jinja2.Template`` has no loader, so that import raises ``TemplateNotFound``;
     every test render therefore goes through an Environment rooted at the
     packaged ``templates/`` directory instead. Nothing else changes: the default
-    Undefined mode is production's, so ``| default(...)`` chains behave exactly
-    as they do under ``osprey up``, and the lookup stays CWD-independent.
+    Undefined mode and the kept trailing newline are production's, so
+    ``| default(...)`` chains behave exactly as they do under ``osprey up``, and
+    the lookup stays CWD-independent.
+    """
+    return _packaged_templates_environment().get_template(rel_path)
+
+
+@functools.cache
+def _packaged_templates_environment():
+    """The one Environment :func:`_packaged_compose_template` compiles through.
+
+    Shared so each template, and each macro file it imports, is parsed once per
+    module rather than once per call; Jinja's own cache still reloads a template
+    whose file changed.
     """
     from importlib import resources
 
     from jinja2 import Environment, FileSystemLoader
 
     templates_root = resources.files("osprey").joinpath("templates")
-    env = Environment(loader=FileSystemLoader(str(templates_root)), autoescape=False)
-    return env.get_template(rel_path)
+    return Environment(
+        loader=FileSystemLoader(str(templates_root)), autoescape=False, keep_trailing_newline=True
+    )
 
 
 def _render_service_template(rel_path: str, project_name: str, **overrides: object) -> str:
@@ -3745,7 +3613,7 @@ def test_worker_template_fallback_matches_worker_image_target_python_fallback() 
 # `python -m build` takes tens of seconds, so it is memoized per process:
 # built at most once, copied per context. Staging is also scoped to build
 # contexts that actually contain a Dockerfile — pure-image services
-# (postgresql, openobserve) never install the wheel.
+# (postgresql, telemetry_store) never install the wheel.
 # ---------------------------------------------------------------------------
 
 
@@ -6898,7 +6766,7 @@ def test_bridge_without_the_axis_renders_todays_network_blocks(
     # The file-level stanza still closes the file, still one blank line after
     # the volumes block, which ends at the bare volume name: a volume carries
     # no path-derived label.
-    assert rendered.endswith("_data:\n\nnetworks:\n  osprey-network:"), (
+    assert rendered.endswith("_data:\n\nnetworks:\n  osprey-network:\n"), (
         f"unexpected file tail: {rendered[-80:]!r}"
     )
 
@@ -7341,7 +7209,7 @@ def test_dispatcher_without_the_axis_renders_todays_network_blocks() -> None:
     assert "/config.yml:ro\n    networks:\n      - osprey-network\n    healthcheck:\n" in rendered
     # The file-level stanza still closes the file, still one blank line after
     # the healthcheck.
-    assert rendered.endswith("      start_period: 30s\n\nnetworks:\n  osprey-network:"), (
+    assert rendered.endswith("      start_period: 30s\n\nnetworks:\n  osprey-network:\n"), (
         f"unexpected file tail: {rendered[-80:]!r}"
     )
 
@@ -8382,10 +8250,10 @@ def test_devices_are_staged_for_the_bluesky_service_only(
     tmp_path: Path, devices_facts: list[str]
 ) -> None:
     _write_view(tmp_path)
-    out_dir = tmp_path / "build" / "services" / "openobserve"
+    out_dir = tmp_path / "build" / "services" / "postgresql"
     out_dir.mkdir(parents=True)
 
-    staged = _stage_devices(_devices_config(tmp_path), out_dir, source_dir="services/openobserve")
+    staged = _stage_devices(_devices_config(tmp_path), out_dir, source_dir="services/postgresql")
 
     assert staged is False
     assert not (out_dir / "bluesky_devices.yml").exists()
@@ -10012,3 +9880,68 @@ def test_dispatch_worker_mounts_the_staged_control_identity_module_read_only() -
     )
     for body in _dispatch_worker_services(rendered).values():
         assert body["volumes"].count(expected) == 1, body["volumes"]
+
+
+# ---------------------------------------------------------------------------
+# The files `osprey up` finds are the files the build wrote
+# ---------------------------------------------------------------------------
+
+
+def _write_store_config(tmp_path: Path, auth_method: str) -> Path:
+    """A deployment running the store and gateway, its web terminals signing in by *auth_method*."""
+    config_path = tmp_path / "config.yml"
+    with config_path.open("w", encoding="utf-8") as handle:
+        YAML().dump(
+            {
+                "project_name": "derived-fixture",
+                "project_root": str(tmp_path),
+                "build_dir": str(tmp_path / "build"),
+                "system": {"timezone": "UTC"},
+                "deploy": {"host": "deploy-host", "fqdn": "deploy-host.example.org"},
+                "services": {
+                    "telemetry_store": {"path": "./services/telemetry_store"},
+                    "telemetry_gateway": {"path": "./services/telemetry_gateway"},
+                },
+                "deployed_services": ["telemetry_store", "telemetry_gateway"],
+                "modules": {
+                    "web_terminals": {
+                        "enabled": True,
+                        "auth": {"method": auth_method, "allow_insecure_http": True},
+                        "users": [{"name": "alice", "index": 0}],
+                        "default_persona": "assistant",
+                        "personas": {"assistant": {"project": "derived-fixture-assistant"}},
+                    }
+                },
+            },
+            handle,
+        )
+    return config_path
+
+
+@pytest.mark.parametrize(("auth_method", "history_expected"), [("password", True), ("none", False)])
+def test_up_finds_exactly_the_compose_files_the_build_wrote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, auth_method: str, history_expected: bool
+) -> None:
+    """Build and up agree on the stack, derived services included.
+
+    The history page has no ``deployed_services`` entry: the build renders it
+    because the config deploys the store under sign-in. ``osprey up`` and
+    ``osprey down`` hand compose what :func:`find_existing_compose_files`
+    reports, so a lookup that walked ``deployed_services`` alone left the
+    container the build rendered out of every stack it started.
+    """
+    config_path = _write_store_config(tmp_path, auth_method)
+    _copy_service_templates(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    config, built = prepare_compose_files(str(config_path))
+    found = _dedupe_compose_files(
+        find_existing_compose_files(config, config["deployed_services"], base=tmp_path)
+    )
+
+    assert [os.path.normpath(path) for path in found] == [os.path.normpath(path) for path in built]
+    history_compose = os.path.normpath(
+        tmp_path / "build" / "services" / "history" / "docker-compose.yml"
+    )
+    assert (history_compose in {os.path.normpath(p) for p in built}) is history_expected
+    assert ("history" in derived_compose_dirs(config)) is history_expected

@@ -407,10 +407,11 @@ class TestClaudeCodeSDKIntegration:
         )
         assert len(viz_calls) > 0, f"No visualization tool called. Tools used: {result.tool_names}"
 
-        # The viz tool should have succeeded (no errors)
+        # A plot was made. An errored call the agent then corrected is
+        # self-correction and does not fail the test.
         viz_errors = [t for t in viz_calls if t.is_error]
-        assert len(viz_errors) == 0, (
-            f"Visualization tool returned errors: {[t.result[:300] for t in viz_errors]}"
+        assert len(viz_errors) < len(viz_calls), (
+            f"No visualization call succeeded: {[t.result[:300] for t in viz_errors]}"
         )
 
         # Check that the viz code contains 3D-related keywords

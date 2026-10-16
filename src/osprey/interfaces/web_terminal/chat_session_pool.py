@@ -27,21 +27,30 @@ logger = logging.getLogger(__name__)
 
 
 def _has_running_commands(key: str, session: OperatorSession) -> bool:
-    """Whether the agent of chat *key* still has a command it started running.
+    """Whether the agent of chat *key* may still have a command it started running.
 
     Blocking (it runs ``ps``); the reaper runs it in a worker thread. A failed
-    look counts as nothing running: it has the reach the reaper had without
-    one.
+    look, whether it raises or cannot read the process table (``None``),
+    counts as running: what the agent started is unknown, and reaping the chat
+    would end it unseen. Capacity eviction does not look at commands, so it
+    still bounds a chat kept open this way.
     """
     try:
-        return bool(session.started_commands())
+        started = session.started_commands()
     except Exception:
         logger.warning(
-            "Could not look for commands chat session %r started; treating it as running none",
+            "Could not look for commands chat session %r started; keeping it open",
             key,
             exc_info=True,
         )
-        return False
+        return True
+    if started is None:
+        logger.warning(
+            "Could not read the process table for chat session %r; keeping it open",
+            key,
+        )
+        return True
+    return bool(started)
 
 
 class ChatCapacityError(RuntimeError):
@@ -438,7 +447,8 @@ class ChatSessionPool:
         Idle = not busy (no in-flight turn, or a zombie whose reader and quiesce
         are both done), no command the agent started still running, AND
         ``last_activity`` older than ``idle_seconds``. A chat found running
-        such a command has its ``last_activity`` refreshed. The look is one
+        such a command, or whose look failed so what it started is unknown,
+        has its ``last_activity`` refreshed and is kept. The look is one
         ``ps`` per non-busy chat per sweep, in worker threads, with the lock
         released. Reaping ends the agent's process; the next message to that
         chat resumes its transcript in a new child.
@@ -500,7 +510,8 @@ class ChatSessionPool:
 
         A chat whose agent still has a command it started running is busy, so
         it is never reaped mid-command; its idle clock starts at the last
-        sweep that saw such a command.
+        sweep that saw such a command. A chat whose look failed counts as
+        running one: the reaper never ends commands it could not see.
         """
         if session.is_busy or running_commands:
             return False

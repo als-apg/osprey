@@ -65,6 +65,38 @@ def test_the_second_probe_reaches_remote_configuration():
     assert remote["ANTHROPIC_BASE_URL"] == inventory.PROBE_ENV["ANTHROPIC_BASE_URL"]
 
 
+def test_every_probe_runs_under_the_environment_osprey_starts_claude_code_with():
+    """The inventory records what an OSPREY agent is offered, task-list tools included."""
+    from osprey.agent_runner.clean_env import TASK_TOOLS_ENV
+
+    assert TASK_TOOLS_ENV, "there is an environment to probe under"
+    for name, env in inventory.PROBES.items():
+        for key, value in TASK_TOOLS_ENV.items():
+            assert env.get(key) == value, f"the {name} probe does not set {key}"
+
+
+def test_the_probe_hands_its_environment_to_the_build(tmp_path):
+    cli = tmp_path / "claude"
+    cli.write_text(
+        "#!/bin/sh\n"
+        'echo "{\\"type\\":\\"system\\",\\"subtype\\":\\"init\\",'
+        '\\"tools\\":[\\"Switch$CLAUDE_CODE_ENABLE_TODO_TOOLS\\"]}"\n'
+    )
+    cli.chmod(0o755)
+
+    assert inventory.probe(cli) == ["Switch1"]
+
+
+def test_only_the_one_pinned_build_is_inventoried(tmp_path, monkeypatch):
+    from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
+
+    monkeypatch.setattr(inventory, "_npm_build", lambda version, prefix: prefix / version)
+
+    assert inventory.pinned_builds(tmp_path) == {
+        _DEFAULT_CLAUDE_CLI_VERSION: tmp_path / _DEFAULT_CLAUDE_CLI_VERSION
+    }
+
+
 def test_probe_of_a_silent_build_reports_a_timeout(tmp_path, monkeypatch):
     cli = tmp_path / "claude"
     cli.write_text("#!/bin/sh\nexec sleep 30\n")

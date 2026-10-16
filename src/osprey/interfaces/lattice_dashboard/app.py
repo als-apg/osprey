@@ -260,6 +260,14 @@ def _file_signature(path: Path | None) -> tuple[int, int] | None:
     return stat.st_mtime_ns, stat.st_size
 
 
+def _unavailable_response() -> JSONResponse:
+    """The 409 a figure route gives a figure the selected model cannot draw."""
+    return JSONResponse(
+        status_code=409,
+        content={"status": "unavailable", "reason": SINGLE_PASS_UNAVAILABLE},
+    )
+
+
 def unknown_model_text(name: str) -> str:
     """The text naming a model the build does not list."""
     return f"Unknown model: {name}"
@@ -494,10 +502,7 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
         """The refusal for a figure the selected model cannot draw, or None."""
         selection = state.selection
         if selection.ready and name not in selection.capabilities.figures:
-            return JSONResponse(
-                status_code=409,
-                content={"status": "unavailable", "reason": SINGLE_PASS_UNAVAILABLE},
-            )
+            return _unavailable_response()
         return None
 
     def known(name: str) -> None:
@@ -617,10 +622,7 @@ def create_app(workspace_root: Path | None = None, render_root: Path | None = No
     async def verify() -> dict[str, Any] | JSONResponse:
         selection = state.selection
         if selection.ready and not selection.capabilities.verify:
-            return JSONResponse(
-                status_code=409,
-                content={"status": "unavailable", "reason": SINGLE_PASS_UNAVAILABLE},
-            )
+            return _unavailable_response()
         return {"status": "ok", "launched": compute.refresh_verification()}
 
     # ── Figures API ───────────────────────────────────────

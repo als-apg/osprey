@@ -68,9 +68,9 @@ def details(guard: Any) -> str:
 
 
 def test_guard_is_green_on_this_tree():
-    guard = make_guard()
-    guard.run()
-    assert guard.result.ok, "config-key guard failed:\n" + details(guard)
+    # Through the CLI, so this one full run also proves the exit-0 path; main()
+    # prints every failure before returning 1, and pytest shows that output.
+    assert guard_module.main([]) == 0, "config-key guard failed; its failures are printed above"
 
 
 def test_manifest_carries_every_required_section():
@@ -154,8 +154,8 @@ def test_cli_exits_nonzero_when_the_manifest_is_violated(tmp_path):
     manifest_path = tmp_path / "config_key_manifest.yml"
     manifest_path.write_text(yaml.safe_dump(doctored))
 
+    # The clean tree's exit 0 is test_guard_is_green_on_this_tree's assertion.
     assert guard_module.main(["--manifest", str(manifest_path)]) == 1
-    assert guard_module.main([]) == 0
 
 
 # ── one negative control per failure mode ────────────────────────────────
@@ -517,9 +517,9 @@ def test_a_same_value_mark_on_a_divergent_key_goes_red():
     assert "channel-finder-standalone" in text
 
 
-@pytest.mark.parametrize("key", ["web.theme", "services.openobserve.port"])
+@pytest.mark.parametrize("key", ["web.theme", "services.telemetry_store.port"])
 def test_a_same_value_mark_no_two_presets_state_goes_red(key: str):
-    # web.theme is live only in control-assistant; services.openobserve.port
+    # web.theme is live only in control-assistant; services.telemetry_store.port
     # reaches the union only through the layout fill, which no preset writes.
     guard = make_guard(mark_same_value(key))
     guard.check_parity()

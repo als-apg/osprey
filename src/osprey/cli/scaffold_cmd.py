@@ -55,7 +55,7 @@ from osprey.cli.profile_conventions import (
 from osprey.cli.repo_resolver import find_repo_root, repo_option
 from osprey.cli.styles import console
 from osprey.cli.templates.manager import TemplateManager
-from osprey.docs_links import installer_remedy
+from osprey.docs_links import setup_remedy
 from osprey.errors import ConfigurationError
 from osprey.utils.config import load_project_config
 from osprey.utils.logger import get_logger
@@ -1694,7 +1694,7 @@ def _reject_retired_config_option(config_path: str | None) -> None:
         "config.yml, emitted from the profile's `config:` block — run this verb "
         "with --repo DIR, or from inside the repo. Its deployment artifacts "
         "come from `osprey scaffold ci`, driven by the profile's `deploy:` "
-        "block. " + installer_remedy("the installer writes the profile both blocks live in")
+        "block. " + setup_remedy("the setup writes the profile both blocks live in")
     )
     logger.error("%s", message)
     raise SystemExit(1)
@@ -1758,9 +1758,16 @@ def web_terminals_lint(repo, config_path):
     # `write_web_terminal_artifacts` resolves it against — so a lint run from
     # anywhere else used to read no persona `config.yml` at all and report
     # every persona as unprivileged.
-    findings = lint_web_terminals(config, project_root=repo_root)
+    # The telemetry store's rules ride the same command: its readers are named
+    # beside the roster, and a deployment is linted in one pass.
+    from osprey.deployment.telemetry_lint import lint_telemetry
 
-    if not findings:
+    findings = [*lint_web_terminals(config, project_root=repo_root), *lint_telemetry(config)]
+    notes = [f for f in findings if f.severity == "info"]
+    for finding in notes:
+        console.print(f"[dim]\u2139 [{finding.code}] {finding.message}[/dim]")
+
+    if len(notes) == len(findings):
         console.print("[success]\u2713[/success] modules.web_terminals: no issues found\n")
         return
 

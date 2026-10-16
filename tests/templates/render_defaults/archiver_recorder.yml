@@ -69,8 +69,7 @@ services:
       # states it here rather than supplying it — the same CONFIG_FILE
       # convention the dispatch worker and bluesky bridge follow.
       CONFIG_FILE: /app/project/build/config.yml
-      # In-network overrides for the archiver connection, following the
-      # OSPREY_OTEL_OPENOBSERVE_HOST precedent. The connection block in
+      # In-network overrides for the archiver connection. The connection block in
       # config.yml is written for the HOST side — `localhost` and the
       # host-published `port_host` — which is unreachable from inside the
       # compose network and would point at this container's own loopback. The
@@ -108,10 +107,10 @@ services:
       TZ: UTC
     volumes:
       # Bind-mount sources are relative to the pinned compose project
-      # directory, which is the deployment REPO ROOT — so `.` is the repo and
-      # `./build/data/simulator` the render's simulator view.
+      # directory, which is the deployment REPO ROOT — so `./build` is the
+      # render and `./build/data/simulator` its simulator view.
       #
-      # The REPO ROOT, read-only, and a deliberate exception to the convention
+      # The RENDER, read-only, and a deliberate exception to the convention
       # every other service follows. The bluesky bridge and the dispatch
       # worker mount the flattened config.yml the compose generator stages
       # into their own build dir; this service must not. That staged copy is
@@ -133,15 +132,16 @@ services:
       # flow. Mounting the directory re-resolves the path on every read, so any
       # editor's save is seen.
       #
-      # Read-only, so the repo's .env is also visible to this container.
-      # Accepted: it is first-party and already receives the store credential
-      # by env. The recorder reads the config's archiver connection block
-      # through this mount for everything but the address: the store's name,
-      # collection, login, timeout_s and tls.ca_bundle, whose file is mounted
-      # below at the path the key names. host and port are written for the
-      # host side, so the OSPREY_ARCHIVER_MONGODB_* overrides above replace
-      # them.
-      - .:/app/project:ro
+      # `./build` and never the repo root: the root holds the deployment's
+      # secret files — the env chain and every service's credential file —
+      # and a container is handed a secret only as its own `env_file`. The
+      # render holds none of them. The recorder reads the config's archiver
+      # connection block through this mount for everything but the address:
+      # the store's name, collection, login, timeout_s and tls.ca_bundle,
+      # whose file is mounted below at the path the key names. host and port
+      # are written for the host side, so the OSPREY_ARCHIVER_MONGODB_*
+      # overrides above replace them.
+      - ./build:/app/project/build:ro
       # The simulator view, read-only: the recorder records the `channels` of
       # its addresses.json, the same file the VA serves its namespace from.
       # It never writes into the build-owned view.

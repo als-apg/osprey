@@ -3,10 +3,11 @@
 # ONLY by tests/e2e/test_deploy_lifecycle.py to exercise lifecycle MECHANICS
 # (up/idempotency, `osprey users seed/passwd/remove/prune`, `osprey reset`)
 # against a real container runtime. It never runs the actual osprey web app —
-# it just needs to (a) stay running so compose reports it healthy-enough to
-# inspect/exec into, and (b) satisfy what seeding.py's container-side reconcile
-# scripts depend on: a "dispatch" user (chown target) and the two mount-point
-# directories the per-user compose service declares volumes onto.
+# it just needs to (a) stay running and pass the per-user service's healthcheck
+# (`curl -fsS http://<bind>:<port>/health`), which `osprey up` waits on before
+# it reports the stack started, and (b) satisfy what seeding.py's container-side
+# reconcile scripts depend on: a "dispatch" user (chown target) and the two
+# mount-point directories the per-user compose service declares volumes onto.
 #
 # The paths below are the directory of the project the fixture's catalog
 # names for its default persona (/app/osprey-e2e-mus-p3-assistant/...) — see
@@ -21,13 +22,18 @@
 # at first start, which the non-root user below then cannot write to.
 FROM alpine:3.20
 
-RUN adduser -D dispatch \
+# busybox-extras carries the httpd applet (the base busybox does not); curl is
+# what the healthcheck runs.
+RUN apk add --no-cache busybox-extras curl \
+    && adduser -D dispatch \
     && mkdir -p /data/claude-config \
     && mkdir -p /app/osprey-e2e-mus-p3-assistant/var/agent_data \
     && mkdir -p /app/osprey-e2e-mus-p3-assistant/.claude/skills \
-    && chown -R dispatch:dispatch /data/claude-config /app/osprey-e2e-mus-p3-assistant
+    && chown -R dispatch:dispatch /data/claude-config /app/osprey-e2e-mus-p3-assistant \
+    && mkdir -p /srv \
+    && echo ok > /srv/health
 
-# alpine's busybox `sleep` doesn't accept the GNU "infinity" literal; `tail -f
-# /dev/null` is the portable idle-forever idiom. seeding.py execs into this
-# container as root (-u 0), so the process's own uid doesn't matter here.
-CMD ["tail", "-f", "/dev/null"]
+# Serves /srv/health on the address and port compose hands each user's
+# container. seeding.py execs into this container as root (-u 0), so the
+# process's own uid doesn't matter here.
+CMD ["sh", "-c", "exec httpd -f -p \"${OSPREY_TERMINAL_BIND_HOST:-127.0.0.1}:${OSPREY_TERMINAL_WEB_PORT}\" -h /srv"]

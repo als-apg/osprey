@@ -82,6 +82,7 @@ import pytest
 import yaml
 
 from osprey.agent_runner import await_mcp_ready, expected_mcp_servers, sdk_env
+from osprey.agent_runner.launcher import project_agent_cli_path
 from osprey.agent_runner.primitives import _ingest_tool_result
 from osprey.mcp_server.control_system.connector_host_manager import baseline_target
 from osprey.mcp_server.control_system.target_state import (
@@ -129,6 +130,7 @@ from tests.fixtures.bench_ioc import (
     bench_ioc,
     ca_op,
     caget,
+    caput,
     docker,
     free_port,
     require_bench_image,
@@ -579,7 +581,7 @@ def _init_and_build(workspace: Path, *, bench_port: int, va_port: int) -> Path:
             "--set",
             "provider=als-apg",
             "--set",
-            "model=claude-opus-5-5",
+            "model=claude-haiku-5-5",
             *set_pairs(_profile_edits(bench_port=bench_port, va_port=va_port)),
         ],
         timeout=INIT_TIMEOUT_S,
@@ -603,6 +605,9 @@ class SwitchDeployment:
     bench: BenchIOC
     va_port: int
     va_container: str
+    #: The live corrector's setpoint as the bench booted with it — the value
+    #: both machines are put back to before every scenario.
+    corrector_start: float
 
     @property
     def render(self) -> Path:
@@ -647,6 +652,7 @@ def switch_deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Swit
     va_port = free_port()
 
     with bench_ioc(prefix="osprey-target-switch-agentic-bench") as bench:
+        corrector_start = caget(bench.port, CORRECTOR_SP)
         repo = _init_and_build(workspace, bench_port=bench.port, va_port=va_port)
         with _virtual_accelerator(va_port, repo) as va_name:
             yield SwitchDeployment(
@@ -654,6 +660,7 @@ def switch_deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Swit
                 bench=bench,
                 va_port=va_port,
                 va_container=va_name,
+                corrector_start=corrector_start,
             )
 
 
@@ -734,7 +741,27 @@ def deployment_starts_at_baseline(request: pytest.FixtureRequest) -> None:
     """
     if "switch_deployment" not in request.fixturenames:
         return
-    clear_control_state(request.getfixturevalue("switch_deployment").repo)
+    deployment = request.getfixturevalue("switch_deployment")
+    clear_control_state(deployment.repo)
+    put_both_correctors_at_the_start(deployment)
+
+
+def put_both_correctors_at_the_start(deployment: SwitchDeployment) -> None:
+    """Set the corrector to the same starting value on both machines.
+
+    The two machines are module-scoped, so a value one scenario — or one
+    attempt of a rerun — writes is still there for the next. And a rehearsal
+    only rehearses something when the simulator starts where the live machine
+    does: from different starting values, the same requested setpoint is a
+    different move on each, and an agent that notices is right not to call the
+    simulator's move a rehearsal of the live one.
+    """
+    for port in (deployment.bench_port, deployment.va_port):
+        outcome = caput(port, CORRECTOR_SP, deployment.corrector_start)
+        assert abs(float(outcome["read_value"]) - deployment.corrector_start) < 1e-6, (
+            f"could not put {CORRECTOR_SP} back to {deployment.corrector_start} on port "
+            f"{port} before the scenario: {outcome}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1268,6 +1295,7 @@ async def run_switch_conversation(
     options = ClaudeAgentOptions(
         model=_default_opus_model(deployment.repo),
         cwd=str(render),
+        cli_path=project_agent_cli_path(render),
         permission_mode="default",
         max_turns=max_turns,
         max_budget_usd=e2e_budget_cap(max_budget_usd),

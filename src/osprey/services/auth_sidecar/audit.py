@@ -539,6 +539,7 @@ def _record(
             # no spawned session, and inventing one would join this record to a
             # session that never existed.
             session=None,
+            on_behalf_of=user,
             subject=user,
             decision=decision,
             reason=reason,

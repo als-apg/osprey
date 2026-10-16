@@ -13,6 +13,7 @@ import pytest
 
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
 from osprey.connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey.errors import ChannelNotFoundError
 from tests.facility.served_tree import in_process_config, served_tree
 
 #: The test rig's channels, in the facility schema's own spelling.
@@ -143,7 +144,9 @@ class TestMockArchiverSimulation:
         assert len(sp) > 0
         assert (sp == 42.0).all()
 
-        with pytest.raises(ValueError, match="UNSERVED:PV is not in build/facility.json"):
+        with pytest.raises(
+            ChannelNotFoundError, match="UNSERVED:PV is not a channel of this facility"
+        ):
             await connector.get_data(
                 channels=["T:Q1:CUR:SP", "UNSERVED:PV"],
                 start_date=datetime(2024, 1, 1, 0, 0, 0),

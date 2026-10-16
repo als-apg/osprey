@@ -39,7 +39,12 @@ from tests.interfaces.web_terminal._handoff_harness import (
     pty_spawner,
     registry,
 )
-from tests.interfaces.web_terminal._pty_child import CHILD_HANG_CEILING, kill_quietly, pid_gone
+from tests.interfaces.web_terminal._pty_child import (
+    CHILD_HANG_CEILING,
+    kill_quietly,
+    pid_gone,
+    wait_gone,
+)
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="no process groups on Windows"),
@@ -91,7 +96,7 @@ async def test_stop_ends_the_processes_the_chat_agent_started(tmp_path):
         await session.stop()
 
         assert session.process_exited is True
-        assert all(pid_gone(pid) for pid in pids)
+        await wait_gone(pids)
     finally:
         await session.stop()
         kill_quietly(pids)
@@ -111,7 +116,7 @@ async def test_stop_ends_started_processes_that_ignore_sigterm(tmp_path):
 
         await session.stop()
 
-        assert all(pid_gone(pid, within=10.0) for pid in pids)
+        await wait_gone(pids, within=10.0)
     finally:
         await session.stop()
         kill_quietly(pids)
@@ -134,6 +139,90 @@ async def test_stop_logs_what_it_ended(tmp_path, caplog):
             if "magnet_scan.py" in record.getMessage() and str(grandchild) in record.getMessage()
         ]
     finally:
+        await session.stop()
+        kill_quietly(pids)
+
+
+def _ended_pids(session: OperatorSession) -> set[int]:
+    """The pids in the groups *session*'s stop says it ended, given that it could look."""
+    ending = session.tree_ending
+    assert ending is not None, "the stop found no live child to look under"
+    assert ending.read, "the stop could not read the process table"
+    return {pid for group in ending.ended_groups for pid, _ in group.members}
+
+
+def _fail_first_reads(monkeypatch, failures: int) -> list[bool]:
+    """Make the first *failures* process-table reads fail; return the log of reads.
+
+    Each entry says whether that read reached the real ``ps``.
+    """
+    real = process_tree.snapshot
+    reads: list[bool] = []
+
+    def flaky():
+        reads.append(len(reads) >= failures)
+        return real() if reads[-1] else None
+
+    monkeypatch.setattr(process_tree, "snapshot", flaky)
+    return reads
+
+
+async def test_stop_ends_what_the_agent_started_when_the_first_process_table_read_fails(
+    tmp_path, monkeypatch
+):
+    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
+    session = await start_chat(factory)
+    pids: list[int] = []
+    try:
+        pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
+        grandchild = pids[0]
+        reads = _fail_first_reads(monkeypatch, 1)
+
+        await session.stop()
+
+        assert reads[0] is False
+        assert grandchild in _ended_pids(session)
+        await wait_gone([grandchild])
+    finally:
+        monkeypatch.undo()
+        await session.stop()
+        kill_quietly(pids)
+
+
+async def test_stop_warns_and_reports_an_unread_tree_when_the_process_table_never_reads(
+    tmp_path, monkeypatch, caplog
+):
+    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
+    session = await start_chat(factory)
+    pids: list[int] = []
+    try:
+        pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
+        child = session.pid
+        reads: list[None] = []
+
+        def unreadable():
+            reads.append(None)
+            return None
+
+        monkeypatch.setattr(process_tree, "snapshot", unreadable)
+
+        with caplog.at_level(logging.WARNING, logger=operator_session.__name__):
+            await session.stop()
+
+        assert session.process_exited is True
+        assert len(reads) == process_tree.TREE_READ_ATTEMPTS
+        warnings = [
+            record.getMessage()
+            for record in caplog.records
+            if record.levelno == logging.WARNING and "process table" in record.getMessage()
+        ]
+        assert len(warnings) == 1, warnings
+        assert f"chat child {child} " in warnings[0]
+        assert session.tree_ending == operator_session.TreeEnding(read=False)
+        # Nothing was looked for, so nothing was ended: the report does not claim otherwise.
+        assert not pid_gone(pids[0], within=0.0)
+    finally:
+        monkeypatch.undo()
         await session.stop()
         kill_quietly(pids)
 
@@ -171,7 +260,7 @@ async def test_terminating_a_pooled_chat_ends_what_it_started(tmp_path):
 
         await pool.terminate(KEY)
 
-        assert pid_gone(pids[0])
+        await wait_gone([pids[0]])
     finally:
         await pool.drain_all()
         kill_quietly(pids)
@@ -187,7 +276,7 @@ async def test_evicting_a_chat_ends_what_it_started(tmp_path):
             pids = wait_for_chat_pids(first, factory.pid_files[0], 2)
             await pool.get_or_create(OTHER_KEY, str(tmp_path))
 
-        assert pid_gone(pids[0])
+        await wait_gone([pids[0]])
     finally:
         await pool.terminate(KEY)
         await pool.terminate(OTHER_KEY)
@@ -211,7 +300,7 @@ async def test_reaping_an_idle_chat_ends_what_it_started(tmp_path):
         clock.now = _an_idle_window_after(session, IDLE)
         assert await pool.reap_idle() == 1
 
-        assert pid_gone(pids[0])
+        await wait_gone([pids[0]])
     finally:
         await pool.drain_all()
         kill_quietly(pids)
@@ -254,7 +343,7 @@ async def test_an_idle_chat_is_reaped_once_its_started_command_has_exited(tmp_pa
         assert session.last_activity == seen
 
         kill_quietly([grandchild])
-        assert pid_gone(grandchild)
+        await wait_gone([grandchild])
         # The clock counts from the sweep that last saw the command, not from the last turn.
         assert await pool.reap_idle() == 0
         clock.now = seen + IDLE - 1.0
@@ -265,7 +354,7 @@ async def test_an_idle_chat_is_reaped_once_its_started_command_has_exited(tmp_pa
         assert await pool.reap_idle() == 1
         assert pool.get(KEY) is None
         assert session.process_exited is True
-        assert pid_gone(helper)
+        await wait_gone([helper])
     finally:
         await pool.drain_all()
         kill_quietly(pids)
@@ -281,7 +370,7 @@ async def test_a_launch_change_ends_what_the_old_child_started(tmp_path):
             pids = wait_for_chat_pids(first, factory.pid_files[0], 2)
             await pool.get_or_create(KEY, str(tmp_path), {"X": "2"})
 
-        assert pid_gone(pids[0])
+        await wait_gone([pids[0]])
     finally:
         await pool.drain_all()
         kill_quietly(pids)
@@ -303,7 +392,11 @@ async def test_cleanup_all_ends_what_every_agent_started(tmp_path):
 
         await operators.cleanup_all()
 
-        assert all(pid_gone(pid) for pid in grandchildren)
+        # What each stop says it ended comes first, so a command left running
+        # is reported with its cause rather than as a pid that outlived a wait.
+        for session, grandchild in zip((first, second, op), grandchildren, strict=True):
+            assert grandchild in _ended_pids(session)
+        await wait_gone(grandchildren)
     finally:
         await operators.cleanup_all()
         kill_quietly(pids)
@@ -319,7 +412,7 @@ async def test_a_replaced_operator_session_ends_what_it_started(tmp_path):
             pids = wait_for_chat_pids(first, factory.pid_files[0], 2)
             await operators.create_session("op", str(tmp_path))
 
-        assert pid_gone(pids[0])
+        await wait_gone([pids[0]])
     finally:
         await operators.cleanup_all()
         kill_quietly(pids)
@@ -365,7 +458,7 @@ async def test_stop_both_ends_the_chat_and_what_it_started(tmp_path):
         await acquire(app, KEY, "expert", object(), spawn=pty_spawner(app), end_started=True)
 
         assert session.process_exited is True
-        assert all(pid_gone(pid) for pid in pids)
+        await wait_gone(pids)
     finally:
         await session.stop()
         kill_quietly(pids)
@@ -381,6 +474,7 @@ async def test_started_commands_lists_only_groups_of_their_own(tmp_path):
 
         commands = await asyncio.to_thread(session.started_commands)
 
+        assert commands is not None
         assert [c.label for c in commands] == ["magnet_scan.py"]
         assert commands[0].pgid == grandchild
         assert helper not in {pid for c in commands for pid, _ in c.members}

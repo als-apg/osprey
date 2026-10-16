@@ -584,7 +584,9 @@ def test_a_cell_sees_no_server_token_and_no_terminal_family(
     ``JUPYTER_TOKEN`` is the sidecar's own credential — the kernelspec carries it
     empty and the launcher pops the name outright, so a cell holds neither. The
     ``OSPREY_TERMINAL_`` family is dropped by ``scrub_sandbox_child_env``, which
-    is only visible because the terminal's environment set one.
+    is only visible because the terminal's environment set one — all but the
+    launch's terminal session, kept by exact name so the ledger lines a cell
+    writes file under the same session as its OTLP resource.
     """
     session_id = uuid.uuid4().hex
 
@@ -593,7 +595,12 @@ def test_a_cell_sees_no_server_token_and_no_terminal_family(
     ) as socket:
         reported = json.loads(_run_cell(socket, PROBE_CODE, session_id))
 
-    assert reported == {"tok": False, "term": [], "cfg": True, "audit": True}
+    assert reported == {
+        "tok": False,
+        "term": ["OSPREY_TERMINAL_SESSION"],
+        "cfg": True,
+        "audit": True,
+    }
 
 
 @pytest.mark.timeout(KERNEL_TIMEOUT, func_only=True)

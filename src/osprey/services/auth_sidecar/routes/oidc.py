@@ -105,9 +105,10 @@ from ..app import (
 from ..exceptions import InvalidSessionError
 from ..identity_headers import is_header_safe, same_domain, same_identity, same_value
 from ..return_to import safe_return_to
+from ..roster_env import READER_ENTRY_PREFIX
 from ..sessions import SESSION_COOKIE_NAME, SessionState
 from ..throttle import AttemptThrottle
-from .entry import OpenedCard, opened_response, refuse_no_card
+from .entry import OpenedCard, card_less_next, opened_response, refuse_no_card
 from .recheck import LoginGrant, RecheckRefused, recheck_login, roster_roles
 
 logger = logging.getLogger(__name__)
@@ -136,8 +137,9 @@ PENDING_FLOW_SESSION_KEY = "osprey_oidc_pending"
 """State-cookie key holding the in-flight handshake.
 
 Two shapes: ``{"state", "user", "next"}`` for a clicked card, and
-``{"state", "own_terminal": True}`` for the card-less sign-in, carrying no user
-and no return-to. Both ride the same signed state cookie, so the browser can
+``{"state", "own_terminal": True}`` for the card-less sign-in, carrying no user,
+plus ``"next"`` only when that sign-in arrived with a validated return-to (the
+history page's own sign-in). Both ride the same signed state cookie, so the browser can
 neither add the marker nor remove it.
 
 One entry, not a map: Authlib's Starlette integration drops every previous
@@ -1033,13 +1035,21 @@ async def oidc_login(
             bound=_ledger_bound(request),
         )
 
-    target = safe_return_to(return_to, user, flow="oidc login")
+    target = safe_return_to(
+        return_to, user, flow="oidc login", history_origin=settings.history_origin
+    )
     return await _start_handshake(request, settings, {"user": user, "next": target})
 
 
 @router.get(ENTRY_PATH)
-async def oidc_enter(request: Request) -> Response:
+async def oidc_enter(
+    request: Request,
+    return_to: list[str] | None = Query(None, alias="next"),
+) -> Response:
     """Redirect to the IdP for a sign-in that names no card.
+
+    A validated ``next`` — the hop from ``/auth/enter`` forwards it — is kept in
+    the pending flow, and the callback returns the browser there.
 
     There is no pre-check, unlike :func:`oidc_login`: which card the identity
     opens is known only after the token exchange, so a roster that maps nobody
@@ -1048,6 +1058,8 @@ async def oidc_enter(request: Request) -> Response:
 
     Args:
         request: The inbound request.
+        return_to: Where to return after the sign-in. Exactly one value is
+            read; none or several mean none.
 
     Returns:
         A redirect to the IdP's authorization endpoint.
@@ -1058,7 +1070,11 @@ async def oidc_enter(request: Request) -> Response:
     """
     settings = get_settings(request)
     _require_oidc_mode(settings)
-    return await _start_handshake(request, settings, {PENDING_OWN_TERMINAL: True})
+    pending: dict[str, Any] = {PENDING_OWN_TERMINAL: True}
+    target = card_less_next(return_to[0] if return_to and len(return_to) == 1 else None, settings)
+    if target:
+        pending["next"] = target
+    return await _start_handshake(request, settings, pending)
 
 
 async def _validated_claims(
@@ -1720,7 +1736,7 @@ async def oidc_callback(request: Request) -> Response:
         raise HTTPException(status_code=400, detail="login state mismatch")
 
     if not pending.get("user"):
-        return await _own_terminal_callback(request, settings)
+        return await _own_terminal_callback(request, settings, pending.get("next"))
 
     user = str(pending["user"])
     # A shared card's own mapping decides nothing — not even whether it has
@@ -1777,7 +1793,13 @@ async def oidc_callback(request: Request) -> Response:
     session = _mint(request, settings, (admission,))
 
     response = RedirectResponse(
-        safe_return_to(pending.get("next"), user, flow="oidc login"), status_code=303
+        safe_return_to(
+            pending.get("next"),
+            user,
+            flow="oidc login",
+            history_origin=settings.history_origin,
+        ),
+        status_code=303,
     )
     response.set_cookie(
         SESSION_COOKIE_NAME,
@@ -1793,8 +1815,16 @@ async def oidc_callback(request: Request) -> Response:
     return response
 
 
-async def _own_terminal_callback(request: Request, settings: AuthSettings) -> Response:
+async def _own_terminal_callback(
+    request: Request, settings: AuthSettings, pending_next: object = None
+) -> Response:
     """Finish a card-less handshake: unlock every card the identity is admitted to.
+
+    Both branches also mint a ``reader:<name>`` entry for every configured
+    reader whose identity the token asserts — beside any card admissions, since
+    a reader whom a ``domain:`` rule also admits is still a reader. A reader
+    with no card is no refusal: the browser goes to ``pending_next``, which
+    names the history page it came from.
 
     Each candidate goes through :func:`_card_admission`, the card login's own
     decision. A refusal there is already filed under its own category and drops
@@ -1804,10 +1834,12 @@ async def _own_terminal_callback(request: Request, settings: AuthSettings) -> Re
     Args:
         request: The callback request.
         settings: The deployment's frozen settings.
+        pending_next: The return-to the pending flow carried, re-validated here.
 
     Returns:
-        A redirect to the one opened terminal, the list page when several
-        opened, or the ``none`` page with 403.
+        A redirect to the return-to when there is one, else to the one opened
+        terminal (or the history page for a reader alone), the list page when
+        several opened, or the ``none`` page with 403.
 
     Raises:
         HTTPException: The token-exchange refusals of :func:`_validated_claims`,
@@ -1825,7 +1857,10 @@ async def _own_terminal_callback(request: Request, settings: AuthSettings) -> Re
             # Already filed by `_refuse_login` under the card's own category.
             continue
 
-    if not admissions:
+    readers = matching_readers(settings, asserted)
+    target = card_less_next(pending_next, settings)
+
+    if not admissions and not readers:
         return refuse_no_card(request, subject=audit.SIGN_IN_SUBJECT)
 
     # Own cards first: a card is the person's own when its roster entry is
@@ -1839,13 +1874,75 @@ async def _own_terminal_callback(request: Request, settings: AuthSettings) -> Re
         key=lambda pair: not pair[1],
     )
     session = _mint(request, settings, [admission for admission, _ in opened])
-    response = opened_response(
-        request,
-        settings,
-        get_session_codec(request),
-        session,
-        tuple(OpenedCard(name=admission.card, own=own) for admission, own in opened),
-    )
+    session = _mint_readers(request, settings, session, readers)
+    codec = get_session_codec(request)
+    response: Response
+    if not opened:
+        # A reader and nothing else: there is no terminal to send them to, so
+        # the sign-in returns where it was asked to, and to the history page
+        # when it was asked nowhere.
+        response = RedirectResponse(
+            target or f"{settings.history_origin}/history/", status_code=303
+        )
+        response.headers["Cache-Control"] = "no-store"
+        response.set_cookie(
+            SESSION_COOKIE_NAME,
+            codec.encode(session),
+            httponly=True,
+            samesite="lax",
+            secure=settings.tls_enabled,
+            path="/",
+        )
+    else:
+        response = opened_response(
+            request,
+            settings,
+            codec,
+            session,
+            tuple(OpenedCard(name=admission.card, own=own) for admission, own in opened),
+            target,
+        )
     for admission, _ in opened:
         _record_success(settings, admission)
+    for name in readers:
+        logger.info("oidc sign-in admitted reader %r", name)
+        audit.record_login_success(
+            user=f"{READER_ENTRY_PREFIX}{name}", method=settings.method, role=""
+        )
     return response
+
+
+def matching_readers(settings: AuthSettings, asserted: str) -> tuple[str, ...]:
+    """Every configured reader whose IdP identity ``asserted`` is, in config order.
+
+    A reader entry is minted from this match and from nothing else, which is
+    why ``/verify-history`` re-asks it against the reader's current subject on
+    every request. Every reader is compared, in constant time, with no early
+    break, for the reason
+    :meth:`~osprey.services.auth_sidecar.app.AuthSettings.subject_matches` gives.
+    """
+    matched = [
+        (name, same_identity(asserted, configured, claim=settings.oidc_claim))
+        for name, configured in ((name, settings.reader_subject(name)) for name in settings.readers)
+        if configured
+    ]
+    return tuple(name for name, matches in matched if matches and is_header_safe(name))
+
+
+def _mint_readers(
+    request: Request, settings: AuthSettings, session: SessionState, readers: Sequence[str]
+) -> SessionState:
+    """``session`` with one ``reader:<name>`` entry minted per matched reader.
+
+    The entry stores the reader's configured identity, as a roster entry stores
+    its configured subject: the deployment's own spelling of who signed in.
+    """
+    now = get_session_codec(request).now()
+    for name in readers:
+        configured = settings.reader_subject(name) or ""
+        session = session.with_user(
+            f"{READER_ENTRY_PREFIX}{name}",
+            expires_at=now + settings.session_lifetime,
+            oidc_subject=configured if is_header_safe(configured) else "",
+        )
+    return session

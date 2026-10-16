@@ -25,6 +25,7 @@ from typing import Any
 import click
 
 from osprey.facility.layers.mml.loaders import LoadedInput
+from osprey.facility.layers.mml.mapping import exported_text
 from osprey.facility.layers.mml.normalize import normalize_family
 
 __all__ = ["EXPORTS_KEY", "IMPORT_ORDER_KEY", "input_systems", "merge_inputs", "resolve_system"]
@@ -62,11 +63,11 @@ def resolve_system(loaded: LoadedInput, explicit: str | None) -> str | None:
     if explicit is not None:
         return _checked_token(explicit, loaded, "--system")
 
-    submachine = _text(loaded.export.get("submachine")) if loaded.export else None
+    submachine = exported_text(loaded.export.get("submachine")) if loaded.export else None
     if submachine is not None:
         return _checked_token(submachine, loaded, "_export.submachine")
 
-    ad_submachine = _text(loaded.ad.get("SubMachine")) if loaded.ad else None
+    ad_submachine = exported_text(loaded.ad.get("SubMachine")) if loaded.ad else None
     if ad_submachine is not None:
         return _checked_token(ad_submachine, loaded, "AD.SubMachine")
 
@@ -97,7 +98,7 @@ def input_systems(loaded: LoadedInput, explicit: str | None) -> list[str]:
     for key in loaded.ao:
         if not isinstance(key, str) or key.startswith("_"):
             continue
-        if _text(key) != key:
+        if exported_text(key) != key:
             raise click.UsageError(
                 f"Invalid system key {key!r} in {loaded.source}: a system token is a "
                 "non-empty name without surrounding whitespace."
@@ -181,14 +182,8 @@ def _without_export(ad: dict) -> dict:
     return {key: value for key, value in ad.items() if key != "_export"}
 
 
-def _text(value: object) -> str | None:
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return None
-
-
 def _checked_token(token: object, loaded: LoadedInput, origin: str) -> str:
-    text = _text(token)
+    text = exported_text(token)
     if text is None or text.startswith("_"):
         raise click.UsageError(
             f"Invalid system token {token!r} for {loaded.source} (from {origin}): "

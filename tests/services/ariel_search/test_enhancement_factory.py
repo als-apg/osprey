@@ -508,3 +508,114 @@ class TestInlineCallersSkipImageModules:
         assert result.entries_processed == 0
         assert result.module_names == []
         assert [k for k, _n in CALLS.events if k in ("enhance", "run_entry")] == []
+
+
+# ---------------------------------------------------------------------------
+# bind(config) seam
+# ---------------------------------------------------------------------------
+
+
+class _BindingTextEmbedding(_TextEmbedding):
+    """``text_embedding`` stand-in that reads the entry expander in ``bind``."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.bound: list[ARIELConfig] = []
+        self.expander: Any = "unbound"
+
+    def configure(self, config: dict[str, Any]) -> None:  # noqa: ARG002 - the enhancement module signature
+        CALLS.events.append(("configure", "text_embedding"))
+
+    def bind(self, config: ARIELConfig) -> None:
+        CALLS.events.append(("bind", "text_embedding"))
+        self.bound.append(config)
+        self.expander = config.entry_expander_or_none()
+
+
+class _BindingImageModule(_GoodImageModule):
+    """Catch-up module that records ``bind`` without reading the vocabulary."""
+
+    def bind(self, config: ARIELConfig) -> None:  # noqa: ARG002 - the enhancement module signature
+        CALLS.events.append(("bind", "image_embedding"))
+        assert self.configured is not None, "bind runs after configure"
+
+
+def _broken_vocabulary_config(tmp_path) -> ARIELConfig:
+    return ARIELConfig.from_dict(
+        {
+            "database": dict(_DB),
+            "enhancement_modules": {
+                "text_embedding": {"enabled": True},
+                "image_embedding": {"enabled": True},
+            },
+            "vocabulary": {
+                "enabled": True,
+                "expand_entries": True,
+                "path": str(tmp_path / "no-such-vocabulary.yml"),
+            },
+        }
+    )
+
+
+class TestBindSeam:
+    def test_bind_default_is_a_no_op(self):
+        module = _TextEmbedding()
+        assert module.bind(_config({})) is None
+
+    def test_bind_called_once_per_instance_with_a_broken_vocabulary(self, monkeypatch, tmp_path):
+        _register(
+            monkeypatch,
+            {
+                "text_embedding": (_BindingTextEmbedding, 20),
+                "image_embedding": (_BindingImageModule, 50),
+            },
+        )
+        config = _broken_vocabulary_config(tmp_path)
+        assert config.vocabulary_errors, "fixture must describe an unusable vocabulary"
+
+        enhancers = create_enhancers_from_config(config, stage="all")
+
+        assert [e.name for e in enhancers] == ["text_embedding", "image_embedding"]
+        assert CALLS.names("bind") == ["text_embedding", "image_embedding"]
+        text = enhancers[0]
+        assert text.bound == [config]
+        assert text.expander is None
+        # bind follows configure for each instance.
+        events = [kind for kind, name in CALLS.events if name == "text_embedding"]
+        assert events.index("configure") < events.index("bind")
+
+    def test_bind_runs_even_without_a_module_config_section(self, monkeypatch):
+        _register(monkeypatch, {"text_embedding": (_BindingTextEmbedding, 20)})
+        config = ARIELConfig.from_dict(
+            {"database": dict(_DB), "enhancement_modules": {"text_embedding": {"enabled": True}}}
+        )
+        monkeypatch.setattr(config, "get_enhancement_module_config", lambda name: None)
+
+        enhancers = create_enhancers_from_config(config)
+
+        assert CALLS.names("configure") == []
+        assert CALLS.names("bind") == ["text_embedding"]
+        assert enhancers[0].bound == [config]
+
+    def test_mirror_entry_best_effort_binds_the_module_it_builds(self, monkeypatch):
+        from osprey.services.ariel_search.enhancement.qmd_export import exporter
+
+        bound: list[Any] = []
+
+        class _Module:
+            def configure(self, config: dict[str, Any]) -> None:  # noqa: ARG002
+                bound.append("configure")
+
+            def bind(self, config: Any) -> None:
+                bound.append(config)
+
+            def mirror_now(self, entry: Any) -> bool:  # noqa: ARG002
+                return True
+
+        monkeypatch.setattr(exporter, "QmdExportModule", _Module)
+        config = MagicMock()
+        config.is_enhancement_module_enabled.return_value = True
+        config.get_enhancement_module_config.return_value = {}
+
+        assert exporter.mirror_entry_best_effort(config, {"entry_id": "e1"}) is True
+        assert bound == ["configure", config]

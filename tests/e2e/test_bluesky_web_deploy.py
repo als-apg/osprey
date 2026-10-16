@@ -104,15 +104,16 @@ BLUESKY_WEB_URL = f"http://localhost:{BLUESKY_WEB_PORT}"
 
 VA_CA_PORT = _orm_stack.VA_CA_PORT
 
-# ariel-postgres (5432) and OpenObserve (5080) are deployed unconditionally by
-# the control-assistant preset with no profile knob to drop them, and a
-# locally-running tutorial deploy routinely holds both. A bound-port collision
-# aborts `osprey up` before the containers this proof needs ever start, so both
+# ariel-postgres, the telemetry gateway and the telemetry store are deployed
+# unconditionally by the control-assistant preset, and a locally-running
+# tutorial deploy routinely holds their ports. A bound-port collision aborts
+# `osprey up` before the containers this proof needs ever start, so all three
 # move to high, unassigned ports. Stated in this module's own `extra_config`
 # rather than added to _orm_stack: only this module needs them moved, and
 # _orm_stack's shape is shared with the render gate.
 POSTGRES_PORT = 25434
-OPENOBSERVE_PORT = 25083
+TELEMETRY_GATEWAY_PORT = 24321
+TELEMETRY_STORE_PORT = 28126
 
 # The fixture builds/deploys under this project name; every compose template
 # renders its container_name and locally-built image as ``<project>-<service>``,
@@ -434,7 +435,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         extra_config={
             "config": {
                 "services.postgresql.port_host": POSTGRES_PORT,
-                "services.openobserve.port": OPENOBSERVE_PORT,
+                "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
+                "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             }
         },
     )

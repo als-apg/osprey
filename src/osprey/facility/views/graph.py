@@ -38,7 +38,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import PN_LOCAL
+from osprey.facility import DEFAULT_ROLE, PN_LOCAL
 from osprey.facility.build import FacilityDocument
 from osprey.facility.views import ViewInputs
 from osprey.facility.views.graph_iri import iri
@@ -282,7 +282,7 @@ def _channel_triples(subjects: _Subjects, code: str, doc: Mapping[str, Any]) -> 
         _add(subjects, subject, _p(P_FULL_PV), _text(address))
         if channel.get("description"):
             _add(subjects, subject, _p(P_DESCRIPTION), _text(channel["description"]))
-        predicate = _SIGNAL_PREDICATE.get(str(channel.get("role", "readback")))
+        predicate = _SIGNAL_PREDICATE.get(str(channel.get("role", DEFAULT_ROLE)))
         signal = channel.get("signal")
         if predicate and signal:
             signals.add(str(signal))

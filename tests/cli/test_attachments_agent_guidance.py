@@ -395,3 +395,18 @@ KEEP_RULE_ARIEL = (
 def test_keep_rule_renders_only_while_the_view_is_on(path, rule):
     assert rule in _flat(_render(path, True))
     assert "attachment_to_artifact" not in _render(path, False)
+
+
+ENTRY_SIDE_VOCABULARY = (
+    "`expanded_terms` lists only what was added to your query; `semantic_search` and "
+    "`hybrid_search` can also match an entry through vocabulary terms added to the entry "
+    "text, and `expand_query: false` does not switch that off."
+)
+
+
+@pytest.mark.parametrize("view", VIEW_FLAGS)
+def test_logbook_subagents_say_expanded_terms_omit_entry_side_vocabulary(view):
+    """An empty ``expanded_terms`` does not mean no vocabulary term matched an entry."""
+    for path in AGENTS.values():
+        assert ENTRY_SIDE_VOCABULARY in _flat(_render(path, view)), path
+    assert ENTRY_SIDE_VOCABULARY not in _flat(_render(SKILL, view))

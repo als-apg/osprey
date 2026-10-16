@@ -202,6 +202,9 @@ A clean run prints one ``wrote <path>`` line per file. The files under
 files beside them --- ``limits.yaml``, ``seeds.yaml``, ``identity.yaml``,
 ``classes.yaml`` and ``measurement/<model>.yaml`` --- are created only when
 absent and never rewritten, so your edits to them survive a re-import.
+``measurement/<model>.yaml`` names, as ``quad`` and ``sext``, the families the
+export tags as tune and chromaticity correctors, and lists every kind those
+groups and instruments allow; the import names the wired families it left out.
 
 Each device carries the export's ``CommonNames`` entry as its ``label``. The
 import writes one group per physical family: families that list the same
@@ -231,6 +234,14 @@ counting the setpoint devices that export no usable ``Setpoint.Tolerance``.
 A later importer that reads EPICS records instead takes the default from the
 record: ``MDEL`` when it is above 0, else ``10^-PREC``, and never ``HOPR`` or
 ``LOPR``.
+
+Two more lines count what the wiring pass derived, one per family and only when
+the count is not zero:
+``import mml: curves trimmed: <model>: family <family> (<n>)`` names a family
+whose conversion curves the pass cut, and
+``import mml: supplies folded: <model>: family <family> (<n>)`` names a family
+whose supplies feed several devices. Both go to stdout and never stop the
+import.
 
 The import refuses to run while ``data/facility/`` holds a record source of
 your own that would merge against the imported records. It prints

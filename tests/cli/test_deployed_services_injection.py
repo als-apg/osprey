@@ -37,6 +37,7 @@ the rest are unit tests of the two merges and cost nothing.
 from __future__ import annotations
 
 import copy
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -49,7 +50,6 @@ from osprey.cli.build_profile_ports import layout_port_fill
 from osprey.deployment.graphdb_service import DEFAULT_TTL_PATH
 from osprey.deployment.reach import REACH_CONTRACTS, render_local_keys
 from osprey.port_layout import DEFAULT_PORT_BASE
-from tests.cli.test_explicit_config_equivalence import CELL_DELTAS
 from tests.fixtures.explicit_config.freeze import (
     FIXTURE_ROOT,
     PROJECT_NAME,
@@ -95,26 +95,12 @@ def _baseline_root() -> dict[str, Any]:
 
 
 def _expected_deployed_services() -> list[str]:
-    """The baseline ``deployed_services``, moved by the equivalence module's declared delta.
-
-    The frozen list, replaced by the ``live`` value of the one delta
-    :data:`~tests.cli.test_explicit_config_equivalence.CELL_DELTAS` declares for
-    this cell's root ``deployed_services``, so the two modules cannot disagree
-    about the order. The delta must be exact: a list-gains spelling says nothing
-    about order and would be misread here.
+    """The frozen baseline ``deployed_services`` of this cell, in order.
 
     Returns:
         The ordered list the deploying render must carry.
     """
-    deltas = [
-        delta
-        for delta in CELL_DELTAS.get(f"{PRESET}/{MODE}", ())
-        if delta.key == ("root", "deployed_services")
-    ]
-    assert len(deltas) == 1, f"expected one root deployed_services delta, found {deltas}"
-    (delta,) = deltas
-    assert delta.added is None, "the deployed_services delta must be exact to pin an order"
-    return list(delta.live)
+    return list(_baseline_root().get("deployed_services") or [])
 
 
 def _preset_config() -> dict[str, Any]:
@@ -194,6 +180,8 @@ def built_project(
 
     project: Path = scratch / PROJECT_NAME
     result = _run_cli(["build"], cwd=project, env={**env, **offline_build_env})
+    # Every reader of this project reads its rendered files, never the venv.
+    shutil.rmtree(project / "build" / ".venv", ignore_errors=True)
     assert result.returncode == 0, f"osprey build refused the cell:\n{_failure_reason(result)}"
     return project
 
@@ -255,6 +243,8 @@ def external_store_render(
 
     project: Path = scratch / PROJECT_NAME
     result = _run_cli(["build"], cwd=project, env={**env, **offline_build_env})
+    # Only the rendered config is read, never the venv.
+    shutil.rmtree(project / "build" / ".venv", ignore_errors=True)
     assert result.returncode == 0, (
         "osprey build refused an attached profile that names an external graph store:\n"
         f"{_failure_reason(result)}"
@@ -274,8 +264,8 @@ def test_deploying_render_lists_the_baseline_services_in_order(
 ) -> None:
     """The deployment's ``deployed_services`` equals the baseline's, in order.
 
-    The baseline is the frozen list as the equivalence module's declared deltas
-    move it (:func:`_expected_deployed_services`). Order and all: it is the order the injectors ran in, and two of them read it
+    The baseline is the frozen list (:func:`_expected_deployed_services`). Order
+    and all: it is the order the injectors ran in, and two of them read it
     back — the chat bridges gate their dispatcher URLs on the dispatch pair
     already being listed, the recorder gates its image and addressing on the
     virtual accelerator being listed — so a reordering is a behaviour change,
@@ -524,7 +514,7 @@ def test_a_persona_override_of_deployed_services_reaches_nothing_else() -> None:
     """
     root = {
         "config": {
-            "deployed_services": ["postgresql", "openobserve", "qmd", "graphdb"],
+            "deployed_services": ["postgresql", "telemetry_store", "qmd", "graphdb"],
             "services.graphdb.image": "graphdb:11",
             "services.postgresql.username": "osprey",
             "approval.enabled": True,
@@ -533,12 +523,12 @@ def test_a_persona_override_of_deployed_services_reaches_nothing_else() -> None:
     before = copy.deepcopy(root)
 
     merged = merge_persona_delta(
-        root, {"config": {"deployed_services": ["postgresql", "openobserve", "qmd"]}}
+        root, {"config": {"deployed_services": ["postgresql", "telemetry_store", "qmd"]}}
     )
 
     assert merged["config"]["deployed_services"] == [
         "postgresql",
-        "openobserve",
+        "telemetry_store",
         "qmd",
         "graphdb",
     ]

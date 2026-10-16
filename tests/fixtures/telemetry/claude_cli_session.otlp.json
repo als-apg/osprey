@@ -1,0 +1,3595 @@
+{
+ "authorization": "Basic <identity>:<password>",
+ "captured_at": "2026-10-15T20:43:08.190589Z",
+ "cli_version": "2.1.300",
+ "protocol": "http/json",
+ "requests": [
+  {
+   "body": {
+    "resourceMetrics": [
+     {
+      "resource": {
+       "attributes": [
+        {
+         "key": "terminal.session",
+         "value": {
+          "stringValue": "contract-d733b7c87b7d"
+         }
+        },
+        {
+         "key": "host.arch",
+         "value": {
+          "stringValue": "<redacted>"
+         }
+        },
+        {
+         "key": "os.type",
+         "value": {
+          "stringValue": "darwin"
+         }
+        },
+        {
+         "key": "os.version",
+         "value": {
+          "stringValue": "25.6.0"
+         }
+        },
+        {
+         "key": "service.name",
+         "value": {
+          "stringValue": "claude-code"
+         }
+        },
+        {
+         "key": "service.version",
+         "value": {
+          "stringValue": "2.1.300"
+         }
+        }
+       ],
+       "droppedAttributesCount": 0
+      },
+      "scopeMetrics": [
+       {
+        "metrics": [
+         {
+          "description": "Count of CLI sessions started",
+          "name": "claude_code.session.count",
+          "sum": {
+           "aggregationTemporality": 1,
+           "dataPoints": [
+            {
+             "asDouble": 1,
+             "attributes": [
+              {
+               "key": "terminal.session",
+               "value": {
+                "stringValue": "contract-d733b7c87b7d"
+               }
+              },
+              {
+               "key": "user.id",
+               "value": {
+                "stringValue": "<redacted>"
+               }
+              },
+              {
+               "key": "session.id",
+               "value": {
+                "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+               }
+              },
+              {
+               "key": "terminal.type",
+               "value": {
+                "stringValue": "ghostty"
+               }
+              },
+              {
+               "key": "start_type",
+               "value": {
+                "stringValue": "fresh"
+               }
+              }
+             ],
+             "startTimeUnixNano": "1792096983101000000",
+             "timeUnixNano": "1792096984101000000"
+            }
+           ],
+           "isMonotonic": true
+          },
+          "unit": ""
+         }
+        ],
+        "scope": {
+         "name": "com.anthropic.claude_code",
+         "version": "2.1.300"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "signal": "metrics"
+  },
+  {
+   "body": {
+    "resourceLogs": [
+     {
+      "resource": {
+       "attributes": [
+        {
+         "key": "terminal.session",
+         "value": {
+          "stringValue": "contract-d733b7c87b7d"
+         }
+        },
+        {
+         "key": "host.arch",
+         "value": {
+          "stringValue": "<redacted>"
+         }
+        },
+        {
+         "key": "os.type",
+         "value": {
+          "stringValue": "darwin"
+         }
+        },
+        {
+         "key": "os.version",
+         "value": {
+          "stringValue": "25.6.0"
+         }
+        },
+        {
+         "key": "service.name",
+         "value": {
+          "stringValue": "claude-code"
+         }
+        },
+        {
+         "key": "service.version",
+         "value": {
+          "stringValue": "2.1.300"
+         }
+        }
+       ],
+       "droppedAttributesCount": 0
+      },
+      "scopeLogs": [
+       {
+        "logRecords": [
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "managed_settings_resolved"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-10-15T20:43:03.081Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": 0
+            }
+           },
+           {
+            "key": "managed_settings.trigger",
+            "value": {
+             "stringValue": "startup"
+            }
+           },
+           {
+            "key": "managed_settings.sources",
+            "value": {
+             "arrayValue": {
+              "values": []
+             }
+            }
+           },
+           {
+            "key": "managed_settings.source_behavior",
+            "value": {
+             "stringValue": "first-wins"
+            }
+           },
+           {
+            "key": "managed_settings.helper.state",
+            "value": {
+             "stringValue": "none"
+            }
+           },
+           {
+            "key": "managed_settings.helper.applied",
+            "value": {
+             "stringValue": "none"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.managed_settings_resolved"
+          },
+          "droppedAttributesCount": 0,
+          "observedTimeUnixNano": "1792096983081000000",
+          "timeUnixNano": "1792096983081000000"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "plugin_loaded"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-10-15T20:43:03.097Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": 1
+            }
+           },
+           {
+            "key": "plugin.name",
+            "value": {
+             "stringValue": "cc-plugin-agents-md"
+            }
+           },
+           {
+            "key": "marketplace.name",
+            "value": {
+             "stringValue": "builtin"
+            }
+           },
+           {
+            "key": "plugin.scope",
+            "value": {
+             "stringValue": "default-bundle"
+            }
+           },
+           {
+            "key": "enabled_via",
+            "value": {
+             "stringValue": "default-enable"
+            }
+           },
+           {
+            "key": "plugin_id_hash",
+            "value": {
+             "stringValue": "da63145d0acbb62d"
+            }
+           },
+           {
+            "key": "has_hooks",
+            "value": {
+             "boolValue": true
+            }
+           },
+           {
+            "key": "has_mcp",
+            "value": {
+             "boolValue": false
+            }
+           },
+           {
+            "key": "host_owned_mcp",
+            "value": {
+             "boolValue": false
+            }
+           },
+           {
+            "key": "skill_path_count",
+            "value": {
+             "intValue": 0
+            }
+           },
+           {
+            "key": "command_path_count",
+            "value": {
+             "intValue": 0
+            }
+           },
+           {
+            "key": "agent_path_count",
+            "value": {
+             "intValue": 0
+            }
+           },
+           {
+            "key": "safe_mode",
+            "value": {
+             "stringValue": "false"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.plugin_loaded"
+          },
+          "droppedAttributesCount": 0,
+          "observedTimeUnixNano": "1792096983097000000",
+          "timeUnixNano": "1792096983097000000"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "plugin_loaded"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-10-15T20:43:03.097Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": 2
+            }
+           },
+           {
+            "key": "plugin.name",
+            "value": {
+             "stringValue": "cc-plugin-telemetry"
+            }
+           },
+           {
+            "key": "marketplace.name",
+            "value": {
+             "stringValue": "builtin"
+            }
+           },
+           {
+            "key": "plugin.scope",
+            "value": {
+             "stringValue": "default-bundle"
+            }
+           },
+           {
+            "key": "enabled_via",
+            "value": {
+             "stringValue": "default-enable"
+            }
+           },
+           {
+            "key": "plugin_id_hash",
+            "value": {
+             "stringValue": "0452636910a73fd4"
+            }
+           },
+           {
+            "key": "has_hooks",
+            "value": {
+             "boolValue": true
+            }
+           },
+           {
+            "key": "has_mcp",
+            "value": {
+             "boolValue": false
+            }
+           },
+           {
+            "key": "host_owned_mcp",
+            "value": {
+             "boolValue": false
+            }
+           },
+           {
+            "key": "skill_path_count",
+            "value": {
+             "intValue": 0
+            }
+           },
+           {
+            "key": "command_path_count",
+            "value": {
+             "intValue": 0
+            }
+           },
+           {
+            "key": "agent_path_count",
+            "value": {
+             "intValue": 0
+            }
+           },
+           {
+            "key": "safe_mode",
+            "value": {
+             "stringValue": "false"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.plugin_loaded"
+          },
+          "droppedAttributesCount": 0,
+          "observedTimeUnixNano": "1792096983097000000",
+          "timeUnixNano": "1792096983097000000"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "plugin_loaded"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-10-15T20:43:03.097Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": 3
+            }
+           },
+           {
+            "key": "plugin.name",
+            "value": {
+             "stringValue": "cc-plugin-plugin-authoring"
+            }
+           },
+           {
+            "key": "marketplace.name",
+            "value": {
+             "stringValue": "builtin"
+            }
+           },
+           {
+            "key": "plugin.scope",
+            "value": {
+             "stringValue": "default-bundle"
+            }
+           },
+           {
+            "key": "enabled_via",
+            "value": {
+             "stringValue": "default-enable"
+            }
+           },
+           {
+            "key": "plugin_id_hash",
+            "value": {
+             "stringValue": "559932fe5f722b82"
+            }
+           },
+           {
+            "key": "has_hooks",
+            "value": {
+             "boolValue": true
+            }
+           },
+           {
+            "key": "has_mcp",
+            "value": {
+             "boolValue": false
+            }
+           },
+           {
+            "key": "host_owned_mcp",
+            "value": {
+             "boolValue": false
+            }
+           },
+           {
+            "key": "skill_path_count",
+            "value": {
+             "intValue": 0
+            }
+           },
+           {
+            "key": "command_path_count",
+            "value": {
+             "intValue": 0
+            }
+           },
+           {
+            "key": "agent_path_count",
+            "value": {
+             "intValue": 0
+            }
+           },
+           {
+            "key": "safe_mode",
+            "value": {
+             "stringValue": "false"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.plugin_loaded"
+          },
+          "droppedAttributesCount": 0,
+          "observedTimeUnixNano": "1792096983097000000",
+          "timeUnixNano": "1792096983097000000"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "user_prompt"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-10-15T20:43:03.148Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": 4
+            }
+           },
+           {
+            "key": "prompt.id",
+            "value": {
+             "stringValue": "548c2f8b-ff4c-4833-9104-de5f670ec4c7"
+            }
+           },
+           {
+            "key": "prompt_length",
+            "value": {
+             "stringValue": "84"
+            }
+           },
+           {
+            "key": "prompt",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "prompt_text",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "message.uuid",
+            "value": {
+             "stringValue": "4eb23d74-a0f0-41f9-82cd-adb3efe73d3b"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.user_prompt"
+          },
+          "droppedAttributesCount": 0,
+          "flags": 1,
+          "observedTimeUnixNano": "1792096983148000000",
+          "spanId": "139c87f1ae8d2c9b",
+          "timeUnixNano": "1792096983148000000",
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "api_request_body"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-10-15T20:43:03.165Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": 5
+            }
+           },
+           {
+            "key": "prompt.id",
+            "value": {
+             "stringValue": "548c2f8b-ff4c-4833-9104-de5f670ec4c7"
+            }
+           },
+           {
+            "key": "body",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "body_length",
+            "value": {
+             "stringValue": "78333"
+            }
+           },
+           {
+            "key": "body_truncated",
+            "value": {
+             "stringValue": "true"
+            }
+           },
+           {
+            "key": "model",
+            "value": {
+             "stringValue": "claude-haiku-5-5"
+            }
+           },
+           {
+            "key": "query_source",
+            "value": {
+             "stringValue": "sdk"
+            }
+           },
+           {
+            "key": "request_body_id",
+            "value": {
+             "stringValue": "7dc89889-26cc-4a9b-af86-8c5662611398"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.api_request_body"
+          },
+          "droppedAttributesCount": 0,
+          "flags": 1,
+          "observedTimeUnixNano": "1792096983165000000",
+          "spanId": "139c87f1ae8d2c9b",
+          "timeUnixNano": "1792096983165000000",
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         }
+        ],
+        "scope": {
+         "name": "com.anthropic.claude_code.events",
+         "version": "2.1.300"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "signal": "logs"
+  },
+  {
+   "body": {
+    "resourceLogs": [
+     {
+      "resource": {
+       "attributes": [
+        {
+         "key": "terminal.session",
+         "value": {
+          "stringValue": "contract-d733b7c87b7d"
+         }
+        },
+        {
+         "key": "host.arch",
+         "value": {
+          "stringValue": "<redacted>"
+         }
+        },
+        {
+         "key": "os.type",
+         "value": {
+          "stringValue": "darwin"
+         }
+        },
+        {
+         "key": "os.version",
+         "value": {
+          "stringValue": "25.6.0"
+         }
+        },
+        {
+         "key": "service.name",
+         "value": {
+          "stringValue": "claude-code"
+         }
+        },
+        {
+         "key": "service.version",
+         "value": {
+          "stringValue": "2.1.300"
+         }
+        }
+       ],
+       "droppedAttributesCount": 0
+      },
+      "scopeLogs": [
+       {
+        "logRecords": [
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "api_request_body"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-10-15T20:43:04.260Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": 6
+            }
+           },
+           {
+            "key": "prompt.id",
+            "value": {
+             "stringValue": "548c2f8b-ff4c-4833-9104-de5f670ec4c7"
+            }
+           },
+           {
+            "key": "body",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "body_length",
+            "value": {
+             "stringValue": "78267"
+            }
+           },
+           {
+            "key": "body_truncated",
+            "value": {
+             "stringValue": "true"
+            }
+           },
+           {
+            "key": "model",
+            "value": {
+             "stringValue": "claude-haiku-5-5"
+            }
+           },
+           {
+            "key": "query_source",
+            "value": {
+             "stringValue": "sdk"
+            }
+           },
+           {
+            "key": "request_body_id",
+            "value": {
+             "stringValue": "105e2079-b0b9-4ba2-bfbe-2f49b294d3cd"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.api_request_body"
+          },
+          "droppedAttributesCount": 0,
+          "flags": 1,
+          "observedTimeUnixNano": "1792096984260000000",
+          "spanId": "139c87f1ae8d2c9b",
+          "timeUnixNano": "1792096984260000000",
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         }
+        ],
+        "scope": {
+         "name": "com.anthropic.claude_code.events",
+         "version": "2.1.300"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "signal": "logs"
+  },
+  {
+   "body": {
+    "resourceMetrics": [
+     {
+      "resource": {
+       "attributes": [
+        {
+         "key": "terminal.session",
+         "value": {
+          "stringValue": "contract-d733b7c87b7d"
+         }
+        },
+        {
+         "key": "host.arch",
+         "value": {
+          "stringValue": "<redacted>"
+         }
+        },
+        {
+         "key": "os.type",
+         "value": {
+          "stringValue": "darwin"
+         }
+        },
+        {
+         "key": "os.version",
+         "value": {
+          "stringValue": "25.6.0"
+         }
+        },
+        {
+         "key": "service.name",
+         "value": {
+          "stringValue": "claude-code"
+         }
+        },
+        {
+         "key": "service.version",
+         "value": {
+          "stringValue": "2.1.300"
+         }
+        }
+       ],
+       "droppedAttributesCount": 0
+      },
+      "scopeMetrics": [
+       {
+        "metrics": [
+         {
+          "description": "Cost of the Claude Code session",
+          "name": "claude_code.cost.usage",
+          "sum": {
+           "aggregationTemporality": 1,
+           "dataPoints": [
+            {
+             "asDouble": 0.003416075,
+             "attributes": [
+              {
+               "key": "terminal.session",
+               "value": {
+                "stringValue": "contract-d733b7c87b7d"
+               }
+              },
+              {
+               "key": "user.id",
+               "value": {
+                "stringValue": "<redacted>"
+               }
+              },
+              {
+               "key": "session.id",
+               "value": {
+                "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+               }
+              },
+              {
+               "key": "terminal.type",
+               "value": {
+                "stringValue": "ghostty"
+               }
+              },
+              {
+               "key": "model",
+               "value": {
+                "stringValue": "claude-haiku-5-5"
+               }
+              },
+              {
+               "key": "query_source",
+               "value": {
+                "stringValue": "main"
+               }
+              },
+              {
+               "key": "effort",
+               "value": {
+                "stringValue": "medium"
+               }
+              }
+             ],
+             "startTimeUnixNano": "1792096986132000000",
+             "timeUnixNano": "1792096987105000000"
+            }
+           ],
+           "isMonotonic": true
+          },
+          "unit": "USD"
+         },
+         {
+          "description": "Number of tokens used",
+          "name": "claude_code.token.usage",
+          "sum": {
+           "aggregationTemporality": 1,
+           "dataPoints": [
+            {
+             "asDouble": 2,
+             "attributes": [
+              {
+               "key": "terminal.session",
+               "value": {
+                "stringValue": "contract-d733b7c87b7d"
+               }
+              },
+              {
+               "key": "user.id",
+               "value": {
+                "stringValue": "<redacted>"
+               }
+              },
+              {
+               "key": "session.id",
+               "value": {
+                "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+               }
+              },
+              {
+               "key": "terminal.type",
+               "value": {
+                "stringValue": "ghostty"
+               }
+              },
+              {
+               "key": "model",
+               "value": {
+                "stringValue": "claude-haiku-5-5"
+               }
+              },
+              {
+               "key": "query_source",
+               "value": {
+                "stringValue": "main"
+               }
+              },
+              {
+               "key": "effort",
+               "value": {
+                "stringValue": "medium"
+               }
+              },
+              {
+               "key": "type",
+               "value": {
+                "stringValue": "input"
+               }
+              }
+             ],
+             "startTimeUnixNano": "1792096986132000000",
+             "timeUnixNano": "1792096987105000000"
+            },
+            {
+             "asDouble": 84,
+             "attributes": [
+              {
+               "key": "terminal.session",
+               "value": {
+                "stringValue": "contract-d733b7c87b7d"
+               }
+              },
+              {
+               "key": "user.id",
+               "value": {
+                "stringValue": "<redacted>"
+               }
+              },
+              {
+               "key": "session.id",
+               "value": {
+                "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+               }
+              },
+              {
+               "key": "terminal.type",
+               "value": {
+                "stringValue": "ghostty"
+               }
+              },
+              {
+               "key": "model",
+               "value": {
+                "stringValue": "claude-haiku-5-5"
+               }
+              },
+              {
+               "key": "query_source",
+               "value": {
+                "stringValue": "main"
+               }
+              },
+              {
+               "key": "effort",
+               "value": {
+                "stringValue": "medium"
+               }
+              },
+              {
+               "key": "type",
+               "value": {
+                "stringValue": "output"
+               }
+              }
+             ],
+             "startTimeUnixNano": "1792096986132000000",
+             "timeUnixNano": "1792096987105000000"
+            },
+            {
+             "asDouble": 0,
+             "attributes": [
+              {
+               "key": "terminal.session",
+               "value": {
+                "stringValue": "contract-d733b7c87b7d"
+               }
+              },
+              {
+               "key": "user.id",
+               "value": {
+                "stringValue": "<redacted>"
+               }
+              },
+              {
+               "key": "session.id",
+               "value": {
+                "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+               }
+              },
+              {
+               "key": "terminal.type",
+               "value": {
+                "stringValue": "ghostty"
+               }
+              },
+              {
+               "key": "model",
+               "value": {
+                "stringValue": "claude-haiku-5-5"
+               }
+              },
+              {
+               "key": "query_source",
+               "value": {
+                "stringValue": "main"
+               }
+              },
+              {
+               "key": "effort",
+               "value": {
+                "stringValue": "medium"
+               }
+              },
+              {
+               "key": "type",
+               "value": {
+                "stringValue": "cacheRead"
+               }
+              }
+             ],
+             "startTimeUnixNano": "1792096986132000000",
+             "timeUnixNano": "1792096987105000000"
+            },
+            {
+             "asDouble": 26991,
+             "attributes": [
+              {
+               "key": "terminal.session",
+               "value": {
+                "stringValue": "contract-d733b7c87b7d"
+               }
+              },
+              {
+               "key": "user.id",
+               "value": {
+                "stringValue": "<redacted>"
+               }
+              },
+              {
+               "key": "session.id",
+               "value": {
+                "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+               }
+              },
+              {
+               "key": "terminal.type",
+               "value": {
+                "stringValue": "ghostty"
+               }
+              },
+              {
+               "key": "model",
+               "value": {
+                "stringValue": "claude-haiku-5-5"
+               }
+              },
+              {
+               "key": "query_source",
+               "value": {
+                "stringValue": "main"
+               }
+              },
+              {
+               "key": "effort",
+               "value": {
+                "stringValue": "medium"
+               }
+              },
+              {
+               "key": "type",
+               "value": {
+                "stringValue": "cacheCreation"
+               }
+              }
+             ],
+             "startTimeUnixNano": "1792096986132000000",
+             "timeUnixNano": "1792096987105000000"
+            }
+           ],
+           "isMonotonic": true
+          },
+          "unit": "tokens"
+         }
+        ],
+        "scope": {
+         "name": "com.anthropic.claude_code",
+         "version": "2.1.300"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "signal": "metrics"
+  },
+  {
+   "body": {
+    "resourceLogs": [
+     {
+      "resource": {
+       "attributes": [
+        {
+         "key": "terminal.session",
+         "value": {
+          "stringValue": "contract-d733b7c87b7d"
+         }
+        },
+        {
+         "key": "host.arch",
+         "value": {
+          "stringValue": "<redacted>"
+         }
+        },
+        {
+         "key": "os.type",
+         "value": {
+          "stringValue": "darwin"
+         }
+        },
+        {
+         "key": "os.version",
+         "value": {
+          "stringValue": "25.6.0"
+         }
+        },
+        {
+         "key": "service.name",
+         "value": {
+          "stringValue": "claude-code"
+         }
+        },
+        {
+         "key": "service.version",
+         "value": {
+          "stringValue": "2.1.300"
+         }
+        }
+       ],
+       "droppedAttributesCount": 0
+      },
+      "scopeLogs": [
+       {
+        "logRecords": [
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "tool_decision"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-10-15T20:43:06.132Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": 7
+            }
+           },
+           {
+            "key": "prompt.id",
+            "value": {
+             "stringValue": "548c2f8b-ff4c-4833-9104-de5f670ec4c7"
+            }
+           },
+           {
+            "key": "decision",
+            "value": {
+             "stringValue": "accept"
+            }
+           },
+           {
+            "key": "source",
+            "value": {
+             "stringValue": "config"
+            }
+           },
+           {
+            "key": "tool_name",
+            "value": {
+             "stringValue": "Bash"
+            }
+           },
+           {
+            "key": "tool_use_id",
+            "value": {
+             "stringValue": "toolu_bdrk_019LSXJ4MY6HGPDoZwVGX8iP"
+            }
+           },
+           {
+            "key": "tool_source",
+            "value": {
+             "stringValue": "builtin"
+            }
+           },
+           {
+            "key": "tool_parameters",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.tool_decision"
+          },
+          "droppedAttributesCount": 0,
+          "flags": 1,
+          "observedTimeUnixNano": "1792096986132000000",
+          "spanId": "57ca78fe2a590a3a",
+          "timeUnixNano": "1792096986132000000",
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "api_request"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-10-15T20:43:06.137Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": 8
+            }
+           },
+           {
+            "key": "prompt.id",
+            "value": {
+             "stringValue": "548c2f8b-ff4c-4833-9104-de5f670ec4c7"
+            }
+           },
+           {
+            "key": "model",
+            "value": {
+             "stringValue": "claude-haiku-5-5"
+            }
+           },
+           {
+            "key": "input_tokens",
+            "value": {
+             "intValue": 2
+            }
+           },
+           {
+            "key": "output_tokens",
+            "value": {
+             "intValue": 84
+            }
+           },
+           {
+            "key": "cache_read_tokens",
+            "value": {
+             "intValue": 0
+            }
+           },
+           {
+            "key": "cache_creation_tokens",
+            "value": {
+             "intValue": 26991
+            }
+           },
+           {
+            "key": "cache_creation_5m_tokens",
+            "value": {
+             "intValue": 26991
+            }
+           },
+           {
+            "key": "cache_creation_1h_tokens",
+            "value": {
+             "intValue": 0
+            }
+           },
+           {
+            "key": "cost_usd",
+            "value": {
+             "doubleValue": 0.003416075
+            }
+           },
+           {
+            "key": "cost_usd_micros",
+            "value": {
+             "intValue": 3416
+            }
+           },
+           {
+            "key": "duration_ms",
+            "value": {
+             "intValue": 1878
+            }
+           },
+           {
+            "key": "ttft_ms",
+            "value": {
+             "intValue": 1657
+            }
+           },
+           {
+            "key": "speed",
+            "value": {
+             "stringValue": "normal"
+            }
+           },
+           {
+            "key": "query_source",
+            "value": {
+             "stringValue": "sdk"
+            }
+           },
+           {
+            "key": "effort",
+            "value": {
+             "stringValue": "medium"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.api_request"
+          },
+          "droppedAttributesCount": 0,
+          "flags": 1,
+          "observedTimeUnixNano": "1792096986137000000",
+          "spanId": "139c87f1ae8d2c9b",
+          "timeUnixNano": "1792096986137000000",
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "api_response_body"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-10-15T20:43:06.137Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": 9
+            }
+           },
+           {
+            "key": "prompt.id",
+            "value": {
+             "stringValue": "548c2f8b-ff4c-4833-9104-de5f670ec4c7"
+            }
+           },
+           {
+            "key": "body",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "body_length",
+            "value": {
+             "stringValue": "832"
+            }
+           },
+           {
+            "key": "model",
+            "value": {
+             "stringValue": "claude-haiku-5-5"
+            }
+           },
+           {
+            "key": "query_source",
+            "value": {
+             "stringValue": "sdk"
+            }
+           },
+           {
+            "key": "request_body_id",
+            "value": {
+             "stringValue": "105e2079-b0b9-4ba2-bfbe-2f49b294d3cd"
+            }
+           },
+           {
+            "key": "message.id",
+            "value": {
+             "stringValue": "msg_bdrk_wslrxg6bkzpb2qgmrcm6upbdg5tcxkj5h5svgtg3dle3yuyo72bq"
+            }
+           },
+           {
+            "key": "message.uuid",
+            "value": {
+             "stringValue": "cb36fc5f-5df9-4f21-be69-78d3f82c6f69"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.api_response_body"
+          },
+          "droppedAttributesCount": 0,
+          "flags": 1,
+          "observedTimeUnixNano": "1792096986137000000",
+          "spanId": "139c87f1ae8d2c9b",
+          "timeUnixNano": "1792096986137000000",
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "tool_result"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-10-15T20:43:06.522Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": 10
+            }
+           },
+           {
+            "key": "prompt.id",
+            "value": {
+             "stringValue": "548c2f8b-ff4c-4833-9104-de5f670ec4c7"
+            }
+           },
+           {
+            "key": "tool_name",
+            "value": {
+             "stringValue": "Bash"
+            }
+           },
+           {
+            "key": "tool_use_id",
+            "value": {
+             "stringValue": "toolu_bdrk_019LSXJ4MY6HGPDoZwVGX8iP"
+            }
+           },
+           {
+            "key": "success",
+            "value": {
+             "stringValue": "true"
+            }
+           },
+           {
+            "key": "duration_ms",
+            "value": {
+             "stringValue": "389"
+            }
+           },
+           {
+            "key": "tool_parameters",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "tool_input",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "tool_input_size_bytes",
+            "value": {
+             "stringValue": "83"
+            }
+           },
+           {
+            "key": "tool_result_size_bytes",
+            "value": {
+             "stringValue": "15"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.tool_result"
+          },
+          "droppedAttributesCount": 0,
+          "flags": 1,
+          "observedTimeUnixNano": "1792096986522000000",
+          "spanId": "139c87f1ae8d2c9b",
+          "timeUnixNano": "1792096986522000000",
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "api_request_body"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-10-15T20:43:06.529Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": 11
+            }
+           },
+           {
+            "key": "prompt.id",
+            "value": {
+             "stringValue": "548c2f8b-ff4c-4833-9104-de5f670ec4c7"
+            }
+           },
+           {
+            "key": "body",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "body_length",
+            "value": {
+             "stringValue": "75880"
+            }
+           },
+           {
+            "key": "body_truncated",
+            "value": {
+             "stringValue": "true"
+            }
+           },
+           {
+            "key": "model",
+            "value": {
+             "stringValue": "claude-haiku-5-5"
+            }
+           },
+           {
+            "key": "query_source",
+            "value": {
+             "stringValue": "sdk"
+            }
+           },
+           {
+            "key": "request_body_id",
+            "value": {
+             "stringValue": "a7e45ef8-3dcb-45bf-a4b8-ebf52a70c737"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.api_request_body"
+          },
+          "droppedAttributesCount": 0,
+          "flags": 1,
+          "observedTimeUnixNano": "1792096986529000000",
+          "spanId": "139c87f1ae8d2c9b",
+          "timeUnixNano": "1792096986529000000",
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         }
+        ],
+        "scope": {
+         "name": "com.anthropic.claude_code.events",
+         "version": "2.1.300"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "signal": "logs"
+  },
+  {
+   "body": {
+    "resourceLogs": [
+     {
+      "resource": {
+       "attributes": [
+        {
+         "key": "terminal.session",
+         "value": {
+          "stringValue": "contract-d733b7c87b7d"
+         }
+        },
+        {
+         "key": "host.arch",
+         "value": {
+          "stringValue": "<redacted>"
+         }
+        },
+        {
+         "key": "os.type",
+         "value": {
+          "stringValue": "darwin"
+         }
+        },
+        {
+         "key": "os.version",
+         "value": {
+          "stringValue": "25.6.0"
+         }
+        },
+        {
+         "key": "service.name",
+         "value": {
+          "stringValue": "claude-code"
+         }
+        },
+        {
+         "key": "service.version",
+         "value": {
+          "stringValue": "2.1.300"
+         }
+        }
+       ],
+       "droppedAttributesCount": 0
+      },
+      "scopeLogs": [
+       {
+        "logRecords": [
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "api_request"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-10-15T20:43:07.958Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": 12
+            }
+           },
+           {
+            "key": "prompt.id",
+            "value": {
+             "stringValue": "548c2f8b-ff4c-4833-9104-de5f670ec4c7"
+            }
+           },
+           {
+            "key": "model",
+            "value": {
+             "stringValue": "claude-haiku-5-5"
+            }
+           },
+           {
+            "key": "input_tokens",
+            "value": {
+             "intValue": 2
+            }
+           },
+           {
+            "key": "output_tokens",
+            "value": {
+             "intValue": 8
+            }
+           },
+           {
+            "key": "cache_read_tokens",
+            "value": {
+             "intValue": 26991
+            }
+           },
+           {
+            "key": "cache_creation_tokens",
+            "value": {
+             "intValue": 119
+            }
+           },
+           {
+            "key": "cache_creation_5m_tokens",
+            "value": {
+             "intValue": 119
+            }
+           },
+           {
+            "key": "cache_creation_1h_tokens",
+            "value": {
+             "intValue": 0
+            }
+           },
+           {
+            "key": "cost_usd",
+            "value": {
+             "doubleValue": 0.000288985
+            }
+           },
+           {
+            "key": "cost_usd_micros",
+            "value": {
+             "intValue": 289
+            }
+           },
+           {
+            "key": "duration_ms",
+            "value": {
+             "intValue": 1429
+            }
+           },
+           {
+            "key": "ttft_ms",
+            "value": {
+             "intValue": 1413
+            }
+           },
+           {
+            "key": "speed",
+            "value": {
+             "stringValue": "normal"
+            }
+           },
+           {
+            "key": "query_source",
+            "value": {
+             "stringValue": "sdk"
+            }
+           },
+           {
+            "key": "effort",
+            "value": {
+             "stringValue": "medium"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.api_request"
+          },
+          "droppedAttributesCount": 0,
+          "flags": 1,
+          "observedTimeUnixNano": "1792096987958000000",
+          "spanId": "139c87f1ae8d2c9b",
+          "timeUnixNano": "1792096987958000000",
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "assistant_response"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-10-15T20:43:07.958Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": 13
+            }
+           },
+           {
+            "key": "prompt.id",
+            "value": {
+             "stringValue": "548c2f8b-ff4c-4833-9104-de5f670ec4c7"
+            }
+           },
+           {
+            "key": "response_length",
+            "value": {
+             "intValue": 15
+            }
+           },
+           {
+            "key": "response",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "message.uuid",
+            "value": {
+             "stringValue": "db73b130-eae8-47fd-81b6-cb6016f2bf9a"
+            }
+           },
+           {
+            "key": "model",
+            "value": {
+             "stringValue": "claude-haiku-5-5"
+            }
+           },
+           {
+            "key": "query_source",
+            "value": {
+             "stringValue": "sdk"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.assistant_response"
+          },
+          "droppedAttributesCount": 0,
+          "flags": 1,
+          "observedTimeUnixNano": "1792096987958000000",
+          "spanId": "139c87f1ae8d2c9b",
+          "timeUnixNano": "1792096987958000000",
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "event.name",
+            "value": {
+             "stringValue": "api_response_body"
+            }
+           },
+           {
+            "key": "event.timestamp",
+            "value": {
+             "stringValue": "2026-10-15T20:43:07.958Z"
+            }
+           },
+           {
+            "key": "event.sequence",
+            "value": {
+             "intValue": 14
+            }
+           },
+           {
+            "key": "prompt.id",
+            "value": {
+             "stringValue": "548c2f8b-ff4c-4833-9104-de5f670ec4c7"
+            }
+           },
+           {
+            "key": "body",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "body_length",
+            "value": {
+             "stringValue": "703"
+            }
+           },
+           {
+            "key": "model",
+            "value": {
+             "stringValue": "claude-haiku-5-5"
+            }
+           },
+           {
+            "key": "query_source",
+            "value": {
+             "stringValue": "sdk"
+            }
+           },
+           {
+            "key": "request_body_id",
+            "value": {
+             "stringValue": "a7e45ef8-3dcb-45bf-a4b8-ebf52a70c737"
+            }
+           },
+           {
+            "key": "message.id",
+            "value": {
+             "stringValue": "msg_bdrk_5p6hca2ekxfdrbg64rq7gkgbswtpo7ygakffbpq7jydqepkxsqyq"
+            }
+           },
+           {
+            "key": "message.uuid",
+            "value": {
+             "stringValue": "db73b130-eae8-47fd-81b6-cb6016f2bf9a"
+            }
+           }
+          ],
+          "body": {
+           "stringValue": "claude_code.api_response_body"
+          },
+          "droppedAttributesCount": 0,
+          "flags": 1,
+          "observedTimeUnixNano": "1792096987958000000",
+          "spanId": "139c87f1ae8d2c9b",
+          "timeUnixNano": "1792096987958000000",
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         }
+        ],
+        "scope": {
+         "name": "com.anthropic.claude_code.events",
+         "version": "2.1.300"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "signal": "logs"
+  },
+  {
+   "body": {
+    "resourceMetrics": [
+     {
+      "resource": {
+       "attributes": [
+        {
+         "key": "terminal.session",
+         "value": {
+          "stringValue": "contract-d733b7c87b7d"
+         }
+        },
+        {
+         "key": "host.arch",
+         "value": {
+          "stringValue": "<redacted>"
+         }
+        },
+        {
+         "key": "os.type",
+         "value": {
+          "stringValue": "darwin"
+         }
+        },
+        {
+         "key": "os.version",
+         "value": {
+          "stringValue": "25.6.0"
+         }
+        },
+        {
+         "key": "service.name",
+         "value": {
+          "stringValue": "claude-code"
+         }
+        },
+        {
+         "key": "service.version",
+         "value": {
+          "stringValue": "2.1.300"
+         }
+        }
+       ],
+       "droppedAttributesCount": 0
+      },
+      "scopeMetrics": [
+       {
+        "metrics": [
+         {
+          "description": "Cost of the Claude Code session",
+          "name": "claude_code.cost.usage",
+          "sum": {
+           "aggregationTemporality": 1,
+           "dataPoints": [
+            {
+             "asDouble": 0.000288985,
+             "attributes": [
+              {
+               "key": "terminal.session",
+               "value": {
+                "stringValue": "contract-d733b7c87b7d"
+               }
+              },
+              {
+               "key": "user.id",
+               "value": {
+                "stringValue": "<redacted>"
+               }
+              },
+              {
+               "key": "session.id",
+               "value": {
+                "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+               }
+              },
+              {
+               "key": "terminal.type",
+               "value": {
+                "stringValue": "ghostty"
+               }
+              },
+              {
+               "key": "model",
+               "value": {
+                "stringValue": "claude-haiku-5-5"
+               }
+              },
+              {
+               "key": "query_source",
+               "value": {
+                "stringValue": "main"
+               }
+              },
+              {
+               "key": "effort",
+               "value": {
+                "stringValue": "medium"
+               }
+              }
+             ],
+             "startTimeUnixNano": "1792096987105000000",
+             "timeUnixNano": "1792096987965000000"
+            }
+           ],
+           "isMonotonic": true
+          },
+          "unit": "USD"
+         },
+         {
+          "description": "Number of tokens used",
+          "name": "claude_code.token.usage",
+          "sum": {
+           "aggregationTemporality": 1,
+           "dataPoints": [
+            {
+             "asDouble": 2,
+             "attributes": [
+              {
+               "key": "terminal.session",
+               "value": {
+                "stringValue": "contract-d733b7c87b7d"
+               }
+              },
+              {
+               "key": "user.id",
+               "value": {
+                "stringValue": "<redacted>"
+               }
+              },
+              {
+               "key": "session.id",
+               "value": {
+                "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+               }
+              },
+              {
+               "key": "terminal.type",
+               "value": {
+                "stringValue": "ghostty"
+               }
+              },
+              {
+               "key": "model",
+               "value": {
+                "stringValue": "claude-haiku-5-5"
+               }
+              },
+              {
+               "key": "query_source",
+               "value": {
+                "stringValue": "main"
+               }
+              },
+              {
+               "key": "effort",
+               "value": {
+                "stringValue": "medium"
+               }
+              },
+              {
+               "key": "type",
+               "value": {
+                "stringValue": "input"
+               }
+              }
+             ],
+             "startTimeUnixNano": "1792096987105000000",
+             "timeUnixNano": "1792096987965000000"
+            },
+            {
+             "asDouble": 8,
+             "attributes": [
+              {
+               "key": "terminal.session",
+               "value": {
+                "stringValue": "contract-d733b7c87b7d"
+               }
+              },
+              {
+               "key": "user.id",
+               "value": {
+                "stringValue": "<redacted>"
+               }
+              },
+              {
+               "key": "session.id",
+               "value": {
+                "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+               }
+              },
+              {
+               "key": "terminal.type",
+               "value": {
+                "stringValue": "ghostty"
+               }
+              },
+              {
+               "key": "model",
+               "value": {
+                "stringValue": "claude-haiku-5-5"
+               }
+              },
+              {
+               "key": "query_source",
+               "value": {
+                "stringValue": "main"
+               }
+              },
+              {
+               "key": "effort",
+               "value": {
+                "stringValue": "medium"
+               }
+              },
+              {
+               "key": "type",
+               "value": {
+                "stringValue": "output"
+               }
+              }
+             ],
+             "startTimeUnixNano": "1792096987105000000",
+             "timeUnixNano": "1792096987965000000"
+            },
+            {
+             "asDouble": 26991,
+             "attributes": [
+              {
+               "key": "terminal.session",
+               "value": {
+                "stringValue": "contract-d733b7c87b7d"
+               }
+              },
+              {
+               "key": "user.id",
+               "value": {
+                "stringValue": "<redacted>"
+               }
+              },
+              {
+               "key": "session.id",
+               "value": {
+                "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+               }
+              },
+              {
+               "key": "terminal.type",
+               "value": {
+                "stringValue": "ghostty"
+               }
+              },
+              {
+               "key": "model",
+               "value": {
+                "stringValue": "claude-haiku-5-5"
+               }
+              },
+              {
+               "key": "query_source",
+               "value": {
+                "stringValue": "main"
+               }
+              },
+              {
+               "key": "effort",
+               "value": {
+                "stringValue": "medium"
+               }
+              },
+              {
+               "key": "type",
+               "value": {
+                "stringValue": "cacheRead"
+               }
+              }
+             ],
+             "startTimeUnixNano": "1792096987105000000",
+             "timeUnixNano": "1792096987965000000"
+            },
+            {
+             "asDouble": 119,
+             "attributes": [
+              {
+               "key": "terminal.session",
+               "value": {
+                "stringValue": "contract-d733b7c87b7d"
+               }
+              },
+              {
+               "key": "user.id",
+               "value": {
+                "stringValue": "<redacted>"
+               }
+              },
+              {
+               "key": "session.id",
+               "value": {
+                "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+               }
+              },
+              {
+               "key": "terminal.type",
+               "value": {
+                "stringValue": "ghostty"
+               }
+              },
+              {
+               "key": "model",
+               "value": {
+                "stringValue": "claude-haiku-5-5"
+               }
+              },
+              {
+               "key": "query_source",
+               "value": {
+                "stringValue": "main"
+               }
+              },
+              {
+               "key": "effort",
+               "value": {
+                "stringValue": "medium"
+               }
+              },
+              {
+               "key": "type",
+               "value": {
+                "stringValue": "cacheCreation"
+               }
+              }
+             ],
+             "startTimeUnixNano": "1792096987105000000",
+             "timeUnixNano": "1792096987965000000"
+            }
+           ],
+           "isMonotonic": true
+          },
+          "unit": "tokens"
+         },
+         {
+          "description": "Total active time in seconds",
+          "name": "claude_code.active_time.total",
+          "sum": {
+           "aggregationTemporality": 1,
+           "dataPoints": [
+            {
+             "asDouble": 4.848,
+             "attributes": [
+              {
+               "key": "terminal.session",
+               "value": {
+                "stringValue": "contract-d733b7c87b7d"
+               }
+              },
+              {
+               "key": "user.id",
+               "value": {
+                "stringValue": "<redacted>"
+               }
+              },
+              {
+               "key": "session.id",
+               "value": {
+                "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+               }
+              },
+              {
+               "key": "terminal.type",
+               "value": {
+                "stringValue": "ghostty"
+               }
+              },
+              {
+               "key": "type",
+               "value": {
+                "stringValue": "cli"
+               }
+              }
+             ],
+             "startTimeUnixNano": "1792096987963000000",
+             "timeUnixNano": "1792096987965000000"
+            }
+           ],
+           "isMonotonic": true
+          },
+          "unit": "s"
+         }
+        ],
+        "scope": {
+         "name": "com.anthropic.claude_code",
+         "version": "2.1.300"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "signal": "metrics"
+  },
+  {
+   "body": {
+    "resourceSpans": [
+     {
+      "resource": {
+       "attributes": [
+        {
+         "key": "terminal.session",
+         "value": {
+          "stringValue": "contract-d733b7c87b7d"
+         }
+        },
+        {
+         "key": "host.arch",
+         "value": {
+          "stringValue": "<redacted>"
+         }
+        },
+        {
+         "key": "os.type",
+         "value": {
+          "stringValue": "darwin"
+         }
+        },
+        {
+         "key": "os.version",
+         "value": {
+          "stringValue": "25.6.0"
+         }
+        },
+        {
+         "key": "service.name",
+         "value": {
+          "stringValue": "claude-code"
+         }
+        },
+        {
+         "key": "service.version",
+         "value": {
+          "stringValue": "2.1.300"
+         }
+        }
+       ],
+       "droppedAttributesCount": 0
+      },
+      "scopeSpans": [
+       {
+        "scope": {
+         "name": "com.anthropic.claude_code.tracing",
+         "version": "1.0.0"
+        },
+        "spans": [
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "gen_ai.provider.name",
+            "value": {
+             "stringValue": "anthropic"
+            }
+           },
+           {
+            "key": "span.type",
+            "value": {
+             "stringValue": "tool.blocked_on_user"
+            }
+           },
+           {
+            "key": "gen_ai.conversation.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "duration_ms",
+            "value": {
+             "intValue": 3
+            }
+           },
+           {
+            "key": "decision",
+            "value": {
+             "stringValue": "accept"
+            }
+           },
+           {
+            "key": "source",
+            "value": {
+             "stringValue": "config"
+            }
+           }
+          ],
+          "droppedAttributesCount": 0,
+          "droppedEventsCount": 0,
+          "droppedLinksCount": 0,
+          "endTimeUnixNano": "1792096986132774417",
+          "events": [],
+          "flags": 257,
+          "kind": 1,
+          "links": [],
+          "name": "claude_code.tool.blocked_on_user",
+          "parentSpanId": "bbc7572dadb25900",
+          "spanId": "57ca78fe2a590a3a",
+          "startTimeUnixNano": "1792096986130000000",
+          "status": {
+           "code": 0
+          },
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "gen_ai.provider.name",
+            "value": {
+             "stringValue": "anthropic"
+            }
+           },
+           {
+            "key": "span.type",
+            "value": {
+             "stringValue": "llm_request"
+            }
+           },
+           {
+            "key": "model",
+            "value": {
+             "stringValue": "claude-haiku-5-5"
+            }
+           },
+           {
+            "key": "gen_ai.system",
+            "value": {
+             "stringValue": "anthropic"
+            }
+           },
+           {
+            "key": "gen_ai.request.model",
+            "value": {
+             "stringValue": "claude-haiku-5-5"
+            }
+           },
+           {
+            "key": "llm_request.context",
+            "value": {
+             "stringValue": "interaction"
+            }
+           },
+           {
+            "key": "speed",
+            "value": {
+             "stringValue": "normal"
+            }
+           },
+           {
+            "key": "gen_ai.conversation.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "query_source_safe",
+            "value": {
+             "stringValue": "sdk"
+            }
+           },
+           {
+            "key": "duration_ms",
+            "value": {
+             "intValue": 2974
+            }
+           },
+           {
+            "key": "input_tokens",
+            "value": {
+             "intValue": 2
+            }
+           },
+           {
+            "key": "output_tokens",
+            "value": {
+             "intValue": 84
+            }
+           },
+           {
+            "key": "cache_read_tokens",
+            "value": {
+             "intValue": 0
+            }
+           },
+           {
+            "key": "cache_creation_tokens",
+            "value": {
+             "intValue": 26991
+            }
+           },
+           {
+            "key": "success",
+            "value": {
+             "boolValue": true
+            }
+           },
+           {
+            "key": "attempt",
+            "value": {
+             "intValue": 1
+            }
+           },
+           {
+            "key": "ttft_ms",
+            "value": {
+             "intValue": 1657
+            }
+           },
+           {
+            "key": "first_content_ms",
+            "value": {
+             "intValue": 1657
+            }
+           },
+           {
+            "key": "effort",
+            "value": {
+             "stringValue": "medium"
+            }
+           },
+           {
+            "key": "stop_reason",
+            "value": {
+             "stringValue": "tool_use"
+            }
+           },
+           {
+            "key": "gen_ai.response.finish_reasons",
+            "value": {
+             "arrayValue": {
+              "values": [
+               {
+                "stringValue": "tool_use"
+               }
+              ]
+             }
+            }
+           }
+          ],
+          "droppedAttributesCount": 0,
+          "droppedEventsCount": 0,
+          "droppedLinksCount": 0,
+          "endTimeUnixNano": "1792096986137009083",
+          "events": [
+           {
+            "attributes": [
+             {
+              "key": "attempt",
+              "value": {
+               "intValue": 1
+              }
+             }
+            ],
+            "droppedAttributesCount": 0,
+            "name": "gen_ai.request.attempt",
+            "timeUnixNano": "1792096983166159083"
+           },
+           {
+            "attributes": [
+             {
+              "key": "attempt",
+              "value": {
+               "intValue": 2
+              }
+             }
+            ],
+            "droppedAttributesCount": 0,
+            "name": "gen_ai.request.attempt",
+            "timeUnixNano": "1792096984260337000"
+           }
+          ],
+          "flags": 257,
+          "kind": 1,
+          "links": [],
+          "name": "claude_code.llm_request",
+          "parentSpanId": "139c87f1ae8d2c9b",
+          "spanId": "ea8c0c0162480662",
+          "startTimeUnixNano": "1792096983163000000",
+          "status": {
+           "code": 0
+          },
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "gen_ai.provider.name",
+            "value": {
+             "stringValue": "anthropic"
+            }
+           },
+           {
+            "key": "span.type",
+            "value": {
+             "stringValue": "tool.execution"
+            }
+           },
+           {
+            "key": "gen_ai.conversation.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "tool_use_id",
+            "value": {
+             "stringValue": "toolu_bdrk_019LSXJ4MY6HGPDoZwVGX8iP"
+            }
+           },
+           {
+            "key": "gen_ai.tool.call.id",
+            "value": {
+             "stringValue": "toolu_bdrk_019LSXJ4MY6HGPDoZwVGX8iP"
+            }
+           },
+           {
+            "key": "duration_ms",
+            "value": {
+             "intValue": 389
+            }
+           },
+           {
+            "key": "success",
+            "value": {
+             "boolValue": true
+            }
+           }
+          ],
+          "droppedAttributesCount": 0,
+          "droppedEventsCount": 0,
+          "droppedLinksCount": 0,
+          "endTimeUnixNano": "1792096986520899750",
+          "events": [],
+          "flags": 257,
+          "kind": 1,
+          "links": [],
+          "name": "claude_code.tool.execution",
+          "parentSpanId": "bbc7572dadb25900",
+          "spanId": "546d30a01642557d",
+          "startTimeUnixNano": "1792096986132000000",
+          "status": {
+           "code": 0
+          },
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "gen_ai.provider.name",
+            "value": {
+             "stringValue": "anthropic"
+            }
+           },
+           {
+            "key": "span.type",
+            "value": {
+             "stringValue": "tool"
+            }
+           },
+           {
+            "key": "tool_name",
+            "value": {
+             "stringValue": "Bash"
+            }
+           },
+           {
+            "key": "tool_name_safe",
+            "value": {
+             "stringValue": "Bash"
+            }
+           },
+           {
+            "key": "gen_ai.operation.name",
+            "value": {
+             "stringValue": "execute_tool"
+            }
+           },
+           {
+            "key": "gen_ai.tool.name",
+            "value": {
+             "stringValue": "Bash"
+            }
+           },
+           {
+            "key": "gen_ai.conversation.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "full_command",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "bash_command_class",
+            "value": {
+             "stringValue": "shell_builtin"
+            }
+           },
+           {
+            "key": "bash_argv0",
+            "value": {
+             "stringValue": "echo"
+            }
+           },
+           {
+            "key": "tool_use_id",
+            "value": {
+             "stringValue": "toolu_bdrk_019LSXJ4MY6HGPDoZwVGX8iP"
+            }
+           },
+           {
+            "key": "gen_ai.tool.call.id",
+            "value": {
+             "stringValue": "toolu_bdrk_019LSXJ4MY6HGPDoZwVGX8iP"
+            }
+           },
+           {
+            "key": "duration_ms",
+            "value": {
+             "intValue": 392
+            }
+           }
+          ],
+          "droppedAttributesCount": 0,
+          "droppedEventsCount": 0,
+          "droppedLinksCount": 0,
+          "endTimeUnixNano": "1792096986520815292",
+          "events": [
+           {
+            "attributes": [
+             {
+              "key": "bash_command",
+              "value": {
+               "stringValue": "<redacted>"
+              }
+             },
+             {
+              "key": "output",
+              "value": {
+               "stringValue": "<redacted>"
+              }
+             }
+            ],
+            "droppedAttributesCount": 0,
+            "name": "tool.output",
+            "timeUnixNano": "1792096986520761417"
+           }
+          ],
+          "flags": 257,
+          "kind": 1,
+          "links": [],
+          "name": "claude_code.tool",
+          "parentSpanId": "139c87f1ae8d2c9b",
+          "spanId": "bbc7572dadb25900",
+          "startTimeUnixNano": "1792096986129000000",
+          "status": {
+           "code": 0
+          },
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "gen_ai.provider.name",
+            "value": {
+             "stringValue": "anthropic"
+            }
+           },
+           {
+            "key": "span.type",
+            "value": {
+             "stringValue": "llm_request"
+            }
+           },
+           {
+            "key": "model",
+            "value": {
+             "stringValue": "claude-haiku-5-5"
+            }
+           },
+           {
+            "key": "gen_ai.system",
+            "value": {
+             "stringValue": "anthropic"
+            }
+           },
+           {
+            "key": "gen_ai.request.model",
+            "value": {
+             "stringValue": "claude-haiku-5-5"
+            }
+           },
+           {
+            "key": "llm_request.context",
+            "value": {
+             "stringValue": "interaction"
+            }
+           },
+           {
+            "key": "speed",
+            "value": {
+             "stringValue": "normal"
+            }
+           },
+           {
+            "key": "gen_ai.conversation.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "query_source_safe",
+            "value": {
+             "stringValue": "sdk"
+            }
+           },
+           {
+            "key": "duration_ms",
+            "value": {
+             "intValue": 1430
+            }
+           },
+           {
+            "key": "input_tokens",
+            "value": {
+             "intValue": 2
+            }
+           },
+           {
+            "key": "output_tokens",
+            "value": {
+             "intValue": 8
+            }
+           },
+           {
+            "key": "cache_read_tokens",
+            "value": {
+             "intValue": 26991
+            }
+           },
+           {
+            "key": "cache_creation_tokens",
+            "value": {
+             "intValue": 119
+            }
+           },
+           {
+            "key": "success",
+            "value": {
+             "boolValue": true
+            }
+           },
+           {
+            "key": "attempt",
+            "value": {
+             "intValue": 1
+            }
+           },
+           {
+            "key": "ttft_ms",
+            "value": {
+             "intValue": 1413
+            }
+           },
+           {
+            "key": "first_content_ms",
+            "value": {
+             "intValue": 1414
+            }
+           },
+           {
+            "key": "effort",
+            "value": {
+             "stringValue": "medium"
+            }
+           },
+           {
+            "key": "stop_reason",
+            "value": {
+             "stringValue": "end_turn"
+            }
+           },
+           {
+            "key": "gen_ai.response.finish_reasons",
+            "value": {
+             "arrayValue": {
+              "values": [
+               {
+                "stringValue": "end_turn"
+               }
+              ]
+             }
+            }
+           }
+          ],
+          "droppedAttributesCount": 0,
+          "droppedEventsCount": 0,
+          "droppedLinksCount": 0,
+          "endTimeUnixNano": "1792096987958351709",
+          "events": [
+           {
+            "attributes": [
+             {
+              "key": "attempt",
+              "value": {
+               "intValue": 1
+              }
+             }
+            ],
+            "droppedAttributesCount": 0,
+            "name": "gen_ai.request.attempt",
+            "timeUnixNano": "1792096986529433375"
+           }
+          ],
+          "flags": 257,
+          "kind": 1,
+          "links": [],
+          "name": "claude_code.llm_request",
+          "parentSpanId": "139c87f1ae8d2c9b",
+          "spanId": "40888d4115c6c058",
+          "startTimeUnixNano": "1792096986528000000",
+          "status": {
+           "code": 0
+          },
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         },
+         {
+          "attributes": [
+           {
+            "key": "terminal.session",
+            "value": {
+             "stringValue": "contract-d733b7c87b7d"
+            }
+           },
+           {
+            "key": "user.id",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "session.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "terminal.type",
+            "value": {
+             "stringValue": "ghostty"
+            }
+           },
+           {
+            "key": "gen_ai.provider.name",
+            "value": {
+             "stringValue": "anthropic"
+            }
+           },
+           {
+            "key": "span.type",
+            "value": {
+             "stringValue": "interaction"
+            }
+           },
+           {
+            "key": "gen_ai.operation.name",
+            "value": {
+             "stringValue": "invoke_agent"
+            }
+           },
+           {
+            "key": "gen_ai.conversation.id",
+            "value": {
+             "stringValue": "bb1af18d-a6d1-4ce8-a1f6-b088b297e9b8"
+            }
+           },
+           {
+            "key": "user_prompt",
+            "value": {
+             "stringValue": "<redacted>"
+            }
+           },
+           {
+            "key": "user_prompt_length",
+            "value": {
+             "intValue": 84
+            }
+           },
+           {
+            "key": "interaction.sequence",
+            "value": {
+             "intValue": 1
+            }
+           },
+           {
+            "key": "parent.source",
+            "value": {
+             "stringValue": "none"
+            }
+           },
+           {
+            "key": "queued_sends",
+            "value": {
+             "intValue": 0
+            }
+           },
+           {
+            "key": "interaction.duration_ms",
+            "value": {
+             "intValue": 4847
+            }
+           }
+          ],
+          "droppedAttributesCount": 0,
+          "droppedEventsCount": 0,
+          "droppedLinksCount": 0,
+          "endTimeUnixNano": "1792096987962285500",
+          "events": [],
+          "flags": 257,
+          "kind": 1,
+          "links": [],
+          "name": "claude_code.interaction",
+          "spanId": "139c87f1ae8d2c9b",
+          "startTimeUnixNano": "1792096983115000000",
+          "status": {
+           "code": 0
+          },
+          "traceId": "a509b693621c08253705b9eee5279ad1"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "signal": "traces"
+  }
+ ]
+}

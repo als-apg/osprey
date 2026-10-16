@@ -39,15 +39,20 @@ from typing import IO, Any
 
 import click
 
-from osprey.facility import fold_code
+from osprey.facility import DEFAULT_ROLE, fold_code
 from osprey.facility.combine import FIXES_FILE, CombineResult, combine
-from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, quoted_slots
+from osprey.facility.errors import (
+    FacilityBuildError,
+    FacilityBuildWarning,
+    exact_number,
+    quoted_slots,
+)
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
-from osprey.facility.sources import Sources, load_sources
+from osprey.facility.sources import Sources, group_families, load_sources
+from osprey_connectors.simulation import STILL_ALL
 
 __all__ = [
     "FACILITY_HEADER",
-    "SET_VALUED_SLOTS",
     "STAGES",
     "Stage",
     "StageReport",
@@ -87,22 +92,6 @@ STAGES: tuple[str, ...] = (
 
 #: The header of the combined facility file.
 FACILITY_HEADER = "osprey.facility.facility/3"
-
-#: The multivalued slots that are sets: compared and written sorted by string form.
-SET_VALUED_SLOTS: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("Place", "names"),
-        ("Device", "names"),
-        ("Channel", "names"),
-        ("Channel", "tags"),
-        ("Channel", "former_addresses"),
-        ("Channel", "endpoint_of"),
-        ("Group", "names"),
-        ("Group", "members"),
-        ("Device", "groups"),
-        ("Measurement", "kinds"),
-    }
-)
 
 #: The order errors print in: one entry per row of the error table.
 _TABLE_ROWS: tuple[tuple[str, ...], ...] = (
@@ -145,8 +134,6 @@ _RELATIVE = "relative"
 _RELATIVE_NOMINAL = (
     "a relative `noise` is taken of the seed's `nominal`, which this seed does not state"
 )
-#: The ``still`` value that stills every reading.
-_STILL_ALL = "all"
 
 
 # --- stage results ---------------------------------------------------------------
@@ -381,7 +368,7 @@ def ordered_slots() -> frozenset[tuple[str, str]]:
 
     Read from the generated model: a slot is ordered when its field's
     ``linkml_meta`` sets ``list_elements_ordered``. Every other multivalued slot
-    is one of ``SET_VALUED_SLOTS``.
+    is one of ``sources.SET_VALUED_SLOTS``.
 
     Returns:
         The ordered slots of every class of the facility file.
@@ -912,10 +899,11 @@ class _References:
                 yield from self._missing("measurement", model, files, "file name", "model", model)
                 continue
             groups = measurement.get("groups")
-            for role, group in sorted((groups if isinstance(groups, dict) else {}).items()):
-                yield from self._missing(
-                    "measurement", model, files, f"groups.{role}", "group", group
-                )
+            for role, value in sorted((groups if isinstance(groups, dict) else {}).items()):
+                for group in group_families(value):
+                    yield from self._missing(
+                        "measurement", model, files, f"groups.{role}", "group", group
+                    )
             instruments = measurement.get("instruments")
             for role, address in sorted(
                 (instruments if isinstance(instruments, dict) else {}).items()
@@ -1297,7 +1285,7 @@ class _Records:
     def _pairs(self) -> Iterator[FacilityBuildError]:
         readers: dict[str, list[str]] = {}
         for address, channel in sorted(self.index.channels.items()):
-            role = channel.get("role", "readback")
+            role = channel.get("role", DEFAULT_ROLE)
             if role != "setpoint":
                 if "pair" in channel:
                     yield self._error(
@@ -1336,7 +1324,7 @@ class _Records:
     ) -> Iterator[FacilityBuildError]:
         files = stating_files(channel, "pair")
         target = self.index.channels[pair]
-        target_role = target.get("role", "readback")
+        target_role = target.get("role", DEFAULT_ROLE)
         if target_role != "readback":
             yield self._error(
                 "pair-invalid",
@@ -1368,6 +1356,17 @@ class _Records:
                     channel,
                     f"give {address} and {pair} the same {quoted_slots(differing)}",
                 ),
+            )
+            return
+        unit, theirs = channel.get("unit"), target.get("unit")
+        if unit and theirs and unit != theirs:
+            yield self._error(
+                "pair-invalid",
+                "channel",
+                address,
+                files,
+                f"`unit` {unit} differs from its pair {pair}'s {theirs}",
+                _pair_remedy(address, channel, f"give {address} and {pair} the same `unit`"),
             )
             return
         own = self.index.wired.get(address, set())
@@ -1422,7 +1421,7 @@ class _Records:
     def _tolerance(self, address: str, channel: Mapping[str, Any]) -> Iterator[FacilityBuildError]:
         """A setpoint's ``tolerance``: its slot, its record, and its readback's motion inside it."""
         files = stating_files(channel, "tolerance")
-        role = channel.get("role", "readback")
+        role = channel.get("role", DEFAULT_ROLE)
         value_type = self._type(address)
         problem: str | None = None
         remedy = ""
@@ -1436,10 +1435,9 @@ class _Records:
         elif not unit:
             problem = "a `tolerance` on a channel that states no `unit`"
             remedy = "state the channel's `unit`; the tolerance is in it"
-        elif pair != address and self.index.channels[pair].get("unit") != unit:
-            theirs = self.index.channels[pair].get("unit")
-            problem = f"`unit` {unit} differs from its pair {pair}'s {theirs}"
-            remedy = f"give {address} and {pair} the same `unit`; the tolerance is in it"
+        elif pair != address and not self.index.channels[pair].get("unit"):
+            problem = f"its pair {pair} states no `unit`"
+            remedy = f"state {pair}'s `unit`; the tolerance is in it"
         elif len(stated) != 1:
             problem = f"`tolerance` states {_terms_stated(list(record))}"
             remedy = "write `tolerance: {absolute: <x>}` or `tolerance: {relative: <fraction>}`"
@@ -1580,7 +1578,7 @@ class _Records:
                     "limit",
                     address,
                     files,
-                    f"`writable: true` on a {channel.get('role', 'readback')} channel",
+                    f"`writable: true` on a {channel.get('role', DEFAULT_ROLE)} channel",
                     "remove `writable`; only a setpoint is writable",
                 )
             bounds = [slot for slot in _LIMIT_BOUNDS if record.get(slot) is not None]
@@ -1675,7 +1673,7 @@ class _Records:
         still = scenario.get("still")
         if still is None:
             return
-        if still != _STILL_ALL and (
+        if still != STILL_ALL and (
             not isinstance(still, list)
             or not still
             or not all(isinstance(address, str) for address in still)
@@ -1685,11 +1683,11 @@ class _Records:
                 "scenario",
                 name,
                 files,
-                f"`still` is {still!r}, neither `{_STILL_ALL}` nor a list of addresses",
-                f"write `still: {_STILL_ALL}` or a list of addresses",
+                f"`still` is {still!r}, neither `{STILL_ALL}` nor a list of addresses",
+                f"write `still: {STILL_ALL}` or a list of addresses",
             )
             return
-        stilled = set() if still == _STILL_ALL else set(still)
+        stilled = set() if still == STILL_ALL else set(still)
         for address in sorted(stilled):
             if address in self.index.channels and self._type(address) != "float":
                 yield self._error(
@@ -1703,7 +1701,7 @@ class _Records:
         for slot in ("noise", "couple"):
             block = scenario.get(slot)
             for address in sorted(block if isinstance(block, dict) else (), key=str):
-                if still == _STILL_ALL or str(address) in stilled:
+                if still == STILL_ALL or str(address) in stilled:
                     yield self._error(
                         "value-invalid",
                         "scenario",
@@ -1748,7 +1746,7 @@ class _Records:
                 continue
             if address not in self.index.channels:
                 continue
-            role = self.index.channels[address].get("role", "readback")
+            role = self.index.channels[address].get("role", DEFAULT_ROLE)
             if role not in fault.roles:
                 yield self._error(
                     "value-invalid",
@@ -1815,7 +1813,7 @@ class _Records:
     ) -> Iterator[FacilityBuildError]:
         slot = f"overrides.{address}"
         channel = self.index.channels[address]
-        role = channel.get("role", "readback")
+        role = channel.get("role", DEFAULT_ROLE)
         wired = self.index.wired.get(address)
         if wired and role != "setpoint":
             models = ", ".join(sorted(wired))
@@ -1874,7 +1872,7 @@ class _Records:
             "scenario",
             name,
             [*files, "limits.yaml"],
-            f"`{slot}` {number:g} lies {side} {bound:g}",
+            f"`{slot}` {exact_number(number)} lies {side} {exact_number(bound)}",
             "write a value inside [min_value, max_value], or widen the limits record",
         )
 
@@ -1921,8 +1919,8 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
     """Hold each measurement file to the kinds it allows (the stage after compute).
 
     Runs once every wiring slot is filled, so a group or instrument is judged
-    by the setpoints and readbacks its model actually wires. One group stands
-    for one group role, or for ``hcor`` and ``vcor`` together. For each kind the
+    by the setpoints and readbacks its model actually wires. A group plays one
+    group role; only ``hcor`` and ``vcor`` may name the same group. For each kind the
     file allows, every group and instrument the kind needs
     (:data:`osprey.facility.views.pyaml.KIND_MEMBERS`) must be named by the file
     and wired by the model, a ``single_pass`` model allows ``orm`` alone, and
@@ -1941,12 +1939,21 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
     return list(_measurement_stops(document))
 
 
+def _groups_text(value: Any) -> str:
+    """``group X`` for a role naming one group, ``groups X, Y`` for several."""
+    families = group_families(value)
+    if len(families) == 1:
+        return f"group {families[0]}"
+    return f"groups {', '.join(families)}"
+
+
 def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]:
     from osprey.facility.views.pyaml import (
         GROUP_ROLES,
         INSTRUMENT_CLASSES,
         KIND_MEMBERS,
         ROLE_PLANES,
+        SINGLE_PASS_KINDS,
         TOOL_KEYS,
         measurement_groups,
         tune_references,
@@ -1964,7 +1971,10 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
         for first, second in itertools.combinations(
             [role for role in GROUP_ROLES if role in groups_named], 2
         ):
-            if groups_named[first] != groups_named[second] or {first, second} == set(ROLE_PLANES):
+            shared = sorted(
+                set(group_families(groups_named[first])) & set(group_families(groups_named[second]))
+            )
+            if not shared or {first, second} == set(ROLE_PLANES):
                 continue
             yield FacilityBuildError(
                 "value-invalid",
@@ -1974,13 +1984,11 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                 f"only {' and '.join(f'`groups.{role}`' for role in ROLE_PLANES)} may name "
                 "one group",
                 record_kind="measurement",
-                detail=(
-                    f"`groups.{first}` and `groups.{second}` both name group {groups_named[first]}"
-                ),
+                detail=(f"`groups.{first}` and `groups.{second}` both name group {shared[0]}"),
             )
         grouped = measurement_groups(document, name)
         for kind in measurement.get("kinds") or []:
-            if kind not in _SINGLE_PASS_KINDS and _single_pass(model):
+            if kind not in SINGLE_PASS_KINDS and _single_pass(model):
                 yield _measurement_missing(
                     name,
                     f"kind {kind} needs a periodic solve; model {name} solves single_pass",
@@ -2011,7 +2019,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                     )
                     yield _measurement_missing(
                         name,
-                        f"kind {kind} needs `{slot}`; group {named} holds no {wiring} "
+                        f"kind {kind} needs `{slot}`; {_groups_text(named)} holds no {wiring} "
                         f"model {name} wires",
                         f"name a group holding a {wiring} model {name} wires as `{slot}`",
                     )
@@ -2047,9 +2055,6 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                 yield from _wiring_stops(document, model)
 
 
-#: The kinds a ``single_pass`` model allows.
-_SINGLE_PASS_KINDS = ("orm", "trajectory")
-
 #: The kind measured from turn-by-turn readings after an injected shot.
 _TRAJECTORY = "trajectory"
 
@@ -2076,16 +2081,17 @@ _MONITOR_SIGNALS = (*_TURN_SIGNALS, _ARM_COMMAND, _ARMED_STATUS)
 
 
 def _bpm_members(document: Mapping[str, Any], model: Mapping[str, Any]) -> tuple[Any, set[str]]:
-    """The group a model's measurement names as ``groups.bpm``, and its member devices.
+    """The groups a model's measurement names as ``groups.bpm``, and their member devices.
 
-    The group is ``None`` when the measurement names none, and then it has no
+    The value is ``None`` when the measurement names none, and then it has no
     members.
     """
     group = ((model.get("measurement") or {}).get("groups") or {}).get("bpm")
+    families = set(group_families(group)) if group is not None else set()
     members = {
         str(member)
         for record in document.get("groups", [])
-        if group is not None and str(record["id"]) == str(group)
+        if str(record["id"]) in families
         for member in record.get("members") or []
     }
     return group, members
@@ -2131,7 +2137,7 @@ def _trajectory_stops(
                 yield _measurement_missing(
                     name,
                     f"kind {kind} needs a channel of signal `{signal}` on every device of "
-                    f"`groups.bpm`; device {device} of group {group} carries none",
+                    f"`groups.bpm`; device {device} of {_groups_text(group)} carries none",
                     f"add a channel of signal `{signal}` on device {device}, or remove {kind} "
                     "from `kinds`",
                 )
@@ -2149,12 +2155,12 @@ def _trajectory_stops(
                 "value-invalid",
                 name,
                 files,
-                f"add device {device} to group {group}, or remove signal `{signal}` from "
-                f"channel {address}",
+                f"add device {device} to {_groups_text(group)}, or remove signal `{signal}` "
+                f"from channel {address}",
                 record_kind="measurement",
                 detail=(
                     f"channel {address} carries signal `{signal}` on device {device}, which is "
-                    f"not in group {group}, the `groups.bpm` of kind {kind}"
+                    f"not in {_groups_text(group)}, the `groups.bpm` of kind {kind}"
                 ),
             )
 
@@ -2214,7 +2220,7 @@ def _command_stops(
     for address, (named, way_out) in sorted(commands.items()):
         channel = channels[address]
         subject = f"kind {_TRAJECTORY} writes a command to channel {address}, {named}"
-        role = channel.get("role", "readback")
+        role = channel.get("role", DEFAULT_ROLE)
         value_type = channel.get("value_type", "float")
         stops = []
         if address in correctors:

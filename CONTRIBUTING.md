@@ -79,7 +79,7 @@ admins cannot bypass). Open Claude Code in the repo and describe what you want
 to contribute; the skill picks up wherever you are in the journey.
 
 The same plugin carries `/osprey:design-philosophy`, `/osprey:pre-commit`,
-`/osprey:release`, `/osprey:install`, `/osprey:upstream-scout`, `/osprey:panel`, and
+`/osprey:release`, `/osprey:setup`, `/osprey:upstream-scout`, `/osprey:panel`, and
 `/osprey:test-audit`. The full
 list, the Codex commands, and how to update are in the
 [Agent Skills guide](https://als-apg.github.io/osprey/contributing/agent-skills.html).
@@ -105,6 +105,7 @@ For details (CI gates, branch protection, release cuts) see the [full Contributi
 - Add tests for new functionality
 - Write Google-style docstrings
 - Update documentation as needed
+- Resolve merge conflicts, and any plan written against an older tree, by principle 8 of `/osprey:design-philosophy`: where two lines of work meet, design from the end product
 
 ## Running Tests
 

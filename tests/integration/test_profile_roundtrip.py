@@ -238,13 +238,10 @@ triggers:
     prompt: Investigate the facility alarm.
 """
 
-# The render used to receive a derived `.env` of its own, and the fixtures that
-# once lived here seeded it so a rebuild's per-key derivation rules could be
-# observed: a stale build-derived pointer, a simulation fault a runtime writer
-# left, a token minted into the project alone, and a hand edit the profile
-# cannot reproduce. There is no such file now — the repo root's `.env` is the
-# deployment's whole secret store — so the contract those fixtures served is
-# stated directly instead: the render carries no secrets surface at all.
+# The render carries no secrets surface at all: the repo root's `.env` is the
+# deployment's whole secret store, and a build writes no copy of it into the
+# render. The roundtrip asserts that as an absence — the render holds no
+# env-shaped file but the value-free `.env.example`.
 
 
 def _apply_profile_edits(profile_dir: Path) -> None:

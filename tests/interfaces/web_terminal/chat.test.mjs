@@ -636,6 +636,27 @@ describe('started commands', () => {
     expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(false);
   });
 
+  test('a stop whose started commands could not be read asks about them unchecked', async () => {
+    const refused = startedRefusal([]);
+    /** @type {any} */ (refused).unread = true;
+    transport.requestHandoff.mockRejectedValueOnce(refused);
+    await mountChat({ pointer: 'K1' });
+
+    await chat.enterFromExpert({ interrupt: true });
+
+    expect(textOf('.op-handoff-message')).toBe('Could not check what the agent started.');
+    expect(dialogTitle()).toBe('Could not check what the agent started.');
+    expect(dialogButton('.posture-modal-confirm').textContent).toBe('Stop all');
+
+    dialogButton('.posture-modal-confirm').click();
+    await settle();
+
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
+      interrupt: true,
+      endStarted: true,
+    }));
+  });
+
   test('"Cancel" sends nothing more and flips to the Expert view', async () => {
     const posted = vi.spyOn(window, 'postMessage');
     transport.requestHandoff.mockRejectedValueOnce(startedRefusal([MAGNET]));

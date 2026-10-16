@@ -155,6 +155,24 @@ elsewhere. The embedded panel has no header of its own either --- the
 terminal's tile bar is the one header --- so the sliders button does not
 appear there.
 
+The embedded panel's tile bar offers Browse and New Entry, and opens on
+Browse: inside the terminal, the agent searches the logbook. A deployment that
+wants the Search view there too turns it on in its profile's ``config:`` block:
+
+.. code-block:: yaml
+
+   ariel.embedded_search: true
+
+The embedded panel then opens on Search, with Search ahead of Browse and New
+Entry. Keyword search works immediately against the ARIEL full-text index;
+semantic and hybrid choices are shown only when their configured services are
+available. The standalone interface always offers Search. Opening a stored,
+viewable picture from an entry also offers **Use in Workspace**. It copies the
+prepared rendition into the local Workspace gallery with its logbook
+provenance, then activates Workspace in the browser that clicked it. Ask the
+agent about that Workspace artifact; it resolves the provenance and reads the
+same stored attachment pixels rather than an external logbook URL.
+
 The ``GET /api/capabilities`` endpoint the interface calls at startup, and the
 parameter descriptors it returns, are documented in
 :doc:`/reference/contracts/ariel`.

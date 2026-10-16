@@ -13,7 +13,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `check_config_keys.py` | Config-key resurrection guard | 2-5s | After touching a `config.yml.j2`, a preset, or config-reading code |
 | `changelog_fragments.py` | Changelog-fragment gate and release fold | < 1s | After touching `src/` or `packages/`; when cutting a release |
 | `plugin_version.py` | Show, bump and check the plugin version | < 1s | After touching `plugins/`, `.claude-plugin/` or `.agents/plugins/` |
-| `cli_tool_inventory.py` | CLI tool inventory of each pinned build | ~2 s plus an npm download | After bumping `_DEFAULT_CLAUDE_CLI_VERSION` or the `claude-agent-sdk` pin |
+| `cli_tool_inventory.py` | CLI tool inventory of the pinned build | ~2 s plus an npm download | After bumping `_DEFAULT_CLAUDE_CLI_VERSION` |
 | `bpm_polarity_picture.py` | Redraw the example facility's bpm-polarity logbook picture from its model and scenario | ~5 s | After changing the example's SR deck or wiring, the bpm-polarity scenario, or the BPM noise seeds |
 
 ## Scripts
@@ -238,22 +238,23 @@ uv run python scripts/plugin_version.py check --base origin/main
 
 ### cli_tool_inventory.py
 
-**Purpose**: Record the built-in tools each pinned Claude Code build has, so the
-tool names OSPREY denies can be checked against real builds.
+**Purpose**: Record the built-in tools the pinned Claude Code build has, so the
+tool names OSPREY denies or passes through can be checked against the real build.
 
-**What it does**: `--write` starts the SDK-bundled build and the npm-pinned build
-under a clean, deny-free environment and records the tools each lists in its
-`system/init` message as `tests/fixtures/cli_tool_inventory/<version>.json`,
-deleting any other version's file. Each build is probed twice: offline
-(`tools`), and with remote configuration reachable (`remote_config_tools`), which
-adds flag-gated tools such as `Monitor`. `--check` probes the same builds and
-fails when a pinned version has no file or a recorded name is no longer listed
-under the same probe. A missing name can reject a real tool, but a recorded name
-is never one the build lacks.
+**What it does**: `--write` installs the pinned build
+(`_DEFAULT_CLAUDE_CLI_VERSION`), starts it under a clean, deny-free environment
+plus the environment OSPREY gives every Claude Code process it starts, and
+records the tools it lists in its `system/init` message as
+`tests/fixtures/cli_tool_inventory/<version>.json`, deleting any other version's
+file. The build is probed twice: offline (`tools`), and with remote
+configuration reachable (`remote_config_tools`), which adds flag-gated tools
+such as `Monitor`. `--check` probes the same build and fails when it has no
+file or a recorded name is no longer listed under the same probe. A missing
+name can reject a real tool, but a recorded name is never one the build lacks.
 
 **Usage**:
 ```bash
-uv run python scripts/cli_tool_inventory.py --write   # after bumping a pin
+uv run python scripts/cli_tool_inventory.py --write   # after bumping the pin
 uv run python scripts/cli_tool_inventory.py --check   # what the static-checks CI job runs
 ```
 

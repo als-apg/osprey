@@ -1,7 +1,8 @@
-Installation & Setup
-====================
+Installation
+============
 
-Get OSPREY running in five steps. The whole process takes about 10 minutes.
+Get OSPREY running in six steps; the last one, a container runtime, is optional. The
+whole process takes about 10 minutes.
 
 .. dropdown:: **What you'll have when done**
    :color: info
@@ -11,6 +12,7 @@ Get OSPREY running in five steps. The whole process takes about 10 minutes.
    - An API key configured for your AI provider
    - The ``osprey`` CLI installed and on your ``PATH``
    - The ability to create projects with ``osprey build``
+   - Optionally, Docker or Podman for ``osprey deploy``
 
 
 Step 1: Install Node.js
@@ -65,7 +67,7 @@ Step 2: Install Claude Code
 
 .. code-block:: bash
 
-   npm install -g @anthropic-ai/claude-code@2.1.267
+   npm install -g @anthropic-ai/claude-code@2.1.300
 
 The pinned version is the one OSPREY's generated projects run. Installing it
 exactly — rather than whatever was published most recently — means a brand-new
@@ -82,24 +84,25 @@ Verify:
 Pinning the Claude Code CLI version
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Anthropic ships breaking changes to the Claude Code CLI from time to time.
-The install command above already pins your global ``claude`` binary; to pin
-what a specific project launches — independently of what is installed
-globally — set a version under ``config:`` in ``profile.yml`` and run
+Every OSPREY project runs one exact Claude Code version, and the install
+command above gives you the one new projects use. To run a different version
+in a project, set it under ``config:`` in ``profile.yml`` and run
 ``osprey build``:
 
 .. code-block:: yaml
 
    config:
      claude_code:
-       cli_version: "2.1.267"   # exact version, no semver ranges
+       cli_version: "2.1.300"   # one exact version
 
-When set, ``osprey chat`` and the web terminal launch the pinned
-version via ``npx -y @anthropic-ai/claude-code@<version>`` instead of the
-globally-installed ``claude`` binary. The first run downloads the package;
-subsequent runs hit the npx cache. Use ``osprey health`` to confirm the pin
-is being honored. To temporarily bypass the pin for debugging, run
-``osprey chat --no-pin``.
+Then install that same version, so the ``claude`` on your machine matches the
+project:
+
+.. code-block:: bash
+
+   npm install -g @anthropic-ai/claude-code@2.1.300
+
+``osprey health`` tells you whether the two agree.
 
 
 Step 3: Install Python tools
@@ -262,6 +265,47 @@ scheme (e.g. ``2026.5.1``; git tags carry a ``v`` prefix, e.g. ``v2026.5.1``)
 — the first two segments identify the release window and the patch segment
 increments for hotfixes. See ``CHANGELOG.md`` for details.
 
+Step 6: Install a container runtime (optional)
+------------------------------------------------
+
+``osprey deploy`` runs a project and its services (simulation IOCs, databases, the
+observability stack) in containers, and needs Docker or Podman for that. The core
+agent workflow does not require containers, so you can skip this step and come back
+to it when you deploy.
+
+.. tab-set::
+
+   .. tab-item:: Docker Desktop
+
+      Download from the `Docker website <https://www.docker.com/products/docker-desktop/>`_
+      and verify:
+
+      .. code-block:: bash
+
+         docker --version
+         docker compose version
+         docker buildx version
+
+      OSPREY's service images need BuildKit: Docker Desktop includes it; on a
+      Linux Docker Engine install the ``docker-buildx-plugin`` package. Podman
+      needs nothing extra.
+
+   .. tab-item:: Podman
+
+      Install from the `Podman website <https://podman.io/docs/installation>`_
+      and verify:
+
+      .. code-block:: bash
+
+         podman --version
+
+      On macOS/Windows, also run:
+
+      .. code-block:: bash
+
+         podman machine init
+         podman machine start
+
 You're done! 🎉
 -----------------
 
@@ -277,7 +321,7 @@ OSPREY is installed and ready to use. Here's what to do next:
       Build your first agent with the simulator served in process. One MCP server, zero
       complexity. Takes about five minutes.
 
-   .. grid-item-card:: **Install and Set Up**
+   .. grid-item-card:: **Guided Facility Setup**
       :link: osprey-install
       :link-type: doc
 
@@ -286,46 +330,12 @@ OSPREY is installed and ready to use. Here's what to do next:
       to your system. Takes about 10--15 minutes.
 
 
-.. dropdown:: **Advanced: Container runtime, services & detailed configuration**
+.. dropdown:: **Advanced: Services & detailed configuration**
    :color: secondary
    :icon: gear
 
    The steps above cover the core installation. The following are only needed for
    specific use cases.
-
-   **Container Runtime (Docker or Podman)**
-
-   A container runtime is only required if you plan to deploy containerized services
-   (simulation IOCs, databases, the observability stack). The core agent workflow does not require
-   containers.
-
-   .. tab-set::
-
-      .. tab-item:: Docker Desktop
-
-         Download from the `Docker website <https://www.docker.com/products/docker-desktop/>`_
-         and verify:
-
-         .. code-block:: bash
-
-            docker --version
-            docker compose version
-
-      .. tab-item:: Podman
-
-         Install from the `Podman website <https://podman.io/docs/installation>`_
-         and verify:
-
-         .. code-block:: bash
-
-            podman --version
-
-         On macOS/Windows, also run:
-
-         .. code-block:: bash
-
-            podman machine init
-            podman machine start
 
    **Deploying Services**
 
@@ -346,7 +356,7 @@ Troubleshooting
    :icon: alert
 
    **"claude: command not found"**
-      Install Claude Code: ``npm install -g @anthropic-ai/claude-code@2.1.267``
+      Install Claude Code: ``npm install -g @anthropic-ai/claude-code@2.1.300``
 
    **"osprey: command not found"**
       If you installed via ``uv tool install osprey-framework``, make sure uv's

@@ -694,14 +694,14 @@ def test_the_startable_repo_dials_no_service_this_host_runs(startable_repo: Path
 
     ``osprey up`` publishes a service on the port its compose file names, and
     then dials that service on the port its rendered config names (the telemetry
-    store's ingest provisioning does). Both have to be the copy's own free port:
+    store's account provisioning does). Both have to be the copy's own free port:
     a config still naming the rendered default would send the deploy at whatever
     this host happens to run there, and a scenario's output would then depend on
     another deployment's store rather than on the CLI.
     """
     from osprey.deployment.container_lifecycle import as_built_compose_files, as_built_config_path
     from osprey.deployment.host_ports import parse_host_port_bindings
-    from osprey.deployment.openobserve_provision import store_base_url, store_deployed
+    from osprey.deployment.telemetry_config import store_deployed, store_port
     from osprey.utils.config import load_project_config
 
     config = load_project_config(str(as_built_config_path(startable_repo)), wrap_errors=True)
@@ -709,9 +709,9 @@ def test_the_startable_repo_dials_no_service_this_host_runs(startable_repo: Path
         str(path) if os.path.isabs(str(path)) else str(startable_repo / str(path))
         for path in as_built_compose_files(config, startable_repo)
     ]
-    published = {
-        binding.service: binding.host_port for binding in parse_host_port_bindings(compose_files)
-    }
+    published: dict[str, set[int]] = {}
+    for binding in parse_host_port_bindings(compose_files):
+        published.setdefault(binding.service, set()).add(binding.host_port)
     configured = {
         name: settings["port"]
         for name, settings in (config.get("services") or {}).items()
@@ -721,9 +721,14 @@ def test_the_startable_repo_dials_no_service_this_host_runs(startable_repo: Path
         f"no published service carries a configured port in {as_built_config_path(startable_repo)}, "
         f"so this check compares nothing"
     )
-    assert configured == {name: published[name] for name in configured}
+    # A service may publish several ports (the gateway's OTLP, reader and
+    # metrics listeners); its configured one must be among them.
+    assert all(port in published[name] for name, port in configured.items()), (
+        configured,
+        published,
+    )
     assert store_deployed(config)
-    assert store_base_url(config).endswith(f":{published['openobserve']}")
+    assert store_port(config) in published["telemetry_store"]
 
 
 # ---------------------------------------------------------------------------
@@ -820,8 +825,8 @@ def test_a_warning_lands_intact_above_a_mounted_region(
     Provoked rather than injected: the start path compares the shell's exports
     against the deployment's env chain and warns when an exported value
     disagrees with the pinned one for a variable the compose files interpolate.
-    Seeding ``ZO_ROOT_USER_PASSWORD`` into the repo's ``.env`` and exporting a
-    different value for the run is the operator mistake that produces it — and
+    Seeding ``OSPREY_TELEMETRY_DIGEST_TELEMETRY_STORE`` into the repo's ``.env``
+    and exporting a different value for the run is the operator mistake that produces it — and
     it produces it in the middle of the start phase, with the region mounted
     and the monitor thread repainting.
 
@@ -835,10 +840,11 @@ def test_a_warning_lands_intact_above_a_mounted_region(
     """
     env_path = startable_repo / ".env"
     env_path.write_text(
-        env_path.read_text(encoding="utf-8") + "ZO_ROOT_USER_PASSWORD=Chain5ide!Value\n",
+        env_path.read_text(encoding="utf-8")
+        + "OSPREY_TELEMETRY_DIGEST_TELEMETRY_STORE=Chain5ide!Value\n",
         encoding="utf-8",
     )
-    pty_env["ZO_ROOT_USER_PASSWORD"] = "Exp0rted!Value"
+    pty_env["OSPREY_TELEMETRY_DIGEST_TELEMETRY_STORE"] = "Exp0rted!Value"
 
     run = run_on_pty(["up", "-d"], cwd=startable_repo, env=pty_env)
 
@@ -858,7 +864,7 @@ def test_a_warning_lands_intact_above_a_mounted_region(
         f"{run.describe()}"
     )
     # The summary names what diverged; the promotion must not have lost that.
-    assert "ZO_ROOT_USER_PASSWORD" in screen[head], run.describe()
+    assert "OSPREY_TELEMETRY_DIGEST_TELEMETRY_STORE" in screen[head], run.describe()
     assert_region_was_mounted_when(run, "shell export disagrees")
 
     # The gate's half of the contract: the record this warning also files must

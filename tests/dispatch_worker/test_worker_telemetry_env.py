@@ -20,10 +20,7 @@ claude_code:
   provider: anthropic
   telemetry:
     enabled: true
-    backend: openobserve
-    openobserve:
-      user: root@example.com
-      password: secret
+    backend: gateway
     content_max_length: 262144
 """
 
@@ -45,8 +42,9 @@ def _isolated_environ(monkeypatch, tmp_path) -> dict[str, str]:
             "OSPREY_PROJECT_DIR": str(tmp_path),
             "CONFIG_FILE": str(tmp_path / "build" / "config.yml"),
             "ANTHROPIC_API_KEY": "sk-ant",
-            "OSPREY_OTEL_OPENOBSERVE_HOST": "openobserve",
-            "OSPREY_OTEL_OPENOBSERVE_PORT": "5080",
+            "OSPREY_OTEL_GATEWAY_HOST": "telemetry_gateway",
+            "OSPREY_OTEL_GATEWAY_PORT": "4318",
+            "OSPREY_TELEMETRY_LOGIN": "dispatch-worker-1:s3cret",
         }
     )
     monkeypatch.setattr(os, "environ", fake)
@@ -64,7 +62,7 @@ def test_worker_sdk_env_carries_traces_and_tool_content(tmp_path, monkeypatch):
 
     for name, value in _EXPECTED.items():
         assert environ[name] == value, name
-    assert environ["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://openobserve:5080/api/default"
+    assert environ["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://telemetry_gateway:4318"
 
     cli_env = {
         **{k: v for k, v in environ.items() if k != "CLAUDECODE"},

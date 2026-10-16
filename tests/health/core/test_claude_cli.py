@@ -74,9 +74,33 @@ class TestClaudeCliPoll:
 
 
 class TestClaudeCliPinned:
-    async def test_no_pin_is_single_skip_row(self, monkeypatch):
-        # Should never invoke the subprocess when unpinned.
-        _stub_run(monkeypatch, raises=AssertionError("must not run npx"))
+    """The row proves the executable a headless run would be pointed at.
+
+    The check asks the launcher for that executable instead of spelling a
+    command of its own, so it cannot pass for a path no run takes. Nothing here
+    runs a real CLI: the ``PATH`` lookup and the version probe are replaced.
+    """
+
+    CONFIG = {"claude_code": {"cli_version": "1.2.3"}}
+
+    @pytest.fixture(autouse=True)
+    def no_command_of_its_own(self, monkeypatch):
+        _stub_run(monkeypatch, raises=AssertionError("the check spells no command of its own"))
+
+    @staticmethod
+    def _install(monkeypatch, version, path="/usr/local/bin/claude"):
+        from osprey.agent_runner import launcher
+
+        monkeypatch.setattr("shutil.which", lambda *_a, **_k: path)
+
+        def probe(_exe):
+            if isinstance(version, BaseException):
+                raise version
+            return version
+
+        monkeypatch.setattr(launcher, "_probe_cli_version", probe)
+
+    async def test_no_pin_is_single_skip_row(self):
         for config in (None, {}, {"claude_code": {}}, {"claude_code": None}):
             results = await claude_cli_pinned(config)()
             assert len(results) == 1
@@ -86,50 +110,75 @@ class TestClaudeCliPinned:
             assert row.status == Status.SKIP
             assert row.message == "no cli_version pin configured"
 
-    async def test_pin_match_is_ok(self, monkeypatch):
-        _stub_run(monkeypatch, returncode=0, stdout="1.2.3 (Claude Code)")
-        config = {"claude_code": {"cli_version": "1.2.3"}}
-        results = await claude_cli_pinned(config)()
-        assert results[0].name == "claude_cli_pinned"
-        assert results[0].status == Status.OK
-        assert "1.2.3" in results[0].message
+    async def test_an_installed_claude_that_reports_the_pin_is_ok(self, monkeypatch):
+        self._install(monkeypatch, "1.2.3")
+        (row,) = await claude_cli_pinned(self.CONFIG)()
+        assert row.name == "claude_cli_pinned"
+        assert row.status == Status.OK
+        assert "1.2.3" in row.message
+        assert "/usr/local/bin/claude" in row.message
 
-    async def test_pin_mismatch_is_warning(self, monkeypatch):
-        _stub_run(monkeypatch, returncode=0, stdout="9.9.9")
-        config = {"claude_code": {"cli_version": "1.2.3"}}
-        results = await claude_cli_pinned(config)()
-        assert results[0].status == Status.WARNING
-        assert "1.2.3" in results[0].message
-        assert "9.9.9" in results[0].message
+    async def test_the_check_runs_the_executable_a_headless_run_is_pointed_at(self, monkeypatch):
+        from osprey.agent_runner import launcher
 
-    async def test_pin_unparseable_reports_unknown_warning(self, monkeypatch):
-        _stub_run(monkeypatch, returncode=0, stdout="garbage")
-        config = {"claude_code": {"cli_version": "1.2.3"}}
-        results = await claude_cli_pinned(config)()
-        assert results[0].status == Status.WARNING
-        assert "unknown" in results[0].message
+        asked = []
+        monkeypatch.setattr(
+            launcher, "agent_cli_path", lambda cc: asked.append(dict(cc)) or "/opt/claude"
+        )
+        (row,) = await claude_cli_pinned(self.CONFIG)()
+        assert asked == [self.CONFIG["claude_code"]]
+        assert row.status == Status.OK
+        assert "/opt/claude" in row.message
 
-    async def test_missing_npx_is_error(self, monkeypatch):
-        _stub_run(monkeypatch, raises=FileNotFoundError())
-        config = {"claude_code": {"cli_version": "1.2.3"}}
-        results = await claude_cli_pinned(config)()
-        assert results[0].status == Status.ERROR
-        assert "npx not found" in results[0].message
+    async def test_another_installed_version_is_an_error_with_both_ways_out(self, monkeypatch):
+        self._install(monkeypatch, "9.9.9")
+        (row,) = await claude_cli_pinned(self.CONFIG)()
+        assert row.status == Status.ERROR
+        assert "1.2.3" in row.message
+        assert "reports 9.9.9" in row.details
+        assert "npm install -g @anthropic-ai/claude-code@1.2.3" in row.details
+        assert "change claude_code.cli_version" in row.details
 
-    async def test_npx_timeout_is_error(self, monkeypatch):
-        _stub_run(monkeypatch, raises=TimeoutError())
-        config = {"claude_code": {"cli_version": "1.2.3"}}
-        results = await claude_cli_pinned(config)()
-        assert results[0].status == Status.ERROR
-        assert "timed out" in results[0].message
+    async def test_no_installed_claude_is_an_error(self, monkeypatch):
+        self._install(monkeypatch, None, path=None)
+        (row,) = await claude_cli_pinned(self.CONFIG)()
+        assert row.status == Status.ERROR
+        assert "no `claude` was found on PATH" in row.details
+        assert "npm install -g @anthropic-ai/claude-code@1.2.3" in row.details
 
-    async def test_npx_nonzero_returncode_is_error(self, monkeypatch):
-        _stub_run(monkeypatch, returncode=1, stdout="", stderr="boom")
-        config = {"claude_code": {"cli_version": "1.2.3"}}
-        results = await claude_cli_pinned(config)()
-        assert results[0].status == Status.ERROR
-        assert "npx failed" in results[0].message
-        assert "boom" in results[0].details
+    async def test_a_claude_that_reports_no_version_is_an_error(self, monkeypatch):
+        self._install(monkeypatch, None)
+        (row,) = await claude_cli_pinned(self.CONFIG)()
+        assert row.status == Status.ERROR
+        assert "did not report a version" in row.details
+
+    async def test_a_version_probe_that_times_out_is_an_error(self, monkeypatch):
+        import subprocess
+
+        self._install(monkeypatch, subprocess.TimeoutExpired(["claude", "--version"], 15))
+        (row,) = await claude_cli_pinned(self.CONFIG)()
+        assert row.status == Status.ERROR
+        assert "did not answer" in row.details
+
+    async def test_the_check_never_downloads_anything(self, monkeypatch):
+        from osprey.agent_runner import launcher
+
+        self._install(monkeypatch, None, path=None)
+
+        def refuse(argv, *_a, **_k):
+            raise AssertionError(f"the check ran {argv}")
+
+        monkeypatch.setattr(launcher.subprocess, "run", refuse)
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", refuse)
+        (row,) = await claude_cli_pinned(self.CONFIG)()
+        assert row.status == Status.ERROR
+
+    async def test_the_answer_is_fresh_on_every_run_of_the_check(self, monkeypatch):
+        self._install(monkeypatch, "9.9.9")
+        (before,) = await claude_cli_pinned(self.CONFIG)()
+        self._install(monkeypatch, "1.2.3")
+        (after,) = await claude_cli_pinned(self.CONFIG)()
+        assert (before.status, after.status) == (Status.ERROR, Status.OK)
 
 
 # --------------------------------------------------------------------------- #

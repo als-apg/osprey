@@ -255,41 +255,35 @@ def test_ariel_standalone_narrates_every_scenario_of_its_facility(
     assert sum(len(e.attachments) for e in seeded) == 3
 
 
-def test_preset_control_assistant_ships_live_openobserve_telemetry(
+def test_preset_control_assistant_ships_live_gateway_telemetry(
     runner: CliRunner, tmp_path: Path
 ) -> None:
     """control_assistant is the production-shaped reference facility: telemetry
-    is wired LIVE against a co-deployed OpenObserve store. This pins the full
-    wiring so a regression in the preset template (dropped service, disabled
-    switch, hardcoded endpoint, or missing :- fallback) fails loudly.
+    is wired LIVE through the co-deployed gateway into the telemetry store. This
+    pins the full wiring so a regression in the preset template (dropped
+    service, disabled switch, hardcoded endpoint, or a credential key) fails
+    loudly.
     """
     result = _materialize(runner, str(tmp_path), "smoke", "control-assistant")
     assert result.exit_code == 0, result.output
 
     cfg = _config_yaml(_project(tmp_path, "smoke"))
 
-    # openobserve is deployed alongside postgresql (not merely declared).
-    assert "openobserve" in cfg["deployed_services"]
-    assert "postgresql" in cfg["deployed_services"]
+    # The store and its gateway are deployed (not merely declared).
+    assert "telemetry_store" in cfg["deployed_services"]
+    assert "telemetry_gateway" in cfg["deployed_services"]
 
     tel = cfg["claude_code"]["telemetry"]
     assert tel["enabled"] is True
-    assert tel["backend"] == "openobserve"
-    # openobserve backend auto-derives the endpoint per network context — a
+    assert tel["backend"] == "gateway"
+    # The gateway backend derives the endpoint per network context — a
     # hardcoded localhost endpoint would make the in-container worker emit to its
     # own loopback and silently drop everything, so it must be absent.
     assert "endpoint" not in tel
-    # The agent authenticates as the store's dedicated INGEST service account,
-    # never as root: the store still initializes itself from ZO_ROOT_USER_*, but
-    # that pair stays in the compose file and the root password never reaches
-    # the agent's config.
-    assert tel["openobserve"]["user"] == "${ZO_INGEST_USER_EMAIL:-ingest@example.com}"
-    # The token carries NO ${VAR:-default}, and that absence is the point: a
-    # literal default token in a shipped template would be a published
-    # credential. `osprey up` provisions the account and writes the token the
-    # store issues into .env; the preflights defer this one variable rather
-    # than refusing a start that has not reached that step yet.
-    assert tel["openobserve"]["password"] == "${ZO_INGEST_SA_TOKEN}"
+    # No credential in the config: each sender logs in with a login
+    # `osprey build` mints into a file of its own, outside the config and the
+    # .env chain.
+    assert "auth" not in tel
 
 
 def test_preset_control_assistant_dispatches_on_the_host_network(
@@ -836,9 +830,21 @@ def _attached_presets() -> list[str]:
     ]
 
 
+@pytest.fixture(scope="module")
+def host_render_configs() -> dict[str, dict]:
+    """Rendered ``config.yml`` of each host preset, filled by the first test to build it.
+
+    Filled from inside a test rather than built here, so the host render runs
+    under the same function-scoped fixtures (the session graph-index cache) it
+    always has. A host render is a function of its preset alone: the only path
+    in it is the repo's own, and nothing read from it below is a path.
+    """
+    return {}
+
+
 @pytest.mark.parametrize("preset", _attached_presets())
 def test_attached_preset_built_alone_is_told_its_templates_defaults(
-    preset: str, runner: CliRunner, tmp_path: Path
+    preset: str, runner: CliRunner, tmp_path: Path, host_render_configs: dict[str, dict]
 ) -> None:
     """A persona preset materialized on its own — no hosting deployment in the
     repo — still builds, and is told what its app template deploys.
@@ -862,8 +868,10 @@ def test_attached_preset_built_alone_is_told_its_templates_defaults(
 
     parent = _load_preset_raw(preset)[0].get("extends")
     assert parent, f"{preset} extends nothing — which deployment is its host?"
-    assert _materialize(runner, str(tmp_path), "host", Path(parent).stem).exit_code == 0
-    host = _config_yaml(_project(tmp_path, "host"))
+    host = host_render_configs.get(Path(parent).stem)
+    if host is None:
+        assert _materialize(runner, str(tmp_path), "host", Path(parent).stem).exit_code == 0
+        host = host_render_configs[Path(parent).stem] = _config_yaml(_project(tmp_path, "host"))
     assert config["services"]["qmd"]["port"] == host["services"]["qmd"]["port"]
     # The tabs the preset selects are told their address too — what a
     # deployment of the template derives when it injects the sidecars, read
@@ -1108,7 +1116,7 @@ class TestDeployServicesKnob:
     defaults true, so every existing (self-contained) build is unchanged.
     """
 
-    # A profile whose preset would normally scaffold postgresql + openobserve
+    # A profile whose preset would normally scaffold postgresql + the telemetry store
     # and whose ``bluesky:`` block would normally inject a bridge service — so
     # an attached build has real scaffolding to suppress. The inherited
     # ``va_archiver:`` block is dropped: a deployment that records its own

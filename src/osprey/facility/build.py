@@ -5,6 +5,7 @@
     wiring       the computed slots of every wiring record    (wiring.py)
     compute      positions, places, ordinals, deck checks     (compute.py)
     measurement  each measurement file against its model      (validate.py)
+    knowledge    pages linked to a device the file lacks      (knowledge_links.py)
 
 and returns the facility file, or raises the first error of the first stage
 that fails. Nothing is written to disk. ``build_facility_with_warnings``
@@ -18,6 +19,7 @@ from typing import Any, TypeAlias
 
 from osprey.facility.compute import check_compute
 from osprey.facility.errors import FacilityBuildWarning
+from osprey.facility.knowledge_links import check_knowledge_links
 from osprey.facility.validate import Stage, check_measurement, run_stages
 from osprey.facility.wiring import fill_wiring_slots
 
@@ -31,6 +33,7 @@ LATER_STAGES: tuple[tuple[str, Stage], ...] = (
     ("wiring", fill_wiring_slots),
     ("compute", check_compute),
     ("measurement", check_measurement),
+    ("knowledge", check_knowledge_links),
 )
 
 

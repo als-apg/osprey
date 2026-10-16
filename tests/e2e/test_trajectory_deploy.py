@@ -75,11 +75,13 @@ BRIDGE_PORT = 18111
 # deployment's default block.
 PORT_BASE = 22200
 
-# ariel-postgres and OpenObserve are deployed by the preset with no profile knob
-# to drop them; both move to high, unassigned host ports so a locally-running
-# deployment holding the defaults cannot abort `osprey up`.
+# ariel-postgres, the telemetry gateway and the telemetry store are deployed by
+# the preset with no profile knob to drop them; all three move to high,
+# unassigned host ports so a locally-running deployment holding the defaults
+# cannot abort `osprey up`.
 POSTGRES_PORT = 25437
-OPENOBSERVE_PORT = 25086
+TELEMETRY_GATEWAY_PORT = 24331
+TELEMETRY_STORE_PORT = 28136
 
 PROJECT_NAME = "trajectory-proj"
 TRAJECTORY_CONTAINER = f"{_orm_stack.project_prefix(PROJECT_NAME)}-trajectory"
@@ -216,7 +218,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         extra_config={
             "config": {
                 "services.postgresql.port_host": POSTGRES_PORT,
-                "services.openobserve.port": OPENOBSERVE_PORT,
+                "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
+                "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             },
             "trajectory": {"network": "host"},
         },

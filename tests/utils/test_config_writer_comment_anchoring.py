@@ -40,14 +40,14 @@ web:
 services:
   postgresql:
     path: ./services/postgresql
-  openobserve:
-    path: ./services/openobserve
-    port: 5080          # Host port
+  telemetry_store:
+    path: ./services/telemetry_store
+    port: 10804         # Host port
 
 # Services to deploy with `osprey up`
 deployed_services:
   - postgresql
-  - openobserve
+  - telemetry_store
 
 # ============================================================
 # SAFETY CONTROLS
@@ -103,7 +103,7 @@ class TestAnchoredAppend:
         assert _line_no(text, "- virtual_accelerator") < _line_no(text, "- bluesky")
         assert _load(path)["deployed_services"] == [
             "postgresql",
-            "openobserve",
+            "telemetry_store",
             "virtual_accelerator",
             "bluesky",
         ]
@@ -133,7 +133,7 @@ class TestAnchoredPut:
         # New block sits under services:, before the deployed_services comment.
         assert _line_no(text, "virtual_accelerator:") < _line_no(text, "# Services to deploy")
         # The inline comment on the previous last entry survives in place.
-        assert "port: 5080          # Host port" in text
+        assert "port: 10804         # Host port" in text
         assert _load(path)["services"]["virtual_accelerator"] == {
             "path": "./services/virtual_accelerator",
             "port": 5064,

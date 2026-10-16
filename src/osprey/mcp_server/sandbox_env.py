@@ -109,6 +109,13 @@ SANDBOX_CHILD_ENV_DROP_NAMES: tuple[str, ...] = (
 #: code change here - the same reasoning as SENSITIVE_ENV_SUFFIXES.
 SANDBOX_CHILD_ENV_DROP_PREFIXES: tuple[str, ...] = ("OSPREY_TERMINAL_",)
 
+#: Exact names the drop prefixes would otherwise take. ``OSPREY_TERMINAL_SESSION``
+#: is the session the child's ledger lines fall back to when it has no posture
+#: session; it names a session, never a credential or an address. Exempted by
+#: exact name only: ``OSPREY_TERMINAL_SESSION_LIFETIME`` and
+#: ``OSPREY_TERMINAL_SESSION_STORE_DIR`` stay dropped.
+SANDBOX_CHILD_ENV_DROP_PREFIX_EXEMPT: frozenset[str] = frozenset({"OSPREY_TERMINAL_SESSION"})
+
 # ``OSPREY_AUDIT_IDENTITY`` is the one ``OSPREY_``-family name that must never
 # join either drop list above, however much it reads like a neighbour of the
 # terminal prefix, and must stay on the allowlist below. The child resolves its
@@ -179,6 +186,7 @@ SANDBOX_CHILD_ENV_ALLOW_NAMES: tuple[str, ...] = (
     "OSPREY_EXECUTION_MODE",
     "OSPREY_POSTURE_SOURCE",
     "OSPREY_POSTURE_SESSION",
+    "OSPREY_TERMINAL_SESSION",
     "OSPREY_CONTROL_TARGET",
     "OSPREY_CONTROL_TARGET_GENERATION",
     "OSPREY_CONTROL_TARGET_REFUSAL",
@@ -283,7 +291,10 @@ def drop_sandbox_denied_env(env: Mapping[str, str]) -> dict[str, str]:
     """
     scrubbed = scrub_sensitive_env(env)
     for name in tuple(scrubbed):
-        if name in SANDBOX_CHILD_ENV_DROP_NAMES or name.startswith(SANDBOX_CHILD_ENV_DROP_PREFIXES):
+        if name in SANDBOX_CHILD_ENV_DROP_NAMES or (
+            name.startswith(SANDBOX_CHILD_ENV_DROP_PREFIXES)
+            and name not in SANDBOX_CHILD_ENV_DROP_PREFIX_EXEMPT
+        ):
             scrubbed.pop(name, None)
     return scrubbed
 

@@ -53,8 +53,7 @@ services:
       # ARIEL_DB_PASSWORD when unset, and the agent's DSN — derived from this
       # `services.postgresql` block by `resolve_ariel_dsn` unless an explicit
       # `ariel.database.uri` overrides it — reads the SAME env var, so the
-      # container and the agent authenticate with one value. Mirrors
-      # openobserve's ZO_ROOT_USER_PASSWORD convention. The `services.postgresql`
+      # container and the agent authenticate with one value. The `services.postgresql`
       # block in config.yml carries no `password:` key — one set there would be
       # read by nothing and would silently lose to the minted variable. The `ariel` fallback
       # applies only before the first deploy or on a bare `docker compose up`.

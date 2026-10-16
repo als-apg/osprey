@@ -41,8 +41,8 @@ def _row(name: str, state: str, **labels: str) -> dict[str, Any]:
 
 
 HOST_ROWS: list[dict[str, Any]] = [
-    _row("other-openobserve", "running", **{PROJECT_LABEL: "other"}),
-    _row("mine-openobserve", "exited", **{PROJECT_LABEL: PROJECT}),
+    _row("other-graphdb", "running", **{PROJECT_LABEL: "other"}),
+    _row("mine-graphdb", "exited", **{PROJECT_LABEL: PROJECT}),
     _row(
         "mine-ariel-postgres",
         "running",
@@ -50,8 +50,8 @@ HOST_ROWS: list[dict[str, Any]] = [
     ),
     _row("mine-archiver-mongodb", "exited", **{PROJECT_LABEL: PROJECT}),
     _row("mine-archive", "running", **{PROJECT_LABEL: PROJECT}),
-    _row("stack-openobserve", "running", **{COMPOSE_PROJECT_LABEL: "stack"}),
-    _row("openobserve-scratch", "running"),
+    _row("stack-graphdb", "running", **{COMPOSE_PROJECT_LABEL: "stack"}),
+    _row("graphdb-scratch", "running"),
     {
         "Names": "mine-archiver-recorder",
         "State": "running",
@@ -73,7 +73,7 @@ def test_a_row_labelled_for_this_project_is_ours() -> None:
     owned = deployment_containers(HOST_ROWS, project_name=PROJECT, services=())
     bases = {container_names(c.row)[0]: c.basis for c in owned.ours}
     assert bases == {
-        "mine-openobserve": ClaimBasis.PROJECT,
+        "mine-graphdb": ClaimBasis.PROJECT,
         "mine-ariel-postgres": ClaimBasis.PROJECT,
         "mine-archiver-mongodb": ClaimBasis.PROJECT,
         "mine-archive": ClaimBasis.PROJECT,
@@ -82,9 +82,9 @@ def test_a_row_labelled_for_this_project_is_ours() -> None:
 
 
 def test_a_row_labelled_for_another_project_is_never_ours_even_by_name() -> None:
-    ours = _ours(HOST_ROWS, ("openobserve",))
-    assert "other-openobserve" not in ours
-    assert "stack-openobserve" not in ours
+    ours = _ours(HOST_ROWS, ("graphdb",))
+    assert "other-graphdb" not in ours
+    assert "stack-graphdb" not in ours
 
 
 def test_the_compose_project_label_counts_when_the_osprey_label_is_absent() -> None:
@@ -95,33 +95,31 @@ def test_the_compose_project_label_counts_when_the_osprey_label_is_absent() -> N
 
 
 def test_the_osprey_label_wins_over_the_compose_label() -> None:
-    row = _row(
-        "x-openobserve", "running", **{PROJECT_LABEL: "other", COMPOSE_PROJECT_LABEL: PROJECT}
-    )
+    row = _row("x-graphdb", "running", **{PROJECT_LABEL: "other", COMPOSE_PROJECT_LABEL: PROJECT})
     assert row_project(row) == "other"
-    owned = deployment_containers([row], project_name=PROJECT, services=("openobserve",))
+    owned = deployment_containers([row], project_name=PROJECT, services=("graphdb",))
     assert owned.ours == ()
     assert owned.other_projects == (row,)
 
 
 def test_an_unlabelled_row_is_ours_only_when_a_name_matches_a_service() -> None:
-    assert "openobserve-scratch" in _ours(HOST_ROWS, ("openobserve",))
-    assert "openobserve-scratch" not in _ours(HOST_ROWS, ("postgresql",))
-    owned = deployment_containers(HOST_ROWS, project_name=PROJECT, services=("openobserve",))
+    assert "graphdb-scratch" in _ours(HOST_ROWS, ("graphdb",))
+    assert "graphdb-scratch" not in _ours(HOST_ROWS, ("postgresql",))
+    owned = deployment_containers(HOST_ROWS, project_name=PROJECT, services=("graphdb",))
     by_name = [c for c in owned.ours if c.basis is ClaimBasis.NAME]
-    assert _names(c.row for c in by_name) == {"openobserve-scratch"}
+    assert _names(c.row for c in by_name) == {"graphdb-scratch"}
 
 
 def test_this_checkouts_repo_id_claims_a_row_whatever_its_project_label() -> None:
-    row = _row("elsewhere-openobserve", "running", **{PROJECT_LABEL: "other", REPO_ID_LABEL: "id1"})
+    row = _row("elsewhere-graphdb", "running", **{PROJECT_LABEL: "other", REPO_ID_LABEL: "id1"})
     owned = deployment_containers([row], project_name=PROJECT, services=(), identity="id1")
     assert [c.basis for c in owned.ours] == [ClaimBasis.CHECKOUT]
     assert owned.other_projects == ()
 
 
 def test_other_projects_lists_only_osprey_labelled_rows() -> None:
-    owned = deployment_containers(HOST_ROWS, project_name=PROJECT, services=("openobserve",))
-    assert _names(owned.other_projects) == {"other-openobserve"}
+    owned = deployment_containers(HOST_ROWS, project_name=PROJECT, services=("graphdb",))
+    assert _names(owned.other_projects) == {"other-graphdb"}
 
 
 def test_docker_string_labels_and_podman_object_labels_read_alike() -> None:
@@ -170,7 +168,7 @@ def test_for_service_reads_the_compose_service_label() -> None:
 def test_status_partition_claims_exactly_what_the_rule_claims() -> None:
     from osprey.deployment import status_display
 
-    services = ["openobserve", "postgresql", "archive"]
+    services = ["graphdb", "postgresql", "archive"]
     mine, unlabelled, foreign, by_name, others = status_display._partition_by_checkout(
         HOST_ROWS, "nobody-000000", PROJECT, services
     )

@@ -2,12 +2,13 @@
 
 Every OSPREY app that delegates its middleware + static-mount wiring to
 :func:`osprey.interfaces._app_setup.configure_interface_app` is built here —
-all ten: ``web_terminal``, ``artifacts``, ``ariel``, ``channel_finder``,
+all eleven: ``web_terminal``, ``artifacts``, ``ariel``, ``channel_finder``,
 ``lattice_dashboard``, ``health``, ``okf_panel``, ``bluesky_web`` (which
 assembles its app at module scope rather than via a ``create_app()`` factory),
 ``theme_lab`` (whose factory lives in ``osprey.cli.theme_lab_cmd``, not
-under ``osprey/interfaces/``) and ``trajectory`` (a service whose factory lives
-in ``osprey.services.trajectory.app``). This module builds each real app and asserts the
+under ``osprey/interfaces/``), ``trajectory`` (a service whose factory lives in
+``osprey.services.trajectory.app``) and ``history`` (``osprey.history.app``).
+This module builds each real app and asserts the
 shared invariants hold uniformly:
 
 1. The three static mounts (``/static/fonts``, ``/design-system``, ``/static``)
@@ -144,6 +145,14 @@ def _build_trajectory(_tmp_path: Path) -> FastAPI:
     return create_app()
 
 
+def _build_history(_tmp_path: Path) -> FastAPI:
+    # The history page lives in its own package, not under osprey/interfaces/;
+    # its store settings default from the environment and are not read here.
+    from osprey.history.app import create_app
+
+    return create_app()
+
+
 INTERFACE_BUILDERS = [
     ("web_terminal", _build_web_terminal),
     ("artifacts", _build_artifacts),
@@ -155,6 +164,7 @@ INTERFACE_BUILDERS = [
     ("bluesky_web", _build_bluesky_web),
     ("theme_lab", _build_theme_lab),
     ("trajectory", _build_trajectory),
+    ("history", _build_history),
 ]
 
 
@@ -234,13 +244,13 @@ _NOT_A_CALLER = {"_app_setup.py"}
 def _caller_name(path: Path) -> str:
     """The parametrization id for one file that calls ``configure_interface_app``.
 
-    ``src/osprey/interfaces/<name>/app.py`` is named for its interface package
-    and ``src/osprey/services/<name>/app.py`` for its service package;
+    An ``app.py`` is named for its package (``src/osprey/interfaces/<name>/``,
+    ``src/osprey/services/<name>/`` or ``src/osprey/history/``);
     anything else — the Theme Lab's factory in ``osprey/cli/theme_lab_cmd.py`` —
     is named for its module, with the CLI module suffix dropped, so the id reads
     the same as an interface's.
     """
-    if path.name == "app.py" and path.parent.parent.name in ("interfaces", "services"):
+    if path.name == "app.py":
         return path.parent.name
     return path.stem.removesuffix("_cmd")
 

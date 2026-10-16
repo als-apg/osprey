@@ -300,8 +300,8 @@ def test_a_tune_response_by_group_names_the_group_and_the_tune_readbacks(render:
         {"name": "BETATRON_TUNE", "plane": "x", "address": "SR:TUNE:X", "device": None},
         {"name": "BETATRON_TUNE", "plane": "y", "address": "SR:TUNE:Y", "device": None},
     ]
-    assert labelled["columns"] == [{"name": "SR_Q", "group": "SR/Q"}]
-    assert labelled["deltas"] == {"SR/Q": 1e-3}
+    assert labelled["columns"] == [{"name": "SR_Q", "groups": ["SR/Q"]}]
+    assert labelled["deltas"] == {"SR_Q": 1e-3}
 
 
 def test_a_tune_response_by_magnet_names_each_quadrupole_setpoint(render: Path):

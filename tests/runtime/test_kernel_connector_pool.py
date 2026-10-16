@@ -29,7 +29,7 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.types import baseline_target, configured_targets, resolve_target
 from tests._control_context_fixtures import state_dir_under
-from tests.connectors.ipc.test_pool import PYTHONPATH, SERVED, SLOW
+from tests.connectors.ipc.test_pool import CHILD_START_TIMEOUT_S, PYTHONPATH, SERVED, SLOW
 from tests.facility.served_tree import in_process_config, served_tree
 from tests.runtime.test_executor_target_stamp import stamp_env, write_record
 
@@ -188,9 +188,10 @@ class _FakePool:
 
     instances: list["_FakePool"] = []
 
-    def __init__(self, control_system, *, config_file=None) -> None:
+    def __init__(self, control_system, *, config_file=None, **options) -> None:
         self.section = dict(control_system)
         self.config_file = config_file
+        self.options = options
         self.asked: list[tuple[str, str | None]] = []
         self.handles: list[_FakeHandle] = []
         self.loops: list[asyncio.AbstractEventLoop] = []
@@ -312,6 +313,29 @@ class TestTheKernelPool:
         (pool,) = fake_pool
         assert pool.config_file == str(config)
         assert pool.section == SWITCHABLE
+
+    def test_the_pool_keeps_its_own_start_bound_when_the_runtime_names_none(
+        self, monkeypatch, fake_pool
+    ):
+        _serve(monkeypatch, SWITCHABLE)
+        runtime._route_connector_through_pool()
+
+        runtime.read_channel("SR:X")
+
+        (pool,) = fake_pool
+        assert pool.options == {}
+
+    def test_the_pool_takes_the_runtimes_start_bound_read_when_it_is_built(
+        self, monkeypatch, fake_pool
+    ):
+        _serve(monkeypatch, SWITCHABLE)
+        runtime._route_connector_through_pool()
+        monkeypatch.setattr(runtime, "_pool_start_timeout_s", 7.5)
+
+        runtime.read_channel("SR:X")
+
+        (pool,) = fake_pool
+        assert pool.options == {"start_timeout_s": 7.5}
 
     def test_a_generation_move_on_the_same_target_respawns(self, monkeypatch, fake_pool):
         _serve(monkeypatch, SWITCHABLE)
@@ -504,6 +528,11 @@ def pool_view(tmp_path_factory) -> Path:
 class TestRealChildren:
     """The kernel path against real ``osprey_connectors.ipc.host`` children."""
 
+    @pytest.fixture(autouse=True)
+    def child_start_guard(self, monkeypatch):
+        """Real children start under a loaded run's hang guard, not the product default."""
+        monkeypatch.setattr(runtime, "_pool_start_timeout_s", CHILD_START_TIMEOUT_S)
+
     def test_reads_share_a_child_and_a_generation_move_respawns_it(
         self, monkeypatch, tmp_path, pool_view
     ):
@@ -532,6 +561,7 @@ class TestRealChildren:
             second = inside_a_running_loop(lambda: runtime.read_channel("SR:A", timeout=10))
             assert first is not None and second is not None
             pool = runtime._connector_pool
+            assert pool._start_timeout_s == CHILD_START_TIMEOUT_S
             assert len(pool.pids()) == 1
             first_pid = runtime._runtime_connector.pid
 

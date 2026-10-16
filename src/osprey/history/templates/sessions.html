@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Sessions{% endblock %}
+{% block main %}
+{% if not_in_tables %}
+<p class="notice not-in-tables">Sessions are read from <code>{{ not_in_tables }}</code>, which is not in your tables.</p>
+{% else %}
+<p class="window">Sessions with a prompt between {{ window_from.strftime('%Y-%m-%d %H:%M') }} and {{ window_to.strftime('%Y-%m-%d %H:%M') }} UTC.</p>
+{% if groups %}
+<table class="sessions">
+  <thead><tr><th>User</th><th>Session</th><th>First prompt</th><th>Last prompt</th><th>Prompts</th></tr></thead>
+  <tbody>
+{% for group in groups %}
+{% set first = group.first %}
+    <tr class="transcript">
+      <td class="user">{{ group.user }}</td>
+      <td class="session">
+        <a href="{{ viewer.href('/session/' ~ first.SessionId, user=group.user) }}">{{ first.SessionId }}</a>
+{% for row in group.sessions if row.SessionId != first.SessionId %}
+        <div class="continued">continued as <a href="{{ viewer.href('/session/' ~ row.SessionId, user=group.user) }}">{{ row.SessionId }}</a></div>
+{% endfor %}
+      </td>
+      <td>{{ first.first_ts }}</td>
+      <td>{{ group.last_ts }}</td>
+      <td>{{ group.sessions | sum(attribute='prompts') }}</td>
+    </tr>
+{% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No sessions in this window.</p>
+{% endif %}
+<nav class="paging">
+{% if newer_href %}<a class="newer" href="{{ newer_href }}">newer</a>{% endif %}
+{% if next_href %}<a class="next" href="{{ next_href }}">more in this window</a>{% endif %}
+{% if older_href %}<a class="older" href="{{ older_href }}">older</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

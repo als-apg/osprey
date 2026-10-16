@@ -78,8 +78,11 @@ under a gated directory brings a fragment with it, ``## [Unreleased]`` is not
 written by hand, and fragments come out only in a shape that keeps their text.
 Two shapes keep it — the release rotation, which empties ``[Unreleased]`` into
 a new dated section, and the pre-tag top-up, which folds fragments that landed
-afterwards into a release section whose tag is not cut yet. ``gate_failures``
-states all three rules in full.
+afterwards into a release section whose tag is not cut yet. A fragment that
+a change in the same range supersedes — it describes a fix to something that
+change removes — may also go, when a commit message in the range names it in a
+``Retires-fragment: <file name>`` trailer, one trailer per fragment.
+``gate_failures`` states all three rules in full.
 
 Usage
 -----
@@ -101,7 +104,7 @@ import argparse
 import re
 import subprocess
 import sys
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
@@ -131,6 +134,8 @@ TYPE_HEADING_RE = re.compile(r"^### (Added|Changed|Deprecated|Removed|Fixed|Secu
 BULLET_RE = re.compile(r"^- ")
 SECTION_BULLET_RE = re.compile(r"^\s*[-*+] ")
 PLAIN_REF_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+RETIRES_TRAILER = "Retires-fragment"
+RETIRES_RE = re.compile(rf"^{RETIRES_TRAILER}:[ \t]*(?P<name>\S+)[ \t]*$", re.MULTILINE)
 
 #: One git invocation: argv in, a finished process out. ``main`` takes one so
 #: the tests can answer git from a table instead of building a repository.
@@ -573,6 +578,17 @@ def _retyped_fragments(added: Iterable[str], deleted: Iterable[str]) -> dict[str
     }
 
 
+def retired_fragments(messages: str) -> set[str]:
+    """Fragment file names named by a ``Retires-fragment:`` trailer in *messages*.
+
+    *messages* is the concatenated commit messages of the checked range. Each
+    trailer names exactly one file by its name inside ``changelog.d/``
+    (``745.fixed.md``), and the line must hold nothing else, so a sentence that
+    merely mentions the trailer retires nothing.
+    """
+    return {match.group("name") for match in RETIRES_RE.finditer(messages)}
+
+
 def _listed(paths: Sequence[str], limit: int = 5) -> list[str]:
     """*paths* as detail lines, truncated to *limit* with a count of the rest.
 
@@ -722,6 +738,7 @@ def gate_failures(
     head_text: str,
     base_text: str,
     tagged: TagProbe | None = None,
+    retired: Collection[str] = (),
 ) -> tuple[list[str], list[str]]:
     """Apply the three pull-request rules to one diff.
 
@@ -729,7 +746,8 @@ def gate_failures(
     ``git diff --name-status`` between the merge base and HEAD; *head_text* and
     *base_text* are the two versions of ``CHANGELOG.md``. *tagged* answers the
     one question rule 3's top-up shape asks outside the diff; without it that
-    shape is never recognized. Nothing here touches the filesystem or git, so
+    shape is never recognized. *retired* holds the fragment file names the
+    range's commit messages retire (``retired_fragments``). Nothing here touches the filesystem or git, so
     the caller decides where the diff came from.
 
     The rules:
@@ -748,7 +766,9 @@ def gate_failures(
        ``_pre_tag_topup`` recognizes. A fragment whose type changed is renamed,
        not deleted: the same ``<name>`` reappears under the new type, and that
        pair is reported as a retype. A retype adds no entry, so it does not
-       satisfy rule 1 either.
+       satisfy rule 1 either. A deleted fragment named in *retired* is
+       accepted: a commit in the range has declared that it supersedes it. A
+       name in *retired* whose fragment was not deleted changes nothing.
 
     The rotation is a *transition*, not a state: an empty ``[Unreleased]`` is
     what every pull request sees once fragments are carrying the changelog, so
@@ -841,6 +861,14 @@ def gate_failures(
             + ", ".join(f"{old} → {new.rsplit('/', 1)[-1]}" for old, new in sorted(retyped.items()))
         )
     gone = [path for path in _fragment_dir_paths(deleted) if path not in retyped]
+    prefix = f"{FRAGMENT_DIR}/"
+    released = [path for path in gone if path[len(prefix) :] in retired]
+    if released and not rotation:
+        ok_lines.append(
+            f"✓ {len(released)} fragment(s) retired by a {RETIRES_TRAILER} trailer: "
+            + ", ".join(released)
+        )
+        gone = [path for path in gone if path not in released]
     if gone and not rotation:
         topup, note = _pre_tag_topup(changed, gone, retyped, head_lines, base_lines, tagged)
         if topup is not None:
@@ -855,6 +883,8 @@ def gate_failures(
                         "restore them; they are folded in and deleted when a release is cut",
                         "the one other way out is a CHANGELOG-only PR that folds them into a "
                         "release section whose tag is not cut yet",
+                        f"a commit that supersedes a fragment retires it with one trailer per "
+                        f"file in its message: {RETIRES_TRAILER}: <file name>",
                         *([note] if note else []),
                     ]
                 )
@@ -959,7 +989,8 @@ def parse_name_status(stdout: str) -> list[tuple[str, str]]:
 def _check(directory: Path, changelog: Path, base: str, run: Runner) -> int:
     """Run the gate against the diff between *base*'s merge base and HEAD.
 
-    Git answers the diff, the base changelog, and — through ``tag_probe`` —
+    Git answers the diff, the range's commit messages (for the
+    ``Retires-fragment`` trailers), the base changelog, and — through ``tag_probe`` —
     whether the newest release section already carries a tag, which is what the
     pre-tag top-up shape turns on.
     """
@@ -1009,6 +1040,11 @@ def _check(directory: Path, changelog: Path, base: str, run: Runner) -> int:
     added = [path for status, path in pairs if status.startswith("A")]
     deleted = [path for status, path in pairs if status.startswith("D")]
 
+    log_argv = ["git", "log", "--format=%B", f"{point}..HEAD"]
+    log = run(log_argv)
+    if log.returncode != 0:
+        return environment_error(f"{' '.join(log_argv)} failed\n{log.stderr.strip()}")
+
     show_argv = ["git", "show", f"{point}:CHANGELOG.md"]
     show = run(show_argv)
     if show.returncode != 0:
@@ -1020,7 +1056,13 @@ def _check(directory: Path, changelog: Path, base: str, run: Runner) -> int:
         return environment_error(f"cannot read {changelog}\n{exc}")
 
     failures, ok_lines = gate_failures(
-        changed, added, deleted, head_text, show.stdout, tag_probe(run)
+        changed,
+        added,
+        deleted,
+        head_text,
+        show.stdout,
+        tag_probe(run),
+        retired_fragments(log.stdout),
     )
     for line in ok_lines:
         print(line)

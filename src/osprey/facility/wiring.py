@@ -23,6 +23,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
+from osprey.facility import DEFAULT_ROLE
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.provenance import add_defaults
 from osprey.facility.validate import Validated, need, stating_files
@@ -218,4 +219,4 @@ def _fill_record(
 
 
 def _role(channel: Mapping[str, Any]) -> str:
-    return str(channel.get("role", "readback"))
+    return str(channel.get("role", DEFAULT_ROLE))

@@ -329,7 +329,6 @@ def test_undeployed_service_vars_are_still_not_minted(_clean_token_env, monkeypa
     env = _parse_env(tmp_path)
     assert "EVENT_DISPATCHER_TOKEN" not in env
     assert "DISPATCH_WORKER_TOKEN" not in env
-    assert "ZO_ROOT_USER_PASSWORD" not in env
     assert "ARIEL_DB_PASSWORD" not in env
 
 

@@ -69,7 +69,7 @@ def test_postgresql_deploy_mints_ariel_db_password(_clean_token_env, tmp_path):
     # token_hex(32) → 64 hex chars, 256 bits of entropy.
     assert len(env["ARIEL_DB_PASSWORD"]) == 64
     # A postgres-only deploy must not mint unrelated service tokens.
-    assert "ZO_ROOT_USER_PASSWORD" not in env
+    assert "MONGO_ROOT_PASSWORD" not in env
     assert "BLUESKY_LAUNCH_TOKEN" not in env
 
 

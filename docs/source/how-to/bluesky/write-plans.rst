@@ -157,6 +157,13 @@ the run's data.
 The build rewrites the file every time, so it is not a file to edit: to change
 the device set, change the channels under ``data/facility/`` and build again.
 
+A plan the agent writes during a session names channels from this same set.
+``list_devices`` reads it, and the pre-enqueue check refuses a plan that names
+a device the file does not declare — validation builds a mock for whatever the
+sample arguments name, so it says nothing about what the worker has. The
+channel finder answers for the whole facility; this file answers for the queue
+worker, and a plan's channels come from here.
+
 When a plan drives a settable, the write is followed by a poll of the readback
 until it reaches the demand. Two profile keys bound that wait:
 ``bluesky.settle_timeout_s`` (default 5.0 seconds) is how long the poll runs
@@ -310,6 +317,11 @@ Two consequences you will notice:
   of one of Bluesky's own scans inherits the run and its point count from that
   scan, so it states neither itself — but it still marks its own parameters,
   because those markings are what everything else reads.
+- **A plan records what it moves.** Every reading is taken at some setting of
+  the channel being moved, and only means something next to it. The validator
+  watches the rehearsal, and refuses a plan that moves a channel without ever
+  recording it alongside its readings — such a run would finish with no record
+  of what each reading was taken at.
 
 Give a plan its own view
 ========================

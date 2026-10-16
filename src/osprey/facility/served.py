@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from osprey.facility import TEXTURE
+from osprey.facility import DEFAULT_ROLE, TEXTURE
 from osprey.facility.errors import FacilityBuildError, quoted_slots
 from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
 
@@ -39,9 +39,6 @@ SERVED_PROBE_KEYS: tuple[str, ...] = tuple(
     f"control_system.connector.{block}.probe_channel"
     for block in (VIRTUAL_ACCELERATOR, LIVE_STANDIN)
 )
-
-#: The role a channel record that states none has.
-_DEFAULT_ROLE = "readback"
 
 
 def _invalid(detail: str, remedy: str, key: str = SIMULATION_MODELS_KEY) -> FacilityBuildError:
@@ -121,7 +118,7 @@ def check_served_probes(rendered_config: Mapping[str, Any], facility: Mapping[st
         readbacks = sorted(
             candidate
             for candidate, channel in channels.items()
-            if channel.get("role", _DEFAULT_ROLE) == _DEFAULT_ROLE
+            if channel.get("role", DEFAULT_ROLE) == "readback"
         )
         remedy = (
             f"set `{key}` to a readback the facility file holds, such as `{readbacks[0]}`"

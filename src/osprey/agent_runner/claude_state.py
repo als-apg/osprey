@@ -47,6 +47,7 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 
+from osprey.agent_runner.launcher import pinned_cli_version, project_claude_code_config
 from osprey.utils.logger import get_logger
 
 logger = get_logger("agent_runner.claude_state")
@@ -72,7 +73,7 @@ _API_KEY_DIGEST_CHARS = 20
 #: Claude Code's stderr notice that it left the project's ``permissions.allow``
 #: rules off because the state file does not mark the working directory
 #: trusted. Observed in the pinned CLI, not documented;
-#: ``tests/agent_runner/test_claude_state.py`` runs the bundled CLI to prove it
+#: ``tests/agent_runner/test_claude_state.py`` runs the pinned CLI to prove it
 #: still matches. Only ``settings.json`` is named because the agent launches
 #: load the project layer alone, so ``settings.local.json`` never reaches it.
 _UNTRUSTED_ALLOW_RULES_NOTICE = re.compile(
@@ -212,17 +213,10 @@ def _load_state(target: Path) -> tuple[dict, bool]:
 
 def _pinned_cli_version(render_dir: Path) -> str | None:
     """The render's ``claude_code.cli_version`` pin, if it states one."""
-    config_path = render_dir / "config.yml"
-    if not config_path.is_file():
-        return None
     try:
-        import yaml
-
-        config = yaml.safe_load(config_path.read_text()) or {}
-        version = (config.get("claude_code") or {}).get("cli_version")
-        return version.strip() if isinstance(version, str) and version.strip() else None
+        return pinned_cli_version(project_claude_code_config(render_dir))
     except Exception as exc:  # a version is nice-to-have, never blocking
-        logger.warning("Could not read cli_version from %s (%r)", config_path, exc)
+        logger.warning("Could not read cli_version from %s (%r)", render_dir / "config.yml", exc)
         return None
 
 

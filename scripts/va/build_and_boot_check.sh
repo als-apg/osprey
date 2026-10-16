@@ -96,6 +96,11 @@
 # DATA_ROOT is a render's data root, `<project>/build/data`, holding the
 # simulator view under `simulator/`.
 #
+# Building needs BuildKit when the runtime is docker: the gate checks for it
+# before staging anything and names how to enable it.
+# The build asks for linux/amd64 on the command line as well as in the
+# Containerfile, so every builder is asked for the same architecture.
+#
 # Environment:
 #   OSPREY_VA_CA_PORT   Channel Access port to bind and publish. Defaults to
 #                       5164, deliberately NOT the 5064 the compose template
@@ -230,6 +235,40 @@ if [[ -z "${RUNTIME}" ]]; then
 fi
 echo "Using container runtime: ${RUNTIME}"
 
+# The Containerfile's `FROM --platform=linux/amd64` is honoured by BuildKit
+# only. Docker's legacy builder ignores it, pulls the host's own architecture
+# and stops at the Containerfile's architecture guard, so a docker without
+# BuildKit stops here instead, before anything is staged. Podman's builder
+# honours the flag and needs no check. A docker whose `--version` answers
+# `podman version`, or prints podman's emulation notice, is podman: an
+# auto-detected one passes, and a runtime pinned to docker on such a host
+# stops naming the setting to change.
+if [[ "$(basename "${RUNTIME}")" == "docker" ]]; then
+    RUNTIME_VERSION="$("${RUNTIME}" --version 2>&1 || true)"
+    if grep -qiE '^podman version|emulate docker cli using podman' <<<"${RUNTIME_VERSION}"; then
+        if [[ -n "${OSPREY_VA_RUNTIME:-}" ]]; then
+            echo "FATAL: OSPREY_VA_RUNTIME=${OSPREY_VA_RUNTIME} runs podman's docker emulation; set OSPREY_VA_RUNTIME=podman and re-run." >&2
+            exit 1
+        fi
+    else
+        if [[ "${DOCKER_BUILDKIT:-}" == "0" || "${DOCKER_BUILDKIT:-}" == "false" ]]; then
+            echo "FATAL: DOCKER_BUILDKIT=${DOCKER_BUILDKIT} selects docker's legacy builder, which cannot build this image." >&2
+            echo "       Unset DOCKER_BUILDKIT and re-run." >&2
+            exit 1
+        fi
+        if [[ -z "${DOCKER_BUILDKIT:-}" ]] && ! "${RUNTIME}" buildx version >/dev/null 2>&1; then
+            echo "FATAL: docker has no BuildKit (\`docker buildx version\` failed), and this image needs it." >&2
+            echo "       The Containerfile's FROM --platform=linux/amd64 is honoured by BuildKit only;" >&2
+            echo "       the legacy builder pulls the host's own architecture and stops at the" >&2
+            echo "       Containerfile's architecture guard." >&2
+            echo "       Enable it with one of:" >&2
+            echo "         - install the docker buildx plugin, so \`docker buildx version\` succeeds;" >&2
+            echo "         - export DOCKER_BUILDKIT=1, when this docker CLI drives the engine's built-in BuildKit." >&2
+            exit 1
+        fi
+    fi
+fi
+
 VENV_PY="${WORKTREE_ROOT}/.venv/bin/python"
 
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-full-build.XXXXXX")"
@@ -266,6 +305,7 @@ OSPREY_VERSION="$("${VENV_PY}" -c 'import osprey; print(osprey.__version__)')"
 
 echo "--- Building ${IMAGE} (linux/amd64) ---"
 "${RUNTIME}" build \
+    --platform linux/amd64 \
     --build-arg "OSPREY_VERSION=${OSPREY_VERSION}" \
     -t "${IMAGE}" -f "${STAGING_DIR}/docker/virtual-accelerator/Containerfile" "${STAGING_DIR}"
 

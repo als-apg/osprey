@@ -133,12 +133,12 @@ def _patch_poll_neighbours(
     """Fake the resync pre-step and the catch-up around the poll."""
     enhance_calls: list[dict[str, Any]] = []
 
-    async def _resync(config_dict: dict, progress: Any = None):  # noqa: ARG001 - the resync_qmd_mirror_best_effort signature
+    async def _resync(config_dict: dict, progress: Any = None, *, config: Any = None):  # noqa: ARG001 - the resync_qmd_mirror_best_effort signature
         if order is not None:
             order.append("resync")
         return None
 
-    async def _enhance(config_dict: dict, *, budget_s, stop_event, progress=None):  # noqa: ARG001 - the run_catchup signature
+    async def _enhance(config_dict: dict, *, budget_s, stop_event, progress=None, config=None):  # noqa: ARG001 - the run_catchup signature
         if order is not None:
             order.append("enhance")
         enhance_calls.append({"budget_s": budget_s, "stop_event": stop_event})
@@ -383,6 +383,58 @@ class TestPerPollWrapper:
         assert schedulers[0].inner_polls == 1
         assert [r.entries_added for r in schedulers[0].results] == [2]
         assert "embedding endpoint down" in caplog.text
+
+    async def test_watch_hands_one_config_snapshot_to_every_poll(
+        self, monkeypatch, unit_vocabulary_file
+    ):
+        """A vocabulary edit mid-daemon never reaches a pass: every resync and
+        catch-up gets the very ``ARIELConfig`` the watch parsed at start-up."""
+        parsed: list[Any] = []
+        real_parse = ops._ariel_config
+
+        def _spy_parse(config_dict: dict):
+            config = real_parse(config_dict)
+            parsed.append(config)
+            return config
+
+        seen: list[tuple[str, Any]] = []
+
+        async def _resync(config_dict: dict, progress: Any = None, *, config: Any = None):  # noqa: ARG001 - the resync_qmd_mirror_best_effort signature
+            seen.append(("resync", config))
+
+        async def _catchup(config_dict: dict, *, budget_s, stop_event, progress=None, config=None):  # noqa: ARG001 - the run_catchup signature
+            seen.append(("catchup", config))
+            return ops.EnhanceResult(entries_processed=0, module_names=[])
+
+        async def _rewrite_vocabulary(_repository: Any) -> None:
+            unit_vocabulary_file.write_text(
+                "concepts:\n  - canonical: beam position monitor\n"
+                "    kind: acronym\n    forms: [bpm]\n",
+                encoding="utf-8",
+            )
+
+        monkeypatch.setattr(ops, "_ariel_config", _spy_parse)
+        monkeypatch.setattr(ops, "resync_qmd_mirror_best_effort", _resync)
+        monkeypatch.setattr(ops, "run_catchup", _catchup)
+        schedulers = _patch_scheduler(monkeypatch, polls=2, on_poll=_rewrite_vocabulary)
+        _patch_service(monkeypatch, _StubService(_Repo()))
+
+        config_dict = _config()
+        config_dict["vocabulary"] = {
+            "enabled": True,
+            "path": str(unit_vocabulary_file),
+            "expand_entries": True,
+        }
+        await ops.run_watch(
+            config_dict, None, None, False, None, False, install_signal_handlers=False
+        )
+
+        assert schedulers[0].inner_polls == 2
+        # ``parsed[0]`` is run_watch's own start-up parse; any later parse
+        # (the catch-up budget reads only the poll interval) must not reach a pass.
+        assert parsed
+        assert [kind for kind, _ in seen] == ["resync", "catchup", "resync", "catchup"]
+        assert all(config is parsed[0] for _, config in seen)
 
 
 # ---------------------------------------------------------------------------

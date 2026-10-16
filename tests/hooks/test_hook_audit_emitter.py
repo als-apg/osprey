@@ -443,12 +443,51 @@ class TestPostureProvenance:
     def test_no_posture_key_records_a_null_session(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
+        monkeypatch.delenv("OSPREY_TERMINAL_SESSION", raising=False)
         path = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
         record = records(path)[0]
         assert record["session"] is None
         assert "session" in record
+
+    @pytest.mark.parametrize(
+        "terminal_session",
+        ["chat-0f8e5b9c-3a1d-4b6e-9c2f-7d5a1e3b8c40", "dispatch-run-7"],
+        ids=["host-chat", "dispatch"],
+    )
+    def test_without_a_posture_key_the_session_is_the_terminal_session(
+        self, emitter, repo, monkeypatch, terminal_session
+    ):
+        """A host chat and a dispatch job carry no posture session; their hook
+        records file under the terminal session, the value their OTLP resource
+        carries as ``terminal.session``."""
+        from osprey.build.claude_code_telemetry import terminal_session_env
+
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+        monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
+        launch = terminal_session_env(
+            terminal_session, {"OTEL_RESOURCE_ATTRIBUTES": "terminal.session="}
+        )
+        for name, value in launch.items():
+            monkeypatch.setenv(name, value)
+        path = emitter.emit_audit(
+            "limits", {}, decision="refused", subject="tool", reason="limits_violation"
+        )
+        assert records(path)[0]["session"] == terminal_session
+        assert launch["OTEL_RESOURCE_ATTRIBUTES"] == f"terminal.session={terminal_session}"
+
+    def test_the_posture_key_wins_over_the_terminal_session(self, emitter, repo, monkeypatch):
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+        monkeypatch.setenv("OSPREY_POSTURE_SESSION", "chat-42")
+        monkeypatch.setenv("OSPREY_TERMINAL_SESSION", "chat-42")
+        path = emitter.emit_audit(
+            "limits", {}, decision="refused", subject="tool", reason="limits_violation"
+        )
+        assert records(path)[0]["session"] == "chat-42"
+
+    def test_the_terminal_session_spelling_is_the_envelopes(self, emitter):
+        assert emitter.TERMINAL_SESSION_ENV == osprey_envelope.TERMINAL_SESSION_ENV
 
 
 # --------------------------------------------------------------------------

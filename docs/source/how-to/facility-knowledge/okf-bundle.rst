@@ -317,9 +317,9 @@ Working with a Bundle
       Each stub carries a ``device_id`` key in its frontmatter: the facility
       file's device id. Under ``data/facility/knowledge``, that key links the
       page to a facility device:
-      ``osprey build`` warns, once per page, when the value is no device id in
-      ``facility.json``, and goes on building. A page without the key is not
-      linked and never warns.
+      ``osprey build`` and ``osprey facility validate`` warn, once per page,
+      when the value is no device id in ``facility.json``, and go on building.
+      A page without the key is not linked and never warns.
 
 
 Searching the Bundle

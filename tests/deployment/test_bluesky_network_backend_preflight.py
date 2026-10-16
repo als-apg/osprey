@@ -82,7 +82,7 @@ def test_skips_when_bluesky_is_not_deployed(monkeypatch):
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", unexpected)
 
-    _preflight_bluesky_network_backend(_config("jupyter", "openobserve"))
+    _preflight_bluesky_network_backend(_config("jupyter", "postgresql"))
     _preflight_bluesky_network_backend({})
 
 

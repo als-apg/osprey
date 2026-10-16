@@ -190,7 +190,7 @@ CELL_TIMEOUT_SEC = 240.0
 CONTROL_TARGET_TIMEOUT_SEC = 240.0
 SWITCH_TIMEOUT_SEC = 120.0
 
-_ENV_APPEND = "ANTHROPIC_API_KEY=fake-llm-key-value\nZO_INGEST_SA_TOKEN=fake-telemetry-token\n"
+_ENV_APPEND = "ANTHROPIC_API_KEY=fake-llm-key-value\n"
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 

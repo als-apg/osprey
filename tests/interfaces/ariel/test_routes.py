@@ -1020,6 +1020,17 @@ def test_capabilities_names_the_facility_zone(client):
     assert response.json()["facility_timezone"] == "Asia/Tokyo"
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+def test_capabilities_reports_the_embedded_search_switch(client, mock_ariel_service, enabled):
+    """The embedded panel offers Search only where ``ariel.embedded_search`` is on."""
+    mock_ariel_service.config.embedded_search = enabled
+
+    response = client.get("/api/capabilities")
+
+    assert response.status_code == 200
+    assert response.json()["embedded_search"] is enabled
+
+
 def _attachments_config(*, image_embedding=True, hybrid=True, view=None) -> ARIELConfig:
     """An ARIEL config for one attachments-capability scenario."""
     section: dict = {

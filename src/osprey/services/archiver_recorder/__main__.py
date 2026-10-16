@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 
 #: Same convention as the dispatch worker and the bluesky bridge: the working
 #: directory inside the image is not the project, so the config is named
-#: explicitly and mounted. The repo is mounted at /app/project and the as-built
-#: config the deploy runs on is its render, under build/.
+#: explicitly and mounted. The render is mounted at /app/project/build, and the
+#: as-built config the deploy runs on is the config.yml at its root.
 DEFAULT_CONFIG_FILE = "/app/project/build/config.yml"
 
 

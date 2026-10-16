@@ -708,9 +708,11 @@ families:
       Phase:
         description: Station phase, calculated (Degrees).
         provenance: stated
+        signal: phase_readback
       PhaseCtrl:
         description: Station phase control (Degrees).
         provenance: stated
+        signal: phase_setpoint
       Power:
         description: Klystron drive forward power readback (MWatts).
         provenance: stated

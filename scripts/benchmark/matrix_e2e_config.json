@@ -43,6 +43,10 @@
       "reason": "Pure-logic unit tests for sdk_helpers: the transcript dump, the hook read-back and the approval-policy binder (no LLM, model-independent). Excluded so it doesn't inflate the per-model total/pass counts the dashboard expects."
     },
     {
+      "path": "tests/e2e/test_scripted_model.py",
+      "reason": "HTTP-level unit tests for the scripted model endpoint (no agent, no LLM, model-independent). Excluded so it doesn't inflate the per-model total/pass counts the dashboard expects."
+    },
+    {
       "path": "tests/e2e/test_judge.py",
       "reason": "Pure-logic unit tests for the judge's own retry rule, with the provider call scripted (no LLM, model-independent). Excluded so it doesn't inflate the per-model total/pass counts the dashboard expects."
     },
@@ -131,12 +135,20 @@
       "reason": "Runs against a pinned, PRIVATE ghcr Nextcloud + Talk fixture image; the module never builds or pulls it and skips outright when it is absent from the local store, so on the bench box this file contributes nothing but skips. Its substance is the two-party wire contract with a real Talk server (room-type rules, mention filter, poll cursor, restart recovery), asserted through the dispatch engine's persisted run_id rather than through anything the model says — an adapter-integrity proof, not a model-capability signal."
     },
     {
-      "path": "tests/e2e/test_openobserve_telemetry.py",
-      "reason": "Docker deploy + synthetic OTLP ingest with no LLM; the one live-agent smoke hardcodes als-apg/haiku in config and never routes through the model-under-test."
-    },
-    {
       "path": "tests/e2e/test_orm_roundtrip.py",
       "reason": "Non-agentic ORM round-trip: the test constructs the orm plan request over HTTP and cross-checks the response matrix against the lattice model oracle — no LLM call anywhere."
+    },
+    {
+      "path": "tests/e2e/test_telemetry_access_e2e.py",
+      "reason": "Model-free: telemetry store accounts, row policies and limits proved with synthetic rows over SQL — no LLM call anywhere."
+    },
+    {
+      "path": "tests/e2e/test_telemetry_contract_live.py",
+      "reason": "Wire-contract check: one fixed turn of the pinned CLI compared structurally with the recorded OTLP fixture (event names and attribute keys); what the model says is never judged, so it measures nothing about the model-under-test."
+    },
+    {
+      "path": "tests/e2e/test_telemetry_store_e2e.py",
+      "reason": "Model-free: telemetry gateway and store deploy with synthetic ledger lines and OTLP — no LLM call anywhere."
     },
     {
       "path": "tests/e2e/test_tiled_roundtrip.py",

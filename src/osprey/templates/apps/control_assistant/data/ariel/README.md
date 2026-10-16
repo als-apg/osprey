@@ -8,11 +8,17 @@ beam position monitor offset" — stemming clips endings, it does not know that
 `vocabulary.yml` is where you tell ARIEL that they are. Before a search runs,
 the query is rewritten using the concepts in that file, so the shorthand
 spelling reaches the prose spelling. It is plain dictionary matching — no
-model, no network call, microseconds — and every rewrite is reported back to
-the operator and to the OSPREY agent, so a hit that looks surprising always
-arrives with the reason it appeared.
+model, no network call, microseconds — and every rewrite of the query is
+reported back to the operator and to the OSPREY agent. With
+`ariel.vocabulary.expand_entries` on, the same matcher also inserts the terms
+into the entry text before it is embedded; those insertions are not reported
+per search, so a semantic or hybrid hit can come from a term added to the
+entry.
 
-Expansion applies to all three search modes: keyword, semantic and hybrid.
+Query expansion always applies to keyword search. Semantic and hybrid search
+expand the query only once the entries are expanded too (`expand_entries`):
+expanding the query alone makes them worse than not expanding at all. Entry
+expansion applies to semantic and hybrid only.
 
 The file shipped here is an **example**, not your vocabulary. Its twenty
 concepts are the ones most storage-ring facilities share, so it is useful on
@@ -65,9 +71,13 @@ The file and the query go through the same rule before anything is compared:
 - `/` is **kept**, so shorthand like `t/s` and `i/o` stays a single token
 - runs of whitespace collapse to one
 
-Nothing else is stripped, and no stemming happens here — PostgreSQL's stemmer
-runs afterwards, on the text this produces. Multi-word forms are matched as
-phrases, longest first.
+The punctuation `, . : ; ! ? ( ) [ ] " '` is stripped from the edges of each
+token, so `BPM,` and `(BPM)` match `bpm`. Punctuation inside a multi-word form
+is part of it: `vert. orbit` matches `vert. orbit`, not `vert orbit`.
+`osprey ariel vocab-check` warns about both cases. No stemming happens here —
+PostgreSQL's stemmer runs afterwards. Multi-word forms are matched as phrases,
+longest first. Entry text, when `expand_entries` is on, goes through the same
+rule.
 
 ## The three kinds and the two direction gates
 
@@ -81,6 +91,11 @@ two switches in `config.yml`:
 | `ariel.vocabulary.canonical_to_acronym` | `kind: acronym` concepts | `true` |
 | `ariel.vocabulary.canonical_to_shorthand` | `kind: shorthand` concepts | `false` |
 | *(none — always on)* | `kind: synonym` concepts | — |
+| `ariel.vocabulary.expand_entries` | entry text, before embedding and in the qmd mirror | `false` |
+
+Turning `expand_entries` on needs a rebuilt image, a sync restart and
+`osprey ariel reembed --model <m> --dimension <d> --force`; `osprey ariel
+status` prints the exact command.
 
 The two defaults are deliberately asymmetric. An acronym means one thing, so a
 search for "beam position monitor" should also reach the entries that wrote
@@ -174,3 +189,8 @@ exactly the words you typed, with no expansions reported. It is the switch to
 reach for when you want to see what a query finds on its own — and the OSPREY
 agent can use it the same way when a rewrite looks like it widened a search too
 far.
+
+`expand_query` acts on the query only. Entries embedded with `expand_entries`
+on keep their inserted terms, so semantic and hybrid search can still match
+through them. Turning entry expansion off means `expand_entries: false` and
+`osprey ariel reembed --model <m> --dimension <d> --force`.

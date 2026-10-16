@@ -18,7 +18,7 @@ describes ``none``; its render is pinned by ``test_nginx_auth_surface.py``.
 
 So: a facility whose ``modules.web_terminals`` declares ``auth.method: token``
 (or no ``auth:`` block at all) and no ``authorization:`` block must render
-byte-for-byte what it rendered before this feature, with exactly nine
+byte-for-byte what it rendered before this feature, with exactly ten
 exceptions:
 
   1. **the audit emitters and mounts** — ``OSPREY_AUDIT_IDENTITY``,
@@ -89,6 +89,14 @@ exceptions:
      the default persona every roster states. It names the image's project
      tier, carries no account, role or claim, and renders the same under
      every method.
+  10. **the terminal-starting page** — ``error_page 502`` in every proxying
+      location, sending nginx's OWN 502 (nothing listening behind the terminal
+      yet) to one named location that answers with a self-reloading 503 page.
+      A terminal's app listens tens of seconds after its container starts, and
+      a browser left open across a restart meets that gap as a bare 502 that
+      reads as a broken deployment. It renders the same under every method,
+      reaches no status the app itself returns (``proxy_intercept_errors`` stays
+      off), and carries no account, role or claim.
 
 Everything else — every volume, header, ``location`` block, comment and blank
 line, and every port *site* (see the mask below) — must be untouched, with one
@@ -491,6 +499,17 @@ _REPLACED_COMPOSE_LINES = frozenset(
     }
 )
 
+#: The retired telemetry store's two carrier lines. The store is gone, and a
+#: terminal now reaches the telemetry gateway through its own login file and,
+#: only where the gateway is deployed, the gateway address — so these two lines
+#: are deleted from the `token` render, not replaced. Nothing else may go.
+_RETIRED_COMPOSE_LINES = frozenset(
+    {
+        "      - OSPREY_OTEL_OPENOBSERVE_HOST=127.0.0.1",
+        "      - ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}",
+    }
+)
+
 #: The per-user healthcheck comment as the pre-feature render worded it, when
 #: `osprey web`'s bare default was the fixed constant 8087. The port-block
 #: layout rewords it (the default is now the `web` slot at the deployment's
@@ -526,6 +545,19 @@ _REWORDED_NGINX_LINES = frozenset(
 #: may be replaced in the `token` render.
 _REPLACED_NGINX_LINES = frozenset({"    server_name _;"})
 
+#: The terminal-starting page's one response line, as the template spells it.
+_STARTING_PAGE_RETURN = (
+    '        return 503 \'<!doctype html><html lang="en"><head><meta charset="utf-8">'
+    '<meta name="viewport" content="width=device-width, initial-scale=1">'
+    '<meta http-equiv="refresh" content="5"><title>Terminal starting</title>'
+    "<style>:root{color-scheme:light dark}body{margin:0;min-height:100vh;display:grid;"
+    "place-items:center;font:16px/1.5 system-ui,sans-serif;background:Canvas;"
+    "color:CanvasText}main{max-width:32rem;padding:1rem 1.5rem}p{opacity:.75}</style>"
+    "</head><body><main><h1>This terminal is not answering yet</h1><p>It is most likely "
+    "still starting, which takes up to a minute after a deploy or restart. This page "
+    "reloads itself every 5 seconds.</p></main></body></html>';"
+)
+
 #: Task 4.7 (nginx-identity-headers), ungated arm. Four clears per `/u/<user>/`
 #: location, and NOTHING else: no `auth_request_set`, no forward, no `/auth/`
 #: location — those render only with authentication on.
@@ -550,6 +582,18 @@ _ALLOWED_NGINX_LINES = Counter(
         "    access_log /dev/stdout osprey_sanitized;": 1,
         "    return 301 http://dls-deploy.dls.example.org:<port>$request_uri;": 1,
         "}": 1,
+        # The terminal-starting page — the TENTH exception to SC6. Each of
+        # the two proxying locations sends nginx's own 502 to one named
+        # location, which answers with a self-reloading 503. difflib pairs the
+        # named location's closing brace with the baseline's, so it counts as
+        # an indented `}` here.
+        "        error_page 502 = @osprey_terminal_starting;": 2,
+        "    location @osprey_terminal_starting {": 1,
+        "        default_type text/html;": 1,
+        "        add_header Retry-After 5 always;": 1,
+        '        add_header Cache-Control "no-store" always;': 1,
+        _STARTING_PAGE_RETURN: 1,
+        "    }": 1,
     }
 )
 
@@ -725,6 +769,10 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
         assert line in compose, (
             f"the frozen baseline lacks the pre-layout comment it is said to carry: {line!r}"
         )
+    for line in _RETIRED_COMPOSE_LINES:
+        assert line in compose, (
+            f"the frozen baseline lacks the retired store line it is said to carry: {line!r}"
+        )
 
     nginx = (_BASELINE_DIR / "nginx.conf").read_text()
     for line in _REPLACED_NGINX_LINES:
@@ -869,7 +917,7 @@ def test_no_pre_feature_line_is_removed_or_reworded() -> None:
     for name in _ARTIFACTS:
         old, new, opcodes = _opcodes(name)
         replaceable = (
-            _REPLACED_COMPOSE_LINES | _REWORDED_COMPOSE_LINES
+            _REPLACED_COMPOSE_LINES | _REWORDED_COMPOSE_LINES | _RETIRED_COMPOSE_LINES
             if name == "docker-compose.web.yml"
             else _REPLACED_NGINX_LINES | _REWORDED_NGINX_LINES
             if name == "nginx.conf"

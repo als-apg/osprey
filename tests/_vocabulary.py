@@ -1,6 +1,6 @@
 """The words the vocabulary guards hold, in one place.
 
-``RATCHET_WORD`` is the word the shipped code loses file by file; the file
+``RATCHET_WORD`` is the word no shipped file or agent-facing text carries; the file
 scan in :mod:`tests.facility.test_word_ratchet` and the agent-facing guard in
 :mod:`tests.mcp_server.test_channel_finder_tool_vocabulary` both match it.
 ``PROTOCOL_WORDS`` are the words the text an agent reads never names.
@@ -81,11 +81,6 @@ PENDING_REWORDING: frozenset[TextKey] = frozenset(
         ("rendered", "CLAUDE.md", "text"),
     }
 )
-
-#: Agent-facing texts that still carry ``RATCHET_WORD``, tagged like the file
-#: ratchet's allowlist with the stage that rewords them.
-RATCHET_PENDING: dict[TextKey, str] = {}
-
 
 #: Facility vocabulary that a framework prompt may not spell for itself: the
 #: concrete class labels and the operator synonyms the partial used to ship.

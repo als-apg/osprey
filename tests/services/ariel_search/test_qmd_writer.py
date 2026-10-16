@@ -491,3 +491,110 @@ class TestCaptionsLine:
         exported_bytes = (exported / relative).read_bytes()
         assert exported_bytes == (resynced / relative).read_bytes()
         assert b"Captions: [picture a.png - upstream caption] dipole trip" in exported_bytes
+
+
+# ---------------------------------------------------------------------------
+# Entry expansion in the mirror body
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def unit_expander(unit_vocabulary_file):
+    """An EntryExpander over the unit-test vocabulary, default direction gates."""
+    from osprey.services.ariel_search.vocabulary import EntryExpander
+    from osprey.services.ariel_search.vocabulary.loader import load_vocabulary
+
+    vocabulary, errors, _warnings = load_vocabulary(unit_vocabulary_file)
+    assert errors == [] and vocabulary is not None
+    return EntryExpander(vocabulary, canonical_to_acronym=True, canonical_to_shorthand=False)
+
+
+def _body_before_marker(document: str) -> str:
+    assert document.endswith(TRUNCATION_MARKER)
+    return document[: -len(TRUNCATION_MARKER)]
+
+
+class TestRenderWithExpander:
+    """The expander rewrites only the sanitized entry text."""
+
+    def test_expander_none_is_byte_identical(self, tmp_path):
+        row = make_entry(
+            raw_text="RF-BPM, check.",
+            summary="BPM drift.",
+            keywords=["bpm"],
+            attachment_text=_CAPTIONS,
+        )
+        assert render_entry(row, expander=None) == render_entry(row)
+        assert write_entry(tmp_path / "a", row) is True
+        assert write_entry(tmp_path / "b", row, expander=None) is True
+        relative = mirror_path(tmp_path / "a", row).relative_to((tmp_path / "a").resolve())
+        assert (tmp_path / "a" / relative).read_bytes() == (tmp_path / "b" / relative).read_bytes()
+
+    def test_rf_bpm_expands_in_place(self, unit_expander):
+        document = render_entry(make_entry(raw_text="RF-BPM, check."), expander=unit_expander)
+        assert "RF-BPM radio frequency beam position monitor, check." in document
+
+    def test_summary_keywords_and_captions_untouched(self, unit_expander):
+        row = make_entry(
+            raw_text="plain text",
+            summary="BPM drift",
+            keywords=["bpm"],
+            attachment_text="[picture a.png - BPM plot]",
+        )
+        assert render_entry(row, expander=unit_expander) == render_entry(row)
+
+    def test_expands_after_sanitizing(self, unit_expander):
+        """A C0 control between an acronym and the next word joins one token."""
+        document = render_entry(make_entry(raw_text="BPM\x1fdrift seen"), expander=unit_expander)
+        assert "BPMdrift seen" in document
+        assert "beam position monitor" not in document
+
+    def test_write_entry_uses_expander(self, tmp_path, unit_expander):
+        row = make_entry(raw_text="RF-BPM, check.")
+        assert write_entry(tmp_path, row, expander=unit_expander) is True
+        path = mirror_path(tmp_path, row)
+        assert path.read_text(encoding="utf-8") == render_entry(row, expander=unit_expander)
+        # Same expander, same bytes: no rewrite.
+        assert write_entry(tmp_path, row, expander=unit_expander) is False
+        # Without the expander the body differs and the file is rewritten.
+        assert write_entry(tmp_path, row) is True
+
+
+class TestCapOnWordBoundary:
+    """The cap backs up to whitespace when one is near the cut."""
+
+    def test_oversized_expanded_body_ends_on_whole_word(self, monkeypatch, unit_expander):
+        from osprey.services.ariel_search.enhancement.qmd_export import writer
+
+        row = make_entry(raw_text="BPM " * (BODY_CAP_BYTES // 3))
+        capped = render_entry(row, expander=unit_expander)
+        assert len(capped.encode("utf-8")) <= BODY_CAP_BYTES
+        body = _body_before_marker(capped)
+        assert body.split()[-1] in {"BPM", "beam", "position", "monitor"}
+
+        # The naive byte cut of the uncapped document would have split a word,
+        # so the assertion above is exercising the back-off.
+        monkeypatch.setattr(writer, "BODY_CAP_BYTES", 10 * BODY_CAP_BYTES)
+        full = render_entry(row, expander=unit_expander).encode("utf-8")
+        budget = BODY_CAP_BYTES - len(TRUNCATION_MARKER.encode("utf-8"))
+        assert not full[budget - 1 : budget].isspace()
+        assert not full[budget : budget + 1].isspace()
+        assert full.startswith(body.encode("utf-8"))
+        assert full[len(body.encode("utf-8")) : len(body.encode("utf-8")) + 1].isspace()
+
+    def test_space_free_oversized_body_keeps_a_prefix(self):
+        document = render_entry(make_entry(raw_text="x" * (BODY_CAP_BYTES * 2)))
+        body = _body_before_marker(document)
+        budget = BODY_CAP_BYTES - len(TRUNCATION_MARKER.encode("utf-8"))
+        assert len(body.encode("utf-8")) == budget
+        assert body.endswith("x" * 1024)
+
+    def test_whitespace_farther_than_256_bytes_falls_back_to_byte_cut(self):
+        budget = BODY_CAP_BYTES - len(TRUNCATION_MARKER.encode("utf-8"))
+        head = render_entry(make_entry(raw_text="x")).encode("utf-8")
+        # Place the last space 300 bytes before the budget, then a long run.
+        filler = budget - len(head) - 300
+        raw_text = "y" * filler + " " + "z" * (BODY_CAP_BYTES)
+        body = _body_before_marker(render_entry(make_entry(raw_text=raw_text)))
+        assert len(body.encode("utf-8")) == budget
+        assert body.endswith("z")

@@ -473,6 +473,12 @@ KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
         "qmd_export",
     ),
     (
+        "embedding_input_key",
+        "osprey.services.ariel_search.database.embedding_input_key_migration",
+        "EmbeddingInputKeyMigration",
+        None,  # Always runs
+    ),
+    (
         "als_logbook_plain_text",
         "osprey.services.ariel_search.ingestion.adapters.als_text_migration",
         "ALSPlainTextMigration",

@@ -68,6 +68,22 @@ stack, and the handle it gets back has its put entry points refused, so the raw
 route through the library is closed like every other spelling. Every other load
 refuses, pyepics present or not.
 
+The loader is gated at the class, ``ctypes.CDLL.__init__``, not at the module
+attribute, so no other spelling of the class (``cdll._dlltype``,
+``type(handle)``, a subclass) loads around it. Symbol lookup is gated there
+too: ``CDLL.__getitem__``, which attribute access resolves through, refuses the
+put symbols on every handle. That reaches the handles loaded before the gate —
+``epicscorelibs.ca.cadef.libca``, which aioca reads through and whose module
+body loads ``libca`` at install, and ``ctypes.pythonapi``, which resolves
+libca's symbols once it is loaded ``RTLD_GLOBAL``. A put symbol a handle already
+resolved is cached on the instance, so the table closes those on
+``cadef.libca`` by name. What stays open is building a function pointer by hand
+— from ``ctypes._CFuncPtr``, a ``CFUNCTYPE`` prototype or a handle's
+``_FuncPtr``, given a symbol name or a ``_ctypes.dlsym`` address — because the
+type every one of those constructs is an immutable C type the guard cannot
+patch. That is the same floor as any other immutable C type, below which
+``ctypes`` is arbitrary memory access.
+
 Each patched attribute is also followed back to the module that defined it, so
 a write a package merely re-exports refuses under both of its spellings. That
 step covers the defining modules no table can enumerate — PyTango defines its
@@ -95,10 +111,12 @@ import weakref
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
-#: Rows whose attributes are shared-library loaders. They are gated, not refused.
-_GATED_LOADER_ROWS = ("ctypes", "ctypes.LibraryLoader")
+#: The row naming the shared-library loader class. Its ``__init__`` is the load
+#: and its ``__getitem__`` the symbol lookup; both are gated, not refused.
+_LOADER_CLASS_ROW = "ctypes.CDLL"
 
-#: Put entry points closed on the handle a permitted ``libca`` load returns.
+#: Put entry points no library handle resolves in a readonly run, and which are
+#: closed on the instance of a handle that already resolved them.
 _HANDLE_PUT_SYMBOLS = ("ca_array_put", "ca_array_put_callback", "ca_sg_array_put")
 
 #: Attribute every finder and loader this module installs carries, so a second
@@ -567,24 +585,45 @@ def _install_readonly(
         raise RuntimeError(refusal)
 
     def _gate_loader(_original: Callable[..., Any]) -> Callable[..., Any]:
-        def _osprey_gated_load(*_args: Any, **_kwargs: Any) -> Any:
+        # Installed as ``CDLL.__init__``, so every spelling of the class is
+        # gated: ``PyDLL`` and ``WinDLL`` inherit it, ``cdll.LoadLibrary`` and
+        # ``cdll.libca`` construct through ``LibraryLoader._dlltype``, and
+        # ``type(handle)`` is the class itself. *_original* stays reachable in
+        # this closure, and is harmless there: a handle it loads resolves no put
+        # symbol through ``__getitem__`` below.
+        def _osprey_gated_load(self: Any, *_args: Any, **_kwargs: Any) -> None:
             if not _pyepics_is_loading():
                 _osprey_readonly_refuse()
-            _handle = _original(*_args, **_kwargs)
+            _original(self, *_args, **_kwargs)
             try:
                 for _symbol in _HANDLE_PUT_SYMBOLS:
-                    setattr(_handle, _symbol, _osprey_readonly_refuse)
+                    setattr(self, _symbol, _osprey_readonly_refuse)
             except Exception:
                 # A handle whose put symbols cannot be closed is not handed out
                 # at all.
                 _osprey_readonly_refuse()
-            return _handle
 
         return _osprey_gated_load
 
-    def _readonly_replacement(dotted: str, _attr: str, original: Any, _owner: Any) -> Any:
-        if dotted in _GATED_LOADER_ROWS:
-            return _gate_loader(original)
+    def _osprey_gated_symbol(self: Any, name_or_ordinal: Any) -> Any:
+        # ``CDLL.__getitem__``, restated rather than wrapped so the original is
+        # not left in a closure. ``__getattr__`` resolves through it, so both
+        # ``handle.ca_array_put`` and ``handle["ca_array_put"]`` refuse, on
+        # every handle — ``ctypes.pythonapi`` included, which resolves libca's
+        # symbols once libca is loaded ``RTLD_GLOBAL``.
+        _name = name_or_ordinal
+        if isinstance(_name, bytes):
+            _name = _name.decode("utf-8", errors="replace")
+        if _name in _HANDLE_PUT_SYMBOLS:
+            _osprey_readonly_refuse()
+        _func = self._FuncPtr((name_or_ordinal, self))
+        if not isinstance(name_or_ordinal, int):
+            _func.__name__ = name_or_ordinal
+        return _func
+
+    def _readonly_replacement(dotted: str, attr: str, original: Any, _owner: Any) -> Any:
+        if dotted == _LOADER_CLASS_ROW:
+            return _gate_loader(original) if attr == "__init__" else _osprey_gated_symbol
         return _osprey_readonly_refuse
 
     _patch_rows("readonly guard", eager_targets, deferred_targets, _readonly_replacement)

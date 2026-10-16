@@ -11,7 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from osprey.services.ariel_search.database.search_fts import build_expanded_tsquery
+from osprey.services.ariel_search.database.search_fts import (
+    build_expanded_tsquery,
+    coverage_terms,
+)
 from osprey.services.ariel_search.search.base import (
     ExpansionGroup,
     ParsedKeywordQuery,
@@ -30,6 +33,13 @@ concepts:
     kind: acronym
     forms:
       - BPM
+"""
+
+RF_CONCEPT = """
+  - canonical: radio frequency
+    kind: acronym
+    forms:
+      - RF
 """
 
 
@@ -285,6 +295,125 @@ class TestRealVocabulary:
         _sql, params = build_expanded_tsquery(parsed("t/s bpm"), resolved)
 
         assert params == ["t/s", "troubleshoot", "bpm", "beam position monitor"]
+
+
+class TestPunctuatedQueries:
+    """Spans are located on match-token norms, so edge punctuation never hides a group."""
+
+    @staticmethod
+    def _resolve(tmp_path: Path, text: str) -> QueryExpansion:
+        path = tmp_path / "vocabulary.yml"
+        path.write_text(CONTROL_ASSISTANT_VOCABULARY + RF_CONCEPT, encoding="utf-8")
+        vocabulary, errors, _warnings = load_vocabulary(
+            path, canonical_to_acronym=True, canonical_to_shorthand=False
+        )
+        assert errors == []
+        assert vocabulary is not None
+        return expand_query(
+            text, vocabulary, canonical_to_acronym=True, canonical_to_shorthand=False
+        )
+
+    @staticmethod
+    def _alternation_params(sql: str, params: list[str]) -> list[list[str]]:
+        """Group `params` by leg and keep the alternation legs' bindings."""
+        groups: list[list[str]] = []
+        cursor = 0
+        for leg in legs(sql):
+            width = leg.count("%s")
+            if " || " in leg:
+                groups.append(params[cursor : cursor + width])
+            cursor += width
+        return groups
+
+    def test_comma_separated_forms_yield_two_alternation_legs(self, tmp_path: Path):
+        """`bpm, rf` locates both groups although `bpm,` carries a comma."""
+        resolved = self._resolve(tmp_path, "bpm, rf")
+        sql, params = build_expanded_tsquery(parsed("bpm, rf"), resolved)
+
+        assert [group.original for group in resolved.groups] == ["bpm", "rf"]
+        assert len(legs(sql)) == 2
+        assert all(" || " in leg for leg in legs(sql))
+        assert params == ["bpm", "beam position monitor", "rf", "radio frequency"]
+
+    def test_comma_separated_expanded_terms_equal_the_legs_built(self, tmp_path: Path):
+        """Every reported group is exactly one alternation leg, and no leg is unreported."""
+        resolved = self._resolve(tmp_path, "bpm, rf")
+        sql, params = build_expanded_tsquery(parsed("bpm, rf"), resolved)
+
+        assert self._alternation_params(sql, params) == [
+            [group.original, *group.alternatives] for group in resolved.groups
+        ]
+
+    def test_punctuated_phrase_yields_its_phrase_leg(self, tmp_path: Path):
+        """The quoted phrase `"BPM?"` resolves to the `bpm` group as a whole."""
+        resolved = self._resolve(tmp_path, "BPM?")
+        sql, params = build_expanded_tsquery(parsed("", "BPM?"), resolved)
+
+        assert [group.original for group in resolved.groups] == ["bpm"]
+        assert sql == "(phraseto_tsquery('english', %s) || plainto_tsquery('english', %s))"
+        assert params == ["BPM?", "beam position monitor"]
+
+    def test_punctuated_phrase_expanded_terms_equal_the_legs_built(self, tmp_path: Path):
+        """The phrase leg alternates the typed phrase with exactly the group's alternatives."""
+        resolved = self._resolve(tmp_path, "BPM?")
+        sql, params = build_expanded_tsquery(parsed("", "BPM?"), resolved)
+
+        (group,) = resolved.groups
+        assert self._alternation_params(sql, params) == [["BPM?", *group.alternatives]]
+
+    def test_punctuation_free_runs_are_unchanged(self):
+        """Without edge punctuation the SQL and the parameters are what they always were."""
+        sql, params = build_expanded_tsquery(
+            parsed("Fix TS now-BPM  later"),
+            expansion(("ts", ("troubleshoot",)), ("bpm", ("beam position monitor",))),
+        )
+
+        assert sql == (
+            "plainto_tsquery('english', %s) && "
+            "(plainto_tsquery('english', %s) || plainto_tsquery('english', %s)) && "
+            "plainto_tsquery('english', %s) && "
+            "(plainto_tsquery('english', %s) || plainto_tsquery('english', %s)) && "
+            "plainto_tsquery('english', %s)"
+        )
+        assert params == [
+            "fix",
+            "ts",
+            "troubleshoot",
+            "now",
+            "bpm",
+            "beam position monitor",
+            "later",
+        ]
+
+    def test_punctuated_unmatched_run_binds_its_stripped_tokens(self):
+        """Edge punctuation is dropped from a run; `plainto_tsquery` ignores it anyway."""
+        sql, params = build_expanded_tsquery(parsed("orbit, drift? (sector 3)"), expansion())
+
+        assert sql == "plainto_tsquery('english', %s)"
+        assert params == ["orbit drift sector 3"]
+
+
+class TestCoverageTerms:
+    """Coverage words keep today's spelling; spans locate on match-token norms."""
+
+    def test_hash_prefixed_word_beside_a_form_keeps_its_word_key(self):
+        """`#3` stays keyed `3`, and the punctuated `bpm,` still carries its alternatives."""
+        terms = coverage_terms(
+            "#3 bpm, drift",
+            expansion(("bpm", ("beam position monitor",))),
+        )
+
+        assert terms == [
+            ("3", ("3",)),
+            ("bpm", ("bpm", "beam position monitor")),
+            ("drift", ("drift",)),
+        ]
+
+    def test_hash_prefixed_form_word_is_not_located(self):
+        """`#bpm` is its own token (``#`` is not an edge character); its key is `bpm`."""
+        terms = coverage_terms("#bpm", expansion(("bpm", ("beam position monitor",))))
+
+        assert terms == [("bpm", ("bpm",))]
 
 
 PLACEHOLDER_CASES = [

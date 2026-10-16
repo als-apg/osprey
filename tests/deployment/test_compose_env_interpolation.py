@@ -104,16 +104,6 @@ def test_ariel_db_password_with_dollar_is_rejected() -> None:
     assert not service_tokens._validate_var("ARIEL_DB_PASSWORD", "se$cret")
 
 
-def test_openobserve_password_dollar_does_not_satisfy_the_special_class() -> None:
-    """The policy check *requires* a non-alphanumeric character.
-
-    ``$`` satisfies ``any(not c.isalnum())``, so it was not merely tolerated --
-    it was an accepted way to pass. ``Passw0rd$x`` cleared validation and the
-    container received ``Passw0rd``.
-    """
-    assert not service_tokens._validate_var("ZO_ROOT_USER_PASSWORD", "Passw0rd$x")
-
-
 def test_dollar_guard_applies_to_vars_with_no_registered_validator() -> None:
     """``_validate_var`` is fail-open per-format, but never for ``$``."""
     assert not service_tokens._validate_var("EVENT_DISPATCHER_TOKEN", "tok$en")
@@ -123,7 +113,7 @@ def test_dollar_guard_applies_to_vars_with_no_registered_validator() -> None:
     "var",
     [
         # The three with custom alphabets...
-        "ZO_ROOT_USER_PASSWORD",
+        "MONGO_ROOT_PASSWORD",
         "ARIEL_DB_PASSWORD",
         "BLUESKY_TILED_API_KEY",
         # ...and the three that fall back to _default_token.

@@ -130,7 +130,8 @@ TILED_PORT = 18492
 PANELS_PORT = 18496
 VA_CA_PORT = 15264
 POSTGRES_PORT = 25932
-OPENOBSERVE_PORT = 25980
+TELEMETRY_GATEWAY_PORT = 25218
+TELEMETRY_STORE_PORT = 29023
 QMD_PORT = 28180
 MONGODB_PORT = 47917
 
@@ -444,7 +445,8 @@ def _profile_edits() -> dict[str, Any]:
             "claude_code.servers.bluesky.enabled": True,
             "modules.web_terminals.enabled": False,
             "services.postgresql.port_host": POSTGRES_PORT,
-            "services.openobserve.port": OPENOBSERVE_PORT,
+            "services.telemetry_gateway.port": TELEMETRY_GATEWAY_PORT,
+            "services.telemetry_store.port": TELEMETRY_STORE_PORT,
             "services.qmd.port": QMD_PORT,
         },
         "dispatch": None,

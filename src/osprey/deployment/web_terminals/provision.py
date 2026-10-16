@@ -39,6 +39,7 @@ from osprey.deployment.compose_generator import (
     resolve_project_name,
     resolve_repo_root,
 )
+from osprey.deployment.compose_watch import watched_compose_up
 from osprey.deployment.runtime_helper import (
     ComposeProvider,
     get_container_image_id,
@@ -90,6 +91,11 @@ from osprey.deployment.web_terminals.postup_hooks import (
     enable_linger,
     run_verify_script,
     warn_if_web_stack_unreachable,
+)
+from osprey.deployment.web_terminals.readiness import (
+    readiness_targets,
+    wait_until_ready,
+    web_terminal_ready_timeout,
 )
 from osprey.deployment.web_terminals.render import (
     AUTH_SIDECAR_AUDIT_IDENTITY,
@@ -1220,7 +1226,7 @@ def web_stack_compose_cmd(
 
         env_file_args = _env_file_args(root, provider)
     return compose_base_cmd(
-        with_plain_progress(get_runtime_command(config)),
+        with_plain_progress(get_runtime_command(config), provider=provider),
         [web_compose_file(root)],
         root,
         env_file_args,
@@ -1657,7 +1663,7 @@ def deploy_up_web_terminals(
     # `up` on the network-only top-level file alone would fail outright.
     if config.get("deployed_services"):
         services_base = compose_base_cmd(
-            with_plain_progress(get_runtime_command(config)),
+            with_plain_progress(get_runtime_command(config), provider=provider),
             compose_files,
             repo_root,
             env_file_args,
@@ -1737,9 +1743,14 @@ def deploy_up_web_terminals(
             services_cmd.append("--no-build")
         services_cmd.append("-d")
         logger.debug(f"Running command:\n    {' '.join(services_cmd)}")
-        run_captured(
-            services_cmd, env=run_env, spool_name="compose-services-up", repo_root=repo_root
-        )
+        with watched_compose_up(services_cmd, config=config, env=run_env) as bounds:
+            run_captured(
+                services_cmd,
+                env=run_env,
+                spool_name="compose-services-up",
+                repo_root=repo_root,
+                **bounds,
+            )
         _report_step("backend services started")
 
     # ---- web-terminal stack (same pinned project directory: the repo root) --
@@ -1769,7 +1780,10 @@ def deploy_up_web_terminals(
 
     up_cmd = web_cmd + ["up", "-d"]
     logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
-    run_captured(up_cmd, env=run_env, spool_name="compose-web-up", repo_root=repo_root)
+    with watched_compose_up(up_cmd, config=config, env=run_env) as bounds:
+        run_captured(
+            up_cmd, env=run_env, spool_name="compose-web-up", repo_root=repo_root, **bounds
+        )
     _report_step("web-terminal stack started")
 
     # Post-`up` recreate for podman's same-tag image drift. A changed
@@ -1806,8 +1820,17 @@ def deploy_up_web_terminals(
     # the stack to re-register a stale Docker Desktop port forward -- the one
     # failure mode `up -d` structurally cannot fix on its own, because the
     # containers' definitions are unchanged and compose reconciles nothing.
+    # Between linger and seeding, the readiness gate: `up` reports success only
+    # once every service of the stack answers its own healthcheck, and seeding
+    # then finds every terminal up rather than skipping the slow ones.
     # -----------------------------------------------------------------------
     enable_linger(config, run_env)
+    wait_until_ready(
+        get_runtime_command(config)[0],
+        readiness_targets(web_compose_file(repo_root), resolve_project_name(config)),
+        run_env,
+        web_terminal_ready_timeout(config),
+    )
     seed_user_containers(config, env=run_env)
     run_verify_script(str(repo_root), run_env)
     warn_if_web_stack_unreachable(config, web_cmd=web_cmd, run_env=run_env)

@@ -143,12 +143,10 @@ and goes as soon as the agent is free.
    **Stop and switch now**, and a terminal that was idle all along can still
    take the full five seconds to hand over.
 
-One version pin is worth keeping current now that the two views share a
-conversation. The terminal runs the exact agent CLI version
-``claude_code.cli_version`` names, and the chat runs the one the Agent SDK
-bundles, so a pin that has drifted from the bundle makes the same conversation
-behave differently either side of a switch. The server names both versions in
-its log at startup, and warns when they disagree.
+The two views run the same Claude Code version, the one
+``claude_code.cli_version`` names. If the chat is refused because that version
+is not installed, the server log says which one to install; see
+:doc:`/getting-started/installation`.
 
 .. _web-terminal-session-posture:
 

@@ -5,17 +5,20 @@ A vocabulary is a facility-authored list of *concepts*. Each concept has one
 ``kind`` (``acronym`` or ``shorthand``) and one or more ``forms`` (the shorthand
 operators type). Query expansion is pure dictionary lookup over these strings.
 
-Every string stored on :class:`Concept` and used as a key in
-:class:`Vocabulary`'s lookup tables is **already normalized** by
-:func:`normalize`. Callers matching query text must normalize it the same way
+Every key in :class:`Vocabulary`'s lookup tables, and every ``canonical`` and
+``forms`` string on :class:`Concept`, is the space-joined norms of
+:func:`match_tokens` over the raw spelling — :func:`normalize` with edge
+punctuation stripped. Callers matching query text must tokenize it the same way
 before looking anything up — that identity is what makes the matching
-deterministic.
+deterministic. The raw spellings are kept beside the keys for the clause-break
+patterns in :attr:`Vocabulary.interior_patterns`.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from typing import Literal
 
 #: The three concept kinds. For ``acronym`` and ``shorthand``, ``kind`` selects
@@ -57,22 +60,143 @@ def normalize(text: str) -> str:
     return _WHITESPACE.sub(" ", text.lower().replace("-", " ")).strip()
 
 
+#: Edge characters stripped from both ends of every token core by
+#: :func:`match_tokens`. Interior occurrences (``a.b``, ``t/s``) are kept.
+_EDGE_CHARS = ",.:;!?()[]\"'"
+
+#: :data:`_EDGE_CHARS` rendered space-joined, for user-facing messages.
+_EDGE_TEXT = " ".join(_EDGE_CHARS)
+
+_WORD = re.compile(r"\S+")
+
+
+@dataclass(frozen=True)
+class Token:
+    """One matchable token of a text, located in the original string.
+
+    Attributes:
+        norm: The lowercased token core with edge characters stripped. Never
+            empty.
+        start: Code-point offset in the original text of the core's first
+            character.
+        end: Code-point offset just after the core's last character (exclusive);
+            stripped edge characters lie outside ``start:end``.
+        opens: A clause break precedes this token — a leading edge character was
+            stripped from it, or an edge-only token before it was dropped.
+        closes: A clause break follows this token — a trailing edge character was
+            stripped from it, or an edge-only token after it was dropped.
+        word_end: Offset just after the whitespace-delimited word containing
+            this token, before that word's trailing edge characters (both
+            tokens of ``RF-trip,`` end their word after ``p``).
+    """
+
+    norm: str
+    start: int
+    end: int
+    opens: bool
+    closes: bool
+    word_end: int
+
+
+def match_tokens(text: str) -> list[Token]:
+    """Split ``text`` into located, normalized tokens.
+
+    Splits on whitespace and ``-`` exactly as :func:`normalize` does and
+    lowercases each token, so ``" ".join(t.norm for t in match_tokens(s))``
+    equals ``normalize(s)`` whenever ``s`` carries no edge characters. Edge
+    characters (:data:`_EDGE_TEXT`) are stripped from both ends of each token
+    and recorded as ``opens``/``closes``. A token that is edge characters only
+    (a spaced ``(``, ``.``, ``...``) is dropped; it sets ``closes`` on the
+    previous token and ``opens`` on the next, so the break still separates them.
+
+    Args:
+        text: Raw query or entry text.
+
+    Returns:
+        The tokens in text order, each with a non-empty ``norm``.
+    """
+    # Mutable rows [norm, start, end, opens, closes, word_end], frozen at the end.
+    rows: list[list] = []
+    pending_open = False
+    for word in _WORD.finditer(text):
+        word_rows: list[list] = []
+        offset = word.start()
+        for piece in word.group().split("-"):
+            piece_start = offset
+            offset += len(piece) + 1
+            if not piece:
+                continue
+            core = piece.strip(_EDGE_CHARS)
+            if not core:
+                if rows:
+                    rows[-1][4] = True
+                pending_open = True
+                continue
+            lead = len(piece) - len(piece.lstrip(_EDGE_CHARS))
+            start = piece_start + lead
+            end = start + len(core)
+            row = [
+                core.lower(),
+                start,
+                end,
+                pending_open or lead > 0,
+                end < piece_start + len(piece),
+                0,
+            ]
+            pending_open = False
+            rows.append(row)
+            word_rows.append(row)
+        if word_rows:
+            word_end = word_rows[-1][2]
+            for row in word_rows:
+                row[5] = word_end
+    return [Token(*row) for row in rows]
+
+
+def token_key(tokens: Sequence[Token]) -> str:
+    """Return the lookup key of a token run: its norms, space-joined."""
+    return " ".join(token.norm for token in tokens)
+
+
+def interior_pattern(tokens: Sequence[Token]) -> tuple[tuple[bool, bool], ...]:
+    """Return the clause breaks inside a token run.
+
+    Args:
+        tokens: Consecutive tokens from :func:`match_tokens`.
+
+    Returns:
+        One ``(left closes, right opens)`` pair per interior token boundary;
+        ``()`` for a single token.
+    """
+    return tuple(
+        (left.closes, right.opens) for left, right in zip(tokens, tokens[1:], strict=False)
+    )
+
+
 @dataclass(frozen=True)
 class Concept:
     """One vocabulary concept.
 
     Attributes:
-        canonical: The canonical phrase, normalized. This is what a matched form
+        canonical: The canonical phrase as a lookup key. This is what a matched form
             expands to, and what reaches ``plainto_tsquery``/the embedder.
         kind: ``acronym`` or ``shorthand`` — selects the direction gate that
             enables canonical-to-form expansion for this concept.
-        forms: The shorthand spellings, normalized, in file order. Never empty,
+        forms: The shorthand spellings as lookup keys, in file order. Never empty,
             never contains the canonical, and never contains duplicates.
+        raw_canonical: The canonical exactly as written in the vocabulary file,
+            or ``""`` for a concept not built by the loader. Excluded from
+            equality.
+        raw_forms: Every accepted form exactly as written, in file order —
+            spellings that share one normalized form each appear. Empty for a
+            concept not built by the loader. Excluded from equality.
     """
 
     canonical: str
     kind: ConceptKind
     forms: tuple[str, ...]
+    raw_canonical: str = field(default="", compare=False)
+    raw_forms: tuple[str, ...] = field(default=(), compare=False)
 
 
 @dataclass(frozen=True)
@@ -93,12 +217,25 @@ class Vocabulary:
         max_form_tokens: The largest token count over **every matchable
             string** — all forms *and* all canonicals. An n-gram scan may stop
             at this width and be sure it cannot miss a match.
+        interior_patterns: Lookup key to the clause-break patterns its raw
+            spellings carry between tokens. A pattern holds one
+            ``(left closes, right opens)`` pair per interior token boundary, as
+            :func:`match_tokens` reports them, so ``vert. orbit`` contributes
+            ``((True, False),)`` and ``beam position monitor`` contributes
+            ``((False, False), (False, False))``; the set is the union over every
+            raw spelling of every concept binding the key. A key absent from the
+            table accepts exactly the no-break pattern — ``()`` for one token,
+            ``((False, False),) * (n - 1)`` for ``n`` — so a vocabulary built by
+            hand without the table still matches punctuation-free text.
     """
 
     concepts: tuple[Concept, ...]
     forms_to_concepts: dict[str, list[Concept]]
     canonical_to_concept: dict[str, Concept]
     max_form_tokens: int
+    interior_patterns: dict[str, frozenset[tuple[tuple[bool, bool], ...]]] = field(
+        default_factory=dict
+    )
 
     @property
     def concept_count(self) -> int:
@@ -130,4 +267,14 @@ class Vocabulary:
         return self.canonical_to_concept.get(normalized_canonical)
 
 
-__all__ = ["CONCEPT_KINDS", "Concept", "ConceptKind", "Vocabulary", "normalize"]
+__all__ = [
+    "CONCEPT_KINDS",
+    "Concept",
+    "ConceptKind",
+    "Token",
+    "Vocabulary",
+    "interior_pattern",
+    "match_tokens",
+    "normalize",
+    "token_key",
+]

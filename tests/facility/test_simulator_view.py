@@ -657,6 +657,46 @@ def test_a_file_two_entries_attach_is_copied_and_listed_once(
     assert written.count(copied) == 1
 
 
+def test_a_withdrawn_scenario_is_neither_listed_nor_copied(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    from osprey.facility.views.simulator import withdraw_scenarios
+
+    render_dir = _render(tmp_path, built_control_assistant, {})
+    view = render_dir / "data/simulator"
+    listed = [entry["name"] for entry in _view(render_dir, SCENARIOS)["scenarios"]]
+    others = sorted(
+        path for path in view.rglob("*") if path.is_file() and "scenarios/nominal" not in str(path)
+    )
+    before = {path: path.read_bytes() for path in others if path.name != "scenarios.json"}
+
+    withdraw_scenarios(view, ["nominal"])
+
+    document = _view(render_dir, SCENARIOS)
+    assert document["schema"] == SCENARIOS_SCHEMA
+    assert [entry["name"] for entry in document["scenarios"]] == [
+        name for name in listed if name != "nominal"
+    ]
+    assert not (view / "scenarios" / "nominal").exists()
+    assert {path: path.read_bytes() for path in before} == before
+
+
+def test_withdrawing_an_unlisted_scenario_withdraws_nothing(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    from osprey.facility.views.simulator import withdraw_scenarios
+
+    render_dir = _render(tmp_path, built_control_assistant, {})
+    view = render_dir / "data/simulator"
+    listing = (render_dir / SCENARIOS).read_bytes()
+
+    with pytest.raises(KeyError, match="no-such-scenario"):
+        withdraw_scenarios(view, ["nominal", "no-such-scenario"])
+
+    assert (render_dir / SCENARIOS).read_bytes() == listing
+    assert (view / "scenarios" / "nominal").is_dir()
+
+
 def test_a_bad_attachment_in_any_scenario_stops_before_any_file_is_copied(
     tmp_path: Path, built_control_assistant: BuiltProject
 ) -> None:

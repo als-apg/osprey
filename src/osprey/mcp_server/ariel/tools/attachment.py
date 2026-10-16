@@ -13,7 +13,6 @@ error only through ``details``, made inert first.
 """
 
 import base64
-import hashlib
 import json
 import logging
 import re
@@ -25,13 +24,13 @@ from fastmcp.tools import ToolResult
 from mcp.types import ImageContent, TextContent
 
 from osprey.mcp_server.ariel.server import (
-    ATTACHMENT_TO_ARTIFACT_TOOL,
     check_attachment_view_offered,
     make_error,
     mcp,
 )
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.services.ariel_search.attachments import ATTACHMENT_ID_RE
+from osprey.services.ariel_search.attachments.artifacts import save_viewable_picture_as_artifact
 from osprey.services.ariel_search.attachments.compose import (
     FILENAME_MAX_CHARS,
     _inert,
@@ -250,51 +249,6 @@ async def attachment_view(attachment_id: str) -> ToolResult:
         )
 
 
-#: The artifact category a logbook picture is filed under in the gallery.
-PICTURE_ARTIFACT_CATEGORY = "visualization"
-
-_RENDITION_EXTENSIONS = {
-    "image/png": ".png",
-    "image/jpeg": ".jpg",
-    "image/gif": ".gif",
-    "image/webp": ".webp",
-}
-
-
-def _artifact_filename(filename: Any, rendition_mime: str) -> str:
-    """A safe stored filename: the original's stem with the rendition's extension."""
-    from pathlib import PurePosixPath
-
-    from osprey.stores.artifact_store import _slugify
-
-    stem = PurePosixPath(str(filename or "picture").replace("\\", "/")).stem
-    return f"{_slugify(stem) or 'picture'}{_RENDITION_EXTENSIONS.get(rendition_mime, '.img')}"
-
-
-def _provenance(entry_id: str, summary: Mapping[str, Any]) -> dict[str, Any]:
-    """The picture's provenance, kept in the artifact's metadata."""
-    provenance: dict[str, Any] = {
-        "entry_id": entry_id,
-        "attachment_id": summary.get("attachment_id"),
-        "filename": summary.get("filename"),
-    }
-    if summary.get("caption"):
-        provenance["caption"] = summary["caption"]
-        provenance["caption_source"] = summary.get("caption_source")
-    return provenance
-
-
-def _description(provenance: Mapping[str, Any]) -> str:
-    lines = [
-        f"Logbook picture {provenance['attachment_id']} from entry {provenance['entry_id']} "
-        f"({_inert(provenance.get('filename'), FILENAME_MAX_CHARS)})."
-    ]
-    if provenance.get("caption"):
-        source = provenance.get("caption_source") or "unknown"
-        lines.append(f"Caption ({_inert(source, 40)}): {provenance['caption']}")
-    return "\n".join(lines)
-
-
 def _focus_in_gallery(artifact_id: str) -> bool:
     """Select the artifact in the gallery; whether the gallery accepted it."""
     import urllib.error
@@ -340,44 +294,8 @@ async def attachment_to_artifact(attachment_id: str) -> str:
 
     try:
         row, entry, summary = await _viewable_picture(attachment_id)
-        from osprey.mcp_server.http import gallery_url
-        from osprey.stores.artifact_store import get_artifact_store
-
-        entry_id = str(entry["entry_id"])
-        rendition = bytes(row["rendition_bytes"])
-        rendition_mime = str(row["rendition_mime"])
-        sha256 = hashlib.sha256(rendition).hexdigest()
-        provenance = _provenance(entry_id, summary)
-        filename = _inert(summary.get("filename"), FILENAME_MAX_CHARS) or "picture"
-        title = f"{filename} (entry {entry_id})"
-
-        store = get_artifact_store()
-        known = {e.id for e in store.list_entries(tool_filter=ATTACHMENT_TO_ARTIFACT_TOOL)}
-        artifact = store.save_or_touch_by_sha256(
-            sha256,
-            origin="",
-            save_kwargs={
-                "file_content": rendition,
-                "filename": _artifact_filename(summary.get("filename"), rendition_mime),
-                "artifact_type": "image",
-                "title": title,
-                "description": _description(provenance),
-                "mime_type": rendition_mime,
-                "tool_source": ATTACHMENT_TO_ARTIFACT_TOOL,
-                "metadata": {"sha256": sha256, "logbook_picture": provenance},
-                "category": PICTURE_ARTIFACT_CATEGORY,
-            },
-        )
-        focused = _focus_in_gallery(artifact.id)
-        response = artifact.to_tool_response(gallery_url=gallery_url())
-        response.update(
-            {
-                "entry_id": entry_id,
-                "attachment_id": attachment_id,
-                "created": artifact.id not in known,
-                "focused": focused,
-            }
-        )
+        response = save_viewable_picture_as_artifact(row, entry, summary)
+        response["focused"] = _focus_in_gallery(response["artifact_id"])
         return json.dumps(response, default=str)
 
     except ToolError:

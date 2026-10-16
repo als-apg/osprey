@@ -52,7 +52,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility import TEXTURE
-from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
+from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, exact_number
 from osprey.facility.provenance import add_defaults, set_place_from
 from osprey.facility.scenarios import (
     check_scenario_attachments,
@@ -153,7 +153,7 @@ class _Run:
                 f"layer {_stating_layers(device, 's')} states s {stated:.9g} in periodic model "
                 f"{deck.name}, outside its deck of length {deck.length_m:.9g}; the device is "
                 f"placed at s {point:.9g}",
-                f"state s {point:.9g}, or drop it",
+                f"state an s within [0, {deck.length_m:.9g}], or drop it",
             )
         )
 
@@ -647,14 +647,6 @@ def _place_from(device: dict[str, Any], place_from: str) -> None:
 # --- nominal band --------------------------------------------------------------------
 
 
-def _exact(number: float) -> str:
-    """*number* as the shortest text that reads back as the same float.
-
-    A whole number prints bare (``5``, not ``5.0``).
-    """
-    return repr(float(number)).removesuffix(".0")
-
-
 def _nominal_band(run: _Run) -> None:
     from osprey_connectors.simulation.values import coerce, zero
 
@@ -744,7 +736,7 @@ def _nominal_band(run: _Run) -> None:
             "channel",
             address,
             sorted({*files, _LIMITS_FILE}),
-            f"nominal {_exact(value)} lies {'below' if value < low else 'above'} {side} {_exact(bound)}",
+            f"nominal {exact_number(value)} lies {'below' if value < low else 'above'} {side} {exact_number(bound)}",
             "move the operating point inside [min_value, max_value], or widen the limits record",
         )
 

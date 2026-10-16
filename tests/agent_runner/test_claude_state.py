@@ -324,19 +324,23 @@ def test_other_stderr_lines_are_not_the_notice(line: str) -> None:
     assert not is_untrusted_allow_rules_notice(line)
 
 
+@pytest.mark.usefixtures("real_agent_cli")
 def test_the_pinned_cli_prints_the_notice_in_the_recognised_form(tmp_path: Path) -> None:
-    """The bundled CLI's notice still matches the recognised form.
+    """The pinned CLI's notice still matches the recognised form.
 
     The notice is observed in the pinned CLI, not documented, so this runs the
-    real binary: a CLI bump that rewords it must fail here instead of letting
-    the notice back into dispatch run records. Never skips — the binary ships
-    with the SDK this project depends on.
+    real binary — the installed ``claude`` a headless run is pointed at: a CLI
+    bump that rewords it must fail here instead of letting the notice back
+    into dispatch run records. Never skips.
     """
-    from osprey.agent_runner.launcher import bundled_cli_path
+    from osprey.agent_runner.errors import AgentCliUnavailableError
+    from osprey.agent_runner.launcher import agent_cli_path
+    from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
 
-    binary = bundled_cli_path()
-    if binary is None:
-        pytest.fail("the Agent SDK ships no bundled Claude CLI")
+    try:
+        binary = agent_cli_path({"cli_version": _DEFAULT_CLAUDE_CLI_VERSION})
+    except AgentCliUnavailableError as exc:
+        pytest.fail(f"this check needs the pinned Claude Code and must not skip:\n{exc}")
 
     render = tmp_path / "render"
     (render / ".claude").mkdir(parents=True)

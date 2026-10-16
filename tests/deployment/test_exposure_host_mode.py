@@ -357,7 +357,7 @@ class TestReconcileExposure:
         # interface is reachable however the host-mode services are bound.
         files = [
             _write_service_compose(
-                tmp_path, "openobserve", {"openobserve": {"ports": ["5080:5080"]}}
+                tmp_path, "postgresql", {"postgresql": {"ports": ["5432:5432"]}}
             ),
             _write_service_compose(
                 tmp_path, "event_dispatcher", {"event-dispatcher": _dispatcher()}

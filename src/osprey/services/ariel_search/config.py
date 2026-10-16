@@ -19,23 +19,36 @@ from osprey.utils.config_paths import resolve_config_relative_path
 from osprey.utils.seconds import positive_seconds
 
 from .attachments import DEFAULT_MAX_ATTACHMENT_MB
-from .exceptions import ConfigurationError
+from .exceptions import ConfigurationError, ModuleConfigError
 from .models import (
     DEFAULT_LISTING_TEXT_CHARS,
     DEFAULT_READ_TEXT_CHARS,
     normalize_search_mode,
     resolve_implicit_search_mode,
 )
+from .vocabulary.entry import EntryExpander
 from .vocabulary.loader import load_vocabulary
 from .vocabulary.model import Vocabulary
 
 logger = logging.getLogger("osprey.services.ariel_search.config")
+
+#: Marks :attr:`ARIELConfig._entry_expander` as not yet computed; ``None`` is a
+#: legitimate cached outcome (entry expansion off), so it cannot double as one.
+_EXPANDER_UNSET: Any = object()
+
+#: Causes :meth:`ARIELConfig.entry_expander_or_none` has already logged in this
+#: process. An unusable vocabulary is reported once, not on every entry.
+_LOGGED_EXPANDER_KEYS: set[str] = set()
 
 #: Enhancement modules that do not call the text-embedding endpoint, so
 #: ``ariel.embedding.provider`` is never substituted for their provider.
 NO_EMBEDDING_FALLBACK_MODULES = frozenset(
     {"semantic_processor", "image_caption", "image_embedding"}
 )
+
+#: Search modules that rank by an embedding of the query. Query expansion reaches
+#: them by default only when the entries are expanded too.
+DENSE_SEARCH_MODES = frozenset({"semantic", "hybrid"})
 
 #: Defaults for the derived DSN, matching what the postgresql compose service
 #: is rendered with when ``services.postgresql`` leaves a field unset. The port
@@ -666,8 +679,14 @@ class VocabularyConfig:
             forms of its ``acronym`` concepts.
         canonical_to_shorthand: The same gate for ``shorthand`` concepts. Off by
             default: expanding prose to operator shorthand rarely helps recall.
+        expand_entries: Whether an entry's embedding input is expanded with the
+            vocabulary before it is embedded. Off by default; turning it on
+            changes what existing rows were built from, so pair it with
+            ``osprey ariel reembed --force``.
         expand_modes: Search modules expansion applies to. ``None`` — the
-            default — means every enabled search module. An explicit list is
+            default — means every enabled search module when ``expand_entries``
+            is on, and every enabled module but ``semantic`` and ``hybrid`` when
+            it is off (see :meth:`ARIELConfig.resolve_expand_modes`). An explicit list is
             normalized at parse; :meth:`ARIELConfig.validate` refuses an entry
             naming a module that is unknown or not enabled.
     """
@@ -677,6 +696,7 @@ class VocabularyConfig:
     expand_by_default: bool = True
     canonical_to_acronym: bool = True
     canonical_to_shorthand: bool = False
+    expand_entries: bool = False
     expand_modes: tuple[str, ...] | None = None
 
     @classmethod
@@ -703,6 +723,7 @@ class VocabularyConfig:
         expand_by_default = _vocab_bool(data, "expand_by_default", cls.expand_by_default)
         to_acronym = _vocab_bool(data, "canonical_to_acronym", cls.canonical_to_acronym)
         to_shorthand = _vocab_bool(data, "canonical_to_shorthand", cls.canonical_to_shorthand)
+        expand_entries = _vocab_bool(data, "expand_entries", cls.expand_entries)
 
         path = data.get("path", cls.path)
         if path is not None and (not isinstance(path, str) or not path.strip()):
@@ -736,6 +757,7 @@ class VocabularyConfig:
             expand_by_default=expand_by_default,
             canonical_to_acronym=to_acronym,
             canonical_to_shorthand=to_shorthand,
+            expand_entries=expand_entries,
             expand_modes=expand_modes,
         )
 
@@ -1016,6 +1038,10 @@ class ARIELConfig:
             the agent-facing tools return.
         attachments: The ``ariel.attachments`` block — attachment copying, the
             size cap, the fetch allowlist and the ``attachment_view`` switch.
+        embedded_search: The ``ariel.embedded_search`` switch — whether the
+            ARIEL panel embedded in the web terminal offers its Search view.
+            Off by default: there, the agent searches the logbook. The
+            standalone page always offers Search.
 
     Documented top-level config keys read at runtime (not dataclass fields):
         entry_url_template: Optional ``str`` template for the canonical logbook
@@ -1047,6 +1073,11 @@ class ARIELConfig:
     vocabulary_warnings: list[str] = field(default_factory=list)
     entry_text: EntryTextConfig = field(default_factory=EntryTextConfig)
     attachments: AttachmentsConfig = field(default_factory=AttachmentsConfig)
+    embedded_search: bool = False
+    # Cache for entry_expander(): an EntryExpander, the legitimate None, or the
+    # unset sentinel. Not an init field, so dataclasses.replace() yields a copy
+    # that recomputes from its own settings; never part of equality or repr.
+    _entry_expander: Any = field(default=_EXPANDER_UNSET, init=False, repr=False, compare=False)
 
     @classmethod
     def from_dict(
@@ -1085,6 +1116,7 @@ class ARIELConfig:
             ValueError: If the ``vocabulary`` block is malformed.
             ValueError: If the ``entry_text`` block is malformed.
             ValueError: If the ``attachments`` block is malformed.
+            ValueError: If ``embedded_search`` is not a boolean.
         """
         if "pipelines" in config_dict:
             raise ConfigurationError(
@@ -1133,6 +1165,14 @@ class ARIELConfig:
         else:
             raise ValueError(f"{_ATTACHMENTS_PREFIX} must be a mapping, got {attachments_data!r}")
 
+        embedded_search = config_dict.get("embedded_search")
+        if embedded_search is None:
+            embedded_search = False
+        elif not isinstance(embedded_search, bool):
+            raise ValueError(
+                f"ariel.embedded_search must be true or false, got {embedded_search!r}"
+            )
+
         vocabulary_data = config_dict.get("vocabulary")
         if vocabulary_data is None:
             vocabulary = VocabularyConfig()
@@ -1176,6 +1216,7 @@ class ARIELConfig:
             vocabulary_warnings=vocabulary_warnings,
             entry_text=entry_text,
             attachments=attachments,
+            embedded_search=embedded_search,
         )
 
     @property
@@ -1192,18 +1233,101 @@ class ARIELConfig:
             and not self.vocabulary_errors
         )
 
+    def entry_expander(self) -> EntryExpander | None:
+        """The expander for logbook entry text, or None when expansion is off.
+
+        Expansion runs only when ``ariel.vocabulary.expand_entries`` is on AND
+        the vocabulary is active. The key on with the vocabulary block disabled
+        is None, silently: the operator turned the vocabulary off as a whole.
+        The result is computed once and cached on this config; the unusable
+        outcome is never cached, so it raises on every call.
+
+        Returns:
+            The cached :class:`EntryExpander`, or None when entry expansion is
+            off.
+
+        Raises:
+            ModuleConfigError: The key is on and the vocabulary is enabled but
+                unusable — it failed to load, or names no path. The message is
+                the first loader error verbatim, or the path-required error;
+                ``key`` is ``ariel.vocabulary.path``.
+        """
+        if self._entry_expander is not _EXPANDER_UNSET:
+            return cast("EntryExpander | None", self._entry_expander)
+        cause = self._entry_expander_cause()
+        if cause is not None:
+            raise ModuleConfigError(cause, key=f"{_VOCABULARY_PREFIX}.path")
+        expander: EntryExpander | None = None
+        if self.vocabulary.expand_entries and self.vocabulary_active:
+            assert self.loaded_vocabulary is not None
+            expander = EntryExpander(
+                self.loaded_vocabulary,
+                canonical_to_acronym=self.vocabulary.canonical_to_acronym,
+                canonical_to_shorthand=self.vocabulary.canonical_to_shorthand,
+            )
+        self._entry_expander = expander
+        return expander
+
+    def entry_expander_or_none(self) -> EntryExpander | None:
+        """Like :meth:`entry_expander`, but None instead of raising.
+
+        For surfaces that must keep running on an unusable vocabulary. The cause
+        is logged once per process, then suppressed.
+
+        Returns:
+            The cached :class:`EntryExpander`, or None when entry expansion is
+            off or the vocabulary is unusable.
+        """
+        try:
+            return self.entry_expander()
+        except ModuleConfigError as error:
+            cause = str(error)
+            if cause not in _LOGGED_EXPANDER_KEYS:
+                _LOGGED_EXPANDER_KEYS.add(cause)
+                logger.warning("Entry expansion is off: %s", cause)
+            return None
+
+    def _entry_expander_cause(self) -> str | None:
+        """Why entry expansion is configured on but cannot run.
+
+        Returns:
+            The error message when ``expand_entries`` is on and the vocabulary
+            is enabled but unusable, else None.
+        """
+        if not (self.vocabulary.expand_entries and self.vocabulary.enabled):
+            return None
+        if self.vocabulary_errors:
+            return self.vocabulary_errors[0]
+        if not self.vocabulary.path:
+            return (
+                f"{_VOCABULARY_PREFIX}.path: {_VOCABULARY_PREFIX}.path is required "
+                f"when {_VOCABULARY_PREFIX}.enabled is true"
+            )
+        if self.loaded_vocabulary is None:
+            return f"{_VOCABULARY_PREFIX}.path: {self.vocabulary.path} — vocabulary not loaded"
+        return None
+
     def resolve_expand_modes(self) -> tuple[str, ...]:
         """Name the search modules query expansion applies to.
 
+        Dense retrieval is expanded on both sides or not at all: expanding only
+        the query makes ``semantic`` and ``hybrid`` worse than not expanding
+        (JLAB-TN-26-024), so the default leaves them on the typed query until
+        ``expand_entries`` expands the entries too.
+
         Returns:
-            The configured ``expand_modes`` when the deployment set one, else
-            every enabled search module — the documented default of "all enabled
-            modes". :meth:`validate` has already refused a configured entry that
-            names no enabled module.
+            The configured ``expand_modes`` when the deployment set one. Else
+            every enabled search module when entries are expanded, and every
+            enabled module but the dense ones when they are not.
+            :meth:`validate` has already refused a configured entry that names
+            no enabled module.
         """
         if self.vocabulary.expand_modes is not None:
             return self.vocabulary.expand_modes
-        return tuple(self.get_enabled_search_modules())
+        enabled = self.get_enabled_search_modules()
+        if self.vocabulary.expand_entries:
+            return tuple(enabled)
+        return tuple(m for m in enabled if m not in DENSE_SEARCH_MODES)
 
     def resolve_default_search_mode(self) -> str:
         """Name the search module a search runs in when the caller names none.

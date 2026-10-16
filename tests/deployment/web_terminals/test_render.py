@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 import yaml
-from jinja2 import Environment, Template
+from jinja2 import BytecodeCache, Environment, Template
 
 from osprey.deployment.web_terminals import render as render_module
 from osprey.deployment.web_terminals.artifacts import web_artifacts_dir
@@ -64,6 +64,60 @@ from osprey.services.auth_sidecar.app import (
 )
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX, env_var_suffix
 from osprey.utils.workspace import agent_data_base_dir
+
+
+class _InMemoryBytecodeCache(BytecodeCache):
+    """Jinja's own compiled-template cache, held in memory for this module."""
+
+    def __init__(self) -> None:
+        self._store: dict[str, bytes] = {}
+
+    def load_bytecode(self, bucket) -> None:  # type: ignore[no-untyped-def]
+        data = self._store.get(bucket.key)
+        if data is not None:
+            bucket.bytecode_from_string(data)
+
+    def dump_bytecode(self, bucket) -> None:  # type: ignore[no-untyped-def]
+        self._store[bucket.key] = bucket.bytecode_to_string()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _render_reuses_parsed_templates_and_tokens():
+    """Parse each template and load the token tree once per module, not per render.
+
+    Every render builds two fresh Jinja Environments and re-reads the packaged
+    design tokens three times, and those reparses are most of this module's
+    time. The Environments stay fresh -- a new one per render, with fresh
+    Template objects, so a test that wraps a template's ``render`` touches only
+    its own -- they just share a bytecode cache, one per ``autoescape`` setting
+    since that changes the compiled code. Jinja keys each entry by template and
+    checks it against the source's checksum, so an edited template recompiles.
+    The token tree is memoized for the packaged ``tokens/`` directory only.
+    """
+    from osprey.interfaces.design_system.generator import model
+    from osprey.interfaces.design_system.generator.build import DEFAULT_TOKENS_DIR
+
+    caches: dict[object, _InMemoryBytecodeCache] = {}
+
+    def environment(*args, **kwargs):  # type: ignore[no-untyped-def]
+        cache = caches.setdefault(kwargs.get("autoescape", False), _InMemoryBytecodeCache())
+        return Environment(*args, bytecode_cache=cache, **kwargs)
+
+    real_load_token_tree = model.load_token_tree
+    packaged: list = []
+
+    def load_token_tree(tokens_dir):  # type: ignore[no-untyped-def]
+        if Path(tokens_dir) != Path(DEFAULT_TOKENS_DIR):
+            return real_load_token_tree(tokens_dir)
+        if not packaged:
+            packaged.append(real_load_token_tree(tokens_dir))
+        return packaged[0]
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(render_module, "Environment", environment)
+        mp.setattr(model, "load_token_tree", load_token_tree)
+        yield
+
 
 # The four classic config-set families; the effective per-family base set the
 # render actually allocates from also carries every registry default
@@ -3214,7 +3268,7 @@ def test_negotiated_401_absent_when_method_is_token() -> None:
 
     # Assert
     assert "$osprey_auth_wants_login_page" not in nginx_conf
-    assert "error_page" not in nginx_conf
+    assert "error_page 401" not in nginx_conf
     assert "@osprey_auth_401" not in nginx_conf
 
 
@@ -3232,7 +3286,7 @@ def test_negotiated_401_absent_when_the_method_is_open() -> None:
 
     # Assert
     assert "$osprey_auth_wants_login_page" not in nginx_conf
-    assert "error_page" not in nginx_conf
+    assert "error_page 401" not in nginx_conf
     assert "@osprey_auth_401" not in nginx_conf
 
     # Assert — non-vacuous: this render is the injecting one, not an empty one.
@@ -5279,104 +5333,31 @@ def test_render_without_graphdb_personas_emits_no_store_password_line() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Telemetry ingest token -> EVERY per-user container
+# Telemetry login -> each terminal's own file, never the environment
 #
-# The one telemetry credential a web terminal must hold, and the one place it
-# can arrive. Each persona's rendered config.yml carries the ingest token
-# reference verbatim -- the build defers it, because the STORE mints the value
-# -- and the agent re-resolves it against the container's own environment at
-# spawn. `.env.users` deliberately does not carry it
-# (`env_production._build_env_production_subset`), so without this line the
-# placeholder is still a placeholder inside the container and the terminal's
-# strict startup check refuses to run: a crash-loop behind the proxy, on every
-# deploy, for every user.
-#
-# Unconditional, unlike the four credentials above: every terminal runs an
-# agent that emits telemetry as the same account, so there is no tier to
-# express -- gating it on a persona set would only produce terminals that
-# cannot start.
+# Every terminal runs an agent that sends to the deployment's telemetry gateway
+# under its own login. The login is a file per terminal (`env_file`), so no
+# rendered `environment:` line names it and nothing is interpolated from the
+# shared deploy `.env`. `test_telemetry_gateway_render.py` pins the address and
+# the file per network shape.
 # ---------------------------------------------------------------------------
 
-_INGEST_TOKEN_LINE = "ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}"
 
-
-def test_every_user_container_receives_the_telemetry_ingest_token() -> None:
-    """Both users, whatever their persona: the token is not an entitlement."""
-    # Act
-    compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
-    )
-
-    # Assert
-    for service in ("web-alice", "web-bob"):
-        assert _INGEST_TOKEN_LINE in compose["services"][service]["environment"]
-
-
-def test_the_ingest_token_is_emitted_without_any_persona_set() -> None:
-    """The no-project-root render path (`osprey scaffold web-terminals render`)
-    passes no persona sets at all. The four entitlement credentials are omitted
-    there; this one must not be, or that render produces a stack whose terminals
-    cannot start."""
-    # Act
-    compose = yaml.safe_load(render_web_terminals(_config(["alice"]))["docker-compose.web.yml"])
-
-    # Assert
-    assert _INGEST_TOKEN_LINE in compose["services"]["web-alice"]["environment"]
-
-
-def test_the_ingest_token_is_interpolated_never_written_into_the_artifact() -> None:
-    """The secret itself never lands in a rendered file: compose resolves the
-    reference at container-create time from the deploy `.env`, which is where
-    `osprey up` harvests the token to."""
-    # Act
-    rendered = render_web_terminals(_config(["alice"]))["docker-compose.web.yml"]
-
-    # Assert
-    assert "${ZO_INGEST_SA_TOKEN" in rendered
-
-
-def test_the_shipped_config_and_the_container_env_name_the_same_variable() -> None:
-    """The end of the chain, pinned across the two files that have to agree.
-
-    A persona's telemetry block names the variable; this compose service is the
-    only thing that puts it in the container. Repoint one without the other --
-    exactly what happened when the shipped configs moved off the store's root
-    credential -- and every web terminal starts naming a variable nothing sets.
-
-    The naming half comes from the presets now: the framework template renders
-    no telemetry block, so a deployment's credential reference is written by its
-    profile's `config:`. Every preset that deploys the store is checked, because
-    one of them drifting is the failure this pins.
-    """
-    # Arrange
-    from osprey.cli.build_profile_archiver import _expand_dotted
-    from osprey.cli.build_profile_resolve import resolve_build_profile
-
-    declared_vars = set()
-    for preset in ("hello-world", "ariel-standalone", "control-assistant"):
-        profile, _profile_dir = resolve_build_profile(None, preset)
-        telemetry = _expand_dotted(profile.config)["claude_code"]["telemetry"]
-        password = (telemetry.get("openobserve") or {}).get("password")
-        declared = re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", str(password))
-        assert declared, f"{preset}'s telemetry block no longer names a bare ${{VAR}} password"
-        declared_vars.add(declared.group(1))
-
-    assert len(declared_vars) == 1, f"the presets name different variables: {declared_vars}"
-
-    # Act
-    compose = yaml.safe_load(render_web_terminals(_config(["alice"]))["docker-compose.web.yml"])
-
-    # Assert
-    environment = compose["services"]["web-alice"]["environment"]
-    delivered = {entry.split("=", 1)[0] for entry in environment}
-    assert declared_vars <= delivered
+def test_no_terminal_environment_names_a_telemetry_credential() -> None:
+    """Neither the login nor any store-issued token rides `environment:`."""
+    for config in (_events_persona_config(), _config(["alice"])):
+        compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+        for name, service in compose["services"].items():
+            env = service.get("environment") or []
+            assert not any(str(line).startswith("OSPREY_TELEMETRY_LOGIN") for line in env), name
+            assert not any("ZO_" in str(line) for line in env), name
 
 
 _COLLECTOR_VARS = ("OTLP_TOKEN", "OTLP_ENDPOINT", "SITE_NAME")
 
 
 def test_a_persona_exporting_to_a_collector_gets_its_token_and_every_referenced_variable() -> None:
-    """The token first, then each referenced variable, one `${VAR:-}` line each."""
+    """Each referenced variable, in order, one `${VAR:-}` line each."""
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
@@ -5390,7 +5371,7 @@ def test_a_persona_exporting_to_a_collector_gets_its_token_and_every_referenced_
     assert all(line in alice_env for line in lines)
     positions = [alice_env.index(line) for line in lines]
     assert positions == sorted(positions)
-    assert positions[0] == alice_env.index(_INGEST_TOKEN_LINE) + 1
+    assert positions == list(range(positions[0], positions[0] + len(lines)))
 
 
 def test_a_persona_without_telemetry_variables_gets_no_extra_line() -> None:
@@ -5417,21 +5398,6 @@ def test_the_collector_variables_are_interpolated_never_written() -> None:
     # Assert
     assert "OTLP_TOKEN=${OTLP_TOKEN:-}" in rendered
     assert re.search(r"OTLP_TOKEN=[^$]", rendered) is None
-
-
-def test_an_openobserve_deployment_renders_no_extra_telemetry_line() -> None:
-    """The fixed routes already deliver the shipped block's two variables."""
-    for config in (_events_persona_config(), _config(["alice"])):
-        # Act
-        compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
-
-        # Assert
-        for name, service in compose["services"].items():
-            if not name.startswith("web-"):
-                continue
-            env = service.get("environment") or []
-            assert env.count(_INGEST_TOKEN_LINE) == 1
-            assert not any(line.startswith("ZO_INGEST_USER_EMAIL=") for line in env)
 
 
 # ---------------------------------------------------------------------------

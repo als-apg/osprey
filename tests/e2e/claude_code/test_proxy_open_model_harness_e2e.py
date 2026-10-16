@@ -27,6 +27,8 @@ import subprocess
 import httpx
 import pytest
 
+from osprey.agent_runner.launcher import agent_cli_path
+from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
 from osprey.infrastructure.proxy.lifecycle import start_proxy, stop_proxy
 
 claude_agent_sdk = pytest.importorskip("claude_agent_sdk")
@@ -81,6 +83,7 @@ async def _drive_harness(upstream_base: str, upstream_key: str, model: str, prov
     )
     options = ClaudeAgentOptions(
         model=model,
+        cli_path=agent_cli_path({"cli_version": _DEFAULT_CLAUDE_CLI_VERSION}),
         permission_mode="bypassPermissions",
         max_turns=6,
         mcp_servers={"controls": server},

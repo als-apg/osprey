@@ -319,14 +319,25 @@ field, an unknown ``kind``, a duplicate canonical, an empty list, a file that is
 not a YAML mapping. The check reports **every** problem in one pass, so a file
 with three mistakes takes one run to fix, not three.
 
-**How text is matched.** The file and the query go through the same rule before
-anything is compared: lowercase; ``-`` becomes a space (so ``Beam-Position
-Monitor`` and ``beam position monitor`` are one phrase); ``/`` is **kept** (so
-``t/s`` and ``i/o`` stay a single token); runs of whitespace collapse to one.
-Nothing else is stripped, and no stemming happens here --- PostgreSQL's stemmer
-runs afterwards, on the text this produces. Forms match on whole tokens;
-multi-word forms match as phrases, longest first, left to right, and a stretch
-of text that has already matched is never matched again.
+**How text is matched.** The file, the query and --- when ``expand_entries`` is
+on --- the entry text all go through the same rule before anything is compared:
+lowercase; ``-`` becomes a space (so ``Beam-Position Monitor`` and ``beam
+position monitor`` are one phrase); ``/`` is **kept** (so ``t/s`` and ``i/o``
+stay a single token); runs of whitespace collapse to one. The punctuation
+characters ``, . : ; ! ? ( ) [ ] " '`` are stripped from the edges of each
+token, so ``BPM,``, ``(BPM)`` and ``BPM?`` all match the form ``bpm``. No
+stemming happens here --- PostgreSQL's stemmer runs afterwards, on the text this
+produces. Forms match on whole tokens; multi-word forms match as phrases,
+longest first, left to right, and a stretch of text that has already matched is
+never matched again.
+
+Punctuation *inside* a multi-word form is part of the form. The form
+``vert. orbit`` matches the text ``vert. orbit`` and not ``vert orbit``; write
+both spellings as forms if both occur. A phrase only matches where the text
+breaks the same way, so ``beam. position monitor`` does not match ``beam
+position monitor``. ``osprey ariel vocab-check`` warns about each form whose
+edge punctuation is ignored and each form whose interior punctuation is
+required.
 
 **The two direction gates.** Matching a form and adding its canonical is
 *always* on: type ``bpm`` and the search also finds "beam position monitor".
@@ -383,8 +394,8 @@ nothing.
 What gets expanded, and where
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Expansion runs once, in the search service, before the request reaches a search
-module. What it looks at depends on the mode:
+Expansion of a **query** runs once, in the search service, before the request
+reaches a search module. What it looks at depends on the mode:
 
 ``keyword``
    The search terms and quoted phrases only. The values of ``author:`` and
@@ -400,8 +411,29 @@ module. What it looks at depends on the mode:
    sidecar.
 
 The same query can therefore report different expansions in different modes.
-``expand_modes`` limits which modes expand at all; unset --- the default ---
-means every enabled search module.
+``expand_modes`` limits which modes expand at all. Unset --- the default ---
+means every enabled search module once the entries are expanded too, and only
+the modes other than ``semantic`` and ``hybrid`` until then (see below).
+
+With ``ariel.vocabulary.expand_entries: true`` the **entries** are expanded too,
+once, when they are embedded and when they are written to the qmd mirror: every
+matched span gets its alternatives inserted right after it, in the text itself
+(``BPM drifted`` is embedded as ``BPM beam position monitor drifted``), under the
+same direction gates as the query. An entry that already spells both terms
+next to each other (``beam position monitor (BPM)``) gains nothing. Keyword
+search never sees entry expansion: it searches the stored text, which is not
+changed.
+
+Both sides matter for the dense lanes. JLAB-TN-26-024 measured that expanding
+only the query makes ``semantic`` retrieval worse than not expanding at all
+(17--22 % lower), while expanding both the query and the entries raised P@10
+by 29 % and MRR@10 by 19 %. The default therefore never expands one side
+alone: while ``expand_entries`` is off, ``semantic`` and ``hybrid`` search the
+query as typed and only ``keyword`` expands it. Turning ``expand_entries`` on and
+re-embedding (see :ref:`turning on entry expansion
+<ariel-entry-expansion-rollout>` in :doc:`data-ingestion`) brings query
+expansion to the dense modes as well. A deployment that wants query-only
+expansion on a dense mode anyway names that mode in ``expand_modes``.
 
 .. admonition:: Hybrid feeds the expanded query to a reranker
    :class: note
@@ -433,6 +465,11 @@ query finds on its own, and the OSPREY agent can use it the same way when a
 rewrite looks like it widened a search too far. With the vocabulary disabled the
 toggle is not advertised at all and the argument does nothing.
 
+``expand_query`` acts on the query only. Entries embedded or mirrored with
+``expand_entries`` on keep their inserted terms, so ``semantic`` and ``hybrid``
+can still reach an entry through a vocabulary term with the toggle off. To see
+the corpus without entry expansion, set ``expand_entries: false`` and re-embed.
+
 What you see when a query expands
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -451,6 +488,15 @@ the same list in their result envelopes, and ``keyword_search`` and
 truncated query, a skipped expansion, or a pattern searched as text.
 ``osprey ariel search`` does not print the expansion --- use the panel or an MCP
 tool to see it.
+
+``expanded_terms`` lists only what was added to the **query**. Terms inserted
+into entries are not listed there. They do show up in one place: the web
+panel's ``hybrid`` result previews are snippets of the qmd mirror, which holds
+the expanded text, so a preview can read ``BPM beam position monitor drifted``
+where the stored entry says ``BPM drifted``. The entry itself, the ``keyword``
+and ``semantic`` previews, and the MCP tools (which return no snippets or
+highlights) show the stored text unchanged. The inserted terms also count
+toward the sidecar's BM25 half of ``hybrid`` scoring.
 
 Pattern tokens in keyword search
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -514,9 +560,11 @@ Configuration
        enabled: true                       # default: false
        path: data/ariel/vocabulary.yml     # required when enabled
        expand_by_default: true             # default: true
+       expand_entries: false               # default: false
        canonical_to_acronym: true          # default: true
        canonical_to_shorthand: false       # default: false
        # expand_modes: [keyword, semantic] # default: every enabled module
+                                           # (semantic/hybrid only with expand_entries)
 
      search_modules:
        keyword:
@@ -531,6 +579,14 @@ that was loaded (the deployment repo, not its ``build/`` render) --- the same
 rule as ``qmd_export.mirror_path`` and ``facility_knowledge.bundle_path`` ---
 so the panel, the CLI and the MCP server all read the same file no matter
 where the process was started.
+
+``expand_entries`` expands entry text before it is embedded and before it is
+written to the qmd mirror. It has no effect while ``enabled`` is ``false``
+(``osprey ariel status`` warns ``ariel.vocabulary.expand_entries is on and has
+no effect while ariel.vocabulary.enabled is false``). With it on and a
+vocabulary that does not load, ``sync``, ``ingest``, ``watch``, ``enhance``,
+``quickstart``, ``qmd-resync`` and ``reembed`` refuse to start rather than
+build unexpanded vectors.
 
 ``enabled: true`` with no ``path``, an ``expand_modes`` entry naming a module
 that is unknown or not enabled, and a malformed keyword knob are all
@@ -558,12 +614,39 @@ database. ``vocab-check`` exits ``0`` when the file loads and ``1`` when it does
 not, listing every error it found. Warnings are printed either way and never
 fail the check.
 
-``osprey ariel status`` reports one line --- ``Vocabulary: OK (20 concepts)``,
+``osprey ariel status`` reports one vocabulary line --- ``Vocabulary: OK (20
+concepts)``, ``Vocabulary: OK (20 concepts, entries expanded, key
+e1:3f9a0c1d2b7e4a55)`` when ``expand_entries`` is on,
 ``Vocabulary: INVALID (1 errors). Run: osprey ariel vocab-check``, or
 ``Vocabulary: disabled`` --- and its ``--json`` output carries the same verdict
 under ``vocabulary``. Run ``vocab-check`` on every edit, before you deploy: the
 file is read once, when the configuration is parsed, so a mistake in it is a
 startup problem rather than a search that quietly stops expanding.
+
+The ``e1:…`` value is the **vocabulary key**: the expansion rule and a
+fingerprint of the file and the two gates. Any edit to a concept's spellings,
+its kind or the order of the concepts changes it, and so does flipping a gate;
+comments and layout do not. Every command that writes entries or vectors
+(``sync``, ``watch``, ``reembed``, ...) prints the same line when it starts, and
+``osprey ariel qmd-resync`` prints the key as ``Expansion key``, so you can
+check that the host and the running image read the same file.
+
+Every stored vector also records the **running key** it was built with ---
+``r1`` without entry expansion, ``r1:e1:…`` with it. When a table holds vectors
+built differently from the running configuration, status prints one line per
+cause and, on the last one, the command that rebuilds them::
+
+   text_embedding nomic-embed-text: 1200 entries embedded without entry expansion. To rebuild them with the current settings, run osprey ariel reembed --model nomic-embed-text --dimension 768 --force.
+
+The causes are ``with a different input rule``, ``without entry expansion``,
+``with entry expansion``, ``with a different expansion rule``, ``with a
+different vocabulary`` and ``with an unrecognized build key``. With the
+vocabulary disabled the causes print without a command. A table whose schema
+predates the key prints ``schema behind code: run osprey ariel migrate``; a
+vocabulary that does not load prints ``text_embedding <model>: cannot check how
+N entries were embedded: the vocabulary does not load. Run: osprey ariel
+vocab-check``. The web ``/status`` page and the MCP status tool do not report
+this.
 
 When the vocabulary is broken
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

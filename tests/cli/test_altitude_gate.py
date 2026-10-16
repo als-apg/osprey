@@ -14,7 +14,7 @@ from click.testing import CliRunner
 from rich.console import Console
 from rich.logging import RichHandler
 
-from osprey.cli.altitude import _AltitudeGate, gate_installed, install_gate, lift_gate
+from osprey.cli.altitude import PRINTED, _AltitudeGate, gate_installed, install_gate, lift_gate
 from osprey.cli.main import cli
 
 INFO_MARKER = "INFOMARKER"
@@ -64,7 +64,7 @@ def _capture_renders(buffer: StringIO) -> RichHandler:
 
 
 class TestGateFilter:
-    """The filter itself: the record's level, plus one bit of reporter state.
+    """The filter itself: the record's level, its printed mark, plus one bit of reporter state.
 
     These direct tests run under the quiet ``NullReporter`` default, which is
     the no-lifecycle-verb state: WARNING and above pass. The lifecycle state is
@@ -97,6 +97,12 @@ class TestGateFilter:
         gated.osprey_intent = "key_info"  # type: ignore[attr-defined]
         assert _AltitudeGate().filter(gated) is False
 
+    def test_a_printed_warning_is_kept_off_the_terminal(self):
+        """Its call site already printed it; painting it again says it twice."""
+        record = logging.LogRecord("osprey.test", logging.WARNING, __file__, 1, "msg", None, None)
+        setattr(record, PRINTED, True)
+        assert _AltitudeGate().filter(record) is False
+
 
 class TestSingleVoiceDuringLifecycleVerbs:
     """While a reporter owns the terminal, a WARNING arrives promoted or not at all.
@@ -122,6 +128,12 @@ class TestSingleVoiceDuringLifecycleVerbs:
     @pytest.mark.usefixtures("lifecycle_reporter_installed")
     def test_warning_is_dropped_while_a_reporter_is_installed(self):
         assert _AltitudeGate().filter(self._record(logging.WARNING)) is False
+
+    @pytest.mark.usefixtures("lifecycle_reporter_installed")
+    def test_a_printed_warning_is_dropped_while_a_reporter_is_installed(self):
+        record = self._record(logging.WARNING)
+        setattr(record, PRINTED, True)
+        assert _AltitudeGate().filter(record) is False
 
     @pytest.mark.usefixtures("lifecycle_reporter_installed")
     def test_error_still_paints_while_a_reporter_is_installed(self):

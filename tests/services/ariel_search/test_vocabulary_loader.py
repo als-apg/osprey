@@ -682,3 +682,305 @@ class TestStopwordList:
     def test_known_non_members(self, word: str) -> None:
         """Facility words are not stopwords."""
         assert word not in _ENGLISH_FTS_STOPWORDS
+
+
+PUNCTUATED_VOCABULARY = """
+concepts:
+  - canonical: vertical orbit
+    kind: shorthand
+    forms:
+      - vert. orbit
+      - Vert-Orbit
+  - canonical: beam position monitor
+    kind: acronym
+    forms:
+      - BPM
+      - "(BPM)"
+"""
+
+
+class TestInteriorPatterns:
+    """Tests for tokenizer-norm keys, raw spellings and the interior-pattern table."""
+
+    def test_interior_pattern_records_a_stripped_period(self, tmp_path: Path) -> None:
+        """``vert. orbit`` keys as ``vert orbit`` with a closing break after ``vert``."""
+        vocab, errors, _ = load_vocabulary(write_vocabulary(tmp_path, PUNCTUATED_VOCABULARY))
+
+        assert errors == []
+        assert vocab is not None
+        # "vert. orbit" and "Vert-Orbit" share one key; the union keeps both patterns.
+        assert vocab.interior_patterns["vert orbit"] == frozenset(
+            {((True, False),), ((False, False),)}
+        )
+
+    def test_interior_pattern_of_a_punctuation_free_phrase(self, tmp_path: Path) -> None:
+        """A three-token spelling with no edge characters has two no-break boundaries."""
+        vocab, _, _ = load_vocabulary(write_vocabulary(tmp_path, PUNCTUATED_VOCABULARY))
+
+        assert vocab is not None
+        assert vocab.interior_patterns["beam position monitor"] == frozenset(
+            {((False, False), (False, False))}
+        )
+
+    def test_interior_pattern_of_a_single_token_is_empty(self, tmp_path: Path) -> None:
+        """A one-token key has no interior boundary, whatever its edge characters."""
+        vocab, _, _ = load_vocabulary(write_vocabulary(tmp_path, PUNCTUATED_VOCABULARY))
+
+        assert vocab is not None
+        assert vocab.interior_patterns["bpm"] == frozenset({()})
+
+    def test_interior_patterns_cover_every_key(self, tmp_path: Path) -> None:
+        """Every form and canonical key has an entry in the table."""
+        vocab, _, _ = load_vocabulary(write_vocabulary(tmp_path, PUNCTUATED_VOCABULARY))
+
+        assert vocab is not None
+        keys = set(vocab.forms_to_concepts) | set(vocab.canonical_to_concept)
+        assert set(vocab.interior_patterns) == keys
+
+    def test_interior_patterns_union_across_concepts(self, tmp_path: Path) -> None:
+        """A key bound by two concepts unions the patterns of both spellings."""
+        text = """
+concepts:
+  - canonical: vertical orbit
+    kind: shorthand
+    forms:
+      - vert. orbit
+  - canonical: vertical orbit feedback
+    kind: shorthand
+    forms:
+      - vert, orbit
+      - vert orbit
+"""
+        vocab, errors, _ = load_vocabulary(write_vocabulary(tmp_path, text))
+
+        assert errors == []
+        assert vocab is not None
+        assert [c.canonical for c in vocab.forms_to_concepts["vert orbit"]] == [
+            "vertical orbit",
+            "vertical orbit feedback",
+        ]
+        assert vocab.interior_patterns["vert orbit"] == frozenset(
+            {((True, False),), ((False, False),)}
+        )
+
+    def test_interior_patterns_default_empty_on_hand_built_vocabulary(self) -> None:
+        """A ``Vocabulary`` built without the table gets an empty one."""
+        concept = Concept(canonical="beam position monitor", kind="acronym", forms=("bpm",))
+        vocab = Vocabulary(
+            concepts=(concept,),
+            forms_to_concepts={"bpm": [concept]},
+            canonical_to_concept={"beam position monitor": concept},
+            max_form_tokens=3,
+        )
+        assert vocab.interior_patterns == {}
+
+    def test_keys_use_stripped_tokenizer_norm(self, tmp_path: Path) -> None:
+        """Forms and canonicals are keyed with edge characters stripped."""
+        vocab, _, _ = load_vocabulary(write_vocabulary(tmp_path, PUNCTUATED_VOCABULARY))
+
+        assert vocab is not None
+        assert vocab.concepts[0].forms == ("vert orbit",)
+        assert vocab.concepts_for_form("vert orbit") == [vocab.concepts[0]]
+        assert "vert. orbit" not in vocab.forms_to_concepts
+        assert vocab.concepts[1].forms == ("bpm",)
+        assert "(bpm)" not in vocab.forms_to_concepts
+
+    def test_stripped_canonical_is_the_lookup_key(self, tmp_path: Path) -> None:
+        """A canonical carrying edge characters is keyed by its stripped norm."""
+        text = """
+concepts:
+  - canonical: "Vert. Orbit"
+    kind: shorthand
+    forms:
+      - vo
+"""
+        vocab, errors, _ = load_vocabulary(write_vocabulary(tmp_path, text))
+
+        assert errors == []
+        assert vocab is not None
+        assert vocab.concepts[0].canonical == "vert orbit"
+        assert vocab.concept_for_canonical("vert orbit") is vocab.concepts[0]
+        assert vocab.interior_patterns["vert orbit"] == frozenset({((True, False),)})
+
+    def test_canonical_empty_after_stripping_is_an_error(self, tmp_path: Path) -> None:
+        """A canonical of edge characters only reuses the non-empty-string error."""
+        text = """
+concepts:
+  - canonical: "..."
+    kind: shorthand
+    forms:
+      - x
+"""
+        vocab, errors, _ = load_vocabulary(write_vocabulary(tmp_path, text))
+
+        assert vocab is None
+        assert errors == ["concepts[0] ('...'): 'canonical' must be a non-empty string"]
+
+    def test_canonicals_colliding_after_stripping_are_duplicates(self, tmp_path: Path) -> None:
+        """Two canonicals equal once edge characters are stripped collide."""
+        text = """
+concepts:
+  - canonical: vert orbit
+    kind: shorthand
+    forms:
+      - vo
+  - canonical: "vert. orbit"
+    kind: shorthand
+    forms:
+      - v.o
+"""
+        vocab, errors, _ = load_vocabulary(write_vocabulary(tmp_path, text))
+
+        assert vocab is None
+        assert errors == [
+            "concepts[1] ('vert. orbit'): duplicate canonical 'vert orbit' after "
+            "normalization — already defined by concepts[0]"
+        ]
+
+    def test_form_equal_to_canonical_after_stripping_is_an_error(self, tmp_path: Path) -> None:
+        """A form that strips down to its canonical reuses the same-as-canonical error."""
+        text = """
+concepts:
+  - canonical: bpm
+    kind: acronym
+    forms:
+      - "(BPM)"
+"""
+        vocab, errors, _ = load_vocabulary(write_vocabulary(tmp_path, text))
+
+        assert vocab is None
+        assert errors == [
+            "concepts[0] ('bpm'): forms[0] '(BPM)' is the same as its canonical "
+            "'bpm' after normalization"
+        ]
+
+    def test_form_empty_after_stripping_is_an_error(self, tmp_path: Path) -> None:
+        """A form of edge characters only reuses the non-empty-string error."""
+        text = """
+concepts:
+  - canonical: bpm
+    kind: acronym
+    forms:
+      - "?!"
+"""
+        vocab, errors, _ = load_vocabulary(write_vocabulary(tmp_path, text))
+
+        assert vocab is None
+        assert errors == ["concepts[0] ('bpm'): forms[0] must be a non-empty string"]
+
+    def test_raw_spellings_retained_in_file_order(self, tmp_path: Path) -> None:
+        """Every accepted raw spelling is kept verbatim, in file order."""
+        vocab, _, _ = load_vocabulary(write_vocabulary(tmp_path, PUNCTUATED_VOCABULARY))
+
+        assert vocab is not None
+        assert vocab.concepts[0].raw_canonical == "vertical orbit"
+        assert vocab.concepts[0].raw_forms == ("vert. orbit", "Vert-Orbit")
+        assert vocab.concepts[1].raw_canonical == "beam position monitor"
+        assert vocab.concepts[1].raw_forms == ("BPM", "(BPM)")
+
+    def test_raw_spellings_do_not_affect_equality(self) -> None:
+        """Concepts that differ only in raw spellings compare equal."""
+        bare = Concept(canonical="vert orbit", kind="shorthand", forms=("vo",))
+        spelled = Concept(
+            canonical="vert orbit",
+            kind="shorthand",
+            forms=("vo",),
+            raw_canonical="Vert. Orbit",
+            raw_forms=("V.O.",),
+        )
+        assert bare == spelled
+        assert bare.raw_canonical == ""
+        assert bare.raw_forms == ()
+
+
+class TestEdgePunctuationWarnings:
+    """Warnings for raw forms whose edge punctuation changes how they match."""
+
+    EDGE_WARNING = (
+        'form "(BPM)" (concept "beam position monitor") is matched as "bpm" '
+        "— edge punctuation (, . : ; ! ? ( ) [ ] \" ') is ignored in queries and entries"
+    )
+    INTERIOR_WARNING = (
+        'form "vert. orbit" (concept "vertical orbit"): its interior punctuation is '
+        "required — only text that breaks the same way matches"
+    )
+
+    def test_edge_and_interior_warnings_exact(self, tmp_path: Path) -> None:
+        """Outer-only stripping and an interior break each get their own warning."""
+        vocab, errors, warnings = load_vocabulary(write_vocabulary(tmp_path, PUNCTUATED_VOCABULARY))
+
+        assert errors == []
+        assert vocab is not None
+        assert warnings == [self.INTERIOR_WARNING, self.EDGE_WARNING]
+
+    def test_edge_warning_interpolates_the_edge_character_set(self) -> None:
+        """The edge warning names exactly the characters the tokenizer strips."""
+        from osprey.services.ariel_search.vocabulary.model import _EDGE_TEXT
+
+        assert f"({_EDGE_TEXT})" in self.EDGE_WARNING
+
+    def test_hyphen_and_interior_slash_forms_have_no_edge_warning(self, tmp_path: Path) -> None:
+        """``-`` splits like whitespace and ``t/s`` keeps its ``/``: neither warns."""
+        text = """
+concepts:
+  - canonical: troubleshoot
+    kind: shorthand
+    forms:
+      - t/s
+      - Trouble-Shoot now
+"""
+        _, errors, warnings = load_vocabulary(write_vocabulary(tmp_path, text))
+
+        assert errors == []
+        assert warnings == []
+
+    def test_trailing_period_form_is_an_edge_warning(self, tmp_path: Path) -> None:
+        """A trailing period alone is outer-edge stripping, not an interior break."""
+        text = """
+concepts:
+  - canonical: vertical orbit
+    kind: shorthand
+    forms:
+      - vert orbit.
+"""
+        _, errors, warnings = load_vocabulary(write_vocabulary(tmp_path, text))
+
+        assert errors == []
+        assert warnings == [
+            'form "vert orbit." (concept "vertical orbit") is matched as "vert orbit" '
+            "— edge punctuation (, . : ; ! ? ( ) [ ] \" ') is ignored in queries and entries"
+        ]
+
+    def test_interior_break_wins_over_outer_edges(self, tmp_path: Path) -> None:
+        """A form with both interior and outer edges gets only the interior warning."""
+        text = """
+concepts:
+  - canonical: vertical orbit
+    kind: shorthand
+    forms:
+      - "(vert. orbit)"
+"""
+        _, errors, warnings = load_vocabulary(write_vocabulary(tmp_path, text))
+
+        assert errors == []
+        assert warnings == [
+            'form "(vert. orbit)" (concept "vertical orbit"): its interior punctuation is '
+            "required — only text that breaks the same way matches"
+        ]
+
+    def test_spaced_edge_only_token_is_an_interior_break(self, tmp_path: Path) -> None:
+        """A dropped edge-only token between two words still breaks the form."""
+        text = """
+concepts:
+  - canonical: vertical orbit
+    kind: shorthand
+    forms:
+      - "vert : orbit"
+"""
+        _, errors, warnings = load_vocabulary(write_vocabulary(tmp_path, text))
+
+        assert errors == []
+        assert warnings == [
+            'form "vert : orbit" (concept "vertical orbit"): its interior punctuation is '
+            "required — only text that breaks the same way matches"
+        ]

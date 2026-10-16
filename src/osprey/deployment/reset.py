@@ -210,27 +210,6 @@ MINTED_ENV_BANNERS: tuple[str, ...] = (
     "Auto-configured bluesky bridge plan devices (osprey deploy up)",
     "Auto-generated bluesky RE manager control-socket keypair (osprey deploy up)",
     "Credentials adopted from pre-existing data volumes (osprey --reuse-stores)",
-    # Not a secret — service account names, written so an operator can find the
-    # whole login in one place. Listed here for the same reason as the rest:
-    # every block the deploy writes is one the deploy can write again, so
-    # leaving it behind would strand a name beside credentials that are gone.
-    #
-    # Names the current command, unlike the older banners above, which still
-    # carry the retired command spelling they were written under — this tuple is
-    # a data format and never rewrites an entry. A NEW banner has no `.env` on
-    # disk to stay compatible with, so it uses the command that actually exists.
-    # test_lifecycle_invariants' retired-spelling scan grandfathers exactly the
-    # older three and nothing else, which is what keeps this from drifting back.
-    "Service account names (osprey up) — not secrets",
-    # The one credential in this list the deploy did not choose: OpenObserve
-    # issues its service account's token, and `osprey up` only records it. It
-    # belongs here for a sharper reason than the rest. A reset destroys the
-    # store's data volume, and the account lives INSIDE that volume — so a token
-    # left behind in `.env` is not merely stale, it names an account that no
-    # longer exists, and the next deploy's telemetry would be refused by a store
-    # that is otherwise brand new. Stripping it is what lets the provisioner
-    # create the account again and write the token the new store issued.
-    "Harvested OpenObserve ingest token (osprey up)",
     # The two blocks the deploy writes today, under the command that exists.
     # Their retired spellings stay at the top of this tuple: a `.env` written
     # before the rename carries the old banner, and a block is matched by its
@@ -694,6 +673,18 @@ class ResetPlan:
                     "reset leaves it exactly as it is."
                 )
                 kept.append(f"      {refresh}")
+        # Read from the directory, not from a config: a file whose account left
+        # the config long ago is still a secret sitting at the repo root.
+        from osprey.deployment.telemetry_credentials import existing_credential_files
+
+        telemetry_files = existing_credential_files(self.repo_root)
+        for filename, holds in telemetry_files:
+            kept.append(f"    {filename}  {holds}.")
+        if telemetry_files:
+            kept.append(
+                "      Each is written once and never rewritten. Delete one and the next "
+                "`osprey up` creates it again with a new secret."
+            )
         kept.append(
             f"    {STATE_DIR_NAME}/  everything outside the entries listed above, including "
             "any --archive tarballs."

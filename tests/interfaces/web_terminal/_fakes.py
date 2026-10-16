@@ -48,8 +48,8 @@ class FakePtySession:
         self._last_rows = 24
         self._last_cols = 80
         self._command_list = ["fake"]
-        # What ``started_commands`` answers.
-        self.started: list = []
+        # What ``started_commands`` answers; ``None`` is a table that could not be read.
+        self.started: list | None = []
 
     @property
     def is_alive(self):
@@ -76,8 +76,8 @@ class FakePtySession:
     def terminate(self):
         self._alive = False
 
-    def started_commands(self) -> list:
-        return list(self.started)
+    def started_commands(self) -> list | None:
+        return None if self.started is None else list(self.started)
 
     def emit(self, data: bytes) -> None:
         self._chunks.append(data)
@@ -125,17 +125,18 @@ class FakeChatSession:
         self.is_busy = busy
         self.process_exited: bool | None = None
         self.teardowns = 0
-        # What ``started_commands`` answers, and how often it was asked.
-        self.running_commands: list = []
+        # What ``started_commands`` answers (``None`` is a table that could not be
+        # read), and how often it was asked.
+        self.running_commands: list | None = []
         self.started_calls = 0
 
     @property
     def is_active(self) -> bool:
         return self._active
 
-    def started_commands(self) -> list:
+    def started_commands(self) -> list | None:
         self.started_calls += 1
-        return list(self.running_commands)
+        return None if self.running_commands is None else list(self.running_commands)
 
     async def teardown(self) -> None:
         self.teardowns += 1
@@ -196,17 +197,18 @@ class PoolChatSession:
         self.turns = 0
         self.start_delay = 0.0
         self.started = asyncio.Event()
-        # What ``started_commands`` answers, and how often it was asked.
-        self.running_commands: list = []
+        # What ``started_commands`` answers (``None`` is a table that could not be
+        # read), and how often it was asked.
+        self.running_commands: list | None = []
         self.started_calls = 0
 
     @property
     def is_busy(self) -> bool:
         return self.in_flight
 
-    def started_commands(self) -> list:
+    def started_commands(self) -> list | None:
         self.started_calls += 1
-        return list(self.running_commands)
+        return None if self.running_commands is None else list(self.running_commands)
 
     async def start(self, *, resume_id: str | None = None) -> None:
         self.resume_id = resume_id

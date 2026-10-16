@@ -38,8 +38,19 @@ from osprey.services.ariel_search.exceptions import DatabaseQueryError
 # A minimal config dict accepted by ARIELConfig.from_dict.
 _DB = {"database": {"uri": "postgresql://localhost/test"}}
 
+# The ``entry_expansion`` block when ``ariel.vocabulary.expand_entries`` is off.
+_EXPANSION_OFF = {"configured": False, "active": False, "key": None}
+
 # What ``get_status`` reports for a config with no ``vocabulary`` block at all.
-_DISABLED_VOCABULARY = {"status": "disabled", "concepts": 0, "errors": []}
+_DISABLED_VOCABULARY = {
+    "status": "disabled",
+    "concepts": 0,
+    "errors": [],
+    "entry_expansion": _EXPANSION_OFF,
+}
+
+# What ``get_status`` reports for the two-concept ``_AMBIGUOUS`` file, key off.
+_OK_TWO_CONCEPTS = {"status": "ok", "concepts": 2, "errors": [], "entry_expansion": _EXPANSION_OFF}
 
 
 def _write_vocabulary(tmp_path, body: str):
@@ -150,6 +161,8 @@ def _status_repo(
         return_value={"total_entries": 0} if stats is None else stats
     )
     repo.get_embedding_tables = AsyncMock(return_value=list(tables))
+    repo.has_input_key_column = AsyncMock(return_value=True)
+    repo.get_embedding_build_counts = AsyncMock(return_value={"r1": 7})
     repo.get_image_embedding_tables = AsyncMock(return_value=[])
     repo.get_last_ingestion = AsyncMock(return_value=last_ingestion)
     repo.schema_facts = AsyncMock(
@@ -586,7 +599,7 @@ class TestGetStatusVocabulary:
 
     async def test_no_config_reports_disabled(self):
         out = await ops.get_status({})
-        assert out["vocabulary"] == {"status": "disabled", "concepts": 0, "errors": []}
+        assert out["vocabulary"] == _DISABLED_VOCABULARY
 
     async def test_legacy_pipelines_section_reports_invalid_with_parse_error(self):
         out = await ops.get_status({"pipelines": {"rag": {}}})
@@ -617,7 +630,7 @@ class TestGetStatusVocabulary:
         config["vocabulary"] = {"enabled": True, "path": str(path)}
         out = await ops.get_status(config)
 
-        assert out["vocabulary"] == {"status": "ok", "concepts": 2, "errors": []}
+        assert out["vocabulary"] == _OK_TWO_CONCEPTS
 
     async def test_enabled_without_path_reports_invalid(self, monkeypatch):
         repo = _status_repo()
@@ -639,7 +652,7 @@ class TestGetStatusVocabulary:
         out = await ops.get_status(config)
 
         assert out["status"] == "error"
-        assert out["vocabulary"] == {"status": "ok", "concepts": 2, "errors": []}
+        assert out["vocabulary"] == _OK_TWO_CONCEPTS
 
     async def test_relative_path_resolves_against_config_dir(self, monkeypatch, tmp_path):
         repo = _status_repo()
@@ -650,7 +663,198 @@ class TestGetStatusVocabulary:
         config["vocabulary"] = {"enabled": True, "path": "vocabulary.yml"}
         out = await ops.get_status(config, config_dir=tmp_path)
 
-        assert out["vocabulary"] == {"status": "ok", "concepts": 2, "errors": []}
+        assert out["vocabulary"] == _OK_TWO_CONCEPTS
+
+
+class TestStatusVocabularyEntryExpansion:
+    """``entry_expansion`` rides on every path of the status vocabulary document."""
+
+    def test_entry_expansion_on_empty_config(self):
+        assert ops._status_config({}, None)[1]["entry_expansion"] == _EXPANSION_OFF
+
+    def test_entry_expansion_on_parse_failure_keeps_the_parse_message(self):
+        out = ops._status_config({"pipelines": {"rag": {}}}, None)[1]
+
+        assert out["status"] == "invalid"
+        assert "ariel.pipelines section is no longer supported" in out["errors"][0]
+        assert out["entry_expansion"] == _EXPANSION_OFF
+
+    def test_entry_expansion_configured_while_vocabulary_disabled(self, unit_vocabulary_file):
+        config = {
+            **_DB,
+            "vocabulary": {
+                "enabled": False,
+                "path": str(unit_vocabulary_file),
+                "expand_entries": True,
+            },
+        }
+        out = ops._status_config(config, None)[1]
+
+        assert out["status"] == "disabled"
+        assert out["entry_expansion"] == {"configured": True, "active": False, "key": None}
+
+    def test_entry_expansion_configured_on_invalid_vocabulary(self, tmp_path):
+        config = {
+            **_DB,
+            "vocabulary": {
+                "enabled": True,
+                "path": str(tmp_path / "absent.yml"),
+                "expand_entries": True,
+            },
+        }
+        out = ops._status_config(config, None)[1]
+
+        assert out["status"] == "invalid"
+        assert out["entry_expansion"] == {"configured": True, "active": False, "key": None}
+
+    def test_entry_expansion_key_off_on_valid_vocabulary(self, unit_vocabulary_file):
+        config = {**_DB, "vocabulary": {"enabled": True, "path": str(unit_vocabulary_file)}}
+        out = ops._status_config(config, None)[1]
+
+        assert out["status"] == "ok"
+        assert out["entry_expansion"] == _EXPANSION_OFF
+
+    def test_entry_expansion_active_reports_the_expander_key(self, unit_vocabulary_file):
+        import re
+
+        from osprey.services.ariel_search import ARIELConfig
+
+        vocabulary = {
+            "enabled": True,
+            "path": str(unit_vocabulary_file),
+            "expand_entries": True,
+        }
+        out = ops._status_config({**_DB, "vocabulary": vocabulary}, None)[1]
+        expected = ARIELConfig.from_dict({**_DB, "vocabulary": vocabulary}).entry_expander()
+
+        assert out["status"] == "ok"
+        assert out["concepts"] == 6
+        assert out["entry_expansion"] == {
+            "configured": True,
+            "active": True,
+            "key": expected.key,
+        }
+        assert re.fullmatch(r"e1:[0-9a-f]{16}", out["entry_expansion"]["key"])
+
+    def test_entry_expansion_relative_path_resolves_against_config_dir(self, unit_vocabulary_file):
+        config = {
+            **_DB,
+            "vocabulary": {"enabled": True, "path": "vocabulary.yml", "expand_entries": True},
+        }
+        out = ops._status_config(config, unit_vocabulary_file.parent)[1]
+
+        assert out["entry_expansion"]["active"] is True
+
+
+class TestStatusConfig:
+    """``_status_config`` keeps the parsed config beside the vocabulary document."""
+
+    def test_status_config_empty_dict_has_no_config(self):
+        config, vocabulary = ops._status_config({}, None)
+
+        assert config is None
+        assert vocabulary == _DISABLED_VOCABULARY
+
+    def test_status_config_parse_failure_has_no_config(self):
+        config, vocabulary = ops._status_config({"pipelines": {"rag": {}}}, None)
+
+        assert config is None
+        assert vocabulary["status"] == "invalid"
+
+    def test_status_config_returns_the_config_it_resolved(self, unit_vocabulary_file):
+        raw = {**_DB, "vocabulary": {"enabled": True, "path": "vocabulary.yml"}}
+        config, vocabulary = ops._status_config(raw, unit_vocabulary_file.parent)
+
+        assert vocabulary["status"] == "ok"
+        assert config is not None
+        assert config.loaded_vocabulary is not None
+        assert config.loaded_vocabulary.concept_count == vocabulary["concepts"]
+
+
+class TestGetStatusEntryExpansion:
+    """``get_status`` builds its service from the status parse and survives the vocabulary."""
+
+    async def test_entry_expansion_parse_failure_returns_error_before_database(self, monkeypatch):
+        import osprey.services.ariel_search as ariel_pkg
+
+        calls = []
+
+        async def _fake_create(config):
+            calls.append(config)
+            raise AssertionError("the database must not be reached")
+
+        monkeypatch.setattr(ariel_pkg, "create_ariel_service", _fake_create)
+
+        out = await ops.get_status({"pipelines": {"rag": {}}})
+
+        assert calls == []
+        assert out["status"] == "error"
+        assert "ariel.pipelines section is no longer supported" in out["message"]
+        assert out["message"] == out["vocabulary"]["errors"][0]
+
+    async def test_entry_expansion_service_config_resolves_against_config_dir(
+        self, monkeypatch, unit_vocabulary_file
+    ):
+        import osprey.services.ariel_search as ariel_pkg
+
+        seen = []
+        service = _StubService(repository=_status_repo())
+
+        async def _fake_create(config):
+            seen.append(config)
+            return service
+
+        monkeypatch.setattr(ariel_pkg, "create_ariel_service", _fake_create)
+        raw = {
+            **_DB,
+            "vocabulary": {"enabled": True, "path": "vocabulary.yml", "expand_entries": True},
+        }
+
+        out = await ops.get_status(raw, config_dir=unit_vocabulary_file.parent)
+
+        assert out["status"] == "healthy"
+        assert out["vocabulary"]["entry_expansion"]["active"] is True
+        assert len(seen) == 1
+        assert seen[0].entry_expander() is not None
+        assert seen[0].entry_expander().key == out["vocabulary"]["entry_expansion"]["key"]
+
+    async def test_entry_expansion_broken_vocabulary_keeps_status_healthy(
+        self, monkeypatch, tmp_path
+    ):
+        from osprey.models.providers.health import HealthResult
+        from osprey.services.ariel_search.enhancement.qmd_export.exporter import (
+            QmdExportModule,
+        )
+        from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+            TextEmbeddingModule,
+        )
+
+        async def _ok(_self):
+            return HealthResult(True, "OK", None)
+
+        monkeypatch.setattr(TextEmbeddingModule, "health_check", _ok)
+        monkeypatch.setattr(QmdExportModule, "health_check", _ok)
+        repo = _status_repo(tables=[_embedding_table()])
+        _patch_service(monkeypatch, _StubService(repository=repo))
+        config = _enable("text_embedding", "qmd_export", qmd_export={"mirror_path": str(tmp_path)})
+        config["vocabulary"] = {
+            "enabled": True,
+            "path": str(tmp_path / "absent.yml"),
+            "expand_entries": True,
+        }
+
+        out = await ops.get_status(config)
+
+        assert out["status"] == "healthy"
+        assert [t["table"] for t in out["embedding_tables"]] == ["text_embeddings_nomic"]
+        assert out["vocabulary"]["status"] == "invalid"
+        assert out["vocabulary"]["entry_expansion"] == {
+            "configured": True,
+            "active": False,
+            "key": None,
+        }
+        assert _health(out, "text_embedding")["reason"] is None
+        assert _health(out, "qmd_export")["reason"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -1586,3 +1790,233 @@ class TestStatusTextModuleHealth:
         )
 
         assert "skipped," not in text
+
+
+# ---------------------------------------------------------------------------
+# get_status — per-table embedding build verdicts
+# ---------------------------------------------------------------------------
+
+_BUILD_KEYS = {"built_with", "stale", "verdict_unavailable", "model"}
+_NOMIC_MODEL = {"name": "nomic", "dimension": 768}
+
+
+class TestGetStatusEmbeddingVerdicts:
+    """Every ``embedding_tables[]`` element says how its rows were built."""
+
+    @staticmethod
+    def _config(*, enabled=True, models=(_NOMIC_MODEL,), vocabulary=None):
+        config = {
+            **_DB,
+            "enhancement_modules": {
+                "text_embedding": {"enabled": enabled, "models": [dict(m) for m in models]}
+            },
+        }
+        if vocabulary is not None:
+            config["vocabulary"] = vocabulary
+        return config
+
+    @staticmethod
+    def _patch(monkeypatch, repo):
+        from osprey.models.providers.health import HealthResult
+
+        _patch_service(monkeypatch, _StubService(repository=repo))
+        _patch_modules(
+            monkeypatch,
+            {"text_embedding": _HealthModule("text_embedding", HealthResult(True, "OK", None))},
+        )
+
+    @staticmethod
+    def _expanding(unit_vocabulary_file, **extra):
+        return {
+            "enabled": True,
+            "path": str(unit_vocabulary_file),
+            "expand_entries": True,
+            **extra,
+        }
+
+    async def test_status_stale_counts_per_cause_against_the_running_key(
+        self, monkeypatch, unit_vocabulary_file
+    ):
+        from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
+            running_input_key,
+        )
+
+        config = self._config(vocabulary=self._expanding(unit_vocabulary_file))
+        running = running_input_key(ops._ariel_config(config).entry_expander())
+        assert running.startswith("r1:e1:")
+        other = "r1:e1:" + ("0" * 16 if not running.endswith("0" * 16) else "1" * 16)
+        counts = {"r1": 3, other: 2, running: 4}
+        repo = _status_repo(tables=[_embedding_table()])
+        repo.get_embedding_build_counts = AsyncMock(return_value=counts)
+        self._patch(monkeypatch, repo)
+
+        out = await ops.get_status(config)
+
+        table = out["embedding_tables"][0]
+        assert out["status"] == "healthy"
+        assert table["built_with"] == counts
+        assert table["stale"] == {"unexpanded": 3, "vocabulary": 2}
+        assert table["verdict_unavailable"] is None
+        assert table["model"] == _NOMIC_MODEL
+        repo.get_embedding_build_counts.assert_awaited_once_with("text_embeddings_nomic")
+
+    async def test_status_current_table_reports_an_empty_stale_dict(self, monkeypatch):
+        repo = _status_repo(tables=[_embedding_table()])
+        self._patch(monkeypatch, repo)
+
+        out = await ops.get_status(self._config())
+
+        table = out["embedding_tables"][0]
+        assert table["built_with"] == {"r1": 7}
+        assert table["stale"] == {}
+        assert table["verdict_unavailable"] is None
+
+    async def test_status_model_dimension_is_configured_and_dimension_is_probed(self, monkeypatch):
+        repo = _status_repo(tables=[_embedding_table(dim=None)])
+        self._patch(monkeypatch, repo)
+
+        out = await ops.get_status(self._config())
+
+        table = out["embedding_tables"][0]
+        assert table["dimension"] is None
+        assert table["model"] == {"name": "nomic", "dimension": 768}
+
+    async def test_status_unconfigured_table_carries_nulls(self, monkeypatch):
+        repo = _status_repo(tables=[_embedding_table(name="text_embeddings_other")])
+        self._patch(monkeypatch, repo)
+
+        out = await ops.get_status(self._config())
+
+        table = out["embedding_tables"][0]
+        assert {k: table[k] for k in _BUILD_KEYS} == {
+            "built_with": None,
+            "stale": None,
+            "verdict_unavailable": "unconfigured",
+            "model": None,
+        }
+        assert out["status"] == "healthy"
+        repo.get_embedding_build_counts.assert_not_awaited()
+
+    async def test_status_disabled_lane_wins_over_everything(
+        self, monkeypatch, unit_vocabulary_file
+    ):
+        repo = _status_repo(tables=[_embedding_table()])
+        repo.get_embedding_build_counts = AsyncMock(return_value=None)
+        _patch_service(monkeypatch, _StubService(repository=repo))
+        config = self._config(
+            enabled=False,
+            vocabulary={
+                "enabled": True,
+                "path": str(unit_vocabulary_file.parent / "absent.yml"),
+                "expand_entries": True,
+            },
+        )
+
+        out = await ops.get_status(config)
+
+        table = out["embedding_tables"][0]
+        assert table["verdict_unavailable"] == "disabled"
+        assert table["stale"] is None
+        assert table["built_with"] is None
+        assert table["model"] == _NOMIC_MODEL
+        assert out["status"] == "healthy"
+
+    async def test_status_disabled_lane_without_config_carries_nulls(self, monkeypatch):
+        repo = _status_repo(tables=[_embedding_table()])
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        out = await ops.get_status(dict(_DB))
+
+        table = out["embedding_tables"][0]
+        assert {k: table[k] for k in _BUILD_KEYS} == {
+            "built_with": None,
+            "stale": None,
+            "verdict_unavailable": "disabled",
+            "model": None,
+        }
+
+    async def test_status_absent_column_is_a_schema_verdict(self, monkeypatch):
+        repo = _status_repo(tables=[_embedding_table()])
+        repo.get_embedding_build_counts = AsyncMock(return_value=None)
+        self._patch(monkeypatch, repo)
+
+        out = await ops.get_status(self._config())
+
+        table = out["embedding_tables"][0]
+        assert table["verdict_unavailable"] == "schema"
+        assert table["stale"] is None
+        assert table["built_with"] is None
+        assert table["model"] == _NOMIC_MODEL
+        assert out["status"] == "healthy"
+
+    async def test_status_schema_wins_over_an_unusable_vocabulary(self, monkeypatch, tmp_path):
+        repo = _status_repo(tables=[_embedding_table()])
+        repo.get_embedding_build_counts = AsyncMock(return_value=None)
+        self._patch(monkeypatch, repo)
+        config = self._config(
+            vocabulary={
+                "enabled": True,
+                "path": str(tmp_path / "absent.yml"),
+                "expand_entries": True,
+            }
+        )
+
+        out = await ops.get_status(config)
+
+        assert out["embedding_tables"][0]["verdict_unavailable"] == "schema"
+
+    async def test_status_unusable_vocabulary_gives_no_stale_verdict(self, monkeypatch, tmp_path):
+        repo = _status_repo(tables=[_embedding_table()])
+        self._patch(monkeypatch, repo)
+        config = self._config(
+            vocabulary={
+                "enabled": True,
+                "path": str(tmp_path / "absent.yml"),
+                "expand_entries": True,
+            }
+        )
+
+        out = await ops.get_status(config)
+
+        table = out["embedding_tables"][0]
+        assert table["verdict_unavailable"] == "vocabulary"
+        assert table["stale"] is None
+        assert table["built_with"] == {"r1": 7}
+        assert table["model"] == _NOMIC_MODEL
+        assert out["status"] == "healthy"
+        assert [t["table"] for t in out["embedding_tables"]] == ["text_embeddings_nomic"]
+
+    async def test_status_disabled_vocabulary_with_key_on_computes_against_r1(
+        self, monkeypatch, unit_vocabulary_file
+    ):
+        expanded = "r1:e1:" + "a" * 16
+        repo = _status_repo(tables=[_embedding_table()])
+        repo.get_embedding_build_counts = AsyncMock(return_value={"r1": 5, expanded: 2})
+        self._patch(monkeypatch, repo)
+        config = self._config(
+            vocabulary=self._expanding(unit_vocabulary_file, enabled=False),
+        )
+
+        out = await ops.get_status(config)
+
+        table = out["embedding_tables"][0]
+        assert table["verdict_unavailable"] == "vocabulary_disabled"
+        assert table["stale"] == {"expanded": 2}
+        assert table["built_with"] == {"r1": 5, expanded: 2}
+
+    async def test_status_every_element_has_the_same_keyset(self, monkeypatch):
+        repo = _status_repo(
+            tables=[_embedding_table(), _embedding_table(name="text_embeddings_other")]
+        )
+        self._patch(monkeypatch, repo)
+
+        out = await ops.get_status(self._config())
+
+        keysets = {frozenset(t) for t in out["embedding_tables"]}
+        assert len(keysets) == 1
+        assert _BUILD_KEYS <= next(iter(keysets))
+        stale_is_dict = [
+            (t["verdict_unavailable"], isinstance(t["stale"], dict))
+            for t in out["embedding_tables"]
+        ]
+        assert stale_is_dict == [(None, True), ("unconfigured", False)]

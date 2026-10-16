@@ -1,4 +1,9 @@
-"""The built-in ``still`` scenario activates and composes as any listed scenario does."""
+"""Scenario sets compose only on disjoint targets.
+
+The built-in ``still`` scenario activates and composes as any listed scenario
+does, and the shipped pair vacuum-burst + rf-thermal, which both script the beam
+current, is refused.
+"""
 
 from __future__ import annotations
 
@@ -59,6 +64,18 @@ def test_still_and_rf_thermal_live_are_refused_together(project: Path) -> None:
     with pytest.raises(ValueError, match="both set the motion of"):
         apply_scenarios(
             project, ["still", "rf-thermal-live"], seed_logbook=False, seed_archive=False
+        )
+
+    assert _active(project) == ["still"]
+
+
+def test_vacuum_burst_and_rf_thermal_are_refused_together(project: Path) -> None:
+    """Both script the beam current, so the pair touches one channel twice."""
+    apply_scenarios(project, ["still"], seed_logbook=False, seed_archive=False)
+
+    with pytest.raises(ValueError, match=r"SR:DIAG:DCCT:01:CURRENT:RB.*disjoint channel sets"):
+        apply_scenarios(
+            project, ["vacuum-burst", "rf-thermal"], seed_logbook=False, seed_archive=False
         )
 
     assert _active(project) == ["still"]

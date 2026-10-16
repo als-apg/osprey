@@ -12,7 +12,8 @@ These functions read a deck -- a lattice file pyAT loads with
   plane it steers or reads, and how often it refreshes;
 * :func:`build` builds the LUME model that serves the wiring;
 * :func:`response_matrix` steps wired correctors and returns the orbit
-  response at the wired monitors;
+  response at the wired monitors, naming each corrector whose step has no
+  solve;
 * :func:`polynomial_kicks` copies a deck so named kick elements carry their
   kicks as dipole polynomials;
 * :func:`error_text` gives the one line a failed build or solve reports;
@@ -47,7 +48,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, overload
+from typing import TYPE_CHECKING, Any
 
 from lume_pyat.exceptions import OrbitSolveError
 
@@ -77,8 +78,8 @@ __all__ = [
     "POLYNOMIAL_KICK_LENGTH_M",
     "PolynomialKicks",
     "Prepared",
+    "ResponseMatrix",
     "SOLVE_ERRORS",
-    "TrajectoryResponse",
     "build",
     "condition",
     "error_text",
@@ -219,6 +220,39 @@ class Prepared:
     rest_mass_gev: float
     length_m: float
     injection: Injection | None = None
+
+
+@dataclass(frozen=True)
+class ResponseMatrix:
+    """The response of a model's wired readings to its stepped correctors.
+
+    For the ``orbit`` kind the rows are the wired monitor readback addresses,
+    ordered by (element lattice index, ``x`` before ``y``), and the columns
+    keep the order asked. For the ``trajectory`` kind the rows are the
+    turn-series record addresses, every ``x`` record in the order the launched
+    particle meets its monitor and then every ``y`` record; the columns are
+    the horizontal correctors in the order asked, then the vertical ones.
+
+    Attributes:
+        rows: The reading addresses, one row each.
+        columns: The correctors whose two arms solved.
+        matrix: One row per address of ``rows`` and one column per corrector
+            of ``columns``, hardware reading per hardware setpoint.
+        unsolved: Each corrector whose step has no solve, in column order,
+            mapped to :func:`error_text` of the failure followed by
+            ``(while stepping <address>)``.
+        index: For the ``trajectory`` kind, the lattice index of every row
+            and of every corrector asked, solved or not: the element's
+            position as the launched particle meets it, the deck rotated to
+            the launch marker for a ``periodic`` model and as written for a
+            ``single_pass`` one. ``None`` for the ``orbit`` kind.
+    """
+
+    rows: list[str]
+    columns: list[str]
+    matrix: np.ndarray
+    unsolved: dict[str, str]
+    index: dict[str, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -1518,58 +1552,6 @@ def _is_monitor_reading(record: Any) -> bool:
 RESPONSE_KINDS: tuple[str, ...] = ("orbit", "trajectory")
 
 
-class TrajectoryResponse(NamedTuple):
-    """The first-turn response of a model's turn series to its correctors.
-
-    An index is an element's position in the lattice as the launched particle
-    meets it: the deck rotated to the launch marker for a ``periodic`` model,
-    the deck as written for a ``single_pass`` one.
-
-    Attributes:
-        rows: The turn-series record addresses: every ``x`` record in the
-            order the particle meets its monitor, then every ``y`` record.
-        columns: The corrector setpoint addresses: the horizontal correctors
-            in the order they were named, then the vertical ones.
-        matrix: One row per ``rows`` address and one column per ``columns``
-            address, hardware reading per hardware setpoint.
-        bpm_index: Each row's monitor index, one entry per row.
-        hcor_index: Each horizontal column's corrector index.
-        vcor_index: Each vertical column's corrector index; with
-            ``hcor_index`` before it, one entry per column.
-    """
-
-    rows: list[str]
-    columns: list[str]
-    matrix: np.ndarray
-    bpm_index: list[int]
-    hcor_index: list[int]
-    vcor_index: list[int]
-
-
-@overload
-def response_matrix(
-    deck: Deck,
-    wiring: Iterable[Any],
-    settings: Any,
-    correctors: list[str],
-    step: Mapping[str, float],
-    *,
-    kind: Literal["orbit"] = "orbit",
-) -> tuple[list[str], np.ndarray]: ...
-
-
-@overload
-def response_matrix(
-    deck: Deck,
-    wiring: Iterable[Any],
-    settings: Any,
-    correctors: list[str],
-    step: Mapping[str, float],
-    *,
-    kind: Literal["trajectory"],
-) -> TrajectoryResponse: ...
-
-
 def response_matrix(
     deck: Deck,
     wiring: Iterable[Any],
@@ -1578,15 +1560,17 @@ def response_matrix(
     step: Mapping[str, float],
     *,
     kind: str = "orbit",
-) -> tuple[list[str], np.ndarray] | TrajectoryResponse:
-    """Compute the response of the wired monitors to the named correctors.
+) -> ResponseMatrix:
+    """Compute the response of the wired readings to the named correctors.
 
     Each corrector is stepped by central difference, ``held ± step/2`` in its
     hardware unit about the value the deck holds, each arm converted to the
     deck's attribute through the corrector's calibration and solved on a copy
     of the deck. Each reading is mapped to its record's hardware unit through
     the way back its calibration states, so an entry is hardware reading per
-    hardware setpoint. The deck a later call loads is never written to.
+    hardware setpoint. The deck a later call loads is never written to. A
+    corrector whose step has no solve has no column; it is named in
+    ``unsolved`` and the other correctors are still stepped.
 
     ``kind="orbit"`` reads the orbit records off the closed orbit of a
     ``periodic`` model, or off one tracked pass from ``twiss_in`` for a
@@ -1598,7 +1582,8 @@ def response_matrix(
     particle tracked once round from the launch vector, radiation and cavities
     as the deck has them; on a ``single_pass`` model it is the tracked pass
     from ``twiss_in``, unrotated. A series record of an axis other than ``x``
-    or ``y`` has no row.
+    or ``y`` has no row. A step that loses the launched particle has no
+    solve.
 
     Args:
         deck: The lattice file.
@@ -1611,12 +1596,10 @@ def response_matrix(
         kind: ``orbit`` or ``trajectory``.
 
     Returns:
-        For ``orbit``, ``(rows, matrix)``: ``rows`` the wired monitor readback
-        addresses ordered by (element lattice index, ``x`` before ``y``), a
-        monitor no record wires having no row; ``matrix`` one row per address
-        and one column per corrector. For ``trajectory``, a
-        :class:`TrajectoryResponse`: row names, column names, matrix,
-        ``bpm_index``, ``hcor_index``, ``vcor_index``.
+        The :class:`ResponseMatrix`: a monitor no record wires has no row, a
+        corrector whose step has no solve has no column and is named in
+        ``unsolved``; for ``trajectory`` it carries the ``index`` of every
+        row and every corrector asked.
 
     Raises:
         FacilityBuildError: ``engine-invalid`` for settings :func:`prepare`
@@ -1627,9 +1610,6 @@ def response_matrix(
             setpoint naming an element, is named twice, has no finite non-zero
             step, or for ``trajectory`` steers neither plane; a monitor record
             cannot be built as a reading.
-        OrbitSolveError: a step has no solve, or loses the launched particle;
-            the message is :func:`error_text` of the failure followed by
-            ``(while stepping <address>)``.
     """
     import numpy as np
     from lume_pyat.simulator import PyATSimulator
@@ -1685,7 +1665,6 @@ def response_matrix(
     monitors = [reading for _, _, reading in readings]
 
     columns = _stepped_correctors(records, correctors, step, deck_energy_gev)
-    planes: list[str] = []
     if trajectory:
         steered = {
             variable.name: _steered_plane(field(record, "engine"))
@@ -1696,7 +1675,6 @@ def response_matrix(
                 raise ValueError(f"corrector {variable.name} steers neither plane")
         # A stable sort: within a plane the correctors keep the order named.
         columns.sort(key=lambda column: steered[column[0].name] != "x")
-        planes = [str(steered[variable.name]) for variable, _, _ in columns]
 
     simulator = (
         PyATSimulator(lattice)
@@ -1712,6 +1690,8 @@ def response_matrix(
             return np.array([reading._get(simulator) for reading in monitors])
 
     matrix = np.empty((len(monitors), len(columns)), dtype=np.float64)
+    solved: list[int] = []
+    unsolved: dict[str, str] = {}
     for column, (variable, width, _) in enumerate(columns):
         elements = [simulator.element(binding.element_name) for binding in variable.bindings]
         held_fields = [
@@ -1724,32 +1704,29 @@ def response_matrix(
             for value in (held + 0.5 * width, held - 0.5 * width):
                 variable._set(simulator, value)
                 arms.append(read())
-        except OrbitSolveError as exc:
-            raise OrbitSolveError(f"{error_text(exc)} (while stepping {variable.name})") from exc
+        except SOLVE_ERRORS as exc:
+            unsolved[variable.name] = f"{error_text(exc)} (while stepping {variable.name})"
+            continue
         finally:
             for binding, element, saved in zip(
                 variable.bindings, elements, held_fields, strict=True
             ):
                 setattr(element, binding.attribute, saved if saved.ndim else float(saved))
         matrix[:, column] = (arms[0] - arms[1]) / width
-    rows = [reading.name for reading in monitors]
-    if not trajectory:
-        return rows, matrix
-    corrector_index = [
-        position(variable.bindings[0].element_name, str(field(record, "id") or variable.name))
-        for variable, _, record in columns
-    ]
-    return TrajectoryResponse(
-        rows=rows,
-        columns=[variable.name for variable, _, _ in columns],
-        matrix=matrix,
-        bpm_index=[index for _, index, _ in readings],
-        hcor_index=[
-            index for index, plane in zip(corrector_index, planes, strict=True) if plane == "x"
-        ],
-        vcor_index=[
-            index for index, plane in zip(corrector_index, planes, strict=True) if plane == "y"
-        ],
+        solved.append(column)
+    places: dict[str, int] | None = None
+    if trajectory:
+        places = {reading.name: place for _, place, reading in readings}
+        for variable, _, record in columns:
+            places[variable.name] = position(
+                variable.bindings[0].element_name, str(field(record, "id") or variable.name)
+            )
+    return ResponseMatrix(
+        rows=[reading.name for reading in monitors],
+        columns=[columns[column][0].name for column in solved],
+        matrix=matrix[:, solved],
+        unsolved=unsolved,
+        index=places,
     )
 
 

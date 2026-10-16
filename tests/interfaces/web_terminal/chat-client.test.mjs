@@ -565,6 +565,30 @@ describe('requestHandoff: rejection slugs', () => {
     expect(err.commands).toEqual(commands);
   });
 
+  test('a started-commands refusal that could not read the list says so', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            detail: {
+              error: 'handoff_started_commands',
+              message: 'm',
+              commands: [],
+              unread: true,
+            },
+          },
+          { ok: false, status: 409, statusText: 'Conflict' }
+        )
+      )
+    );
+
+    const err = await chat.requestHandoff('k').catch((e) => e);
+    expect(err.slug).toBe('handoff_started_commands');
+    expect(err.commands).toEqual([]);
+    expect(err.unread).toBe(true);
+  });
+
   test('a refusal without a list carries no commands', async () => {
     vi.stubGlobal(
       'fetch',
@@ -578,6 +602,7 @@ describe('requestHandoff: rejection slugs', () => {
 
     const err = await chat.requestHandoff('k').catch((e) => e);
     expect(err.commands).toBeUndefined();
+    expect(err.unread).toBeUndefined();
   });
 });
 

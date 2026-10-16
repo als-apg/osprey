@@ -12,7 +12,7 @@ description: >-
 
 # OSPREY Design Philosophy
 
-> **Working draft.** Principles are still being collected and refined with the maintainer. The seven
+> **Working draft.** Principles are still being collected and refined with the maintainer. The eight
 > below are confirmed. Each states a rule, its rationale, and the guidance an agent should apply.
 > Principles are written generically: do not hard-code lists of current features or subsystems into
 > this document — they go stale. Refer to "existing peer subsystems" and let the reader inspect the
@@ -125,6 +125,31 @@ the ordinary development cycle touches all of them.
 - When two shipped surfaces drift toward duplicating each other, merge them and delete the
   redundant one. Deleting a surface nobody's workflow exercises is a feature, not a loss.
 
+## 8. Where two lines of work meet, design from the end product
+
+Every integration point is designed from the end product, never merged from the status quo.
+
+An integration point is any place two lines of work meet: a merge conflict, a branch joining an integration
+branch, a re-cut, a re-plan, a spec or plan written against an older tree. At such a point the question is never
+"how do these two combine" but "what does the finished OSPREY need here".
+
+This prevents the resolution that treats the two sides as the only candidates: the conflict settled by
+keeping both, the old plan replayed onto a moved tree, the compromise that splits the difference. Each
+looks cheap at the seam and leaves the product carrying two half-designs where it needed one.
+
+1. Start from the end product: OSPREY's design principles — the `/osprey:design-philosophy` skill
+   (`plugins/osprey/skills/design-philosophy/SKILL.md` in the repository; docs: Contributing → Development Setup →
+   Design Principles) — and professional software-engineering practice. The principles are the growing list; this
+   rule is how they are applied wherever work meets.
+2. The two sides are evidence of intent, not the list of candidates. An answer that discards both is allowed and
+   often right. Meeting in the middle is not a design.
+3. Prefer the elegant simple answer over the one with less work, and over the one that preserves more of what exists.
+4. What the maintainer decides on is one picture of the finished architecture at that seam and, per option, what
+   the product looks like and what it costs, in plain words. Conflict tables, file lists and "keep both" lines stay
+   in the working notes.
+5. This applies to every branch, integration branch, sweep and merge, and to every agent that resolves a merge,
+   assesses base drift, or writes a plan against a moved base.
+
 ---
 
 ## How to apply
@@ -135,4 +160,7 @@ the work back in line. The questions behind the principles: Is the unsafe path h
 the safe one? Would this be wrong at another facility? Does this follow the shape of its peers? Can
 this dependency be swapped later without a rewrite? Could a user discover and use this without
 reading the source? Does this fact have exactly one producer? Which existing workflow will exercise
-this next month?
+this next month? What does the finished OSPREY need at this seam?
+
+At a merge, a rebase, a re-cut, or a plan written against an older tree, apply Principle 8 before
+resolving anything.

@@ -33,19 +33,14 @@ _sleep = time.sleep
 def _one_pass(
     sources: Path,
     dest: Path,
-    openobserve_url: str | None,
-    openobserve_org: str,
+    store_url: str | None,
     backfill_days: int,
 ) -> int:
     """Run one pass and report it; return the ``--once`` exit code."""
     from osprey.services.archive.run import ArchiveDestinationError, run_pass
     from osprey.services.archive.telemetry_export import TelemetryExporter
 
-    telemetry = (
-        TelemetryExporter(url=openobserve_url, org=openobserve_org, backfill_days=backfill_days)
-        if openobserve_url
-        else None
-    )
+    telemetry = TelemetryExporter(url=store_url, backfill_days=backfill_days) if store_url else None
     try:
         result = run_pass(sources, dest, telemetry=telemetry)
     except ArchiveDestinationError as exc:
@@ -92,21 +87,14 @@ def _one_pass(
     help="Seconds between passes under --watch.",
 )
 @click.option(
-    "--openobserve-url",
-    envvar="OSPREY_ARCHIVE_OPENOBSERVE_URL",
+    "--store-url",
+    envvar="OSPREY_ARCHIVE_STORE_URL",
     default=None,
-    help="Telemetry store to export completed days from; unset, none is exported.",
+    help="Telemetry store HTTP address to export completed days from; unset, none is exported.",
 )
 @click.option(
-    "--openobserve-org",
-    envvar="OSPREY_ARCHIVE_OPENOBSERVE_ORG",
-    default="default",
-    show_default=True,
-    help="Telemetry store organization.",
-)
-@click.option(
-    "--openobserve-backfill-days",
-    envvar="OSPREY_ARCHIVE_OPENOBSERVE_BACKFILL_DAYS",
+    "--store-backfill-days",
+    envvar="OSPREY_ARCHIVE_STORE_BACKFILL_DAYS",
     type=click.IntRange(min=1),
     default=14,
     show_default=True,
@@ -117,9 +105,8 @@ def archive(
     sources: Path,
     dest: Path,
     interval: int,
-    openobserve_url: str | None,
-    openobserve_org: str,
-    openobserve_backfill_days: int,
+    store_url: str | None,
+    store_backfill_days: int,
 ) -> None:
     """Copy the agent record into an append-only archive.
 
@@ -128,20 +115,17 @@ def archive(
     <dest>/<YYYY-MM-DD>/ with a sha256 MANIFEST.jsonl. Nothing is deleted or
     rewritten.
 
-    The telemetry store is read with ZO_INGEST_USER_EMAIL and ZO_INGEST_SA_TOKEN
-    from the environment.
+    Every telemetry store table is exported per arrival day, and the store's
+    query log per event day, as Parquet. The store is read as the archive
+    account with OSPREY_TELEMETRY_ARCHIVE_PASSWORD from the environment.
     """
     if once:
-        raise SystemExit(
-            _one_pass(sources, dest, openobserve_url, openobserve_org, openobserve_backfill_days)
-        )
+        raise SystemExit(_one_pass(sources, dest, store_url, store_backfill_days))
 
     could_not_run = 0
     try:
         while True:
-            code = _one_pass(
-                sources, dest, openobserve_url, openobserve_org, openobserve_backfill_days
-            )
+            code = _one_pass(sources, dest, store_url, store_backfill_days)
             could_not_run = could_not_run + 1 if code == 2 else 0
             if could_not_run >= WATCH_FAILURE_CAP:
                 output.fail(f"Archive stopped: {WATCH_FAILURE_CAP} passes in a row could not run.")

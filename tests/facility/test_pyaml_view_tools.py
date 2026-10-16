@@ -83,6 +83,25 @@ def test_array_members_follow_the_devices_s_order(tmp_path: Path) -> None:
     assert arrays["SR_Q"]["elements"] == ["QD:SP", "QF:SP"]
 
 
+def test_a_role_naming_several_groups_is_one_array_named_after_the_role(tmp_path: Path) -> None:
+    """SR/QD at 1.95 m precedes SR/QF at 4.25 m whatever order the list names them in."""
+    tree = measured_tree()
+    tree["records/groups.yaml"] += [
+        {"id": "SR/QF", "members": ["SR/QF"]},
+        {"id": "SR/QD", "members": ["SR/QD"]},
+    ]
+    tree["measurement/SR.yaml"]["groups"]["quad"] = ["SR/QF", "SR/QD"]
+    configuration = _configuration(tmp_path, tree, "SR")
+    arrays = {array["name"]: array for array in configuration["arrays"]}
+    assert list(arrays) == ["SR_BPM", "quad"]
+    assert arrays["quad"] == {
+        "type": "pyaml.arrays.magnet",
+        "name": "quad",
+        "elements": ["QD:SP", "QF:SP"],
+    }
+    assert _tools(configuration)["DEFAULT_TUNE_RESPONSE_MATRIX"]["quad_array_name"] == "quad"
+
+
 def test_the_orbit_response_tool_reads_the_bpm_and_corrector_arrays(tmp_path: Path) -> None:
     tools = _tools(_configuration(tmp_path, measured_tree(), "LINE"))
     assert tools == {

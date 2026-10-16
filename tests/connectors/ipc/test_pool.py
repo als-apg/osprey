@@ -27,6 +27,7 @@ import pytest
 import yaml
 
 from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.ipc import pool as pool_module
 from osprey_connectors.ipc.host import START_PHASES
 from osprey_connectors.ipc.pool import (
@@ -61,6 +62,10 @@ EXITING_ON_READ = f"{_HELPERS}.ExitingOnReadConnector"
 
 #: Bound for calls that must simply succeed, generous enough for a loaded CI box.
 OK_TIMEOUT_S = 10.0
+#: Hang guard on a real child starting and answering its init frame. The wait ends at the
+#: child's reply; this bound only fails a child that never replies, and a loaded xdist run can
+#: hold a cold child past the product default.
+CHILD_START_TIMEOUT_S = 120.0
 
 
 #: Every address a child here reads or writes, each a writable setpoint. The
@@ -129,6 +134,7 @@ async def pools():
     made: list[ConnectorHostPool] = []
 
     def make(*args, **kwargs):
+        kwargs.setdefault("start_timeout_s", CHILD_START_TIMEOUT_S)
         pool = ConnectorHostPool(*args, **kwargs)
         made.append(pool)
         return pool
@@ -494,7 +500,7 @@ async def test_failed_starts_leave_no_unhandled_asyncio_errors(asyncio_errors):
     # Many concurrent failed starts are what exposed abandoned acknowledgement
     # futures being failed after nobody waited for them.
     async def one():
-        pool = ConnectorHostPool(_section(FAILING))
+        pool = ConnectorHostPool(_section(FAILING), start_timeout_s=CHILD_START_TIMEOUT_S)
         try:
             with pytest.raises(ConnectionError):
                 await pool.connector("live")
@@ -783,7 +789,7 @@ def test_children_do_not_outlive_a_parent_that_is_killed(isolated):
         from osprey_connectors.ipc.pool import ConnectorHostPool
 
         async def main():
-            pool = ConnectorHostPool({_section(SLOW)!r})
+            pool = ConnectorHostPool({_section(SLOW)!r}, start_timeout_s={CHILD_START_TIMEOUT_S!r})
             await pool.connector("live")
             await pool.connector("live", execution_mode="readonly")
             print(" ".join(str(pid) for pid in pool.pids().values()), flush=True)
@@ -1045,8 +1051,9 @@ async def test_in_process_va_key_serves_from_the_composite(pools, spawns):
 
     reading = await asyncio.wait_for(va.read_channel("SR:A"), OK_TIMEOUT_S)
     assert reading.value is not None
-    with pytest.raises(Exception, match="not in build/facility.json"):
+    with pytest.raises(ChannelNotFoundError) as unknown:
         await asyncio.wait_for(va.read_channel("NOT:SERVED"), OK_TIMEOUT_S)
+    assert unknown.value.channel_address == "NOT:SERVED"
     assert len(spawns) == 1
 
 
@@ -1069,7 +1076,7 @@ async def test_served_va_without_gateway_still_refused(pools, spawns):
 
 
 async def test_leaving_an_async_with_block_stops_every_child_and_closes_the_pool():
-    async with ConnectorHostPool(_section(SLOW)) as pool:
+    async with ConnectorHostPool(_section(SLOW), start_timeout_s=CHILD_START_TIMEOUT_S) as pool:
         live = await pool.connector("live")
         pid = live.pid
         assert _alive(pid)

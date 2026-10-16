@@ -316,9 +316,9 @@ def bare_route_app(*routers: APIRouter, **state: Any) -> FastAPI:
 
     Route suites that skip ``create_app`` still reach code that reads
     ``app.state.broadcaster`` and ``app.state.agent_activity_buffer`` — every
-    agent-origin panel command records into the ring — so a bare mount without
+    agent-origin panel command records into the buffer — so a bare mount without
     them tests a state the shipped app never has. Both are seeded here, a
-    ``MagicMock`` broadcaster and an empty bounded ring; *state* sets further
+    ``MagicMock`` broadcaster and an empty bounded buffer; *state* sets further
     ``app.state`` attributes and overrides either default.
     """
     from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX

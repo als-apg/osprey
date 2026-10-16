@@ -510,8 +510,35 @@ def test_a_chat_with_started_commands_refuses_the_terminal_with_the_list(app):
         "error": ERROR_HANDOFF_STARTED_COMMANDS,
         "session_id": sid,
         "commands": [{"label": "magnet_scan.py", "command": "python magnet_scan.py"}],
+        "unread": False,
     }
     assert closed["type"] == "websocket.close"
+    assert closed["code"] == WS_CLOSE_STARTED_COMMANDS
+    assert chat.teardowns == 0
+    assert spawns == []
+
+
+@pytest.mark.usefixtures("sessions_dir")
+def test_a_chat_whose_started_commands_cannot_be_read_refuses_the_terminal(app):
+    """A process table that cannot be read is asked about, never taken as nothing running."""
+    sid = _uuid()
+    with TestClient(app) as client:
+        spawns = _patch_spawn(app)
+        unread = Chat()
+        unread.running_commands = None
+        chat = _chats(app).hold(sid, unread)
+        with client.websocket_connect(_resume_url(sid)) as ws:
+            _send_resize(ws)
+            frames = json_frames_until(ws, "handoff_refused")
+            closed = recv_frame(ws)
+
+    assert frames[-1] == {
+        "type": "handoff_refused",
+        "error": ERROR_HANDOFF_STARTED_COMMANDS,
+        "session_id": sid,
+        "commands": [],
+        "unread": True,
+    }
     assert closed["code"] == WS_CLOSE_STARTED_COMMANDS
     assert chat.teardowns == 0
     assert spawns == []

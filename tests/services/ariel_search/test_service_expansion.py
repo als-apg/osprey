@@ -381,6 +381,18 @@ class TestExpansionResolution:
         assert result.expanded_terms == ()
 
     @pytest.mark.asyncio
+    async def test_default_keeps_semantic_on_the_typed_query(self, tmp_path: Path) -> None:
+        """Unset ``expand_modes`` with unexpanded entries: semantic is dispatched
+        unexpanded, because query-only expansion hurts dense retrieval."""
+        recorder = _Recorder()
+        service = _service(tmp_path, vocabulary=_enabled(), modes=("keyword", "semantic"))
+
+        result = await self._run(service, recorder, mode="semantic")
+
+        assert "query_expansion" not in recorder.kwargs
+        assert result.expanded_terms == ()
+
+    @pytest.mark.asyncio
     async def test_expand_modes_includes_the_named_mode(self, tmp_path: Path) -> None:
         """The mode named by ``expand_modes`` still expands."""
         recorder = _Recorder()
@@ -507,7 +519,11 @@ class TestBooleanOperatorQueries:
     async def test_parserless_boolean_query_still_expands(self, tmp_path: Path) -> None:
         """The skip is keyword-shaped: it needs a parse to be decided."""
         recorder = _Recorder()
-        service = _service(tmp_path, vocabulary=_enabled(), modes=("keyword", "semantic"))
+        service = _service(
+            tmp_path,
+            vocabulary=_enabled(expand_modes=["keyword", "semantic"]),
+            modes=("keyword", "semantic"),
+        )
         descriptors = {"semantic": _descriptor("semantic", recorder, accepts_expansion=True)}
 
         with patch("osprey.registry.get_registry", return_value=_registry(descriptors)):

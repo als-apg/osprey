@@ -79,7 +79,7 @@ _EXPORTED = "d1vergentexportvaluenotfromthisrepo"
 @pytest.fixture(autouse=True)
 def _no_inherited_exports(monkeypatch):
     """The test's own environment decides; nothing may leak in from the runner."""
-    for var in ("ARIEL_DB_PASSWORD", "ZO_ROOT_USER_PASSWORD", "EVENT_DISPATCHER_TOKEN"):
+    for var in ("ARIEL_DB_PASSWORD", "MONGO_ROOT_PASSWORD", "EVENT_DISPATCHER_TOKEN"):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -145,7 +145,7 @@ def _worker_compose(*env_files: str) -> str:
 def test_every_interpolation_form_counts_as_a_reference(fragment):
     """A modifier changes what an UNSET name yields, not whether it is read.
 
-    ``${VAR:-default}`` is the form the shipped postgres and openobserve
+    ``${VAR:-default}`` is the form the shipped postgres and mongodb
     templates use for exactly the passwords this preflight exists to protect. If
     a default excused a variable from the comparison, the two divergences most
     likely to cost an operator a data directory would be the two it never
@@ -344,19 +344,19 @@ def test_every_diverging_variable_is_named(tmp_path, caplog):
     """Sorted, and complete: fixing one export and hitting the next is a trap."""
     repo = _repo(
         tmp_path,
-        f"ZO_ROOT_USER_PASSWORD={_PINNED}\nARIEL_DB_PASSWORD={_PINNED}\n",
+        f"MONGO_ROOT_PASSWORD={_PINNED}\nARIEL_DB_PASSWORD={_PINNED}\n",
         "environment:\n  POSTGRES_PASSWORD: ${ARIEL_DB_PASSWORD:-ariel}\n",
-        "environment:\n  ZO_ROOT_USER_PASSWORD: ${ZO_ROOT_USER_PASSWORD:-Complexpass}\n",
+        "environment:\n  MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-osprey}\n",
     )
 
     with caplog.at_level(logging.WARNING):
         shadowed = _preflight_env_shadowing(
             _files(2),
             repo,
-            environ={"ARIEL_DB_PASSWORD": _EXPORTED, "ZO_ROOT_USER_PASSWORD": _EXPORTED},
+            environ={"ARIEL_DB_PASSWORD": _EXPORTED, "MONGO_ROOT_PASSWORD": _EXPORTED},
         )
 
-    assert shadowed == ["ARIEL_DB_PASSWORD", "ZO_ROOT_USER_PASSWORD"]
+    assert shadowed == ["ARIEL_DB_PASSWORD", "MONGO_ROOT_PASSWORD"]
 
 
 def test_an_absolute_compose_path_is_read_as_given(tmp_path, caplog):

@@ -4,8 +4,8 @@ This directory holds the inputs `tests/deployment/test_deploy_scaffold_goldens.p
 renders the CI and verify templates against. It is no longer where the byte
 specification lives.
 
-`exemplar-profile/` is a build profile for a facility running exactly three
-services: the virtual accelerator, OpenObserve, and one facility-owned container
+`exemplar-profile/` is a build profile for a facility running the virtual
+accelerator, the telemetry store with its gateway, and one facility-owned container
 (`services/facility-mcp/`, which carries a Dockerfile and therefore earns its own
 image-build job in the pipeline). It is the reference deployment the feature's
 own exemplar is not — it names a registry and builds an image, so it reaches the
@@ -44,7 +44,7 @@ To regenerate it, run the migration verb over it rather than re-emitting from
 the preset: `osprey profile expand --from control-assistant --repo <this dir>`.
 Expand only *adds* the keys a profile leaves to its preset, so the trims that
 make this fixture what it is — the shorter artifact lists, the two-user roster,
-`deployed_services: [openobserve]` — survive it, where a fresh emission would
+`deployed_services: [telemetry_store, telemetry_gateway]` — survive it, where a fresh emission would
 replace them. Then delete two things from its output by hand. The
 `provenance:` block, because a profile that carries one is compared against its
 preset and this one deviates from it by design, so validate would refuse every

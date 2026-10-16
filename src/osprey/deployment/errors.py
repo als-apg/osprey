@@ -29,10 +29,36 @@ class CapturedProcessError(DeploymentError):
 
     def __init__(self, cmd: Sequence[str], returncode: int, spool_path: Path | None = None) -> None:
         self.cmd = list(cmd)
-        self.returncode = returncode
+        self.returncode: int | None = returncode
         self.spool_path = spool_path
         where = f" (output: {spool_path})" if spool_path is not None else ""
         super().__init__(f"Command '{' '.join(self.cmd)}' exited {returncode}{where}")
+
+
+class CapturedProcessTimeout(CapturedProcessError):
+    """A captured child ran past its time limit and was stopped.
+
+    A :class:`CapturedProcessError` so every handler that already reports a
+    failed captured run — the spool replay, the failure block — reports this one
+    too. ``returncode`` is ``None``: the child did not exit, it was killed.
+
+    ``detail`` is what the caller found out about the stall while the stalled
+    state was still there to look at (which containers it was waiting on, and
+    what they logged); the failure report prints it beneath the error line.
+    """
+
+    def __init__(self, cmd: Sequence[str], timeout: float, spool_path: Path | None = None) -> None:
+        self.cmd = list(cmd)
+        self.returncode = None
+        self.spool_path = spool_path
+        self.timeout = timeout
+        self.detail: str | None = None
+        where = f" (output: {spool_path})" if spool_path is not None else ""
+        DeploymentError.__init__(
+            self,
+            f"Command '{' '.join(self.cmd)}' did not finish within {timeout:g}s "
+            f"and was stopped{where}",
+        )
 
 
 class ComposeInterpolationError(DeploymentError):

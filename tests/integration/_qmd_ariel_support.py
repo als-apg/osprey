@@ -684,6 +684,7 @@ def qmd_ariel_vocabulary_config(
     vocabulary_path: Path | str,
     *,
     expand_modes: list[str] | None = None,
+    expand_entries: bool = True,
 ) -> dict[str, Any]:
     """Copy ``base`` with an enabled ``vocabulary`` block bolted on.
 
@@ -694,12 +695,20 @@ def qmd_ariel_vocabulary_config(
         base: The lane's config section, from :func:`qmd_ariel_config_dict`.
         vocabulary_path: Absolute path of the vocabulary file to load.
         expand_modes: Value for ``ariel.vocabulary.expand_modes``. ``None``
-            leaves the key out, which means "every enabled search module".
+            leaves the key out, which means "every enabled search module" while
+            ``expand_entries`` is on.
+        expand_entries: Value for ``ariel.vocabulary.expand_entries``. On by
+            default: the dense modes expand the query only when the entries are
+            expanded too, and these cases measure hybrid's query expansion.
 
     Returns:
         A new config dict carrying the vocabulary block.
     """
-    vocabulary: dict[str, Any] = {"enabled": True, "path": str(vocabulary_path)}
+    vocabulary: dict[str, Any] = {
+        "enabled": True,
+        "path": str(vocabulary_path),
+        "expand_entries": expand_entries,
+    }
     if expand_modes is not None:
         vocabulary["expand_modes"] = list(expand_modes)
     return {**base, "vocabulary": vocabulary}

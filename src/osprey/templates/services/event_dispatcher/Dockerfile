@@ -180,9 +180,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # beyond the Debian mirror to build. The CLI's engines floor is node >= 18,
 # which every Debian release the slim bases resolve to satisfies.
 #
-# npm is a runtime dependency, not a build-time convenience: the agent is
-# launched as `npx -y @anthropic-ai/claude-code@<version>` (agent_runner/launcher.py),
-# so npm must remain in the final image.
+# nodejs and npm stay in the final image: npm installs the Claude Code CLI
+# below, and nothing in this layer purges either. A headless run executes that
+# install directly (agent_runner/launcher.py) and never reaches for npx.
 #
 # NODE_EXTRA_CA_CERTS points Node at the merged bundle the site-CA layer wrote,
 # since Node reads neither the system store nor the Python trust variables.
@@ -192,12 +192,14 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates nodejs npm \
-    # Pin the Claude Code CLI so an upstream release cannot silently change the
-    # headless agent's behavior between image builds (matches the cli_version
-    # OSPREY documents in config.yml). Bump deliberately; the npm channel the
-    # value is taken from is written beside _DEFAULT_CLAUDE_CLI_VERSION in
-    # src/osprey/cli/templates/scaffolding.py.
-    && npm install -g @anthropic-ai/claude-code@2.1.267
+    # This install is the only Claude Code in the image, and it is the one a
+    # headless run executes: OSPREY points the Agent SDK at it (cli_path), so
+    # the copy bundled inside the SDK never runs. A run is refused unless this
+    # install reports the version the project pins. The version equals
+    # _DEFAULT_CLAUDE_CLI_VERSION in src/osprey/cli/templates/scaffolding.py,
+    # which tests/deployment/test_service_dockerfiles.py enforces; how the
+    # value is chosen is written beside that constant.
+    && npm install -g @anthropic-ai/claude-code@2.1.300
 # The pin is the point, so the CLI's background self-updater is off: a
 # successful update would silently replace the pinned version. Same rationale
 # as the project image (Dockerfile.j2); bump the pin and rebuild instead.

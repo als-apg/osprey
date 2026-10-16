@@ -6,7 +6,7 @@ Welcome to Osprey Framework! This comprehensive guide will take you from zero to
 .. tip::
 
    The fastest path to a deployment for your own facility is the **guided
-   installer** — a conversation with your coding agent that inventories what
+   setup** — a conversation with your coding agent that inventories what
    you have and builds the project with you: :doc:`osprey-install`. The
    step-by-step tutorials cover the same ground and remain the best way to
    learn the concepts.
@@ -45,7 +45,7 @@ By following this comprehensive learning path, you'll have:
       :link-type: doc
       :class-header: bg-info text-white
 
-      Install the ``osprey`` CLI and configure a provider. A container runtime (Docker or Podman) is optional and only needed for deployable services.
+      Install the ``osprey`` CLI and configure a provider. A container runtime (Docker or Podman) is the optional last step, needed for ``osprey deploy``.
 
       **Outcome:**
       Working dev environment
@@ -73,7 +73,7 @@ By following this comprehensive learning path, you'll have:
       **Outcome:**
       Your first working agent
 
-   .. grid-item-card:: 🎯 3. Install and Set Up — ⭐ recommended
+   .. grid-item-card:: 🎯 3. Guided Facility Setup — ⭐ recommended
       :link: osprey-install
       :link-type: doc
       :class-header: bg-success text-white

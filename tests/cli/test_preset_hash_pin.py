@@ -287,33 +287,52 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # and the readonly, readwrite and admin children inherit it. The knowledge
     # and logbook children exclude the skill, so their resolved content and
     # their digests stand still, as do the other three presets.
-    # The fortieth move, and control-assistant's family alone: the root preset
-    # gains a `trajectory:` block on the host network, so a rebuilt project
-    # deploys the trajectory service and its panel entry. The five `extends`
-    # children inherit the block; the other three presets stand still.
-    "ariel-standalone": ("sha256:31c1eace09974cac6b8dbfc744685b7d8e6f5b9cd58431b04659c79c93d3bb23"),
+    # The fortieth move, and the two presets that carry an `ariel:` block:
+    # ariel-standalone and control-assistant state
+    # `ariel.vocabulary.expand_entries: false`, the entry-side vocabulary
+    # switch. Its value matches the behaviour a project had without the key,
+    # but the resolved content gained a key, so the advisory fires once on
+    # already-deployed projects. The five `extends` children inherit it;
+    # channel-finder-standalone and hello-world stand still.
+    # The forty-first move, and every preset that deploys a telemetry store:
+    # the telemetry store is ClickHouse behind an OpenTelemetry Collector
+    # gateway. ariel-standalone, hello-world and control-assistant
+    # deploy `telemetry_store` and `telemetry_gateway`, emit with
+    # `claude_code.telemetry.backend: gateway` and state no store
+    # credential under `claude_code.telemetry`, carry
+    # `services.telemetry_store.retention_days`, and name a default reader in
+    # `services.telemetry_store.readers` (`carol` in control-assistant,
+    # `operator` in the two roster-less presets). The five `extends` children
+    # inherit the change. channel-finder-standalone deploys no store and
+    # stands still. A rebuilt project runs a different store, so the staleness
+    # advisory firing on already-deployed projects is the correct signal.
+    # The forty-second move, and control-assistant's family alone: the root
+    # preset gains a `trajectory:` block on the host network, so a rebuilt
+    # project deploys the trajectory service and its panel entry. The five
+    # `extends` children inherit the block; the other three presets stand still.
+    "ariel-standalone": ("sha256:2c89e6847871ea21f8d6a4841a038e4ae30a064ea8965d8975de2ec2e05f3628"),
     "channel-finder-standalone": (
         "sha256:8503c046ea3c8a9ef1e3504e68853a5465556d65ec02c4ef790d3a3db32e4763"
     ),
     "control-assistant": (
-        "sha256:9f29dd2f0117b5544242e3c72a0c65d37ab946df198946755d0edca90d2b52eb"
+        "sha256:0fd1f4031c565799a6c5c594dad42f970405c837a7cbd1bdc6bc1a2ae3fa49b0"
     ),
     "control-assistant-admin": (
-        "sha256:6871ccce503e11ff71c21266476bf39b6f01cfb73a23192a40f20871663c88f5"
+        "sha256:a367fac36bd8a3542f45fec5dae40a0823d0dccb713aedb28c383112eacec057"
     ),
     "control-assistant-knowledge": (
-        "sha256:b5ba459c6bad19185bafed559fff18038473efb2319ee6954ec03a1e09ec31d2"
+        "sha256:dc2c5f90aeaea78540ee3bfe124c3bca6d0cb545bdcd1d1d551bf4bae5552bd2"
     ),
     "control-assistant-logbook": (
-        "sha256:e59da0c8abe3303afdf6d2a1aed8af9a793e586c201aada30382354f6fae1ecc"
+        "sha256:25554523756c17fe221bc7edc793dded9f2b1f9d0b6eb22dae1114ab3896368f"
     ),
     "control-assistant-readonly": (
-        "sha256:c0c14991a35fabd39a4e1456193a7297328a9b328bc22731d8267e790a8bdc95"
+        "sha256:f6667e622c73e6ea9f65100ebc345d904d9c4b1864280a19501f42f49e5d3140"
     ),
     "control-assistant-readwrite": (
-        "sha256:a4a1693e5c62492c28afeea2e68a539d5ab7968ec7f59d8544d4c709756c8f9a"
+        "sha256:8922e0eb8a990ffbe7f954573665292774efb573a5416e3e082c035a1e29c95c"
     ),
-    "hello-world": ("sha256:274f48f804eea7f86fb14d30673e9935cf325bd5236f9de2361d4a07a34c275d"),
+    "hello-world": ("sha256:7c70f737295971c63093e823a2021e78251ca6c285b5da4c1f04cb0afd964803"),
 }
 
 

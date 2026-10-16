@@ -50,7 +50,9 @@ try:
 except ImportError:
     HAS_SDK = False
 
-from osprey.agent_runner.errors import McpNotReadyError
+from osprey.agent_runner import launcher
+from osprey.agent_runner.clean_env import TASK_TOOLS_ENV
+from osprey.agent_runner.errors import AgentCliUnavailableError, McpNotReadyError
 from osprey.agent_runner.events import (
     AgentEvent,
     TextEvent,
@@ -60,6 +62,7 @@ from osprey.agent_runner.events import (
 )
 from osprey.agent_runner.launcher import RENDERED_MCP_CONFIG
 from osprey.infrastructure.proxy.lifecycle import start_proxy_for
+from osprey.utils.facility import DEFAULT_FACILITY_ZONE, is_zone_name
 
 logger = logging.getLogger(__name__)
 
@@ -152,8 +155,7 @@ def _resolve_project_spec(project_dir: Path, *, provider: str | None = None) -> 
     Reads ``config.yml`` and runs the same resolver ``osprey chat``
     uses, so test routing matches production exactly.  Surfaces any unexpected
     error (missing config, YAML parse failure, resolver import failure) rather
-    than masking it as ``None`` — with one carve-out, for the telemetry
-    credential a deploy has not issued yet (see below).
+    than masking it as ``None``.
 
     Args:
         project_dir: Path to an initialized OSPREY project — the render holding
@@ -163,10 +165,6 @@ def _resolve_project_spec(project_dir: Path, *, provider: str | None = None) -> 
             the benchmark runner.
     """
     from osprey.agent_runner.provider_env import load_provider_spec
-    from osprey.build.claude_code_telemetry import (
-        ObservabilityCredentialError,
-        telemetry_creds_are_store_issued,
-    )
 
     # load_provider_spec reads config.yml and expands ${VAR} in provider config
     # (e.g. a custom provider's base_url: ${ARGO_PROD_URL}) against an
@@ -175,36 +173,14 @@ def _resolve_project_spec(project_dir: Path, *, provider: str | None = None) -> 
     # the dispatch worker and `osprey chat` read the spec with. The e2e/benchmark
     # override is applied last so it still wins (and is inert in production).
     env_dir = _secrets_dir(project_dir)
-    try:
-        spec = load_provider_spec(project_dir, env_dir=env_dir, provider=provider)
-    except ObservabilityCredentialError as exc:
-        # Keep this arm ahead of any broader one added later: it subclasses
-        # ValueError.
-        #
-        # Resolving the provider resolves the telemetry block with it, so a
-        # store-issued credential that no deploy has minted yet arrives here as
-        # a failure to read the provider — and every agent this project spawns
-        # would die on it, on a project whose only fault is never having been
-        # started. Run without telemetry instead; losing an agent run's traces
-        # is not a reason to withhold the run. Anything else — a credential an
-        # operator has to set, or one that is simply blank — keeps raising.
-        if not telemetry_creds_are_store_issued(exc):
-            raise
-        logger.warning(
-            "Telemetry is off for this run — `osprey up` issues %s when it starts the "
-            "telemetry store, and this project has not been started yet",
-            ", ".join(exc.unresolved_vars),
-        )
-        spec = load_provider_spec(
-            project_dir, env_dir=env_dir, provider=provider, include_telemetry=False
-        )
+    spec = load_provider_spec(project_dir, env_dir=env_dir, provider=provider)
     return _apply_e2e_overrides(spec)
 
 
 def provider_env_for_project(project_dir: Path, *, provider: str | None = None) -> dict[str, str]:
     """Resolve provider env vars so the SDK routes to the project's provider.
 
-    Without this, the bundled Claude CLI defaults to ``api.anthropic.com``
+    Without this, the Claude CLI defaults to ``api.anthropic.com``
     using whatever ambient ``ANTHROPIC_API_KEY`` happens to be set — which
     is the wrong endpoint for cborg/als-apg projects and 404s on model
     aliases like ``anthropic/claude-haiku``.
@@ -228,7 +204,7 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
         Two distinct auth vars are propagated because the project has two LLM
         call paths:
 
-        * The bundled Claude CLI / SDK authenticates via ``spec.auth_env_var``
+        * The Claude CLI / SDK authenticates via ``spec.auth_env_var``
           (e.g. ``ANTHROPIC_AUTH_TOKEN`` for proxy providers).
         * The in-context channel-finder benchmark spawns an MCP **stdio**
           subprocess that inherits only a tiny safe-list (HOME, PATH, …) and
@@ -477,7 +453,7 @@ def sdk_env(project_dir: Path | None = None, *, provider: str | None = None) -> 
 
     Always sets ``CLAUDECODE=""`` to bypass the nested-session guard
     (JavaScript treats "" as falsy). When ``project_dir`` is provided,
-    also injects the project's resolved provider env block so the bundled
+    also injects the project's resolved provider env block so the
     CLI talks to the configured provider (cborg, als-apg, anthropic-direct)
     instead of falling through to ``api.anthropic.com``.
 
@@ -497,6 +473,12 @@ def sdk_env(project_dir: Path | None = None, *, provider: str | None = None) -> 
     delegations run sequentially rather than concurrently — a wall-clock cost we
     accept for deterministic, complete single-drain runs.
 
+    When ``project_dir`` is provided, also sets ``TZ`` to the project's
+    facility timezone (``system.timezone``, else UTC). The SDK subprocess then
+    runs on the facility clock, as the deployed containers do, so the date the
+    CLI tells the agent is "today" matches the calendar the deployment's data —
+    archiver events, logbook entries — is anchored in.
+
     Args:
         project_dir: Optional path to an initialized OSPREY project.  When
             omitted only the ``CLAUDECODE`` bypass is returned.
@@ -514,7 +496,36 @@ def sdk_env(project_dir: Path | None = None, *, provider: str | None = None) -> 
     }
     if project_dir is not None:
         env.update(provider_env_for_project(project_dir, provider=provider))
+        env["TZ"] = _project_facility_zone(project_dir)
     return env
+
+
+def _project_facility_zone(project_dir: Path) -> str:
+    """The project's ``system.timezone``, or UTC when absent, unreadable or invalid.
+
+    A plain YAML read rather than the config loader: resolving the zone must
+    never fail a run whose provider block already resolved. An unknown zone
+    name degrades to UTC with a warning, the facility-timezone resolver's
+    contract.
+    """
+    import yaml
+
+    try:
+        config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return DEFAULT_FACILITY_ZONE
+    system = config.get("system") if isinstance(config, dict) else None
+    zone = system.get("timezone") if isinstance(system, dict) else None
+    if zone is None:
+        return DEFAULT_FACILITY_ZONE
+    if not isinstance(zone, str) or not is_zone_name(zone):
+        logger.warning(
+            "system.timezone %r in %s is not an IANA zone name; running the agent on UTC",
+            zone,
+            project_dir / "config.yml",
+        )
+        return DEFAULT_FACILITY_ZONE
+    return zone
 
 
 def combined_text(result: SDKWorkflowResult) -> str:
@@ -681,6 +692,8 @@ def build_agent_options(
 
     Raises:
         ImportError: When ``claude_agent_sdk`` is not installed.
+        AgentCliUnavailableError: When no installed ``claude`` reports the
+            version the project pins; nothing has been started.
         ValueError: When *env* and *provider* are both given, or *session_id*
             and *resume* are.
     """
@@ -698,6 +711,17 @@ def build_agent_options(
         raise ValueError(
             "session_id and resume are exclusive: resume names the transcript to "
             "continue, so it already fixes the id"
+        )
+
+    # First, so a project whose Claude Code is not installed is refused before
+    # anything is resolved or started for the run. Always a path: an unset one
+    # sends the SDK to the binary bundled in its own package.
+    cli_path = launcher.project_agent_cli_path(project_dir)
+    if not isinstance(cli_path, str) or not os.path.isabs(cli_path):
+        raise AgentCliUnavailableError(
+            f"No Claude Code executable was resolved for {project_dir} (got {cli_path!r}), "
+            "so the run was refused: without an absolute path the Agent SDK would run "
+            "the copy bundled inside its own package."
         )
 
     if env is not None:
@@ -721,6 +745,10 @@ def build_agent_options(
                 )
             port = start_proxy_for(spec, run_env)
             run_env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
+
+    # Over the caller's environment as well as the routed one: the SDK overlays
+    # this dict on the parent's, so the switch has to be in it to hold.
+    run_env.update(TASK_TOOLS_ENV)
 
     sources: list[SettingSource] = ["project"] if setting_sources is None else list(setting_sources)
     run_mcp_servers: dict[str, McpServerConfig] | str
@@ -751,6 +779,7 @@ def build_agent_options(
         resume=resume,
         can_use_tool=can_use_tool,
         stderr=stderr,
+        cli_path=cli_path,
     )
     if pre_tool_use_hooks:
         options.hooks = {"PreToolUse": [HookMatcher(matcher=None, hooks=list(pre_tool_use_hooks))]}

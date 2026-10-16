@@ -302,6 +302,75 @@ def _e2e_translation_proxy():
         stop_proxy()
 
 
+@pytest.fixture
+def scripted_model(monkeypatch):
+    """Start a scripted model and point this test's agent runs at it.
+
+    Returns a factory: ``scripted_model(script)`` starts a
+    :class:`~tests.e2e.scripted_model.ScriptedModel` for *script* and routes
+    every run the test starts afterwards to it, through the same
+    ``OSPREY_E2E_PROXY_BASE_URL`` seam the translation proxy uses.
+
+    Whatever provider a render names, the only credential its run can present
+    is :data:`~tests.e2e.scripted_model.SCRIPTED_AUTH_TOKEN`. A launch takes
+    the CLI's credential from the key variable of the render's provider, read
+    from the deployment's own secrets file before the shell, and the CLI
+    inherits whatever the launch does not set. So the scripted token stands in
+    every chat provider's key variable, ``ANTHROPIC_AUTH_TOKEN`` — which no
+    provider reads its key from and the CLI would present as it stands — is
+    removed, and every credential in the environment a launch resolves is
+    replaced by the scripted token. Request headers an operator configures
+    (``ANTHROPIC_CUSTOM_HEADERS``) can carry a secret in a header the endpoint
+    does not read, so a scripted run carries none: the variable is removed from
+    the shell environment and from the environment a launch resolves. Teardown
+    checks the result: every recorded request presented the scripted token and
+    the endpoint refused nothing.
+    """
+    from osprey.models.provider_registry import PROVIDER_API_KEYS
+    from osprey.models.spend_attribution import CUSTOM_HEADERS_ENV
+    from tests.e2e import sdk_helpers
+    from tests.e2e.scripted_model import SCRIPTED_AUTH_TOKEN, ScriptedModel
+
+    key_variables = {variable for variable in PROVIDER_API_KEYS.values() if variable}
+    credential_variables = key_variables | {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}
+
+    def _scripted(resolve_launch_env):
+        def _launch_env(*args, **kwargs):
+            return {
+                name: SCRIPTED_AUTH_TOKEN if name in credential_variables else value
+                for name, value in resolve_launch_env(*args, **kwargs).items()
+                if name != CUSTOM_HEADERS_ENV
+            }
+
+        return _launch_env
+
+    started: list[ScriptedModel] = []
+
+    def _start(script):
+        model = ScriptedModel(script)
+        model.start()
+        started.append(model)
+        monkeypatch.setenv("OSPREY_E2E_PROXY_BASE_URL", model.base_url)
+        for variable in key_variables:
+            monkeypatch.setenv(variable, SCRIPTED_AUTH_TOKEN)
+        monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+        monkeypatch.delenv(CUSTOM_HEADERS_ENV, raising=False)
+        monkeypatch.setattr(sdk_helpers, "sdk_env", _scripted(sdk_helpers.sdk_env))
+        return model
+
+    yield _start
+    for model in started:
+        model.stop()
+    for model in started:
+        assert model.unexpected == [], f"requests the scripted model refused: {model.unexpected}"
+        # Compared without being shown: what a failing run presented may be a real key.
+        strangers = sum(request.credential != SCRIPTED_AUTH_TOKEN for request in model.requests)
+        assert not strangers, (
+            f"{strangers} of {len(model.requests)} scripted requests presented a credential "
+            "other than the scripted token"
+        )
+
+
 @pytest.fixture(autouse=True, scope="function")
 def reset_registry_between_tests():
     """Auto-reset registry before each e2e test to ensure isolation.

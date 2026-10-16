@@ -35,6 +35,7 @@ from osprey.agent_runner import (
 from osprey.agent_runner.clean_env import build_clean_env
 from osprey.agent_runner.sdk_context import build_system_prompt
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
+from osprey.build.claude_code_telemetry import terminal_session_env
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
 from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
@@ -241,11 +242,13 @@ def build_operator_child_env(
     # key names whose posture applies and the root names the directory the
     # answer is read out of, and a child holding one but not the other would
     # look for that state in a directory it had to guess.
+    # The terminal session travels with the posture session and equals it.
     if session_key:
         env[POSTURE_SOURCE_ENV] = posture_source
         env[POSTURE_SESSION_ENV] = session_key
         env[OSPREY_AGENT_DATA_ROOT] = resolve_agent_data_root(app)
         env["OSPREY_SESSION_ID"] = session_key
+        env.update(terminal_session_env(session_key, env))
 
     return env
 
@@ -387,20 +390,45 @@ class _AgentTree:
 
     groups: list[ProcessGroup]
     members: list[ProcessRow]
+    # False when the process table could not be read: what the child started is unknown.
+    read: bool
 
 
-def _read_tree(pid: int) -> _AgentTree:
+@dataclass(frozen=True)
+class TreeEnding:
+    """What a stop did about the processes the chat child had started.
+
+    ``read`` is False when the process table could not be read while the child
+    was alive: nothing was ended because nothing could be looked for, which is
+    not the same as the child having started nothing. The ``ended`` fields
+    hold what was signalled, the ``surviving`` ones what the last look still
+    found after SIGKILL.
+    """
+
+    read: bool
+    ended_groups: tuple[ProcessGroup, ...] = ()
+    ended_members: tuple[ProcessRow, ...] = ()
+    surviving_groups: tuple[ProcessGroup, ...] = ()
+    surviving_members: tuple[ProcessRow, ...] = ()
+
+
+def _read_tree(pid: int, alive: Callable[[], bool]) -> _AgentTree:
     """Read the groups *pid*'s descendants are in and its descendants in the server's group.
 
-    Blocking (it runs ``ps``); must run while *pid* is alive.
+    Both come from one process table, read while *alive* says *pid* runs and
+    retried when the read fails. Blocking (it runs ``ps``).
     """
+    rows = process_tree.read_while_alive(alive)
+    if rows is None:
+        return _AgentTree(groups=[], members=[], read=False)
     return _AgentTree(
-        groups=process_tree.tree_groups(pid),
-        members=process_tree.server_group_members(pid),
+        groups=process_tree.tree_groups(pid, rows),
+        members=process_tree.server_group_members(pid, rows),
+        read=True,
     )
 
 
-def _end_tree(pid: int, tree: _AgentTree) -> None:
+def _end_tree(pid: int, tree: _AgentTree) -> TreeEnding:
     """End what *tree* found under the chat child *pid*, and log it in one line. Blocking."""
     ended_groups, surviving_groups = process_tree.end_groups(tree.groups)
     ended_members, surviving_members = process_tree.end_processes(tree.members)
@@ -432,6 +460,13 @@ def _end_tree(pid: int, tree: _AgentTree) -> None:
         logger.warning(
             "Process(es) the chat child %d started survived SIGKILL: %s", pid, "; ".join(parts)
         )
+    return TreeEnding(
+        read=tree.read,
+        ended_groups=tuple(ended_groups),
+        ended_members=tuple(ended_members),
+        surviving_groups=tuple(surviving_groups),
+        surviving_members=tuple(surviving_members),
+    )
 
 
 class OperatorSession:
@@ -466,6 +501,8 @@ class OperatorSession:
         self._agent: AgentSession | None = None
         # Open exactly while the runner is connected; liveness keys on this.
         self._agent_scope: AsyncExitStack | None = None
+        # What the last stop that found a live child did about what it started.
+        self._tree_ending: TreeEnding | None = None
         self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=256)
         self._response_task: asyncio.Task | None = None
         self._quiesce_task: asyncio.Task | None = None
@@ -824,7 +861,14 @@ class OperatorSession:
         commands ended, and its descendants in the server's own group ended
         one by one; never the server or the server's group. When started
         processes ignore SIGTERM this blocks a worker thread, off the loop,
-        for up to about ten more seconds. What it ended is in the log line.
+        for up to about ten more seconds. What it ended is in the log line and
+        in :attr:`tree_ending`.
+
+        The process table is read while the child is alive, and a failed read
+        is retried for as long as it is. When it still cannot be read, what the
+        child started cannot be looked for: it is left running, and a warning
+        names the child. Each read is bounded, so a process table that never
+        answers costs about six seconds and no more.
 
         The runner keeps the child's process handle after it closes, so a
         caller that has to wait for the child to be *gone* — not merely asked
@@ -844,7 +888,17 @@ class OperatorSession:
         # the agent started in a session of its own keeps its parent link only
         # until the agent exits.
         pid = self.pid
-        tree = await asyncio.to_thread(_read_tree, pid) if pid is not None else None
+        tree = (
+            await asyncio.to_thread(_read_tree, pid, lambda: self.process_exited is False)
+            if pid is not None
+            else None
+        )
+        if pid is not None and tree is not None and not tree.read:
+            logger.warning(
+                "Could not read the process table while the chat child %d was alive; "
+                "what it started is left running",
+                pid,
+            )
 
         scope = self._agent_scope
         if scope is not None:
@@ -861,20 +915,27 @@ class OperatorSession:
                 logger.warning(
                     "OperatorSession could not signal its lingering child", exc_info=True
                 )
-        if pid is not None and tree is not None and (tree.groups or tree.members):
-            await asyncio.to_thread(_end_tree, pid, tree)
+        if pid is not None and tree is not None:
+            if tree.groups or tree.members:
+                self._tree_ending = await asyncio.to_thread(_end_tree, pid, tree)
+            else:
+                self._tree_ending = TreeEnding(read=tree.read)
         self._started = False
         logger.info("OperatorSession stopped")
 
-    def started_commands(self) -> list[ProcessGroup]:
+    def started_commands(self) -> list[ProcessGroup] | None:
         """The commands the agent started in groups of their own and still running.
 
         What ending this session would also end, beyond the agent itself and
-        its helpers in the server's group. Empty once the child has exited.
-        Blocking (it runs ``ps``): call it off the loop.
+        its helpers in the server's group. Empty once the child has exited;
+        ``None`` when the process table could not be read while it was alive,
+        so what it started is unknown. Blocking (it runs ``ps``): call it off
+        the loop.
         """
         pid = self.pid
-        return process_tree.started_groups(pid) if pid is not None else []
+        if pid is None:
+            return []
+        return process_tree.started_groups(pid, lambda: self.process_exited is False)
 
     @property
     def _connected_agent(self) -> AgentSession | None:
@@ -907,6 +968,15 @@ class OperatorSession:
         caller to address it.
         """
         return self._agent.pid if self._agent is not None else None
+
+    @property
+    def tree_ending(self) -> TreeEnding | None:
+        """What the last :meth:`stop` that found a live child ended of what it started.
+
+        ``None`` until a stop has found one. A later stop that finds no child
+        keeps the answer, as :attr:`process_exited` keeps the child's.
+        """
+        return self._tree_ending
 
     @property
     def process_exited(self) -> bool | None:

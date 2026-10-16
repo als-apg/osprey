@@ -894,7 +894,7 @@ keys and the ``graphdb`` entry in ``deployed_services`` into the profile's
      services.graphdb.path: ./services/graphdb
      services.graphdb.image: neo4j:5.26-community
      # ... the JVM and query-bound keys the preset also ships
-     deployed_services: [postgresql, openobserve, qmd, graphdb]
+     deployed_services: [postgresql, telemetry_store, telemetry_gateway, qmd, graphdb]
 
 The mode reads the same ``services.graphdb`` block when the store is one the
 facility already runs and this deployment only connects to. The keys that
@@ -911,7 +911,7 @@ taking away:
      services.graphdb.uri: bolt://graph.facility.org:7687
      services.graphdb.username: neo4j
      # DEVIATION: graphdb is the facility's store, so deployed_services drops it
-     deployed_services: [postgresql, openobserve, qmd]
+     deployed_services: [postgresql, telemetry_store, telemetry_gateway, qmd]
 
 Those are structural differences from the preset — two added keys and a dropped
 list member — which is why the marker comments are there. Without them

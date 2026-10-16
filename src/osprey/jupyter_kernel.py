@@ -173,14 +173,18 @@ def compute_stamps(
         "no target".
     """
     from osprey.audit import posture
+    from osprey.build.claude_code_telemetry import TERMINAL_SESSION_ENV, terminal_session_env
     from osprey.mcp_server.python_executor import executor
     from osprey_connectors import posture_store
 
     stamps: dict[str, str] = {}
     if kernel_id:
-        stamps[posture.POSTURE_SESSION_ENV_VAR] = f"{KERNEL_SESSION_PREFIX}{kernel_id}"
+        session = f"{KERNEL_SESSION_PREFIX}{kernel_id}"
+        stamps[posture.POSTURE_SESSION_ENV_VAR] = session
+        stamps.update(terminal_session_env(session, env))
     else:
         env.pop(posture.POSTURE_SESSION_ENV_VAR, None)
+        env.pop(TERMINAL_SESSION_ENV, None)
     for name in executor._STAMP_ENV_NAMES:
         env.pop(name, None)
     stamps[executor.ENV_LAUNCH_POSTURE] = posture_store.launch_posture_stamp(

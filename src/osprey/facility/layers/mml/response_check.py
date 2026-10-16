@@ -36,12 +36,11 @@ a property of the whole deck, which the sweep does not step), a column with no
 finite width and a column whose sweep leaves the deck without a solve are left
 out of the comparison too, and ``validate`` then prints a second line for the
 model, naming how many rows the check left out and why. Every corrector of a
-model is swept through the engine's response matrix, each column its own
-central difference about the deck's values, rows matched by the readback
-addresses it returns, and its hardware entries are carried into the export's
-physics units through the two records' calibrations. A sweep that leaves the
-deck without a solve is repeated one corrector at a time, so one unsolvable
-corrector leaves its column out and the rest are still judged.
+model is swept in one call of the engine's response matrix, rows matched by the
+readback addresses it returns, and its hardware entries are carried into the
+export's physics units through the two records' calibrations; the engine names
+each corrector whose sweep has no solve, so that corrector leaves its column
+out and the rest are still judged.
 
 **The monitor conversion is exact for linear calibrations only.** A monitor's
 entries are carried into physics units by the one slope its calibration has
@@ -79,6 +78,7 @@ from osprey.facility.layers.mml.mapping import (
     LAYER_DIR,
     MAPPING_FILE,
     exported_number,
+    exported_word,
     read_mapping,
 )
 from osprey.facility.layers.mml.rows import read_rows
@@ -559,10 +559,6 @@ def report(checks: Iterable[ModelCheck], file: IO[Any] | None = None) -> bool:
 # -- the exported document ---------------------------------------------------
 
 
-def _word(value: Any) -> str:
-    return value.strip() if isinstance(value, str) else ""
-
-
 def _first(value: Any) -> Any:
     """A one-entry list unwrapped, the way an exported column vector writes a scalar."""
     while isinstance(value, list) and len(value) == 1:
@@ -744,134 +740,100 @@ def _monitor_gain(record: Mapping[str, Any]) -> float:
     return _physics_span(record, centred, step) / step
 
 
-def _gains(wiring: Iterable[Mapping[str, Any]], rows: Iterable[str]) -> dict[str, float]:
-    """Each monitor row's physics reading per hardware unit, by address.
-
-    A monitor whose calibration is a table has no gain: no single slope
-    carries its reading into physics.
-    """
-    monitors = {str(record["address"]): record for record in wiring}
-    return {
-        row: _monitor_gain(monitors[row]) for row in rows if not _table_calibrated(monitors[row])
-    }
-
-
-def _carried(
-    gains: Mapping[str, float], rows: Sequence[str], column: Any, width: float, span: float
-) -> dict[str, float]:
-    """One corrector's column of the engine's matrix, in physics units.
-
-    Each entry of ``column`` is hardware readback per hardware setpoint; it is
-    carried through the monitor's gain and the corrector's physics ``span``
-    over its hardware ``width``. A monitor with no gain has no entry.
-    """
-    per_hardware = width / span
-    return {
-        row: float(column[index]) * gains[row] * per_hardware
-        for index, row in enumerate(rows)
-        if row in gains
-    }
-
-
-def _response(
-    engine: Any,
-    deck: Path,
-    wiring: Sequence[Mapping[str, Any]],
-    settings: Any,
-    address: str,
-    width: float,
-    span: float,
-) -> dict[str, float] | None:
-    """One corrector's response on every wired monitor, by monitor address.
-
-    The engine's response matrix states hardware readback per hardware
-    setpoint; each entry is carried into physics reading per physics unit of
-    the corrector through the monitor's calibration and the corrector's
-    physics ``span`` over its hardware ``width``.
-
-    Returns:
-        The response on every monitor whose calibration is not a table, or
-        ``None`` when the sweep leaves the deck without a solve.
-    """
-    try:
-        rows, matrix = engine.response_matrix(deck, wiring, settings, [address], {address: width})
-    except getattr(engine, "SOLVE_ERRORS", ()):
-        return None
-    return _carried(_gains(wiring, rows), rows, matrix[:, 0], width, span)
-
-
 def _responses(
     engine: Any,
     deck: Path,
     wiring: Sequence[Mapping[str, Any]],
     settings: Any,
-    sweeps: Iterable[tuple[str, float, float]],
+    wanted: Sequence[tuple[str, float, float]],
 ) -> dict[tuple[str, float], dict[str, float] | None]:
-    """Every corrector's response, as :func:`_response` states it, by ``(address, width)``.
+    """Each wanted corrector's response on every wired monitor, by monitor address.
 
-    ``sweeps`` names each corrector's ``(address, width, span)``. The
-    correctors go to the engine in as few calls as their addresses allow, one
-    per round in which no address repeats, so the deck is copied and its
-    monitors set up once per round rather than once per corrector; a column is
-    the same central difference about the deck's own values whichever call
-    steps it. A round that leaves the deck without a solve is swept again one
-    corrector at a time, so only a corrector whose own sweep has no solve has
-    no response.
+    Every corrector of a model is stepped in one engine call, one more call
+    only for each further width the export states for the same corrector.
+    The engine's response matrix states hardware readback per hardware
+    setpoint; each entry is carried into physics reading per physics unit of
+    the corrector through the monitor's calibration and the corrector's
+    physics ``span`` over its hardware ``width``.
+
+    Args:
+        engine: The model's simulation engine plug-in.
+        deck: The model's deck.
+        wiring: The model's wiring records.
+        settings: The model's settings.
+        wanted: ``(address, width, span)`` per corrector sweep, in the order
+            the sweeps are met.
+
+    Returns:
+        Per ``(address, width)``: the response on every monitor whose
+        calibration is not a table, or ``None`` when the engine names the
+        corrector's sweep as leaving the deck without a solve.
     """
-    rounds: list[dict[str, tuple[float, float]]] = []
-    seen: set[tuple[str, float]] = set()
-    for address, width, span in sweeps:
-        if (address, width) in seen:
-            continue
-        seen.add((address, width))
-        free = next((swept for swept in rounds if address not in swept), None)
+    rounds: list[list[tuple[str, float, float]]] = []
+    for address, width, span in wanted:
+        free = next(
+            (sweeps for sweeps in rounds if all(address != other for other, _, _ in sweeps)),
+            None,
+        )
         if free is None:
-            free = {}
+            free = []
             rounds.append(free)
-        free[address] = (width, span)
+        free.append((address, width, span))
 
-    gains: dict[str, float] | None = None
-    answers: dict[tuple[str, float], dict[str, float] | None] = {}
-    for swept in rounds:
-        steps = {address: width for address, (width, _) in swept.items()}
-        try:
-            rows, matrix = engine.response_matrix(deck, wiring, settings, list(steps), steps)
-        except getattr(engine, "SOLVE_ERRORS", ()):
-            for address, (width, span) in swept.items():
-                answers[(address, width)] = _response(
-                    engine, deck, wiring, settings, address, width, span
-                )
-            continue
-        if gains is None:
-            gains = _gains(wiring, rows)
-        for column, (address, (width, span)) in enumerate(swept.items()):
-            answers[(address, width)] = _carried(gains, rows, matrix[:, column], width, span)
-    return answers
+    monitors = {str(record["address"]): record for record in wiring}
+    found: dict[tuple[str, float], dict[str, float] | None] = {}
+    for sweeps in rounds:
+        result = engine.response_matrix(
+            deck,
+            wiring,
+            settings,
+            [address for address, _, _ in sweeps],
+            {address: width for address, width, _ in sweeps},
+        )
+        gains = {
+            index: _monitor_gain(monitors[row])
+            for index, row in enumerate(result.rows)
+            if not _table_calibrated(monitors[row])
+        }
+        column = {address: index for index, address in enumerate(result.columns)}
+        for address, width, span in sweeps:
+            if address in result.unsolved:
+                found[(address, width)] = None
+                continue
+            per_hardware = width / span
+            found[(address, width)] = {
+                result.rows[index]: float(result.matrix[index, column[address]])
+                * gain
+                * per_hardware
+                for index, gain in gains.items()
+            }
+    return found
 
 
 # -- the comparison ----------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class _Swept:
-    """One corrector column of a block the comparison sweeps."""
+class _Gathered:
+    """One export block as :func:`compare` gathers it before the sweep.
 
-    column: int
-    address: str
-    width: float
-    span: float
-
-
-@dataclass(frozen=True)
-class _Planned:
-    """One block's kept rows and swept columns, before any column is swept."""
+    Attributes:
+        block: The export's block.
+        monitor_family: The block's monitor family.
+        actuator_family: The block's corrector family.
+        judged: Whether the two families work in the same plane.
+        rows: The kept monitor rows, by export row, each with its record.
+        swept: Each corrector column to sweep: its export column, its record
+            and its hardware width.
+        left_out: What the gathering left out.
+    """
 
     block: Mapping[str, Any]
     monitor_family: str
     actuator_family: str
     judged: bool
-    rows: Mapping[int, Mapping[str, Any]]
-    swept: tuple[_Swept, ...]
+    rows: dict[int, Mapping[str, Any]]
+    swept: list[tuple[int, Mapping[str, Any], float]]
     left_out: LeftOut
 
 
@@ -879,9 +841,6 @@ def compare(
     facility_dir: Path, document: Mapping[str, Any], model: Mapping[str, Any]
 ) -> tuple[Block, ...]:
     """Hold every block of one model's kept response export against the model.
-
-    Every column of every block is swept in one :func:`_responses` pass over
-    the model, after the blocks are read.
 
     Args:
         facility_dir: The ``data/facility`` directory.
@@ -926,9 +885,11 @@ def compare(
             return None
         return stated
 
-    def planned(block: Mapping[str, Any]) -> _Planned:
-        monitor_family = _word(_side(block, "monitor").get("family"))
-        actuator_family = _word(_side(block, "actuator").get("family"))
+    gathered: list[_Gathered] = []
+    wanted: dict[tuple[str, float], float] = {}
+    for block in blocks:
+        monitor_family = exported_word(_side(block, "monitor").get("family"))
+        actuator_family = exported_word(_side(block, "actuator").get("family"))
         monitor_plane = plane(monitor_family, "read")
         actuator_plane = plane(actuator_family, "write")
         rows, left_rows = _kept_rows(block, "monitor", records(monitor_family, "read"))
@@ -943,7 +904,7 @@ def compare(
         for row in tabled:
             del rows[row]
         left_out += LeftOut(table_calibration=len(tabled))
-        swept: list[_Swept] = []
+        swept: list[tuple[int, Mapping[str, Any], float]] = []
         if rows and columns and "deck" in model and _well_shaped(block):
             widths = _widths(block)
             for column, actuator in columns.items():
@@ -955,64 +916,61 @@ def compare(
                 if width is None or not math.isfinite(span) or span == 0.0:
                     left_out += LeftOut(no_width=1)
                     continue
-                swept.append(_Swept(column, str(actuator["address"]), width, span))
-        return _Planned(
-            block=block,
-            monitor_family=monitor_family,
-            actuator_family=actuator_family,
-            judged=monitor_plane is not None and monitor_plane == actuator_plane,
-            rows=rows,
-            swept=tuple(swept),
-            left_out=left_out,
+                wanted.setdefault((str(actuator["address"]), width), span)
+                swept.append((column, actuator, width))
+        gathered.append(
+            _Gathered(
+                block=block,
+                monitor_family=monitor_family,
+                actuator_family=actuator_family,
+                judged=monitor_plane is not None and monitor_plane == actuator_plane,
+                rows=rows,
+                swept=swept,
+                left_out=left_out,
+            )
         )
 
-    plans = [planned(block) for block in blocks]
-    sweeps = [
-        (column.address, column.width, column.span) for plan in plans for column in plan.swept
-    ]
-    measured = (
-        _responses(
+    measured_by: dict[tuple[str, float], dict[str, float] | None] = {}
+    if wanted:
+        measured_by = _responses(
             _engine(str(model["engine"])),
             facility_dir / model["deck"],
             list(model.get("wiring", [])),
             model.get("settings"),
-            sweeps,
+            [(address, width, span) for (address, width), span in wanted.items()],
         )
-        if sweeps
-        else {}
-    )
 
     drafts: list[Block] = []
-    for plan in plans:
+    for kept in gathered:
         entries: list[Entry] = []
-        left_out = plan.left_out
-        for column in plan.swept:
-            response = measured[(column.address, column.width)]
-            if response is None:
+        left_out = kept.left_out
+        for column, actuator, width in kept.swept:
+            measured = measured_by[(str(actuator["address"]), width)]
+            if measured is None:
                 left_out += LeftOut(unsolved=1)
                 continue
-            for row, monitor in plan.rows.items():
-                file_value = _matrix(plan.block.get("data"), row, column.column)
-                model_value = response.get(monitor["address"])
+            for row, monitor in kept.rows.items():
+                file_value = _matrix(kept.block.get("data"), row, column)
+                model_value = measured.get(monitor["address"])
                 if file_value is None or model_value is None:
                     continue
                 entries.append(
                     Entry(
                         monitor_address=monitor["address"],
-                        actuator_address=column.address,
+                        actuator_address=actuator["address"],
                         monitor_device=row + 1,
-                        actuator_device=column.column + 1,
+                        actuator_device=column + 1,
                         file_value=file_value,
                         model_value=model_value,
                     )
                 )
         drafts.append(
             Block(
-                monitor_family=plan.monitor_family,
-                actuator_family=plan.actuator_family,
-                origin=_word(plan.block.get("origin")) or "unstated",
+                monitor_family=kept.monitor_family,
+                actuator_family=kept.actuator_family,
+                origin=exported_word(kept.block.get("origin")) or "unstated",
                 entries=tuple(entries),
-                judged=plan.judged,
+                judged=kept.judged,
                 left_out=left_out,
             )
         )

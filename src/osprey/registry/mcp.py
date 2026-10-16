@@ -1110,6 +1110,12 @@ POSTURE_SOURCE_ENV = "OSPREY_POSTURE_SOURCE"
 #: ``operator_session.POSTURE_SESSION_ENV``.
 POSTURE_SESSION_ENV = "OSPREY_POSTURE_SESSION"
 
+#: The launch-scoped terminal session the ledger writers fall back to when a
+#: process has no posture session (``osprey.audit.envelope.TERMINAL_SESSION_ENV``).
+#: Stamped by the launch sites only, so a server spec may never pin it: a pinned
+#: value would file a session's records under another session's name.
+TERMINAL_SESSION_ENV = "OSPREY_TERMINAL_SESSION"
+
 #: The per-target posture a python-executor sandbox was LAUNCHED under.
 #: Imported rather than re-spelled: unlike the names above, its owner
 #: (:mod:`osprey_connectors.posture_store`) is a package the registry may
@@ -1187,6 +1193,7 @@ NON_PINNABLE_AUDIT_MARKERS: tuple[str, ...] = (
     AUDIT_WRITER_ENV,
     POSTURE_SOURCE_ENV,
     POSTURE_SESSION_ENV,
+    TERMINAL_SESSION_ENV,
     OSPREY_AGENT_DATA_ROOT,
     LAUNCH_POSTURE_ENV,
     CONTROL_OWNER_ENV,

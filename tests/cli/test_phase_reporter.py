@@ -311,3 +311,49 @@ def test_is_verbose_follows_the_installed_reporter():
 
     install_reporter(PhaseReporter(color=False))
     assert is_verbose() is False
+
+
+# ---------------------------------------------------------------------------
+# Notes, and a replay that does not drown in a retry loop
+# ---------------------------------------------------------------------------
+
+
+def test_a_note_is_dim_news_that_leaves_the_lap_alone(sink, fake_clock):
+    """A still-waiting note carries no duration; the next step still times the whole unit."""
+    fake_clock(0.0, 61.0, 61.0)
+    reporter = PhaseReporter(color=False)
+    with reporter.phase("Starting") as phase:
+        phase.note("still waiting (30.0s): web (starting)")
+        phase.step("containers started")
+
+    lines = sink.getvalue().splitlines()
+    assert "    still waiting (30.0s): web (starting)" in lines
+    assert "  · containers started (1m01s)" in lines
+
+
+def test_a_note_under_a_group_sits_under_its_steps(sink):
+    reporter = PhaseReporter(color=False)
+    with reporter.phase("Starting") as phase:
+        phase.group("services")
+        phase.note("still waiting\ncompose: Error")
+
+    lines = sink.getvalue().splitlines()
+    assert "      still waiting" in lines
+    assert "      compose: Error" in lines
+
+
+def test_a_repeated_line_replays_once_with_its_count():
+    text = "\n".join(["start", *["Error: no container" for _ in range(600)], "end"])
+    assert phase_reporter.collapse_repeats(text) == (
+        "start\nError: no container\n  (the line above repeated 599 more times)\nend"
+    )
+
+
+def test_a_repeat_at_the_end_is_counted_too():
+    assert phase_reporter.collapse_repeats("a\nb\nb") == (
+        "a\nb\n  (the line above repeated 1 more time)"
+    )
+
+
+def test_text_without_repeats_replays_unchanged():
+    assert phase_reporter.collapse_repeats("a\nb\na") == "a\nb\na"

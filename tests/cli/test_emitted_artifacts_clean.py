@@ -335,6 +335,14 @@ def test_the_tcp_helper_is_emitted_only_where_a_probe_uses_it(
 
     http_only = {key: value for key, value in profile.items() if key != "virtual_accelerator"}
     http_only["services"] = {}
+    # The telemetry gateway is probed by connection, so an HTTP-only profile
+    # deploys the store without it.
+    http_only["config"] = {
+        **profile["config"],
+        "deployed_services": [
+            name for name in profile["config"]["deployed_services"] if name != "telemetry_gateway"
+        ],
+    }
     assert "probe_tcp" not in render(VERIFY_TEMPLATE, build_verify_context(http_only))
 
 

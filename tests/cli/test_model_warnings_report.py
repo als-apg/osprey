@@ -113,9 +113,9 @@ def openai_build(tmp_path_factory: pytest.TempPathFactory) -> SimpleNamespace:
         root.setLevel(previous_level)
 
     assert result.exit_code == 0, result.output
-    # Status resolves telemetry with the provider, and the exemplar's ingest
-    # token has no default: without it status reads no spec at all.
-    (repo / ".env").write_text("ZO_INGEST_SA_TOKEN=probe-token\n")
+    # Status resolves telemetry with the provider, and the gateway refuses a
+    # sender without a login: without it status reads no spec at all.
+    (repo / ".env").write_text("OSPREY_TELEMETRY_LOGIN=probe:probe-token\n")
     return SimpleNamespace(repo=repo, printed=buffer.getvalue(), records=sink.records)
 
 

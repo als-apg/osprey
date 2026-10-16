@@ -152,7 +152,7 @@ config:
   claude_code.servers.osprey_facility_knowledge.enabled: false
 
   # ── Telemetry ──────────────────────────────────────────────────────────────
-  # Off: this preset deploys no OpenObserve store, so telemetry has nowhere
+  # Off: this preset deploys no telemetry store, so telemetry has nowhere
   # local to land. The control-assistant preset shows the store and the
   # `claude_code.telemetry.*` keys that feed it.
   claude_code.telemetry.enabled: false

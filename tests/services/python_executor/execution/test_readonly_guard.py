@@ -859,6 +859,179 @@ def test_readonly_refuses_user_loads_while_pyepics_is_present(monkeypatch):
         ctypes.cdll.LoadLibrary(None)
 
 
+# ---------------------------------------------------------------------------
+# The libca handle aioca reads through
+#
+# ``epicscorelibs.ca.cadef`` loads ``libca`` in its module body, and the guard
+# imports it at install, before the loader is gated. aioca reads through that
+# handle, so it stays loaded; its put symbols may not resolve, and no other
+# spelling of the loader may hand out a second handle that resolves them.
+# ``importlib`` reaches the handle past the static import check, which is why
+# each of these is refused at runtime.
+# ---------------------------------------------------------------------------
+
+
+def _guarded_libca():
+    pytest.importorskip("epicscorelibs.ca.cadef", reason="epicscorelibs is not installed")
+    _run_guard("readonly")
+    return importlib.import_module("epicscorelibs.ca.cadef").libca
+
+
+def _call_unless_raw(resolved):
+    """Call what a put lookup returned, but never the C function itself.
+
+    A raw ``ca_array_put`` called with these arguments crashes the test
+    process; a guard that let one through must fail the test instead.
+    """
+    import ctypes
+
+    assert not isinstance(resolved, ctypes._CFuncPtr), "a put symbol resolved to libca"
+    resolved(0, 1, None, None)
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        pytest.param(lambda lib, symbol: getattr(lib, symbol), id="attribute"),
+        pytest.param(lambda lib, symbol: lib[symbol], id="item"),
+        pytest.param(lambda lib, symbol: lib[symbol.encode()], id="item-bytes"),
+        pytest.param(
+            lambda lib, symbol: __import__("ctypes").CDLL.__getitem__(lib, symbol),
+            id="class-getitem",
+        ),
+        pytest.param(
+            lambda _lib, symbol: __import__("ctypes").pythonapi[symbol], id="pythonapi-global"
+        ),
+    ],
+)
+@pytest.mark.parametrize("symbol", ["ca_array_put", "ca_array_put_callback", "ca_sg_array_put"])
+def test_readonly_refuses_the_put_symbols_on_the_cadef_libca_handle(spelling, symbol):
+    lib = _guarded_libca()
+
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        _call_unless_raw(spelling(lib, symbol))
+
+
+@pytest.mark.parametrize(
+    "load",
+    [
+        pytest.param(lambda lib: __import__("ctypes").cdll._dlltype(lib._name), id="cdll-dlltype"),
+        pytest.param(
+            lambda lib: __import__("ctypes").pydll._dlltype(lib._name), id="pydll-dlltype"
+        ),
+        pytest.param(lambda lib: type(lib)(lib._name), id="type-of-handle"),
+        pytest.param(lambda lib: __import__("ctypes").PyDLL(lib._name), id="PyDLL"),
+    ],
+)
+def test_readonly_refuses_every_spelling_of_the_loader_class(load):
+    lib = _guarded_libca()
+
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        load(lib)
+
+
+def test_readonly_gates_the_loader_class_itself():
+    """The module attribute is the class, so it carries no closure to unwrap."""
+    import ctypes
+
+    lib = _guarded_libca()
+
+    assert isinstance(ctypes.CDLL, type)
+    assert type(lib) is ctypes.CDLL
+
+
+def test_the_original_loader_left_in_the_gate_resolves_no_put():
+    """The gate's closure still holds the original ``__init__``; what it loads is closed."""
+    import ctypes
+
+    lib = _guarded_libca()
+    originals = [
+        cell.cell_contents
+        for cell in ctypes.CDLL.__init__.__closure__
+        if getattr(cell.cell_contents, "__name__", None) == "__init__"
+    ]
+    assert len(originals) == 1
+    handle = object.__new__(ctypes.CDLL)
+    originals[0](handle, lib._name)
+
+    for symbol in ("ca_array_put", "ca_array_put_callback", "ca_sg_array_put"):
+        with pytest.raises(RuntimeError, match=_REFUSAL):
+            _call_unless_raw(getattr(handle, symbol))
+        with pytest.raises(RuntimeError, match=_REFUSAL):
+            _call_unless_raw(handle[symbol])
+
+
+def test_readonly_leaves_the_read_symbols_on_the_cadef_libca_handle():
+    import ctypes
+
+    lib = _guarded_libca()
+
+    assert callable(lib.ca_array_get_callback)
+    assert callable(lib["ca_create_channel"])
+    assert ctypes.pythonapi.Py_IsInitialized() == 1
+
+
+_AIOCA_READ_PROBE = """
+import asyncio
+import sys
+
+guard_path, marker = sys.argv[1], sys.argv[2]
+exec(compile(open(guard_path).read(), guard_path, "exec"), {})
+
+import aioca
+
+PV = "OSPREY:READONLY:PROBE:NO:SUCH:PV"
+failures = []
+
+
+async def read():
+    # Nobody serves this PV: a read that reached Channel Access times out.
+    try:
+        await aioca.caget(PV, timeout=0.3)
+    except aioca.CANothing:
+        return
+    except BaseException as exc:
+        failures.append("caget raised " + type(exc).__name__ + ": " + str(exc))
+        return
+    failures.append("caget of a PV nobody serves returned")
+
+
+async def write():
+    try:
+        await aioca.caput(PV, 1.0, timeout=0.3)
+    except RuntimeError as exc:
+        if marker not in str(exc):
+            failures.append("caput raised a RuntimeError that is not the refusal")
+        return
+    except BaseException as exc:
+        failures.append("caput raised " + type(exc).__name__ + ": " + str(exc))
+        return
+    failures.append("caput returned instead of refusing")
+
+
+asyncio.run(read())
+asyncio.run(write())
+print("FAILURES", failures)
+"""
+
+
+def test_readonly_aioca_caget_still_reads(tmp_path):
+    """Closing the handle's puts leaves aioca's read path through libca open.
+
+    A real interpreter, because aioca opens a Channel Access context that the
+    test process should not carry into the tests after this one.
+    """
+    pytest.importorskip("aioca", reason="aioca is not installed in this environment")
+    guard_path = tmp_path / "readonly_guard.py"
+    guard_path.write_text(ExecutionWrapper(execution_mode="readonly")._get_readonly_guard())
+
+    stdout = _run_probe(
+        tmp_path, "probe_aioca_read.py", _AIOCA_READ_PROBE, str(guard_path), READONLY_REFUSAL_MARKER
+    )
+
+    assert "FAILURES []" in stdout, stdout
+
+
 # The defining module both tests below use. It must stay OUT of the table: a
 # row naming it would patch it directly, and the assertions would then observe
 # the row instead of the generic defining-module step they exist to pin down.

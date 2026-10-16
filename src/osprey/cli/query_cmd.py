@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from contextlib import ExitStack
 from pathlib import Path
@@ -46,9 +47,11 @@ from osprey.agent_runner import (
     SDKWorkflowResult,
     evaluate_verdict,
     expected_mcp_servers,
+    launcher,
     read_only_disallowed_tools,
     run_query,
 )
+from osprey.agent_runner.errors import AgentCliUnavailableError
 from osprey.cli import output
 
 from .repo_resolver import find_repo_root, repo_option
@@ -205,9 +208,30 @@ def query(ctx: click.Context, prompt: str, as_json: bool, repo: Path | None) -> 
             ctx.exit(EXIT_USAGE)
             return
 
+        # Which Claude Code the run executes is settled first, so a project
+        # whose pinned version is not installed is refused before anything
+        # else is read or started.
+        try:
+            launcher.project_agent_cli_path(build_dir)
+        except AgentCliUnavailableError as exc:
+            output.fail("The query could not run", str(exc))
+            ctx.exit(EXIT_USAGE)
+            return
+        except (OSError, yaml.YAMLError, ValueError) as exc:
+            output.fail("Could not load the project configuration", str(exc))
+            ctx.exit(EXIT_USAGE)
+            return
+
         # Before any provider resolution: the secret lives at the repo root, the
         # provider that needs it is declared in the render.
         _overlay_repo_env(repo_root)
+        # Who this session is, to the ledger and to the telemetry gateway
+        # alike: the one name the build recorded, with that name's login.
+        from osprey.build.claude_code_telemetry import export_host_terminal_session
+        from osprey.deployment.telemetry_credentials import export_built_host_identity
+
+        export_built_host_identity(os.environ, repo_root)
+        export_host_terminal_session(os.environ)
 
         disallowed_tools = read_only_disallowed_tools(build_dir)
         expected = expected_mcp_servers(build_dir)
