@@ -40,16 +40,15 @@ release produced the content that is actually there, which is what it is for.
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import subprocess
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 from osprey.errors import ConfigurationError
+from osprey_connectors.safety_file import atomic_replace
 
 from .build_profile_deploy import SUPPORTED_CI_PLATFORMS, DeployConfig, parse_deploy_block
 from .build_profile_document import _read_profile_document
@@ -500,18 +499,9 @@ def _write_atomically(path: Path, text: str, mode: int) -> None:
     """Replace *path* in one step, so no reader ever sees a half-written file.
 
     A pipeline is read by CI and a health check by the post-up hook or by an
-    operator, any of which can be running while a scaffold is. Writing to a
-    temporary file in the destination directory and renaming it over the target
-    keeps those readers seeing one version or the other, never a truncated one.
+    operator, any of which can be running while a scaffold is. The file is
+    replaced whole through ``atomic_replace``, so those readers see one version
+    or the other, never a truncated one.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    temp_path = Path(temp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-        os.chmod(temp_path, mode)
-        os.replace(temp_path, path)
-    except BaseException:
-        temp_path.unlink(missing_ok=True)
-        raise
+    atomic_replace(path, text.encode("utf-8"), mode=mode, sync="best_effort")

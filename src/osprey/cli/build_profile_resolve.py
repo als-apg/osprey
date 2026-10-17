@@ -29,8 +29,6 @@ from __future__ import annotations
 
 import copy
 import io
-import os
-import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -41,6 +39,7 @@ import yaml
 from osprey.errors import BuildProfileError
 from osprey.port_layout import PORT_BASE_CONFIG_KEY
 from osprey.utils.logger import get_logger
+from osprey_connectors.safety_file import atomic_replace
 
 from .build_profile_document import _read_profile_document
 from .build_profile_load import (
@@ -768,21 +767,11 @@ def _write_profile_values(
 
 
 def _atomic_write_bytes(path: Path, payload: bytes) -> None:
-    """Replace ``path`` with ``payload`` via a same-directory temp file.
+    """Replace ``path`` with ``payload``, whole, through ``atomic_replace``.
 
-    The same shape as the manifest and ``.env`` writers this feature added, for
-    the same reason: a reader (or a crash) never sees a half-written file, and
-    the previous contents survive any failure before the ``os.replace``. The
-    existing file's mode is carried over so an atomic rewrite does not quietly
-    re-permission the profile.
+    A reader (or a crash) never sees a half-written file, and the previous
+    contents survive any failure. The existing file's mode is carried over so a
+    rewrite does not quietly re-permission the profile; a new file is 0600.
     """
-    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(payload)
-        if path.exists():
-            os.chmod(tmp_name, path.stat().st_mode & 0o7777)
-        os.replace(tmp_name, path)
-    except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
-        raise
+    mode = path.stat().st_mode & 0o7777 if path.exists() else 0o600
+    atomic_replace(path, payload, mode=mode, sync="best_effort")

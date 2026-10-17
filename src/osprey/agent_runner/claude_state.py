@@ -49,6 +49,7 @@ from pathlib import Path
 
 from osprey.agent_runner.launcher import pinned_cli_version, project_claude_code_config
 from osprey.utils.logger import get_logger
+from osprey_connectors.safety_file import atomic_replace
 
 logger = get_logger("agent_runner.claude_state")
 
@@ -158,12 +159,15 @@ def seed_claude_state(
 
     base_dir.mkdir(parents=True, exist_ok=True)
 
-    # Atomic replace: Claude Code itself rewrites this file through a tmp +
-    # rename, and a torn write here would trip its corrupt-config recovery on
-    # the very first launch this seed exists to smooth.
-    tmp = target.with_name(target.name + ".osprey-seed")
-    tmp.write_text(json.dumps(state, indent=2) + "\n")
-    os.replace(tmp, target)
+    # Replaced whole: a torn write would trip Claude Code's corrupt-config
+    # recovery on the very first launch this seed exists to smooth. Owner-only,
+    # because it holds account state and approved API-key digests.
+    atomic_replace(
+        target,
+        (json.dumps(state, indent=2) + "\n").encode("utf-8"),
+        mode=0o600,
+        sync="best_effort",
+    )
 
     _hand_ownership(target, base_dir, owner_user)
     return seeded
